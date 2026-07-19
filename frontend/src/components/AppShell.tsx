@@ -1,7 +1,12 @@
-import { Outlet } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
-export default function AppShell({ title }: { title: string }) {
+export interface NavItem {
+  to: string;
+  label: string;
+}
+
+export default function AppShell({ title, nav = [] }: { title: string; nav?: NavItem[] }) {
   const { user, signOut } = useAuth();
   return (
     <div className="min-h-screen bg-slate-50">
@@ -20,6 +25,26 @@ export default function AppShell({ title }: { title: string }) {
             </button>
           </div>
         </div>
+        {nav.length > 0 && (
+          <nav className="mx-auto flex max-w-6xl gap-1 px-4">
+            {nav.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end
+                className={({ isActive }) =>
+                  `border-b-2 px-3 py-2 text-sm ${
+                    isActive
+                      ? "border-blue-600 font-medium text-blue-700"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+        )}
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />

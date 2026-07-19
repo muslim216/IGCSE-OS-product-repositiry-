@@ -1,8 +1,11 @@
 import os
 
 # Configure the app for tests BEFORE any app module is imported.
+import tempfile
+
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
+os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 
 import pytest
 from httpx import ASGITransport, AsyncClient
