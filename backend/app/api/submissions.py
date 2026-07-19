@@ -31,6 +31,7 @@ from app.schemas.homework import (
     SubmissionSummary,
 )
 from app.services import storage
+from app.services.evidence import build_homework_evidence
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
@@ -422,5 +423,16 @@ async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUs
     submission.status = SubmissionStatus.finalized
     submission.finalized_at = datetime.now(timezone.utc)
     submission.finalized_by_id = user.id
+    await db.flush()
+
+    # Finalized marks become readiness evidence; recompute in the background.
+    await build_homework_evidence(db, submission)
+    assignment = await db.get(Assignment, submission.assignment_id)
+    group = await db.get(Group, assignment.group_id)
+    await enqueue(
+        db,
+        "recompute_readiness",
+        {"student_id": submission.student_id, "subject_id": group.subject_id},
+    )
     await db.commit()
     return await submission_detail(submission_id, db, user)

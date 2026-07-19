@@ -11,6 +11,9 @@ import GroupDetailPage from "./tutor/GroupDetailPage";
 import AssignmentCreatePage from "./tutor/AssignmentCreatePage";
 import AssignmentDetailPage from "./tutor/AssignmentDetailPage";
 import SubmissionReviewPage from "./tutor/SubmissionReviewPage";
+import StudentDetailPage from "./tutor/StudentDetailPage";
+import GroupAnalyticsPage from "./tutor/GroupAnalyticsPage";
+import MockEntryPage from "./tutor/MockEntryPage";
 import StudentDashboard from "./student/StudentDashboard";
 import HomeworkPage from "./student/HomeworkPage";
 import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
@@ -43,8 +46,11 @@ export default function App() {
           <Route path="/tutor" element={<GroupsPage />} />
           <Route path="/tutor/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/tutor/groups/:groupId/new-homework" element={<AssignmentCreatePage />} />
+          <Route path="/tutor/groups/:groupId/analytics" element={<GroupAnalyticsPage />} />
+          <Route path="/tutor/groups/:groupId/mock" element={<MockEntryPage />} />
           <Route path="/tutor/assignments/:assignmentId" element={<AssignmentDetailPage />} />
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
+          <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
         </Route>
       </Route>
 

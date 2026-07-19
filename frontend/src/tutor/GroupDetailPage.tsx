@@ -123,6 +123,20 @@ export default function GroupDetailPage() {
         <p className="text-sm text-slate-500">
           {group.data.subject.exam_board} {group.data.subject.code} — {group.data.subject.name}
         </p>
+        <div className="mt-3 flex gap-2">
+          <Link
+            to={`/tutor/groups/${id}/analytics`}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+          >
+            View analytics
+          </Link>
+          <Link
+            to={`/tutor/groups/${id}/mock`}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
+          >
+            Record mock/test
+          </Link>
+        </div>
       </div>
 
       <section className="rounded-lg border bg-white p-4">
@@ -184,7 +198,12 @@ export default function GroupDetailPage() {
             <li key={m.id} className="py-2">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <span className="font-medium text-slate-700">{m.name}</span>{" "}
+                  <Link
+                    to={`/tutor/students/${m.id}?group=${id}&subject=${group.data.subject.id}`}
+                    className="font-medium text-blue-600 hover:underline"
+                  >
+                    {m.name}
+                  </Link>{" "}
                   <span className="text-sm text-slate-400">
                     {m.email ?? `@${m.username}`}
                   </span>

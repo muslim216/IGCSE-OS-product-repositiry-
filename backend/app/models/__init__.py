@@ -14,15 +14,31 @@ from app.models.homework import (
     SubmissionFile,
     SubmissionStatus,
 )
+from app.models.readiness import (
+    Assessment,
+    AssessmentScore,
+    AssessmentType,
+    Evidence,
+    EvidenceSource,
+    ReadinessConfidence,
+    ReadinessHistory,
+    TopicReadiness,
+    TutorObservation,
+)
 from app.models.syllabus import Subject, Topic
 from app.models.users import User, UserRole
 
 __all__ = [
+    "Assessment",
+    "AssessmentScore",
+    "AssessmentType",
     "Assignment",
     "AssignmentQuestion",
     "AssignmentStatus",
     "Base",
     "Classified",
+    "Evidence",
+    "EvidenceSource",
     "Group",
     "GroupMember",
     "Invite",
@@ -34,11 +50,15 @@ __all__ = [
     "ParentLink",
     "QuestionMark",
     "QuestionTopic",
+    "ReadinessConfidence",
+    "ReadinessHistory",
     "Subject",
     "Submission",
     "SubmissionFile",
     "SubmissionStatus",
     "Topic",
+    "TopicReadiness",
+    "TutorObservation",
     "User",
     "UserRole",
 ]

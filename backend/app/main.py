@@ -5,11 +5,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    analytics,
+    assessments,
     assignments,
     auth,
     classifieds,
     groups,
     me,
+    readiness,
     students,
     subjects,
     submissions,
@@ -17,10 +20,12 @@ from app.api import (
 from app.config import get_settings
 from app.services.extraction import extract_assignment
 from app.services.marking import mark_submission
+from app.services.readiness import recompute_student
 from app.workers.jobs import register_handler, worker_loop
 
 register_handler("extract_assignment", extract_assignment)
 register_handler("mark_submission", mark_submission)
+register_handler("recompute_readiness", recompute_student)
 
 
 @asynccontextmanager
@@ -52,10 +57,13 @@ def create_app() -> FastAPI:
 
     for router in (
         auth.router,
+        analytics.router,
+        assessments.router,
         assignments.router,
         classifieds.router,
         groups.router,
         me.router,
+        readiness.router,
         students.router,
         subjects.router,
         submissions.router,
