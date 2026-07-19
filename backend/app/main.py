@@ -14,6 +14,7 @@ from app.api import (
     groups,
     me,
     readiness,
+    reports,
     students,
     subjects,
     submissions,
@@ -22,11 +23,13 @@ from app.config import get_settings
 from app.services.extraction import extract_assignment
 from app.services.marking import mark_submission
 from app.services.readiness import recompute_student
+from app.services.reports import generate_report
 from app.workers.jobs import register_handler, worker_loop
 
 register_handler("extract_assignment", extract_assignment)
 register_handler("mark_submission", mark_submission)
 register_handler("recompute_readiness", recompute_student)
+register_handler("generate_report", generate_report)
 
 
 @asynccontextmanager
@@ -66,6 +69,7 @@ def create_app() -> FastAPI:
         groups.router,
         me.router,
         readiness.router,
+        reports.router,
         students.router,
         subjects.router,
         submissions.router,

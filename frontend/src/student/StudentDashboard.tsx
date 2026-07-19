@@ -4,6 +4,7 @@ import { WEEKDAYS, myLessons } from "../api/groups";
 import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
 import { SubjectReadinessCard } from "../components/ReadinessView";
+import { ReportsPanel } from "../components/ReportsPanel";
 
 function nextLessonLabel(weekday: number, start: string): string {
   return `${WEEKDAYS[weekday]} ${start.slice(0, 5)}`;
@@ -88,6 +89,10 @@ export default function StudentDashboard() {
           </ul>
         </div>
       </div>
+
+      {readiness.data && (
+        <ReportsPanel studentId={readiness.data.student_id} audiences={["student"]} />
+      )}
     </div>
   );
 }
