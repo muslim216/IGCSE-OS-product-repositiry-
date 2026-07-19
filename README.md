@@ -76,7 +76,7 @@ Built in phases; each phase is runnable end-to-end:
 - [x] **A — Scaffolding:** auth (tutor signup, email/username login, JWT, roles), deploy config
 - [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
 - [x] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
-- [ ] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock entry, dashboards
+- [x] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock/observation entry, student & tutor dashboards, analytics, agreement rate
 - [ ] **E — AI tutor chat**
 - [ ] **F — Parents & reports**
 
