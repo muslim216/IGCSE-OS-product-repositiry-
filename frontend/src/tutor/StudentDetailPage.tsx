@@ -8,6 +8,7 @@ import {
 } from "../api/readiness";
 import { listTopics } from "../api/syllabus";
 import { SubjectReadinessCard } from "../components/ReadinessView";
+import { ReportsPanel } from "../components/ReportsPanel";
 
 export default function StudentDetailPage() {
   const { studentId } = useParams();
@@ -122,6 +123,8 @@ export default function StudentDetailPage() {
           </ul>
         </div>
       )}
+
+      <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
 
       <div className="rounded-lg border bg-white p-4">
         <h3 className="font-medium text-slate-800">Add an observation</h3>

@@ -71,14 +71,20 @@ All backend settings come from environment variables (see `backend/.env.example`
 
 ## Project status
 
-Built in phases; each phase is runnable end-to-end:
+The core-loop MVP (plus parents & reports) is complete. Built in phases, each
+runnable end-to-end:
 
 - [x] **A — Scaffolding:** auth (tutor signup, email/username login, JWT, roles), deploy config
 - [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
 - [x] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
 - [x] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock/observation entry, student & tutor dashboards, analytics, agreement rate
 - [x] **E — AI tutor chat:** streaming mentor grounded in the student's readiness/workload, anti-cheating guardrails, daily message cap
-- [ ] **F — Parents & reports**
+- [x] **F — Parents & reports:** parent dashboard with per-child readiness; audience-specific AI reports (student / tutor / parent) generated strictly from the student's data
+
+### Planned next (designed for, not yet built)
+
+Study planner (incl. prayer times), AI quiz generator, notifications/reminders,
+admin console, Stripe subscriptions, S3 storage, email delivery, mobile app.
 
 ### Seeding syllabus & demo data
 

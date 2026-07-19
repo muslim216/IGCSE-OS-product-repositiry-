@@ -26,6 +26,7 @@ from app.models.readiness import (
     TopicReadiness,
     TutorObservation,
 )
+from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.syllabus import Subject, Topic
 from app.models.users import User, UserRole
 
@@ -56,6 +57,9 @@ __all__ = [
     "QuestionTopic",
     "ReadinessConfidence",
     "ReadinessHistory",
+    "Report",
+    "ReportAudience",
+    "ReportStatus",
     "Subject",
     "Submission",
     "SubmissionFile",
