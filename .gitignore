@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Env / secrets
+.env
+!.env.example
+
+# Databases / uploads (local dev)
+*.db
+backend/uploads/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+frontend/tsconfig.tsbuildinfo

@@ -1,0 +1,40 @@
+# Render blueprint: one Postgres database, the FastAPI backend, and the
+# static frontend. Deploy by connecting this repo at https://dashboard.render.com
+# ("New" -> "Blueprint") and setting ANTHROPIC_API_KEY when prompted.
+
+databases:
+  - name: igcse-os-db
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: igcse-os-api
+    runtime: docker
+    rootDir: backend
+    plan: starter
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: igcse-os-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://igcse-os.onrender.com
+
+  - type: web
+    name: igcse-os
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      # Send API calls to the backend service, everything else to the SPA.
+      - type: rewrite
+        source: /api/*
+        destination: https://igcse-os-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
