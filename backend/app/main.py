@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth
+from app.api import auth, groups, me, students, subjects
 from app.config import get_settings
 
 
@@ -21,7 +21,8 @@ def create_app() -> FastAPI:
     async def health() -> dict:
         return {"status": "ok"}
 
-    app.include_router(auth.router, prefix="/api/v1")
+    for router in (auth.router, groups.router, me.router, students.router, subjects.router):
+        app.include_router(router, prefix="/api/v1")
     return app
 
 

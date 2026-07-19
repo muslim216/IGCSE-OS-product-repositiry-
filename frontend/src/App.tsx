@@ -2,9 +2,12 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import LoginPage from "./auth/LoginPage";
 import TutorSignupPage from "./auth/TutorSignupPage";
+import JoinPage from "./auth/JoinPage";
+import ParentJoinPage from "./auth/ParentJoinPage";
 import { homePathFor, ProtectedRoute } from "./auth/ProtectedRoute";
 import AppShell from "./components/AppShell";
-import TutorDashboard from "./tutor/TutorDashboard";
+import GroupsPage from "./tutor/GroupsPage";
+import GroupDetailPage from "./tutor/GroupDetailPage";
 import StudentDashboard from "./student/StudentDashboard";
 import ParentDashboard from "./parent/ParentDashboard";
 
@@ -22,10 +25,13 @@ export default function App() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<TutorSignupPage />} />
+      <Route path="/join/:code" element={<JoinPage />} />
+      <Route path="/parent-join/:code" element={<ParentJoinPage />} />
 
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
         <Route element={<AppShell title="Tutor" />}>
-          <Route path="/tutor" element={<TutorDashboard />} />
+          <Route path="/tutor" element={<GroupsPage />} />
+          <Route path="/tutor/groups/:groupId" element={<GroupDetailPage />} />
         </Route>
       </Route>
 
