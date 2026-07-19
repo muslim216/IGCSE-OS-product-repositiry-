@@ -1,0 +1,56 @@
+{
+  "exam_board": "Edexcel IGCSE",
+  "code": "4CH1",
+  "name": "Chemistry",
+  "grade_scale": "9-1",
+  "grade_boundaries": [
+    {"grade": "9", "min": 90},
+    {"grade": "8", "min": 80},
+    {"grade": "7", "min": 70},
+    {"grade": "6", "min": 60},
+    {"grade": "5", "min": 50},
+    {"grade": "4", "min": 40},
+    {"grade": "3", "min": 30},
+    {"grade": "2", "min": 20},
+    {"grade": "1", "min": 10},
+    {"grade": "U", "min": 0}
+  ],
+  "topics": [
+    {"code": "1", "title": "Principles of chemistry", "children": [
+      {"code": "1.1", "title": "States of matter"},
+      {"code": "1.2", "title": "Elements, compounds and mixtures"},
+      {"code": "1.3", "title": "Atomic structure"},
+      {"code": "1.4", "title": "The Periodic Table"},
+      {"code": "1.5", "title": "Chemical formulae, equations and calculations"},
+      {"code": "1.6", "title": "Ionic bonding"},
+      {"code": "1.7", "title": "Covalent bonding"},
+      {"code": "1.8", "title": "Metallic bonding"},
+      {"code": "1.9", "title": "Electrolysis"}
+    ]},
+    {"code": "2", "title": "Inorganic chemistry", "children": [
+      {"code": "2.1", "title": "Group 1 (alkali metals)"},
+      {"code": "2.2", "title": "Group 7 (halogens)"},
+      {"code": "2.3", "title": "Gases in the atmosphere"},
+      {"code": "2.4", "title": "Reactivity series"},
+      {"code": "2.5", "title": "Extraction and uses of metals"},
+      {"code": "2.6", "title": "Acids, alkalis and titrations"},
+      {"code": "2.7", "title": "Acids, bases and salt preparations"},
+      {"code": "2.8", "title": "Chemical tests for ions and gases"}
+    ]},
+    {"code": "3", "title": "Physical chemistry", "children": [
+      {"code": "3.1", "title": "Energetics"},
+      {"code": "3.2", "title": "Rates of reaction"},
+      {"code": "3.3", "title": "Reversible reactions and equilibria"}
+    ]},
+    {"code": "4", "title": "Organic chemistry", "children": [
+      {"code": "4.1", "title": "Introduction to organic chemistry"},
+      {"code": "4.2", "title": "Crude oil"},
+      {"code": "4.3", "title": "Alkanes"},
+      {"code": "4.4", "title": "Alkenes"},
+      {"code": "4.5", "title": "Alcohols"},
+      {"code": "4.6", "title": "Carboxylic acids"},
+      {"code": "4.7", "title": "Esters"},
+      {"code": "4.8", "title": "Synthetic polymers"}
+    ]}
+  ]
+}
