@@ -13,6 +13,7 @@ import {
   removeMember,
   resetStudentPassword,
 } from "../api/groups";
+import { listGroupAssignments } from "../api/homework";
 
 function CopyBox({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -41,6 +42,10 @@ export default function GroupDetailPage() {
 
   const group = useQuery({ queryKey: ["group", id], queryFn: () => getGroup(id) });
   const lessons = useQuery({ queryKey: ["lessons", id], queryFn: () => listLessons(id) });
+  const assignments = useQuery({
+    queryKey: ["assignments", id],
+    queryFn: () => listGroupAssignments(id),
+  });
 
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
@@ -119,6 +124,48 @@ export default function GroupDetailPage() {
           {group.data.subject.exam_board} {group.data.subject.code} — {group.data.subject.name}
         </p>
       </div>
+
+      <section className="rounded-lg border bg-white p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-slate-800">Homework</h3>
+          <Link
+            to={`/tutor/groups/${id}/new-homework`}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+          >
+            New homework
+          </Link>
+        </div>
+        <ul className="mt-2 divide-y">
+          {assignments.data?.map((a) => (
+            <li key={a.id} className="flex items-center justify-between py-2 text-sm">
+              <Link to={`/tutor/assignments/${a.id}`} className="text-blue-600 hover:underline">
+                {a.title}
+              </Link>
+              <span className="flex items-center gap-3 text-slate-500">
+                <span>{a.total_marks} marks</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs ${
+                    a.status === "published"
+                      ? "bg-green-100 text-green-700"
+                      : a.status === "extraction_failed"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-amber-100 text-amber-700"
+                  }`}
+                >
+                  {a.status === "published"
+                    ? `${a.submission_count} submitted`
+                    : a.status.replace("_", " ")}
+                </span>
+              </span>
+            </li>
+          ))}
+          {assignments.data?.length === 0 && (
+            <li className="py-2 text-sm text-slate-500">
+              No homework yet — click “New homework” to upload a classified.
+            </li>
+          )}
+        </ul>
+      </section>
 
       <section className="rounded-lg border bg-white p-4">
         <div className="flex items-center justify-between">

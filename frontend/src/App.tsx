@@ -8,7 +8,12 @@ import { homePathFor, ProtectedRoute } from "./auth/ProtectedRoute";
 import AppShell from "./components/AppShell";
 import GroupsPage from "./tutor/GroupsPage";
 import GroupDetailPage from "./tutor/GroupDetailPage";
+import AssignmentCreatePage from "./tutor/AssignmentCreatePage";
+import AssignmentDetailPage from "./tutor/AssignmentDetailPage";
+import SubmissionReviewPage from "./tutor/SubmissionReviewPage";
 import StudentDashboard from "./student/StudentDashboard";
+import HomeworkPage from "./student/HomeworkPage";
+import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
 import ParentDashboard from "./parent/ParentDashboard";
 
 function Home() {
@@ -18,6 +23,11 @@ function Home() {
   }
   return <Navigate to={user ? homePathFor(user) : "/login"} replace />;
 }
+
+const STUDENT_NAV = [
+  { to: "/student", label: "Dashboard" },
+  { to: "/student/homework", label: "Homework" },
+];
 
 export default function App() {
   return (
@@ -32,12 +42,17 @@ export default function App() {
         <Route element={<AppShell title="Tutor" />}>
           <Route path="/tutor" element={<GroupsPage />} />
           <Route path="/tutor/groups/:groupId" element={<GroupDetailPage />} />
+          <Route path="/tutor/groups/:groupId/new-homework" element={<AssignmentCreatePage />} />
+          <Route path="/tutor/assignments/:assignmentId" element={<AssignmentDetailPage />} />
+          <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
         </Route>
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>
-        <Route element={<AppShell title="Student" />}>
+        <Route element={<AppShell title="Student" nav={STUDENT_NAV} />}>
           <Route path="/student" element={<StudentDashboard />} />
+          <Route path="/student/homework" element={<HomeworkPage />} />
+          <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
         </Route>
       </Route>
 

@@ -74,8 +74,16 @@ All backend settings come from environment variables (see `backend/.env.example`
 Built in phases; each phase is runnable end-to-end:
 
 - [x] **A — Scaffolding:** auth (tutor signup, email/username login, JWT, roles), deploy config
-- [ ] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
-- [ ] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
+- [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
+- [x] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
 - [ ] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock entry, dashboards
 - [ ] **E — AI tutor chat**
 - [ ] **F — Parents & reports**
+
+### Seeding syllabus & demo data
+
+```bash
+cd backend
+python -m seed.load_syllabus   # loads the five subject topic trees
+python -m seed.demo            # optional: demo tutor/student/parent accounts
+```
