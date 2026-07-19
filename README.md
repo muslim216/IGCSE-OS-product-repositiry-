@@ -1,6 +1,6 @@
 # IGCSE Student Operating System
 
-An academic intelligence platform for IGCSE students, tutors, and parents. Its core is the
+An Aacademic intelligence platform for IGCSE students, tutors, and parents. Its core is the
 **Readiness Engine**: every piece of academic evidence (homework, mocks, tutor observations)
 feeds topic-level exam-readiness scores, which drive dashboards, recommendations, and reports.
 
