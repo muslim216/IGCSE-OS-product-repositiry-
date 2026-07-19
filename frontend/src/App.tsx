@@ -17,6 +17,7 @@ import MockEntryPage from "./tutor/MockEntryPage";
 import StudentDashboard from "./student/StudentDashboard";
 import HomeworkPage from "./student/HomeworkPage";
 import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
+import TutorChatPage from "./student/TutorChatPage";
 import ParentDashboard from "./parent/ParentDashboard";
 
 function Home() {
@@ -30,6 +31,7 @@ function Home() {
 const STUDENT_NAV = [
   { to: "/student", label: "Dashboard" },
   { to: "/student/homework", label: "Homework" },
+  { to: "/student/tutor", label: "AI Tutor" },
 ];
 
 export default function App() {
@@ -59,6 +61,7 @@ export default function App() {
           <Route path="/student" element={<StudentDashboard />} />
           <Route path="/student/homework" element={<HomeworkPage />} />
           <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
+          <Route path="/student/tutor" element={<TutorChatPage />} />
         </Route>
       </Route>
 

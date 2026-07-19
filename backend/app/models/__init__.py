@@ -1,4 +1,5 @@
 from app.models.base import Base
+from app.models.chat import ChatConversation, ChatMessage, ChatRole
 from app.models.groups import Group, GroupMember, Invite, InviteKind, Lesson, ParentLink
 from app.models.homework import (
     Assignment,
@@ -36,6 +37,9 @@ __all__ = [
     "AssignmentQuestion",
     "AssignmentStatus",
     "Base",
+    "ChatConversation",
+    "ChatMessage",
+    "ChatRole",
     "Classified",
     "Evidence",
     "EvidenceSource",
