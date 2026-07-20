@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IGCSE Student OS — Architecture Map</title>
+<style>
+  :root {
+    --bg:        #0F0F0F;
+    --panel:     #161616;
+    --panel-2:   #1c1c1c;
+    --border:    #2a2a2a;
+    --text:      #e8e8e8;
+    --muted:     #8a8a8a;
+    --client:    #4ea1ff;
+    --route:     #7bd389;
+    --service:   #c792ea;
+    --db:        #ffb86b;
+    --external:  #ff6b9d;
+    --critical:  #ff3860;
+    --accent:    #f5b942;
+    --accent-2:  #ff7a45;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 15px; font-weight: 650; white-space: nowrap; }
+  header .sub { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--muted);
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; user-select: none;
+    transition: all .12s ease;
+  }
+  .chip:hover { color: var(--text); border-color: #3a3a3a; }
+  .chip.active { color: #111; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .chip.active.crit { background: var(--critical); border-color: var(--critical); color: #fff; }
+  .zoom { margin-left: auto; display: flex; gap: 6px; }
+  .zoom button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .zoom button:hover { border-color: #444; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #canvas { flex: 1; overflow: hidden; cursor: grab; position: relative; }
+  #canvas.dragging { cursor: grabbing; }
+  svg { display: block; width: 100%; height: 100%; }
+  #sidebar {
+    width: 360px; min-width: 360px; border-left: 1px solid var(--border);
+    background: var(--panel); overflow-y: auto; padding: 16px;
+  }
+  #sidebar h2 { font-size: 14px; margin-bottom: 4px; }
+  #sidebar .path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--accent); word-break: break-all; margin-bottom: 10px; display: block;
+  }
+  #sidebar .role { font-size: 13px; margin-bottom: 8px; }
+  #sidebar .plain {
+    font-size: 13px; color: #c9c9c9; background: var(--panel-2); border-left: 3px solid var(--client);
+    padding: 8px 10px; border-radius: 0 6px 6px 0; margin-bottom: 12px;
+  }
+  #sidebar ul { list-style: none; }
+  #sidebar li { font-size: 12px; color: var(--muted); padding: 3px 0 3px 14px; position: relative; }
+  #sidebar li::before { content: "·"; position: absolute; left: 2px; color: var(--accent); }
+  #sidebar .sec { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 14px 0 4px; }
+  #sidebar .edge-row { font-size: 12px; padding: 2px 0; color: #bbb; }
+  #sidebar .edge-row b { color: var(--text); font-weight: 600; }
+  #sidebar .edge-row .lbl { color: var(--muted); }
+  #sidebar .fix { color: #9fe3a9; }
+  #sidebar .bug { color: #ff8ba0; }
+  #sidebar .bug .ref, #sidebar .fix .ref { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--muted); }
+  .finding { font-size: 12.5px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 7px; background: var(--panel-2); }
+  .finding b { color: var(--accent); }
+  .legend { display: grid; grid-template-columns: 16px 1fr; gap: 4px 8px; align-items: center; margin-top: 6px; }
+  .legend .sw { width: 14px; height: 14px; border-radius: 4px; border: 2px solid; }
+  .legend .ln { width: 16px; height: 0; border-top: 2.5px solid; }
+  .legend span { font-size: 12px; color: var(--muted); }
+  .node { cursor: pointer; }
+  .node rect { transition: opacity .15s; }
+  .node text { pointer-events: none; }
+  .cluster-label { font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+  .edge-label { font-size: 9.5px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>IGCSE Student OS</h1>
+  <span class="sub">FastAPI + React + Anthropic · click a node, drag to pan, wheel to zoom</span>
+  <div class="chips" id="chips"></div>
+  <div class="zoom">
+    <button id="zoom-fit">Fit</button>
+    <button id="zoom-in">+</button>
+    <button id="zoom-out">−</button>
+  </div>
+</header>
+<main>
+  <div id="canvas">
+    <svg id="svg">
+      <defs id="defs"></defs>
+      <g id="world"></g>
+    </svg>
+  </div>
+  <div id="sidebar"></div>
+</main>
+
+<script>
+/* ================================================================
+   DATA — edit clusters / nodes / edges / FIXES / KNOWN_BUGS here.
+   ================================================================ */
+
+const clusters = [
+  { id: 'client',   label: 'Client — React SPA',      x: 30,   y: 56, w: 270, h: 1000 },
+  { id: 'entry',    label: 'Server entry',            x: 350,  y: 56, w: 240, h: 1000 },
+  { id: 'routes',   label: 'API routes',              x: 640,  y: 56, w: 260, h: 1000 },
+  { id: 'services', label: 'Services',                x: 930,  y: 56, w: 270, h: 1000 },
+  { id: 'data',     label: 'Data — Postgres + disk',  x: 1250, y: 56, w: 280, h: 1000 },
+  { id: 'external', label: 'External',                x: 1580, y: 56, w: 250, h: 1000 },
+];
+
+const N = (id, cluster, label, sub, x, y, w, h, color, opts = {}) => ({
+  id, cluster, label, sub, x, y, w, h, color, ...opts
+});
+
+const nodes = [
+
+  /* ---------------- Client ---------------- */
+  N('auth-pages', 'client', 'Login / Signup / Join', 'auth pages', 45, 104, 240, 48, 'client', {
+    role: 'Login, tutor signup, and invite-code join pages that obtain JWT tokens.',
+    plain: 'The screens where tutors sign up, everyone logs in, and students/parents redeem an invite code to get connected to a class or a child.',
+    path: 'frontend/src/auth/ (LoginPage, TutorSignupPage, JoinPage, ParentJoinPage)',
+    notes: ['Login accepts email OR username (backend lowercases both)',
+            'Join pages preview the invite via GET /auth/invites/{code} before signup',
+            'Routes declared in frontend/src/App.tsx:41-44'],
+    tag: ['overview', 'accounts', 'all'],
+  }),
+  N('client-ts', 'client', 'client.ts', 'fetch wrapper + token refresh', 45, 170, 240, 48, 'client', {
+    role: 'Shared fetch wrapper: attaches the Bearer token, auto-refreshes once on 401, normalises errors.',
+    plain: 'A small helper every page uses to talk to the server. It attaches the login pass to each request, and if the pass has expired it silently gets a new one and retries.',
+    path: 'frontend/src/api/client.ts',
+    notes: ['Tokens live in localStorage under "igcse-os-tokens" (line 20)',
+            'On 401 it calls POST /auth/refresh then retries exactly once (lines 75-78)',
+            'FormData bodies skip the JSON Content-Type header (line 67)'],
+    tag: ['overview', 'accounts', 'all'],
+  }),
+  N('groups-pages', 'client', 'GroupsPage / GroupDetailPage', 'tutor: classes & invites', 45, 236, 240, 48, 'client', {
+    role: 'Tutor pages for creating groups, generating invite links, creating username-only student accounts, and managing lessons.',
+    plain: 'Where a tutor sets up their classes: makes a class for a subject, invites students with a link, creates accounts for younger students who have no email, and sets the weekly lesson timetable.',
+    path: 'frontend/src/tutor/GroupsPage.tsx, GroupDetailPage.tsx',
+    notes: ['GroupDetailPage is the largest tutor page (359 lines)',
+            'Talks to /groups CRUD, invite, lesson and student-account endpoints',
+            'No UI calls DELETE /groups — the deleteGroup client fn is dead'],
+    tag: ['overview', 'accounts', 'all'],
+  }),
+  N('assign-pages', 'client', 'AssignmentCreate / Detail', 'tutor: build & publish homework', 45, 302, 240, 48, 'client', {
+    role: 'Tutor pages to upload a classified PDF, create an assignment, review/edit the AI-extracted question list, and publish.',
+    plain: 'Where a tutor turns a PDF of past-paper questions into homework. The AI reads the PDF and drafts the question list; the tutor checks it, fixes anything wrong, and publishes it to the class.',
+    path: 'frontend/src/tutor/AssignmentCreatePage.tsx, AssignmentDetailPage.tsx',
+    notes: ['Create page also uploads an optional mark-scheme file',
+            'Detail page polls while status is "extracting" and edits questions via PUT',
+            'Publishing is blocked until at least one question exists (server-enforced)'],
+    tag: ['overview', 'homework', 'all'],
+  }),
+  N('review-page', 'client', 'SubmissionReviewPage', 'tutor: side-by-side marking', 45, 368, 240, 48, 'client', {
+    role: 'Side-by-side review: student pages (images/PDF) next to AI transcription, proposed marks and confidence; tutor edits and finalizes.',
+    plain: 'The marking desk. The tutor sees the student\'s handwritten pages next to what the AI read and the marks it suggests, changes anything they disagree with, then presses finalize — only then do marks count.',
+    path: 'frontend/src/tutor/SubmissionReviewPage.tsx',
+    notes: ['Loads protected files as blobs via AuthImage/AuthFileLink (components/AuthFile.tsx)',
+            'Shows AI confidence per question (high/medium/low/tutor_only)',
+            'Finalize is the trigger that feeds the Readiness Engine'],
+    tag: ['overview', 'homework', 'critical', 'all'],
+    critical: true,
+  }),
+  N('submit-page', 'client', 'SubmitHomeworkPage', 'student: photo/PDF upload', 45, 434, 240, 48, 'client', {
+    role: 'Student page to upload photos/PDFs of handwritten work for a published assignment (multipart POST).',
+    plain: 'Where a student hands in homework: they photograph their handwritten pages (or scan to PDF) and upload them. The AI then reads and pre-marks the work for the tutor.',
+    path: 'frontend/src/student/SubmitHomeworkPage.tsx (+ HomeworkPage.tsx list)',
+    notes: ['Accepts PDF/JPEG/PNG/WebP, 20 MB per file (server-enforced)',
+            'Resubmitting before finalize replaces the files and restarts marking',
+            'Students only ever see lifecycle status + final marks, never AI drafts'],
+    tag: ['overview', 'homework', 'critical', 'all'],
+    critical: true,
+  }),
+  N('student-dash', 'client', 'StudentDashboard', 'readiness % + predicted grade', 45, 500, 240, 48, 'client', {
+    role: 'Student home: per-subject readiness score, predicted grade, weak topics, upcoming lessons, and their reports.',
+    plain: 'The student\'s home screen: how exam-ready they are in each subject (as a percent and an estimated grade), which topics need work, when their next lessons are.',
+    path: 'frontend/src/student/StudentDashboard.tsx',
+    notes: ['Reads GET /readiness/me and GET /me/lessons',
+            'Renders SubjectReadinessCard (components/ReadinessView.tsx) shared with tutor & parent views',
+            'Embeds ReportsPanel scoped to student-audience reports'],
+    tag: ['overview', 'readiness', 'critical', 'all'],
+    critical: true,
+  }),
+  N('mock-page', 'client', 'MockEntryPage', 'tutor: enter mock results', 45, 566, 240, 48, 'client', {
+    role: 'Tutor form to record a mock/quiz assessment with per-student, optionally per-topic scores.',
+    plain: 'Where a tutor types in the results of a practice exam. Scores can be tied to a specific topic or given as one overall mark; either way they feed the readiness scores.',
+    path: 'frontend/src/tutor/MockEntryPage.tsx',
+    notes: ['POSTs to /assessments; marks are validated against max_marks',
+            'Mocks carry the heaviest evidence weight (1.5×) in the Readiness Engine'],
+    tag: ['overview', 'readiness', 'all'],
+  }),
+  N('analytics-page', 'client', 'GroupAnalyticsPage', 'tutor: class heatmap', 45, 632, 240, 48, 'client', {
+    role: 'Group analytics: weakest students, weakest topics, and the AI-vs-tutor marking agreement rate.',
+    plain: 'A class overview for the tutor: which students are struggling, which topics the whole class finds hard, and how often the tutor ends up agreeing with the AI\'s suggested marks.',
+    path: 'frontend/src/tutor/GroupAnalyticsPage.tsx',
+    notes: ['Single GET /analytics/groups/{id} call',
+            'Agreement rate is a trust metric for the AI marking feature'],
+    tag: ['overview', 'readiness', 'all'],
+  }),
+  N('student-detail', 'client', 'StudentDetailPage', 'tutor: one student deep-dive', 45, 698, 240, 48, 'client', {
+    role: 'Tutor view of one student: readiness per topic, observations entry, parent-link code generation, and reports.',
+    plain: 'The tutor\'s file on one student: topic-by-topic readiness, a place to jot observations ("struggled with fractions today"), a button to invite the student\'s parent, and progress reports.',
+    path: 'frontend/src/tutor/StudentDetailPage.tsx',
+    notes: ['Reads GET /readiness/students/{id}; posts observations',
+            'Generates parent invite codes via POST /students/{id}/parent-code',
+            'Embeds ReportsPanel with all three audiences'],
+    tag: ['overview', 'readiness', 'accounts', 'all'],
+  }),
+  N('parent-dash', 'client', 'ParentDashboard', 'parent: per-child view', 45, 764, 240, 48, 'client', {
+    role: 'Parent home: pick a linked child, see their readiness summary and parent-audience reports.',
+    plain: 'What a parent sees: a simple view of how each of their children is doing, plus plain-language progress reports written for parents.',
+    path: 'frontend/src/parent/ParentDashboard.tsx',
+    notes: ['GET /me/children then GET /readiness/students/{child}',
+            'Backend enforces the parent-child link on every request'],
+    tag: ['overview', 'readiness', 'accounts', 'all'],
+  }),
+  N('chat-page', 'client', 'TutorChatPage', 'student: streaming AI mentor', 45, 830, 240, 48, 'client', {
+    role: 'Chat UI with conversation list; streams the AI mentor reply token-by-token over Server-Sent Events.',
+    plain: 'A chat window where a student talks to an AI study mentor. Replies appear word by word as they are generated. The mentor knows the student\'s weak topics but refuses to just do their homework.',
+    path: 'frontend/src/student/TutorChatPage.tsx (+ api/chat.ts SSE parser)',
+    notes: ['api/chat.ts:36-86 hand-parses the SSE stream (fetch + ReadableStream)',
+            'Server errors arrive as SSE "error" events with friendly messages',
+            'Server caps students at 50 messages per rolling 24h'],
+    tag: ['overview', 'chat', 'all'],
+  }),
+  N('reports-panel', 'client', 'ReportsPanel', 'shared: generate & read reports', 45, 896, 240, 48, 'client', {
+    role: 'Shared component (student/tutor/parent dashboards) to request AI reports and render the returned Markdown.',
+    plain: 'The "progress report" box that appears on all three dashboards. Press generate, wait a moment, and read an AI-written report tailored to whoever asked — student, tutor, or parent.',
+    path: 'frontend/src/components/ReportsPanel.tsx (+ Markdown.tsx renderer)',
+    notes: ['Polls report status while it is "generating"',
+            'Markdown.tsx is a minimal hand-rolled renderer (headings, lists, bold)',
+            'Audience options are passed per dashboard (parent sees only parent reports)'],
+    tag: ['overview', 'reports', 'all'],
+  }),
+  N('dead-fns', 'client', '4 unused API exports', 'DEAD, zero callers', 45, 962, 240, 48, 'client', {
+    role: 'Exported client functions no page imports: studentTrend, myGroups, deleteGroup, classifiedFilePath.',
+    plain: 'Four ready-made helpers that no screen actually uses. The most interesting one would draw a progress-over-time chart — the server records that history, but no page ever asks for it.',
+    path: 'frontend/src/api/ (readiness.ts:111, groups.ts:73,139, homework.ts:214)',
+    notes: ['studentTrend (readiness.ts:111) → GET /readiness/students/{id}/trend never called from UI',
+            'myGroups (groups.ts:139) → GET /me/groups unused; deleteGroup (groups.ts:73) → DELETE /groups/{id} unused',
+            'classifiedFilePath (homework.ts:214) builds a URL nothing opens',
+            'Matching backend endpoints are exercised only by tests'],
+    tag: ['overview', 'all'],
+  }),
+
+  /* ---------------- Server entry ---------------- */
+  N('main', 'entry', 'main.py', 'app factory + worker boot', 365, 104, 210, 54, 'route', {
+    role: 'FastAPI app factory: CORS, health check, mounts 13 routers under /api/v1, registers 4 job handlers, and starts the background worker on lifespan startup.',
+    plain: 'The ignition switch. When the server starts, this file wires every feature together, opens the API to the browser app, and kicks off the background helper that does the slow AI work.',
+    path: 'backend/app/main.py',
+    notes: ['Registers job handlers extract/mark/recompute/report at import (lines 29-32)',
+            'worker_loop launched as an asyncio task in lifespan (line 37)',
+            'All routers mounted with prefix /api/v1 (line 77)'],
+    tag: ['overview', 'critical', 'all'],
+    critical: true,
+  }),
+  N('config', 'entry', 'config.py', 'pydantic-settings env', 365, 320, 210, 48, 'route', {
+    role: 'All settings from env vars: DATABASE_URL (auto-rewritten to asyncpg), JWT secret/expiry, ANTHROPIC_API_KEY, model id, upload dir, CORS.',
+    plain: 'The settings sheet. Everything configurable — database address, secret keys, which AI model to use — is read from the environment here, so nothing sensitive lives in code.',
+    path: 'backend/app/config.py',
+    notes: ['anthropic_model = "claude-opus-4-8" (line 28)',
+            'postgres:// URLs from hosts like Render are rewritten to postgresql+asyncpg:// (lines 13-22)',
+            'Access token 30 min, refresh token 30 days (lines 25-26)'],
+    tag: ['overview', 'all'],
+  }),
+  N('db-py', 'entry', 'db.py', 'async engine + sessions', 365, 440, 210, 48, 'route', {
+    role: 'Creates the async SQLAlchemy engine and session factory; get_db() is the request-scoped dependency.',
+    plain: 'The phone line to the database. Every request borrows a connection from here and returns it when done.',
+    path: 'backend/app/db.py',
+    notes: ['In-memory SQLite gets a StaticPool so the test suite shares one connection (lines 9-14)',
+            'expire_on_commit=False so objects stay usable after commit (line 19)'],
+    tag: ['overview', 'all'],
+  }),
+  N('security', 'entry', 'security.py', 'bcrypt + JWT (HS256)', 365, 560, 210, 48, 'route', {
+    role: 'Password hashing with bcrypt; access/refresh JWT creation and typed decoding with PyJWT.',
+    plain: 'The lock-and-key shop: scrambles passwords so they are never stored readably, and mints the signed passes (tokens) users carry to prove who they are.',
+    path: 'backend/app/security.py',
+    notes: ['Tokens carry a "type" claim; decode_token rejects a refresh token used as access (lines 42-54)',
+            'HS256 with a single shared JWT_SECRET'],
+    tag: ['overview', 'accounts', 'all'],
+  }),
+  N('deps', 'entry', 'deps.py', 'CurrentUser dependency', 365, 680, 210, 48, 'route', {
+    role: 'FastAPI dependencies: DbSession, get_current_user (Bearer token → User row), and require_role().',
+    plain: 'The doorman. Every protected request passes through here: it checks the visitor\'s pass, looks up who they are, and hands that identity to the endpoint.',
+    path: 'backend/app/api/deps.py',
+    notes: ['HTTPBearer with auto_error=False → clean 401s (line 11)',
+            'Loads the full User row on every request (line 25)'],
+    tag: ['overview', 'accounts', 'all'],
+  }),
+
+  /* ---------------- API routes ---------------- */
+  N('auth-api', 'routes', 'auth.py', 'signup · login · invites', 655, 110, 230, 48, 'route', {
+    role: 'Tutor signup, email/username login, token refresh, invite preview, and invite-driven student/parent registration + /join for existing accounts.',
+    plain: 'The front door: creating accounts, logging in, and turning an invite code into membership of a class (students) or a link to a child (parents).',
+    path: 'backend/app/api/auth.py',
+    notes: ['Invite codes are checked for kind + expiry (lines 90-98)',
+            'Student/parent signup is invite-only; only tutors can self-register',
+            'Existing accounts accept invites via POST /auth/join (line 181)'],
+    tag: ['overview', 'accounts', 'all'],
+  }),
+  N('groups-api', 'routes', 'groups.py', 'groups · invites · lessons', 655, 180, 230, 48, 'route', {
+    role: 'Group CRUD, invite generation, member removal, username-only student account creation, tutor password resets, and lesson timetable.',
+    plain: 'Class administration: create a class, invite or directly create students, remove members, reset a young student\'s password, and keep the weekly timetable.',
+    path: 'backend/app/api/groups.py',
+    notes: ['Username-only accounts for students without email (lines 147-168)',
+            'Password reset allowed ONLY for accounts with no email (lines 185-189)',
+            'Invite codes are 8-byte urlsafe tokens (line 123)'],
+    tag: ['accounts', 'all'],
+  }),
+  N('students-api', 'routes', 'students.py', 'parent-link codes', 655, 250, 230, 48, 'route', {
+    role: 'Single endpoint: generate a parent-link invite code for a student the tutor teaches.',
+    plain: 'One small feature: a tutor presses a button and gets a code the student\'s parent uses to create their own linked account.',
+    path: 'backend/app/api/students.py',
+    notes: ['Verifies the tutor shares a group with the student (lines 20-26)'],
+    tag: ['accounts', 'all'],
+  }),
+  N('me-api', 'routes', 'me.py', 'my groups · lessons · children', 655, 320, 230, 48, 'route', {
+    role: 'Viewer-centric reads: my groups (student), my upcoming lessons (student), my linked children (parent).',
+    plain: '"Things about me": which classes I\'m in, when my lessons are, and — for parents — which children are linked to my account.',
+    path: 'backend/app/api/me.py',
+    notes: ['GET /me/groups has no UI caller (frontend myGroups is dead)',
+            'Lessons are ordered by weekday + start time (line 39)'],
+    tag: ['accounts', 'all'],
+  }),
+  N('subjects-api', 'routes', 'subjects.py', 'syllabus catalogue', 655, 390, 230, 48, 'route', {
+    role: 'Read-only list of seeded subjects and their syllabus topic trees.',
+    plain: 'The course catalogue: the five exam-board subjects the platform knows, each with its official list of topics.',
+    path: 'backend/app/api/subjects.py',
+    notes: ['Subjects/topics are seeded from JSON, not user-editable via API'],
+    tag: ['homework', 'all'],
+  }),
+  N('classifieds-api', 'routes', 'classifieds.py', 'PDF booklet uploads', 655, 460, 230, 48, 'route', {
+    role: 'Upload/list classified booklets (+ optional mark scheme) and serve the files with per-role access checks.',
+    plain: 'The filing cabinet for question booklets. Tutors upload them; students may only open a booklet that was actually assigned to their class — and never the answer sheet.',
+    path: 'backend/app/api/classifieds.py',
+    notes: ['Students can view a classified only via a published assignment in their groups (lines 73-87)',
+            'Mark schemes are strictly tutor-only downloads (lines 102-113)'],
+    tag: ['homework', 'all'],
+  }),
+  N('assignments-api', 'routes', 'assignments.py', 'create · review · publish', 655, 530, 230, 48, 'route', {
+    role: 'Assignment lifecycle: create (enqueues AI extraction), bulk-edit the question list during review, publish, retry extraction.',
+    plain: 'Homework management. Creating homework starts an AI job that reads the booklet; the tutor then reviews the drafted question list, fixes it if needed, and publishes.',
+    path: 'backend/app/api/assignments.py',
+    notes: ['Status machine: extracting → review → published → closed (+ extraction_failed)',
+            'Question edits are frozen once published (lines 179-182)',
+            'classified.subject must match the group subject (lines 82-86)'],
+    tag: ['overview', 'homework', 'all'],
+  }),
+  N('submissions-api', 'routes', 'submissions.py', 'submit · mark · finalize', 655, 600, 230, 48, 'route', {
+    role: 'The homework core: student multipart upload (enqueues AI marking), tutor mark editing, finalize (builds evidence + enqueues readiness recompute), and protected file serving.',
+    plain: 'The heart of the homework loop. Students hand in pages here; the AI pre-marks them; the tutor confirms marks here; and the moment marks are final they flow into the readiness scores.',
+    path: 'backend/app/api/submissions.py',
+    notes: ['Students see only lifecycle status — AI drafts are hidden by a status map (lines 156-163)',
+            'finalize → build_homework_evidence + enqueue recompute (lines 429-436)',
+            'Resubmission before finalize wipes files+marks and restarts (lines 94-103)',
+            'final_marks are capped at each question\'s max (lines 399-403)'],
+    tag: ['overview', 'homework', 'critical', 'all'],
+    critical: true,
+  }),
+  N('assessments-api', 'routes', 'assessments.py', 'mocks + observations', 655, 670, 230, 48, 'route', {
+    role: 'Record mock/quiz assessments and tutor observations; writes evidence rows directly and enqueues readiness recomputes.',
+    plain: 'Where practice-exam results and tutor impressions enter the system. Both immediately become "evidence" that adjusts the student\'s readiness scores.',
+    path: 'backend/app/api/assessments.py',
+    notes: ['An overall (topic-less) mock score is copied as evidence onto EVERY topic of the subject (lines 108-122)',
+            'Observation ratings are 0-100 and stored with max_marks=0 (lines 194-206)',
+            'Tutor must teach that student+subject (lines 37-48)'],
+    tag: ['overview', 'readiness', 'all'],
+  }),
+  N('readiness-api', 'routes', 'readiness.py', 'scores · evidence · trend', 655, 740, 230, 48, 'route', {
+    role: 'Read side of the Readiness Engine: per-subject summaries with predicted grades, per-topic evidence drill-down, and history trend — all behind a role-aware visibility check.',
+    plain: 'Where readiness scores are read. It carefully decides who may see whose data: students see themselves, parents see linked children, tutors see only students they teach.',
+    path: 'backend/app/api/readiness.py',
+    notes: ['visible_subject_ids() is the single authorization gate, reused by reports (lines 38-81)',
+            'Weak topic = score ≤ 60 with medium/high confidence (lines 34-35)',
+            'GET .../trend (line 219) has no UI caller — trend data is collected but never shown'],
+    tag: ['overview', 'readiness', 'critical', 'all'],
+    critical: true,
+  }),
+  N('analytics-api', 'routes', 'analytics.py', 'group heatmap + agreement', 655, 810, 230, 48, 'route', {
+    role: 'Per-group aggregates: weakest students, weakest topics, and AI-vs-final mark agreement over finalized submissions.',
+    plain: 'Class statistics for the tutor, including an honesty check on the AI: of all the marks the tutor confirmed, how many matched what the AI proposed?',
+    path: 'backend/app/api/analytics.py',
+    notes: ['Agreement counts only questions where both AI and final marks exist (lines 107-113)',
+            'Loops per-student in Python — fine for tutoring-size groups'],
+    tag: ['readiness', 'all'],
+  }),
+  N('chat-api', 'routes', 'chat.py', 'SSE streaming endpoint', 655, 880, 230, 48, 'route', {
+    role: 'Chat CRUD + the streaming endpoint: rate-limits, persists the user turn, builds student context, streams the AI reply as SSE, then persists the assistant turn.',
+    plain: 'The server side of the AI mentor chat. It checks the daily limit, saves the student\'s message, gathers their academic context, and streams the mentor\'s reply live to the browser.',
+    path: 'backend/app/api/chat.py',
+    notes: ['DAILY_MESSAGE_LIMIT = 50 user turns per rolling 24h (line 31)',
+            'Assistant reply saved in a FRESH session after the stream ends (lines 151-160)',
+            'Full history is replayed to the model every turn — no truncation (lines 123-130)'],
+    tag: ['overview', 'chat', 'all'],
+  }),
+  N('reports-api', 'routes', 'reports.py', 'generate + read reports', 655, 950, 230, 48, 'route', {
+    role: 'Report generation (enqueues a job) and listing/reading, with audience allow-lists per role.',
+    plain: 'Ordering desk for progress reports. Anyone allowed to see a student can order a report for their own audience; tutors can order all three kinds.',
+    path: 'backend/app/api/reports.py',
+    notes: ['ALLOWED_AUDIENCES: students→student, parents→parent, tutors→all (lines 22-27)',
+            'Reuses visible_subject_ids from readiness.py as the access check (line 34)'],
+    tag: ['reports', 'all'],
+  }),
+
+  /* ---------------- Services ---------------- */
+  N('storage', 'services', 'storage.py', 'local-disk file store', 945, 116, 240, 48, 'service', {
+    role: 'Validates and persists uploads (PDF/JPEG/PNG/WebP, ≤20 MB) under a flat upload dir; DB stores relative paths.',
+    plain: 'The vault for uploaded files. It only accepts the right file types and sizes, gives each file a random name, and remembers where it put things.',
+    path: 'backend/app/services/storage.py',
+    notes: ['MAX_FILE_BYTES = 20 MB (line 12); allow-list of 4 mime types (lines 13-18)',
+            'Random 16-byte hex filenames — no user-controlled paths (line 40)',
+            'No delete function exists anywhere — replaced files are orphaned on disk'],
+    tag: ['overview', 'homework', 'all'],
+  }),
+  N('extraction', 'services', 'extraction.py', 'AI: PDF → question list', 945, 198, 240, 48, 'service', {
+    role: 'Job handler: sends the classified (+ mark scheme) and the subject\'s topic codes to the model; parses a structured question list into AssignmentQuestion rows.',
+    plain: 'The AI clerk that reads a question booklet and types up the list of questions — numbers, marks, which topic each one tests, and whether an official answer exists for it.',
+    path: 'backend/app/services/extraction.py',
+    notes: ['messages.parse with pydantic output_format, max_tokens 16000 (lines 94-99)',
+            'topic_codes are validated against the subject\'s real topics (lines 105-120)',
+            'has_mark_scheme is true only if an official answer is present — never guessed (prompt, lines 45-46)'],
+    tag: ['overview', 'homework', 'all'],
+  }),
+  N('jobs', 'services', 'workers/jobs.py', 'DB-backed job worker', 945, 280, 240, 48, 'service', {
+    role: 'Persistent job queue: enqueue() writes a row; an in-process asyncio loop claims the oldest pending job with FOR UPDATE SKIP LOCKED, runs the handler, retries once.',
+    plain: 'The back-office worker. Slow AI tasks are written down as tickets in the database, and a background helper works through them one by one — so nothing is lost if the server restarts.',
+    path: 'backend/app/workers/jobs.py',
+    notes: ['MAX_ATTEMPTS = 2, poll every 2 s (lines 22-23)',
+            'Claim uses with_for_update(skip_locked=True) → safe with multiple processes (line 48)',
+            'Handlers: extract_assignment, mark_submission, recompute_readiness, generate_report',
+            'Tests call process_one_job() directly instead of the loop'],
+    tag: ['overview', 'homework', 'readiness', 'reports', 'critical', 'all'],
+    critical: true,
+  }),
+  N('marking', 'services', 'marking.py', 'AI: mark handwritten pages', 945, 362, 240, 48, 'service', {
+    role: 'Job handler: sends classified + mark scheme (prompt-cached) + the student\'s pages to the model; writes per-question drafts (transcription, marks, feedback, confidence).',
+    plain: 'The AI marker. It reads the student\'s handwritten pages against the official answer scheme and drafts marks and feedback for every question — as a suggestion the tutor must approve.',
+    path: 'backend/app/services/marking.py',
+    notes: ['Classified + mark scheme blocks get cache_control ephemeral — batch marking reuses the prefix (lines 103-113)',
+            'Hard rule: no official mark scheme → proposed_marks null, confidence tutor_only (lines 154-156)',
+            'AI marks are clamped to [0, max_marks] — "trust nothing blindly" (line 151)',
+            'max_tokens 32000, structured output via messages.parse (lines 130-136)'],
+    tag: ['overview', 'homework', 'critical', 'all'],
+    critical: true,
+  }),
+  N('ai', 'services', 'ai.py', 'Anthropic client gateway', 945, 444, 240, 48, 'service', {
+    role: 'The single Anthropic gateway: builds the AsyncAnthropic client (raising AIUnavailableError without a key) and encodes files as base64 document/image blocks.',
+    plain: 'The one phone line to the AI company. Every AI feature — extraction, marking, chat, reports — dials out through this file, which also packages PDFs and photos so the model can read them.',
+    path: 'backend/app/services/ai.py',
+    notes: ['Model comes from config: claude-opus-4-8 (config.py:28)',
+            'file_block() emits document blocks for PDFs, image blocks otherwise (lines 23-38)',
+            'Optional cache=True adds cache_control ephemeral (lines 36-37)'],
+    tag: ['overview', 'homework', 'chat', 'reports', 'critical', 'all'],
+    critical: true,
+  }),
+  N('evidence', 'services', 'evidence.py', 'finalized marks → evidence', 945, 526, 240, 48, 'service', {
+    role: 'Converts a finalized submission into per-topic Evidence rows (marks aggregated across questions per topic). Idempotent via source_ref delete-then-insert.',
+    plain: 'The bridge between marking and readiness. Once a tutor confirms marks, this adds up how the student did on each topic and files it as evidence. Draft AI marks never pass through here.',
+    path: 'backend/app/services/evidence.py',
+    notes: ['Only final_marks count — AI drafts are ignored (line 38)',
+            'Re-finalizing replaces prior evidence for the same submission (lines 50-51)',
+            'A question tagged with 2 topics contributes to both'],
+    tag: ['overview', 'homework', 'readiness', 'critical', 'all'],
+    critical: true,
+  }),
+  N('readiness-engine', 'services', 'readiness.py', 'the Readiness Engine', 945, 608, 240, 48, 'service', {
+    role: 'Deterministic scoring: per-topic weighted average of evidence with source weights (mock 1.5 / homework 1.0 / quiz 0.8 / observation 0.5) and 45-day half-life decay; writes TopicReadiness + a history snapshot.',
+    plain: 'The brain of the product — and deliberately not AI. It averages all the evidence about each topic, trusting exam-like and recent results more, and refuses to show a number when there isn\'t enough data.',
+    path: 'backend/app/services/readiness.py',
+    notes: ['HALF_LIFE_DAYS = 45 (line 34); SOURCE_WEIGHTS (lines 36-41)',
+            'Confidence tiers from recent + decay-weighted counts (lines 63-78)',
+            'No evidence → row deleted, never a fake 0 (lines 182-186)',
+            'quiz weight (0.8) is defined but nothing produces quiz evidence yet'],
+    tag: ['overview', 'readiness', 'critical', 'all'],
+    critical: true,
+  }),
+  N('grades', 'services', 'grades.py', 'score % → predicted grade', 945, 690, 240, 48, 'service', {
+    role: 'Maps a readiness percentage to a predicted grade via the subject\'s ordered grade_boundaries JSON.',
+    plain: 'A tiny lookup: given "72% ready", it answers "that is roughly a grade B" using each subject\'s adjustable grade boundaries. Always labelled an estimate.',
+    path: 'backend/app/services/grades.py',
+    notes: ['14 lines; boundaries ordered highest-first, first match wins (lines 10-12)'],
+    tag: ['readiness', 'reports', 'all'],
+  }),
+  N('student-context', 'services', 'student_context.py', 'grounding block for chat', 945, 772, 240, 48, 'service', {
+    role: 'Builds the compact text block injected into the chat system prompt: subjects, overall readiness, 5 weakest topics, 5 outstanding homeworks.',
+    plain: 'The mentor\'s briefing card. Before the AI answers a student, this gathers a short summary of how they\'re doing and what homework is due, so advice is personal rather than generic.',
+    path: 'backend/app/services/student_context.py',
+    notes: ['Weak = score ≤ 60 with medium/high confidence, top 5 (lines 66-74)',
+            'Outstanding homework = published assignments with no submission (lines 82-99)',
+            'Used only by chat — reports build their own richer facts block'],
+    tag: ['chat', 'all'],
+  }),
+  N('tutor-chat', 'services', 'tutor_chat.py', 'AI mentor streaming', 945, 854, 240, 48, 'service', {
+    role: 'Streams the mentor reply via messages.stream with anti-cheating guardrails in the system prompt; context is a second system block.',
+    plain: 'The mentor\'s personality and rulebook. Its hard rules: never hand over homework answers, teach the method instead, and don\'t present readiness numbers as official grades.',
+    path: 'backend/app/services/tutor_chat.py',
+    notes: ['System prompt forbids completing homework; teach-don\'t-solve (lines 17-30)',
+            'max_tokens 2000; yields text chunks from stream.text_stream (lines 42-49)',
+            'Student context is a separate system block — not cached'],
+    tag: ['overview', 'chat', 'all'],
+  }),
+  N('reports-svc', 'services', 'reports.py', 'AI report writer', 945, 936, 240, 48, 'service', {
+    role: 'Job handler: builds a facts block (readiness, strongest/weakest topics, trend, homework completion), then has the model write audience-specific Markdown strictly from those facts.',
+    plain: 'The report writer. First it assembles a fact sheet from real data; then the AI turns the facts into readable prose for a parent, a student, or a tutor — and is told never to invent anything.',
+    path: 'backend/app/services/reports.py',
+    notes: ['Three audience style guides (lines 28-46); "write ONLY from the factual data" system prompt (lines 48-52)',
+            'Trend = earliest vs latest ReadinessHistory snapshot (lines 103-117)',
+            '_write_report is factored out so tests can patch the AI call (line 159)'],
+    tag: ['overview', 'reports', 'all'],
+  }),
+
+  /* ---------------- Data ---------------- */
+  N('users-t', 'data', 'users · parent_links', 'accounts & family links', 1265, 112, 250, 48, 'db', {
+    role: 'User rows (roles: tutor/student/parent/admin; email or username login) and parent↔student link rows.',
+    plain: 'Everyone\'s account, with a role that decides what they can do, plus the records of which parent belongs to which child.',
+    path: 'backend/app/models/users.py, groups.py (ParentLink)',
+    notes: ['email is nullable — tutor-created student accounts are username-only',
+            'admin role exists in the enum but no admin console UI exists yet'],
+    tag: ['accounts', 'all'],
+  }),
+  N('groups-t', 'data', 'groups · members · invites · lessons', 'class structure', 1265, 186, 250, 48, 'db', {
+    role: 'Group (tutor+subject), GroupMember, Invite (student_join / parent_link kinds, optional expiry), Lesson timetable rows.',
+    plain: 'The shape of the school: which classes exist, who is in them, the invite codes that let people join, and the weekly lesson schedule.',
+    path: 'backend/app/models/groups.py',
+    notes: ['Invite.kind distinguishes join-a-group vs link-a-parent',
+            'Migration 0002_groups_syllabus.py'],
+    tag: ['accounts', 'all'],
+  }),
+  N('syllabus-t', 'data', 'subjects · topics', 'exam-board topic trees', 1265, 260, 250, 48, 'db', {
+    role: 'Subject (exam board, code, grade_boundaries JSON, grade scale) and weighted Topic rows.',
+    plain: 'The official curriculum: five exam-board subjects, each broken into the topics an exam can test, with per-topic importance weights and grade boundaries.',
+    path: 'backend/app/models/syllabus.py',
+    notes: ['grade_boundaries is editable JSON per subject — feeds predict_grade',
+            'Topic.weight scales each topic\'s share of the subject readiness score'],
+    tag: ['homework', 'readiness', 'all'],
+  }),
+  N('seeds', 'data', 'seed/ scripts', '5 syllabus JSONs + demo data', 1265, 334, 250, 48, 'db', {
+    role: 'CLI seeders: load_syllabus.py imports 5 subject topic trees (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090); demo.py creates demo accounts.',
+    plain: 'Starter content. Run once to teach the platform the five subjects\' official topic lists, and optionally create demo tutor/student/parent accounts to click around with.',
+    path: 'backend/seed/ (load_syllabus.py, demo.py, syllabus/*.json)',
+    notes: ['Run as python -m seed.load_syllabus / python -m seed.demo',
+            'Subjects are otherwise not creatable through the API'],
+    tag: ['all'],
+  }),
+  N('classified-t', 'data', 'classifieds · assignments · questions', 'homework definitions', 1265, 408, 250, 48, 'db', {
+    role: 'Classified files, Assignment lifecycle rows, AssignmentQuestion (number, marks, has_mark_scheme), QuestionTopic tags.',
+    plain: 'Everything that defines a piece of homework: the uploaded booklet, the assignment built from it, its question list, and which topic each question belongs to.',
+    path: 'backend/app/models/homework.py (Classified, Assignment, AssignmentQuestion, QuestionTopic)',
+    notes: ['Assignment.question_range is free text like "Q1-15", passed verbatim to the AI',
+            'Migration 0003_homework.py'],
+    tag: ['homework', 'all'],
+  }),
+  N('submission-t', 'data', 'submissions · files · question_marks', 'student work + marks', 1265, 482, 250, 48, 'db', {
+    role: 'Submission lifecycle rows, SubmissionFile page uploads, QuestionMark rows holding BOTH the AI draft (ai_*) and the tutor\'s final (final_*) columns.',
+    plain: 'Each piece of handed-in work and its marks. Every question keeps two copies side by side: what the AI suggested and what the tutor finally decided — which is how the agreement rate is measured.',
+    path: 'backend/app/models/homework.py (Submission, SubmissionFile, QuestionMark)',
+    notes: ['overridden flag set when the tutor changes an AI mark (submissions.py:406)',
+            'Status: submitted → marking → ai_marked/ai_failed → finalized',
+            'One submission per (assignment, student)'],
+    tag: ['homework', 'readiness', 'critical', 'all'],
+    critical: true,
+  }),
+  N('jobs-t', 'data', 'jobs', 'persistent work queue', 1265, 556, 250, 48, 'db', {
+    role: 'Job rows: type, JSON payload, status (pending/running/done/failed), attempts, error.',
+    plain: 'The ticket tray for background work. Every slow AI task is a row here, so a crash or restart never loses work — it just gets picked up again.',
+    path: 'backend/app/models/homework.py (Job, JobStatus)',
+    notes: ['Retried once, then marked failed with the error stored (jobs.py:75-80)'],
+    tag: ['homework', 'readiness', 'reports', 'critical', 'all'],
+    critical: true,
+  }),
+  N('uploads-disk', 'data', 'uploads/ (local disk)', 'file bytes live here', 1265, 630, 250, 48, 'db', {
+    role: 'Flat directory of uploaded file bytes; DB rows store paths relative to it.',
+    plain: 'The folder holding the actual PDFs and photos. The database only remembers file names; the bytes sit here on the server\'s own disk.',
+    path: 'backend/uploads/ (created by storage.upload_root)',
+    notes: ['Relative paths were chosen so this can move to S3 without touching DB rows (storage.py:1-3)',
+            'On Render this disk is EPHEMERAL — see the bug on this node'],
+    tag: ['homework', 'all'],
+  }),
+  N('evidence-t', 'data', 'evidence · topic_readiness · history', 'the readiness ledger', 1265, 704, 250, 48, 'db', {
+    role: 'Evidence rows (source type, score %, occurred_at, source_ref), computed TopicReadiness snapshots, and ReadinessHistory time series.',
+    plain: 'The gradebook behind the scores: every scrap of proof about every topic, the current computed score per topic, and a running history of each subject\'s overall score over time.',
+    path: 'backend/app/models/readiness.py (Evidence, TopicReadiness, ReadinessHistory)',
+    notes: ['source_ref (e.g. "submission:12") makes evidence idempotent per source',
+            'ReadinessHistory grows on every recompute; the UI never reads it (trend endpoint unused)',
+            'Migration 0004_readiness.py'],
+    tag: ['readiness', 'critical', 'all'],
+    critical: true,
+  }),
+  N('assessment-t', 'data', 'assessments · scores · observations', 'mock results & notes', 1265, 778, 250, 48, 'db', {
+    role: 'Assessment header + per-student AssessmentScore rows; TutorObservation free-text notes with optional 0-100 topic rating.',
+    plain: 'Practice-exam results and the tutor\'s written impressions of each student, kept alongside the evidence they generate.',
+    path: 'backend/app/models/readiness.py (Assessment, AssessmentScore, TutorObservation)',
+    notes: ['Observation ratings become evidence only when both rating AND topic are set (assessments.py:194)'],
+    tag: ['readiness', 'all'],
+  }),
+  N('chat-t', 'data', 'chat_conversations · messages', 'mentor chat history', 1265, 852, 250, 48, 'db', {
+    role: 'ChatConversation (title auto-set from first message) and ChatMessage rows with user/assistant roles.',
+    plain: 'Saved chats with the AI mentor, so a student can pick up an old conversation where they left off.',
+    path: 'backend/app/models/chat.py',
+    notes: ['Title = first 60 chars of the first message (chat.py:118-119)',
+            'Migration 0005_chat.py'],
+    tag: ['chat', 'all'],
+  }),
+  N('reports-t', 'data', 'reports', 'generated report documents', 1265, 926, 250, 48, 'db', {
+    role: 'Report rows: audience, status (generating/ready/failed), Markdown content, error.',
+    plain: 'The finished progress reports, stored so they can be re-read any time without paying for the AI to write them again.',
+    path: 'backend/app/models/reports.py',
+    notes: ['Migration 0006_reports.py'],
+    tag: ['reports', 'all'],
+  }),
+
+  /* ---------------- External ---------------- */
+  N('anthropic', 'external', 'Anthropic API', 'claude-opus-4-8', 1595, 420, 220, 60, 'external', {
+    role: 'All four AI features call the Messages API: structured parse (extraction, marking), streaming (chat), plain create (reports).',
+    plain: 'The outside AI service. The platform sends it question booklets, handwritten pages, chat messages and fact sheets, and gets back question lists, draft marks, mentor replies and reports.',
+    path: 'config.py:28 (model) · services/ai.py (client)',
+    notes: ['Marking sends up to 32k output tokens; extraction 16k; chat & reports 2k',
+            'Prompt caching used ONLY in marking (classified + mark scheme blocks)',
+            'No API key → AIUnavailableError → clean feature-level failures'],
+    tag: ['overview', 'homework', 'chat', 'reports', 'critical', 'all'],
+    critical: true,
+  }),
+  N('render', 'external', 'Render + Docker', 'render.yaml blueprint', 1595, 720, 220, 56, 'external', {
+    role: 'Render blueprint provisions Postgres, the Dockerised API, and the static frontend with /api/* rewrites; docker-compose runs Postgres locally.',
+    plain: 'The hosting recipe. One file tells the Render cloud how to build the whole product: the database, the server, and the website, with the website forwarding API calls to the server.',
+    path: 'render.yaml · docker-compose.yml · backend/Dockerfile',
+    notes: ['JWT_SECRET auto-generated; ANTHROPIC_API_KEY prompted at deploy (render.yaml:20-23)',
+            'Static site rewrites /api/* → the API service (render.yaml:33-40)',
+            'No persistent disk is declared for the API service'],
+    tag: ['overview', 'all'],
+  }),
+];
+
+const edges = [
+  /* ---- Critical spine: the homework → readiness loop (numbered) ---- */
+  { from: 'submit-page',     to: 'submissions-api', kind: 'critical', label: '1 · POST pages (multipart)',            tag: ['overview','homework','critical','all'] },
+  { from: 'submissions-api', to: 'storage',         kind: 'critical', label: '2 · save_upload',                       tag: ['homework','critical','all'], lt: 0.35 },
+  { from: 'submissions-api', to: 'jobs-t',          kind: 'critical', label: '3 · enqueue mark_submission',           tag: ['overview','homework','critical','all'], lt: 0.6 },
+  { from: 'jobs',            to: 'jobs-t',          kind: 'critical', label: '4 · claim · poll 2s · SKIP LOCKED',     tag: ['overview','homework','readiness','reports','critical','all'], lt: 0.45 },
+  { from: 'jobs',            to: 'marking',         kind: 'critical', label: '5 · mark_submission',                   tag: ['overview','homework','critical','all'], side: 'L' },
+  { from: 'marking',         to: 'ai',              kind: 'critical', label: '6 · messages.parse (32k)',              tag: ['overview','homework','critical','all'], side: 'R' },
+  { from: 'ai',              to: 'anthropic',       kind: 'critical', label: '7 · claude-opus-4-8',                   tag: ['overview','homework','chat','reports','critical','all'] },
+  { from: 'marking',         to: 'submission-t',    kind: 'critical', label: '8 · write QuestionMark drafts',         tag: ['overview','homework','critical','all'], lt: 0.62 },
+  { from: 'review-page',     to: 'submissions-api', kind: 'critical', label: '9 · PUT marks · POST finalize',         tag: ['overview','homework','critical','all'], lt: 0.4 },
+  { from: 'submissions-api', to: 'evidence',        kind: 'critical', label: '10 · build_homework_evidence',          tag: ['overview','homework','readiness','critical','all'], lt: 0.55 },
+  { from: 'evidence',        to: 'evidence-t',      kind: 'critical', label: '11 · write evidence rows',              tag: ['overview','readiness','critical','all'] },
+  { from: 'jobs',            to: 'readiness-engine',kind: 'critical', label: '12 · recompute_readiness',              tag: ['overview','readiness','critical','all'], side: 'L' },
+  { from: 'readiness-engine',to: 'evidence-t',      kind: 'critical', label: '13 · read evidence → topic_readiness',  tag: ['overview','readiness','critical','all'], lt: 0.45 },
+  { from: 'student-dash',    to: 'readiness-api',   kind: 'critical', label: '14 · GET /readiness/me',                tag: ['overview','readiness','critical','all'], lt: 0.35 },
+
+  /* ---- Homework prep (extraction) ---- */
+  { from: 'assign-pages',    to: 'classifieds-api', kind: 'normal', label: 'POST /classifieds (PDF + MS)',  tag: ['overview','homework','all'], lt: 0.4 },
+  { from: 'assign-pages',    to: 'subjects-api',    kind: 'normal', label: 'GET /subjects · /topics',       tag: ['homework','all'], lt: 0.3 },
+  { from: 'assign-pages',    to: 'assignments-api', kind: 'normal', label: 'POST /assignments · publish',   tag: ['overview','homework','all'], lt: 0.55 },
+  { from: 'classifieds-api', to: 'storage',         kind: 'normal', label: 'save_upload',                   tag: ['homework','all'], lt: 0.6 },
+  { from: 'classifieds-api', to: 'classified-t',    kind: 'db',     label: 'DB write classifieds',          tag: ['homework','all'], lt: 0.75 },
+  { from: 'assignments-api', to: 'jobs-t',          kind: 'db',     label: 'enqueue extract_assignment',    tag: ['overview','homework','all'], lt: 0.3 },
+  { from: 'assignments-api', to: 'classified-t',    kind: 'db',     label: 'DB write assignments · questions', tag: ['homework','all'], lt: 0.55 },
+  { from: 'jobs',            to: 'extraction',      kind: 'normal', label: 'extract_assignment',            tag: ['overview','homework','all'], side: 'L' },
+  { from: 'extraction',      to: 'ai',              kind: 'normal', label: 'messages.parse (16k)',          tag: ['overview','homework','all'], side: 'R' },
+  { from: 'extraction',      to: 'syllabus-t',      kind: 'db',     label: 'read topic codes',              tag: ['homework','all'], lt: 0.4 },
+  { from: 'extraction',      to: 'classified-t',    kind: 'db',     label: 'write question list',           tag: ['homework','all'], lt: 0.65 },
+  { from: 'marking',         to: 'storage',         kind: 'normal', label: 'read classified + pages',       tag: ['homework','all'], side: 'L' },
+  { from: 'storage',         to: 'uploads-disk',    kind: 'db',     label: 'read/write bytes (≤20 MB)',     tag: ['homework','all'], lt: 0.5 },
+  { from: 'submissions-api', to: 'submission-t',    kind: 'db',     label: 'DB write submissions · files',  tag: ['homework','all'], lt: 0.75 },
+  { from: 'subjects-api',    to: 'syllabus-t',      kind: 'db',     label: 'read subjects/topics',          tag: ['homework','all'], lt: 0.25 },
+
+  /* ---- Readiness inputs & reads ---- */
+  { from: 'mock-page',       to: 'assessments-api', kind: 'normal', label: 'POST /assessments (mock)',      tag: ['overview','readiness','all'], lt: 0.45 },
+  { from: 'student-detail',  to: 'assessments-api', kind: 'normal', label: 'POST /observations',            tag: ['readiness','all'], lt: 0.3 },
+  { from: 'student-detail',  to: 'readiness-api',   kind: 'normal', label: 'GET /readiness/students/{id}',  tag: ['overview','readiness','all'], lt: 0.5 },
+  { from: 'parent-dash',     to: 'readiness-api',   kind: 'normal', label: 'GET readiness (linked child)',  tag: ['overview','readiness','all'], lt: 0.62 },
+  { from: 'analytics-page',  to: 'analytics-api',   kind: 'normal', label: 'GET /analytics/groups/{id}',    tag: ['overview','readiness','all'], lt: 0.4 },
+  { from: 'assessments-api', to: 'assessment-t',    kind: 'db',     label: 'DB write scores · observations', tag: ['readiness','all'], lt: 0.6 },
+  { from: 'assessments-api', to: 'evidence-t',      kind: 'db',     label: 'write mock/observation evidence', tag: ['overview','readiness','all'], lt: 0.42 },
+  { from: 'assessments-api', to: 'jobs-t',          kind: 'db',     label: 'enqueue recompute',             tag: ['readiness','all'], lt: 0.25 },
+  { from: 'readiness-api',   to: 'grades',          kind: 'normal', label: 'predict_grade',                 tag: ['overview','readiness','all'], lt: 0.5 },
+  { from: 'readiness-api',   to: 'evidence-t',      kind: 'db',     label: 'read topic_readiness · evidence', tag: ['readiness','all'], lt: 0.68 },
+  { from: 'analytics-api',   to: 'evidence-t',      kind: 'db',     label: 'read topic_readiness',          tag: ['readiness','all'], lt: 0.3 },
+  { from: 'analytics-api',   to: 'submission-t',    kind: 'db',     label: 'AI vs final agreement',         tag: ['overview','readiness','all'], lt: 0.5 },
+
+  /* ---- AI tutor chat ---- */
+  { from: 'chat-page',       to: 'chat-api',        kind: 'normal', label: 'POST message → SSE stream',     tag: ['overview','chat','all'], lt: 0.5 },
+  { from: 'chat-api',        to: 'student-context', kind: 'normal', label: 'build_student_context',         tag: ['overview','chat','all'], lt: 0.4 },
+  { from: 'chat-api',        to: 'tutor-chat',      kind: 'normal', label: 'stream_reply(context, history)', tag: ['overview','chat','all'], lt: 0.6 },
+  { from: 'chat-api',        to: 'chat-t',          kind: 'db',     label: 'persist turns · cap 50/day',    tag: ['chat','all'], lt: 0.75 },
+  { from: 'student-context', to: 'evidence-t',      kind: 'db',     label: 'read readiness + homework due', tag: ['chat','all'], lt: 0.4 },
+  { from: 'tutor-chat',      to: 'ai',              kind: 'normal', label: 'messages.stream (2k)',          tag: ['overview','chat','all'], side: 'R' },
+
+  /* ---- Reports ---- */
+  { from: 'reports-panel',   to: 'reports-api',     kind: 'normal', label: 'POST /reports/generate · poll', tag: ['overview','reports','all'], lt: 0.5 },
+  { from: 'reports-api',     to: 'jobs-t',          kind: 'db',     label: 'enqueue generate_report',       tag: ['reports','all'], lt: 0.3 },
+  { from: 'reports-api',     to: 'reports-t',       kind: 'db',     label: 'DB read/write reports',         tag: ['reports','all'], lt: 0.6 },
+  { from: 'jobs',            to: 'reports-svc',     kind: 'normal', label: 'generate_report',               tag: ['overview','reports','all'], side: 'L' },
+  { from: 'reports-svc',     to: 'grades',          kind: 'normal', label: 'predict_grade',                 tag: ['reports','all'], side: 'L' },
+  { from: 'reports-svc',     to: 'ai',              kind: 'normal', label: 'messages.create (2k)',          tag: ['overview','reports','all'], side: 'R' },
+  { from: 'reports-svc',     to: 'evidence-t',      kind: 'db',     label: 'read readiness · history · homework', tag: ['reports','all'], lt: 0.3 },
+  { from: 'reports-svc',     to: 'reports-t',       kind: 'db',     label: 'write Markdown content',        tag: ['overview','reports','all'], lt: 0.55 },
+
+  /* ---- Accounts & groups ---- */
+  { from: 'auth-pages',      to: 'auth-api',        kind: 'normal', label: 'POST login · register · join',  tag: ['overview','accounts','all'], lt: 0.5 },
+  { from: 'client-ts',       to: 'auth-api',        kind: 'normal', label: 'POST /auth/refresh on 401',     tag: ['accounts','all'], lt: 0.35 },
+  { from: 'groups-pages',    to: 'groups-api',      kind: 'normal', label: 'CRUD /groups · invites · lessons', tag: ['overview','accounts','all'], lt: 0.5 },
+  { from: 'student-detail',  to: 'students-api',    kind: 'normal', label: 'POST parent-code',              tag: ['accounts','all'], lt: 0.2 },
+  { from: 'student-dash',    to: 'me-api',          kind: 'normal', label: 'GET /me/lessons',               tag: ['accounts','all'], lt: 0.25 },
+  { from: 'parent-dash',     to: 'me-api',          kind: 'normal', label: 'GET /me/children',              tag: ['overview','accounts','all'], lt: 0.45 },
+  { from: 'auth-api',        to: 'users-t',         kind: 'db',     label: 'DB read/write users · links',   tag: ['overview','accounts','all'], lt: 0.5 },
+  { from: 'auth-api',        to: 'security',        kind: 'normal', label: 'hash · verify · sign JWT',      tag: ['accounts','all'], back: true },
+  { from: 'deps',            to: 'security',        kind: 'normal', label: 'decode_token(access)',          tag: ['accounts','all'], side: 'R' },
+  { from: 'deps',            to: 'users-t',         kind: 'db',     label: 'load User by token sub',        tag: ['accounts','all'], lt: 0.85 },
+  { from: 'groups-api',      to: 'groups-t',        kind: 'db',     label: 'DB write groups · invites · lessons', tag: ['accounts','all'], lt: 0.5 },
+  { from: 'groups-api',      to: 'users-t',         kind: 'db',     label: 'create username-only students', tag: ['accounts','all'], lt: 0.3 },
+  { from: 'students-api',    to: 'groups-t',        kind: 'db',     label: 'DB write parent-link invite',   tag: ['accounts','all'], lt: 0.65 },
+  { from: 'me-api',          to: 'groups-t',        kind: 'db',     label: 'read groups · lessons · children', tag: ['accounts','all'], lt: 0.4 },
+
+  /* ---- Entry wiring ---- */
+  { from: 'main',            to: 'jobs',            kind: 'critical', label: 'lifespan → worker_loop()',    tag: ['overview','critical','all'], lt: 0.7 },
+  { from: 'db-py',           to: 'config',          kind: 'normal', label: 'DATABASE_URL',                  tag: ['all'], side: 'R' },
+  { from: 'security',        to: 'config',          kind: 'normal', label: 'JWT_SECRET · expiry',           tag: ['all'], side: 'L' },
+  { from: 'seeds',           to: 'syllabus-t',      kind: 'db',     label: 'python -m seed.load_syllabus',  tag: ['all'], side: 'L' },
+  { from: 'render',          to: 'main',            kind: 'api',    label: 'Docker web service + env vars', tag: ['all'], back: true },
+
+  /* ---- Router mounts (visible on "Show all wires") ---- */
+  { from: 'main', to: 'auth-api',        kind: 'mount', label: 'include_router', tag: ['all'], lt: 0.2 },
+  { from: 'main', to: 'groups-api',      kind: 'mount', label: '',               tag: ['all'], lt: 0.25 },
+  { from: 'main', to: 'students-api',    kind: 'mount', label: '',               tag: ['all'], lt: 0.3 },
+  { from: 'main', to: 'me-api',          kind: 'mount', label: '',               tag: ['all'], lt: 0.3 },
+  { from: 'main', to: 'subjects-api',    kind: 'mount', label: '',               tag: ['all'], lt: 0.35 },
+  { from: 'main', to: 'classifieds-api', kind: 'mount', label: '',               tag: ['all'], lt: 0.35 },
+  { from: 'main', to: 'assignments-api', kind: 'mount', label: '',               tag: ['all'], lt: 0.4 },
+  { from: 'main', to: 'submissions-api', kind: 'mount', label: '',               tag: ['all'], lt: 0.4 },
+  { from: 'main', to: 'assessments-api', kind: 'mount', label: '',               tag: ['all'], lt: 0.45 },
+  { from: 'main', to: 'readiness-api',   kind: 'mount', label: '',               tag: ['all'], lt: 0.45 },
+  { from: 'main', to: 'analytics-api',   kind: 'mount', label: '',               tag: ['all'], lt: 0.5 },
+  { from: 'main', to: 'chat-api',        kind: 'mount', label: '',               tag: ['all'], lt: 0.5 },
+  { from: 'main', to: 'reports-api',     kind: 'mount', label: '',               tag: ['all'], lt: 0.55 },
+];
+
+/* Roadmap items from README "Planned next"; a fix may appear on several nodes. */
+const FIXES = {
+  'storage':          [{ n: 1, t: 'Move file storage to S3 / object storage — relative paths were designed for exactly this move (storage.py:1-3)' }],
+  'uploads-disk':     [{ n: 1, t: 'Move file storage to S3 — also fixes the ephemeral-disk data-loss bug on Render' }],
+  'render':           [{ n: 1, t: 'Attach S3 (or a Render persistent disk) so uploads survive deploys' }],
+  'jobs':             [{ n: 2, t: 'Notifications & reminders (README planned) — the persistent job queue is the natural delivery mechanism' }],
+  'readiness-engine': [{ n: 3, t: 'AI quiz generator (README planned) — the quiz evidence weight (0.8, readiness.py:39) already exists but nothing produces quiz evidence yet' }],
+  'auth-api':         [{ n: 4, t: 'Stripe subscriptions + admin console (README planned) — the admin role already exists in UserRole' }],
+  'users-t':          [{ n: 4, t: 'Stripe subscriptions: billing state would hang off users' }],
+  'student-detail':   [{ n: 5, t: 'Wire the readiness trend chart into the UI — backend endpoint and client fn (studentTrend) already exist, unused' }],
+  'readiness-api':    [{ n: 5, t: 'GET .../trend (line 219) is fully built and tested but has no UI consumer' }],
+  'student-dash':     [{ n: 6, t: 'Study planner incl. prayer times (README planned) — would live on this dashboard' }],
+};
+
+/* Only defects verifiable at a specific file/line. */
+const KNOWN_BUGS = {
+  'uploads-disk': [{ sev: 'high', ref: 'render.yaml:9-25', t: 'No persistent disk is declared for the API service — on Render, every deploy/restart wipes all uploaded classifieds, mark schemes and student submissions.' }],
+  'render':       [{ sev: 'high', ref: 'render.yaml:9-25', t: 'Blueprint provisions DB + API + static site but no disk; storage.py writes to the container filesystem.' }],
+  'chat-api':     [{ sev: 'med',  ref: 'backend/app/api/chat.py:123-130', t: 'The entire conversation history is replayed to the model on every turn with no truncation or windowing — long conversations grow unbounded in tokens until they fail.' }],
+  'storage':      [{ sev: 'low',  ref: 'backend/app/api/submissions.py:96-99', t: 'Resubmission deletes SubmissionFile rows but storage.py has no delete function — replaced files are orphaned on disk forever.' }],
+  'evidence-t':   [{ sev: 'low',  ref: 'backend/app/services/readiness.py:195-204', t: 'A ReadinessHistory snapshot is appended on every recompute (per subject) and nothing prunes or reads it from the UI — unbounded slow growth.' }],
+};
+
+const chips = [
+  { id: 'overview',  label: 'Overview' },
+  { id: 'critical',  label: 'Critical path', crit: true },
+  { id: 'homework',  label: 'Homework loop' },
+  { id: 'readiness', label: 'Readiness engine' },
+  { id: 'chat',      label: 'AI tutor chat' },
+  { id: 'reports',   label: 'Reports' },
+  { id: 'accounts',  label: 'Accounts & groups' },
+  { id: 'all',       label: 'Show all wires' },
+  { id: 'roadmap',   label: 'Roadmap & bugs' },
+];
+
+/* ================================================================
+   RENDERER — generic; edit above, not below.
+   ================================================================ */
+
+const CSS = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const COLORS = { client: CSS('--client'), route: CSS('--route'), service: CSS('--service'), db: CSS('--db'), external: CSS('--external') };
+const KIND = { critical: CSS('--critical'), api: CSS('--accent-2'), db: CSS('--db'), mount: CSS('--client'), normal: '#5a5a5a' };
+const CLUSTER_TINT = { client: '#101b28', entry: '#12200f', routes: '#12200f', services: '#1d1426', data: '#241a0e', external: '#261017' };
+
+const nodeById = Object.fromEntries(nodes.map(n => [n.id, n]));
+const svg = document.getElementById('svg');
+const world = document.getElementById('world');
+const NS = 'http://www.w3.org/2000/svg';
+const el = (tag, attrs = {}) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+
+/* Arrow markers per kind */
+const defs = document.getElementById('defs');
+for (const [k, c] of Object.entries(KIND)) {
+  const m = el('marker', { id: 'arr-' + k, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6.5, markerHeight: 6.5, orient: 'auto-start-reverse' });
+  m.appendChild(el('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: c }));
+  defs.appendChild(m);
+}
+
+/* Clusters */
+const gClusters = el('g'); world.appendChild(gClusters);
+for (const c of clusters) {
+  const r = el('rect', { x: c.x, y: c.y, width: c.w, height: c.h, rx: 12, fill: CLUSTER_TINT[c.id] || '#151515', stroke: CSS('--border'), 'stroke-width': 1 });
+  gClusters.appendChild(r);
+  const t = el('text', { x: c.x + 14, y: c.y + 26, fill: CSS('--muted'), class: 'cluster-label' });
+  t.textContent = c.label;
+  gClusters.appendChild(t);
+}
+
+/* Edge geometry */
+function edgePath(e) {
+  const a = nodeById[e.from], b = nodeById[e.to];
+  const acx = a.x + a.w / 2, bcx = b.x + b.w / 2;
+  const ay = a.y + a.h / 2, by = b.y + b.h / 2;
+  if (e.side === 'L') { // same-column bulge left
+    const x1 = a.x, x2 = b.x, bx = Math.min(x1, x2) - 58;
+    return { d: `M ${x1} ${ay} C ${bx} ${ay}, ${bx} ${by}, ${x2} ${by}`, p: [[x1, ay], [bx, ay], [bx, by], [x2, by]] };
+  }
+  if (e.side === 'R') { // same-column bulge right
+    const x1 = a.x + a.w, x2 = b.x + b.w, bx = Math.max(x1, x2) + 58;
+    return { d: `M ${x1} ${ay} C ${bx} ${ay}, ${bx} ${by}, ${x2} ${by}`, p: [[x1, ay], [bx, ay], [bx, by], [x2, by]] };
+  }
+  let x1, x2;
+  if (e.back || bcx < acx) { x1 = a.x; x2 = b.x + b.w; } // right-to-left
+  else { x1 = a.x + a.w; x2 = b.x; }
+  const dx = Math.max(46, Math.abs(x2 - x1) * 0.42);
+  const c1 = x1 + (x2 > x1 ? dx : -dx), c2 = x2 - (x2 > x1 ? dx : -dx);
+  return { d: `M ${x1} ${ay} C ${c1} ${ay}, ${c2} ${by}, ${x2} ${by}`, p: [[x1, ay], [c1, ay], [c2, by], [x2, by]] };
+}
+function bezPoint(p, t) {
+  const u = 1 - t;
+  const x = u*u*u*p[0][0] + 3*u*u*t*p[1][0] + 3*u*t*t*p[2][0] + t*t*t*p[3][0];
+  const y = u*u*u*p[0][1] + 3*u*u*t*p[1][1] + 3*u*t*t*p[2][1] + t*t*t*p[3][1];
+  return [x, y];
+}
+
+/* Edges */
+const gEdges = el('g'); world.appendChild(gEdges);
+const edgeEls = edges.map((e, i) => {
+  const g = el('g');
+  const { d, p } = edgePath(e);
+  const isCrit = e.kind === 'critical';
+  const path = el('path', { d, fill: 'none', stroke: KIND[e.kind], 'stroke-width': isCrit ? 2.4 : 1.4, 'marker-end': `url(#arr-${e.kind})`, opacity: isCrit ? 0.95 : 0.62 });
+  g.appendChild(path);
+  if (e.label) {
+    const t = e.lt !== undefined ? e.lt : 0.5;
+    const [lx, ly] = bezPoint(p, t);
+    const txt = el('text', { x: lx, y: ly - 5 + ((i % 3) - 1) * 4, fill: isCrit ? KIND.critical : '#9a9a9a', 'text-anchor': 'middle', class: 'edge-label' });
+    txt.textContent = e.label;
+    g.appendChild(txt);
+  }
+  gEdges.appendChild(g);
+  return g;
+});
+
+/* Nodes */
+const gNodes = el('g'); world.appendChild(gNodes);
+const nodeEls = {};
+for (const n of nodes) {
+  const g = el('g', { class: 'node' });
+  const stroke = COLORS[n.color] || '#888';
+  g.appendChild(el('rect', { x: n.x, y: n.y, width: n.w, height: n.h, rx: 9, fill: CSS('--panel-2'), stroke: n.critical ? CSS('--critical') : stroke, 'stroke-width': n.critical ? 2.2 : 1.4 }));
+  const t1 = el('text', { x: n.x + 11, y: n.y + 20, fill: CSS('--text'), 'font-size': 12.5, 'font-weight': 600 });
+  t1.textContent = n.label;
+  g.appendChild(t1);
+  const t2 = el('text', { x: n.x + 11, y: n.y + 36, fill: n.sub && n.sub.startsWith('DEAD') ? CSS('--critical') : CSS('--muted'), 'font-size': 10.5 });
+  t2.textContent = n.sub || '';
+  g.appendChild(t2);
+  const fixes = FIXES[n.id] || [], bugs = KNOWN_BUGS[n.id] || [];
+  let bx = n.x + n.w - 10;
+  if (bugs.length) {
+    g.appendChild(el('circle', { cx: bx, cy: n.y, r: 8.5, fill: '#c22843', stroke: CSS('--bg'), 'stroke-width': 1.5 }));
+    const bt = el('text', { x: bx, y: n.y + 3.5, fill: '#fff', 'font-size': 10, 'font-weight': 700, 'text-anchor': 'middle' });
+    bt.textContent = bugs.length; g.appendChild(bt);
+    bx -= 19;
+  }
+  if (fixes.length) {
+    g.appendChild(el('circle', { cx: bx, cy: n.y, r: 8.5, fill: '#2e9e4f', stroke: CSS('--bg'), 'stroke-width': 1.5 }));
+    const ft = el('text', { x: bx, y: n.y + 3.5, fill: '#fff', 'font-size': 10, 'font-weight': 700, 'text-anchor': 'middle' });
+    ft.textContent = fixes.length; g.appendChild(ft);
+  }
+  g.addEventListener('click', (ev) => { ev.stopPropagation(); select(n.id, true); });
+  g.addEventListener('mouseenter', () => { if (!sticky) select(n.id, false); });
+  g.addEventListener('mouseleave', () => { if (!sticky) clearSelect(); });
+  gNodes.appendChild(g);
+  nodeEls[n.id] = g;
+}
+
+/* ---------------- Filters ---------------- */
+let activeChip = 'overview';
+const chipBar = document.getElementById('chips');
+for (const c of chips) {
+  const b = document.createElement('button');
+  b.className = 'chip' + (c.crit ? ' crit' : '');
+  b.textContent = c.label;
+  b.dataset.id = c.id;
+  b.addEventListener('click', () => { activeChip = c.id; clearSelect(true); applyFilter(); syncChips(); });
+  chipBar.appendChild(b);
+}
+function syncChips() {
+  for (const b of chipBar.children) b.classList.toggle('active', b.dataset.id === activeChip);
+}
+function nodeVisible(n) {
+  if (activeChip === 'roadmap') return !!(FIXES[n.id] || KNOWN_BUGS[n.id]);
+  if (activeChip === 'overview' || activeChip === 'all') return true; // overview curates wires, not nodes
+  return (n.tag || []).includes(activeChip);
+}
+function edgeVisible(e) {
+  if (activeChip === 'roadmap') return false;
+  return (e.tag || []).includes(activeChip);
+}
+function applyFilter() {
+  nodes.forEach(n => { nodeEls[n.id].style.opacity = nodeVisible(n) ? 1 : 0.13; });
+  edges.forEach((e, i) => { edgeEls[i].style.opacity = edgeVisible(e) ? 1 : 0.05; });
+}
+
+/* ---------------- Selection & sidebar ---------------- */
+let sticky = false;
+const sidebar = document.getElementById('sidebar');
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function select(id, stick) {
+  if (stick) sticky = true;
+  const n = nodeById[id];
+  const inc = edges.filter(e => e.to === id), out = edges.filter(e => e.from === id);
+  const neigh = new Set([id, ...inc.map(e => e.from), ...out.map(e => e.to)]);
+  nodes.forEach(m => { nodeEls[m.id].style.opacity = neigh.has(m.id) ? 1 : 0.12; });
+  edges.forEach((e, i) => { edgeEls[i].style.opacity = (e.from === id || e.to === id) ? 1 : 0.05; });
+
+  const fixes = FIXES[id] || [], bugs = KNOWN_BUGS[id] || [];
+  let h = `<h2>${esc(n.label)} <span style="color:var(--muted);font-weight:400">· ${esc(n.sub || '')}</span></h2>`;
+  h += `<span class="path">${esc(n.path || '')}</span>`;
+  h += `<div class="role">${esc(n.role || '')}</div>`;
+  h += `<div class="plain">${esc(n.plain || '')}</div>`;
+  if (n.notes && n.notes.length) {
+    h += `<div class="sec">Notes</div><ul>` + n.notes.map(x => `<li>${esc(x)}</li>`).join('') + `</ul>`;
+  }
+  if (inc.length) {
+    h += `<div class="sec">Incoming</div>` + inc.map(e => `<div class="edge-row">← <b>${esc(nodeById[e.from].label)}</b> <span class="lbl">${esc(e.label || e.kind)}</span></div>`).join('');
+  }
+  if (out.length) {
+    h += `<div class="sec">Outgoing</div>` + out.map(e => `<div class="edge-row">→ <b>${esc(nodeById[e.to].label)}</b> <span class="lbl">${esc(e.label || e.kind)}</span></div>`).join('');
+  }
+  if (fixes.length) {
+    h += `<div class="sec">Roadmap fixes</div>` + fixes.map(f => `<div class="edge-row fix">✔ #${f.n} — ${esc(f.t)}</div>`).join('');
+  }
+  if (bugs.length) {
+    h += `<div class="sec">Known issues</div>` + bugs.map(b => `<div class="edge-row bug">✖ [${b.sev}] ${esc(b.t)} <span class="ref">${esc(b.ref)}</span></div>`).join('');
+  }
+  sidebar.innerHTML = h;
+}
+
+function clearSelect(reset) {
+  if (reset) sticky = false;
+  if (sticky) return;
+  applyFilter();
+  renderDefaultSidebar();
+}
+
+function renderDefaultSidebar() {
+  sidebar.innerHTML = `
+  <h2>IGCSE Student Operating System</h2>
+  <div class="role" style="color:var(--muted)">Python 3.11 · FastAPI · SQLAlchemy 2 async · Postgres · React 18 + Vite · Anthropic claude-opus-4-8</div>
+  <div class="plain">A tutoring platform whose spine is the <b>homework loop</b>: a tutor uploads a question booklet, the AI drafts the question list and later pre-marks students' handwritten pages, the tutor approves every mark, and only approved marks feed the deterministic Readiness Engine that powers every dashboard, chat context and report.</div>
+
+  <div class="sec">Notable findings from this map</div>
+  <div class="finding"><b>Uploads are ephemeral in production.</b> render.yaml declares no persistent disk while storage.py writes to the container filesystem — every deploy on Render silently deletes all classifieds, mark schemes and student submissions. (render.yaml:9-25)</div>
+  <div class="finding"><b>Trend data is collected but never shown.</b> ReadinessHistory rows are written on every recompute and served by GET /readiness/students/{id}/trend, yet the client fn studentTrend (api/readiness.ts:111) has zero callers — along with myGroups, deleteGroup and classifiedFilePath.</div>
+  <div class="finding"><b>The "quiz" evidence source is an orphan.</b> The Readiness Engine defines a 0.8 weight for quiz evidence (services/readiness.py:39) but no code path ever creates it — it's scaffolding for the planned AI quiz generator.</div>
+  <div class="finding"><b>Chat history is unbounded.</b> chat.py:123-130 replays the whole conversation to the model each turn with no windowing; the only guard is the 50-messages/day cap.</div>
+  <div class="finding"><b>Prompt caching is used in exactly one place.</b> Marking caches the classified + mark scheme blocks (marking.py:103-113) so batch-marking a class reuses the prefix; extraction, chat and reports don't cache at all.</div>
+  <div class="finding"><b>Trust-first AI is enforced structurally, not just by prompt.</b> Students never see AI drafts (a status map hides them, submissions.py:156-163), AI marks are clamped to the question max (marking.py:151), and evidence is built only from tutor-final marks (evidence.py:38).</div>
+
+  <div class="sec">Node colors</div>
+  <div class="legend">
+    <div class="sw" style="border-color:var(--client)"></div><span>Client — React pages</span>
+    <div class="sw" style="border-color:var(--route)"></div><span>Server entry + API routes</span>
+    <div class="sw" style="border-color:var(--service)"></div><span>Services (business logic + AI)</span>
+    <div class="sw" style="border-color:var(--db)"></div><span>Data — Postgres tables + disk</span>
+    <div class="sw" style="border-color:var(--external)"></div><span>External systems</span>
+    <div class="sw" style="border-color:var(--critical);border-width:2.5px"></div><span>Thick red stroke = on the critical path</span>
+  </div>
+  <div class="sec">Wire colors</div>
+  <div class="legend">
+    <div class="ln" style="border-color:var(--critical)"></div><span>Critical spine (numbered 1→14)</span>
+    <div class="ln" style="border-color:var(--accent-2)"></div><span>External / infra</span>
+    <div class="ln" style="border-color:var(--db)"></div><span>Database read/write</span>
+    <div class="ln" style="border-color:var(--client)"></div><span>Router mounts (Show all wires)</span>
+    <div class="ln" style="border-color:#5a5a5a"></div><span>Function / HTTP call</span>
+  </div>
+  <div class="sec">Badges</div>
+  <div class="legend">
+    <div class="sw" style="border-color:#2e9e4f;background:#2e9e4f"></div><span>Planned roadmap fixes touching this node</span>
+    <div class="sw" style="border-color:#c22843;background:#c22843"></div><span>Known issues (cited file:line)</span>
+  </div>`;
+}
+
+/* ---------------- Pan / zoom ---------------- */
+const canvas = document.getElementById('canvas');
+let tx = 0, ty = 0, s = 1;
+const WORLD_W = 1880, WORLD_H = 1090;
+function apply() { world.setAttribute('transform', `translate(${tx} ${ty}) scale(${s})`); }
+function fit() {
+  const r = canvas.getBoundingClientRect();
+  s = Math.min(r.width / WORLD_W, r.height / WORLD_H) * 0.97;
+  tx = (r.width - WORLD_W * s) / 2; ty = (r.height - WORLD_H * s) / 2;
+  apply();
+}
+canvas.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const ns = Math.min(3.5, Math.max(0.2, s * factor));
+  tx = mx - (mx - tx) * (ns / s); ty = my - (my - ty) * (ns / s);
+  s = ns; apply();
+}, { passive: false });
+let drag = null;
+canvas.addEventListener('mousedown', (ev) => { drag = { x: ev.clientX, y: ev.clientY, tx, ty }; canvas.classList.add('dragging'); });
+window.addEventListener('mousemove', (ev) => { if (!drag) return; tx = drag.tx + ev.clientX - drag.x; ty = drag.ty + ev.clientY - drag.y; apply(); });
+window.addEventListener('mouseup', () => { drag = null; canvas.classList.remove('dragging'); });
+svg.addEventListener('click', () => clearSelect(true));
+document.getElementById('zoom-fit').addEventListener('click', fit);
+document.getElementById('zoom-in').addEventListener('click', () => { s = Math.min(3.5, s * 1.2); apply(); });
+document.getElementById('zoom-out').addEventListener('click', () => { s = Math.max(0.2, s / 1.2); apply(); });
+
+/* ---------------- Boot ---------------- */
+syncChips();
+applyFilter();
+renderDefaultSidebar();
+fit();
+window.addEventListener('resize', fit);
+</script>
+</body>
+</html>
