@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
+from app.config import get_settings
 from app.models import Group, GroupMember, Invite, InviteKind, ParentLink
 from app.models.users import User, UserRole
 from app.schemas.auth import (
@@ -32,6 +33,9 @@ from app.security import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+REFRESH_COOKIE = "igcse_refresh"
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+
 
 def _token_pair(user_id: int) -> TokenPair:
     return TokenPair(
@@ -40,8 +44,21 @@ def _token_pair(user_id: int) -> TokenPair:
     )
 
 
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        REFRESH_COOKIE,
+        token,
+        max_age=settings.refresh_token_expire_days * 86400,
+        httponly=True,
+        secure=settings.refresh_cookie_secure,
+        samesite="lax",
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
 @router.post("/register/tutor", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register_tutor(body: TutorSignupRequest, db: DbSession) -> AuthResponse:
+async def register_tutor(body: TutorSignupRequest, db: DbSession, response: Response) -> AuthResponse:
     email = body.email.lower()
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     if existing is not None:
@@ -55,11 +72,13 @@ async def register_tutor(body: TutorSignupRequest, db: DbSession) -> AuthRespons
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_token_pair(user.id))
+    tokens = _token_pair(user.id)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
+async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthResponse:
     identifier = body.identifier.strip().lower()
     user = await db.scalar(
         select(User).where(
@@ -68,18 +87,32 @@ async def login(body: LoginRequest, db: DbSession) -> AuthResponse:
     )
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_token_pair(user.id))
+    tokens = _token_pair(user.id)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/refresh", response_model=TokenPair)
-async def refresh(body: RefreshRequest, db: DbSession) -> TokenPair:
-    user_id = decode_token(body.refresh_token, expected_type="refresh")
+async def refresh(
+    request: Request, response: Response, db: DbSession, body: RefreshRequest | None = None
+) -> TokenPair:
+    raw_token = (body.refresh_token if body else None) or request.cookies.get(REFRESH_COOKIE)
+    if raw_token is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No refresh token provided")
+    user_id = decode_token(raw_token, expected_type="refresh")
     if user_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token")
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
-    return _token_pair(user.id)
+    tokens = _token_pair(user.id)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return tokens
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response) -> None:
+    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
 
 
 @router.get("/me", response_model=UserOut)
@@ -131,7 +164,7 @@ async def _add_to_group(db: AsyncSession, group_id: int, student_id: int) -> Non
 
 
 @router.post("/register/student", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register_student(body: StudentRegisterRequest, db: DbSession) -> AuthResponse:
+async def register_student(body: StudentRegisterRequest, db: DbSession, response: Response) -> AuthResponse:
     invite = await _valid_invite(db, body.invite_code, InviteKind.student_join)
     email = body.email.lower()
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
@@ -151,11 +184,13 @@ async def register_student(body: StudentRegisterRequest, db: DbSession) -> AuthR
     await _add_to_group(db, invite.group_id, user.id)
     await db.commit()
     await db.refresh(user)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_token_pair(user.id))
+    tokens = _token_pair(user.id)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/register/parent", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register_parent(body: ParentRegisterRequest, db: DbSession) -> AuthResponse:
+async def register_parent(body: ParentRegisterRequest, db: DbSession, response: Response) -> AuthResponse:
     invite = await _valid_invite(db, body.link_code, InviteKind.parent_link)
     email = body.email.lower()
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
@@ -175,7 +210,9 @@ async def register_parent(body: ParentRegisterRequest, db: DbSession) -> AuthRes
     db.add(ParentLink(parent_id=user.id, student_id=invite.student_id))
     await db.commit()
     await db.refresh(user)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_token_pair(user.id))
+    tokens = _token_pair(user.id)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/join", status_code=status.HTTP_204_NO_CONTENT)

@@ -57,3 +57,36 @@ async def test_access_token_rejected_as_refresh(client, tutor):
 async def test_me_requires_auth(client):
     resp = await client.get("/api/v1/auth/me")
     assert resp.status_code == 401
+
+
+async def test_login_sets_refresh_cookie(client):
+    resp = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Cookie Tutor", "email": "cookie@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 201
+    assert "igcse_refresh" in resp.cookies
+
+
+async def test_refresh_from_cookie_only(client):
+    resp = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Cookie Tutor 2", "email": "cookie2@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 201
+    # No body — relies solely on the cookie set during registration.
+    refresh_resp = await client.post("/api/v1/auth/refresh")
+    assert refresh_resp.status_code == 200
+    new_access = refresh_resp.json()["access_token"]
+    me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
+    assert me.status_code == 200
+
+
+async def test_refresh_without_token_rejected(client):
+    resp = await client.post("/api/v1/auth/refresh")
+    assert resp.status_code == 401
+
+
+async def test_logout_clears_cookie(client, tutor):
+    resp = await client.post("/api/v1/auth/logout")
+    assert resp.status_code == 204

@@ -17,3 +17,7 @@ export function registerTutor(name: string, email: string, password: string) {
 export function fetchMe() {
   return api<User>("/api/v1/auth/me");
 }
+
+export function logout() {
+  return api<void>("/api/v1/auth/logout", { method: "POST" });
+}
