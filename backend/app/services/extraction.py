@@ -51,6 +51,9 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
     assignment = await session.get(Assignment, assignment_id)
     if assignment is None:
         return
+    if assignment.classified_id is None:
+        assignment.status = AssignmentStatus.review
+        return
     try:
         await _run_extraction(session, assignment)
         assignment.status = AssignmentStatus.review

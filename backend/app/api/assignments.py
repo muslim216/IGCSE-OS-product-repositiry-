@@ -76,6 +76,33 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
     group = await db.get(Group, body.group_id)
     if group is None or group.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
+
+    if body.classified_id is None:
+        assignment = Assignment(
+            group_id=group.id,
+            classified_id=None,
+            title=body.title,
+            instructions=body.instructions,
+            due_at=body.due_at,
+            question_range=body.question_range,
+            status=AssignmentStatus.review,
+        )
+        db.add(assignment)
+        await db.flush()
+        await db.commit()
+        return AssignmentDetail(
+            id=assignment.id,
+            group_id=assignment.group_id,
+            classified_id=None,
+            title=assignment.title,
+            instructions=assignment.instructions,
+            due_at=assignment.due_at,
+            question_range=assignment.question_range,
+            status=assignment.status.value,
+            extraction_error=None,
+            questions=[],
+        )
+
     classified = await db.get(Classified, body.classified_id)
     if classified is None or classified.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Classified not found")
@@ -229,6 +256,10 @@ async def publish_assignment(assignment_id: int, db: DbSession, user: CurrentUse
 @router.post("/{assignment_id}/retry-extraction", response_model=AssignmentDetail)
 async def retry_extraction(assignment_id: int, db: DbSession, user: CurrentUser) -> AssignmentDetail:
     assignment = await _owned_assignment(db, user, assignment_id)
+    if assignment.classified_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This assignment has no question booklet to re-extract"
+        )
     if assignment.status not in (AssignmentStatus.extraction_failed, AssignmentStatus.review):
         raise HTTPException(status.HTTP_409_CONFLICT, "Extraction can only be retried before publishing")
     existing = (

@@ -19,7 +19,7 @@ export default function AssignmentCreatePage() {
     enabled: subjectId !== undefined,
   });
 
-  const [mode, setMode] = useState<"existing" | "upload">("upload");
+  const [mode, setMode] = useState<"existing" | "upload" | "manual">("upload");
   const [classifiedId, setClassifiedId] = useState<number | "">("");
   const [newClassified, setNewClassified] = useState({ title: "" });
   const [file, setFile] = useState<File | null>(null);
@@ -34,7 +34,7 @@ export default function AssignmentCreatePage() {
 
   const create = useMutation({
     mutationFn: async () => {
-      let cid = classifiedId as number;
+      let cid: number | null = mode === "existing" ? (classifiedId as number) : null;
       if (mode === "upload") {
         if (!file || !subjectId) throw new Error("Choose the classified PDF first");
         const uploaded = await uploadClassified({
@@ -51,7 +51,7 @@ export default function AssignmentCreatePage() {
         title: form.title,
         instructions: form.instructions || undefined,
         due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
-        question_range: form.question_range || null,
+        question_range: mode === "manual" ? null : form.question_range || null,
       });
     },
     onSuccess: (assignment) => {
@@ -75,13 +75,13 @@ export default function AssignmentCreatePage() {
       </Link>
       <h2 className="mt-1 text-xl font-semibold text-slate-800">New homework</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Upload a classified (question booklet) — the AI reads it and builds the question list
-        for you to check before publishing.
+        Upload a classified (question booklet) and the AI builds the question list for you, or
+        skip the PDF and create the assignment straight away.
       </p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-5">
         <div className="rounded-lg border bg-white p-4">
-          <div className="flex gap-4 text-sm">
+          <div className="flex flex-wrap gap-4 text-sm">
             <label className="flex items-center gap-1.5">
               <input
                 type="radio"
@@ -98,6 +98,14 @@ export default function AssignmentCreatePage() {
                 disabled={!classifieds.data?.length}
               />
               Reuse an uploaded one
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                checked={mode === "manual"}
+                onChange={() => setMode("manual")}
+              />
+              No PDF — I'll type the questions
             </label>
           </div>
 
@@ -138,7 +146,7 @@ export default function AssignmentCreatePage() {
                 />
               </div>
             </div>
-          ) : (
+          ) : mode === "existing" ? (
             <select
               className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               value={classifiedId}
@@ -154,6 +162,11 @@ export default function AssignmentCreatePage() {
                 </option>
               ))}
             </select>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">
+              The assignment is created empty and ready to review — add questions manually on
+              the next screen, then publish when you're done.
+            </p>
           )}
         </div>
 
@@ -170,17 +183,19 @@ export default function AssignmentCreatePage() {
               required
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Question range (optional — leave empty for the whole booklet)
-            </label>
-            <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder='e.g. "Q1-15" or "pages 3-10"'
-              value={form.question_range}
-              onChange={(e) => setForm({ ...form, question_range: e.target.value })}
-            />
-          </div>
+          {mode !== "manual" && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700">
+                Question range (optional — leave empty for the whole booklet)
+              </label>
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                placeholder='e.g. "Q1-15" or "pages 3-10"'
+                value={form.question_range}
+                onChange={(e) => setForm({ ...form, question_range: e.target.value })}
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700">Due date</label>
             <input
@@ -208,7 +223,11 @@ export default function AssignmentCreatePage() {
           disabled={create.isPending}
           className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {create.isPending ? "Uploading…" : "Create & extract questions"}
+          {create.isPending
+            ? "Creating…"
+            : mode === "manual"
+              ? "Create assignment"
+              : "Create & extract questions"}
         </button>
       </form>
     </div>

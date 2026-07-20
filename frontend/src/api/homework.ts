@@ -40,7 +40,7 @@ export interface Assignment {
 export interface AssignmentDetail {
   id: number;
   group_id: number;
-  classified_id: number;
+  classified_id: number | null;
   title: string;
   instructions: string | null;
   due_at: string | null;
@@ -146,7 +146,7 @@ export function uploadClassified(payload: {
 
 export const createAssignment = (payload: {
   group_id: number;
-  classified_id: number;
+  classified_id?: number | null;
   title: string;
   instructions?: string;
   due_at?: string | null;

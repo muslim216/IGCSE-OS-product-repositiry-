@@ -48,7 +48,9 @@ class Assignment(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
-    classified_id: Mapped[int] = mapped_column(ForeignKey("classifieds.id"), nullable=False)
+    # Optional: assignments can be created without a question booklet — the
+    # tutor types questions directly instead of uploading/extracting a PDF.
+    classified_id: Mapped[int | None] = mapped_column(ForeignKey("classifieds.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -61,7 +63,7 @@ class Assignment(TimestampMixin, Base):
     )
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    classified: Mapped[Classified] = relationship()
+    classified: Mapped[Classified | None] = relationship()
     questions: Mapped[list["AssignmentQuestion"]] = relationship(
         back_populates="assignment", cascade="all, delete-orphan", order_by="AssignmentQuestion.position"
     )

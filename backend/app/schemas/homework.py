@@ -17,7 +17,9 @@ class ClassifiedOut(BaseModel):
 
 class AssignmentCreate(BaseModel):
     group_id: int
-    classified_id: int
+    # Omit to create an assignment without a question booklet; the tutor
+    # types the question list directly instead.
+    classified_id: int | None = None
     title: str = Field(min_length=1, max_length=255)
     instructions: str | None = None
     due_at: datetime | None = None
@@ -55,7 +57,7 @@ class AssignmentOut(BaseModel):
 class AssignmentDetail(BaseModel):
     id: int
     group_id: int
-    classified_id: int
+    classified_id: int | None
     title: str
     instructions: str | None
     due_at: datetime | None
