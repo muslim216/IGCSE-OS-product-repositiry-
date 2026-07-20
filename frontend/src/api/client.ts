@@ -19,6 +19,14 @@ export interface AuthResponse {
 
 const STORAGE_KEY = "igcse-os-tokens";
 
+// Optional escape hatch for deployments without a same-origin API proxy
+// (e.g. a Vercel preview without vercel.json applied yet).
+export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "";
+
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export function getStoredTokens(): TokenPair | null {
   const raw = localStorage.getItem(STORAGE_KEY);
   return raw ? (JSON.parse(raw) as TokenPair) : null;
@@ -40,13 +48,13 @@ export class ApiError extends Error {
   }
 }
 
-async function refreshTokens(): Promise<TokenPair | null> {
+export async function refreshTokens(): Promise<TokenPair | null> {
   const tokens = getStoredTokens();
-  if (!tokens) return null;
-  const resp = await fetch("/api/v1/auth/refresh", {
+  const resp = await fetch(apiUrl("/api/v1/auth/refresh"), {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+    body: JSON.stringify(tokens ? { refresh_token: tokens.refresh_token } : {}),
   });
   if (!resp.ok) {
     storeTokens(null);
@@ -70,7 +78,7 @@ export async function api<T>(
   if (tokens) {
     headers.set("Authorization", `Bearer ${tokens.access_token}`);
   }
-  const resp = await fetch(path, { ...options, headers });
+  const resp = await fetch(apiUrl(path), { ...options, headers, credentials: "include" });
 
   if (resp.status === 401 && tokens && retry) {
     const fresh = await refreshTokens();
