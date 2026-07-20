@@ -21,6 +21,7 @@ from app.models import (
 from app.schemas.readiness import (
     AssessmentCreate,
     AssessmentOut,
+    MyAssessmentScore,
     ObservationCreate,
     ObservationOut,
 )
@@ -158,6 +159,38 @@ async def list_assessments(db: DbSession, user: CurrentUser, subject_id: int | N
             )
         )
     return out
+
+
+@router.get("/me/assessments", response_model=list[MyAssessmentScore])
+async def my_assessments(db: DbSession, user: CurrentUser) -> list[MyAssessmentScore]:
+    if user.role != UserRole.student:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
+    rows = (
+        await db.execute(
+            select(AssessmentScore, Assessment, Subject, Topic)
+            .join(Assessment, Assessment.id == AssessmentScore.assessment_id)
+            .join(Subject, Subject.id == Assessment.subject_id)
+            .outerjoin(Topic, Topic.id == AssessmentScore.topic_id)
+            .where(AssessmentScore.student_id == user.id)
+            .order_by(Assessment.date.desc())
+        )
+    ).all()
+    return [
+        MyAssessmentScore(
+            assessment_id=assessment.id,
+            title=assessment.title,
+            type=assessment.type.value,
+            date=assessment.date,
+            subject_id=subject.id,
+            subject_name=subject.name,
+            topic_id=topic.id if topic else None,
+            topic_title=topic.title if topic else None,
+            marks=score.marks,
+            max_marks=score.max_marks,
+            pct=round(score.marks / score.max_marks * 100, 1) if score.max_marks else 0.0,
+        )
+        for score, assessment, subject, topic in rows
+    ]
 
 
 @router.post("/observations", response_model=ObservationOut, status_code=status.HTTP_201_CREATED)

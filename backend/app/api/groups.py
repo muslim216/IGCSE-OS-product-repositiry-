@@ -4,7 +4,9 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from app.api.analytics import group_analytics
 from app.api.deps import CurrentUser, DbSession
+from app.config import get_settings
 from app.models import (
     Group,
     GroupMember,
@@ -17,6 +19,7 @@ from app.models import (
 )
 from app.schemas.auth import UserOut
 from app.schemas.groups import (
+    ClassBrief,
     GroupCreate,
     GroupDetail,
     GroupOut,
@@ -29,6 +32,7 @@ from app.schemas.groups import (
     SubjectOut,
 )
 from app.security import hash_password
+from app.services.ai import AIUnavailableError, get_client
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -219,6 +223,51 @@ async def list_lessons(group_id: int, db: DbSession, user: CurrentUser) -> list[
         )
     ).all()
     return [LessonOut.model_validate(lesson) for lesson in lessons]
+
+
+@router.post("/{group_id}/brief", response_model=ClassBrief)
+async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassBrief:
+    """A short AI-written note to jog the tutor's memory before a lesson,
+    grounded in the group's weakest topics. Basic version: no learning-style
+    detection or multi-year trends yet."""
+    group = await _owned_group(db, user, group_id)
+    analytics = await group_analytics(group_id, db, user)
+
+    if not analytics.weak_topics and not analytics.weak_students:
+        return ClassBrief(
+            brief="Not enough evidence yet to write a brief for this class — "
+            "once homework or mocks are marked, a summary will appear here."
+        )
+
+    weak_topics_text = "\n".join(
+        f"- {t.topic_title} ({t.topic_code}): avg {t.avg_score}% across {t.student_count} students"
+        for t in analytics.weak_topics[:5]
+    )
+    weak_students_text = "\n".join(
+        f"- {s.student_name}: {s.score}% overall" for s in analytics.weak_students[:5]
+    )
+
+    try:
+        client = get_client()
+    except AIUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+
+    prompt = (
+        f"Group: {group.name} ({group.subject.name if group.subject else ''})\n\n"
+        f"Weakest topics across the class:\n{weak_topics_text or '(none yet)'}\n\n"
+        f"Students with the lowest overall readiness:\n{weak_students_text or '(none yet)'}\n\n"
+        "Write a short (3-5 sentence) pre-lesson brief for the tutor: what to focus on today "
+        "and who might need extra attention. Plain prose, no headings."
+    )
+    response = await client.messages.create(
+        model=get_settings().anthropic_model,
+        max_tokens=400,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    )
+    return ClassBrief(brief=text.strip())
 
 
 @router.delete("/{group_id}/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -25,8 +25,10 @@ from app.models.readiness import (
     ReadinessHistory,
     TopicReadiness,
     TutorObservation,
+    TutorPreferences,
 )
 from app.models.reports import Report, ReportAudience, ReportStatus
+from app.models.resources import GroupResource, ResourceKind
 from app.models.syllabus import Subject, Topic
 from app.models.users import User, UserRole
 
@@ -46,6 +48,7 @@ __all__ = [
     "EvidenceSource",
     "Group",
     "GroupMember",
+    "GroupResource",
     "Invite",
     "InviteKind",
     "Job",
@@ -60,6 +63,7 @@ __all__ = [
     "Report",
     "ReportAudience",
     "ReportStatus",
+    "ResourceKind",
     "Subject",
     "Submission",
     "SubmissionFile",
@@ -67,6 +71,7 @@ __all__ = [
     "Topic",
     "TopicReadiness",
     "TutorObservation",
+    "TutorPreferences",
     "User",
     "UserRole",
 ]

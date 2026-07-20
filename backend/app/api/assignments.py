@@ -12,12 +12,14 @@ from app.models import (
     GroupMember,
     QuestionTopic,
     Submission,
+    SubmissionStatus,
     Topic,
     User,
     UserRole,
 )
 from app.schemas.groups import TopicOut
 from app.schemas.homework import (
+    AssignmentAttention,
     AssignmentCreate,
     AssignmentDetail,
     AssignmentOut,
@@ -175,6 +177,60 @@ async def list_group_assignments(group_id: int, db: DbSession, user: CurrentUser
                 question_count=stats[0],
                 total_marks=stats[1],
                 submission_count=submission_count,
+            )
+        )
+    return out
+
+
+@router.get("/attention", response_model=list[AssignmentAttention])
+async def assignments_needing_attention(db: DbSession, user: CurrentUser) -> list[AssignmentAttention]:
+    """Surfaces homework that needs a tutor's eyes: failed extraction/marking,
+    or AI-marked submissions still waiting to be finalized."""
+    if user.role not in (UserRole.tutor, UserRole.admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    tutor_groups = select(Group.id).where(Group.tutor_id == user.id)
+
+    out: list[AssignmentAttention] = []
+    stuck_assignments = (
+        await db.scalars(
+            select(Assignment).where(
+                Assignment.group_id.in_(tutor_groups),
+                Assignment.status == AssignmentStatus.extraction_failed,
+            )
+        )
+    ).all()
+    for a in stuck_assignments:
+        out.append(
+            AssignmentAttention(
+                assignment_id=a.id,
+                assignment_title=a.title,
+                reason="extraction_failed",
+                detail=a.extraction_error,
+                submission_id=None,
+                student_name=None,
+            )
+        )
+
+    rows = (
+        await db.execute(
+            select(Submission, Assignment, User)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(User, User.id == Submission.student_id)
+            .where(
+                Assignment.group_id.in_(tutor_groups),
+                Submission.status.in_([SubmissionStatus.ai_failed, SubmissionStatus.ai_marked]),
+            )
+        )
+    ).all()
+    for submission, assignment, student in rows:
+        out.append(
+            AssignmentAttention(
+                assignment_id=assignment.id,
+                assignment_title=assignment.title,
+                reason=submission.status.value,
+                detail=submission.ai_error,
+                submission_id=submission.id,
+                student_name=student.name,
             )
         )
     return out

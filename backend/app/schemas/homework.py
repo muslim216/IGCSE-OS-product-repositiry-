@@ -67,6 +67,15 @@ class AssignmentDetail(BaseModel):
     questions: list[QuestionOut]
 
 
+class AssignmentAttention(BaseModel):
+    assignment_id: int
+    assignment_title: str
+    reason: str
+    detail: str | None
+    submission_id: int | None
+    student_name: str | None
+
+
 class StudentAssignment(BaseModel):
     id: int
     title: str

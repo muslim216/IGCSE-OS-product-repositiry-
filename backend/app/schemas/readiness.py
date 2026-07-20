@@ -110,6 +110,39 @@ class AssessmentOut(BaseModel):
     score_count: int
 
 
+class MyAssessmentScore(BaseModel):
+    assessment_id: int
+    title: str
+    type: str
+    date: date
+    subject_id: int
+    subject_name: str
+    topic_id: int | None
+    topic_title: str | None
+    marks: int
+    max_marks: int
+    pct: float
+
+
+# ---- Tutor preferences (readiness weights) ----
+
+
+class PreferencesOut(BaseModel):
+    weight_mock: float
+    weight_homework: float
+    weight_quiz: float
+    weight_observation: float
+    half_life_days: float
+
+
+class PreferencesUpdate(BaseModel):
+    weight_mock: float = Field(ge=0, le=3)
+    weight_homework: float = Field(ge=0, le=3)
+    weight_quiz: float = Field(ge=0, le=3)
+    weight_observation: float = Field(ge=0, le=3)
+    half_life_days: float = Field(ge=7, le=365)
+
+
 # ---- Tutor analytics ----
 
 

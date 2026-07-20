@@ -1,9 +1,11 @@
-from fastapi import APIRouter
-from sqlalchemy import select
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
-from app.models import Group, GroupMember, Lesson, ParentLink, User
+from app.models import Group, GroupMember, Lesson, ParentLink, User, UserRole
 from app.schemas.auth import UserOut
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingLesson
 
@@ -50,6 +52,36 @@ async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingLesson]:
             title=lesson.title,
         )
         for lesson, group in rows
+    ]
+
+
+@router.get("/today-lessons", response_model=list[UpcomingLesson])
+async def my_today_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingLesson]:
+    if user.role not in (UserRole.tutor, UserRole.admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    today_weekday = datetime.now(timezone.utc).weekday()
+    rows = (
+        await db.execute(
+            select(Lesson, Group, func.count(GroupMember.id))
+            .join(Group, Group.id == Lesson.group_id)
+            .outerjoin(GroupMember, GroupMember.group_id == Group.id)
+            .where(Group.tutor_id == user.id, Lesson.weekday == today_weekday)
+            .options(selectinload(Group.subject))
+            .group_by(Lesson.id, Group.id)
+            .order_by(Lesson.start_time)
+        )
+    ).all()
+    return [
+        UpcomingLesson(
+            group_id=group.id,
+            group_name=f"{group.name} ({count} student{'s' if count != 1 else ''})",
+            subject_name=group.subject.name,
+            weekday=lesson.weekday,
+            start_time=lesson.start_time,
+            duration_min=lesson.duration_min,
+            title=lesson.title,
+        )
+        for lesson, group, count in rows
     ]
 
 
