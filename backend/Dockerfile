@@ -12,5 +12,5 @@ RUN pip install --no-cache-dir .
 
 EXPOSE 8000
 
-# Run migrations, then start the API.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run migrations, seed syllabus + demo data (idempotent), then start the API.
+CMD ["sh", "-c", "alembic upgrade head && python -m seed.load_syllabus && python -m seed.demo; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

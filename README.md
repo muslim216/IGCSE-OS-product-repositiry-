@@ -17,7 +17,7 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
 | AI | Anthropic API (`claude-opus-4-8`) — marking, extraction, chat, reports |
-| Deploy | Render blueprint (`render.yaml`); Docker for local dev |
+| Deploy | Vercel (frontend) + Render free tier (backend + Postgres) |
 
 ## Local development
 
@@ -48,15 +48,27 @@ cd backend && .venv/bin/python -m pytest        # backend (runs on SQLite, no DB
 cd frontend && npm test                          # frontend
 ```
 
-## Deployment (Render)
+## Deployment (Vercel + Render)
+
+The frontend deploys to Vercel (free); the API + Postgres deploy to Render (free tier —
+the service sleeps when idle and the free database expires after ~30 days, so this is a
+demo setup, not production). Vercel proxies `/api/*` to the Render API so the app behaves
+as a single origin.
 
 1. Push this repo to GitHub.
-2. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and
-   connect the repo. `render.yaml` provisions the Postgres database, the API, and the
-   static frontend.
-3. Set `ANTHROPIC_API_KEY` when prompted (Render generates `JWT_SECRET` automatically).
-4. If your service names/URLs differ, update the `routes` destinations in `render.yaml`
-   and the `CORS_ORIGINS` env var accordingly.
+2. **Render (API + database):** in the [Render dashboard](https://dashboard.render.com),
+   choose **New → Blueprint**, connect this repo on branch `claude/igcse-os-deploy-hyfe5h`,
+   and paste `ANTHROPIC_API_KEY` when prompted (Render generates `JWT_SECRET`
+   automatically). Click **Apply**, then copy the API service's URL once it's live
+   (e.g. `https://igcse-os-api.onrender.com`).
+3. **Vercel (frontend):** choose **Add New → Project**, select the same repo, set
+   **Root Directory** to `frontend`, and deploy. Copy the resulting site URL
+   (e.g. `https://igcse-os.vercel.app`).
+4. Update `frontend/vercel.json`'s rewrite destination with the real Render API URL, and
+   `render.yaml`'s `CORS_ORIGINS` with the real Vercel URL, then push — both platforms
+   auto-redeploy.
+5. Verify: `GET <render-url>/api/v1/health` returns `{"status":"ok"}`, and you can sign in
+   on the Vercel URL as `demo-tutor@example.com` / `demo1234`.
 
 ## Configuration
 
