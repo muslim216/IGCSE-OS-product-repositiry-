@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
@@ -26,6 +27,7 @@ from app.services.student_context import build_student_context
 from app.services.tutor_chat import stream_reply
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 # Simple abuse guard: cap AI messages per student per rolling 24h.
 DAILY_MESSAGE_LIMIT = 50
@@ -140,9 +142,11 @@ async def send_message(
                 collected.append(chunk)
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
         except AIUnavailableError as exc:
+            logger.info("AI unavailable for conversation %s: %s", convo_id, exc)
             yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
             return
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
+            logger.exception("Chat streaming failed for conversation %s", convo_id)
             yield f"event: error\ndata: {json.dumps({'message': 'The tutor is unavailable right now. Please try again.'})}\n\n"
             return
 

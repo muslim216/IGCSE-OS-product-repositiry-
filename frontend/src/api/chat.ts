@@ -1,4 +1,4 @@
-import { api, getStoredTokens } from "./client";
+import { api, apiUrl, getStoredTokens, refreshTokens } from "./client";
 
 export interface Conversation {
   id: number;
@@ -38,15 +38,25 @@ export async function streamMessage(
   content: string,
   onChunk: (text: string) => void,
 ): Promise<void> {
-  const tokens = getStoredTokens();
-  const resp = await fetch(`/api/v1/chat/conversations/${conversationId}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {}),
-    },
-    body: JSON.stringify({ content }),
-  });
+  const url = apiUrl(`/api/v1/chat/conversations/${conversationId}/messages`);
+  const doFetch = () => {
+    const tokens = getStoredTokens();
+    return fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {}),
+      },
+      body: JSON.stringify({ content }),
+    });
+  };
+
+  let resp = await doFetch();
+  if (resp.status === 401) {
+    const fresh = await refreshTokens();
+    if (fresh) resp = await doFetch();
+  }
   if (!resp.ok || !resp.body) {
     let detail = "Could not send message.";
     try {
