@@ -67,7 +67,9 @@ export default function ParentDashboard() {
         )}
       </div>
 
-      {selected !== null && <ReportsPanel studentId={selected} audiences={["parent"]} />}
+      {selected !== null && (
+        <ReportsPanel studentId={selected} audiences={["parent"]} canGenerate={false} />
+      )}
     </div>
   );
 }

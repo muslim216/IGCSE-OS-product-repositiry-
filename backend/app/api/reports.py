@@ -36,6 +36,8 @@ async def _check_can_view_student(db: AsyncSession, viewer: User, student_id: in
 
 @router.post("/generate", response_model=ReportDetail, status_code=status.HTTP_201_CREATED)
 async def generate(body: ReportGenerate, db: DbSession, user: CurrentUser) -> ReportDetail:
+    if user.role not in (UserRole.tutor, UserRole.admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only tutors can generate reports")
     audience = ReportAudience(body.audience)
     if audience not in ALLOWED_AUDIENCES[user.role]:
         raise HTTPException(

@@ -105,14 +105,14 @@ async def test_parent_sees_only_parent_reports(client, tutor, world, monkeypatch
     assert audiences == {"parent"}
 
 
-async def test_parent_can_generate_own_report(client, world, monkeypatch):
-    monkeypatch.setattr("app.services.reports._write_report", fake_write)
+async def test_parent_cannot_generate_reports(client, world):
+    # Only tutors generate reports now — parents (and students) are view-only.
     resp = await client.post(
         "/api/v1/reports/generate",
         json={"student_id": world["student_id"], "audience": "parent"},
         headers=world["parent_headers"],
     )
-    assert resp.status_code == 201
+    assert resp.status_code == 403
 
 
 async def test_parent_cannot_generate_tutor_report(client, world):
@@ -122,6 +122,34 @@ async def test_parent_cannot_generate_tutor_report(client, world):
         headers=world["parent_headers"],
     )
     assert resp.status_code == 403
+
+
+async def test_student_cannot_generate_reports(client, tutor, world, monkeypatch):
+    monkeypatch.setattr("app.services.reports._write_report", fake_write)
+    student_login = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "sara", "password": "password123"},
+    )
+    headers = {"Authorization": f"Bearer {student_login.json()['tokens']['access_token']}"}
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": world["student_id"], "audience": "student"},
+        headers=headers,
+    )
+    assert resp.status_code == 403
+
+    # But they can still view a tutor-generated report.
+    generated = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": world["student_id"], "audience": "student"},
+        headers=tutor["headers"],
+    )
+    await process_one_job()
+    listing = await client.get(
+        f"/api/v1/reports?student_id={world['student_id']}", headers=headers
+    )
+    assert listing.status_code == 200
+    assert any(r["id"] == generated.json()["id"] for r in listing.json())
 
 
 async def test_report_generation_fails_gracefully(client, tutor, world):

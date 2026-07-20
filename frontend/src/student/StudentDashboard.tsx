@@ -91,7 +91,11 @@ export default function StudentDashboard() {
       </div>
 
       {readiness.data && (
-        <ReportsPanel studentId={readiness.data.student_id} audiences={["student"]} />
+        <ReportsPanel
+          studentId={readiness.data.student_id}
+          audiences={["student"]}
+          canGenerate={false}
+        />
       )}
     </div>
   );

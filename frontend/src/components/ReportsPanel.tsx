@@ -10,9 +10,11 @@ import { Markdown } from "./Markdown";
 export function ReportsPanel({
   studentId,
   audiences,
+  canGenerate = true,
 }: {
   studentId: number;
   audiences: ("student" | "tutor" | "parent")[];
+  canGenerate?: boolean;
 }) {
   const queryClient = useQueryClient();
   const reports = useQuery({
@@ -44,29 +46,37 @@ export function ReportsPanel({
     <div className="rounded-lg border bg-white p-4">
       <div className="flex items-center justify-between">
         <h3 className="font-medium text-slate-800">Reports</h3>
-        <div className="flex items-center gap-2">
-          {audiences.length > 1 && (
-            <select
-              className="rounded border border-slate-300 px-2 py-1 text-sm"
-              value={audience}
-              onChange={(e) => setAudience(e.target.value as typeof audience)}
+        {canGenerate && (
+          <div className="flex items-center gap-2">
+            {audiences.length > 1 && (
+              <select
+                className="rounded border border-slate-300 px-2 py-1 text-sm"
+                value={audience}
+                onChange={(e) => setAudience(e.target.value as typeof audience)}
+              >
+                {audiences.map((a) => (
+                  <option key={a} value={a}>
+                    {a} report
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => generate.mutate()}
+              disabled={generate.isPending}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {audiences.map((a) => (
-                <option key={a} value={a}>
-                  {a} report
-                </option>
-              ))}
-            </select>
-          )}
-          <button
-            onClick={() => generate.mutate()}
-            disabled={generate.isPending}
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            Generate report
-          </button>
-        </div>
+              Generate report
+            </button>
+          </div>
+        )}
       </div>
+
+      {!canGenerate && (
+        <p className="mt-1 text-sm text-slate-500">
+          Your tutor generates reports — new ones appear here.
+        </p>
+      )}
 
       <ul className="mt-3 divide-y text-sm">
         {reports.data?.map((r) => (
