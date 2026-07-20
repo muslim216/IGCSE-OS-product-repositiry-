@@ -14,10 +14,18 @@ import SubmissionReviewPage from "./tutor/SubmissionReviewPage";
 import StudentDetailPage from "./tutor/StudentDetailPage";
 import GroupAnalyticsPage from "./tutor/GroupAnalyticsPage";
 import MockEntryPage from "./tutor/MockEntryPage";
+import ClassReadinessPage from "./tutor/ClassReadinessPage";
+import HomeworkOverviewPage from "./tutor/HomeworkOverviewPage";
+import PreferencesPage from "./tutor/PreferencesPage";
+import TodayPage from "./tutor/TodayPage";
+import MocksPage from "./tutor/MocksPage";
 import StudentDashboard from "./student/StudentDashboard";
 import HomeworkPage from "./student/HomeworkPage";
 import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
 import TutorChatPage from "./student/TutorChatPage";
+import FilesPage from "./student/FilesPage";
+import RecordingsPage from "./student/RecordingsPage";
+import ExamsPage from "./student/ExamsPage";
 import ParentDashboard from "./parent/ParentDashboard";
 
 function Home() {
@@ -29,9 +37,21 @@ function Home() {
 }
 
 const STUDENT_NAV = [
-  { to: "/student", label: "Dashboard" },
+  { to: "/student", label: "Readiness" },
+  { to: "/student/files", label: "Files" },
+  { to: "/student/recordings", label: "Recordings" },
   { to: "/student/homework", label: "Homework" },
   { to: "/student/tutor", label: "AI Tutor" },
+  { to: "/student/exams", label: "Exams" },
+];
+
+const TUTOR_NAV = [
+  { to: "/tutor", label: "Classes" },
+  { to: "/tutor/readiness", label: "Class readiness" },
+  { to: "/tutor/homework", label: "Homework" },
+  { to: "/tutor/preferences", label: "Preferences" },
+  { to: "/tutor/mocks", label: "Mocks" },
+  { to: "/tutor/today", label: "Today" },
 ];
 
 export default function App() {
@@ -44,8 +64,13 @@ export default function App() {
       <Route path="/parent-join/:code" element={<ParentJoinPage />} />
 
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
-        <Route element={<AppShell title="Tutor" />}>
+        <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} />}>
           <Route path="/tutor" element={<GroupsPage />} />
+          <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
+          <Route path="/tutor/homework" element={<HomeworkOverviewPage />} />
+          <Route path="/tutor/preferences" element={<PreferencesPage />} />
+          <Route path="/tutor/mocks" element={<MocksPage />} />
+          <Route path="/tutor/today" element={<TodayPage />} />
           <Route path="/tutor/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/tutor/groups/:groupId/new-homework" element={<AssignmentCreatePage />} />
           <Route path="/tutor/groups/:groupId/analytics" element={<GroupAnalyticsPage />} />
@@ -59,9 +84,12 @@ export default function App() {
       <Route element={<ProtectedRoute roles={["student"]} />}>
         <Route element={<AppShell title="Student" nav={STUDENT_NAV} />}>
           <Route path="/student" element={<StudentDashboard />} />
+          <Route path="/student/files" element={<FilesPage />} />
+          <Route path="/student/recordings" element={<RecordingsPage />} />
           <Route path="/student/homework" element={<HomeworkPage />} />
           <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
           <Route path="/student/tutor" element={<TutorChatPage />} />
+          <Route path="/student/exams" element={<ExamsPage />} />
         </Route>
       </Route>
 

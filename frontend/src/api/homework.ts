@@ -1,4 +1,4 @@
-import { api, getStoredTokens } from "./client";
+import { api, apiUrl, getStoredTokens } from "./client";
 import type { Topic } from "./syllabus";
 
 export interface Classified {
@@ -171,6 +171,18 @@ export const publishAssignment = (id: number) =>
 export const retryExtraction = (id: number) =>
   api<AssignmentDetail>(`/api/v1/assignments/${id}/retry-extraction`, { method: "POST" });
 
+export interface AssignmentAttention {
+  assignment_id: number;
+  assignment_title: string;
+  reason: string;
+  detail: string | null;
+  submission_id: number | null;
+  student_name: string | null;
+}
+
+export const assignmentsNeedingAttention = () =>
+  api<AssignmentAttention[]>("/api/v1/assignments/attention");
+
 export const myAssignments = () => api<StudentAssignment[]>("/api/v1/me/assignments");
 export const mySubmission = (assignmentId: number) =>
   api<StudentSubmissionView>(`/api/v1/assignments/${assignmentId}/my-submission`);
@@ -202,7 +214,7 @@ export const finalizeSubmission = (id: number) =>
 /** Fetch a protected file with auth and return an object URL for display. */
 export async function fetchFileUrl(path: string): Promise<string> {
   const tokens = getStoredTokens();
-  const resp = await fetch(path, {
+  const resp = await fetch(apiUrl(path), {
     headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {},
   });
   if (!resp.ok) throw new Error(`Could not load file (${resp.status})`);

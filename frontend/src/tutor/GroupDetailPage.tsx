@@ -14,6 +14,7 @@ import {
   resetStudentPassword,
 } from "../api/groups";
 import { listGroupAssignments } from "../api/homework";
+import { GroupResourcesPanel } from "./GroupResourcesPanel";
 
 function CopyBox({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -354,6 +355,8 @@ export default function GroupDetailPage() {
           </button>
         </form>
       </section>
+
+      <GroupResourcesPanel groupId={id} />
     </div>
   );
 }
