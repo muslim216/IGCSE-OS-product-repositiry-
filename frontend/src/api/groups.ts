@@ -46,6 +46,7 @@ export interface Lesson {
 }
 
 export interface UpcomingLesson {
+  id: number;
   group_id: number;
   group_name: string;
   subject_name: string;

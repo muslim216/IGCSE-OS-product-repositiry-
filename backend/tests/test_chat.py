@@ -92,7 +92,9 @@ async def test_chat_without_api_key_streams_error(client, student):
         async for line in resp.aiter_lines():
             body += line + "\n"
     assert "event: error" in body
-    assert "ANTHROPIC_API_KEY" in body
+    # Students see a friendly message, not the internal config detail.
+    assert "ANTHROPIC_API_KEY" not in body
+    assert "isn't set up yet" in body
 
     # No assistant message is persisted when the AI fails.
     detail = await client.get(

@@ -145,3 +145,4 @@ default tutor preferences. Sign in as `demo-tutor@example.com` / `demo1234`.
 | `GET /api/v1/assignments/attention` | tutor | Homework tab's "needs attention" list |
 | `POST /api/v1/assignments` | tutor | `classified_id` is now optional — omit it to create homework without a PDF booklet |
 | `POST /api/v1/reports/generate` | tutor/admin only now | Students and parents can view but no longer generate reports |
+| `POST /api/v1/syllabus-uploads` (+ `GET`, `GET /{id}`, `PUT /{id}/draft`, `POST /{id}/retry`, `POST /{id}/apply`) | tutor | Syllabuses tab — upload any exam board's syllabus PDF, the AI drafts the topic tree, the tutor reviews/edits it, then applies it as a new Subject (alongside the 5 built-in syllabuses) available for groups and homework |

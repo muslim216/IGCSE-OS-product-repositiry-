@@ -43,6 +43,7 @@ async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingLesson]:
     ).all()
     return [
         UpcomingLesson(
+            id=lesson.id,
             group_id=group.id,
             group_name=group.name,
             subject_name=group.subject.name,
@@ -73,6 +74,7 @@ async def my_today_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingLes
     ).all()
     return [
         UpcomingLesson(
+            id=lesson.id,
             group_id=group.id,
             group_name=f"{group.name} ({count} student{'s' if count != 1 else ''})",
             subject_name=group.subject.name,

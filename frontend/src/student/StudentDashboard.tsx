@@ -26,7 +26,7 @@ export default function StudentDashboard() {
         <p className="text-sm text-slate-500">
           Based on your homework, mocks and your tutor's notes. Grades are estimates.
         </p>
-        {readiness.data && readiness.data.subjects.length > 0 ? (
+        {readiness.data?.subjects && readiness.data.subjects.length > 0 ? (
           <div className="mt-3 grid gap-4 lg:grid-cols-2">
             {readiness.data.subjects.map((s) => (
               <SubjectReadinessCard key={s.subject_id} subject={s} />
@@ -75,8 +75,8 @@ export default function StudentDashboard() {
         <div className="rounded-lg border bg-white p-4">
           <h3 className="font-medium text-slate-800">Next lessons</h3>
           <ul className="mt-2 space-y-1.5">
-            {lessons.data?.slice(0, 4).map((lesson, i) => (
-              <li key={i} className="flex items-center justify-between text-sm">
+            {lessons.data?.slice(0, 4).map((lesson) => (
+              <li key={lesson.id} className="flex items-center justify-between text-sm">
                 <span className="text-slate-700">
                   {nextLessonLabel(lesson.weekday, lesson.start_time)}
                 </span>

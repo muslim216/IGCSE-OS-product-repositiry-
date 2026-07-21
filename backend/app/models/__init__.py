@@ -29,7 +29,7 @@ from app.models.readiness import (
 )
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
-from app.models.syllabus import Subject, Topic
+from app.models.syllabus import Subject, SyllabusUpload, SyllabusUploadStatus, Topic
 from app.models.users import User, UserRole
 
 __all__ = [
@@ -68,6 +68,8 @@ __all__ = [
     "Submission",
     "SubmissionFile",
     "SubmissionStatus",
+    "SyllabusUpload",
+    "SyllabusUploadStatus",
     "Topic",
     "TopicReadiness",
     "TutorObservation",

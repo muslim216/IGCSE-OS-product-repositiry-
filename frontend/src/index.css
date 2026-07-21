@@ -191,3 +191,36 @@ body {
 .glow-violet {
   box-shadow: 0 0 24px -6px rgba(167, 139, 250, 0.55);
 }
+
+/* Left sidebar (desktop nav). Fixed width, full height, its own scroll. */
+.sidebar {
+  width: 248px;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  padding: 1.75rem 1rem;
+  background: rgba(8, 11, 22, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+/* Cards get a touch more presence than a flat Tailwind border: a soft lift on
+   hover for anything clickable, and a hairline top highlight so panels read as
+   physical surfaces rather than plain rectangles. */
+.rounded-lg.border.bg-white {
+  position: relative;
+  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 12px 24px -16px rgba(0, 0, 0, 0.5);
+}
+a.rounded-lg.border.bg-white:hover,
+button.rounded-lg.border.bg-white:hover {
+  border-color: rgba(148, 163, 184, 0.32);
+  transform: translateY(-1px);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.01em;
+}
