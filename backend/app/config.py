@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-opus-4-8"
     upload_dir: str = "uploads"
     cors_origins: str = "http://localhost:5173"
+    # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
+    refresh_cookie_secure: bool = True
 
     @property
     def cors_origin_list(self) -> list[str]:

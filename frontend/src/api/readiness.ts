@@ -113,6 +113,9 @@ export const studentTrend = (studentId: number) =>
 export const groupAnalytics = (groupId: number) =>
   api<TutorAnalytics>(`/api/v1/analytics/groups/${groupId}`);
 
+export const listAssessments = (subjectId?: number) =>
+  api<Assessment[]>(`/api/v1/assessments${subjectId ? `?subject_id=${subjectId}` : ""}`);
+
 export const createAssessment = (payload: {
   subject_id: number;
   title: string;
@@ -121,6 +124,34 @@ export const createAssessment = (payload: {
   scores: AssessmentScoreIn[];
 }) =>
   api<Assessment>("/api/v1/assessments", { method: "POST", body: JSON.stringify(payload) });
+
+export interface MyAssessmentScore {
+  assessment_id: number;
+  title: string;
+  type: string;
+  date: string;
+  subject_id: number;
+  subject_name: string;
+  topic_id: number | null;
+  topic_title: string | null;
+  marks: number;
+  max_marks: number;
+  pct: number;
+}
+
+export const myAssessmentScores = () => api<MyAssessmentScore[]>("/api/v1/me/assessments");
+
+export interface Preferences {
+  weight_mock: number;
+  weight_homework: number;
+  weight_quiz: number;
+  weight_observation: number;
+  half_life_days: number;
+}
+
+export const getPreferences = () => api<Preferences>("/api/v1/me/preferences");
+export const updatePreferences = (payload: Preferences) =>
+  api<Preferences>("/api/v1/me/preferences", { method: "PUT", body: JSON.stringify(payload) });
 
 export const createObservation = (payload: {
   student_id: number;

@@ -173,6 +173,125 @@ async def test_student_sees_published_assignment(client, student, published_assi
     assert items[0]["submission_status"] == "not_submitted"
 
 
+async def test_create_assignment_without_pdf(client, tutor, group):
+    resp = await client.post(
+        "/api/v1/assignments",
+        json={"group_id": group["id"], "title": "No-PDF homework"},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["classified_id"] is None
+    assert body["status"] == "review"
+    assert body["questions"] == []
+    return body
+
+
+async def test_no_pdf_assignment_can_be_published_after_manual_questions(client, tutor, group):
+    created = await test_create_assignment_without_pdf(client, tutor, group)
+    aid = created["id"]
+
+    replace = await client.put(
+        f"/api/v1/assignments/{aid}/questions",
+        json=[
+            {
+                "number": "1",
+                "text_summary": "Explain photosynthesis",
+                "max_marks": 5,
+                "has_mark_scheme": False,
+                "topic_ids": [],
+            }
+        ],
+        headers=tutor["headers"],
+    )
+    assert replace.status_code == 200, replace.text
+
+    publish = await client.post(f"/api/v1/assignments/{aid}/publish", headers=tutor["headers"])
+    assert publish.status_code == 200
+    assert publish.json()["status"] == "published"
+
+
+async def test_no_pdf_assignment_retry_extraction_rejected(client, tutor, group):
+    created = await test_create_assignment_without_pdf(client, tutor, group)
+    resp = await client.post(
+        f"/api/v1/assignments/{created['id']}/retry-extraction", headers=tutor["headers"]
+    )
+    assert resp.status_code == 409
+
+
+async def test_no_pdf_assignment_marking_guard_runs_before_ai_call(client, tutor, student, group):
+    """Real (unmocked) _run_marking must build the prompt without a classified
+    and only fail once it reaches the AI call — proving the classified=None
+    guard doesn't crash first."""
+    created_resp = await client.post(
+        "/api/v1/assignments",
+        json={"group_id": group["id"], "title": "No-PDF homework"},
+        headers=tutor["headers"],
+    )
+    aid = created_resp.json()["id"]
+    await client.put(
+        f"/api/v1/assignments/{aid}/questions",
+        json=[
+            {
+                "number": "1",
+                "text_summary": "Explain photosynthesis",
+                "max_marks": 5,
+                "has_mark_scheme": False,
+                "topic_ids": [],
+            }
+        ],
+        headers=tutor["headers"],
+    )
+    await client.post(f"/api/v1/assignments/{aid}/publish", headers=tutor["headers"])
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    await process_one_job()
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    sid = subs.json()[0]["id"]
+    detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    # Fails at the AI call (no API key), not at the classified lookup — the guard worked.
+    assert subs.json()[0]["status"] == "ai_failed"
+    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
+
+
+async def test_no_pdf_assignment_marking_does_not_crash(client, tutor, student, group, monkeypatch):
+    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    created_resp = await client.post(
+        "/api/v1/assignments",
+        json={"group_id": group["id"], "title": "No-PDF homework"},
+        headers=tutor["headers"],
+    )
+    aid = created_resp.json()["id"]
+    await client.put(
+        f"/api/v1/assignments/{aid}/questions",
+        json=[
+            {
+                "number": "1",
+                "text_summary": "Explain photosynthesis",
+                "max_marks": 5,
+                "has_mark_scheme": False,
+                "topic_ids": [],
+            }
+        ],
+        headers=tutor["headers"],
+    )
+    await client.post(f"/api/v1/assignments/{aid}/publish", headers=tutor["headers"])
+
+    submit = await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert submit.status_code == 201, submit.text
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    assert subs.json()[0]["status"] == "ai_marked"
+
+
 async def test_full_marking_lifecycle(client, tutor, student, published_assignment, monkeypatch):
     monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
     aid = published_assignment["id"]

@@ -19,12 +19,15 @@ async def get_current_user(
 ) -> User:
     if credentials is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
-    user_id = decode_token(credentials.credentials, expected_type="access")
-    if user_id is None:
+    decoded = decode_token(credentials.credentials, expected_type="access")
+    if decoded is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+    user_id, token_version = decoded
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
+    if token_version != user.token_version:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
     return user
 
 

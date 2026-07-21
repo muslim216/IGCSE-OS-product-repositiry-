@@ -12,7 +12,7 @@ import {
   type AuthResponse,
   type User,
 } from "../api/client";
-import { fetchMe } from "../api/auth";
+import { fetchMe, logout } from "../api/auth";
 
 interface AuthState {
   user: User | null;
@@ -44,6 +44,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(() => {
+    logout().catch(() => {
+      // best-effort: cookie may already be gone
+    });
     storeTokens(null);
     setUser(null);
   }, []);

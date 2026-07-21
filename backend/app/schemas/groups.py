@@ -116,6 +116,10 @@ class LessonOut(BaseModel):
     title: str | None
 
 
+class ClassBrief(BaseModel):
+    brief: str
+
+
 class UpcomingLesson(BaseModel):
     group_id: int
     group_name: str

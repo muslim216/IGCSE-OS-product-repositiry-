@@ -131,3 +131,18 @@ class AssessmentScore(Base):
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     marks: Mapped[int] = mapped_column(Integer, nullable=False)
     max_marks: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class TutorPreferences(TimestampMixin, Base):
+    """Per-tutor readiness-engine weights, editable from the Preferences tab.
+    Falls back to the engine's built-in defaults when no row exists."""
+
+    __tablename__ = "tutor_preferences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
+    weight_mock: Mapped[float] = mapped_column(Float, default=1.5, nullable=False)
+    weight_homework: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    weight_quiz: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
+    weight_observation: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    half_life_days: Mapped[float] = mapped_column(Float, default=45.0, nullable=False)

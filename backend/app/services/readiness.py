@@ -23,11 +23,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Evidence,
     EvidenceSource,
+    Group,
+    GroupMember,
     ReadinessConfidence,
     ReadinessHistory,
     Subject,
     Topic,
     TopicReadiness,
+    TutorPreferences,
 )
 
 # Half-life of evidence relevance, in days.
@@ -56,11 +59,13 @@ class TopicResult:
     evidence_count: int
 
 
-def _decay(age_days: float) -> float:
-    return math.pow(0.5, age_days / HALF_LIFE_DAYS)
+def _decay(age_days: float, half_life: float = HALF_LIFE_DAYS) -> float:
+    return math.pow(0.5, age_days / half_life)
 
 
-def _confidence(points: list[EvidencePoint], now: datetime) -> ReadinessConfidence:
+def _confidence(
+    points: list[EvidencePoint], now: datetime, half_life: float = HALF_LIFE_DAYS
+) -> ReadinessConfidence:
     """Confidence grows with the amount of recent, decay-weighted evidence.
 
     The effective count sums each point's time-decay so stale evidence counts
@@ -69,8 +74,8 @@ def _confidence(points: list[EvidencePoint], now: datetime) -> ReadinessConfiden
     """
     if not points:
         return ReadinessConfidence.none
-    effective = sum(_decay(_age_days(p.occurred_at, now)) for p in points)
-    recent = sum(1 for p in points if _age_days(p.occurred_at, now) <= HALF_LIFE_DAYS)
+    effective = sum(_decay(_age_days(p.occurred_at, now), half_life) for p in points)
+    recent = sum(1 for p in points if _age_days(p.occurred_at, now) <= half_life)
     if recent >= 3 and effective >= 2.5:
         return ReadinessConfidence.high
     if recent >= 2 and effective >= 1.2:
@@ -84,7 +89,12 @@ def _age_days(occurred_at: datetime, now: datetime) -> float:
     return max(0.0, (now - occurred_at).total_seconds() / 86400.0)
 
 
-def compute_topic(points: list[EvidencePoint], now: datetime | None = None) -> TopicResult:
+def compute_topic(
+    points: list[EvidencePoint],
+    now: datetime | None = None,
+    weights: dict[EvidenceSource, float] = SOURCE_WEIGHTS,
+    half_life: float = HALF_LIFE_DAYS,
+) -> TopicResult:
     """Pure scoring for one topic from its evidence points."""
     now = now or datetime.now(timezone.utc)
     if not points:
@@ -92,13 +102,13 @@ def compute_topic(points: list[EvidencePoint], now: datetime | None = None) -> T
     total_weight = 0.0
     weighted_sum = 0.0
     for p in points:
-        w = SOURCE_WEIGHTS[p.source] * _decay(_age_days(p.occurred_at, now))
+        w = weights[p.source] * _decay(_age_days(p.occurred_at, now), half_life)
         total_weight += w
         weighted_sum += w * p.score_pct
     score = weighted_sum / total_weight if total_weight > 0 else 0.0
     return TopicResult(
         score=round(score, 1),
-        confidence=_confidence(points, now),
+        confidence=_confidence(points, now, half_life),
         evidence_count=len(points),
     )
 
@@ -140,6 +150,33 @@ async def recompute_student(session: AsyncSession, payload: dict) -> None:
         if not topic_ids:
             continue
 
+        # Resolve the student's tutor for this subject (first match wins if
+        # they somehow have more than one) and apply their weight preferences.
+        tutor_id = await session.scalar(
+            select(Group.tutor_id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(GroupMember.student_id == student_id, Group.subject_id == subject.id)
+            .limit(1)
+        )
+        prefs = (
+            await session.scalar(
+                select(TutorPreferences).where(TutorPreferences.tutor_id == tutor_id)
+            )
+            if tutor_id is not None
+            else None
+        )
+        weights = (
+            {
+                EvidenceSource.mock: prefs.weight_mock,
+                EvidenceSource.homework: prefs.weight_homework,
+                EvidenceSource.quiz: prefs.weight_quiz,
+                EvidenceSource.observation: prefs.weight_observation,
+            }
+            if prefs is not None
+            else SOURCE_WEIGHTS
+        )
+        half_life = prefs.half_life_days if prefs is not None else HALF_LIFE_DAYS
+
         evidence_rows = (
             await session.scalars(
                 select(Evidence).where(
@@ -174,7 +211,7 @@ async def recompute_student(session: AsyncSession, payload: dict) -> None:
         has_any_evidence = False
         for topic in topics:
             points = by_topic.get(topic.id, [])
-            result = compute_topic(points, now)
+            result = compute_topic(points, now, weights, half_life)
             results.append((result, topic.weight))
             if result.confidence != ReadinessConfidence.none:
                 has_any_evidence = True

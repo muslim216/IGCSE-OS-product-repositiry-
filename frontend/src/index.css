@@ -1,1 +1,193 @@
 @import "tailwindcss";
+
+@theme {
+  --color-neon-cyan: #22d3ee;
+  --color-neon-violet: #a78bfa;
+}
+
+/* ---------------------------------------------------------------------
+   Dark / glassmorphism / neon reskin.
+
+   Rather than hand-editing every page's Tailwind classes, the handful of
+   color utilities the app actually uses (bg-white cards, slate text/borders,
+   blue accents) are retargeted here. Unlayered rules always win over
+   Tailwind's own @layer utilities in the cascade, so this overrides the
+   generated classes app-wide without !important.
+   --------------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
+    radial-gradient(1000px 500px at 110% 10%, rgba(167, 139, 250, 0.12), transparent 55%),
+    #05070f;
+  color: #e2e8f0;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.35);
+  color: #f8fafc;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* Card / panel surfaces (bg-white p-4 rounded-lg border ...) become glass. */
+.bg-white {
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.hover\:bg-slate-50:hover {
+  background-color: rgba(148, 163, 184, 0.08);
+}
+.disabled\:bg-slate-50:disabled {
+  background-color: rgba(148, 163, 184, 0.04);
+}
+
+.bg-slate-50 {
+  background-color: transparent;
+}
+.bg-slate-100 {
+  background-color: rgba(148, 163, 184, 0.1);
+}
+.hover\:bg-slate-200:hover {
+  background-color: rgba(148, 163, 184, 0.16);
+}
+.hover\:bg-slate-300:hover {
+  background-color: rgba(148, 163, 184, 0.22);
+}
+.hover\:bg-slate-800:hover {
+  background-color: rgba(148, 163, 184, 0.14);
+}
+
+/* Borders */
+.border {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+.border-slate-200 {
+  border-color: rgba(148, 163, 184, 0.16);
+}
+.border-slate-300 {
+  border-color: rgba(148, 163, 184, 0.28);
+}
+.divide-y > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(148, 163, 184, 0.14);
+}
+
+/* Text */
+.text-slate-800 {
+  color: #f1f5f9;
+}
+.hover\:text-slate-800:hover {
+  color: #f8fafc;
+}
+.text-slate-700 {
+  color: #e2e8f0;
+}
+.hover\:text-slate-700:hover {
+  color: #f1f5f9;
+}
+.text-slate-600 {
+  color: #cbd5e1;
+}
+.text-slate-500 {
+  color: #94a3b8;
+}
+.text-slate-400 {
+  color: #64748b;
+}
+
+/* Primary accent: neon cyan -> violet gradient in place of flat blue. */
+.bg-blue-600,
+.bg-blue-500 {
+  background-image: linear-gradient(135deg, var(--color-neon-cyan), var(--color-neon-violet));
+  background-color: transparent;
+  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
+  border: none;
+}
+.hover\:bg-blue-700:hover {
+  filter: brightness(1.12);
+  box-shadow: 0 0 32px -4px rgba(167, 139, 250, 0.65);
+}
+.text-blue-600,
+.text-blue-700 {
+  color: var(--color-neon-cyan);
+}
+.hover\:text-blue-800:hover,
+.hover\:text-blue-700:hover {
+  color: var(--color-neon-violet);
+}
+.border-blue-600,
+.focus\:border-blue-500:focus,
+.hover\:border-blue-400:hover {
+  border-color: var(--color-neon-cyan);
+}
+
+/* Status colors, brightened for legibility on a dark background. */
+.bg-green-100 {
+  background-color: rgba(52, 211, 153, 0.14);
+}
+.text-green-700 {
+  color: #6ee7b7;
+}
+.bg-red-100,
+.bg-red-50 {
+  background-color: rgba(248, 113, 113, 0.14);
+}
+.text-red-700,
+.text-red-600 {
+  color: #fca5a5;
+}
+.hover\:bg-red-100:hover {
+  background-color: rgba(248, 113, 113, 0.2);
+}
+.hover\:bg-red-700:hover {
+  filter: brightness(1.15);
+}
+.hover\:text-red-500:hover {
+  color: #fca5a5;
+}
+.bg-amber-100,
+.bg-amber-50 {
+  background-color: rgba(251, 191, 36, 0.16);
+}
+.text-amber-700,
+.text-amber-800 {
+  color: #fcd34d;
+}
+
+/* Glass + glow helpers for hand-styled surfaces (AppShell, new tab pages). */
+.glass {
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+.glow-cyan {
+  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
+}
+.glow-violet {
+  box-shadow: 0 0 24px -6px rgba(167, 139, 250, 0.55);
+}

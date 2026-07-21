@@ -139,3 +139,7 @@ export const deleteLesson = (groupId: number, lessonId: number) =>
 export const myGroups = () => api<Group[]>("/api/v1/me/groups");
 export const myLessons = () => api<UpcomingLesson[]>("/api/v1/me/lessons");
 export const myChildren = () => api<User[]>("/api/v1/me/children");
+export const myTodayLessons = () => api<UpcomingLesson[]>("/api/v1/me/today-lessons");
+
+export const generateClassBrief = (groupId: number) =>
+  api<{ brief: string }>(`/api/v1/groups/${groupId}/brief`, { method: "POST" });

@@ -10,23 +10,53 @@ Accounts created (password for all: demo1234):
 """
 
 import asyncio
-from datetime import time
+import random
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
 from app.db import async_session
 from app.models import (
+    Assessment,
+    AssessmentScore,
+    AssessmentType,
+    Assignment,
+    AssignmentQuestion,
+    AssignmentStatus,
+    Classified,
+    Evidence,
+    EvidenceSource,
     Group,
     GroupMember,
+    GroupResource,
     Lesson,
+    MarkConfidence,
     ParentLink,
+    QuestionMark,
+    QuestionTopic,
+    ResourceKind,
     Subject,
+    Submission,
+    SubmissionFile,
+    SubmissionStatus,
+    Topic,
+    TutorPreferences,
     User,
     UserRole,
 )
 from app.security import hash_password
+from app.services import storage
+from app.services.readiness import recompute_student
 
 PASSWORD = "demo1234"
+
+# A minimal one-page PDF, valid enough to store and reference as a demo file.
+FAKE_PDF_BYTES = (
+    b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+    b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+    b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n"
+    b"trailer<</Root 1 0 R>>"
+)
 
 
 async def main() -> None:
@@ -61,14 +91,169 @@ async def main() -> None:
         group = Group(tutor_id=tutor.id, subject_id=subject.id, name="Chemistry — Year 10")
         session.add(group)
         await session.flush()
+        today_weekday = datetime.now(timezone.utc).weekday()
         session.add_all([
             GroupMember(group_id=group.id, student_id=student1.id),
             GroupMember(group_id=group.id, student_id=student2.id),
             ParentLink(parent_id=parent.id, student_id=student1.id),
             Lesson(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
             Lesson(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
+            # A lesson today so the tutor's "Today" tab has something to show
+            # regardless of what day the demo is loaded.
+            Lesson(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson"),
         ])
+        await session.flush()
+
+        topics = (
+            await session.scalars(
+                select(Topic).where(Topic.subject_id == subject.id).order_by(Topic.code).limit(8)
+            )
+        ).all()
+        if not topics:
+            raise SystemExit("Subject 4CH1 has no topics — check seed/syllabus data")
+
+        students = [student1, student2]
+        now = datetime.now(timezone.utc)
+        rng = random.Random(42)
+
+        # ~30 evidence rows per student across the first few topics, trending
+        # upward over the last 90 days, so dashboards show real progress.
+        for student in students:
+            for topic in topics[: min(6, len(topics))]:
+                base = rng.uniform(45, 65)
+                for i in range(5):
+                    days_ago = 90 - i * 18
+                    trend = base + (90 - days_ago) / 90 * rng.uniform(15, 30)
+                    score = max(20, min(98, trend + rng.uniform(-8, 8)))
+                    source = rng.choice(list(EvidenceSource))
+                    session.add(
+                        Evidence(
+                            student_id=student.id,
+                            topic_id=topic.id,
+                            source_type=source,
+                            score_pct=round(score, 1),
+                            max_marks=20,
+                            occurred_at=now - timedelta(days=days_ago),
+                            label=f"Demo evidence ({source.value})",
+                        )
+                    )
+        await session.flush()
+
+        # One published assignment with a finalized submission per student.
+        classified = Classified(
+            tutor_id=tutor.id,
+            subject_id=subject.id,
+            title="Demo classified — Atomic structure",
+            file_path="demo-classified.pdf",
+            file_name="atomic-structure.pdf",
+            file_mime="application/pdf",
+        )
+        session.add(classified)
+        await session.flush()
+        storage.absolute_path(classified.file_path).write_bytes(FAKE_PDF_BYTES)
+
+        assignment = Assignment(
+            group_id=group.id,
+            classified_id=classified.id,
+            title="HW1 — Atomic structure",
+            status=AssignmentStatus.published,
+        )
+        session.add(assignment)
+        await session.flush()
+
+        question_defs = [
+            ("1", "Define an isotope and give one example", 4, topics[0]),
+            ("2", "Explain how ions form from atoms", 6, topics[min(1, len(topics) - 1)]),
+        ]
+        questions = []
+        for number, summary, max_marks, topic in question_defs:
+            q = AssignmentQuestion(
+                assignment_id=assignment.id,
+                position=len(questions),
+                number=number,
+                text_summary=summary,
+                max_marks=max_marks,
+                has_mark_scheme=True,
+            )
+            session.add(q)
+            await session.flush()
+            session.add(QuestionTopic(question_id=q.id, topic_id=topic.id))
+            questions.append(q)
+
+        for student in students:
+            submission = Submission(
+                assignment_id=assignment.id,
+                student_id=student.id,
+                status=SubmissionStatus.finalized,
+                finalized_at=now,
+                finalized_by_id=tutor.id,
+            )
+            session.add(submission)
+            await session.flush()
+            session.add(
+                SubmissionFile(
+                    submission_id=submission.id, position=0,
+                    path=classified.file_path, name="answer.pdf", mime="application/pdf",
+                )
+            )
+            for q in questions:
+                marks = round(q.max_marks * rng.uniform(0.6, 0.95))
+                session.add(
+                    QuestionMark(
+                        submission_id=submission.id,
+                        question_id=q.id,
+                        ai_marks=marks,
+                        ai_feedback="Good understanding, minor detail missing.",
+                        ai_confidence=MarkConfidence.high,
+                        final_marks=marks,
+                        final_feedback="Nice work — see the marked-up notes.",
+                    )
+                )
+        await session.flush()
+
+        # One mock assessment with per-topic scores.
+        assessment = Assessment(
+            tutor_id=tutor.id, subject_id=subject.id,
+            title="Term 1 Mock Exam", type=AssessmentType.mock,
+            date=date.today() - timedelta(days=14),
+        )
+        session.add(assessment)
+        await session.flush()
+        for student in students:
+            for topic in topics[: min(3, len(topics))]:
+                marks = round(20 * rng.uniform(0.5, 0.9))
+                session.add(
+                    AssessmentScore(
+                        assessment_id=assessment.id, student_id=student.id,
+                        topic_id=topic.id, marks=marks, max_marks=20,
+                    )
+                )
+        await session.flush()
+
+        # Group resources: one file, one recording link.
+        session.add_all([
+            GroupResource(
+                group_id=group.id, tutor_id=tutor.id, kind=ResourceKind.recording,
+                title="Lesson 3 recording — Atomic structure",
+                url="https://example.com/recordings/lesson-3",
+            ),
+            GroupResource(
+                group_id=group.id, tutor_id=tutor.id, kind=ResourceKind.file,
+                title="Revision notes — Atomic structure",
+                file_path=classified.file_path, file_name="revision-notes.pdf",
+                file_mime="application/pdf",
+            ),
+        ])
+
+        # Tutor preferences (defaults, just so the row exists to edit).
+        session.add(TutorPreferences(tutor_id=tutor.id))
+
         await session.commit()
+
+        for student in students:
+            await recompute_student(session, {"student_id": student.id})
+        await session.commit()
+
         print("demo data created — sign in as demo-tutor@example.com / demo1234")
 
 

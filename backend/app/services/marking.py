@@ -79,7 +79,11 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
 
 async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     assignment = await session.get(Assignment, submission.assignment_id)
-    classified = await session.get(Classified, assignment.classified_id)
+    classified = (
+        await session.get(Classified, assignment.classified_id)
+        if assignment.classified_id
+        else None
+    )
     questions = (
         await session.scalars(
             select(AssignmentQuestion)
@@ -100,26 +104,37 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     content: list[dict] = []
     # The classified/mark scheme is shared across every submission in the class —
     # cache it so marking a batch reuses the prefix.
-    content.append(
-        file_block(storage.read_file(classified.file_path), classified.file_mime, cache=True)
-    )
-    if classified.mark_scheme_path:
+    if classified is not None:
         content.append(
-            file_block(
-                storage.read_file(classified.mark_scheme_path),
-                classified.mark_scheme_mime,
-                cache=True,
-            )
+            file_block(storage.read_file(classified.file_path), classified.file_mime, cache=True)
         )
+        if classified.mark_scheme_path:
+            content.append(
+                file_block(
+                    storage.read_file(classified.mark_scheme_path),
+                    classified.mark_scheme_mime,
+                    cache=True,
+                )
+            )
     for f in files:
         content.append(file_block(storage.read_file(f.path), f.mime))
+
+    if classified is not None:
+        intro = (
+            "The documents above are: (1) the question booklet, "
+            + ("(2) the mark scheme, " if classified.mark_scheme_path else "")
+            + "followed by the student's handwritten answer pages."
+        )
+    else:
+        intro = (
+            "No question booklet is attached to this assignment — mark from the question "
+            "list below and the student's handwritten answer pages above only."
+        )
     content.append(
         {
             "type": "text",
             "text": (
-                "The documents above are: (1) the question booklet, "
-                + ("(2) the mark scheme, " if classified.mark_scheme_path else "")
-                + "followed by the student's handwritten answer pages.\n\n"
+                f"{intro}\n\n"
                 f"Questions to mark:\n{question_list}\n\n"
                 "Produce the marking draft for every question in the list."
             ),

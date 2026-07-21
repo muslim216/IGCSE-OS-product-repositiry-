@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Enum, ForeignKey, String
+from sqlalchemy import Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -25,3 +25,6 @@ class User(TimestampMixin, Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, native_enum=False, length=16), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # Bumped on logout/password change to invalidate any refresh tokens issued
+    # before that point — JWTs are otherwise stateless and can't be revoked.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

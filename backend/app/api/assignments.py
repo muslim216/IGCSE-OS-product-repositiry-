@@ -12,12 +12,14 @@ from app.models import (
     GroupMember,
     QuestionTopic,
     Submission,
+    SubmissionStatus,
     Topic,
     User,
     UserRole,
 )
 from app.schemas.groups import TopicOut
 from app.schemas.homework import (
+    AssignmentAttention,
     AssignmentCreate,
     AssignmentDetail,
     AssignmentOut,
@@ -76,6 +78,33 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
     group = await db.get(Group, body.group_id)
     if group is None or group.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
+
+    if body.classified_id is None:
+        assignment = Assignment(
+            group_id=group.id,
+            classified_id=None,
+            title=body.title,
+            instructions=body.instructions,
+            due_at=body.due_at,
+            question_range=body.question_range,
+            status=AssignmentStatus.review,
+        )
+        db.add(assignment)
+        await db.flush()
+        await db.commit()
+        return AssignmentDetail(
+            id=assignment.id,
+            group_id=assignment.group_id,
+            classified_id=None,
+            title=assignment.title,
+            instructions=assignment.instructions,
+            due_at=assignment.due_at,
+            question_range=assignment.question_range,
+            status=assignment.status.value,
+            extraction_error=None,
+            questions=[],
+        )
+
     classified = await db.get(Classified, body.classified_id)
     if classified is None or classified.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Classified not found")
@@ -148,6 +177,62 @@ async def list_group_assignments(group_id: int, db: DbSession, user: CurrentUser
                 question_count=stats[0],
                 total_marks=stats[1],
                 submission_count=submission_count,
+            )
+        )
+    return out
+
+
+@router.get("/attention", response_model=list[AssignmentAttention])
+async def assignments_needing_attention(db: DbSession, user: CurrentUser) -> list[AssignmentAttention]:
+    """Surfaces homework that needs a tutor's eyes: failed extraction/marking,
+    or AI-marked submissions still waiting to be finalized."""
+    if user.role not in (UserRole.tutor, UserRole.admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    tutor_groups = select(Group.id)
+    if user.role != UserRole.admin:
+        tutor_groups = tutor_groups.where(Group.tutor_id == user.id)
+
+    out: list[AssignmentAttention] = []
+    stuck_assignments = (
+        await db.scalars(
+            select(Assignment).where(
+                Assignment.group_id.in_(tutor_groups),
+                Assignment.status == AssignmentStatus.extraction_failed,
+            )
+        )
+    ).all()
+    for a in stuck_assignments:
+        out.append(
+            AssignmentAttention(
+                assignment_id=a.id,
+                assignment_title=a.title,
+                reason="extraction_failed",
+                detail=a.extraction_error,
+                submission_id=None,
+                student_name=None,
+            )
+        )
+
+    rows = (
+        await db.execute(
+            select(Submission, Assignment, User)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(User, User.id == Submission.student_id)
+            .where(
+                Assignment.group_id.in_(tutor_groups),
+                Submission.status.in_([SubmissionStatus.ai_failed, SubmissionStatus.ai_marked]),
+            )
+        )
+    ).all()
+    for submission, assignment, student in rows:
+        out.append(
+            AssignmentAttention(
+                assignment_id=assignment.id,
+                assignment_title=assignment.title,
+                reason=submission.status.value,
+                detail=submission.ai_error,
+                submission_id=submission.id,
+                student_name=student.name,
             )
         )
     return out
@@ -229,6 +314,10 @@ async def publish_assignment(assignment_id: int, db: DbSession, user: CurrentUse
 @router.post("/{assignment_id}/retry-extraction", response_model=AssignmentDetail)
 async def retry_extraction(assignment_id: int, db: DbSession, user: CurrentUser) -> AssignmentDetail:
     assignment = await _owned_assignment(db, user, assignment_id)
+    if assignment.classified_id is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This assignment has no question booklet to re-extract"
+        )
     if assignment.status not in (AssignmentStatus.extraction_failed, AssignmentStatus.review):
         raise HTTPException(status.HTTP_409_CONFLICT, "Extraction can only be retried before publishing")
     existing = (

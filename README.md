@@ -48,15 +48,31 @@ cd backend && .venv/bin/python -m pytest        # backend (runs on SQLite, no DB
 cd frontend && npm test                          # frontend
 ```
 
-## Deployment (Render)
+## Deployment
+
+### Render (recommended)
 
 1. Push this repo to GitHub.
 2. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and
    connect the repo. `render.yaml` provisions the Postgres database, the API, and the
-   static frontend.
+   static frontend, including the `/api/*` rewrite from the frontend to the backend.
 3. Set `ANTHROPIC_API_KEY` when prompted (Render generates `JWT_SECRET` automatically).
-4. If your service names/URLs differ, update the `routes` destinations in `render.yaml`
+4. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
+   start command) — confirm this in the Dockerfile/start command if you change it.
+5. If your service names/URLs differ, update the `routes` destinations in `render.yaml`
    and the `CORS_ORIGINS` env var accordingly.
+
+### Vercel (frontend only)
+
+If you deploy the frontend separately on Vercel instead of/alongside Render:
+
+1. Set the Vercel project's root directory to `frontend`.
+2. `frontend/vercel.json` rewrites `/api/*` to the Render backend and falls back to
+   `index.html` for the SPA — update the destination URL in that file if your backend's
+   Render URL differs from `igcse-os-api.onrender.com`.
+3. Alternatively, set `VITE_API_BASE_URL` to the backend's full URL at build time to call
+   it directly (cross-origin) instead of relying on the rewrite — in that case also add the
+   Vercel domain to the backend's `CORS_ORIGINS`.
 
 ## Configuration
 
@@ -68,6 +84,23 @@ All backend settings come from environment variables (see `backend/.env.example`
 | `JWT_SECRET` | Signing key for access/refresh tokens |
 | `ANTHROPIC_API_KEY` | Enables AI marking, extraction, chat, and reports |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
+| `REFRESH_COOKIE_SECURE` | Default `true`; set `false` only for plain-HTTP local dev — the refresh-token cookie is `Secure` and browsers drop it over `http://` otherwise |
+
+Frontend build-time variable (optional, see `frontend/.env` or your host's env settings):
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_BASE_URL` | Full backend URL to call directly instead of same-origin `/api/*` (bypasses the need for a rewrite proxy) |
+
+### Auth
+
+Access tokens are short-lived Bearer tokens sent in the `Authorization` header, unchanged
+from before. Refresh tokens are now also set as an httpOnly `SameSite=Lax` cookie scoped to
+`/api/v1/auth`, so `POST /api/v1/auth/refresh` works with either the cookie or a JSON body
+(back-compat). Every token embeds the user's `token_version`; `POST /api/v1/auth/logout`
+requires a valid access token, bumps that user's `token_version`, and clears the cookie —
+this immediately invalidates every access/refresh token issued before the logout, closing
+the window a stolen token would otherwise have for its full lifetime.
 
 ## Project status
 
@@ -93,3 +126,22 @@ cd backend
 python -m seed.load_syllabus   # loads the five subject topic trees
 python -m seed.demo            # optional: demo tutor/student/parent accounts
 ```
+
+`seed.demo` (idempotent — safe to re-run) creates a tutor, two students, and a parent with a
+full working dataset so every dashboard has real data on first login: ~90 days of evidence
+per student, a published assignment with a finalized submission, a mock exam with per-topic
+scores, a lesson scheduled for today, two group resources (a file and a recording link), and
+default tutor preferences. Sign in as `demo-tutor@example.com` / `demo1234`.
+
+## New API surface (tabs & preferences)
+
+| Endpoint | Roles | Purpose |
+|---|---|---|
+| `POST/GET /api/v1/groups/{id}/resources`, `GET /api/v1/resources/{id}/file`, `DELETE /api/v1/resources/{id}` | tutor upload/delete; tutor + group students view | Files & Recordings tabs |
+| `GET/PUT /api/v1/me/preferences` | tutor | Readiness weight sliders + recency half-life |
+| `GET /api/v1/me/assessments` | student | Exams tab (own mock/test scores) |
+| `GET /api/v1/me/today-lessons` | tutor | Today tab schedule |
+| `POST /api/v1/groups/{id}/brief` | tutor | AI-written pre-lesson class brief (basic version — no learning-style detection or historical trends yet) |
+| `GET /api/v1/assignments/attention` | tutor | Homework tab's "needs attention" list |
+| `POST /api/v1/assignments` | tutor | `classified_id` is now optional — omit it to create homework without a PDF booklet |
+| `POST /api/v1/reports/generate` | tutor/admin only now | Students and parents can view but no longer generate reports |
