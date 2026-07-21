@@ -188,7 +188,9 @@ async def assignments_needing_attention(db: DbSession, user: CurrentUser) -> lis
     or AI-marked submissions still waiting to be finalized."""
     if user.role not in (UserRole.tutor, UserRole.admin):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
-    tutor_groups = select(Group.id).where(Group.tutor_id == user.id)
+    tutor_groups = select(Group.id)
+    if user.role != UserRole.admin:
+        tutor_groups = tutor_groups.where(Group.tutor_id == user.id)
 
     out: list[AssignmentAttention] = []
     stuck_assignments = (

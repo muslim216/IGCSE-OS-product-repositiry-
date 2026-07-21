@@ -47,7 +47,7 @@ export default function RecordingsPage() {
           );
         })}
         {groups.data?.length !== undefined &&
-          resourceQueries.every((q) => (q.data?.length ?? 0) === 0) && (
+          resourceQueries.every((q) => !q.isLoading && (q.data?.length ?? 0) === 0) && (
             <p className="text-sm text-slate-500">No recordings shared yet.</p>
           )}
       </div>

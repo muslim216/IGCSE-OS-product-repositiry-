@@ -59,7 +59,7 @@ async def create_resource(
     group = await _can_view_group(db, user, group_id)
 
     resource = GroupResource(
-        group_id=group.id, tutor_id=user.id, kind=ResourceKind(kind), title=title
+        group_id=group.id, tutor_id=group.tutor_id, kind=ResourceKind(kind), title=title
     )
     if kind == "recording":
         if not url:
@@ -84,7 +84,10 @@ async def list_resources(
     await _can_view_group(db, user, group_id)
     query = select(GroupResource).where(GroupResource.group_id == group_id)
     if kind is not None:
-        query = query.where(GroupResource.kind == ResourceKind(kind))
+        try:
+            query = query.where(GroupResource.kind == ResourceKind(kind))
+        except ValueError:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind")
     rows = (await db.scalars(query.order_by(GroupResource.created_at.desc()))).all()
     return [_out(r) for r in rows]
 

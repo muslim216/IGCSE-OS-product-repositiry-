@@ -46,10 +46,10 @@ export default function TodayPage() {
             </p>
             <button
               onClick={() => requestBrief(l.group_id)}
-              disabled={brief.isPending}
+              disabled={brief.isPending && brief.variables === l.group_id}
               className="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {brief.isPending ? "Writing…" : "Generate class brief"}
+              {brief.isPending && brief.variables === l.group_id ? "Writing…" : "Generate class brief"}
             </button>
             {errors[l.group_id] && (
               <p className="mt-2 text-sm text-red-600">{errors[l.group_id]}</p>
