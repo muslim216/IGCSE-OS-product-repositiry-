@@ -142,8 +142,14 @@ async def send_message(
                 collected.append(chunk)
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
         except AIUnavailableError as exc:
-            logger.info("AI unavailable for conversation %s: %s", convo_id, exc)
-            yield f"event: error\ndata: {json.dumps({'message': str(exc)})}\n\n"
+            logger.warning("AI unavailable for conversation %s: %s", convo_id, exc)
+            yield (
+                "event: error\ndata: "
+                + json.dumps(
+                    {"message": "Your AI tutor isn't set up yet — ask your tutor to enable it."}
+                )
+                + "\n\n"
+            )
             return
         except Exception:  # noqa: BLE001
             logger.exception("Chat streaming failed for conversation %s", convo_id)

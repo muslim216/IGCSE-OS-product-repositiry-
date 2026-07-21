@@ -117,7 +117,7 @@ export default function GroupDetailPage() {
   return (
     <div className="space-y-8">
       <div>
-        <Link to="/tutor" className="text-sm text-blue-600 hover:underline">
+        <Link to="/tutor/classes" className="text-sm text-blue-600 hover:underline">
           ← All groups
         </Link>
         <h2 className="mt-1 text-xl font-semibold text-slate-800">{group.data.name}</h2>

@@ -432,3 +432,161 @@ async def test_resubmission_resets_marking(client, tutor, student, published_ass
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
     assert len(subs.json()) == 1
     assert subs.json()[0]["status"] == "submitted"
+
+
+class _FakeParseResponse:
+    def __init__(self, parsed_output):
+        self.parsed_output = parsed_output
+
+
+class _FakeMessages:
+    def __init__(self, parsed_output):
+        self._parsed_output = parsed_output
+
+    async def parse(self, **kwargs):
+        return _FakeParseResponse(self._parsed_output)
+
+
+class _FakeAIClient:
+    def __init__(self, parsed_output):
+        self.messages = _FakeMessages(parsed_output)
+
+
+async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
+    client, tutor, student, published_assignment, monkeypatch
+):
+    """Exercises the real _run_marking mapping logic (not the fake_marking test
+    double used elsewhere) against a fabricated AI response, to check the
+    actual marking rules: clamping to the question's max, the hard
+    has_mark_scheme=false -> no AI marks rule, and 'Q' prefix tolerance."""
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    fake_result = MarkingResult(
+        questions=[
+            # Q1 has_mark_scheme=True, max_marks=2 — AI over-proposes; must clamp to 2.
+            QuestionMarkDraft(
+                number="Q1",
+                transcription="An isotope is an atom with the same protons, different neutrons.",
+                proposed_marks=10,
+                feedback="Good, but be more precise about protons vs neutrons.",
+                confidence="high",
+            ),
+            # Q2 has_mark_scheme=False — AI proposes marks anyway; must be discarded.
+            QuestionMarkDraft(
+                number="2",
+                transcription="Ionic bonding is the electrostatic attraction between ions.",
+                proposed_marks=3,
+                feedback="Nice explanation.",
+                confidence="high",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.marking.get_client", lambda: _FakeAIClient(fake_result)
+    )
+
+    aid = published_assignment["id"]
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    assert subs.json()[0]["status"] == "ai_marked"
+    sid = subs.json()[0]["id"]
+
+    detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    marks = {m["question_id"]: m for m in detail.json()["marks"]}
+    q1_mark, q2_mark = marks[published_assignment["questions"][0]["id"]], marks[
+        published_assignment["questions"][1]["id"]
+    ]
+
+    assert q1_mark["ai_marks"] == 2, "proposed 10 must be clamped to the question's max of 2"
+    assert q1_mark["ai_confidence"] == "high"
+    assert q2_mark["ai_marks"] is None, "no mark scheme -> AI marks must be discarded"
+    assert q2_mark["ai_confidence"] == "tutor_only"
+
+
+async def test_ai_marking_handles_question_missing_from_ai_response(
+    client, tutor, student, group, monkeypatch
+):
+    """If the AI's response omits a question entirely, that question must get
+    a safe tutor_only fallback rather than crashing or losing the record."""
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    created = await client.post(
+        "/api/v1/assignments",
+        json={"group_id": group["id"], "title": "No-PDF homework"},
+        headers=tutor["headers"],
+    )
+    aid = created.json()["id"]
+    await client.put(
+        f"/api/v1/assignments/{aid}/questions",
+        json=[
+            {
+                "number": "1",
+                "text_summary": "Define an isotope",
+                "max_marks": 2,
+                "has_mark_scheme": True,
+                "topic_ids": [],
+            },
+            {
+                "number": "2",
+                "text_summary": "Explain ionic bonding",
+                "max_marks": 4,
+                "has_mark_scheme": True,
+                "topic_ids": [],
+            },
+        ],
+        headers=tutor["headers"],
+    )
+    await client.post(f"/api/v1/assignments/{aid}/publish", headers=tutor["headers"])
+
+    invite = await client.post(f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"])
+    reg = await client.post(
+        "/api/v1/auth/register/student",
+        json={
+            "invite_code": invite.json()["code"],
+            "name": "Ali",
+            "email": "ali2@example.com",
+            "password": "password123",
+        },
+    )
+    student2_headers = {
+        "Authorization": f"Bearer {reg.json()['tokens']['access_token']}"
+    }
+
+    fake_result = MarkingResult(
+        questions=[
+            QuestionMarkDraft(
+                number="1",
+                transcription="An isotope is an atom of the same element with a different mass number.",
+                proposed_marks=2,
+                feedback="Well explained.",
+                confidence="high",
+            ),
+            # Q2 intentionally omitted.
+        ]
+    )
+    monkeypatch.setattr(
+        "app.services.marking.get_client", lambda: _FakeAIClient(fake_result)
+    )
+
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student2_headers,
+    )
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    sid = subs.json()[0]["id"]
+    detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    marks = detail.json()["marks"]
+    q1 = next(m for m in marks if m["ai_marks"] == 2)
+    q2 = next(m for m in marks if m is not q1)
+    assert q2["ai_marks"] is None
+    assert q2["ai_confidence"] == "tutor_only"
+    assert "did not return a result" in q2["ai_transcription"]

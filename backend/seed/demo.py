@@ -92,15 +92,22 @@ async def main() -> None:
         session.add(group)
         await session.flush()
         today_weekday = datetime.now(timezone.utc).weekday()
+        fixed_lessons = [
+            Lesson(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
+            Lesson(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
+        ]
+        # A lesson today so the tutor's "Today" tab has something to show
+        # regardless of what day the demo is loaded — unless today already
+        # coincides with one of the fixed slots above.
+        if today_weekday not in (1, 4):
+            fixed_lessons.append(
+                Lesson(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson")
+            )
         session.add_all([
             GroupMember(group_id=group.id, student_id=student1.id),
             GroupMember(group_id=group.id, student_id=student2.id),
             ParentLink(parent_id=parent.id, student_id=student1.id),
-            Lesson(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
-            Lesson(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
-            # A lesson today so the tutor's "Today" tab has something to show
-            # regardless of what day the demo is loaded.
-            Lesson(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson"),
+            *fixed_lessons,
         ])
         await session.flush()
 

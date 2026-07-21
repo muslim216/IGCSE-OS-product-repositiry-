@@ -43,20 +43,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("student sees all 6 student tabs", async () => {
+// The nav renders twice in the DOM (desktop sidebar + mobile top bar, toggled
+// purely via CSS media queries), so every label legitimately matches twice.
+async function expectNavLabel(label: string) {
+  expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
+}
+
+test("student sees all 7 student tabs", async () => {
   mockAuthedFetch("student");
   renderApp("/student");
-  expect(await screen.findByText("Readiness")).toBeInTheDocument();
-  for (const label of ["Files", "Recordings", "Homework", "AI Tutor", "Exams"]) {
-    expect(screen.getByText(label)).toBeInTheDocument();
+  for (const label of ["Home", "Readiness", "Files", "Recordings", "Homework", "AI Tutor", "Exams"]) {
+    await expectNavLabel(label);
   }
 });
 
-test("tutor sees all 6 tutor tabs", async () => {
+test("tutor sees all 8 tutor tabs", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
-  expect(await screen.findByText("Classes")).toBeInTheDocument();
-  for (const label of ["Class readiness", "Homework", "Preferences", "Mocks", "Today"]) {
-    expect(screen.getByText(label)).toBeInTheDocument();
+  for (const label of [
+    "Home",
+    "Classes",
+    "Class readiness",
+    "Homework",
+    "Syllabuses",
+    "Preferences",
+    "Mocks",
+    "Today",
+  ]) {
+    await expectNavLabel(label);
   }
 });

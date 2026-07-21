@@ -121,6 +121,7 @@ class ClassBrief(BaseModel):
 
 
 class UpcomingLesson(BaseModel):
+    id: int
     group_id: int
     group_name: str
     subject_name: str

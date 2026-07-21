@@ -36,7 +36,7 @@ export default function TodayPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         {lessons.data?.map((l) => (
-          <div key={l.group_id} className="rounded-lg border bg-white p-4">
+          <div key={l.id} className="rounded-lg border bg-white p-4">
             <div className="flex items-center justify-between">
               <h3 className="font-medium text-slate-800">{l.group_name}</h3>
               <span className="text-sm text-slate-500">{l.start_time.slice(0, 5)}</span>
