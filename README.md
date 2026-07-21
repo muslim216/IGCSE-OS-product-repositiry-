@@ -97,7 +97,10 @@ Frontend build-time variable (optional, see `frontend/.env` or your host's env s
 Access tokens are short-lived Bearer tokens sent in the `Authorization` header, unchanged
 from before. Refresh tokens are now also set as an httpOnly `SameSite=Lax` cookie scoped to
 `/api/v1/auth`, so `POST /api/v1/auth/refresh` works with either the cookie or a JSON body
-(back-compat). `POST /api/v1/auth/logout` clears the cookie.
+(back-compat). Every token embeds the user's `token_version`; `POST /api/v1/auth/logout`
+requires a valid access token, bumps that user's `token_version`, and clears the cookie —
+this immediately invalidates every access/refresh token issued before the logout, closing
+the window a stolen token would otherwise have for its full lifetime.
 
 ## Project status
 

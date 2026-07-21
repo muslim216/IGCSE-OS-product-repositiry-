@@ -88,5 +88,38 @@ async def test_refresh_without_token_rejected(client):
 
 
 async def test_logout_clears_cookie(client, tutor):
-    resp = await client.post("/api/v1/auth/logout")
+    resp = await client.post("/api/v1/auth/logout", headers=tutor["headers"])
     assert resp.status_code == 204
+
+
+async def test_logout_requires_auth(client):
+    resp = await client.post("/api/v1/auth/logout")
+    assert resp.status_code == 401
+
+
+async def test_logout_revokes_existing_access_token(client, tutor):
+    resp = await client.post("/api/v1/auth/logout", headers=tutor["headers"])
+    assert resp.status_code == 204
+    me = await client.get("/api/v1/auth/me", headers=tutor["headers"])
+    assert me.status_code == 401
+
+
+async def test_logout_revokes_existing_refresh_token(client, tutor):
+    resp = await client.post("/api/v1/auth/logout", headers=tutor["headers"])
+    assert resp.status_code == 204
+    refresh_resp = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tutor["tokens"]["refresh_token"]}
+    )
+    assert refresh_resp.status_code == 401
+
+
+async def test_login_after_logout_issues_valid_tokens(client, tutor):
+    await client.post("/api/v1/auth/logout", headers=tutor["headers"])
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "tutor@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 200
+    new_access = resp.json()["tokens"]["access_token"]
+    me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
+    assert me.status_code == 200

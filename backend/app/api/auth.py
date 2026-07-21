@@ -37,10 +37,10 @@ REFRESH_COOKIE = "igcse_refresh"
 REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
-def _token_pair(user_id: int) -> TokenPair:
+def _token_pair(user: User) -> TokenPair:
     return TokenPair(
-        access_token=create_access_token(user_id),
-        refresh_token=create_refresh_token(user_id),
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(user.id, user.token_version),
     )
 
 
@@ -72,7 +72,7 @@ async def register_tutor(body: TutorSignupRequest, db: DbSession, response: Resp
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    tokens = _token_pair(user.id)
+    tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
@@ -87,7 +87,7 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
     )
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
-    tokens = _token_pair(user.id)
+    tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
@@ -99,19 +99,24 @@ async def refresh(
     raw_token = (body.refresh_token if body else None) or request.cookies.get(REFRESH_COOKIE)
     if raw_token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No refresh token provided")
-    user_id = decode_token(raw_token, expected_type="refresh")
-    if user_id is None:
+    decoded = decode_token(raw_token, expected_type="refresh")
+    if decoded is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token")
+    user_id, token_version = decoded
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
-    tokens = _token_pair(user.id)
+    if token_version != user.token_version:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
+    tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return tokens
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response) -> None:
+async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
+    user.token_version += 1
+    await db.commit()
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
 
 
@@ -184,7 +189,7 @@ async def register_student(body: StudentRegisterRequest, db: DbSession, response
     await _add_to_group(db, invite.group_id, user.id)
     await db.commit()
     await db.refresh(user)
-    tokens = _token_pair(user.id)
+    tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
@@ -210,7 +215,7 @@ async def register_parent(body: ParentRegisterRequest, db: DbSession, response: 
     db.add(ParentLink(parent_id=user.id, student_id=invite.student_id))
     await db.commit()
     await db.refresh(user)
-    tokens = _token_pair(user.id)
+    tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
