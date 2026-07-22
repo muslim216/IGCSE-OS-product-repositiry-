@@ -10,7 +10,9 @@ htmlcov/
 
 # Env / secrets
 .env
+backend.env
 !.env.example
+!backend.env.example
 
 # Databases / uploads (local dev)
 *.db
@@ -20,8 +22,11 @@ backend/uploads/
 node_modules/
 frontend/dist/
 
-# Editors / OS
+# Editors / OS & AI
 .DS_Store
 .idea/
 .vscode/
 frontend/tsconfig.tsbuildinfo
+.claude/
+
+
