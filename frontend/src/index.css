@@ -1,12 +1,22 @@
 @import "tailwindcss";
 
 @theme {
-  --color-neon-cyan: #22d3ee;
-  --color-neon-violet: #a78bfa;
+  --color-arcade-bg: #0c0714;
+  --color-arcade-panel: #12091f;
+  --color-arcade-panel-2: #1a0f2b;
+  --color-arcade-mint: #00ffcc;
+  --color-arcade-magenta: #ff007f;
+  --color-arcade-gold: #ffcc00;
+  --color-arcade-ink: #050308;
+
+  /* legacy aliases: nothing outside this file references these anymore, but
+     kept in case a stray class slips through the retarget map below. */
+  --color-neon-cyan: #00ffcc;
+  --color-neon-violet: #ff007f;
 }
 
 /* ---------------------------------------------------------------------
-   Dark / glassmorphism / neon reskin.
+   Retro Arcade / 8-bit reskin.
 
    Rather than hand-editing every page's Tailwind classes, the handful of
    color utilities the app actually uses (bg-white cards, slate text/borders,
@@ -26,41 +36,68 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
-    radial-gradient(1000px 500px at 110% 10%, rgba(167, 139, 250, 0.12), transparent 55%),
-    #05070f;
-  color: #e2e8f0;
+  background: var(--color-arcade-bg);
+  color: #e8e3f2;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+/* Static CRT scanline overlay. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0.35;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0px,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 1px,
+    transparent 3px
+  );
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.35);
-  color: #f8fafc;
+  background: rgba(0, 255, 204, 0.4);
+  color: #050308;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #0a0512;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
-  border-radius: 999px;
+  background: rgba(0, 255, 204, 0.35);
+  border: 2px solid #000;
+  border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(0, 255, 204, 0.55);
 }
 
-/* Card / panel surfaces (bg-white p-4 rounded-lg border ...) become glass. */
+/* Squares off every rounded corner app-wide: mobile nav pills, avatars,
+   legacy rounded-lg cards -- arcade UI has no circles or soft curves. */
+.rounded,
+.rounded-md,
+.rounded-lg,
+.rounded-xl,
+.rounded-2xl,
+.rounded-full {
+  border-radius: 0;
+}
+
+/* Card / panel surfaces (bg-white p-4 rounded-lg border ...) become flat
+   arcade panels -- no blur, hard black border, flat offset shadow. */
 .bg-white {
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background-color: var(--color-arcade-panel);
 }
 .hover\:bg-slate-50:hover {
-  background-color: rgba(148, 163, 184, 0.08);
+  background-color: rgba(0, 255, 204, 0.06);
 }
 .disabled\:bg-slate-50:disabled {
   background-color: rgba(148, 163, 184, 0.04);
@@ -70,126 +107,149 @@ body {
   background-color: transparent;
 }
 .bg-slate-100 {
-  background-color: rgba(148, 163, 184, 0.1);
+  background-color: rgba(0, 255, 204, 0.08);
 }
 .hover\:bg-slate-200:hover {
-  background-color: rgba(148, 163, 184, 0.16);
+  background-color: rgba(0, 255, 204, 0.12);
 }
 .hover\:bg-slate-300:hover {
-  background-color: rgba(148, 163, 184, 0.22);
+  background-color: rgba(0, 255, 204, 0.18);
 }
 .hover\:bg-slate-800:hover {
-  background-color: rgba(148, 163, 184, 0.14);
+  background-color: rgba(0, 255, 204, 0.1);
 }
 
 /* Borders */
 .border {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: #000;
 }
 .border-slate-200 {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: #000;
 }
 .border-slate-300 {
-  border-color: rgba(148, 163, 184, 0.28);
+  border-color: #000;
+}
+input.border-slate-300,
+select.border-slate-300,
+textarea.border-slate-300 {
+  box-shadow: 3px 3px 0 0 rgba(0, 0, 0, 1);
 }
 .divide-y > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgba(148, 163, 184, 0.14);
+  border-color: rgba(0, 255, 204, 0.25);
 }
 
 /* Text */
 .text-slate-800 {
-  color: #f1f5f9;
+  color: #f5f2fb;
 }
 .hover\:text-slate-800:hover {
-  color: #f8fafc;
+  color: #ffffff;
 }
 .text-slate-700 {
-  color: #e2e8f0;
+  color: #e8e3f2;
 }
 .hover\:text-slate-700:hover {
-  color: #f1f5f9;
+  color: #f5f2fb;
 }
 .text-slate-600 {
-  color: #cbd5e1;
+  color: #c7bfd9;
 }
 .text-slate-500 {
-  color: #94a3b8;
+  color: #9a8fb5;
 }
 .text-slate-400 {
-  color: #64748b;
+  color: #6f6390;
 }
 
-/* Primary accent: neon cyan -> violet gradient in place of flat blue. */
+/* Primary accent: flat neon mint block in place of the blue gradient. */
 .bg-blue-600,
 .bg-blue-500 {
-  background-image: linear-gradient(135deg, var(--color-neon-cyan), var(--color-neon-violet));
-  background-color: transparent;
-  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
-  border: none;
+  background-image: none;
+  background-color: var(--color-arcade-mint);
+  border: 3px solid #000;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 1);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.bg-blue-600.text-white,
+.bg-blue-500.text-white {
+  color: var(--color-arcade-ink);
 }
 .hover\:bg-blue-700:hover {
-  filter: brightness(1.12);
-  box-shadow: 0 0 32px -4px rgba(167, 139, 250, 0.65);
+  background-color: var(--color-arcade-gold);
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 1);
+}
+.bg-blue-600:active,
+.bg-blue-500:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
 }
 .text-blue-600,
 .text-blue-700 {
-  color: var(--color-neon-cyan);
+  color: var(--color-arcade-mint);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }
 .hover\:text-blue-800:hover,
 .hover\:text-blue-700:hover {
-  color: var(--color-neon-violet);
+  color: var(--color-arcade-magenta);
 }
 .border-blue-600,
 .focus\:border-blue-500:focus,
 .hover\:border-blue-400:hover {
-  border-color: var(--color-neon-cyan);
+  border-color: var(--color-arcade-mint);
 }
 
-/* Status colors, brightened for legibility on a dark background. */
+/* Status colors, remapped onto the arcade palette. */
 .bg-green-100 {
-  background-color: rgba(52, 211, 153, 0.14);
+  background-color: rgba(0, 255, 204, 0.15);
 }
 .text-green-700 {
-  color: #6ee7b7;
+  color: var(--color-arcade-mint);
 }
 .bg-red-100,
 .bg-red-50 {
-  background-color: rgba(248, 113, 113, 0.14);
+  background-color: rgba(255, 0, 127, 0.15);
 }
 .text-red-700,
 .text-red-600 {
-  color: #fca5a5;
+  color: #ff5c9d;
 }
 .hover\:bg-red-100:hover {
-  background-color: rgba(248, 113, 113, 0.2);
+  background-color: rgba(255, 0, 127, 0.22);
 }
 .hover\:bg-red-700:hover {
   filter: brightness(1.15);
 }
 .hover\:text-red-500:hover {
-  color: #fca5a5;
+  color: #ff5c9d;
 }
 .bg-amber-100,
 .bg-amber-50 {
-  background-color: rgba(251, 191, 36, 0.16);
+  background-color: rgba(255, 204, 0, 0.16);
 }
 .text-amber-700,
 .text-amber-800 {
-  color: #fcd34d;
+  color: var(--color-arcade-gold);
+}
+.text-emerald-400 {
+  color: var(--color-arcade-mint);
+}
+.text-amber-400 {
+  color: var(--color-arcade-gold);
 }
 
-/* Glass + glow helpers for hand-styled surfaces (AppShell, new tab pages). */
+/* Glass + glow helpers -- repurposed as flat arcade surfaces. */
 .glass {
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  background-color: var(--color-arcade-panel);
+  border: none;
+  border-bottom: 4px solid #000;
 }
-.glow-cyan {
-  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
-}
+.glow-cyan,
 .glow-violet {
-  box-shadow: 0 0 24px -6px rgba(167, 139, 250, 0.55);
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 1);
 }
 
 /* Left sidebar (desktop nav). Fixed width, full height, its own scroll. */
@@ -199,28 +259,89 @@ body {
   position: sticky;
   top: 0;
   padding: 1.75rem 1rem;
-  background: rgba(8, 11, 22, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(148, 163, 184, 0.1);
+  background: #0a0512;
+  border-right: 4px solid #000;
+  box-shadow: inset -1px 0 0 0 rgba(0, 255, 204, 0.35);
 }
 
-/* Cards get a touch more presence than a flat Tailwind border: a soft lift on
-   hover for anything clickable, and a hairline top highlight so panels read as
-   physical surfaces rather than plain rectangles. */
+/* Cards: hard black border + flat offset shadow instead of a soft glow;
+   clickable cards get an 8-bit "pressed" state on hover. */
 .rounded-lg.border.bg-white {
   position: relative;
-  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 12px 24px -16px rgba(0, 0, 0, 0.5);
+  border-width: 4px;
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 1);
 }
 a.rounded-lg.border.bg-white:hover,
 button.rounded-lg.border.bg-white:hover {
-  border-color: rgba(148, 163, 184, 0.32);
-  transform: translateY(-1px);
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  border-color: var(--color-arcade-mint);
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 0 rgba(0, 0, 0, 1);
+  transition: transform 0.1s steps(2, end), box-shadow 0.1s steps(2, end), border-color 0.1s ease;
+}
+
+.shadow-sm,
+.shadow,
+.shadow-md,
+.shadow-lg {
+  box-shadow: 4px 4px 0 0 rgba(0, 0, 0, 1);
 }
 
 h1,
 h2,
 h3 {
-  letter-spacing: -0.01em;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 900;
+}
+
+/* ---------------------------------------------------------------------
+   Arcade component helpers (used by src/components/arcade/*).
+   --------------------------------------------------------------------- */
+
+@keyframes arcade-flash {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.6);
+  }
+}
+
+@keyframes arcade-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.25;
+  }
+}
+
+.animate-arcade-flash {
+  animation: arcade-flash 1.2s steps(2, end) infinite;
+}
+.animate-arcade-blink {
+  animation: arcade-blink 1s steps(1, end) infinite;
+}
+
+.arcade-trim {
+  height: 4px;
+  background-image: repeating-linear-gradient(90deg, currentColor 0 8px, transparent 8px 16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-arcade-flash,
+  .animate-arcade-blink {
+    animation: none;
+  }
+  body::after {
+    display: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

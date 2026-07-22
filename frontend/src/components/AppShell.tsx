@@ -14,13 +14,7 @@ function initials(name: string): string {
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-1">
-      <span
-        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-bold text-slate-950"
-        style={{
-          background: "linear-gradient(135deg, #22d3ee, #a78bfa)",
-          boxShadow: "0 0 20px -4px rgba(34, 211, 238, 0.7)",
-        }}
-      >
+      <span className="grid h-8 w-8 shrink-0 place-items-center border-2 border-black bg-arcade-mint font-mono text-xs font-black text-[#050308] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
         OS
       </span>
       <span className="text-[15px] font-semibold leading-tight tracking-tight text-slate-100">
@@ -35,8 +29,8 @@ function NavLinks({ nav, orientation }: { nav: NavItem[]; orientation: "vertical
     <nav
       className={
         orientation === "vertical"
-          ? "flex flex-col gap-0.5"
-          : "flex gap-1 overflow-x-auto"
+          ? "flex flex-col gap-1"
+          : "flex gap-1.5 overflow-x-auto"
       }
     >
       {nav.map((item) => (
@@ -46,30 +40,16 @@ function NavLinks({ nav, orientation }: { nav: NavItem[]; orientation: "vertical
           end
           className={({ isActive }) =>
             orientation === "vertical"
-              ? `group relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
+              ? `border-2 px-3 py-2 font-mono text-xs font-black uppercase tracking-wider transition ${
                   isActive
-                    ? "text-slate-50"
-                    : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
+                    ? "border-black bg-arcade-mint text-[#050308] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                    : "border-transparent text-[#9a8fb5] hover:border-black hover:bg-white/[0.04] hover:text-arcade-mint"
                 }`
-              : `whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${
+              : `whitespace-nowrap border-2 px-3 py-1.5 font-mono text-xs font-black uppercase tracking-wider transition ${
                   isActive
-                    ? "text-slate-950"
-                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-100"
+                    ? "border-black bg-arcade-mint text-[#050308] shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                    : "border-transparent text-[#9a8fb5] hover:border-black hover:text-arcade-mint"
                 }`
-          }
-          style={({ isActive }) =>
-            !isActive
-              ? undefined
-              : orientation === "vertical"
-                ? {
-                    background:
-                      "linear-gradient(90deg, rgba(34,211,238,0.16), rgba(167,139,250,0.10))",
-                    boxShadow: "inset 2px 0 0 0 var(--color-neon-cyan)",
-                  }
-                : {
-                    background: "linear-gradient(135deg, #22d3ee, #a78bfa)",
-                    boxShadow: "0 0 16px -4px rgba(34, 211, 238, 0.6)",
-                  }
           }
         >
           {item.label}
@@ -88,23 +68,24 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
       <aside className="sidebar hidden shrink-0 flex-col justify-between md:flex">
         <div className="flex flex-col gap-8">
           <Brand />
+          <div className="arcade-trim text-arcade-magenta" aria-hidden="true" />
           <div className="flex flex-col gap-1">
-            <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <span className="px-3 font-mono text-[11px] font-black uppercase tracking-wider text-arcade-mint">
               {title}
             </span>
             <NavLinks nav={nav} orientation="vertical" />
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 border-t border-white/[0.06] px-1 pt-4">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/[0.06] text-xs font-semibold text-slate-300">
+        <div className="flex items-center gap-2.5 border-t-4 border-black px-1 pt-4">
+          <span className="grid h-8 w-8 shrink-0 place-items-center border-2 border-black bg-arcade-panel-2 font-mono text-xs font-black text-arcade-mint">
             {initials(user?.name ?? "?")}
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-200">{user?.name}</p>
             <button
               onClick={signOut}
-              className="text-xs text-slate-500 transition hover:text-slate-200"
+              className="font-mono text-[10px] font-black uppercase tracking-wider text-slate-500 transition hover:text-arcade-mint"
             >
               Sign out
             </button>
@@ -113,14 +94,14 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
       </aside>
 
       {/* Mobile: top bar with horizontal tabs */}
-      <header className="glass sticky top-0 z-10 border-x-0 border-t-0 md:hidden">
+      <header className="glass sticky top-0 z-10 md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
           <div className="flex items-center gap-3 text-sm">
             <span className="text-slate-400">{user?.name}</span>
             <button
               onClick={signOut}
-              className="rounded-md px-2 py-1 text-slate-400 transition hover:text-slate-100"
+              className="px-2 py-1 font-mono text-[10px] font-black uppercase tracking-wider text-slate-400 transition hover:text-arcade-mint"
             >
               Sign out
             </button>
