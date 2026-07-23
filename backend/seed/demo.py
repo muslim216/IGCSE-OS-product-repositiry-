@@ -31,6 +31,7 @@ from app.models import (
     GroupResource,
     Lesson,
     MarkConfidence,
+    Organization,
     ParentLink,
     QuestionMark,
     QuestionTopic,
@@ -75,20 +76,35 @@ async def main() -> None:
             raise SystemExit("Run `python -m seed.load_syllabus` first")
 
         pw = hash_password(PASSWORD)
-        tutor = User(email="demo-tutor@example.com", password_hash=pw, role=UserRole.tutor, name="Demo Tutor")
-        student1 = User(email="demo-student@example.com", password_hash=pw, role=UserRole.student, name="Sara Student")
-        parent = User(email="demo-parent@example.com", password_hash=pw, role=UserRole.parent, name="Demo Parent")
+        org = Organization(name="Demo Tutor's Organization")
+        session.add(org)
+        await session.flush()
+
+        tutor = User(
+            email="demo-tutor@example.com", password_hash=pw, role=UserRole.tutor,
+            name="Demo Tutor", organization_id=org.id,
+        )
+        student1 = User(
+            email="demo-student@example.com", password_hash=pw, role=UserRole.student,
+            name="Sara Student", organization_id=org.id,
+        )
+        parent = User(
+            email="demo-parent@example.com", password_hash=pw, role=UserRole.parent,
+            name="Demo Parent", organization_id=org.id,
+        )
         session.add_all([tutor, student1, parent])
         await session.flush()
 
         student2 = User(
             username="demo_ali", password_hash=pw, role=UserRole.student,
-            name="Ali Student", created_by_id=tutor.id,
+            name="Ali Student", created_by_id=tutor.id, organization_id=org.id,
         )
         session.add(student2)
         await session.flush()
 
-        group = Group(tutor_id=tutor.id, subject_id=subject.id, name="Chemistry — Year 10")
+        group = Group(
+            organization_id=org.id, tutor_id=tutor.id, subject_id=subject.id, name="Chemistry — Year 10"
+        )
         session.add(group)
         await session.flush()
         today_weekday = datetime.now(timezone.utc).weekday()
@@ -148,6 +164,7 @@ async def main() -> None:
 
         # One published assignment with a finalized submission per student.
         classified = Classified(
+            organization_id=org.id,
             tutor_id=tutor.id,
             subject_id=subject.id,
             title="Demo classified — Atomic structure",

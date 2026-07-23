@@ -56,7 +56,9 @@ async def create_group(body: GroupCreate, db: DbSession, user: CurrentUser) -> G
     subject = await db.get(Subject, body.subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
-    group = Group(tutor_id=user.id, subject_id=subject.id, name=body.name)
+    group = Group(
+        organization_id=user.organization_id, tutor_id=user.id, subject_id=subject.id, name=body.name
+    )
     db.add(group)
     await db.commit()
     return GroupOut(id=group.id, name=group.name, subject=SubjectOut.model_validate(subject))
@@ -164,6 +166,7 @@ async def create_student_account(
         role=UserRole.student,
         name=body.name,
         created_by_id=user.id,
+        organization_id=user.organization_id,
     )
     db.add(student)
     await db.flush()

@@ -27,6 +27,7 @@ from app.models.readiness import (
     TutorObservation,
     TutorPreferences,
 )
+from app.models.orgs import Organization
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
 from app.models.syllabus import Subject, SyllabusUpload, SyllabusUploadStatus, Topic
@@ -55,6 +56,7 @@ __all__ = [
     "JobStatus",
     "Lesson",
     "MarkConfidence",
+    "Organization",
     "ParentLink",
     "QuestionMark",
     "QuestionTopic",

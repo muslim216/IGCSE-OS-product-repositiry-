@@ -34,6 +34,16 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+def get_current_org_id(user: CurrentUser) -> int:
+    """Every request is scoped to the caller's organization. Services should
+    filter every top-level aggregate query by this id rather than trusting
+    path/body-supplied ids alone."""
+    return user.organization_id
+
+
+CurrentOrg = Annotated[int, Depends(get_current_org_id)]
+
+
 def require_role(*roles: UserRole):
     async def checker(user: CurrentUser) -> User:
         if user.role not in roles:

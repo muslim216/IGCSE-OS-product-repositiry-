@@ -21,6 +21,7 @@ class Group(TimestampMixin, Base):
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)

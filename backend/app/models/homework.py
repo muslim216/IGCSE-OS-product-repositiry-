@@ -23,6 +23,7 @@ class Classified(TimestampMixin, Base):
     __tablename__ = "classifieds"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
