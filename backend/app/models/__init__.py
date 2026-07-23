@@ -27,6 +27,7 @@ from app.models.readiness import (
     TutorObservation,
     TutorPreferences,
 )
+from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
 from app.models.orgs import Organization
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
@@ -57,6 +58,7 @@ __all__ = [
     "Lesson",
     "MarkConfidence",
     "Organization",
+    "ParentCommunication",
     "ParentLink",
     "QuestionMark",
     "QuestionTopic",
@@ -66,6 +68,8 @@ __all__ = [
     "ReportAudience",
     "ReportStatus",
     "ResourceKind",
+    "StudentProfile",
+    "StudentSubject",
     "Subject",
     "Submission",
     "SubmissionFile",
@@ -74,6 +78,7 @@ __all__ = [
     "SyllabusUploadStatus",
     "Topic",
     "TopicReadiness",
+    "TutorNote",
     "TutorObservation",
     "TutorPreferences",
     "User",
