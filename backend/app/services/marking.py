@@ -12,16 +12,19 @@ from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.models import (
+    AiFeature,
     Assignment,
     AssignmentQuestion,
     Classified,
+    Group,
     MarkConfidence,
     QuestionMark,
     Submission,
     SubmissionStatus,
 )
 from app.services import storage
-from app.services.ai import file_block, get_client
+from app.services.ai import file_block, get_client, record_usage
+from app.services.knowledge import build_tutor_context
 
 
 class QuestionMarkDraft(BaseModel):
@@ -141,13 +144,27 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         }
     )
 
+    group = await session.get(Group, assignment.group_id)
+    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
+    kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
+    if kb_context:
+        system.append({"type": "text", "text": kb_context, "cache_control": {"type": "ephemeral"}})
+
     client = get_client()
     response = await client.messages.parse(
         model=get_settings().anthropic_model,
         max_tokens=32000,
-        system=SYSTEM_PROMPT,
+        system=system,
         messages=[{"role": "user", "content": content}],
         output_format=MarkingResult,
+    )
+    await record_usage(
+        session,
+        response,
+        organization_id=group.organization_id,
+        tutor_id=group.tutor_id,
+        student_id=submission.student_id,
+        feature=AiFeature.marking,
     )
     result: MarkingResult = response.parsed_output
 

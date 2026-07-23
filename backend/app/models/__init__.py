@@ -1,3 +1,4 @@
+from app.models.ai_usage import AiFeature, AiUsageEvent
 from app.models.base import Base
 from app.models.chat import ChatConversation, ChatMessage, ChatRole
 from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
@@ -29,6 +30,7 @@ from app.models.readiness import (
     TutorPreferences,
 )
 from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
+from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
 from app.models.orgs import Organization
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
@@ -36,6 +38,8 @@ from app.models.syllabus import Subject, SyllabusUpload, SyllabusUploadStatus, T
 from app.models.users import User, UserRole
 
 __all__ = [
+    "AiFeature",
+    "AiUsageEvent",
     "Assessment",
     "AssessmentScore",
     "AssessmentType",
@@ -56,6 +60,8 @@ __all__ = [
     "InviteKind",
     "Job",
     "JobStatus",
+    "KnowledgeEntry",
+    "KnowledgeEntryKind",
     "Lesson",
     "LessonObservation",
     "LessonTopic",

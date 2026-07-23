@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import (
+    AiFeature,
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
@@ -16,7 +17,8 @@ from app.models import (
     Topic,
 )
 from app.services import storage
-from app.services.ai import file_block, get_client
+from app.services.ai import file_block, get_client, record_usage
+from app.services.knowledge import build_tutor_context
 
 
 class ExtractedQuestion(BaseModel):
@@ -93,13 +95,26 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
         }
     )
 
+    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
+    kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
+    if kb_context:
+        system.append({"type": "text", "text": kb_context})
+
     client = get_client()
     response = await client.messages.parse(
         model=get_settings().anthropic_model,
         max_tokens=16000,
-        system=SYSTEM_PROMPT,
+        system=system,
         messages=[{"role": "user", "content": content}],
         output_format=ExtractionResult,
+    )
+    await record_usage(
+        session,
+        response,
+        organization_id=group.organization_id,
+        tutor_id=group.tutor_id,
+        student_id=None,
+        feature=AiFeature.extraction,
     )
     result: ExtractionResult = response.parsed_output
     if not result.questions:

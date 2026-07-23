@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import (
+    AiFeature,
     Assignment,
     Group,
     GroupMember,
@@ -22,8 +23,9 @@ from app.models import (
     TopicReadiness,
     User,
 )
-from app.services.ai import get_client
+from app.services.ai import get_client, record_usage
 from app.services.grades import predict_grade
+from app.services.knowledge import build_tutor_context
 
 AUDIENCE_GUIDANCE = {
     ReportAudience.parent: (
@@ -157,14 +159,24 @@ async def _visible_subjects(session: AsyncSession, student_id: int, subject_id: 
 
 
 async def _write_report(
-    audience: ReportAudience, facts: str
+    audience: ReportAudience,
+    facts: str,
+    session: AsyncSession,
+    *,
+    organization_id: int,
+    tutor_id: int,
+    student_id: int,
+    kb_context: str = "",
 ) -> str:
     """The AI call — factored out so tests can patch it."""
+    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
+    if kb_context:
+        system.append({"type": "text", "text": kb_context})
     client = get_client()
     response = await client.messages.create(
         model=get_settings().anthropic_model,
         max_tokens=2000,
-        system=SYSTEM_PROMPT,
+        system=system,
         messages=[
             {
                 "role": "user",
@@ -174,6 +186,14 @@ async def _write_report(
                 ),
             }
         ],
+    )
+    await record_usage(
+        session,
+        response,
+        organization_id=organization_id,
+        tutor_id=tutor_id,
+        student_id=student_id,
+        feature=AiFeature.report,
     )
     return "".join(block.text for block in response.content if block.type == "text").strip()
 
@@ -187,7 +207,21 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
         student = await session.get(User, report.student_id)
         subject_ids = await _visible_subjects(session, report.student_id, report.subject_id)
         facts = await build_report_facts(session, student, subject_ids)
-        report.content = await _write_report(report.audience, facts)
+        tutor = await session.get(User, report.generated_by_id)
+        kb_context = (
+            await build_tutor_context(session, tutor.id, report.subject_id)
+            if tutor is not None
+            else ""
+        )
+        report.content = await _write_report(
+            report.audience,
+            facts,
+            session,
+            organization_id=student.organization_id,
+            tutor_id=report.generated_by_id,
+            student_id=report.student_id,
+            kb_context=kb_context,
+        )
         report.status = ReportStatus.ready
         from app.models.base import utcnow
 

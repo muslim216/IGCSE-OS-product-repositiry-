@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    ai_usage,
     analytics,
     assessments,
     assignments,
@@ -12,6 +13,7 @@ from app.api import (
     chat,
     classifieds,
     groups,
+    knowledge,
     lessons,
     me,
     preferences,
@@ -67,12 +69,14 @@ def create_app() -> FastAPI:
 
     for router in (
         auth.router,
+        ai_usage.router,
         analytics.router,
         assessments.router,
         assignments.router,
         chat.router,
         classifieds.router,
         groups.router,
+        knowledge.router,
         lessons.router,
         me.router,
         preferences.router,

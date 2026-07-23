@@ -29,6 +29,8 @@ from app.models import (
     Group,
     GroupMember,
     GroupResource,
+    KnowledgeEntry,
+    KnowledgeEntryKind,
     Lesson,
     LessonObservation,
     LessonTopic,
@@ -295,6 +297,23 @@ async def main() -> None:
 
         # Tutor preferences (defaults, just so the row exists to edit).
         session.add(TutorPreferences(tutor_id=tutor.id))
+
+        # Knowledge base entries — injected into every AI surface so the AI
+        # behaves like this specific tutor.
+        session.add_all([
+            KnowledgeEntry(
+                organization_id=org.id, tutor_id=tutor.id, subject_id=None,
+                kind=KnowledgeEntryKind.ai_instruction,
+                title="Tone with students",
+                body="Always be warm and encouraging, never sarcastic. Celebrate small wins.",
+            ),
+            KnowledgeEntry(
+                organization_id=org.id, tutor_id=tutor.id, subject_id=subject.id,
+                kind=KnowledgeEntryKind.marking_preference,
+                title="Chemistry equations",
+                body="Always require balanced equations with state symbols for full marks.",
+            ),
+        ])
 
         await session.commit()
 

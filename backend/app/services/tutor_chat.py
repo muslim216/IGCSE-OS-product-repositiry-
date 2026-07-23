@@ -30,15 +30,33 @@ readiness percentages as if they were official grades — talk about strengths a
 areas to work on."""
 
 
-async def stream_reply(context: str, history: list[dict]) -> AsyncIterator[str]:
+async def stream_reply(
+    context: str,
+    history: list[dict],
+    *,
+    kb_context: str = "",
+    usage: dict | None = None,
+) -> AsyncIterator[str]:
     """Yield text chunks of the assistant's reply. `history` is a list of
-    {"role": "user"|"assistant", "content": str} ending with the new user turn."""
+    {"role": "user"|"assistant", "content": str} ending with the new user turn.
+
+    `kb_context` (the tutor's Knowledge Base, see services/knowledge.py) is
+    injected as its own cached system block so the AI behaves like that
+    specific tutor.
+
+    When `usage` is passed, it is filled in with {"model", "input_tokens",
+    "output_tokens"} once the stream finishes, so the caller can meter the
+    call with its own (possibly fresher) DB session — see api/chat.py."""
     settings = get_settings()
     client = get_client()
-    system = [
+    system: list[dict] = [
         {"type": "text", "text": SYSTEM_PROMPT},
         {"type": "text", "text": f"Student context:\n{context}"},
     ]
+    if kb_context:
+        system.append(
+            {"type": "text", "text": kb_context, "cache_control": {"type": "ephemeral"}}
+        )
     async with client.messages.stream(
         model=settings.anthropic_model,
         max_tokens=2000,
@@ -47,3 +65,8 @@ async def stream_reply(context: str, history: list[dict]) -> AsyncIterator[str]:
     ) as stream:
         async for text in stream.text_stream:
             yield text
+        if usage is not None:
+            final = await stream.get_final_message()
+            usage["model"] = final.model
+            usage["input_tokens"] = final.usage.input_tokens
+            usage["output_tokens"] = final.usage.output_tokens
