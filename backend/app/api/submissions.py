@@ -32,6 +32,7 @@ from app.schemas.homework import (
 )
 from app.services import storage
 from app.services.evidence import build_homework_evidence
+from app.services.readiness_v2_ai import enqueue_v2_shadow
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
@@ -434,5 +435,6 @@ async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUs
         "recompute_readiness",
         {"student_id": submission.student_id, "subject_id": group.subject_id},
     )
+    await enqueue_v2_shadow(db, submission.student_id, group.subject_id)
     await db.commit()
     return await submission_detail(submission_id, db, user)

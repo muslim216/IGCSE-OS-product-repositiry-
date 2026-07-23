@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-4-8"
+    # Readiness Engine v2 rollout (see docs/manara-architecture.md): while
+    # False, v2's compute_readiness_v2 job never runs and only v1 serves the
+    # app. Turning it on shadow-runs v2 alongside v1 on every evidence change
+    # (new GET /readiness/v2/... endpoints become populated) without
+    # changing what the existing readiness endpoints/UI show — that cutover
+    # is a separate, later decision once v2 output has been validated.
+    readiness_v2_shadow_enabled: bool = False
     upload_dir: str = "uploads"
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.

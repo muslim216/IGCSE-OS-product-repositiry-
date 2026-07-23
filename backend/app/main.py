@@ -18,6 +18,7 @@ from app.api import (
     me,
     preferences,
     readiness,
+    readiness_v2,
     reports,
     resources,
     students,
@@ -37,9 +38,10 @@ from app.workers.jobs import register_handler, worker_loop
 register_handler("extract_assignment", extract_assignment)
 register_handler("mark_submission", mark_submission)
 register_handler("recompute_readiness", recompute_student)
-# Readiness v2's job handler is registered so it's independently invocable
-# and testable, but nothing enqueues it yet — that dual-running/cutover is
-# Phase 4 of the Readiness v2 rollout (see CLAUDE.md / manara-architecture.md).
+# Readiness v2 shadow-runs alongside v1 whenever settings.readiness_v2_shadow_enabled
+# is on (enqueue_v2_shadow, called next to every recompute_readiness enqueue).
+# v1 still drives every existing endpoint; GET /readiness/v2/... is a
+# separate, read-only comparison surface (see api/readiness_v2.py).
 register_handler("compute_readiness_v2", compute_readiness_v2)
 register_handler("generate_report", generate_report)
 register_handler("extract_syllabus", extract_syllabus)
@@ -86,6 +88,7 @@ def create_app() -> FastAPI:
         me.router,
         preferences.router,
         readiness.router,
+        readiness_v2.router,
         reports.router,
         resources.router,
         students.router,

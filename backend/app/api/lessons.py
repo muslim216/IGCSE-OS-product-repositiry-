@@ -26,6 +26,7 @@ from app.schemas.lessons import (
     LessonTopicsUpdate,
     LessonUpdate,
 )
+from app.services.readiness_v2_ai import enqueue_v2_shadow
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/lessons", tags=["lessons"])
@@ -201,6 +202,7 @@ async def add_lesson_observation(
             "recompute_readiness",
             {"student_id": body.student_id, "subject_id": topic.subject_id},
         )
+        await enqueue_v2_shadow(db, body.student_id, topic.subject_id)
     await db.commit()
     return LessonObservationOut(
         id=observation.id,

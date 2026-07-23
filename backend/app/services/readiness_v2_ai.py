@@ -11,9 +11,11 @@ deterministic Layer 1 rows are still committed and a snapshot is still
 written with status="failed" — the evaluation as a whole never silently
 disappears, only the AI's contribution to it.
 
-The job handler here (compute_readiness_v2) is registered but not yet wired
-into any existing evidence-change trigger — that dual-running/cutover is
-Phase 4."""
+enqueue_v2_shadow() is how callers dual-run v2 alongside v1: it only
+enqueues compute_readiness_v2 when settings.readiness_v2_shadow_enabled is
+on, so v2 accumulates snapshots in the background for comparison without
+affecting what any existing endpoint serves (see api/readiness_v2.py for the
+read-only endpoints that expose them)."""
 
 import uuid
 from datetime import datetime, timezone
@@ -41,6 +43,18 @@ from app.services.ai import get_client, record_usage
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.readiness_v2 import evaluate_subject_factors
+from app.workers.jobs import enqueue
+
+
+async def enqueue_v2_shadow(
+    db: AsyncSession, student_id: int, subject_id: int | None = None
+) -> None:
+    """Shadow-run v2 alongside v1 when enabled — a no-op otherwise. Call
+    this next to every existing enqueue("recompute_readiness", ...) call."""
+    if get_settings().readiness_v2_shadow_enabled:
+        await enqueue(
+            db, "compute_readiness_v2", {"student_id": student_id, "subject_id": subject_id}
+        )
 
 SYSTEM_PROMPT = """You are the Readiness Engine's synthesis layer for an IGCSE/O Level \
 tutoring platform. You are given seven deterministic factor sub-scores for one student in \
