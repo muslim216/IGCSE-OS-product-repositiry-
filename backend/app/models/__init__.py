@@ -10,6 +10,7 @@ from app.models.homework import (
     Job,
     JobStatus,
     MarkConfidence,
+    QuestionDifficulty,
     QuestionMark,
     QuestionTopic,
     Submission,
@@ -29,6 +30,19 @@ from app.models.readiness import (
     TutorObservation,
     TutorPreferences,
 )
+from app.models.readiness_v2 import (
+    AiSynthesisStatus,
+    FactorConfidence,
+    FactorEvaluation,
+    GradeBoundary,
+    Mistake,
+    MistakeCategory,
+    PastPaper,
+    PastPaperAttempt,
+    ReadinessFactor,
+    ReadinessSnapshot,
+    ReadinessWeights,
+)
 from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
 from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
 from app.models.orgs import Organization
@@ -39,6 +53,7 @@ from app.models.users import User, UserRole
 
 __all__ = [
     "AiFeature",
+    "AiSynthesisStatus",
     "AiUsageEvent",
     "Assessment",
     "AssessmentScore",
@@ -53,6 +68,9 @@ __all__ = [
     "Classified",
     "Evidence",
     "EvidenceSource",
+    "FactorConfidence",
+    "FactorEvaluation",
+    "GradeBoundary",
     "Group",
     "GroupMember",
     "GroupResource",
@@ -66,13 +84,21 @@ __all__ = [
     "LessonObservation",
     "LessonTopic",
     "MarkConfidence",
+    "Mistake",
+    "MistakeCategory",
     "Organization",
     "ParentCommunication",
     "ParentLink",
+    "PastPaper",
+    "PastPaperAttempt",
+    "QuestionDifficulty",
     "QuestionMark",
     "QuestionTopic",
     "ReadinessConfidence",
+    "ReadinessFactor",
     "ReadinessHistory",
+    "ReadinessSnapshot",
+    "ReadinessWeights",
     "Report",
     "ReportAudience",
     "ReportStatus",

@@ -73,6 +73,12 @@ class Assignment(TimestampMixin, Base):
     )
 
 
+class QuestionDifficulty(str, enum.Enum):
+    easy = "easy"
+    medium = "medium"
+    hard = "hard"
+
+
 class AssignmentQuestion(Base):
     __tablename__ = "assignment_questions"
 
@@ -83,6 +89,12 @@ class AssignmentQuestion(Base):
     text_summary: Mapped[str] = mapped_column(Text, nullable=False)
     max_marks: Mapped[int] = mapped_column(Integer, nullable=False)
     has_mark_scheme: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # AI-assigned at extraction, tutor-overridable in the review UI — feeds
+    # the Topic Mastery readiness factor's difficulty-tiered breakdown.
+    difficulty: Mapped[QuestionDifficulty | None] = mapped_column(
+        Enum(QuestionDifficulty, native_enum=False, length=8), nullable=True
+    )
+    unseen: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     assignment: Mapped[Assignment] = relationship(back_populates="questions")
     topics: Mapped[list["QuestionTopic"]] = relationship(
