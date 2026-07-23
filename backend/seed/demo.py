@@ -37,8 +37,11 @@ from app.models import (
     MarkConfidence,
     Organization,
     ParentLink,
+    PastPaper,
+    PastPaperAttempt,
     QuestionMark,
     QuestionTopic,
+    ReadinessWeights,
     ResourceKind,
     ScheduleSlot,
     Subject,
@@ -297,6 +300,27 @@ async def main() -> None:
 
         # Tutor preferences (defaults, just so the row exists to edit).
         session.add(TutorPreferences(tutor_id=tutor.id))
+        # Readiness v2 factor weights (defaults) — the row readiness v2's
+        # shadow computation reads once READINESS_V2_SHADOW_ENABLED is on.
+        session.add(ReadinessWeights(organization_id=org.id, tutor_id=tutor.id))
+
+        # A past paper attempt — distinct from classifieds (see CLAUDE.md):
+        # full past papers carry official grade boundaries and timed
+        # conditions, and become the dominant evidence source later in the
+        # IGCSE year.
+        past_paper = PastPaper(
+            organization_id=org.id, subject_id=subject.id,
+            session_label="June 2026", paper_number="Paper 1",
+        )
+        session.add(past_paper)
+        await session.flush()
+        session.add(
+            PastPaperAttempt(
+                past_paper_id=past_paper.id, student_id=student1.id,
+                raw_marks=32, max_marks=40, timed=True,
+                attempted_at=(now - timedelta(days=10)).date(),
+            )
+        )
 
         # Knowledge base entries — injected into every AI surface so the AI
         # behaves like this specific tutor.

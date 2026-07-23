@@ -99,9 +99,23 @@ Stores tutor-specific knowledge so the AI behaves like *that* tutor.
 
 ### 5. Readiness Engine v2 — two layers
 
-**Layer 1 — deterministic factor sub-scores** (`services/readiness_factors.py`). Each of
-the seven factors is computed by explainable code from stored evidence, reusing the v1
-engine's pure-function math (exponential decay, weighted averages) as an internal library:
+> **Status: built and shadow-running, not yet the system of record.** Every piece below
+> is implemented (Layer 1, Layer 2, the new tables, a read-only `GET
+> /readiness/v2/students/{id}`), but v1 (`services/readiness.py`,
+> `TopicReadiness`/`ReadinessHistory`/`TutorPreferences`) is still what every existing
+> endpoint and the UI actually serve. Setting `READINESS_V2_SHADOW_ENABLED=true` makes
+> v2 compute alongside v1 on every evidence change so its output can be compared before
+> anything switches over. Two refinements vs. the original sketch below: the deterministic
+> layer writes one **`factor_evaluations`** row per factor per run (not a single JSON blob
+> on the snapshot), and the AI-synthesis job is named **`compute_readiness_v2`** (not
+> `compute_readiness`) so it can run independently of v1's `recompute_readiness` during
+> the shadow period. See CLAUDE.md's "Readiness v2" note for the current split.
+
+**Layer 1 — deterministic factor sub-scores** (`services/readiness_factors.py` for the
+pure scoring math, `services/readiness_v2.py` for the DB-facing gathering that calls it).
+Each of the seven factors is computed by explainable code from stored evidence, reusing
+the v1 engine's pure-function math (exponential decay, weighted averages) as an internal
+library:
 
 | Factor | Source |
 |---|---|
@@ -113,28 +127,43 @@ engine's pure-function math (exponential decay, weighted averages) as an interna
 | Mistake Analysis | Frequency and severity of recurring mistake categories |
 | Consistency | Homework completion streaks and timeliness |
 
-**Layer 2 — AI synthesis** (`compute_readiness` job, replacing `recompute_readiness`).
-The AI receives the factor sub-scores, the tutor's weights, and student context; it
-returns subject readiness, topic readiness, weak topics, and recommended revision, with a
-written rationale. Every snapshot stores the full factor breakdown and rationale, so even
-though the final number is AI-produced, every input is traceable. Factors with no
-evidence are passed as "no data" and reported as such — never fabricated (the v1 "not
-enough data yet" principle, per factor).
+**Layer 2 — AI synthesis** (`services/readiness_v2_ai.py`, job `compute_readiness_v2`;
+will replace `recompute_readiness` at cutover, running alongside it during the shadow
+period). The AI receives the factor sub-scores, the tutor's weights, and the tutor's
+Knowledge Base context; it returns the overall readiness score, weak topics, and a
+written rationale + revision plan, with the predicted grade computed deterministically
+from the score via `predict_grade()` — the AI is never asked to invent a grade. Every
+run gets a shared `evaluation_run_id` linking its `factor_evaluations` rows to the final
+`readiness_snapshots` row, so even though the final number is AI-produced, every input is
+traceable. Factors with no evidence are passed as "no data" and reported as such — never
+fabricated (the v1 "not enough data yet" principle, per factor). If the AI call fails,
+the already-computed `factor_evaluations` rows are kept and the snapshot is written with
+`status="failed"` rather than losing the evaluation.
 
 New/changed tables:
 
-- `questions.difficulty` (easy/medium/hard; AI-assigned at extraction, tutor override in
-  the review UI) plus an `unseen` flag.
-- `mistakes`: student, submission/question-mark ref, topic, category (`misread` |
-  `content_gap` | `careless` | `calculation` | `time_management`); AI-tagged during
+- `assignment_questions.difficulty` (easy/medium/hard; AI-assigned at extraction, tutor
+  override in the review UI) plus an `unseen` flag.
+- `mistakes`: student, question-mark ref, topic, category (`misread` | `content_gap` |
+  `careless` | `calculation` | `time_management`), severity (1-3); AI-tagged during
   marking, tutor confirms/overrides alongside marks. Recurring mistakes reduce readiness.
-- `past_papers` (subject, session/year, paper number) and `past_paper_attempts`
+- `past_papers` (org, subject, session label, paper number) and `past_paper_attempts`
   (student, raw marks, timed flag, date).
-- `grade_boundaries`: org, subject, grade label, minimum percentage.
+- `grade_boundaries`: org, subject, grade label, minimum percentage — overrides the
+  shared `Subject.grade_boundaries` default when present.
 - `readiness_weights`: one weight per factor, per org/tutor — **supersedes**
   `TutorPreferences` source weights; half-life survives as an advanced decay setting.
-- `readiness_snapshots`: student, subject, optional topic, score, factors JSON,
-  rationale, timestamp — **supersedes** `TopicReadiness` + `ReadinessHistory`.
+- `factor_evaluations`: append-only, one row per factor per `evaluation_run_id`
+  (topic-scoped for Topic Mastery, subject-scoped for the rest) — score, confidence,
+  evidence count, and a JSON detail breakdown.
+- `readiness_snapshots`: student, subject, `evaluation_run_id`, status (ready/failed),
+  score, predicted grade, weak topics, rationale, recommended revision, error — together
+  with `factor_evaluations`, **supersedes** `TopicReadiness` + `ReadinessHistory`.
+
+A `factor_evaluations` row is written on every run and never updated — expect to add a
+retention/archival policy (e.g. prune runs older than N months, keeping only the most
+recent few snapshots per subject) before this runs at real scale; not needed yet at
+current data volumes.
 
 ### 6. Classifieds vs past papers
 
@@ -176,7 +205,7 @@ supported.
 |---|---|
 | AI Homework Analyzer | `services/marking.py` + `extraction.py` (+ mistake tagging, difficulty) |
 | AI Learning Assistant | student chat (`services/tutor_chat.py` lineage) + KB + mistake history |
-| AI Readiness Engine | `compute_readiness` job (Layer 2 synthesis) |
+| AI Readiness Engine | `compute_readiness_v2` job (Layer 2 synthesis) — shadow-running, see §5 |
 | AI Report Generator | `services/reports.py` + KB context |
 | AI Teaching Assistant | future: worksheets/quizzes/lesson plans grounded in CRM + KB |
 | AI Academic Intelligence | future: cross-student queries over CRM + readiness snapshots |
@@ -190,9 +219,12 @@ frontend `api/client.ts`.
 **Renamed/reframed**: schedule `Lesson` → `ScheduleSlot`; `Classified` gains
 topic+difficulty extraction; `TutorPreferences` → `readiness_weights`.
 
-**Superseded**: readiness v1 scoring becomes the internal math of Layer 1;
-`TopicReadiness`/`ReadinessHistory` are replaced by `readiness_snapshots`;
-`recompute_readiness` is replaced by the two-layer `compute_readiness`.
+**Superseded (pending cutover)**: readiness v1's decay/confidence math is reused as
+Layer 1's internal library; `TopicReadiness`/`ReadinessHistory` are designed to be
+replaced by `factor_evaluations` + `readiness_snapshots`, and `recompute_readiness` by
+the two-layer `compute_readiness_v2` — but as of this writing v2 only shadow-runs
+(behind `READINESS_V2_SHADOW_ENABLED`) and v1's tables/job are still what the app
+actually serves. Nothing is deleted until v2 is validated.
 
 **Cross-cutting**: every tenant table gains `organization_id`; `api/deps.py` gains org
 scoping; migrations continue the hand-written sequence from 0012.
@@ -204,16 +236,17 @@ record, MocksPage → Readiness/assessments, PreferencesPage → Settings).
 
 ## Build order
 
-1. **Organization + tenancy plumbing** — migration, models, deps, scoping. Everything
-   depends on it.
-2. **Student CRM** — profiles, enrollments, notes, communications, CRM endpoint.
-3. **Lessons core entity** — rename slot, lessons, lesson_topics, observations,
-   assignment link, syllabus-coverage queries.
-4. **Knowledge Base + AI injection** — entries CRUD, `build_tutor_context`, wire into all
-   AI services. AI metering lands here too (small, same files).
-5. **Readiness v2** — difficulty, mistakes, past papers, boundaries, weights, factor
-   services, AI synthesis job, new readiness API + UI. The largest chunk.
-6. **Google Classroom** — OAuth, link tables, sync job, settings UI.
+1. ✅ **Organization + tenancy plumbing** — migration, models, deps, scoping.
+2. ✅ **Student CRM** — profiles, enrollments, notes, communications, CRM endpoint.
+3. ✅ **Lessons core entity** — schedule slot rename, lessons, lesson_topics,
+   observations, assignment link.
+4. ✅ **Knowledge Base + AI injection** — entries CRUD, `build_tutor_context`, wired into
+   marking/extraction/reports/chat. AI metering landed alongside it.
+5. ✅ **Readiness v2** (built, shadow-running — see §5's status note): schema, factor
+   services, AI synthesis job, shadow dual-enqueue, read-only `/readiness/v2` endpoint.
+   Not yet: the actual cutover (v1 retirement, frontend reading from v2, difficulty/topic
+   proposals wired into the extraction review UI, a `factor_evaluations` retention job).
+6. ⬜ **Google Classroom** — OAuth, link tables, sync job, settings UI. Not started.
 
 Each step ships as migration + models (re-exported from `models/__init__.py`) + services
 + API + tests, keeping the suite green throughout. The frontend restructure lands

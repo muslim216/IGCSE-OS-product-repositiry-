@@ -54,41 +54,60 @@ Demo login after seeding: `demo-tutor@example.com` / `demo1234`.
 all new work:
 
 - **Lessons are the core entity.** The operating loop is Teach → Assign → Submit → AI
-  Analyze → Update CRM & Readiness → Review → Plan next lesson. The current schedule
-  `Lesson` model (weekday/time template) is being renamed `ScheduleSlot`; the new
-  `Lesson` records date, notes, topics covered (`lesson_topics` → syllabus coverage),
-  per-student observations, and linked homework.
+  Analyze → Update CRM & Readiness → Review → Plan next lesson. The old schedule
+  template model lives on as `ScheduleSlot` (table `schedule_slots`, still what
+  `/groups/{id}/lessons` manages); `Lesson` (`models/lessons.py`) is the real dated event —
+  date, notes, `lesson_topics` (syllabus coverage), `lesson_observations`, and an optional
+  `assignments.lesson_id` link. Own router: `api/lessons.py`.
 - **Multi-tenant backend, single-tutor UX.** An `Organization` is auto-created per tutor
   at signup; every top-level aggregate carries `organization_id`. Going org-level later
   (tutoring centers) must be a role/UI change, never a schema migration.
 - **Student CRM** (`student_profiles`, `student_subjects` enrollments with target
   grades, `tutor_notes`, `parent_communications`) is the student's complete academic
-  record; one aggregation endpoint feeds both the UI and AI grounding.
-- **Tutor Knowledge Base** (`knowledge_entries` + `build_tutor_context()`) is injected
-  into *every* AI surface — marking, chat, reports, extraction — so the AI behaves like
-  that specific tutor.
-- **Readiness v2 is two layers**: deterministic, explainable sub-scores for seven
-  tutor-weighted factors (Topic Mastery, Past Paper Performance, Homework Performance,
-  Assessment Performance, Syllabus Coverage, Mistake Analysis, Consistency), then an AI
-  synthesis job that produces the final scores + rationale. Every snapshot stores the
-  factor breakdown — **no metric may exist that can't explain its source**. Factors
-  without evidence report "no data", never a fabricated number. Supersedes
-  `TutorPreferences` (→ `readiness_weights`) and `TopicReadiness`/`ReadinessHistory`
-  (→ `readiness_snapshots`).
+  record; `services/student_crm.py`'s aggregation feeds both `GET /students/{id}/crm`
+  and AI grounding (`services/student_context.py` reads from the same function).
+- **Tutor Knowledge Base** (`knowledge_entries` + `services/knowledge.py`'s
+  `build_tutor_context()`) is injected into every AI surface — marking, extraction,
+  report generation, tutor chat — so the AI behaves like that specific tutor.
+- **Readiness v2 is built and shadow-running, not yet authoritative.** Layer 1
+  (`services/readiness_factors.py` + `services/readiness_v2.py`) computes seven
+  tutor-weighted, explainable factor sub-scores (Topic Mastery, Past Paper Performance,
+  Homework Performance, Assessment Performance, Syllabus Coverage, Mistake Analysis,
+  Consistency) as append-only `factor_evaluations` rows. Layer 2
+  (`services/readiness_v2_ai.py`, job `compute_readiness_v2`) synthesizes them + the
+  org's `readiness_weights` into a `readiness_snapshots` row, both tagged with a shared
+  `evaluation_run_id` so a score always traces back to its deterministic inputs; an AI
+  failure still keeps the Layer 1 rows and writes `status="failed"` rather than losing
+  the evaluation. **v1 (`services/readiness.py`, `TopicReadiness`/`ReadinessHistory`/
+  `TutorPreferences`) is still what every existing endpoint and the UI actually serve.**
+  Setting `READINESS_V2_SHADOW_ENABLED=true` makes every place v1 recomputes also
+  enqueue `compute_readiness_v2` (`enqueue_v2_shadow()`), so v2 accumulates snapshots
+  for comparison, readable read-only at `GET /readiness/v2/students/{id}` — that
+  endpoint never triggers a computation itself. Flipping the UI/API over to v2 as the
+  source of truth, and retiring v1, is a deliberate later step once v2's output has
+  been validated, not part of this milestone. No metric may exist that can't explain
+  its source; factors without evidence report "no data", never a fabricated number.
+  `factor_evaluations` is a detailed, append-only audit trail — expect to add a
+  retention/archival policy (e.g. prune runs older than N months once older than the
+  last few snapshots per subject are no longer useful) before this runs at real scale.
 - **Classifieds ≠ past papers.** Classifieds (topic-organized past-paper question
   compilations, tutor-specific structures) are the main evidence source most of the
-  year and feed Topic Mastery; full past papers (with CIE/Edexcel grade boundaries,
-  entered by the tutor per subject at onboarding, and timed conditions) are a separate
-  entity feeding the Past Paper factor. Question difficulty is AI-assigned at
-  extraction with tutor override.
+  year and feed Topic Mastery; full past papers (`past_papers` + `past_paper_attempts`,
+  with `grade_boundaries` entered by the tutor per subject/org at onboarding, and timed
+  conditions) are a separate entity feeding the Past Paper Performance factor. Question
+  difficulty (`assignment_questions.difficulty`) is AI-assigned at extraction with
+  tutor override.
 - **Google Classroom** integrates via per-tutor OAuth and a polling `sync_classroom`
   job that imports coursework/submissions into the standard marking pipeline —
-  Classroom reduces friction, it never replaces direct upload.
-- **Every AI call is metered** (`ai_usage_events`, recorded in `services/ai.py`) as the
-  foundation for tutor AI allowances + student top-ups. No payments yet.
+  Classroom reduces friction, it never replaces direct upload. Not yet built.
+- **Every AI call is metered** (`ai_usage_events`, recorded via `services/ai.py`'s
+  `record_usage()`) as the foundation for tutor AI allowances + student top-ups. No
+  payments yet. Usage view: `GET /ai-usage/summary`.
 
 Build order: tenancy → Student CRM → Lessons → Knowledge Base (+metering) →
-Readiness v2 → Classroom. Keep the test suite green at every step.
+Readiness v2 → Classroom. Tenancy, CRM, Lessons, and Knowledge Base are done. Readiness
+v2 is built and shadow-running (see above) but not yet the system of record. Classroom
+is not started. Keep the test suite green at every step.
 
 ## Architecture
 
