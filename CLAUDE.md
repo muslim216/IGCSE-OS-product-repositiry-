@@ -4,11 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The **IGCSE Student Operating System** — an academic-intelligence platform for IGCSE
-tutors, students, and parents. A Python/FastAPI backend and a React/Vite frontend live in
-one repo but deploy as two independent services. The product's heart is the **Readiness
-Engine**: every piece of academic evidence (homework, mocks, tutor observations) feeds
-topic-level exam-readiness scores that drive every dashboard, recommendation, and report.
+**MANARA by OASIS AI** — an AI Operating System for IGCSE education (formerly the "IGCSE
+Student Operating System"), serving tutors, students, and parents. A Python/FastAPI
+backend and a React/Vite frontend live in one repo but deploy as two independent
+services. The product's heart is the **Readiness Engine**: every piece of academic
+evidence feeds exam-readiness scores that drive every dashboard, recommendation, and
+report. MANARA is not an AI tutor or a homework marker — the platform (Student CRM,
+Lessons, Readiness, Knowledge Base, Homework, Reports) is the product, with AI enhancing
+every layer.
+
+The codebase is mid-transition to the MANARA target architecture — see
+`docs/manara-architecture.md` and "The MANARA update" below. Sections that follow
+describe the code **as it exists today**; build new work toward the target.
 
 ## Common commands
 
@@ -40,6 +47,48 @@ npm test           # vitest run
 ```
 
 Demo login after seeding: `demo-tutor@example.com` / `demo1234`.
+
+## The MANARA update (target architecture — in progress)
+
+`docs/manara-architecture.md` is the authoritative design; these are the rules that bind
+all new work:
+
+- **Lessons are the core entity.** The operating loop is Teach → Assign → Submit → AI
+  Analyze → Update CRM & Readiness → Review → Plan next lesson. The current schedule
+  `Lesson` model (weekday/time template) is being renamed `ScheduleSlot`; the new
+  `Lesson` records date, notes, topics covered (`lesson_topics` → syllabus coverage),
+  per-student observations, and linked homework.
+- **Multi-tenant backend, single-tutor UX.** An `Organization` is auto-created per tutor
+  at signup; every top-level aggregate carries `organization_id`. Going org-level later
+  (tutoring centers) must be a role/UI change, never a schema migration.
+- **Student CRM** (`student_profiles`, `student_subjects` enrollments with target
+  grades, `tutor_notes`, `parent_communications`) is the student's complete academic
+  record; one aggregation endpoint feeds both the UI and AI grounding.
+- **Tutor Knowledge Base** (`knowledge_entries` + `build_tutor_context()`) is injected
+  into *every* AI surface — marking, chat, reports, extraction — so the AI behaves like
+  that specific tutor.
+- **Readiness v2 is two layers**: deterministic, explainable sub-scores for seven
+  tutor-weighted factors (Topic Mastery, Past Paper Performance, Homework Performance,
+  Assessment Performance, Syllabus Coverage, Mistake Analysis, Consistency), then an AI
+  synthesis job that produces the final scores + rationale. Every snapshot stores the
+  factor breakdown — **no metric may exist that can't explain its source**. Factors
+  without evidence report "no data", never a fabricated number. Supersedes
+  `TutorPreferences` (→ `readiness_weights`) and `TopicReadiness`/`ReadinessHistory`
+  (→ `readiness_snapshots`).
+- **Classifieds ≠ past papers.** Classifieds (topic-organized past-paper question
+  compilations, tutor-specific structures) are the main evidence source most of the
+  year and feed Topic Mastery; full past papers (with CIE/Edexcel grade boundaries,
+  entered by the tutor per subject at onboarding, and timed conditions) are a separate
+  entity feeding the Past Paper factor. Question difficulty is AI-assigned at
+  extraction with tutor override.
+- **Google Classroom** integrates via per-tutor OAuth and a polling `sync_classroom`
+  job that imports coursework/submissions into the standard marking pipeline —
+  Classroom reduces friction, it never replaces direct upload.
+- **Every AI call is metered** (`ai_usage_events`, recorded in `services/ai.py`) as the
+  foundation for tutor AI allowances + student top-ups. No payments yet.
+
+Build order: tenancy → Student CRM → Lessons → Knowledge Base (+metering) →
+Readiness v2 → Classroom. Keep the test suite green at every step.
 
 ## Architecture
 
