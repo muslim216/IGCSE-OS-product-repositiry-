@@ -98,14 +98,14 @@ class JoinRequest(BaseModel):
     invite_code: str
 
 
-class LessonCreate(BaseModel):
+class ScheduleSlotCreate(BaseModel):
     weekday: int = Field(ge=0, le=6)
     start_time: time
     duration_min: int = Field(default=60, ge=15, le=480)
     title: str | None = Field(default=None, max_length=128)
 
 
-class LessonOut(BaseModel):
+class ScheduleSlotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -120,7 +120,7 @@ class ClassBrief(BaseModel):
     brief: str
 
 
-class UpcomingLesson(BaseModel):
+class UpcomingScheduleSlot(BaseModel):
     id: int
     group_id: int
     group_name: str

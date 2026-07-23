@@ -12,7 +12,7 @@ from app.models import (
     GroupMember,
     Invite,
     InviteKind,
-    Lesson,
+    ScheduleSlot,
     Subject,
     User,
     UserRole,
@@ -25,8 +25,8 @@ from app.schemas.groups import (
     GroupOut,
     GroupUpdate,
     InviteOut,
-    LessonCreate,
-    LessonOut,
+    ScheduleSlotCreate,
+    ScheduleSlotOut,
     StudentCreate,
     StudentPasswordReset,
     SubjectOut,
@@ -198,34 +198,36 @@ async def reset_student_password(
     await db.commit()
 
 
-@router.post("/{group_id}/lessons", response_model=LessonOut, status_code=status.HTTP_201_CREATED)
-async def create_lesson(
-    group_id: int, body: LessonCreate, db: DbSession, user: CurrentUser
-) -> LessonOut:
+@router.post(
+    "/{group_id}/lessons", response_model=ScheduleSlotOut, status_code=status.HTTP_201_CREATED
+)
+async def create_schedule_slot(
+    group_id: int, body: ScheduleSlotCreate, db: DbSession, user: CurrentUser
+) -> ScheduleSlotOut:
     group = await _owned_group(db, user, group_id)
-    lesson = Lesson(
+    slot = ScheduleSlot(
         group_id=group.id,
         weekday=body.weekday,
         start_time=body.start_time,
         duration_min=body.duration_min,
         title=body.title,
     )
-    db.add(lesson)
+    db.add(slot)
     await db.commit()
-    return LessonOut.model_validate(lesson)
+    return ScheduleSlotOut.model_validate(slot)
 
 
-@router.get("/{group_id}/lessons", response_model=list[LessonOut])
-async def list_lessons(group_id: int, db: DbSession, user: CurrentUser) -> list[LessonOut]:
+@router.get("/{group_id}/lessons", response_model=list[ScheduleSlotOut])
+async def list_schedule_slots(group_id: int, db: DbSession, user: CurrentUser) -> list[ScheduleSlotOut]:
     group = await _owned_group(db, user, group_id)
-    lessons = (
+    slots = (
         await db.scalars(
-            select(Lesson)
-            .where(Lesson.group_id == group.id)
-            .order_by(Lesson.weekday, Lesson.start_time)
+            select(ScheduleSlot)
+            .where(ScheduleSlot.group_id == group.id)
+            .order_by(ScheduleSlot.weekday, ScheduleSlot.start_time)
         )
     ).all()
-    return [LessonOut.model_validate(lesson) for lesson in lessons]
+    return [ScheduleSlotOut.model_validate(slot) for slot in slots]
 
 
 @router.post("/{group_id}/brief", response_model=ClassBrief)
@@ -273,13 +275,13 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
     return ClassBrief(brief=text.strip())
 
 
-@router.delete("/{group_id}/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_lesson(group_id: int, lesson_id: int, db: DbSession, user: CurrentUser) -> None:
+@router.delete("/{group_id}/lessons/{slot_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_schedule_slot(group_id: int, slot_id: int, db: DbSession, user: CurrentUser) -> None:
     group = await _owned_group(db, user, group_id)
-    lesson = await db.scalar(
-        select(Lesson).where(Lesson.id == lesson_id, Lesson.group_id == group.id)
+    slot = await db.scalar(
+        select(ScheduleSlot).where(ScheduleSlot.id == slot_id, ScheduleSlot.group_id == group.id)
     )
-    if lesson is None:
+    if slot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")
-    await db.delete(lesson)
+    await db.delete(slot)
     await db.commit()

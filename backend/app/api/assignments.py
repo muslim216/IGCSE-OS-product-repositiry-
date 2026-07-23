@@ -10,6 +10,7 @@ from app.models import (
     Classified,
     Group,
     GroupMember,
+    Lesson,
     QuestionTopic,
     Submission,
     SubmissionStatus,
@@ -79,9 +80,17 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
     if group is None or group.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
 
+    lesson_id: int | None = None
+    if body.lesson_id is not None:
+        lesson = await db.get(Lesson, body.lesson_id)
+        if lesson is None or lesson.group_id != group.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")
+        lesson_id = lesson.id
+
     if body.classified_id is None:
         assignment = Assignment(
             group_id=group.id,
+            lesson_id=lesson_id,
             classified_id=None,
             title=body.title,
             instructions=body.instructions,
@@ -95,6 +104,7 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
         return AssignmentDetail(
             id=assignment.id,
             group_id=assignment.group_id,
+            lesson_id=assignment.lesson_id,
             classified_id=None,
             title=assignment.title,
             instructions=assignment.instructions,
@@ -115,6 +125,7 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
         )
     assignment = Assignment(
         group_id=group.id,
+        lesson_id=lesson_id,
         classified_id=classified.id,
         title=body.title,
         instructions=body.instructions,
@@ -129,6 +140,7 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
     return AssignmentDetail(
         id=assignment.id,
         group_id=assignment.group_id,
+        lesson_id=assignment.lesson_id,
         classified_id=assignment.classified_id,
         title=assignment.title,
         instructions=assignment.instructions,
@@ -244,6 +256,7 @@ async def assignment_detail(assignment_id: int, db: DbSession, user: CurrentUser
     return AssignmentDetail(
         id=assignment.id,
         group_id=assignment.group_id,
+        lesson_id=assignment.lesson_id,
         classified_id=assignment.classified_id,
         title=assignment.title,
         instructions=assignment.instructions,

@@ -17,6 +17,8 @@ class ClassifiedOut(BaseModel):
 
 class AssignmentCreate(BaseModel):
     group_id: int
+    # The lesson this homework was assigned from, if any.
+    lesson_id: int | None = None
     # Omit to create an assignment without a question booklet; the tutor
     # types the question list directly instead.
     classified_id: int | None = None
@@ -57,6 +59,7 @@ class AssignmentOut(BaseModel):
 class AssignmentDetail(BaseModel):
     id: int
     group_id: int
+    lesson_id: int | None
     classified_id: int | None
     title: str
     instructions: str | None

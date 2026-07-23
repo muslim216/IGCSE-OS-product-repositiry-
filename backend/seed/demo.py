@@ -30,12 +30,15 @@ from app.models import (
     GroupMember,
     GroupResource,
     Lesson,
+    LessonObservation,
+    LessonTopic,
     MarkConfidence,
     Organization,
     ParentLink,
     QuestionMark,
     QuestionTopic,
     ResourceKind,
+    ScheduleSlot,
     Subject,
     Submission,
     SubmissionFile,
@@ -108,22 +111,22 @@ async def main() -> None:
         session.add(group)
         await session.flush()
         today_weekday = datetime.now(timezone.utc).weekday()
-        fixed_lessons = [
-            Lesson(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
-            Lesson(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
+        fixed_slots = [
+            ScheduleSlot(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
+            ScheduleSlot(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
         ]
-        # A lesson today so the tutor's "Today" tab has something to show
+        # A slot today so the tutor's "Today" tab has something to show
         # regardless of what day the demo is loaded — unless today already
         # coincides with one of the fixed slots above.
         if today_weekday not in (1, 4):
-            fixed_lessons.append(
-                Lesson(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson")
+            fixed_slots.append(
+                ScheduleSlot(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson")
             )
         session.add_all([
             GroupMember(group_id=group.id, student_id=student1.id),
             GroupMember(group_id=group.id, student_id=student2.id),
             ParentLink(parent_id=parent.id, student_id=student1.id),
-            *fixed_lessons,
+            *fixed_slots,
         ])
         await session.flush()
 
@@ -162,6 +165,26 @@ async def main() -> None:
                     )
         await session.flush()
 
+        # A taught lesson covering the first topic, with a per-student
+        # observation — exercises the new Lessons core entity end to end.
+        lesson = Lesson(
+            organization_id=org.id,
+            group_id=group.id,
+            date=date.today() - timedelta(days=7),
+            duration_min=90,
+            notes="Covered atomic structure basics; assigned HW1 for practice.",
+        )
+        session.add(lesson)
+        await session.flush()
+        session.add(LessonTopic(lesson_id=lesson.id, topic_id=topics[0].id))
+        session.add(
+            LessonObservation(
+                lesson_id=lesson.id, student_id=student1.id, topic_id=topics[0].id,
+                body="Sara answered confidently in class — ready for harder questions.",
+                rating=80,
+            )
+        )
+
         # One published assignment with a finalized submission per student.
         classified = Classified(
             organization_id=org.id,
@@ -178,6 +201,7 @@ async def main() -> None:
 
         assignment = Assignment(
             group_id=group.id,
+            lesson_id=lesson.id,
             classified_id=classified.id,
             title="HW1 — Atomic structure",
             status=AssignmentStatus.published,

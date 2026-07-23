@@ -31,7 +31,7 @@ class Group(TimestampMixin, Base):
     members: Mapped[list["GroupMember"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"
     )
-    lessons: Mapped[list["Lesson"]] = relationship(
+    schedule_slots: Mapped[list["ScheduleSlot"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"
     )
 
@@ -82,8 +82,12 @@ class ParentLink(TimestampMixin, Base):
     student: Mapped[User] = relationship(foreign_keys=[student_id])
 
 
-class Lesson(TimestampMixin, Base):
-    __tablename__ = "lessons"
+class ScheduleSlot(TimestampMixin, Base):
+    """A recurring weekly time template for a group (e.g. "Tuesdays 5pm").
+    Not a taught lesson — see models.lessons.Lesson for the actual dated
+    event with notes, topics covered, and observations."""
+
+    __tablename__ = "schedule_slots"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
@@ -92,4 +96,4 @@ class Lesson(TimestampMixin, Base):
     duration_min: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     title: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    group: Mapped[Group] = relationship(back_populates="lessons")
+    group: Mapped[Group] = relationship(back_populates="schedule_slots")

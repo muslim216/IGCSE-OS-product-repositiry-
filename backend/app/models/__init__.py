@@ -1,6 +1,6 @@
 from app.models.base import Base
 from app.models.chat import ChatConversation, ChatMessage, ChatRole
-from app.models.groups import Group, GroupMember, Invite, InviteKind, Lesson, ParentLink
+from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
 from app.models.homework import (
     Assignment,
     AssignmentQuestion,
@@ -15,6 +15,7 @@ from app.models.homework import (
     SubmissionFile,
     SubmissionStatus,
 )
+from app.models.lessons import Lesson, LessonObservation, LessonTopic
 from app.models.readiness import (
     Assessment,
     AssessmentScore,
@@ -56,6 +57,8 @@ __all__ = [
     "Job",
     "JobStatus",
     "Lesson",
+    "LessonObservation",
+    "LessonTopic",
     "MarkConfidence",
     "Organization",
     "ParentCommunication",
@@ -68,6 +71,7 @@ __all__ = [
     "ReportAudience",
     "ReportStatus",
     "ResourceKind",
+    "ScheduleSlot",
     "StudentProfile",
     "StudentSubject",
     "Subject",

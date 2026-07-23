@@ -5,9 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
-from app.models import Group, GroupMember, Lesson, ParentLink, User, UserRole
+from app.models import Group, GroupMember, ParentLink, ScheduleSlot, User, UserRole
 from app.schemas.auth import UserOut
-from app.schemas.groups import GroupOut, SubjectOut, UpcomingLesson
+from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -29,61 +29,61 @@ async def my_groups(db: DbSession, user: CurrentUser) -> list[GroupOut]:
     ]
 
 
-@router.get("/lessons", response_model=list[UpcomingLesson])
-async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingLesson]:
+@router.get("/lessons", response_model=list[UpcomingScheduleSlot])
+async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleSlot]:
     rows = (
         await db.execute(
-            select(Lesson, Group)
-            .join(Group, Group.id == Lesson.group_id)
+            select(ScheduleSlot, Group)
+            .join(Group, Group.id == ScheduleSlot.group_id)
             .join(GroupMember, GroupMember.group_id == Group.id)
             .where(GroupMember.student_id == user.id)
             .options(selectinload(Group.subject))
-            .order_by(Lesson.weekday, Lesson.start_time)
+            .order_by(ScheduleSlot.weekday, ScheduleSlot.start_time)
         )
     ).all()
     return [
-        UpcomingLesson(
-            id=lesson.id,
+        UpcomingScheduleSlot(
+            id=slot.id,
             group_id=group.id,
             group_name=group.name,
             subject_name=group.subject.name,
-            weekday=lesson.weekday,
-            start_time=lesson.start_time,
-            duration_min=lesson.duration_min,
-            title=lesson.title,
+            weekday=slot.weekday,
+            start_time=slot.start_time,
+            duration_min=slot.duration_min,
+            title=slot.title,
         )
-        for lesson, group in rows
+        for slot, group in rows
     ]
 
 
-@router.get("/today-lessons", response_model=list[UpcomingLesson])
-async def my_today_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingLesson]:
+@router.get("/today-lessons", response_model=list[UpcomingScheduleSlot])
+async def my_today_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleSlot]:
     if user.role not in (UserRole.tutor, UserRole.admin):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
     today_weekday = datetime.now(timezone.utc).weekday()
     rows = (
         await db.execute(
-            select(Lesson, Group, func.count(GroupMember.id))
-            .join(Group, Group.id == Lesson.group_id)
+            select(ScheduleSlot, Group, func.count(GroupMember.id))
+            .join(Group, Group.id == ScheduleSlot.group_id)
             .outerjoin(GroupMember, GroupMember.group_id == Group.id)
-            .where(Group.tutor_id == user.id, Lesson.weekday == today_weekday)
+            .where(Group.tutor_id == user.id, ScheduleSlot.weekday == today_weekday)
             .options(selectinload(Group.subject))
-            .group_by(Lesson.id, Group.id)
-            .order_by(Lesson.start_time)
+            .group_by(ScheduleSlot.id, Group.id)
+            .order_by(ScheduleSlot.start_time)
         )
     ).all()
     return [
-        UpcomingLesson(
-            id=lesson.id,
+        UpcomingScheduleSlot(
+            id=slot.id,
             group_id=group.id,
             group_name=f"{group.name} ({count} student{'s' if count != 1 else ''})",
             subject_name=group.subject.name,
-            weekday=lesson.weekday,
-            start_time=lesson.start_time,
-            duration_min=lesson.duration_min,
-            title=lesson.title,
+            weekday=slot.weekday,
+            start_time=slot.start_time,
+            duration_min=slot.duration_min,
+            title=slot.title,
         )
-        for lesson, group, count in rows
+        for slot, group, count in rows
     ]
 
 

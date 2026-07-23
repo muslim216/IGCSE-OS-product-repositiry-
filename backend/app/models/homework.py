@@ -49,6 +49,9 @@ class Assignment(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)
+    # The lesson this homework was assigned from, if any — direct
+    # (lesson-less) assignments remain possible.
+    lesson_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
     # Optional: assignments can be created without a question booklet — the
     # tutor types questions directly instead of uploading/extracting a PDF.
     classified_id: Mapped[int | None] = mapped_column(ForeignKey("classifieds.id"), nullable=True)
