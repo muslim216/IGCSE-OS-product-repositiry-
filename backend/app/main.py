@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.services.extraction import extract_assignment
 from app.services.marking import mark_submission
 from app.services.readiness import recompute_student
+from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
 from app.services.syllabus_extraction import extract_syllabus
 from app.workers.jobs import register_handler, worker_loop
@@ -36,6 +37,10 @@ from app.workers.jobs import register_handler, worker_loop
 register_handler("extract_assignment", extract_assignment)
 register_handler("mark_submission", mark_submission)
 register_handler("recompute_readiness", recompute_student)
+# Readiness v2's job handler is registered so it's independently invocable
+# and testable, but nothing enqueues it yet — that dual-running/cutover is
+# Phase 4 of the Readiness v2 rollout (see CLAUDE.md / manara-architecture.md).
+register_handler("compute_readiness_v2", compute_readiness_v2)
 register_handler("generate_report", generate_report)
 register_handler("extract_syllabus", extract_syllabus)
 

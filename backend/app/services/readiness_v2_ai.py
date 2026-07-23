@@ -1,0 +1,266 @@
+"""Readiness Engine v2 — Layer 2: AI synthesis.
+
+Takes the Layer 1 FactorEvaluation rows for one (student, subject) run (see
+services/readiness_v2.py), the organization's ReadinessWeights, and the
+tutor's Knowledge Base, and asks the AI to synthesize the final readiness
+score, weak topics, rationale, and a revision plan.
+
+Every ReadinessSnapshot carries the evaluation_run_id linking it back to the
+exact FactorEvaluation rows it was built from. If the AI call fails, the
+deterministic Layer 1 rows are still committed and a snapshot is still
+written with status="failed" — the evaluation as a whole never silently
+disappears, only the AI's contribution to it.
+
+The job handler here (compute_readiness_v2) is registered but not yet wired
+into any existing evidence-change trigger — that dual-running/cutover is
+Phase 4."""
+
+import uuid
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
+from app.models import (
+    AiFeature,
+    AiSynthesisStatus,
+    FactorEvaluation,
+    GradeBoundary,
+    Group,
+    GroupMember,
+    ReadinessFactor,
+    ReadinessSnapshot,
+    ReadinessWeights,
+    Subject,
+    Topic,
+    User,
+)
+from app.services.ai import get_client, record_usage
+from app.services.grades import predict_grade
+from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
+from app.services.readiness_v2 import evaluate_subject_factors
+
+SYSTEM_PROMPT = """You are the Readiness Engine's synthesis layer for an IGCSE/O Level \
+tutoring platform. You are given seven deterministic factor sub-scores for one student in \
+one subject (each already computed from real evidence, with a confidence level and an \
+evidence count) and the tutor's weight for each factor. Combine them into a single overall \
+readiness percentage (0-100) using your judgement — factors with low confidence or little \
+evidence should influence the result less than the raw weight alone would suggest, and a \
+factor reporting "no data" must NOT be treated as a zero; simply weigh it out of the result.
+
+Rules:
+- Base everything ONLY on the factor data provided. Never invent topic names, marks, or \
+evidence that isn't in the data.
+- weak_topics must come only from the Topic Mastery breakdown provided, and only include \
+topics with genuinely low scores and at least low confidence — never list a "no data" topic.
+- rationale must explain, in plain language, which factors drove the score.
+- recommended_revision must be 2-3 concrete, actionable next steps for the student."""
+
+FACTOR_WEIGHT_ATTR = {
+    ReadinessFactor.topic_mastery: "weight_topic_mastery",
+    ReadinessFactor.past_paper_performance: "weight_past_paper_performance",
+    ReadinessFactor.homework_performance: "weight_homework_performance",
+    ReadinessFactor.assessment_performance: "weight_assessment_performance",
+    ReadinessFactor.syllabus_coverage: "weight_syllabus_coverage",
+    ReadinessFactor.mistake_analysis: "weight_mistake_analysis",
+    ReadinessFactor.consistency: "weight_consistency",
+}
+DEFAULT_WEIGHTS = {attr: 1.0 for attr in FACTOR_WEIGHT_ATTR.values()}
+
+
+class WeakTopicSuggestion(BaseModel):
+    topic_id: int = Field(description="Must be one of the topic ids in the Topic Mastery breakdown")
+    reason: str = Field(description="Why this topic needs attention, from the data only")
+
+
+class ReadinessSynthesis(BaseModel):
+    score: float = Field(ge=0, le=100)
+    weak_topics: list[WeakTopicSuggestion]
+    rationale: str
+    recommended_revision: str
+
+
+async def _resolve_weight_dict(session: AsyncSession, organization_id: int) -> dict[str, float]:
+    weights = await session.scalar(
+        select(ReadinessWeights).where(ReadinessWeights.organization_id == organization_id)
+    )
+    if weights is None:
+        return dict(DEFAULT_WEIGHTS)
+    return {attr: getattr(weights, attr) for attr in DEFAULT_WEIGHTS}
+
+
+async def _resolve_grade_boundaries(
+    session: AsyncSession, organization_id: int, subject: Subject
+) -> list[dict]:
+    """Org-entered grade boundaries take priority over the shared Subject
+    default (see CLAUDE.md: manually entered by the tutor per subject)."""
+    org_boundaries = (
+        await session.scalars(
+            select(GradeBoundary).where(
+                GradeBoundary.organization_id == organization_id,
+                GradeBoundary.subject_id == subject.id,
+            )
+        )
+    ).all()
+    if org_boundaries:
+        ordered = sorted(org_boundaries, key=lambda b: b.min_percentage, reverse=True)
+        return [{"grade": b.grade_label, "min": b.min_percentage} for b in ordered]
+    return subject.grade_boundaries
+
+
+def _factor_prompt_line(row: FactorEvaluation, weight: float, topics_by_id: dict[int, Topic]) -> str:
+    label = row.factor.value
+    if row.topic_id is not None:
+        topic = topics_by_id.get(row.topic_id)
+        label = f"{label} ({topic.title if topic else row.topic_id})"
+    score_text = f"{row.score:.1f}" if row.score is not None else "no data"
+    return (
+        f"- {label}: score={score_text}, confidence={row.confidence.value}, "
+        f"evidence_count={row.evidence_count}, tutor_weight={weight}, detail={row.detail}"
+    )
+
+
+async def _synthesize_subject(
+    session: AsyncSession, student: User, subject_id: int, now: datetime
+) -> None:
+    subject = await session.get(Subject, subject_id)
+    if subject is None:
+        return
+
+    evaluation_run_id = str(uuid.uuid4())
+    factor_rows = await evaluate_subject_factors(session, student.id, subject_id, evaluation_run_id, now)
+
+    if all(row.score is None for row in factor_rows):
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=evaluation_run_id,
+                student_id=student.id,
+                subject_id=subject_id,
+                status=AiSynthesisStatus.ready,
+                score=None,
+                predicted_grade=None,
+                weak_topics=[],
+                rationale="No evidence yet for this subject.",
+                recommended_revision=None,
+            )
+        )
+        return
+
+    weights = await _resolve_weight_dict(session, student.organization_id)
+    topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+    topics_by_id = {t.id: t for t in topics}
+
+    factors_text = "\n".join(
+        _factor_prompt_line(row, weights[FACTOR_WEIGHT_ATTR[row.factor]], topics_by_id)
+        for row in factor_rows
+    )
+    tutor_id = await resolve_org_tutor_id(session, student.organization_id)
+    kb_context = await build_tutor_context(session, tutor_id, subject_id) if tutor_id is not None else ""
+
+    prompt = (
+        f"Student: {student.name}\n"
+        f"Subject: {subject.name} ({subject.exam_board} {subject.code})\n\n"
+        f"Factor sub-scores:\n{factors_text}\n\n"
+        "Synthesize the overall readiness score, weak topics, rationale, and recommended revision."
+    )
+    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
+    if kb_context:
+        system.append({"type": "text", "text": kb_context})
+
+    try:
+        client = get_client()
+        response = await client.messages.parse(
+            model=get_settings().anthropic_model,
+            max_tokens=2000,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            output_format=ReadinessSynthesis,
+        )
+    except Exception as exc:  # noqa: BLE001 - AIUnavailableError or any API failure
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=evaluation_run_id,
+                student_id=student.id,
+                subject_id=subject_id,
+                status=AiSynthesisStatus.failed,
+                score=None,
+                predicted_grade=None,
+                weak_topics=[],
+                rationale=None,
+                recommended_revision=None,
+                error=str(exc) or exc.__class__.__name__,
+            )
+        )
+        return
+
+    if tutor_id is not None:
+        await record_usage(
+            session,
+            response,
+            organization_id=student.organization_id,
+            tutor_id=tutor_id,
+            student_id=student.id,
+            feature=AiFeature.readiness,
+        )
+    result: ReadinessSynthesis = response.parsed_output
+    boundaries = await _resolve_grade_boundaries(session, student.organization_id, subject)
+    grade = predict_grade(result.score, boundaries)
+
+    valid_topic_ids = {
+        row.topic_id for row in factor_rows if row.factor == ReadinessFactor.topic_mastery
+    }
+    weak_topics = [
+        {
+            "topic_id": w.topic_id,
+            "topic_title": topics_by_id[w.topic_id].title if w.topic_id in topics_by_id else None,
+            "reason": w.reason,
+        }
+        for w in result.weak_topics
+        if w.topic_id in valid_topic_ids
+    ]
+
+    session.add(
+        ReadinessSnapshot(
+            evaluation_run_id=evaluation_run_id,
+            student_id=student.id,
+            subject_id=subject_id,
+            status=AiSynthesisStatus.ready,
+            score=result.score,
+            predicted_grade=grade,
+            weak_topics=weak_topics,
+            rationale=result.rationale,
+            recommended_revision=result.recommended_revision,
+        )
+    )
+
+
+async def compute_readiness_v2(session: AsyncSession, payload: dict) -> None:
+    """Job handler. payload: {"student_id": int, "subject_id": int | None}.
+    Omitting subject_id computes every subject the student is enrolled in."""
+    student_id = payload["student_id"]
+    subject_id = payload.get("subject_id")
+    now = datetime.now(timezone.utc)
+
+    student = await session.get(User, student_id)
+    if student is None:
+        return
+
+    if subject_id is not None:
+        subject_ids = [subject_id]
+    else:
+        subject_ids = list(
+            (
+                await session.scalars(
+                    select(Group.subject_id)
+                    .join(GroupMember, GroupMember.group_id == Group.id)
+                    .where(GroupMember.student_id == student_id)
+                    .distinct()
+                )
+            ).all()
+        )
+
+    for sid in subject_ids:
+        await _synthesize_subject(session, student, sid, now)
+    await session.commit()
