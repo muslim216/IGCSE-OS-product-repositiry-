@@ -6,8 +6,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.analytics import group_analytics
 from app.api.deps import CurrentUser, DbSession
-from app.config import get_settings
 from app.models import (
+    AiFeature,
     Group,
     GroupMember,
     Invite,
@@ -32,7 +32,7 @@ from app.schemas.groups import (
     SubjectOut,
 )
 from app.security import hash_password
-from app.services.ai import AIUnavailableError, get_client
+from app.services.ai import AIUnavailableError, record_usage, text_complete
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -252,11 +252,6 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
         f"- {s.student_name}: {s.score}% overall" for s in analytics.weak_students[:5]
     )
 
-    try:
-        client = get_client()
-    except AIUnavailableError as exc:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-
     prompt = (
         f"Group: {group.name} ({group.subject.name if group.subject else ''})\n\n"
         f"Weakest topics across the class:\n{weak_topics_text or '(none yet)'}\n\n"
@@ -264,15 +259,20 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
         "Write a short (3-5 sentence) pre-lesson brief for the tutor: what to focus on today "
         "and who might need extra attention. Plain prose, no headings."
     )
-    response = await client.messages.create(
-        model=get_settings().anthropic_model,
-        max_tokens=400,
-        messages=[{"role": "user", "content": prompt}],
+    try:
+        response = await text_complete(surface="class_brief", prompt=prompt, max_tokens=400)
+    except AIUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    await record_usage(
+        db,
+        response,
+        organization_id=group.organization_id,
+        tutor_id=group.tutor_id,
+        student_id=None,
+        feature=AiFeature.report,
     )
-    text = "".join(
-        block.text for block in response.content if getattr(block, "type", None) == "text"
-    )
-    return ClassBrief(brief=text.strip())
+    await db.commit()
+    return ClassBrief(brief=response.text.strip())
 
 
 @router.delete("/{group_id}/lessons/{slot_id}", status_code=status.HTTP_204_NO_CONTENT)

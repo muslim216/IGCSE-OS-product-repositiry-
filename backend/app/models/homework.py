@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -183,6 +184,11 @@ class QuestionMark(Base):
     ai_confidence: Mapped[MarkConfidence | None] = mapped_column(
         Enum(MarkConfidence, native_enum=False, length=16), nullable=True
     )
+    # Which model and system-prompt version drafted this mark, so a bad mark
+    # traces back to exactly what produced it (see services/prompts.py). Null
+    # for marks drafted before AI output versioning.
+    ai_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ai_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
     final_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     final_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -200,6 +206,8 @@ class JobStatus(str, enum.Enum):
 
 class Job(TimestampMixin, Base):
     __tablename__ = "jobs"
+    # The worker's claim query filters on exactly these two columns.
+    __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -209,6 +217,11 @@ class Job(TimestampMixin, Base):
     )
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Earliest time the worker may claim this job; NULL means "as soon as
+    # possible". Lets a caller schedule work into the future — used to
+    # coalesce bursts of readiness recomputations into one run (see
+    # readiness_v2_ai.enqueue_readiness_v2_debounced).
+    run_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )

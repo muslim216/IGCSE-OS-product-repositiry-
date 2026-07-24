@@ -254,7 +254,7 @@ async def test_no_pdf_assignment_marking_guard_runs_before_ai_call(client, tutor
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     # Fails at the AI call (no API key), not at the classified lookup — the guard worked.
     assert subs.json()[0]["status"] == "ai_failed"
-    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
+    assert "GEMINI_API_KEY" in detail.json()["ai_error"]
 
 
 async def test_no_pdf_assignment_marking_does_not_crash(client, tutor, student, group, monkeypatch):
@@ -382,7 +382,7 @@ async def test_marking_fails_gracefully_without_api_key(client, tutor, student, 
     assert subs.json()[0]["status"] == "ai_failed"
     sid = subs.json()[0]["id"]
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
+    assert "GEMINI_API_KEY" in detail.json()["ai_error"]
 
     # The tutor can still mark manually and finalize.
     marks = detail.json()["marks"]
@@ -434,26 +434,8 @@ async def test_resubmission_resets_marking(client, tutor, student, published_ass
     assert subs.json()[0]["status"] == "submitted"
 
 
-class _FakeParseResponse:
-    def __init__(self, parsed_output):
-        self.parsed_output = parsed_output
-
-
-class _FakeMessages:
-    def __init__(self, parsed_output):
-        self._parsed_output = parsed_output
-
-    async def parse(self, **kwargs):
-        return _FakeParseResponse(self._parsed_output)
-
-
-class _FakeAIClient:
-    def __init__(self, parsed_output):
-        self.messages = _FakeMessages(parsed_output)
-
-
 async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
-    client, tutor, student, published_assignment, monkeypatch
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
 ):
     """Exercises the real _run_marking mapping logic (not the fake_marking test
     double used elsewhere) against a fabricated AI response, to check the
@@ -482,7 +464,7 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
         ]
     )
     monkeypatch.setattr(
-        "app.services.marking.get_client", lambda: _FakeAIClient(fake_result)
+        "app.services.marking.structured_complete", fake_ai(fake_result)
     )
 
     aid = published_assignment["id"]
@@ -510,7 +492,7 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
 
 
 async def test_ai_marking_handles_question_missing_from_ai_response(
-    client, tutor, student, group, monkeypatch
+    client, tutor, student, group, monkeypatch, fake_ai
 ):
     """If the AI's response omits a question entirely, that question must get
     a safe tutor_only fallback rather than crashing or losing the record."""
@@ -571,7 +553,7 @@ async def test_ai_marking_handles_question_missing_from_ai_response(
         ]
     )
     monkeypatch.setattr(
-        "app.services.marking.get_client", lambda: _FakeAIClient(fake_result)
+        "app.services.marking.structured_complete", fake_ai(fake_result)
     )
 
     await client.post(

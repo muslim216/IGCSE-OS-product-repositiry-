@@ -18,7 +18,7 @@ affecting what any existing endpoint serves (see api/readiness_v2.py for the
 read-only endpoints that expose them)."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -32,6 +32,8 @@ from app.models import (
     GradeBoundary,
     Group,
     GroupMember,
+    Job,
+    JobStatus,
     ReadinessFactor,
     ReadinessSnapshot,
     ReadinessWeights,
@@ -39,38 +41,62 @@ from app.models import (
     Topic,
     User,
 )
-from app.services.ai import get_client, record_usage
+from app.services.ai import record_usage, structured_complete
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.workers.jobs import enqueue
 
 
+async def enqueue_readiness_v2_debounced(
+    db: AsyncSession,
+    student_id: int,
+    subject_id: int | None = None,
+    delay_seconds: int | None = None,
+) -> None:
+    """Schedule a v2 synthesis run for (student, subject), coalescing bursts.
+
+    Synthesis is an expensive AI call and auto-marking can finalize a dozen
+    submissions in seconds. If a run for the same (student, subject) is
+    already queued, this is a no-op: that pending job reads live DB state when
+    it fires, so it naturally covers everything that happened in the meantime.
+    Otherwise a job is queued to run `delay_seconds` from now, so the whole
+    burst costs one call instead of one per submission.
+    """
+    settings = get_settings()
+    if not settings.readiness_v2_shadow_enabled:
+        return
+    payload = {"student_id": student_id, "subject_id": subject_id}
+    # Compared in Python rather than SQL: the payload is a JSON column, and
+    # Postgres' json type has no equality operator.
+    pending = (
+        await db.scalars(
+            select(Job.payload).where(
+                Job.type == "compute_readiness_v2",
+                Job.status == JobStatus.pending,
+            )
+        )
+    ).all()
+    if any(
+        p.get("student_id") == student_id and p.get("subject_id") == subject_id for p in pending
+    ):
+        return
+    if delay_seconds is None:
+        delay_seconds = settings.readiness_v2_coalesce_seconds
+    await enqueue(
+        db,
+        "compute_readiness_v2",
+        payload,
+        run_after=datetime.now(timezone.utc) + timedelta(seconds=delay_seconds),
+    )
+
+
 async def enqueue_v2_shadow(
     db: AsyncSession, student_id: int, subject_id: int | None = None
 ) -> None:
-    """Shadow-run v2 alongside v1 when enabled — a no-op otherwise. Call
-    this next to every existing enqueue("recompute_readiness", ...) call."""
-    if get_settings().readiness_v2_shadow_enabled:
-        await enqueue(
-            db, "compute_readiness_v2", {"student_id": student_id, "subject_id": subject_id}
-        )
-
-SYSTEM_PROMPT = """You are the Readiness Engine's synthesis layer for an IGCSE/O Level \
-tutoring platform. You are given seven deterministic factor sub-scores for one student in \
-one subject (each already computed from real evidence, with a confidence level and an \
-evidence count) and the tutor's weight for each factor. Combine them into a single overall \
-readiness percentage (0-100) using your judgement — factors with low confidence or little \
-evidence should influence the result less than the raw weight alone would suggest, and a \
-factor reporting "no data" must NOT be treated as a zero; simply weigh it out of the result.
-
-Rules:
-- Base everything ONLY on the factor data provided. Never invent topic names, marks, or \
-evidence that isn't in the data.
-- weak_topics must come only from the Topic Mastery breakdown provided, and only include \
-topics with genuinely low scores and at least low confidence — never list a "no data" topic.
-- rationale must explain, in plain language, which factors drove the score.
-- recommended_revision must be 2-3 concrete, actionable next steps for the student."""
+    """Back-compatible alias for the debounced enqueue — every caller wants
+    coalescing, so there is no un-debounced path."""
+    await enqueue_readiness_v2_debounced(db, student_id, subject_id)
 
 FACTOR_WEIGHT_ATTR = {
     ReadinessFactor.topic_mastery: "weight_topic_mastery",
@@ -179,18 +205,14 @@ async def _synthesize_subject(
         f"Factor sub-scores:\n{factors_text}\n\n"
         "Synthesize the overall readiness score, weak topics, rationale, and recommended revision."
     )
-    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
-    if kb_context:
-        system.append({"type": "text", "text": kb_context})
 
     try:
-        client = get_client()
-        response = await client.messages.parse(
-            model=get_settings().anthropic_model,
-            max_tokens=2000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
+        response = await structured_complete(
+            surface="readiness",
+            content=[{"type": "text", "text": prompt}],
             output_format=ReadinessSynthesis,
+            max_tokens=2000,
+            extra_system=[kb_context] if kb_context else [],
         )
     except Exception as exc:  # noqa: BLE001 - AIUnavailableError or any API failure
         session.add(
@@ -218,7 +240,7 @@ async def _synthesize_subject(
             student_id=student.id,
             feature=AiFeature.readiness,
         )
-    result: ReadinessSynthesis = response.parsed_output
+    result: ReadinessSynthesis = response.parsed
     boundaries = await _resolve_grade_boundaries(session, student.organization_id, subject)
     grade = predict_grade(result.score, boundaries)
 

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import get_settings
 from app.models import (
     AiFeature,
     Assignment,
@@ -23,7 +22,7 @@ from app.models import (
     SubmissionStatus,
 )
 from app.services import storage
-from app.services.ai import file_block, get_client, record_usage
+from app.services.ai import file_block, record_usage, structured_complete
 from app.services.knowledge import build_tutor_context
 
 
@@ -43,23 +42,6 @@ class QuestionMarkDraft(BaseModel):
 
 class MarkingResult(BaseModel):
     questions: list[QuestionMarkDraft]
-
-
-SYSTEM_PROMPT = """You are drafting the first marking pass of IGCSE/O Level homework for a \
-tutor who will review every mark before anything counts. The student's answers are \
-handwritten pages photographed or scanned.
-
-Rules:
-- Transcribe each answer faithfully from the student's pages. If you cannot find or read \
-an answer, say so in the transcription and use confidence 'low' (or 'tutor_only' if unmarkable).
-- Award marks STRICTLY per the official mark scheme in the provided documents — follow its \
-mark allocation points exactly. Never award marks the scheme does not justify.
-- For questions flagged has_mark_scheme=false you MUST set proposed_marks to null and \
-confidence to 'tutor_only'; still transcribe the answer to save the tutor time.
-- confidence 'high' = clearly legible answer, unambiguous scheme application; 'medium' = \
-minor doubt; 'low' = hard to read or ambiguous — the tutor must look closely.
-- Feedback is for the student: brief, specific, encouraging, and references what the mark \
-scheme wanted."""
 
 
 async def mark_submission(session: AsyncSession, payload: dict) -> None:
@@ -97,6 +79,25 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     files = sorted(submission.files, key=lambda f: f.position)
     if not files:
         raise ValueError("The submission has no uploaded files")
+
+    # Idempotency: a worker retry (or a re-queued marking job) must not append
+    # a second set of QuestionMark rows or re-charge an AI call for work
+    # already done. Existing drafts are updated in place; anything the tutor
+    # has already finalized is left untouched, and if every question is
+    # finalized there is nothing left to ask the AI.
+    existing_marks = {
+        m.question_id: m
+        for m in (
+            await session.scalars(
+                select(QuestionMark).where(QuestionMark.submission_id == submission.id)
+            )
+        ).all()
+    }
+    if questions and all(
+        (m := existing_marks.get(q.id)) is not None and m.final_marks is not None
+        for q in questions
+    ):
+        return
 
     question_list = "\n".join(
         f"- Q{q.number}: {q.text_summary} (max {q.max_marks} marks, "
@@ -145,18 +146,15 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     )
 
     group = await session.get(Group, assignment.group_id)
-    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
     kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
-    if kb_context:
-        system.append({"type": "text", "text": kb_context, "cache_control": {"type": "ephemeral"}})
 
-    client = get_client()
-    response = await client.messages.parse(
-        model=get_settings().anthropic_model,
-        max_tokens=32000,
-        system=system,
-        messages=[{"role": "user", "content": content}],
+    response = await structured_complete(
+        surface="marking",
+        content=content,
         output_format=MarkingResult,
+        max_tokens=32000,
+        extra_system=[kb_context] if kb_context else [],
+        cache_extra_system=True,
     )
     await record_usage(
         session,
@@ -166,12 +164,19 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         student_id=submission.student_id,
         feature=AiFeature.marking,
     )
-    result: MarkingResult = response.parsed_output
+    result: MarkingResult = response.parsed
 
     drafts_by_number = {d.number.lstrip("Qq"): d for d in result.questions}
     for q in questions:
         draft = drafts_by_number.get(q.number) or drafts_by_number.get(q.number.lstrip("Qq"))
-        mark = QuestionMark(submission_id=submission.id, question_id=q.id)
+        mark = existing_marks.get(q.id)
+        if mark is not None and mark.final_marks is not None:
+            continue  # the tutor has already ruled on this one
+        if mark is None:
+            mark = QuestionMark(submission_id=submission.id, question_id=q.id)
+            session.add(mark)
+        mark.ai_model = response.model
+        mark.ai_prompt_version = response.prompt_version
         if draft is None:
             mark.ai_transcription = "The AI did not return a result for this question."
             mark.ai_confidence = MarkConfidence.tutor_only
@@ -186,4 +191,3 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
                 # Hard rule: no official mark scheme -> no AI marks.
                 mark.ai_marks = None
                 mark.ai_confidence = MarkConfidence.tutor_only
-        session.add(mark)

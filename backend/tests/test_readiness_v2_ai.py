@@ -135,32 +135,9 @@ async def test_ai_unavailable_writes_failed_snapshot_but_keeps_factors(client, t
         assert assessment_row.score == 75.0  # 15/20
 
 
-class _FakeParsedResponse:
-    def __init__(self, parsed_output):
-        self.parsed_output = parsed_output
-        self.model = "fake-model"
-
-        class Usage:
-            input_tokens = 10
-            output_tokens = 5
-
-        self.usage = Usage()
-
-
-class _FakeMessages:
-    def __init__(self, parsed_output):
-        self._parsed_output = parsed_output
-
-    async def parse(self, **kwargs):
-        return _FakeParsedResponse(self._parsed_output)
-
-
-class _FakeAIClient:
-    def __init__(self, parsed_output):
-        self.messages = _FakeMessages(parsed_output)
-
-
-async def test_ai_synthesis_success_filters_invalid_weak_topics(client, tutor, world, monkeypatch):
+async def test_ai_synthesis_success_filters_invalid_weak_topics(
+    client, tutor, world, monkeypatch, fake_ai
+):
     async with async_session() as session:
         tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
         assessment = Assessment(
@@ -187,7 +164,7 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(client, tutor, w
         recommended_revision="Do another topic quiz and a past paper attempt.",
     )
     monkeypatch.setattr(
-        "app.services.readiness_v2_ai.get_client", lambda: _FakeAIClient(fake_result)
+        "app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result)
     )
 
     async with async_session() as session:

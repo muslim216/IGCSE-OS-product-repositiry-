@@ -159,7 +159,7 @@ async def test_extraction_fails_gracefully_without_api_key(client, tutor):
 
     detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
     assert detail.json()["status"] == "extraction_failed"
-    assert "ANTHROPIC_API_KEY" in detail.json()["error"]
+    assert "GEMINI_API_KEY" in detail.json()["error"]
 
     retry = await client.post(
         f"/api/v1/syllabus-uploads/{upload_id}/retry", headers=tutor["headers"]

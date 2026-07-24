@@ -1,7 +1,11 @@
 """Readiness Engine v2 Phase 4: shadow-run dual-enqueue behind the
 readiness_v2_shadow_enabled flag, and the read-only /readiness/v2 endpoints."""
 
+from sqlalchemy import select
+
 from app.config import get_settings
+from app.db import async_session
+from app.models import Job
 from app.workers.jobs import process_one_job
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -39,8 +43,19 @@ async def test_shadow_enabled_dual_enqueues_and_creates_snapshot(client, tutor, 
     )
     assert resp.status_code == 201
 
-    # Both v1's recompute_readiness and v2's compute_readiness_v2 should run.
+    # v1's recompute_readiness runs immediately; v2's compute_readiness_v2 is
+    # queued but debounced (see enqueue_readiness_v2_debounced), so it is not
+    # yet due and the worker finds nothing else to claim.
     assert await process_one_job() is True
+    assert await process_one_job() is False
+
+    async with async_session() as session:
+        v2_job = await session.scalar(select(Job).where(Job.type == "compute_readiness_v2"))
+        assert v2_job is not None
+        assert v2_job.run_after is not None, "the v2 job must be scheduled, not immediate"
+        v2_job.run_after = None  # fast-forward past the coalescing window
+        await session.commit()
+
     assert await process_one_job() is True
     assert await process_one_job() is False
 

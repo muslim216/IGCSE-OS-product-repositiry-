@@ -111,7 +111,8 @@ all new work:
   `GOOGLE_CLIENT_SECRET` set, same pattern as `ANTHROPIC_API_KEY`.
 - **Every AI call is metered** (`ai_usage_events`, recorded via `services/ai.py`'s
   `record_usage()`) as the foundation for tutor AI allowances + student top-ups. No
-  payments yet. Usage view: `GET /ai-usage/summary`.
+  payments yet. Usage view: `GET /ai-usage/summary`; spend by feature / provider / month:
+  `GET /ai-usage/analytics?group_by=feature|provider|month`.
 
 Build order: tenancy → Student CRM → Lessons → Knowledge Base (+metering) →
 Readiness v2 → Classroom. All six steps are built. Readiness v2 is shadow-running (see
@@ -165,21 +166,57 @@ oldest pending job, runs its registered handler, and retries once on failure.
   (`extract_assignment`, `mark_submission`, `recompute_readiness`, `generate_report`,
   `extract_syllabus`). Adding an async workflow = write a handler + `register_handler` + a
   caller that `enqueue()`s it.
+- **Every handler must be safe to re-run on the same payload.** The worker retries once on
+  failure, and `run_after` makes deliberate re-scheduling routine. `extract_assignment`
+  *replaces* an assignment's question list rather than appending; `mark_submission`
+  updates existing `QuestionMark` drafts in place, never overwrites a mark the tutor has
+  finalized, and skips the AI call entirely when every question is already decided;
+  `build_homework_evidence` is idempotent by `source_ref`. `compute_readiness_v2` is
+  deliberately append-only (a re-run is a new audited evaluation, not a duplicate).
+- **`Job.run_after`** (nullable) holds a job until a future time; the worker's claim query
+  filters on it. This is what readiness-synthesis coalescing is built on — see
+  `enqueue_readiness_v2_debounced()`, which no-ops if a run for that (student, subject) is
+  already pending and otherwise schedules one `READINESS_V2_COALESCE_SECONDS` out, so a
+  burst of auto-finalized submissions costs one synthesis call instead of one per
+  submission.
 - **Tests drive jobs synchronously** by calling `process_one_job()` — they don't run the
-  loop. Follow that pattern when testing AI-triggered flows.
+  loop. Follow that pattern when testing AI-triggered flows. To exercise a real AI service
+  path without the network, monkeypatch the *calling module's* `structured_complete` with
+  the `fake_ai` fixture (`tests/conftest.py`).
 
 ### AI integration (`services/ai.py` + callers)
 
-Anthropic API via the `anthropic` SDK; model id comes from `settings.anthropic_model`
-(`claude-opus-4-8`).
+**Two providers, routed per surface.** `services/ai.py` is the only place either SDK is
+touched. A *surface* (`marking`, `extraction`, `syllabus`, `reports`, `readiness`, `chat`,
+`class_brief`) resolves independently to a provider and model via `resolve_surface()`,
+reading `AI_<SURFACE>_PROVIDER` / `AI_<SURFACE>_MODEL` from config. Defaults: bulk
+document work (marking, question extraction, syllabus extraction) → **Gemini**
+(`google-genai`); chat → **Claude Haiku 4.5**; reports, readiness synthesis, class brief →
+**Claude Opus**. **Call sites name a surface, never a model.**
 
-- `get_client()` raises `AIUnavailableError` when `ANTHROPIC_API_KEY` is unset — **the app
-  runs fine without a key; AI jobs just fail with a clear, user-facing message.** Preserve
-  this graceful degradation.
-- `file_block()` builds document (PDF) / image content blocks from stored bytes, with
-  optional prompt caching (`cache=True`) — used to reuse the shared mark scheme across a
-  batch of submissions.
-- Structured outputs use `client.messages.parse(..., output_format=PydanticModel)`.
+- Three helpers cover every call: `structured_complete()` (schema-constrained, both
+  providers), `text_complete()` (prose, both providers), `stream_complete()`
+  (**Anthropic-only** — chat is the sole streaming surface; a gemini-routed chat raises).
+  All three return a normalized `AiResponse{provider, model, prompt_version, parsed, text,
+  input_tokens, output_tokens}`, so nothing downstream branches on vendor.
+- `get_client()` / `get_gemini_client()` raise `AIUnavailableError` when their key is
+  unset — **the app runs fine without either key; the surfaces routed to that provider
+  just fail with a clear, user-facing message.** Preserve this graceful degradation.
+- `file_block()` builds document (PDF) / image content blocks from stored bytes in
+  Anthropic's shape — **the neutral wire format across the app**. `_gemini_parts()`
+  translates it. `cache=True` (prompt caching, used to reuse a shared mark scheme across a
+  batch) is Anthropic-only and a no-op on Gemini.
+- **Prompts live in `services/prompts.py`**, not in the service that calls the AI — one
+  `PROMPTS` dict keyed by surface, each with a `version`. The helpers look the prompt up
+  and stamp its version onto the `AiResponse`. Bump the version whenever the text changes
+  meaningfully.
+- **Every AI-generated record records what produced it.** `record_usage()` writes
+  `provider` / `model` / `prompt_version` / estimated `cost_usd` to `ai_usage_events`, and
+  `QuestionMark` carries `ai_model` / `ai_prompt_version` on the mark itself. Costs come
+  from `AI_MODEL_PRICING` (JSON env), which is **empty by default** — a model with no
+  configured price records `cost_usd = NULL`, and `GET /ai-usage/analytics` reports those
+  calls as `unpriced_call_count` rather than folding unknown spend in as zero. Never
+  invent a price.
 - **Trust-first marking** (`services/marking.py`): the AI drafts transcription + proposed
   marks + confidence, but for any question without official mark-scheme coverage it *must*
   return `proposed_marks=null` / confidence `tutor_only`. Proposed marks are clamped to the
@@ -220,7 +257,7 @@ plus shared `components/` and per-domain `api/` wrappers.
 ## Conventions & gotchas
 
 - **Migrations are hand-written and sequentially numbered** (`alembic/versions/0001_…` →
-  `0011_…`), not autogenerated in practice — match that `NNNN_short_name.py` naming and set
+  `0018_…`), not autogenerated in practice — match that `NNNN_short_name.py` naming and set
   `down_revision` to the previous number.
 - `config.py` **rewrites `postgres://` / `postgresql://` URLs to `postgresql+asyncpg://`**
   automatically (hosting providers hand out the bare scheme). Don't fight this.

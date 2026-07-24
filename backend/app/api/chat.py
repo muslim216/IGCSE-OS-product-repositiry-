@@ -24,7 +24,7 @@ from app.schemas.chat import (
     MessageOut,
     SendMessage,
 )
-from app.services.ai import AIUnavailableError
+from app.services.ai import AIUnavailableError, estimate_cost_usd
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.student_context import build_student_context
 from app.services.tutor_chat import stream_reply
@@ -181,9 +181,16 @@ async def send_message(
                             tutor_id=tutor_id,
                             student_id=user.id,
                             feature=AiFeature.chat,
+                            provider=usage["provider"],
                             model=usage["model"],
+                            prompt_version=usage["prompt_version"],
                             input_tokens=usage["input_tokens"],
                             output_tokens=usage["output_tokens"],
+                            cost_usd=estimate_cost_usd(
+                                usage["model"],
+                                usage["input_tokens"],
+                                usage["output_tokens"],
+                            ),
                         )
                     )
                 await save_session.commit()

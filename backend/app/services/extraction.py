@@ -2,10 +2,9 @@
 the assignment's question list for the tutor to review."""
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.models import (
     AiFeature,
     Assignment,
@@ -17,7 +16,7 @@ from app.models import (
     Topic,
 )
 from app.services import storage
-from app.services.ai import file_block, get_client, record_usage
+from app.services.ai import file_block, record_usage, structured_complete
 from app.services.knowledge import build_tutor_context
 
 
@@ -35,17 +34,20 @@ class ExtractionResult(BaseModel):
     questions: list[ExtractedQuestion]
 
 
-SYSTEM_PROMPT = """You are extracting the question list from an IGCSE/O Level 'classified' \
-(a booklet of past-paper questions compiled by topic) so a tutor can assign it as homework.
-
-Rules:
-- List every question in the requested range, in the order they appear.
-- Use the question numbering exactly as printed in the booklet.
-- max_marks comes from the printed marks (e.g. '[3]'); if no marks are printed, estimate \
-conservatively from the question's demands.
-- topic_codes must come from the provided syllabus topic list only.
-- has_mark_scheme is true ONLY when an official mark scheme or answer for that specific \
-question appears in the provided documents. Never guess."""
+async def _clear_questions(session: AsyncSession, assignment_id: int) -> None:
+    existing = (
+        await session.scalars(
+            select(AssignmentQuestion).where(AssignmentQuestion.assignment_id == assignment_id)
+        )
+    ).all()
+    if not existing:
+        return
+    await session.execute(
+        delete(QuestionTopic).where(QuestionTopic.question_id.in_([q.id for q in existing]))
+    )
+    await session.execute(
+        delete(AssignmentQuestion).where(AssignmentQuestion.assignment_id == assignment_id)
+    )
 
 
 async def extract_assignment(session: AsyncSession, payload: dict) -> None:
@@ -56,6 +58,12 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
     if assignment.classified_id is None:
         assignment.status = AssignmentStatus.review
         return
+    # Idempotency: extraction replaces the assignment's question list rather
+    # than appending to it, so a worker retry (or a tutor-triggered
+    # re-extraction) can't leave the assignment with two copies of every
+    # question. Extraction only ever runs on an unpublished assignment, so no
+    # QuestionMark rows reference these questions yet.
+    await _clear_questions(session, assignment.id)
     try:
         await _run_extraction(session, assignment)
         assignment.status = AssignmentStatus.review
@@ -95,18 +103,14 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
         }
     )
 
-    system: list[dict] = [{"type": "text", "text": SYSTEM_PROMPT}]
     kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
-    if kb_context:
-        system.append({"type": "text", "text": kb_context})
 
-    client = get_client()
-    response = await client.messages.parse(
-        model=get_settings().anthropic_model,
-        max_tokens=16000,
-        system=system,
-        messages=[{"role": "user", "content": content}],
+    response = await structured_complete(
+        surface="extraction",
+        content=content,
         output_format=ExtractionResult,
+        max_tokens=16000,
+        extra_system=[kb_context] if kb_context else [],
     )
     await record_usage(
         session,
@@ -116,7 +120,7 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
         student_id=None,
         feature=AiFeature.extraction,
     )
-    result: ExtractionResult = response.parsed_output
+    result: ExtractionResult = response.parsed
     if not result.questions:
         raise ValueError("No questions were found in the document")
 

@@ -14,6 +14,34 @@ from httpx import ASGITransport, AsyncClient
 from app.db import engine
 from app.main import app
 from app.models import Base
+from app.services.ai import AiProvider, AiResponse
+
+
+def _fake_structured_complete(parsed, *, model: str = "test-model", tokens: int = 10):
+    async def _call(**kwargs) -> AiResponse:
+        return AiResponse(
+            provider=AiProvider.anthropic,
+            model=model,
+            prompt_version="test",
+            input_tokens=tokens,
+            output_tokens=tokens,
+            parsed=parsed,
+        )
+
+    return _call
+
+
+@pytest.fixture
+def fake_ai():
+    """Factory for a services.ai.structured_complete stand-in that skips the
+    network and hands back `parsed` in the normalized AiResponse shape.
+    Monkeypatch it over the *calling* module's name:
+
+        monkeypatch.setattr(
+            "app.services.marking.structured_complete", fake_ai(result)
+        )
+    """
+    return _fake_structured_complete
 
 
 @pytest.fixture(autouse=True)
