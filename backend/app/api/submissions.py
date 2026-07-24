@@ -13,7 +13,10 @@ from app.models import (
     AssignmentStatus,
     Group,
     GroupMember,
+    MarkOverrideAudit,
     QuestionMark,
+    RemarkRequest,
+    RemarkRequestStatus,
     Submission,
     SubmissionFile,
     SubmissionStatus,
@@ -21,8 +24,12 @@ from app.models import (
     UserRole,
 )
 from app.schemas.homework import (
+    MarkHistoryEntry,
     MarkRow,
     MarkUpdate,
+    RemarkRequestCreate,
+    RemarkRequestOut,
+    ReviewQueueItem,
     StudentAssignment,
     StudentMarkRow,
     StudentSubmissionView,
@@ -31,11 +38,14 @@ from app.schemas.homework import (
     SubmissionSummary,
 )
 from app.services import storage
-from app.services.evidence import build_homework_evidence
-from app.services.readiness_v2_ai import enqueue_v2_shadow
+from app.services.marking import record_marks_as_evidence
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
+
+# Once a submission reaches one of these, its marks count and it is closed to
+# resubmission. auto_finalized got there without a tutor; finalized had one.
+SETTLED_STATUSES = (SubmissionStatus.auto_finalized, SubmissionStatus.finalized)
 
 
 async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
@@ -84,7 +94,7 @@ async def submit_work(
         .where(Submission.assignment_id == assignment_id, Submission.student_id == user.id)
         .options(selectinload(Submission.files), selectinload(Submission.marks))
     )
-    if submission is not None and submission.status == SubmissionStatus.finalized:
+    if submission is not None and submission.status in SETTLED_STATUSES:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This homework has already been marked and finalized"
         )
@@ -125,6 +135,7 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
     ) or 0
     if submission is None:
         return StudentSubmissionView(
+            submission_id=None,
             status="not_submitted",
             submitted_at=None,
             finalized_at=None,
@@ -134,7 +145,7 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
         )
     marks: list[StudentMarkRow] = []
     total: int | None = None
-    if submission.status == SubmissionStatus.finalized:
+    if submission.status in SETTLED_STATUSES:
         rows = (
             await db.execute(
                 select(QuestionMark, AssignmentQuestion)
@@ -143,13 +154,27 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
                 .order_by(AssignmentQuestion.position)
             )
         ).all()
+        remark_status = {
+            mark_id: state
+            for mark_id, state in (
+                await db.execute(
+                    select(RemarkRequest.question_mark_id, RemarkRequest.status).where(
+                        RemarkRequest.question_mark_id.in_([m.id for m, _ in rows] or [0])
+                    )
+                )
+            ).all()
+        }
         marks = [
             StudentMarkRow(
+                question_id=q.id,
                 number=q.number,
                 text_summary=q.text_summary,
                 max_marks=q.max_marks,
                 final_marks=m.final_marks,
                 final_feedback=m.final_feedback,
+                remark_status=(
+                    remark_status[m.id].value if m.id in remark_status else None
+                ),
             )
             for m, q in rows
         ]
@@ -160,9 +185,14 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
         SubmissionStatus.marking: "being_marked",
         SubmissionStatus.ai_marked: "being_marked",
         SubmissionStatus.ai_failed: "being_marked",
+        # A submission waiting on the tutor still reads as "being marked" to
+        # the student — they never see the AI's uncertainty.
+        SubmissionStatus.needs_review: "being_marked",
+        SubmissionStatus.auto_finalized: "marked",
         SubmissionStatus.finalized: "marked",
     }[submission.status]
     return StudentSubmissionView(
+        submission_id=submission.id,
         status=public_status,
         submitted_at=submission.submitted_at,
         finalized_at=submission.finalized_at,
@@ -272,7 +302,7 @@ async def list_submissions(assignment_id: int, db: DbSession, user: CurrentUser)
     out = []
     for submission, student in rows:
         total_final = None
-        if submission.status == SubmissionStatus.finalized:
+        if submission.status in SETTLED_STATUSES:
             total_final = (
                 await db.scalar(
                     select(func.coalesce(func.sum(QuestionMark.final_marks), 0)).where(
@@ -294,7 +324,23 @@ async def list_submissions(assignment_id: int, db: DbSession, user: CurrentUser)
     return out
 
 
+async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
+    """question_mark_id -> the student's stated reason, for requests still open."""
+    rows = (
+        await db.execute(
+            select(RemarkRequest.question_mark_id, RemarkRequest.reason)
+            .join(QuestionMark, QuestionMark.id == RemarkRequest.question_mark_id)
+            .where(
+                QuestionMark.submission_id == submission_id,
+                RemarkRequest.status == RemarkRequestStatus.open,
+            )
+        )
+    ).all()
+    return {mark_id: reason for mark_id, reason in rows}
+
+
 async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
+    open_remarks = await _open_remarks(db, submission.id)
     rows = (
         await db.execute(
             select(AssignmentQuestion, QuestionMark)
@@ -321,9 +367,60 @@ async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
             final_marks=m.final_marks if m else None,
             final_feedback=m.final_feedback if m else None,
             overridden=m.overridden if m else False,
+            needs_review=m.needs_review if m else False,
+            auto_finalized=m.auto_finalized if m else False,
+            remark_requested=m.id in open_remarks if m else False,
+            remark_reason=open_remarks.get(m.id) if m else None,
         )
         for q, m in rows
     ]
+
+
+@router.get("/submissions/review-queue", response_model=list[ReviewQueueItem])
+async def review_queue(db: DbSession, user: CurrentUser) -> list[ReviewQueueItem]:
+    """Everything waiting on this tutor: submissions with at least one question
+    the AI was unsure about, or with a student's remark request open. This is
+    the whole of the tutor's marking workload — confidently marked work never
+    appears here."""
+    if user.role not in (UserRole.tutor, UserRole.admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    rows = (
+        await db.execute(
+            select(Submission, Assignment, User)
+            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Group, Group.id == Assignment.group_id)
+            .join(User, User.id == Submission.student_id)
+            .where(
+                Group.organization_id == user.organization_id,
+                Submission.status == SubmissionStatus.needs_review,
+            )
+            .order_by(Submission.submitted_at.desc())
+        )
+    ).all()
+    out: list[ReviewQueueItem] = []
+    for submission, assignment, student in rows:
+        unsure = (
+            await db.scalar(
+                select(func.count(QuestionMark.id)).where(
+                    QuestionMark.submission_id == submission.id,
+                    QuestionMark.needs_review.is_(True),
+                )
+            )
+        ) or 0
+        remarks = len(await _open_remarks(db, submission.id))
+        out.append(
+            ReviewQueueItem(
+                submission_id=submission.id,
+                assignment_id=assignment.id,
+                assignment_title=assignment.title,
+                student_id=student.id,
+                student_name=student.name,
+                submitted_at=submission.submitted_at,
+                unsure_count=unsure,
+                remark_request_count=remarks,
+            )
+        )
+    return out
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionDetail)
@@ -367,9 +464,25 @@ async def submission_file(
 async def save_marks(
     submission_id: int, body: list[MarkUpdate], db: DbSession, user: CurrentUser
 ) -> SubmissionDetail:
+    """Set or change marks as the tutor. Works on an auto-finalized submission
+    too — the tutor keeps override authority over any mark at any time — and
+    every change to an already-set mark is written to the append-only audit."""
     submission = await _tutor_submission(db, user, submission_id)
     if submission.status == SubmissionStatus.finalized:
         raise HTTPException(status.HTTP_409_CONFLICT, "This submission is already finalized")
+    open_remarks = {
+        r.question_mark_id: r
+        for r in (
+            await db.scalars(
+                select(RemarkRequest)
+                .join(QuestionMark, QuestionMark.id == RemarkRequest.question_mark_id)
+                .where(
+                    QuestionMark.submission_id == submission.id,
+                    RemarkRequest.status == RemarkRequestStatus.open,
+                )
+            )
+        ).all()
+    }
     questions = {
         q.id: q
         for q in (
@@ -402,15 +515,68 @@ async def save_marks(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 f"Q{question.number}: marks cannot exceed {question.max_marks}",
             )
+        previous = mark.final_marks
+        remark = open_remarks.get(mark.id)
+        if previous is not None and previous != update.final_marks:
+            # Changing a mark that already counted — record who, when, and
+            # what it was. Append-only; nothing edits or deletes these.
+            db.add(
+                MarkOverrideAudit(
+                    question_mark_id=mark.id,
+                    old_marks=previous,
+                    new_marks=update.final_marks,
+                    changed_by_id=user.id,
+                    reason="remark_request" if remark is not None else None,
+                )
+            )
         mark.final_marks = update.final_marks
         mark.final_feedback = update.final_feedback
         mark.overridden = mark.ai_marks is not None and update.final_marks != mark.ai_marks
+        if update.final_marks is not None:
+            # A tutor has now ruled on it, so it leaves the review queue —
+            # whether they changed the number or confirmed the AI's.
+            mark.needs_review = False
+            mark.auto_finalized = False
+        if remark is not None:
+            remark.status = RemarkRequestStatus.resolved
+            remark.resolved_at = datetime.now(timezone.utc)
+    await db.flush()
+    await _refresh_review_state(db, submission)
     await db.commit()
     return await submission_detail(submission_id, db, user)
 
 
+async def _refresh_review_state(db, submission: Submission) -> None:
+    """Move a submission out of the review queue once nothing on it is still
+    waiting for a tutor. A submission that had already settled stays settled."""
+    if submission.status not in (SubmissionStatus.needs_review, *SETTLED_STATUSES):
+        return
+    outstanding = await db.scalar(
+        select(QuestionMark.id)
+        .outerjoin(
+            RemarkRequest,
+            (RemarkRequest.question_mark_id == QuestionMark.id)
+            & (RemarkRequest.status == RemarkRequestStatus.open),
+        )
+        .where(
+            QuestionMark.submission_id == submission.id,
+            (QuestionMark.needs_review.is_(True)) | (RemarkRequest.id.is_not(None)),
+        )
+        .limit(1)
+    )
+    if outstanding is not None:
+        submission.status = SubmissionStatus.needs_review
+    elif submission.status == SubmissionStatus.needs_review:
+        # Everything is decided but no tutor has pressed finalize yet; leave it
+        # for them to sign off rather than settling it behind their back.
+        submission.status = SubmissionStatus.ai_marked
+
+
 @router.post("/submissions/{submission_id}/finalize", response_model=SubmissionDetail)
 async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUser) -> SubmissionDetail:
+    """Sign off a submission. Only the questions the AI wasn't sure about (and
+    any open remark requests) need the tutor's attention — confidently
+    auto-marked questions already carry a final mark."""
     submission = await _tutor_submission(db, user, submission_id)
     if submission.status == SubmissionStatus.finalized:
         raise HTTPException(status.HTTP_409_CONFLICT, "This submission is already finalized")
@@ -421,20 +587,123 @@ async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUs
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"Set final marks for every question first (missing: {', '.join(missing)})",
         )
+    unresolved = [m.number for m in marks if m.remark_requested]
+    if unresolved:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Resolve the open remark requests first (Q"
+            + ", Q".join(unresolved)
+            + ")",
+        )
     submission.status = SubmissionStatus.finalized
     submission.finalized_at = datetime.now(timezone.utc)
     submission.finalized_by_id = user.id
+    for row in await db.scalars(
+        select(QuestionMark).where(QuestionMark.submission_id == submission.id)
+    ):
+        row.needs_review = False
     await db.flush()
 
     # Finalized marks become readiness evidence; recompute in the background.
-    await build_homework_evidence(db, submission)
     assignment = await db.get(Assignment, submission.assignment_id)
     group = await db.get(Group, assignment.group_id)
-    await enqueue(
-        db,
-        "recompute_readiness",
-        {"student_id": submission.student_id, "subject_id": group.subject_id},
-    )
-    await enqueue_v2_shadow(db, submission.student_id, group.subject_id)
+    await record_marks_as_evidence(db, submission, group.subject_id)
     await db.commit()
     return await submission_detail(submission_id, db, user)
+
+
+@router.get(
+    "/submissions/{submission_id}/marks/{question_id}/history",
+    response_model=list[MarkHistoryEntry],
+)
+async def mark_history(
+    submission_id: int, question_id: int, db: DbSession, user: CurrentUser
+) -> list[MarkHistoryEntry]:
+    """Every tutor change to this mark, oldest first."""
+    submission = await _tutor_submission(db, user, submission_id)
+    mark = await db.scalar(
+        select(QuestionMark).where(
+            QuestionMark.submission_id == submission.id,
+            QuestionMark.question_id == question_id,
+        )
+    )
+    if mark is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mark not found")
+    rows = (
+        await db.execute(
+            select(MarkOverrideAudit, User)
+            .join(User, User.id == MarkOverrideAudit.changed_by_id)
+            .where(MarkOverrideAudit.question_mark_id == mark.id)
+            .order_by(MarkOverrideAudit.created_at)
+        )
+    ).all()
+    return [
+        MarkHistoryEntry(
+            old_marks=audit.old_marks,
+            new_marks=audit.new_marks,
+            changed_by_name=changed_by.name,
+            reason=audit.reason,
+            created_at=audit.created_at,
+        )
+        for audit, changed_by in rows
+    ]
+
+
+@router.post(
+    "/submissions/{submission_id}/questions/{question_id}/remark-request",
+    response_model=RemarkRequestOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def request_remark(
+    submission_id: int,
+    question_id: int,
+    body: RemarkRequestCreate,
+    db: DbSession,
+    user: CurrentUser,
+) -> RemarkRequestOut:
+    """A student contesting a mark that counted. This never triggers an AI
+    re-mark: it puts the question in front of the tutor, with the AI's original
+    reasoning attached. One request per question, ever — once the tutor rules
+    on it, that question is settled."""
+    if user.role != UserRole.student:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
+    submission = await db.get(Submission, submission_id)
+    if submission is None or submission.student_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
+    mark = await db.scalar(
+        select(QuestionMark).where(
+            QuestionMark.submission_id == submission.id,
+            QuestionMark.question_id == question_id,
+        )
+    )
+    if mark is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mark not found")
+    if mark.final_marks is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This question hasn't been marked yet"
+        )
+    existing = await db.scalar(
+        select(RemarkRequest).where(RemarkRequest.question_mark_id == mark.id)
+    )
+    if existing is not None:
+        detail = (
+            "You've already asked for this question to be looked at again"
+            if existing.status == RemarkRequestStatus.open
+            else "This question has already been re-marked by your tutor"
+        )
+        raise HTTPException(status.HTTP_409_CONFLICT, detail)
+
+    request = RemarkRequest(
+        question_mark_id=mark.id, requested_by_id=user.id, reason=body.reason
+    )
+    db.add(request)
+    # Put the submission back in front of the tutor.
+    submission.status = SubmissionStatus.needs_review
+    await db.commit()
+    return RemarkRequestOut(
+        id=request.id,
+        question_id=question_id,
+        status=request.status.value,
+        reason=request.reason,
+        created_at=request.created_at,
+    )

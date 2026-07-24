@@ -1,8 +1,20 @@
-"""AI marking: read a student's handwritten pages against the mark scheme and
-produce a per-question draft (transcription, proposed marks, feedback,
-confidence) for the tutor to review. The AI never proposes marks for questions
-without official mark-scheme coverage."""
+"""AI marking.
 
+The AI reads a student's handwritten pages and marks every question. A mark
+the AI is confident about *and* that an official mark scheme covers is
+recorded as final immediately — the student sees it and it becomes readiness
+evidence with no tutor action. Everything else (no scheme, low confidence, a
+question the AI didn't answer for) is flagged into the tutor's review queue
+with the AI's suggestion pre-filled.
+
+That trade is deliberate (see CLAUDE.md): a tutor cannot review every mark for
+every student, and a mark that never gets confirmed never becomes evidence,
+which leaves readiness empty. The tutor keeps override authority over any mark
+at any time, every override is audited, and a student can contest any
+finalized mark through a remark request.
+"""
+
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -23,7 +35,14 @@ from app.models import (
 )
 from app.services import storage
 from app.services.ai import file_block, record_usage, structured_complete
+from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
+from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
+from app.workers.jobs import enqueue
+
+# Confidence levels good enough for a scheme-backed mark to stand without a
+# tutor. Anything else goes to the review queue.
+AUTO_FINALIZE_CONFIDENCE = (MarkConfidence.high, MarkConfidence.medium)
 
 
 class QuestionMarkDraft(BaseModel):
@@ -32,11 +51,12 @@ class QuestionMarkDraft(BaseModel):
         description="Faithful transcription of the student's written answer (or 'No answer found')"
     )
     proposed_marks: int | None = Field(
-        description="Marks to award per the official mark scheme; null when has_mark_scheme is false"
+        description="Marks to award; null only if the answer cannot be marked at all"
     )
     feedback: str = Field(description="Short, constructive feedback for the student")
-    confidence: Literal["high", "medium", "low", "tutor_only"] = Field(
-        description="Marking confidence; 'tutor_only' when no official mark scheme covers the question"
+    confidence: Literal["high", "medium", "low", "unsure"] = Field(
+        description="Marking confidence; 'unsure' whenever no official mark scheme covers "
+        "the question, regardless of how clear the answer is"
     )
 
 
@@ -53,7 +73,6 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
         return
     try:
         await _run_marking(session, submission)
-        submission.status = SubmissionStatus.ai_marked
         submission.ai_error = None
     except Exception as exc:
         submission.status = SubmissionStatus.ai_failed
@@ -175,19 +194,79 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         if mark is None:
             mark = QuestionMark(submission_id=submission.id, question_id=q.id)
             session.add(mark)
+            existing_marks[q.id] = mark
         mark.ai_model = response.model
         mark.ai_prompt_version = response.prompt_version
         if draft is None:
+            # The AI skipped this question — never silently score it 0.
             mark.ai_transcription = "The AI did not return a result for this question."
-            mark.ai_confidence = MarkConfidence.tutor_only
+            mark.ai_marks = None
+            mark.ai_confidence = MarkConfidence.unsure
         else:
             mark.ai_transcription = draft.transcription
             mark.ai_feedback = draft.feedback
-            if q.has_mark_scheme and draft.proposed_marks is not None:
-                # Clamp to the question's mark range; trust nothing blindly.
-                mark.ai_marks = max(0, min(q.max_marks, draft.proposed_marks))
-                mark.ai_confidence = MarkConfidence(draft.confidence)
-            else:
-                # Hard rule: no official mark scheme -> no AI marks.
-                mark.ai_marks = None
-                mark.ai_confidence = MarkConfidence.tutor_only
+            mark.ai_confidence = MarkConfidence(draft.confidence)
+            # Clamp to the question's mark range; trust nothing blindly.
+            mark.ai_marks = (
+                max(0, min(q.max_marks, draft.proposed_marks))
+                if draft.proposed_marks is not None
+                else None
+            )
+
+        confident = mark.ai_confidence in AUTO_FINALIZE_CONFIDENCE
+        if q.has_mark_scheme and confident and mark.ai_marks is not None:
+            # Scheme-backed and confident: the mark counts now.
+            mark.final_marks = mark.ai_marks
+            mark.final_feedback = mark.ai_feedback
+            mark.auto_finalized = True
+            mark.needs_review = False
+        else:
+            # No official scheme, low confidence, or nothing to mark: the AI's
+            # number is a suggestion for the tutor, not a result.
+            mark.auto_finalized = False
+            mark.needs_review = True
+
+    await _settle_submission(session, submission, group)
+
+
+async def _settle_submission(
+    session: AsyncSession, submission: Submission, group: Group
+) -> None:
+    """Decide what happens to the submission once every question is marked.
+
+    If anything needs a tutor, the submission waits in the review queue. If
+    nothing does, it auto-finalizes: the marks become readiness evidence and a
+    recompute is scheduled, with no tutor step at all.
+    """
+    await session.flush()
+    pending_review = await session.scalar(
+        select(QuestionMark.id).where(
+            QuestionMark.submission_id == submission.id,
+            QuestionMark.needs_review.is_(True),
+        )
+    )
+    if pending_review is not None:
+        submission.status = SubmissionStatus.needs_review
+        return
+
+    submission.status = SubmissionStatus.auto_finalized
+    submission.finalized_at = datetime.now(timezone.utc)
+    # finalized_by_id stays null: nobody signed this off, the AI did.
+    await session.flush()
+    await record_marks_as_evidence(session, submission, group.subject_id)
+
+
+async def record_marks_as_evidence(
+    session: AsyncSession, submission: Submission, subject_id: int
+) -> None:
+    """Turn a submission's final marks into readiness evidence and schedule the
+    recomputes. Shared by auto-finalize and the tutor's finalize endpoint;
+    build_homework_evidence is idempotent by source_ref, so running it again
+    after a tutor override replaces rather than duplicates."""
+    await build_homework_evidence(session, submission)
+    await enqueue(
+        session,
+        "recompute_readiness",
+        {"student_id": submission.student_id, "subject_id": subject_id},
+    )
+    await enqueue_readiness_v2_debounced(session, submission.student_id, subject_id)

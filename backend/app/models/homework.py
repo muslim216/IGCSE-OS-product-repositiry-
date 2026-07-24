@@ -119,6 +119,13 @@ class SubmissionStatus(str, enum.Enum):
     marking = "marking"
     ai_marked = "ai_marked"
     ai_failed = "ai_failed"
+    # The AI marked every question confidently against an official mark
+    # scheme: the marks count immediately and no tutor action is needed.
+    auto_finalized = "auto_finalized"
+    # At least one question the AI wasn't sure about (or a student has asked
+    # for a remark) is waiting in the tutor's review queue.
+    needs_review = "needs_review"
+    # A tutor worked through the review queue and signed the submission off.
     finalized = "finalized"
 
 
@@ -167,7 +174,11 @@ class MarkConfidence(str, enum.Enum):
     high = "high"
     medium = "medium"
     low = "low"
-    # The AI never proposes marks without an official mark scheme.
+    # No official mark scheme covered the question, so the AI marked it from
+    # the syllabus and comparable questions. Always routed to a tutor.
+    unsure = "unsure"
+    # Legacy: what "unsure" was called when the AI refused to mark
+    # scheme-less questions at all. Kept so old rows still read back.
     tutor_only = "tutor_only"
 
 
@@ -189,12 +200,67 @@ class QuestionMark(Base):
     # for marks drafted before AI output versioning.
     ai_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ai_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The AI wasn't confident enough for its mark to stand on its own (no
+    # official mark-scheme coverage, or low confidence) — a tutor must look.
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The AI's mark was accepted as final without a tutor touching it.
+    auto_finalized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     final_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     final_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     submission: Mapped[Submission] = relationship(back_populates="marks")
     question: Mapped[AssignmentQuestion] = relationship()
+
+
+class MarkOverrideAudit(Base):
+    """Append-only record of a tutor changing a mark that had already been
+    set — whether overriding an auto-finalized AI mark or revising their own
+    earlier decision. There is no API to edit or delete these: a mark dispute
+    has to be answerable from the record months later."""
+
+    __tablename__ = "mark_override_audit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
+    old_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    new_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    changed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # Free text; set to "remark_request" when the change resolves one.
+    reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
+class RemarkRequestStatus(str, enum.Enum):
+    open = "open"
+    resolved = "resolved"
+
+
+class RemarkRequest(Base):
+    """A student contesting a finalized mark. Never resolved by AI — it only
+    routes the question into the tutor's review queue, with the AI's original
+    reasoning shown for context. The unique constraint on question_mark_id
+    enforces the one-open-request-per-question cap at the database level, so a
+    resolved question cannot be re-contested."""
+
+    __tablename__ = "remark_requests"
+    __table_args__ = (UniqueConstraint("question_mark_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
+    requested_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[RemarkRequestStatus] = mapped_column(
+        Enum(RemarkRequestStatus, native_enum=False, length=16),
+        default=RemarkRequestStatus.open,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class JobStatus(str, enum.Enum):

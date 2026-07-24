@@ -232,7 +232,15 @@ async def assignments_needing_attention(db: DbSession, user: CurrentUser) -> lis
             .join(User, User.id == Submission.student_id)
             .where(
                 Assignment.group_id.in_(tutor_groups),
-                Submission.status.in_([SubmissionStatus.ai_failed, SubmissionStatus.ai_marked]),
+                Submission.status.in_(
+                    [
+                        SubmissionStatus.ai_failed,
+                        SubmissionStatus.ai_marked,
+                        # Auto-marking's review queue: only the uncertain work
+                        # reaches the tutor now.
+                        SubmissionStatus.needs_review,
+                    ]
+                ),
             )
         )
     ).all()

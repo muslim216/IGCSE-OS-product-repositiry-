@@ -217,10 +217,26 @@ document work (marking, question extraction, syllabus extraction) → **Gemini**
   configured price records `cost_usd = NULL`, and `GET /ai-usage/analytics` reports those
   calls as `unpriced_call_count` rather than folding unknown spend in as zero. Never
   invent a price.
-- **Trust-first marking** (`services/marking.py`): the AI drafts transcription + proposed
-  marks + confidence, but for any question without official mark-scheme coverage it *must*
-  return `proposed_marks=null` / confidence `tutor_only`. Proposed marks are clamped to the
-  question's range. A tutor reviews and finalizes every mark before it becomes evidence.
+- **Auto-marking with a review queue** (`services/marking.py`): the AI marks every question
+  and its **confidence is the safety mechanism**. A mark that is both scheme-backed
+  (`has_mark_scheme`) and confident (`high`/`medium`) is **auto-finalized** — it counts
+  immediately, the student sees it, and it becomes evidence with no tutor action. Anything
+  else — no official scheme (marked from syllabus + comparable questions, always confidence
+  `unsure`), low confidence, or a question the AI skipped — sets `needs_review` and waits in
+  the tutor's queue with the AI's suggestion pre-filled. Proposed marks are always clamped
+  to the question's range, and a "no data" question is never silently scored 0.
+  - A submission is `auto_finalized` (nothing needed a tutor) or `needs_review`
+    (something did); `finalized` means a tutor signed it off. `finalize` only requires the
+    *unsure* questions to be resolved.
+  - **The tutor keeps final authority over every mark, always.** Changing a mark that had
+    already been set writes an append-only `MarkOverrideAudit` row (old → new → who → when);
+    there is no API to edit or delete those.
+  - **Students can contest any finalized mark** — auto- or tutor-finalized — via
+    `POST /submissions/{id}/questions/{qid}/remark-request`. A remark request is **never
+    resolved by AI**: it routes the question to the tutor's review queue with the AI's
+    original reasoning attached. **One request per question, ever** (DB-level unique
+    constraint), so the queue can't be gamed.
+  - Tutor workload lives at `GET /submissions/review-queue`, not in the assignment list.
 - Tutor chat (`api/chat.py` + `services/tutor_chat.py`) streams Server-Sent Events, grounds
   replies in `build_student_context()`, enforces anti-cheating guardrails and a rolling
   24h per-student message cap.

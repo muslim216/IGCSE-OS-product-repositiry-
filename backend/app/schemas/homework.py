@@ -105,6 +105,11 @@ class MarkRow(BaseModel):
     final_marks: int | None
     final_feedback: str | None
     overridden: bool
+    # Why this row is (or isn't) in the tutor's review queue.
+    needs_review: bool = False
+    auto_finalized: bool = False
+    remark_requested: bool = False
+    remark_reason: str | None = None
 
 
 class SubmissionFileOut(BaseModel):
@@ -146,17 +151,59 @@ class MarkUpdate(BaseModel):
 
 
 class StudentMarkRow(BaseModel):
+    # Null only for the legacy no-submission shape; needed so a student can
+    # ask for a specific question to be looked at again.
+    question_id: int | None = None
     number: str
     text_summary: str
     max_marks: int
     final_marks: int | None
     final_feedback: str | None
+    # "open" | "resolved" | None — lets the UI disable "Request remark" once
+    # this question has already been contested.
+    remark_status: str | None = None
 
 
 class StudentSubmissionView(BaseModel):
+    submission_id: int | None = None
     status: str
     submitted_at: datetime | None
     finalized_at: datetime | None
     total: int | None
     total_max: int
     marks: list[StudentMarkRow]
+
+
+class ReviewQueueItem(BaseModel):
+    """One submission waiting on the tutor — the whole marking workload."""
+
+    submission_id: int
+    assignment_id: int
+    assignment_title: str
+    student_id: int
+    student_name: str
+    submitted_at: datetime
+    # Questions the AI flagged as uncertain.
+    unsure_count: int
+    # Questions a student has asked to have looked at again.
+    remark_request_count: int
+
+
+class MarkHistoryEntry(BaseModel):
+    old_marks: int | None
+    new_marks: int | None
+    changed_by_name: str
+    reason: str | None
+    created_at: datetime
+
+
+class RemarkRequestCreate(BaseModel):
+    reason: str | None = None
+
+
+class RemarkRequestOut(BaseModel):
+    id: int
+    question_id: int
+    status: str
+    reason: str | None
+    created_at: datetime
