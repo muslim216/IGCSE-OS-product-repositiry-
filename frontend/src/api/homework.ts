@@ -85,7 +85,8 @@ export interface MarkRow {
 
 export interface ReviewQueueItem {
   submission_id: number;
-  assignment_id: number;
+  assignment_id: number | null;
+  past_paper_id: number | null;
   assignment_title: string;
   student_id: number;
   student_name: string;
@@ -129,7 +130,9 @@ export interface SubmissionFileInfo {
 
 export interface SubmissionDetail {
   id: number;
-  assignment_id: number;
+  /** Exactly one is set: the work is homework or a past paper. */
+  assignment_id: number | null;
+  past_paper_id: number | null;
   assignment_title: string;
   student_id: number;
   student_name: string;

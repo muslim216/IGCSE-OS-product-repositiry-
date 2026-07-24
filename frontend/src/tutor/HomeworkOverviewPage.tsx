@@ -51,6 +51,11 @@ export default function HomeworkOverviewPage() {
                 >
                   {item.assignment_title}
                 </Link>
+                {item.past_paper_id && (
+                  <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                    Past paper
+                  </span>
+                )}
                 <span className="ml-2 text-slate-500">— {item.student_name}</span>
               </div>
               <div className="flex gap-2 text-xs">

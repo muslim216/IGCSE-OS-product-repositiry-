@@ -14,6 +14,8 @@ from app.models import (
     Group,
     GroupMember,
     MarkOverrideAudit,
+    PastPaper,
+    PastPaperQuestion,
     QuestionMark,
     RemarkRequest,
     RemarkRequestStatus,
@@ -56,9 +58,15 @@ async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
     )
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
-    assignment = await db.get(Assignment, submission.assignment_id)
-    group = await db.get(Group, assignment.group_id)
-    if group.tutor_id != user.id and user.role != UserRole.admin:
+    if submission.past_paper_id is not None:
+        # Past papers belong to the organization, not to one tutor's group.
+        paper = await db.get(PastPaper, submission.past_paper_id)
+        owned = paper is not None and paper.organization_id == user.organization_id
+    else:
+        assignment = await db.get(Assignment, submission.assignment_id)
+        group = await db.get(Group, assignment.group_id)
+        owned = group.tutor_id == user.id
+    if not owned and user.role != UserRole.admin:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
     return submission
 
@@ -340,17 +348,24 @@ async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
 
 
 async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
+    """One row per question, whether the submission is homework or a past
+    paper — the review UI is the same either way."""
     open_remarks = await _open_remarks(db, submission.id)
+    if submission.past_paper_id is not None:
+        question, link = PastPaperQuestion, QuestionMark.past_paper_question_id
+        scope = PastPaperQuestion.past_paper_id == submission.past_paper_id
+    else:
+        question, link = AssignmentQuestion, QuestionMark.question_id
+        scope = AssignmentQuestion.assignment_id == submission.assignment_id
     rows = (
         await db.execute(
-            select(AssignmentQuestion, QuestionMark)
+            select(question, QuestionMark)
             .outerjoin(
                 QuestionMark,
-                (QuestionMark.question_id == AssignmentQuestion.id)
-                & (QuestionMark.submission_id == submission.id),
+                (link == question.id) & (QuestionMark.submission_id == submission.id),
             )
-            .where(AssignmentQuestion.assignment_id == submission.assignment_id)
-            .order_by(AssignmentQuestion.position)
+            .where(scope)
+            .order_by(question.position)
         )
     ).all()
     return [
@@ -384,21 +399,25 @@ async def review_queue(db: DbSession, user: CurrentUser) -> list[ReviewQueueItem
     appears here."""
     if user.role not in (UserRole.tutor, UserRole.admin):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    # Left-joined both ways: a submission belongs to an assignment (homework)
+    # or a past paper, never both, and the queue covers both kinds.
     rows = (
         await db.execute(
-            select(Submission, Assignment, User)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
-            .join(Group, Group.id == Assignment.group_id)
+            select(Submission, Assignment, PastPaper, User)
+            .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
+            .outerjoin(Group, Group.id == Assignment.group_id)
+            .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
             .join(User, User.id == Submission.student_id)
             .where(
-                Group.organization_id == user.organization_id,
                 Submission.status == SubmissionStatus.needs_review,
+                (Group.organization_id == user.organization_id)
+                | (PastPaper.organization_id == user.organization_id),
             )
             .order_by(Submission.submitted_at.desc())
         )
     ).all()
     out: list[ReviewQueueItem] = []
-    for submission, assignment, student in rows:
+    for submission, assignment, past_paper, student in rows:
         unsure = (
             await db.scalar(
                 select(func.count(QuestionMark.id)).where(
@@ -411,8 +430,13 @@ async def review_queue(db: DbSession, user: CurrentUser) -> list[ReviewQueueItem
         out.append(
             ReviewQueueItem(
                 submission_id=submission.id,
-                assignment_id=assignment.id,
-                assignment_title=assignment.title,
+                assignment_id=assignment.id if assignment else None,
+                past_paper_id=past_paper.id if past_paper else None,
+                assignment_title=(
+                    assignment.title
+                    if assignment
+                    else f"{past_paper.session_label} {past_paper.paper_number}"
+                ),
                 student_id=student.id,
                 student_name=student.name,
                 submitted_at=submission.submitted_at,
@@ -426,12 +450,18 @@ async def review_queue(db: DbSession, user: CurrentUser) -> list[ReviewQueueItem
 @router.get("/submissions/{submission_id}", response_model=SubmissionDetail)
 async def submission_detail(submission_id: int, db: DbSession, user: CurrentUser) -> SubmissionDetail:
     submission = await _tutor_submission(db, user, submission_id)
-    assignment = await db.get(Assignment, submission.assignment_id)
     student = await db.get(User, submission.student_id)
+    if submission.past_paper_id is not None:
+        paper = await db.get(PastPaper, submission.past_paper_id)
+        title = f"{paper.session_label} {paper.paper_number}"
+    else:
+        assignment = await db.get(Assignment, submission.assignment_id)
+        title = assignment.title
     return SubmissionDetail(
         id=submission.id,
-        assignment_id=assignment.id,
-        assignment_title=assignment.title,
+        assignment_id=submission.assignment_id,
+        past_paper_id=submission.past_paper_id,
+        assignment_title=title,
         student_id=student.id,
         student_name=student.name,
         status=submission.status.value,
@@ -483,18 +513,20 @@ async def save_marks(
             )
         ).all()
     }
-    questions = {
-        q.id: q
-        for q in (
-            await db.scalars(
-                select(AssignmentQuestion).where(
-                    AssignmentQuestion.assignment_id == submission.assignment_id
-                )
-            )
-        ).all()
-    }
+    # Homework and past papers keep their questions in different tables; the
+    # tutor's review screen is the same either way.
+    is_past_paper = submission.past_paper_id is not None
+    if is_past_paper:
+        question_query = select(PastPaperQuestion).where(
+            PastPaperQuestion.past_paper_id == submission.past_paper_id
+        )
+    else:
+        question_query = select(AssignmentQuestion).where(
+            AssignmentQuestion.assignment_id == submission.assignment_id
+        )
+    questions = {q.id: q for q in (await db.scalars(question_query)).all()}
     existing = {
-        m.question_id: m
+        (m.past_paper_question_id if is_past_paper else m.question_id): m
         for m in (
             await db.scalars(
                 select(QuestionMark).where(QuestionMark.submission_id == submission.id)
@@ -507,8 +539,13 @@ async def save_marks(
             continue
         mark = existing.get(update.question_id)
         if mark is None:
-            mark = QuestionMark(submission_id=submission.id, question_id=question.id)
+            mark = QuestionMark(submission_id=submission.id)
+            if is_past_paper:
+                mark.past_paper_question_id = question.id
+            else:
+                mark.question_id = question.id
             db.add(mark)
+            await db.flush()
             existing[question.id] = mark
         if update.final_marks is not None and update.final_marks > question.max_marks:
             raise HTTPException(
@@ -544,6 +581,17 @@ async def save_marks(
     await _refresh_review_state(db, submission)
     await db.commit()
     return await submission_detail(submission_id, db, user)
+
+
+async def _subject_id(db, submission: Submission) -> int:
+    """The subject a submission's evidence belongs to, from either side of the
+    polymorphic split."""
+    if submission.past_paper_id is not None:
+        paper = await db.get(PastPaper, submission.past_paper_id)
+        return paper.subject_id
+    assignment = await db.get(Assignment, submission.assignment_id)
+    group = await db.get(Group, assignment.group_id)
+    return group.subject_id
 
 
 async def _refresh_review_state(db, submission: Submission) -> None:
@@ -605,9 +653,7 @@ async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUs
     await db.flush()
 
     # Finalized marks become readiness evidence; recompute in the background.
-    assignment = await db.get(Assignment, submission.assignment_id)
-    group = await db.get(Group, assignment.group_id)
-    await record_marks_as_evidence(db, submission, group.subject_id)
+    await record_marks_as_evidence(db, submission, await _subject_id(db, submission))
     await db.commit()
     return await submission_detail(submission_id, db, user)
 

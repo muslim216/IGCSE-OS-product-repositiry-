@@ -139,7 +139,7 @@ async def fake_marking(session, submission):
 
     assignment = await session.get(Assignment, submission.assignment_id)
     group = await session.get(Group, assignment.group_id)
-    await _settle_submission(session, submission, group)
+    await _settle_submission(session, submission, group.subject_id)
 
 
 @pytest.fixture

@@ -64,29 +64,85 @@ class Mistake(TimestampMixin, Base):
 
 
 class PastPaper(TimestampMixin, Base):
-    """A full past paper a tutor tracks — distinct from classifieds (see
-    CLAUDE.md): full past papers carry official grade boundaries and timed
-    conditions, and only become the dominant evidence source later in the
-    IGCSE year."""
+    """A full past paper a tutor uploads once and every student can attempt.
+
+    Distinct from a classified (see CLAUDE.md): a classified is a topic-compiled
+    selection of questions, a past paper is the whole thing, sat under timed
+    conditions and marked against the official scheme. It carries files like a
+    Classified does, and rides the same extract -> mark -> review pipeline, but
+    the mark scheme is REQUIRED — a paper's marks feed the Past Paper
+    Performance factor, so they may not rest on the AI's judgement alone."""
 
     __tablename__ = "past_papers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    tutor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     session_label: Mapped[str] = mapped_column(String(64), nullable=False)  # e.g. "November 2026"
     paper_number: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "Paper 1"
+    total_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # How long the real exam allows, so a student's self-declared time_taken
+    # means something.
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The question booklet. Nullable only because rows created before past
+    # papers had files (seed/demo data) still exist.
+    booklet_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    booklet_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    booklet_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # The official mark scheme — required at upload, tutor-only to download.
+    mark_scheme_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mark_scheme_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PastPaperQuestion(Base):
+    """One question extracted from a past paper booklet. Mirrors
+    AssignmentQuestion so the same marking prompt and review UI apply."""
+
+    __tablename__ = "past_paper_questions"
+    __table_args__ = (UniqueConstraint("past_paper_id", "number"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    past_paper_id: Mapped[int] = mapped_column(ForeignKey("past_papers.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    number: Mapped[str] = mapped_column(String(16), nullable=False)
+    text_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    max_marks: Mapped[int] = mapped_column(Integer, nullable=False)
+    has_mark_scheme: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Which model and prompt version extracted this question (see
+    # services/prompts.py), so a bad extraction is traceable.
+    ai_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ai_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class PastPaperQuestionTopic(Base):
+    __tablename__ = "past_paper_question_topics"
+    __table_args__ = (UniqueConstraint("question_id", "topic_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("past_paper_questions.id"), nullable=False
+    )
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), nullable=False)
 
 
 class PastPaperAttempt(TimestampMixin, Base):
+    """The finalized roll-up of one student's attempt — what the Past Paper
+    Performance factor reads. The per-question detail lives on the Submission
+    that produced it; raw_marks is filled in when that submission settles."""
+
     __tablename__ = "past_paper_attempts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     past_paper_id: Mapped[int] = mapped_column(ForeignKey("past_papers.id"), nullable=False)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    raw_marks: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_marks: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Self-declared by the student: the platform cannot observe either of these.
     timed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    time_taken_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attempted_at: Mapped[date] = mapped_column(Date, nullable=False)
 
 

@@ -17,6 +17,7 @@ from app.api import (
     knowledge,
     lessons,
     me,
+    past_papers,
     preferences,
     readiness,
     readiness_v2,
@@ -29,7 +30,7 @@ from app.api import (
     syllabus_uploads,
 )
 from app.config import get_settings
-from app.services.extraction import extract_assignment
+from app.services.extraction import extract_assignment, extract_past_paper
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.readiness import recompute_student
@@ -39,6 +40,8 @@ from app.services.syllabus_extraction import extract_syllabus
 from app.workers.jobs import register_handler, worker_loop
 
 register_handler("extract_assignment", extract_assignment)
+# A past paper is a full-paper classified: same extractor, same prompt.
+register_handler("extract_past_paper", extract_past_paper)
 register_handler("mark_submission", mark_submission)
 register_handler("recompute_readiness", recompute_student)
 # Readiness v2 is what the readiness UI/API serve (services/readiness_summary_v2.py),
@@ -94,6 +97,7 @@ def create_app() -> FastAPI:
         knowledge.router,
         lessons.router,
         me.router,
+        past_papers.router,
         preferences.router,
         readiness.router,
         readiness_v2.router,

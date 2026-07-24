@@ -22,6 +22,7 @@ import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
 import ClassroomSettingsPage from "./tutor/ClassroomSettingsPage";
 import ClassroomCallbackPage from "./tutor/ClassroomCallbackPage";
+import TutorPastPapersPage from "./tutor/PastPapersPage";
 import StudentDashboard from "./student/StudentDashboard";
 import StudentHomePage from "./student/StudentHomePage";
 import HomeworkPage from "./student/HomeworkPage";
@@ -30,6 +31,8 @@ import TutorChatPage from "./student/TutorChatPage";
 import FilesPage from "./student/FilesPage";
 import RecordingsPage from "./student/RecordingsPage";
 import ExamsPage from "./student/ExamsPage";
+import StudentPastPapersPage from "./student/PastPapersPage";
+import SitPastPaperPage from "./student/SitPastPaperPage";
 import TutorHomePage from "./tutor/TutorHomePage";
 import ParentDashboard from "./parent/ParentDashboard";
 
@@ -48,6 +51,7 @@ const STUDENT_NAV = [
   { to: "/student/recordings", label: "Recordings" },
   { to: "/student/homework", label: "Homework" },
   { to: "/student/tutor", label: "AI Tutor" },
+  { to: "/student/past-papers", label: "Past papers" },
   { to: "/student/exams", label: "Exams" },
 ];
 
@@ -59,6 +63,7 @@ const TUTOR_NAV = [
   { to: "/tutor/syllabuses", label: "Syllabuses" },
   { to: "/tutor/preferences", label: "Preferences" },
   { to: "/tutor/mocks", label: "Mocks" },
+  { to: "/tutor/past-papers", label: "Past papers" },
   { to: "/tutor/today", label: "Today" },
   { to: "/tutor/settings", label: "Settings" },
 ];
@@ -90,6 +95,7 @@ export default function App() {
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
           <Route path="/tutor/settings" element={<ClassroomSettingsPage />} />
+          <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
         </Route>
         <Route
           path="/settings/classroom/callback"
@@ -106,6 +112,11 @@ export default function App() {
           <Route path="/student/homework" element={<HomeworkPage />} />
           <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
           <Route path="/student/tutor" element={<TutorChatPage />} />
+          <Route path="/student/past-papers" element={<StudentPastPapersPage />} />
+          <Route
+            path="/student/past-papers/:pastPaperId"
+            element={<SitPastPaperPage />}
+          />
           <Route path="/student/exams" element={<ExamsPage />} />
         </Route>
       </Route>

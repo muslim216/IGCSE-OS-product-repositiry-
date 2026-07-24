@@ -1,9 +1,10 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -130,12 +131,33 @@ class SubmissionStatus(str, enum.Enum):
 
 
 class Submission(TimestampMixin, Base):
+    """A student's uploaded answers to *either* a homework assignment or a past
+    paper — exactly one of assignment_id / past_paper_id is set.
+
+    Making this polymorphic rather than giving past papers their own table
+    means SubmissionFile, QuestionMark, marking, the review queue, the override
+    audit, remark requests and evidence-building all apply to past papers with
+    no extra code."""
+
     __tablename__ = "submissions"
-    __table_args__ = (UniqueConstraint("assignment_id", "student_id"),)
+    __table_args__ = (
+        UniqueConstraint("assignment_id", "student_id"),
+        UniqueConstraint("past_paper_id", "student_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    assignment_id: Mapped[int] = mapped_column(ForeignKey("assignments.id"), nullable=False)
+    assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assignments.id"), nullable=True
+    )
+    past_paper_id: Mapped[int | None] = mapped_column(
+        ForeignKey("past_papers.id"), nullable=True
+    )
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # Past papers only, and self-declared: the platform can't measure how long
+    # a student took or whether they really sat it under timed conditions.
+    timed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    time_taken_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempted_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[SubmissionStatus] = mapped_column(
         Enum(SubmissionStatus, native_enum=False, length=16),
         default=SubmissionStatus.submitted,
@@ -148,7 +170,7 @@ class Submission(TimestampMixin, Base):
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finalized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
-    assignment: Mapped[Assignment] = relationship()
+    assignment: Mapped[Assignment | None] = relationship()
     files: Mapped[list["SubmissionFile"]] = relationship(
         back_populates="submission", cascade="all, delete-orphan", order_by="SubmissionFile.position"
     )
@@ -183,12 +205,26 @@ class MarkConfidence(str, enum.Enum):
 
 
 class QuestionMark(Base):
+    """One question's mark within a submission. Exactly one of question_id
+    (homework) / past_paper_question_id (past paper) is set, matching whichever
+    kind of work the submission is for."""
+
     __tablename__ = "question_marks"
-    __table_args__ = (UniqueConstraint("submission_id", "question_id"),)
+    __table_args__ = (
+        UniqueConstraint("submission_id", "question_id"),
+        UniqueConstraint("submission_id", "past_paper_question_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), nullable=False)
-    question_id: Mapped[int] = mapped_column(ForeignKey("assignment_questions.id"), nullable=False)
+    question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assignment_questions.id"), nullable=True
+    )
+    past_paper_question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("past_paper_questions.id"), nullable=True
+    )
+    # Set for homework marks; null for past-paper marks (which use
+    # past_paper_question_id instead). Exactly one is set.
     ai_transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ai_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -210,7 +246,7 @@ class QuestionMark(Base):
     overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     submission: Mapped[Submission] = relationship(back_populates="marks")
-    question: Mapped[AssignmentQuestion] = relationship()
+    question: Mapped[AssignmentQuestion | None] = relationship()
 
 
 class MarkOverrideAudit(Base):

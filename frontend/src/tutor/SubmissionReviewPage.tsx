@@ -116,7 +116,11 @@ export default function SubmissionReviewPage() {
     <div className="space-y-5">
       <div>
         <Link
-          to={`/tutor/assignments/${s.assignment_id}`}
+          to={
+            s.assignment_id
+              ? `/tutor/assignments/${s.assignment_id}`
+              : "/tutor/past-papers"
+          }
           className="text-sm text-blue-600 hover:underline"
         >
           ← {s.assignment_title}

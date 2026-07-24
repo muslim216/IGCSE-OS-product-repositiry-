@@ -15,10 +15,11 @@ finalized mark through a remark request.
 """
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,6 +30,9 @@ from app.models import (
     Classified,
     Group,
     MarkConfidence,
+    PastPaper,
+    PastPaperAttempt,
+    PastPaperQuestion,
     QuestionMark,
     Submission,
     SubmissionStatus,
@@ -81,20 +85,115 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
         raise
 
 
-async def _run_marking(session: AsyncSession, submission: Submission) -> None:
+@dataclass
+class _MarkingSource:
+    """What is being marked, flattened so _run_marking doesn't branch on
+    homework vs past paper past this point."""
+
+    questions: list  # AssignmentQuestion | PastPaperQuestion, ordered
+    booklet: tuple[bytes, str] | None
+    mark_scheme: tuple[bytes, str] | None
+    intro: str
+    organization_id: int
+    tutor_id: int
+    subject_id: int
+    is_past_paper: bool
+
+
+async def _homework_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
     assignment = await session.get(Assignment, submission.assignment_id)
     classified = (
         await session.get(Classified, assignment.classified_id)
         if assignment.classified_id
         else None
     )
-    questions = (
-        await session.scalars(
-            select(AssignmentQuestion)
-            .where(AssignmentQuestion.assignment_id == assignment.id)
-            .order_by(AssignmentQuestion.position)
+    questions = list(
+        (
+            await session.scalars(
+                select(AssignmentQuestion)
+                .where(AssignmentQuestion.assignment_id == assignment.id)
+                .order_by(AssignmentQuestion.position)
+            )
+        ).all()
+    )
+    group = await session.get(Group, assignment.group_id)
+    if classified is not None:
+        intro = (
+            "The documents above are: (1) the question booklet, "
+            + ("(2) the mark scheme, " if classified.mark_scheme_path else "")
+            + "followed by the student's handwritten answer pages."
         )
-    ).all()
+    else:
+        intro = (
+            "No question booklet is attached to this assignment — mark from the question "
+            "list below and the student's handwritten answer pages above only."
+        )
+    return _MarkingSource(
+        questions=questions,
+        booklet=(
+            (storage.read_file(classified.file_path), classified.file_mime)
+            if classified is not None
+            else None
+        ),
+        mark_scheme=(
+            (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
+            if classified is not None and classified.mark_scheme_path
+            else None
+        ),
+        intro=intro,
+        organization_id=group.organization_id,
+        tutor_id=group.tutor_id,
+        subject_id=group.subject_id,
+        is_past_paper=False,
+    )
+
+
+async def _past_paper_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
+    paper = await session.get(PastPaper, submission.past_paper_id)
+    questions = list(
+        (
+            await session.scalars(
+                select(PastPaperQuestion)
+                .where(PastPaperQuestion.past_paper_id == paper.id)
+                .order_by(PastPaperQuestion.position)
+            )
+        ).all()
+    )
+    if not questions:
+        raise ValueError(
+            "This past paper's questions haven't been extracted yet — try again shortly"
+        )
+    return _MarkingSource(
+        questions=questions,
+        booklet=(
+            (storage.read_file(paper.booklet_path), paper.booklet_mime)
+            if paper.booklet_path
+            else None
+        ),
+        mark_scheme=(
+            (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
+            if paper.mark_scheme_path
+            else None
+        ),
+        intro=(
+            f"The documents above are {paper.session_label} {paper.paper_number}: "
+            "(1) the question paper, (2) the official mark scheme, followed by the "
+            "student's handwritten answer pages."
+        ),
+        organization_id=paper.organization_id,
+        tutor_id=paper.tutor_id,
+        subject_id=paper.subject_id,
+        is_past_paper=True,
+    )
+
+
+async def _run_marking(session: AsyncSession, submission: Submission) -> None:
+    source = (
+        await _past_paper_source(session, submission)
+        if submission.past_paper_id is not None
+        else await _homework_source(session, submission)
+    )
+    questions = source.questions
     files = sorted(submission.files, key=lambda f: f.position)
     if not files:
         raise ValueError("The submission has no uploaded files")
@@ -104,8 +203,9 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     # already done. Existing drafts are updated in place; anything the tutor
     # has already finalized is left untouched, and if every question is
     # finalized there is nothing left to ask the AI.
+    # Keyed by whichever question column this kind of submission uses.
     existing_marks = {
-        m.question_id: m
+        (m.past_paper_question_id if source.is_past_paper else m.question_id): m
         for m in (
             await session.scalars(
                 select(QuestionMark).where(QuestionMark.submission_id == submission.id)
@@ -125,47 +225,27 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     )
 
     content: list[dict] = []
-    # The classified/mark scheme is shared across every submission in the class —
+    # The booklet/mark scheme is shared across every student marked against it —
     # cache it so marking a batch reuses the prefix.
-    if classified is not None:
-        content.append(
-            file_block(storage.read_file(classified.file_path), classified.file_mime, cache=True)
-        )
-        if classified.mark_scheme_path:
-            content.append(
-                file_block(
-                    storage.read_file(classified.mark_scheme_path),
-                    classified.mark_scheme_mime,
-                    cache=True,
-                )
-            )
+    if source.booklet is not None:
+        content.append(file_block(*source.booklet, cache=True))
+    if source.mark_scheme is not None:
+        content.append(file_block(*source.mark_scheme, cache=True))
     for f in files:
         content.append(file_block(storage.read_file(f.path), f.mime))
 
-    if classified is not None:
-        intro = (
-            "The documents above are: (1) the question booklet, "
-            + ("(2) the mark scheme, " if classified.mark_scheme_path else "")
-            + "followed by the student's handwritten answer pages."
-        )
-    else:
-        intro = (
-            "No question booklet is attached to this assignment — mark from the question "
-            "list below and the student's handwritten answer pages above only."
-        )
     content.append(
         {
             "type": "text",
             "text": (
-                f"{intro}\n\n"
+                f"{source.intro}\n\n"
                 f"Questions to mark:\n{question_list}\n\n"
                 "Produce the marking draft for every question in the list."
             ),
         }
     )
 
-    group = await session.get(Group, assignment.group_id)
-    kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
+    kb_context = await build_tutor_context(session, source.tutor_id, source.subject_id)
 
     response = await structured_complete(
         surface="marking",
@@ -178,8 +258,8 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     await record_usage(
         session,
         response,
-        organization_id=group.organization_id,
-        tutor_id=group.tutor_id,
+        organization_id=source.organization_id,
+        tutor_id=source.tutor_id,
         student_id=submission.student_id,
         feature=AiFeature.marking,
     )
@@ -192,7 +272,11 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         if mark is not None and mark.final_marks is not None:
             continue  # the tutor has already ruled on this one
         if mark is None:
-            mark = QuestionMark(submission_id=submission.id, question_id=q.id)
+            mark = QuestionMark(submission_id=submission.id)
+            if source.is_past_paper:
+                mark.past_paper_question_id = q.id
+            else:
+                mark.question_id = q.id
             session.add(mark)
             existing_marks[q.id] = mark
         mark.ai_model = response.model
@@ -226,11 +310,11 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             mark.auto_finalized = False
             mark.needs_review = True
 
-    await _settle_submission(session, submission, group)
+    await _settle_submission(session, submission, source.subject_id)
 
 
 async def _settle_submission(
-    session: AsyncSession, submission: Submission, group: Group
+    session: AsyncSession, submission: Submission, subject_id: int
 ) -> None:
     """Decide what happens to the submission once every question is marked.
 
@@ -253,7 +337,7 @@ async def _settle_submission(
     submission.finalized_at = datetime.now(timezone.utc)
     # finalized_by_id stays null: nobody signed this off, the AI did.
     await session.flush()
-    await record_marks_as_evidence(session, submission, group.subject_id)
+    await record_marks_as_evidence(session, submission, subject_id)
 
 
 async def record_marks_as_evidence(
@@ -264,9 +348,57 @@ async def record_marks_as_evidence(
     build_homework_evidence is idempotent by source_ref, so running it again
     after a tutor override replaces rather than duplicates."""
     await build_homework_evidence(session, submission)
+    if submission.past_paper_id is not None:
+        await _upsert_attempt_rollup(session, submission)
     await enqueue(
         session,
         "recompute_readiness",
         {"student_id": submission.student_id, "subject_id": subject_id},
     )
     await enqueue_readiness_v2_debounced(session, submission.student_id, subject_id)
+
+
+async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) -> None:
+    """Roll a settled past-paper submission up into the PastPaperAttempt row the
+    Past Paper Performance factor reads. Upserted, not appended, so re-running
+    after a tutor override corrects the total instead of double-counting it."""
+    paper = await session.get(PastPaper, submission.past_paper_id)
+    totals = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(QuestionMark.final_marks), 0),
+                func.coalesce(func.sum(PastPaperQuestion.max_marks), 0),
+            )
+            .join(
+                PastPaperQuestion,
+                PastPaperQuestion.id == QuestionMark.past_paper_question_id,
+            )
+            .where(
+                QuestionMark.submission_id == submission.id,
+                QuestionMark.final_marks.is_not(None),
+            )
+        )
+    ).one()
+    got, counted_max = totals
+    attempt = await session.scalar(
+        select(PastPaperAttempt).where(
+            PastPaperAttempt.past_paper_id == submission.past_paper_id,
+            PastPaperAttempt.student_id == submission.student_id,
+        )
+    )
+    if attempt is None:
+        attempt = PastPaperAttempt(
+            past_paper_id=submission.past_paper_id,
+            student_id=submission.student_id,
+            attempted_at=submission.attempted_at or submission.submitted_at.date(),
+            max_marks=paper.total_marks or counted_max or 1,
+        )
+        session.add(attempt)
+    attempt.raw_marks = got
+    # The paper's own total is the honest denominator: a student who skipped
+    # questions should score lower, not be marked out of only what they did.
+    attempt.max_marks = paper.total_marks or counted_max or 1
+    attempt.timed = submission.timed
+    attempt.time_taken_minutes = submission.time_taken_minutes
+    if submission.attempted_at is not None:
+        attempt.attempted_at = submission.attempted_at
