@@ -56,13 +56,13 @@ class Settings(BaseSettings):
     # empty by default — a model with no entry records cost_usd = NULL rather
     # than a guessed figure (see services/ai.py model_pricing()).
     ai_model_pricing: str = "{}"
-    # Readiness Engine v2 rollout (see docs/manara-architecture.md): while
-    # False, v2's compute_readiness_v2 job never runs and only v1 serves the
-    # app. Turning it on shadow-runs v2 alongside v1 on every evidence change
-    # (new GET /readiness/v2/... endpoints become populated) without
-    # changing what the existing readiness endpoints/UI show — that cutover
-    # is a separate, later decision once v2 output has been validated.
-    readiness_v2_shadow_enabled: bool = False
+    # Readiness Engine v2 is now what the readiness UI/API serve. This is the
+    # kill switch, not a shadow flag: turning it off stops v2 runs being
+    # enqueued, and since services/readiness_summary_v2.py falls back to v1 for
+    # any subject with no snapshot, the app degrades to the v1 engine instead
+    # of breaking. Kept under its original name so an existing deployment's
+    # env var keeps working.
+    readiness_v2_shadow_enabled: bool = True
     # Readiness v2 synthesis is an expensive AI call, and auto-marking can
     # finalize a burst of submissions in seconds. Triggers for the same
     # (student, subject) collapse into one run scheduled this many seconds

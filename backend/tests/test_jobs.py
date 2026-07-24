@@ -109,8 +109,10 @@ async def test_a_finished_run_no_longer_blocks_the_next_one(client, monkeypatch)
         assert count == 2
 
 
-async def test_coalescing_is_a_no_op_while_v2_is_disabled(client):
-    assert get_settings().readiness_v2_shadow_enabled is False
+async def test_coalescing_is_a_no_op_while_v2_is_disabled(client, monkeypatch):
+    """The flag is the kill switch: with it off, no v2 work is queued at all
+    and readiness falls back to the v1 engine."""
+    monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", False)
     async with async_session() as session:
         await enqueue_readiness_v2_debounced(session, student_id=7, subject_id=3)
         await session.commit()

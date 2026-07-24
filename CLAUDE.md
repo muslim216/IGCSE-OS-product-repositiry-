@@ -69,7 +69,7 @@ all new work:
 - **Tutor Knowledge Base** (`knowledge_entries` + `services/knowledge.py`'s
   `build_tutor_context()`) is injected into every AI surface — marking, extraction,
   report generation, tutor chat — so the AI behaves like that specific tutor.
-- **Readiness v2 is built and shadow-running, not yet authoritative.** Layer 1
+- **Readiness v2 is the system of record for what the app shows.** Layer 1
   (`services/readiness_factors.py` + `services/readiness_v2.py`) computes seven
   tutor-weighted, explainable factor sub-scores (Topic Mastery, Past Paper Performance,
   Homework Performance, Assessment Performance, Syllabus Coverage, Mistake Analysis,
@@ -78,15 +78,26 @@ all new work:
   org's `readiness_weights` into a `readiness_snapshots` row, both tagged with a shared
   `evaluation_run_id` so a score always traces back to its deterministic inputs; an AI
   failure still keeps the Layer 1 rows and writes `status="failed"` rather than losing
-  the evaluation. **v1 (`services/readiness.py`, `TopicReadiness`/`ReadinessHistory`/
-  `TutorPreferences`) is still what every existing endpoint and the UI actually serve.**
-  Setting `READINESS_V2_SHADOW_ENABLED=true` makes every place v1 recomputes also
-  enqueue `compute_readiness_v2` (`enqueue_v2_shadow()`), so v2 accumulates snapshots
-  for comparison, readable read-only at `GET /readiness/v2/students/{id}` — that
-  endpoint never triggers a computation itself. Flipping the UI/API over to v2 as the
-  source of truth, and retiring v1, is a deliberate later step once v2's output has
-  been validated, not part of this milestone. No metric may exist that can't explain
-  its source; factors without evidence report "no data", never a fabricated number.
+  the evaluation. **`services/readiness_summary_v2.py` is what `/readiness/me`,
+  `/readiness/students/{id}` and `/readiness/students/{id}/trend` serve**: the latest
+  *ready* snapshot per subject gives the score, predicted grade, weak topics, rationale
+  and revision plan, and that run's `topic_mastery` factor rows give the topic bars.
+  - **v1 is the fallback, not the source.** A (student, subject) with no ready snapshot
+    yet falls back to `services/readiness_summary.build_summary` and the response says
+    `engine: "v1"`, so the app never shows a blank page mid-migration. v1's tables are
+    still written and are still read directly by `analytics.py`, `reports.py` and
+    `student_crm.py` — repointing those and dropping the tables is a later, separate step.
+  - `READINESS_V2_SHADOW_ENABLED` (default **true**) is now a kill switch, not a shadow
+    flag: turning it off stops v2 runs being enqueued and the fallback quietly carries
+    the app on v1.
+  - **`is_updating` comes from the `jobs` table, not the snapshot.** A `ReadinessSnapshot`
+    row only exists once a run *finishes*, so there is no in-progress row to read; a
+    pending/running `compute_readiness_v2` for that (student, subject) sets the flag and
+    the UI says "updating" over the last known score rather than implying it's current.
+  - Weights are tutor-editable per organization at `GET`/`PUT /readiness/weights`
+    (`api/readiness_weights.py`); saving recomputes every student that tutor teaches.
+  - No metric may exist that can't explain its source; factors without evidence report
+    "no data" and are **omitted**, never rendered as a fabricated `0`.
   `factor_evaluations` is a detailed, append-only audit trail — expect to add a
   retention/archival policy (e.g. prune runs older than N months once older than the
   last few snapshots per subject are no longer useful) before this runs at real scale.

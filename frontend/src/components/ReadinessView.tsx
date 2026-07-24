@@ -30,7 +30,17 @@ export function SubjectReadinessCard({
     <div className="rounded-lg border bg-white p-5">
       <div className="flex items-start justify-between">
         <div>
-          <h3 className="font-semibold text-slate-800">{subject.subject_name}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-slate-800">{subject.subject_name}</h3>
+            {subject.is_updating && (
+              <span
+                className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                title="New evidence has come in — this score is being recalculated."
+              >
+                Updating…
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-500">{subject.exam_board}</p>
         </div>
         {subject.score !== null ? (
@@ -50,6 +60,23 @@ export function SubjectReadinessCard({
           </span>
         )}
       </div>
+
+      {subject.is_updating && subject.score !== null && (
+        <p className="mt-2 text-xs text-blue-700">
+          Showing the last calculated score while a new one is worked out.
+        </p>
+      )}
+
+      {subject.rationale && (
+        <p className="mt-3 text-sm text-slate-600">{subject.rationale}</p>
+      )}
+
+      {subject.recommended_revision && (
+        <div className="mt-3 rounded bg-slate-50 p-3 text-sm text-slate-600">
+          <span className="font-medium text-slate-700">What to do next: </span>
+          {subject.recommended_revision}
+        </div>
+      )}
 
       {subject.weak_topics.length > 0 && (
         <div className="mt-4">

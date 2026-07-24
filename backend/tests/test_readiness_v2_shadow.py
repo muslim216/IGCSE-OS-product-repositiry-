@@ -10,8 +10,10 @@ from app.workers.jobs import process_one_job
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
-async def test_shadow_disabled_by_default_only_enqueues_v1(client, tutor, world):
-    assert get_settings().readiness_v2_shadow_enabled is False
+async def test_v2_switched_off_enqueues_only_v1(client, tutor, world, monkeypatch):
+    """READINESS_V2_SHADOW_ENABLED=false is the kill switch — v2 stops being
+    computed and the app runs on v1 alone."""
+    monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", False)
     resp = await client.post(
         "/api/v1/observations",
         json={
@@ -28,8 +30,8 @@ async def test_shadow_disabled_by_default_only_enqueues_v1(client, tutor, world)
     assert await process_one_job() is False
 
 
-async def test_shadow_enabled_dual_enqueues_and_creates_snapshot(client, tutor, world, monkeypatch):
-    monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", True)
+async def test_v2_enqueues_alongside_v1_and_creates_a_snapshot(client, tutor, world, monkeypatch):
+    assert get_settings().readiness_v2_shadow_enabled is True, "v2 is on by default"
 
     resp = await client.post(
         "/api/v1/observations",

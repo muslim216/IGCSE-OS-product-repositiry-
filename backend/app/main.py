@@ -20,6 +20,7 @@ from app.api import (
     preferences,
     readiness,
     readiness_v2,
+    readiness_weights,
     reports,
     resources,
     students,
@@ -40,10 +41,10 @@ from app.workers.jobs import register_handler, worker_loop
 register_handler("extract_assignment", extract_assignment)
 register_handler("mark_submission", mark_submission)
 register_handler("recompute_readiness", recompute_student)
-# Readiness v2 shadow-runs alongside v1 whenever settings.readiness_v2_shadow_enabled
-# is on (enqueue_v2_shadow, called next to every recompute_readiness enqueue).
-# v1 still drives every existing endpoint; GET /readiness/v2/... is a
-# separate, read-only comparison surface (see api/readiness_v2.py).
+# Readiness v2 is what the readiness UI/API serve (services/readiness_summary_v2.py),
+# falling back to v1 for any (student, subject) with no snapshot yet. Runs are
+# enqueued debounced per (student, subject) so a burst of auto-finalized
+# submissions costs one synthesis, not one each.
 register_handler("compute_readiness_v2", compute_readiness_v2)
 register_handler("generate_report", generate_report)
 register_handler("extract_syllabus", extract_syllabus)
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
         preferences.router,
         readiness.router,
         readiness_v2.router,
+        readiness_weights.router,
         reports.router,
         resources.router,
         students.router,

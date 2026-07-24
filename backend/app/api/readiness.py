@@ -4,11 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession
 from app.models import (
+    AiSynthesisStatus,
     Evidence,
     Group,
     GroupMember,
     ParentLink,
     ReadinessHistory,
+    ReadinessSnapshot,
     Subject,
     Topic,
     TopicReadiness,
@@ -22,7 +24,7 @@ from app.schemas.readiness import (
     TopicEvidence,
     TrendPoint,
 )
-from app.services.readiness_summary import build_summary
+from app.services.readiness_summary_v2 import build_summary_v2
 
 router = APIRouter(prefix="/readiness", tags=["readiness"])
 
@@ -78,7 +80,7 @@ async def my_readiness(db: DbSession, user: CurrentUser) -> StudentReadinessSumm
     if user.role != UserRole.student:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
     subject_ids = await visible_subject_ids(db, user, user.id)
-    return await build_summary(db, user, subject_ids or [])
+    return await build_summary_v2(db, user, subject_ids or [])
 
 
 @router.get("/students/{student_id}", response_model=StudentReadinessSummary)
@@ -89,7 +91,7 @@ async def student_readiness(
     if student is None or student.role != UserRole.student:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     subject_ids = await visible_subject_ids(db, user, student_id)
-    return await build_summary(db, student, subject_ids or [])
+    return await build_summary_v2(db, student, subject_ids or [])
 
 
 @router.get(
@@ -138,27 +140,47 @@ async def topic_evidence(
 async def student_trend(
     student_id: int, db: DbSession, user: CurrentUser
 ) -> list[SubjectTrend]:
+    """Score over time. Reads v2 snapshots, falling back to v1's history for a
+    subject that has no scored snapshot yet — same cutover rule as the summary,
+    so a student never loses their trend line mid-migration."""
     subject_ids = await visible_subject_ids(db, user, student_id)
     out: list[SubjectTrend] = []
     for subject_id in subject_ids or []:
         subject = await db.get(Subject, subject_id)
-        points = (
+        snapshots = (
             await db.scalars(
-                select(ReadinessHistory)
+                select(ReadinessSnapshot)
                 .where(
-                    ReadinessHistory.student_id == student_id,
-                    ReadinessHistory.subject_id == subject_id,
+                    ReadinessSnapshot.student_id == student_id,
+                    ReadinessSnapshot.subject_id == subject_id,
+                    ReadinessSnapshot.status == AiSynthesisStatus.ready,
+                    ReadinessSnapshot.score.is_not(None),
                 )
-                .order_by(ReadinessHistory.recorded_at)
+                .order_by(ReadinessSnapshot.created_at)
             )
         ).all()
+        points = [
+            TrendPoint(recorded_at=s.created_at, score=s.score) for s in snapshots
+        ]
+        if not points:
+            legacy = (
+                await db.scalars(
+                    select(ReadinessHistory)
+                    .where(
+                        ReadinessHistory.student_id == student_id,
+                        ReadinessHistory.subject_id == subject_id,
+                    )
+                    .order_by(ReadinessHistory.recorded_at)
+                )
+            ).all()
+            points = [
+                TrendPoint(recorded_at=p.recorded_at, score=p.score) for p in legacy
+            ]
         if not points:
             continue
         out.append(
             SubjectTrend(
-                subject_id=subject_id,
-                subject_name=subject.name,
-                points=[TrendPoint(recorded_at=p.recorded_at, score=p.score) for p in points],
+                subject_id=subject_id, subject_name=subject.name, points=points
             )
         )
     return out

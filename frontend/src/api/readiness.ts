@@ -25,6 +25,13 @@ export interface SubjectReadiness {
   predicted_grade: string | null;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
+  /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */
+  engine: string;
+  /** A recompute is queued or running — the score shown is the last known one. */
+  is_updating: boolean;
+  computed_at: string | null;
+  rationale: string | null;
+  recommended_revision: string | null;
 }
 
 export interface ReadinessSummary {
@@ -150,6 +157,26 @@ export interface Preferences {
 }
 
 export const getPreferences = () => api<Preferences>("/api/v1/me/preferences");
+
+/** Readiness v2 weights: one per factor, per organization. */
+export interface ReadinessWeights {
+  weight_topic_mastery: number;
+  weight_past_paper_performance: number;
+  weight_homework_performance: number;
+  weight_assessment_performance: number;
+  weight_syllabus_coverage: number;
+  weight_mistake_analysis: number;
+  weight_consistency: number;
+  half_life_days: number;
+}
+
+export const getReadinessWeights = () =>
+  api<ReadinessWeights>("/api/v1/readiness/weights");
+export const updateReadinessWeights = (payload: ReadinessWeights) =>
+  api<ReadinessWeights>("/api/v1/readiness/weights", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 export const updatePreferences = (payload: Preferences) =>
   api<Preferences>("/api/v1/me/preferences", { method: "PUT", body: JSON.stringify(payload) });
 
