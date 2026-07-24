@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     # changing what the existing readiness endpoints/UI show — that cutover
     # is a separate, later decision once v2 output has been validated.
     readiness_v2_shadow_enabled: bool = False
+    # Google Classroom integration (see services/google_classroom.py). Both
+    # unset -> the feature reports "not configured" everywhere and the app
+    # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful
+    # degradation. From a Google Cloud project's OAuth 2.0 Client with the
+    # Classroom + Drive (readonly) APIs enabled.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str = "http://localhost:5173/settings/classroom/callback"
+    # Encrypts stored Google refresh tokens at rest. Falls back to deriving a
+    # key from JWT_SECRET when unset, so tokens are never stored in plaintext
+    # even without extra config — set a dedicated value in production.
+    google_token_encryption_key: str | None = None
     upload_dir: str = "uploads"
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.

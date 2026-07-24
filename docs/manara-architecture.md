@@ -177,19 +177,38 @@ current data volumes.
   legitimately runs on classifieds; the Past Paper factor reports "no data" until
   attempts exist.
 
-### 7. Google Classroom
+### 7. Google Classroom (built)
 
 Classroom reduces friction; it never replaces MANARA, and direct upload stays fully
-supported.
+supported — both paths feed the same marking pipeline.
 
-- Per-tutor Google OAuth: `google_accounts` (tutor_id, encrypted refresh token, scopes).
-  New settings: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, a token-encryption key.
-- Link tables: `classroom_course_links` (group ↔ Classroom course) and
-  `classroom_work_links` (assignment ↔ courseWork).
-- New `sync_classroom` job (polling, via the existing job system): imports courseWork as
-  draft Assignments; imports student submissions (Drive files → storage service); feeds
-  the standard `mark_submission` pipeline, which updates homework history, mastery,
-  readiness, reports, and the CRM.
+- Per-tutor Google OAuth (`services/google_classroom.py`): `google_accounts`
+  (tutor_id, encrypted refresh token, scopes). Settings: `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, an optional
+  `GOOGLE_TOKEN_ENCRYPTION_KEY` (falls back to a key derived from `JWT_SECRET`). Like
+  `ANTHROPIC_API_KEY`, both unset means the feature reports "not configured" and the
+  app runs fine without it — `GoogleClassroomUnavailableError` mirrors
+  `AIUnavailableError`. Every Google API call goes through small, individually-mockable
+  wrapper functions, so the OAuth flow and sync job are fully unit-tested without real
+  Google credentials (`tests/test_classroom.py`).
+- Link tables: `classroom_course_links` (group ↔ Classroom course, one course per
+  group) and `classroom_work_links` (assignment ↔ courseWork), which is what makes
+  re-polling idempotent — a courseWork item already imported is updated in place, never
+  duplicated.
+- `sync_classroom` job (`workers/jobs.py` handler, enqueued on demand today via
+  `POST /classroom/sync`; a scheduler could call the same job type periodically with no
+  handler changes): imports courseWork as draft Assignments (status `review` — the
+  tutor still adds questions before publishing, since Classroom's courseWork isn't a
+  question booklet); imports turned-in student submissions, matching Classroom's
+  roster email to a MANARA student account (unmatched students are skipped, not
+  guessed); downloads PDF/JPEG/PNG/WebP Drive attachments into the storage service
+  (other Drive types, e.g. native Google Docs, are skipped — the tutor uploads those
+  directly) and enqueues the standard `mark_submission` job, so an imported submission
+  goes through the exact same trust-first AI marking → tutor review → evidence →
+  readiness pipeline as a direct upload.
+- `api/classroom.py`: `GET /status`, `GET /auth-url`, `POST /connect`,
+  `DELETE /account`, `GET /courses` (live from Classroom), `GET`/`POST`/`DELETE
+  /links`, `POST /sync`. All tutor-only, org-scoped.
 
 ### 8. AI metering
 
@@ -246,11 +265,15 @@ record, MocksPage → Readiness/assessments, PreferencesPage → Settings).
    services, AI synthesis job, shadow dual-enqueue, read-only `/readiness/v2` endpoint.
    Not yet: the actual cutover (v1 retirement, frontend reading from v2, difficulty/topic
    proposals wired into the extraction review UI, a `factor_evaluations` retention job).
-6. ⬜ **Google Classroom** — OAuth, link tables, sync job, settings UI. Not started.
+6. ✅ **Google Classroom** — OAuth, link tables, `sync_classroom` job, API. Fully built
+   and tested against mocked Google API calls; no real Google Cloud OAuth credentials
+   are configured in any environment yet (see §7) — connecting a live account is a
+   config step, not a code gap. Settings UI (frontend) is the remaining piece.
 
 Each step ships as migration + models (re-exported from `models/__init__.py`) + services
 + API + tests, keeping the suite green throughout. The frontend restructure lands
-incrementally with steps 2–5 (nav first, then each section).
+incrementally with steps 2–5 (nav first, then each section); Classroom's Settings UI
+follows the same pattern once a real Google Cloud project is available to test against.
 
 ## Design assumptions
 

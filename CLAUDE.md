@@ -97,17 +97,29 @@ all new work:
   conditions) are a separate entity feeding the Past Paper Performance factor. Question
   difficulty (`assignment_questions.difficulty`) is AI-assigned at extraction with
   tutor override.
-- **Google Classroom** integrates via per-tutor OAuth and a polling `sync_classroom`
-  job that imports coursework/submissions into the standard marking pipeline —
-  Classroom reduces friction, it never replaces direct upload. Not yet built.
+- **Google Classroom** integrates via per-tutor OAuth (`GoogleAccount`, refresh token
+  encrypted at rest — `services/google_classroom.py`) and a `sync_classroom` job that
+  imports courseWork as draft `Assignment`s and turned-in student submissions (PDF/image
+  attachments only; other Drive types are skipped) into the standard `mark_submission`
+  pipeline. A tutor links a `Group` to one Classroom course (`ClassroomCourseLink`);
+  `ClassroomWorkLink` keeps re-syncs idempotent. Submissions match Classroom's roster
+  email to a MANARA student account — unmatched students are skipped, not guessed. The
+  sync runs on demand today (`POST /classroom/sync`); a scheduler could call the same
+  job type periodically with no handler changes. Classroom reduces friction, it never
+  replaces direct upload — both paths feed the same marking pipeline. Gracefully
+  degrades (a clear "not configured" state) without `GOOGLE_CLIENT_ID`/
+  `GOOGLE_CLIENT_SECRET` set, same pattern as `ANTHROPIC_API_KEY`.
 - **Every AI call is metered** (`ai_usage_events`, recorded via `services/ai.py`'s
   `record_usage()`) as the foundation for tutor AI allowances + student top-ups. No
   payments yet. Usage view: `GET /ai-usage/summary`.
 
 Build order: tenancy → Student CRM → Lessons → Knowledge Base (+metering) →
-Readiness v2 → Classroom. Tenancy, CRM, Lessons, and Knowledge Base are done. Readiness
-v2 is built and shadow-running (see above) but not yet the system of record. Classroom
-is not started. Keep the test suite green at every step.
+Readiness v2 → Classroom. All six steps are built. Readiness v2 is shadow-running (see
+above) but not yet the system of record — the deliberate v1→v2 cutover is still ahead.
+Classroom is built and testable end-to-end with mocked Google API calls, but has no
+real Google Cloud OAuth credentials configured in any environment yet — set
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (see `.env.example`) to connect a real
+account. Keep the test suite green at every step.
 
 ## Architecture
 

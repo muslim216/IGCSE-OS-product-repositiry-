@@ -1,6 +1,7 @@
 from app.models.ai_usage import AiFeature, AiUsageEvent
 from app.models.base import Base
 from app.models.chat import ChatConversation, ChatMessage, ChatRole
+from app.models.classroom import ClassroomCourseLink, ClassroomWorkLink, GoogleAccount
 from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
 from app.models.homework import (
     Assignment,
@@ -66,12 +67,15 @@ __all__ = [
     "ChatMessage",
     "ChatRole",
     "Classified",
+    "ClassroomCourseLink",
+    "ClassroomWorkLink",
     "Evidence",
     "EvidenceSource",
     "FactorConfidence",
     "FactorEvaluation",
     "GradeBoundary",
     "Group",
+    "GoogleAccount",
     "GroupMember",
     "GroupResource",
     "Invite",

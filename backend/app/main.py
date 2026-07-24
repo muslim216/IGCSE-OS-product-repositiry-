@@ -12,6 +12,7 @@ from app.api import (
     auth,
     chat,
     classifieds,
+    classroom,
     groups,
     knowledge,
     lessons,
@@ -28,6 +29,7 @@ from app.api import (
 )
 from app.config import get_settings
 from app.services.extraction import extract_assignment
+from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.readiness import recompute_student
 from app.services.readiness_v2_ai import compute_readiness_v2
@@ -45,6 +47,10 @@ register_handler("recompute_readiness", recompute_student)
 register_handler("compute_readiness_v2", compute_readiness_v2)
 register_handler("generate_report", generate_report)
 register_handler("extract_syllabus", extract_syllabus)
+# Polling sync: imports courseWork/submissions from every course a tutor has
+# linked (api/classroom.py). Enqueued on demand today; a future scheduler
+# can call the same job type periodically with no handler changes.
+register_handler("sync_classroom", sync_classroom)
 
 
 @asynccontextmanager
@@ -82,6 +88,7 @@ def create_app() -> FastAPI:
         assignments.router,
         chat.router,
         classifieds.router,
+        classroom.router,
         groups.router,
         knowledge.router,
         lessons.router,
