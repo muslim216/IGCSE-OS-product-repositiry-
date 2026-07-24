@@ -20,6 +20,8 @@ import PreferencesPage from "./tutor/PreferencesPage";
 import TodayPage from "./tutor/TodayPage";
 import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
+import ClassroomSettingsPage from "./tutor/ClassroomSettingsPage";
+import ClassroomCallbackPage from "./tutor/ClassroomCallbackPage";
 import StudentDashboard from "./student/StudentDashboard";
 import StudentHomePage from "./student/StudentHomePage";
 import HomeworkPage from "./student/HomeworkPage";
@@ -58,6 +60,7 @@ const TUTOR_NAV = [
   { to: "/tutor/preferences", label: "Preferences" },
   { to: "/tutor/mocks", label: "Mocks" },
   { to: "/tutor/today", label: "Today" },
+  { to: "/tutor/settings", label: "Settings" },
 ];
 
 export default function App() {
@@ -86,7 +89,12 @@ export default function App() {
           <Route path="/tutor/assignments/:assignmentId" element={<AssignmentDetailPage />} />
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
+          <Route path="/tutor/settings" element={<ClassroomSettingsPage />} />
         </Route>
+        <Route
+          path="/settings/classroom/callback"
+          element={<ClassroomCallbackPage />}
+        />
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>

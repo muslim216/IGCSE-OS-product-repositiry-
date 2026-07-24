@@ -57,7 +57,7 @@ test("student sees all 7 student tabs", async () => {
   }
 });
 
-test("tutor sees all 8 tutor tabs", async () => {
+test("tutor sees all 9 tutor tabs", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   for (const label of [
@@ -69,6 +69,7 @@ test("tutor sees all 8 tutor tabs", async () => {
     "Preferences",
     "Mocks",
     "Today",
+    "Settings",
   ]) {
     await expectNavLabel(label);
   }
