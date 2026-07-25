@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { myGroups } from "../api/groups";
-import { listResources } from "../api/resources";
+import { isSafeHttpUrl, listResources } from "../api/resources";
 
 export default function RecordingsPage() {
   const groups = useQuery({ queryKey: ["my-groups"], queryFn: myGroups });
@@ -30,7 +30,7 @@ export default function RecordingsPage() {
                 {recordings.map((r) => (
                   <li key={r.id} className="flex items-center justify-between py-2">
                     <span className="text-slate-700">{r.title}</span>
-                    {r.url && (
+                    {isSafeHttpUrl(r.url) && (
                       <a
                         href={r.url}
                         target="_blank"

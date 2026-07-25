@@ -67,6 +67,19 @@ async def test_tutor_uploads_recording_link(client, tutor, world):
     assert resp.json()["kind"] == "recording"
 
 
+async def test_recording_url_rejects_non_http_scheme(client, tutor, world):
+    resp = await client.post(
+        f"/api/v1/groups/{world['group']['id']}/resources",
+        data={
+            "kind": "recording",
+            "title": "Malicious link",
+            "url": "javascript:alert(document.cookie)",
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 422
+
+
 async def test_tutor_uploads_file_resource(client, tutor, world):
     resp = await client.post(
         f"/api/v1/groups/{world['group']['id']}/resources",
