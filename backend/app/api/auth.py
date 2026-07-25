@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.config import get_settings
-from app.models import Group, GroupMember, Invite, InviteKind, ParentLink
+from app.models import Group, GroupMember, Invite, InviteKind, Organization, ParentLink
 from app.models.users import User, UserRole
 from app.schemas.auth import (
     AuthResponse,
@@ -63,11 +63,17 @@ async def register_tutor(body: TutorSignupRequest, db: DbSession, response: Resp
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
+    # A personal organization per tutor — the multi-tenant backbone that keeps
+    # the product experience single-tutor (see CLAUDE.md / manara-architecture.md).
+    org = Organization(name=f"{body.name}'s Organization")
+    db.add(org)
+    await db.flush()
     user = User(
         email=email,
         password_hash=hash_password(body.password),
         role=UserRole.tutor,
         name=body.name,
+        organization_id=org.id,
     )
     db.add(user)
     await db.commit()
@@ -178,11 +184,14 @@ async def register_student(body: StudentRegisterRequest, db: DbSession, response
             status.HTTP_409_CONFLICT,
             "An account with this email already exists — sign in and use the invite link again",
         )
+    # Students inherit the organization of the tutor whose group they're joining.
+    tutor = await db.get(User, invite.group.tutor_id)
     user = User(
         email=email,
         password_hash=hash_password(body.password),
         role=UserRole.student,
         name=body.name,
+        organization_id=tutor.organization_id,
     )
     db.add(user)
     await db.flush()
@@ -204,11 +213,14 @@ async def register_parent(body: ParentRegisterRequest, db: DbSession, response: 
             status.HTTP_409_CONFLICT,
             "An account with this email already exists — sign in and use the link again",
         )
+    # Parents inherit the organization of the student they're linking to.
+    student = await db.get(User, invite.student_id)
     user = User(
         email=email,
         password_hash=hash_password(body.password),
         role=UserRole.parent,
         name=body.name,
+        organization_id=student.organization_id,
     )
     db.add(user)
     await db.flush()

@@ -37,6 +37,8 @@ from app.models import (
 HALF_LIFE_DAYS = 45.0
 
 SOURCE_WEIGHTS: dict[EvidenceSource, float] = {
+    # A full past paper under exam conditions is the strongest signal there is.
+    EvidenceSource.past_paper: 1.8,
     EvidenceSource.mock: 1.5,
     EvidenceSource.homework: 1.0,
     EvidenceSource.quiz: 0.8,
@@ -102,7 +104,11 @@ def compute_topic(
     total_weight = 0.0
     weighted_sum = 0.0
     for p in points:
-        w = weights[p.source] * _decay(_age_days(p.occurred_at, now), half_life)
+        # Fall back to the default weight for any source a tutor's
+        # preferences don't cover (they only tune the four v1 sources).
+        w = weights.get(p.source, SOURCE_WEIGHTS[p.source]) * _decay(
+            _age_days(p.occurred_at, now), half_life
+        )
         total_weight += w
         weighted_sum += w * p.score_pct
     score = weighted_sum / total_weight if total_weight > 0 else 0.0

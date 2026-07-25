@@ -10,8 +10,9 @@ import asyncio
 import logging
 import traceback
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session
@@ -30,19 +31,30 @@ def register_handler(job_type: str, handler: Handler) -> None:
     _handlers[job_type] = handler
 
 
-async def enqueue(session: AsyncSession, job_type: str, payload: dict) -> Job:
-    job = Job(type=job_type, payload=payload)
+async def enqueue(
+    session: AsyncSession,
+    job_type: str,
+    payload: dict,
+    run_after: datetime | None = None,
+) -> Job:
+    """Queue a job. `run_after` delays it until that time — callers use it to
+    batch bursty work (see readiness_v2_ai.enqueue_readiness_v2_debounced)."""
+    job = Job(type=job_type, payload=payload, run_after=run_after)
     session.add(job)
     await session.flush()
     return job
 
 
 async def process_one_job() -> bool:
-    """Claim and run one pending job. Returns False when the queue is empty."""
+    """Claim and run one due pending job. Returns False when nothing is due."""
+    now = datetime.now(timezone.utc)
     async with async_session() as session:
         job = await session.scalar(
             select(Job)
-            .where(Job.status == JobStatus.pending)
+            .where(
+                Job.status == JobStatus.pending,
+                or_(Job.run_after.is_(None), Job.run_after <= now),
+            )
             .order_by(Job.id)
             .limit(1)
             .with_for_update(skip_locked=True)

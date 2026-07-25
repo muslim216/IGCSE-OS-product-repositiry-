@@ -26,6 +26,61 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-opus-4-8"
+    # Google Gemini — the second AI provider. Unset -> every surface routed to
+    # gemini fails with a clear "not configured" error, exactly like
+    # ANTHROPIC_API_KEY does today; the rest of the app keeps working.
+    gemini_api_key: str | None = None
+    # Placeholder default. The real model id is owner-supplied: set GEMINI_MODEL
+    # in the environment. Never hardcode a marketing name here.
+    gemini_model: str = "gemini-2.5-pro"
+    # Per-surface model routing (see services/ai.py resolve_surface). Provider
+    # is "anthropic" or "gemini"; leaving the model blank uses that provider's
+    # default model above. Marking/extraction default to Gemini (bulk document
+    # work), chat to a cheap Anthropic model, reports/readiness to Opus.
+    ai_marking_provider: str = "gemini"
+    ai_marking_model: str = ""
+    ai_extraction_provider: str = "gemini"
+    ai_extraction_model: str = ""
+    ai_syllabus_provider: str = "gemini"
+    ai_syllabus_model: str = ""
+    ai_chat_provider: str = "anthropic"
+    ai_chat_model: str = "claude-haiku-4-5"
+    ai_reports_provider: str = "anthropic"
+    ai_reports_model: str = ""
+    ai_readiness_provider: str = "anthropic"
+    ai_readiness_model: str = ""
+    ai_class_brief_provider: str = "anthropic"
+    ai_class_brief_model: str = ""
+    # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
+    # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
+    # empty by default — a model with no entry records cost_usd = NULL rather
+    # than a guessed figure (see services/ai.py model_pricing()).
+    ai_model_pricing: str = "{}"
+    # Readiness Engine v2 is now what the readiness UI/API serve. This is the
+    # kill switch, not a shadow flag: turning it off stops v2 runs being
+    # enqueued, and since services/readiness_summary_v2.py falls back to v1 for
+    # any subject with no snapshot, the app degrades to the v1 engine instead
+    # of breaking. Kept under its original name so an existing deployment's
+    # env var keeps working.
+    readiness_v2_shadow_enabled: bool = True
+    # Readiness v2 synthesis is an expensive AI call, and auto-marking can
+    # finalize a burst of submissions in seconds. Triggers for the same
+    # (student, subject) collapse into one run scheduled this many seconds
+    # after the first trigger in the burst — see
+    # readiness_v2_ai.enqueue_readiness_v2_debounced().
+    readiness_v2_coalesce_seconds: int = 600
+    # Google Classroom integration (see services/google_classroom.py). Both
+    # unset -> the feature reports "not configured" everywhere and the app
+    # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful
+    # degradation. From a Google Cloud project's OAuth 2.0 Client with the
+    # Classroom + Drive (readonly) APIs enabled.
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str = "http://localhost:5173/settings/classroom/callback"
+    # Encrypts stored Google refresh tokens at rest. Falls back to deriving a
+    # key from JWT_SECRET when unset, so tokens are never stored in plaintext
+    # even without extra config — set a dedicated value in production.
+    google_token_encryption_key: str | None = None
     upload_dir: str = "uploads"
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.

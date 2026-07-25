@@ -28,6 +28,16 @@ class SubjectReadiness(BaseModel):
     predicted_grade: str | None
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
+    # Which engine produced this. "v2" is the system of record; "v1" means no
+    # v2 snapshot exists yet for this subject and the legacy engine answered.
+    engine: str = "v2"
+    # A recompute is queued or running: the score below is the last known one,
+    # not the current one. The UI should say so rather than imply it is fresh.
+    is_updating: bool = False
+    computed_at: datetime | None = None
+    # v2 only: the AI's explanation of the score and what to revise next.
+    rationale: str | None = None
+    recommended_revision: str | None = None
 
 
 class EvidenceItem(BaseModel):
@@ -140,6 +150,31 @@ class PreferencesUpdate(BaseModel):
     weight_homework: float = Field(ge=0, le=3)
     weight_quiz: float = Field(ge=0, le=3)
     weight_observation: float = Field(ge=0, le=3)
+    half_life_days: float = Field(ge=7, le=365)
+
+
+# ---- Readiness v2 weights (per factor, per organization) ----
+
+
+class ReadinessWeightsOut(BaseModel):
+    weight_topic_mastery: float
+    weight_past_paper_performance: float
+    weight_homework_performance: float
+    weight_assessment_performance: float
+    weight_syllabus_coverage: float
+    weight_mistake_analysis: float
+    weight_consistency: float
+    half_life_days: float
+
+
+class ReadinessWeightsUpdate(BaseModel):
+    weight_topic_mastery: float = Field(ge=0, le=3)
+    weight_past_paper_performance: float = Field(ge=0, le=3)
+    weight_homework_performance: float = Field(ge=0, le=3)
+    weight_assessment_performance: float = Field(ge=0, le=3)
+    weight_syllabus_coverage: float = Field(ge=0, le=3)
+    weight_mistake_analysis: float = Field(ge=0, le=3)
+    weight_consistency: float = Field(ge=0, le=3)
     half_life_days: float = Field(ge=7, le=365)
 
 

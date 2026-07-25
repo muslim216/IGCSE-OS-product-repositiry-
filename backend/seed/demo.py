@@ -29,12 +29,21 @@ from app.models import (
     Group,
     GroupMember,
     GroupResource,
+    KnowledgeEntry,
+    KnowledgeEntryKind,
     Lesson,
+    LessonObservation,
+    LessonTopic,
     MarkConfidence,
+    Organization,
     ParentLink,
+    PastPaper,
+    PastPaperAttempt,
     QuestionMark,
     QuestionTopic,
+    ReadinessWeights,
     ResourceKind,
+    ScheduleSlot,
     Subject,
     Submission,
     SubmissionFile,
@@ -75,39 +84,54 @@ async def main() -> None:
             raise SystemExit("Run `python -m seed.load_syllabus` first")
 
         pw = hash_password(PASSWORD)
-        tutor = User(email="demo-tutor@example.com", password_hash=pw, role=UserRole.tutor, name="Demo Tutor")
-        student1 = User(email="demo-student@example.com", password_hash=pw, role=UserRole.student, name="Sara Student")
-        parent = User(email="demo-parent@example.com", password_hash=pw, role=UserRole.parent, name="Demo Parent")
+        org = Organization(name="Demo Tutor's Organization")
+        session.add(org)
+        await session.flush()
+
+        tutor = User(
+            email="demo-tutor@example.com", password_hash=pw, role=UserRole.tutor,
+            name="Demo Tutor", organization_id=org.id,
+        )
+        student1 = User(
+            email="demo-student@example.com", password_hash=pw, role=UserRole.student,
+            name="Sara Student", organization_id=org.id,
+        )
+        parent = User(
+            email="demo-parent@example.com", password_hash=pw, role=UserRole.parent,
+            name="Demo Parent", organization_id=org.id,
+        )
         session.add_all([tutor, student1, parent])
         await session.flush()
 
         student2 = User(
             username="demo_ali", password_hash=pw, role=UserRole.student,
-            name="Ali Student", created_by_id=tutor.id,
+            name="Ali Student", created_by_id=tutor.id, organization_id=org.id,
         )
         session.add(student2)
         await session.flush()
 
-        group = Group(tutor_id=tutor.id, subject_id=subject.id, name="Chemistry — Year 10")
+        group = Group(
+            organization_id=org.id, tutor_id=tutor.id, subject_id=subject.id, name="Chemistry — Year 10"
+        )
         session.add(group)
         await session.flush()
         today_weekday = datetime.now(timezone.utc).weekday()
-        fixed_lessons = [
-            Lesson(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
-            Lesson(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
+        fixed_slots = [
+            ScheduleSlot(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
+            ScheduleSlot(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
         ]
-        # A lesson today so the tutor's "Today" tab has something to show
+        # A slot today so the tutor's "Today" tab has something to show
         # regardless of what day the demo is loaded — unless today already
         # coincides with one of the fixed slots above.
         if today_weekday not in (1, 4):
-            fixed_lessons.append(
-                Lesson(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson")
+            fixed_slots.append(
+                ScheduleSlot(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson")
             )
         session.add_all([
             GroupMember(group_id=group.id, student_id=student1.id),
             GroupMember(group_id=group.id, student_id=student2.id),
             ParentLink(parent_id=parent.id, student_id=student1.id),
-            *fixed_lessons,
+            *fixed_slots,
         ])
         await session.flush()
 
@@ -146,8 +170,29 @@ async def main() -> None:
                     )
         await session.flush()
 
+        # A taught lesson covering the first topic, with a per-student
+        # observation — exercises the new Lessons core entity end to end.
+        lesson = Lesson(
+            organization_id=org.id,
+            group_id=group.id,
+            date=date.today() - timedelta(days=7),
+            duration_min=90,
+            notes="Covered atomic structure basics; assigned HW1 for practice.",
+        )
+        session.add(lesson)
+        await session.flush()
+        session.add(LessonTopic(lesson_id=lesson.id, topic_id=topics[0].id))
+        session.add(
+            LessonObservation(
+                lesson_id=lesson.id, student_id=student1.id, topic_id=topics[0].id,
+                body="Sara answered confidently in class — ready for harder questions.",
+                rating=80,
+            )
+        )
+
         # One published assignment with a finalized submission per student.
         classified = Classified(
+            organization_id=org.id,
             tutor_id=tutor.id,
             subject_id=subject.id,
             title="Demo classified — Atomic structure",
@@ -161,6 +206,7 @@ async def main() -> None:
 
         assignment = Assignment(
             group_id=group.id,
+            lesson_id=lesson.id,
             classified_id=classified.id,
             title="HW1 — Atomic structure",
             status=AssignmentStatus.published,
@@ -254,6 +300,44 @@ async def main() -> None:
 
         # Tutor preferences (defaults, just so the row exists to edit).
         session.add(TutorPreferences(tutor_id=tutor.id))
+        # Readiness v2 factor weights (defaults) — the row readiness v2's
+        # shadow computation reads once READINESS_V2_SHADOW_ENABLED is on.
+        session.add(ReadinessWeights(organization_id=org.id, tutor_id=tutor.id))
+
+        # A past paper attempt — distinct from classifieds (see CLAUDE.md):
+        # full past papers carry official grade boundaries and timed
+        # conditions, and become the dominant evidence source later in the
+        # IGCSE year.
+        past_paper = PastPaper(
+            organization_id=org.id, subject_id=subject.id,
+            session_label="June 2026", paper_number="Paper 1",
+        )
+        session.add(past_paper)
+        await session.flush()
+        session.add(
+            PastPaperAttempt(
+                past_paper_id=past_paper.id, student_id=student1.id,
+                raw_marks=32, max_marks=40, timed=True,
+                attempted_at=(now - timedelta(days=10)).date(),
+            )
+        )
+
+        # Knowledge base entries — injected into every AI surface so the AI
+        # behaves like this specific tutor.
+        session.add_all([
+            KnowledgeEntry(
+                organization_id=org.id, tutor_id=tutor.id, subject_id=None,
+                kind=KnowledgeEntryKind.ai_instruction,
+                title="Tone with students",
+                body="Always be warm and encouraging, never sarcastic. Celebrate small wins.",
+            ),
+            KnowledgeEntry(
+                organization_id=org.id, tutor_id=tutor.id, subject_id=subject.id,
+                kind=KnowledgeEntryKind.marking_preference,
+                title="Chemistry equations",
+                body="Always require balanced equations with state symbols for full marks.",
+            ),
+        ])
 
         await session.commit()
 

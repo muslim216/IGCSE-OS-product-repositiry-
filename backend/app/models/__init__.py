@@ -1,6 +1,8 @@
+from app.models.ai_usage import AiFeature, AiUsageEvent
 from app.models.base import Base
 from app.models.chat import ChatConversation, ChatMessage, ChatRole
-from app.models.groups import Group, GroupMember, Invite, InviteKind, Lesson, ParentLink
+from app.models.classroom import ClassroomCourseLink, ClassroomWorkLink, GoogleAccount
+from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
 from app.models.homework import (
     Assignment,
     AssignmentQuestion,
@@ -9,12 +11,17 @@ from app.models.homework import (
     Job,
     JobStatus,
     MarkConfidence,
+    MarkOverrideAudit,
+    QuestionDifficulty,
     QuestionMark,
     QuestionTopic,
+    RemarkRequest,
+    RemarkRequestStatus,
     Submission,
     SubmissionFile,
     SubmissionStatus,
 )
+from app.models.lessons import Lesson, LessonObservation, LessonTopic
 from app.models.readiness import (
     Assessment,
     AssessmentScore,
@@ -27,12 +34,33 @@ from app.models.readiness import (
     TutorObservation,
     TutorPreferences,
 )
+from app.models.readiness_v2 import (
+    AiSynthesisStatus,
+    FactorConfidence,
+    FactorEvaluation,
+    GradeBoundary,
+    Mistake,
+    MistakeCategory,
+    PastPaper,
+    PastPaperAttempt,
+    PastPaperQuestion,
+    PastPaperQuestionTopic,
+    ReadinessFactor,
+    ReadinessSnapshot,
+    ReadinessWeights,
+)
+from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
+from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
+from app.models.orgs import Organization
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
 from app.models.syllabus import Subject, SyllabusUpload, SyllabusUploadStatus, Topic
 from app.models.users import User, UserRole
 
 __all__ = [
+    "AiFeature",
+    "AiSynthesisStatus",
+    "AiUsageEvent",
     "Assessment",
     "AssessmentScore",
     "AssessmentType",
@@ -44,26 +72,54 @@ __all__ = [
     "ChatMessage",
     "ChatRole",
     "Classified",
+    "ClassroomCourseLink",
+    "ClassroomWorkLink",
     "Evidence",
     "EvidenceSource",
+    "FactorConfidence",
+    "FactorEvaluation",
+    "GradeBoundary",
     "Group",
+    "GoogleAccount",
     "GroupMember",
     "GroupResource",
     "Invite",
     "InviteKind",
     "Job",
     "JobStatus",
+    "KnowledgeEntry",
+    "KnowledgeEntryKind",
     "Lesson",
+    "LessonObservation",
+    "LessonTopic",
     "MarkConfidence",
+    "Mistake",
+    "MistakeCategory",
+    "Organization",
+    "ParentCommunication",
     "ParentLink",
+    "PastPaper",
+    "PastPaperAttempt",
+    "PastPaperQuestion",
+    "PastPaperQuestionTopic",
+    "QuestionDifficulty",
+    "MarkOverrideAudit",
     "QuestionMark",
+    "RemarkRequest",
+    "RemarkRequestStatus",
     "QuestionTopic",
     "ReadinessConfidence",
+    "ReadinessFactor",
     "ReadinessHistory",
+    "ReadinessSnapshot",
+    "ReadinessWeights",
     "Report",
     "ReportAudience",
     "ReportStatus",
     "ResourceKind",
+    "ScheduleSlot",
+    "StudentProfile",
+    "StudentSubject",
     "Subject",
     "Submission",
     "SubmissionFile",
@@ -72,6 +128,7 @@ __all__ = [
     "SyllabusUploadStatus",
     "Topic",
     "TopicReadiness",
+    "TutorNote",
     "TutorObservation",
     "TutorPreferences",
     "User",

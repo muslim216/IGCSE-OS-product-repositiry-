@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   finalizeSubmission,
   getSubmission,
+  markHistory,
   saveMarks,
   submissionFilePath,
   type MarkRow,
@@ -18,16 +19,18 @@ interface Draft {
 
 const CONFIDENCE_STYLE: Record<string, string> = {
   high: "bg-green-100 text-green-700",
-  medium: "bg-amber-100 text-amber-700",
+  medium: "bg-green-100 text-green-700",
   low: "bg-orange-100 text-orange-700",
+  unsure: "bg-slate-200 text-slate-600",
   tutor_only: "bg-slate-200 text-slate-600",
 };
 
 const CONFIDENCE_LABEL: Record<string, string> = {
   high: "AI confident",
-  medium: "AI unsure",
-  low: "AI hard to read",
-  tutor_only: "No mark scheme — mark yourself",
+  medium: "AI confident",
+  low: "AI unsure — hard to read",
+  unsure: "No mark scheme — your call",
+  tutor_only: "No mark scheme — your call",
 };
 
 export default function SubmissionReviewPage() {
@@ -58,6 +61,10 @@ export default function SubmissionReviewPage() {
   }, [submission.data]);
 
   const finalized = submission.data?.status === "finalized";
+  const autoFinalized = submission.data?.status === "auto_finalized";
+  const reviewCount =
+    submission.data?.marks.filter((m) => m.needs_review || m.remark_requested)
+      .length ?? 0;
 
   const save = useMutation({
     mutationFn: () =>
@@ -109,7 +116,11 @@ export default function SubmissionReviewPage() {
     <div className="space-y-5">
       <div>
         <Link
-          to={`/tutor/assignments/${s.assignment_id}`}
+          to={
+            s.assignment_id
+              ? `/tutor/assignments/${s.assignment_id}`
+              : "/tutor/past-papers"
+          }
           className="text-sm text-blue-600 hover:underline"
         >
           ← {s.assignment_title}
@@ -122,6 +133,11 @@ export default function SubmissionReviewPage() {
             <span className="font-medium text-slate-700">
               {totals.got} / {totals.max}
             </span>
+            {autoFinalized && (
+              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+                Marked automatically
+              </span>
+            )}
             {finalized ? (
               <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
                 Finalized
@@ -173,11 +189,14 @@ export default function SubmissionReviewPage() {
         {/* Right: AI reading + tutor's editable marks, question by question */}
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-slate-600">
-            AI draft — review and confirm each mark
+            {reviewCount > 0
+              ? `${reviewCount} of ${s.marks.length} marks need your decision`
+              : "Every mark was made confidently — nothing needs your decision"}
           </h3>
           {s.marks.map((m) => (
             <QuestionCard
               key={m.question_id}
+              submissionId={id}
               mark={m}
               draft={drafts[m.question_id]}
               readOnly={finalized}
@@ -196,22 +215,38 @@ export default function SubmissionReviewPage() {
 }
 
 function QuestionCard({
+  submissionId,
   mark,
   draft,
   readOnly,
   onChange,
 }: {
+  submissionId: number;
   mark: MarkRow;
   draft: Draft | undefined;
   readOnly: boolean;
   onChange: (patch: Partial<Draft>) => void;
 }) {
-  const confidence = mark.ai_confidence ?? "tutor_only";
+  const confidence = mark.ai_confidence ?? "unsure";
   const matchesAi =
     mark.ai_marks !== null && draft?.final_marks === mark.ai_marks;
+  const [showHistory, setShowHistory] = useState(false);
+  const history = useQuery({
+    queryKey: ["mark-history", submissionId, mark.question_id],
+    queryFn: () => markHistory(submissionId, mark.question_id),
+    enabled: showHistory,
+  });
 
   return (
-    <div className="rounded-lg border bg-white p-4">
+    <div
+      className={`rounded-lg border bg-white p-4 ${
+        mark.remark_requested
+          ? "border-purple-300"
+          : mark.needs_review
+            ? "border-amber-300"
+            : ""
+      }`}
+    >
       <div className="flex items-center justify-between">
         <span className="font-medium text-slate-800">
           Q{mark.number}{" "}
@@ -219,12 +254,26 @@ function QuestionCard({
             — {mark.text_summary} ({mark.max_marks} marks)
           </span>
         </span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs ${CONFIDENCE_STYLE[confidence]}`}
-        >
-          {CONFIDENCE_LABEL[confidence]}
-        </span>
+        <div className="flex gap-1">
+          {mark.auto_finalized && (
+            <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">
+              Counted
+            </span>
+          )}
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${CONFIDENCE_STYLE[confidence]}`}
+          >
+            {CONFIDENCE_LABEL[confidence]}
+          </span>
+        </div>
       </div>
+
+      {mark.remark_requested && (
+        <div className="mt-2 rounded border border-purple-200 bg-purple-50 p-2 text-sm text-purple-900">
+          <span className="font-medium">The student asked you to look again.</span>
+          {mark.remark_reason && <span> “{mark.remark_reason}”</span>}
+        </div>
+      )}
 
       {mark.ai_transcription && (
         <div className="mt-2 rounded bg-slate-50 p-2 text-sm text-slate-600">
@@ -270,6 +319,27 @@ function QuestionCard({
         value={draft?.final_feedback ?? ""}
         onChange={(e) => onChange({ final_feedback: e.target.value })}
       />
+
+      <button
+        onClick={() => setShowHistory((v) => !v)}
+        className="mt-2 text-xs text-slate-500 hover:underline"
+      >
+        {showHistory ? "Hide" : "Show"} mark history
+      </button>
+      {showHistory && (
+        <ul className="mt-1 space-y-1 text-xs text-slate-600">
+          {history.data?.map((h, i) => (
+            <li key={i}>
+              {h.old_marks} → {h.new_marks} by {h.changed_by_name} on{" "}
+              {new Date(h.created_at).toLocaleDateString()}
+              {h.reason === "remark_request" && " (remark request)"}
+            </li>
+          ))}
+          {history.data?.length === 0 && (
+            <li className="text-slate-400">This mark has never been changed.</li>
+          )}
+        </ul>
+      )}
     </div>
   );
 }

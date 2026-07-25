@@ -41,7 +41,7 @@ async def student(client, tutor):
     }
 
 
-async def fake_stream(context, history):
+async def fake_stream(context, history, **kwargs):
     for chunk in ["Let's ", "work ", "through ", "it together."]:
         yield chunk
 

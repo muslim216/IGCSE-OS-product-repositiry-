@@ -25,6 +25,7 @@ from app.schemas.readiness import (
     ObservationCreate,
     ObservationOut,
 )
+from app.services.readiness_v2_ai import enqueue_v2_shadow
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["assessments"])
@@ -125,6 +126,7 @@ async def create_assessment(body: AssessmentCreate, db: DbSession, user: Current
 
     for student_id in affected_students:
         await enqueue(db, "recompute_readiness", {"student_id": student_id, "subject_id": subject.id})
+        await enqueue_v2_shadow(db, student_id, subject.id)
     await db.commit()
     return AssessmentOut(
         id=assessment.id,
@@ -242,6 +244,7 @@ async def create_observation(body: ObservationCreate, db: DbSession, user: Curre
             "recompute_readiness",
             {"student_id": body.student_id, "subject_id": subject_id_for_recompute},
         )
+        await enqueue_v2_shadow(db, body.student_id, subject_id_for_recompute)
     await db.commit()
     return ObservationOut(
         id=observation.id,

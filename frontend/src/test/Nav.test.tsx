@@ -49,15 +49,24 @@ async function expectNavLabel(label: string) {
   expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
 }
 
-test("student sees all 7 student tabs", async () => {
+test("student sees all 8 student tabs", async () => {
   mockAuthedFetch("student");
   renderApp("/student");
-  for (const label of ["Home", "Readiness", "Files", "Recordings", "Homework", "AI Tutor", "Exams"]) {
+  for (const label of [
+    "Home",
+    "Readiness",
+    "Files",
+    "Recordings",
+    "Homework",
+    "AI Tutor",
+    "Past papers",
+    "Exams",
+  ]) {
     await expectNavLabel(label);
   }
 });
 
-test("tutor sees all 8 tutor tabs", async () => {
+test("tutor sees all 10 tutor tabs", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   for (const label of [
@@ -68,7 +77,9 @@ test("tutor sees all 8 tutor tabs", async () => {
     "Syllabuses",
     "Preferences",
     "Mocks",
+    "Past papers",
     "Today",
+    "Settings",
   ]) {
     await expectNavLabel(label);
   }

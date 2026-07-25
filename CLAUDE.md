@@ -4,11 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The **IGCSE Student Operating System** — an academic-intelligence platform for IGCSE
-tutors, students, and parents. A Python/FastAPI backend and a React/Vite frontend live in
-one repo but deploy as two independent services. The product's heart is the **Readiness
-Engine**: every piece of academic evidence (homework, mocks, tutor observations) feeds
-topic-level exam-readiness scores that drive every dashboard, recommendation, and report.
+**MANARA by OASIS AI** — an AI Operating System for IGCSE education (formerly the "IGCSE
+Student Operating System"), serving tutors, students, and parents. A Python/FastAPI
+backend and a React/Vite frontend live in one repo but deploy as two independent
+services. The product's heart is the **Readiness Engine**: every piece of academic
+evidence feeds exam-readiness scores that drive every dashboard, recommendation, and
+report. MANARA is not an AI tutor or a homework marker — the platform (Student CRM,
+Lessons, Readiness, Knowledge Base, Homework, Reports) is the product, with AI enhancing
+every layer.
+
+The codebase is mid-transition to the MANARA target architecture — see
+`docs/manara-architecture.md` and "The MANARA update" below. Sections that follow
+describe the code **as it exists today**; build new work toward the target.
 
 ## Common commands
 
@@ -40,6 +47,107 @@ npm test           # vitest run
 ```
 
 Demo login after seeding: `demo-tutor@example.com` / `demo1234`.
+
+## The MANARA update (target architecture — in progress)
+
+`docs/manara-architecture.md` is the authoritative design; these are the rules that bind
+all new work:
+
+- **Lessons are the core entity.** The operating loop is Teach → Assign → Submit → AI
+  Analyze → Update CRM & Readiness → Review → Plan next lesson. The old schedule
+  template model lives on as `ScheduleSlot` (table `schedule_slots`, still what
+  `/groups/{id}/lessons` manages); `Lesson` (`models/lessons.py`) is the real dated event —
+  date, notes, `lesson_topics` (syllabus coverage), `lesson_observations`, and an optional
+  `assignments.lesson_id` link. Own router: `api/lessons.py`.
+- **Multi-tenant backend, single-tutor UX.** An `Organization` is auto-created per tutor
+  at signup; every top-level aggregate carries `organization_id`. Going org-level later
+  (tutoring centers) must be a role/UI change, never a schema migration.
+- **Student CRM** (`student_profiles`, `student_subjects` enrollments with target
+  grades, `tutor_notes`, `parent_communications`) is the student's complete academic
+  record; `services/student_crm.py`'s aggregation feeds both `GET /students/{id}/crm`
+  and AI grounding (`services/student_context.py` reads from the same function).
+- **Tutor Knowledge Base** (`knowledge_entries` + `services/knowledge.py`'s
+  `build_tutor_context()`) is injected into every AI surface — marking, extraction,
+  report generation, tutor chat — so the AI behaves like that specific tutor.
+- **Readiness v2 is the system of record for what the app shows.** Layer 1
+  (`services/readiness_factors.py` + `services/readiness_v2.py`) computes seven
+  tutor-weighted, explainable factor sub-scores (Topic Mastery, Past Paper Performance,
+  Homework Performance, Assessment Performance, Syllabus Coverage, Mistake Analysis,
+  Consistency) as append-only `factor_evaluations` rows. Layer 2
+  (`services/readiness_v2_ai.py`, job `compute_readiness_v2`) synthesizes them + the
+  org's `readiness_weights` into a `readiness_snapshots` row, both tagged with a shared
+  `evaluation_run_id` so a score always traces back to its deterministic inputs; an AI
+  failure still keeps the Layer 1 rows and writes `status="failed"` rather than losing
+  the evaluation. **`services/readiness_summary_v2.py` is what `/readiness/me`,
+  `/readiness/students/{id}` and `/readiness/students/{id}/trend` serve**: the latest
+  *ready* snapshot per subject gives the score, predicted grade, weak topics, rationale
+  and revision plan, and that run's `topic_mastery` factor rows give the topic bars.
+  - **v1 is the fallback, not the source.** A (student, subject) with no ready snapshot
+    yet falls back to `services/readiness_summary.build_summary` and the response says
+    `engine: "v1"`, so the app never shows a blank page mid-migration. v1's tables are
+    still written and are still read directly by `analytics.py`, `reports.py` and
+    `student_crm.py` — repointing those and dropping the tables is a later, separate step.
+  - `READINESS_V2_SHADOW_ENABLED` (default **true**) is now a kill switch, not a shadow
+    flag: turning it off stops v2 runs being enqueued and the fallback quietly carries
+    the app on v1.
+  - **`is_updating` comes from the `jobs` table, not the snapshot.** A `ReadinessSnapshot`
+    row only exists once a run *finishes*, so there is no in-progress row to read; a
+    pending/running `compute_readiness_v2` for that (student, subject) sets the flag and
+    the UI says "updating" over the last known score rather than implying it's current.
+  - Weights are tutor-editable per organization at `GET`/`PUT /readiness/weights`
+    (`api/readiness_weights.py`); saving recomputes every student that tutor teaches.
+  - No metric may exist that can't explain its source; factors without evidence report
+    "no data" and are **omitted**, never rendered as a fabricated `0`.
+  `factor_evaluations` is a detailed, append-only audit trail — expect to add a
+  retention/archival policy (e.g. prune runs older than N months once older than the
+  last few snapshots per subject are no longer useful) before this runs at real scale.
+- **Classifieds ≠ past papers.** Classifieds (topic-organized past-paper question
+  compilations, tutor-specific structures) are the main evidence source most of the
+  year and feed Topic Mastery. Full past papers are a separate entity — the whole
+  paper, sat under timed conditions — feeding the Past Paper Performance factor
+  *and* Topic Mastery. Question difficulty (`assignment_questions.difficulty`) is
+  AI-assigned at extraction with tutor override.
+  - **A past paper reuses the entire homework pipeline.** `Submission` is polymorphic
+    (exactly one of `assignment_id` / `past_paper_id`), as is `QuestionMark`
+    (`question_id` / `past_paper_question_id`), so marking, auto-finalize, the review
+    queue, the override audit, remark requests and evidence-building all apply to past
+    papers **with no past-paper-specific code**. Do not add a parallel path.
+  - The tutor uploads the booklet + **required** official mark scheme once
+    (`POST /past-papers`); an `extract_past_paper` job pulls `PastPaperQuestion`s using
+    the same extraction prompt. The mark scheme is **tutor-only** to download; enrolled
+    students can read the booklet.
+  - Students **self-log** their own attempt (`POST /past-papers/{id}/attempts`) with
+    `attempted_at`, a `timed` checkbox and `time_taken_minutes`. **All three are
+    self-declared** — the platform cannot observe them, and the UI says so.
+  - `PastPaperAttempt` is the finalized **roll-up** the Past Paper factor reads, upserted
+    when the submission settles; `max_marks` is the paper's own total, so skipping
+    questions lowers the score rather than shrinking the denominator.
+  - Per-question marks emit `EvidenceSource.past_paper` evidence, weighted above
+    homework in `readiness.SOURCE_WEIGHTS`.
+- **Google Classroom** integrates via per-tutor OAuth (`GoogleAccount`, refresh token
+  encrypted at rest — `services/google_classroom.py`) and a `sync_classroom` job that
+  imports courseWork as draft `Assignment`s and turned-in student submissions (PDF/image
+  attachments only; other Drive types are skipped) into the standard `mark_submission`
+  pipeline. A tutor links a `Group` to one Classroom course (`ClassroomCourseLink`);
+  `ClassroomWorkLink` keeps re-syncs idempotent. Submissions match Classroom's roster
+  email to a MANARA student account — unmatched students are skipped, not guessed. The
+  sync runs on demand today (`POST /classroom/sync`); a scheduler could call the same
+  job type periodically with no handler changes. Classroom reduces friction, it never
+  replaces direct upload — both paths feed the same marking pipeline. Gracefully
+  degrades (a clear "not configured" state) without `GOOGLE_CLIENT_ID`/
+  `GOOGLE_CLIENT_SECRET` set, same pattern as `ANTHROPIC_API_KEY`.
+- **Every AI call is metered** (`ai_usage_events`, recorded via `services/ai.py`'s
+  `record_usage()`) as the foundation for tutor AI allowances + student top-ups. No
+  payments yet. Usage view: `GET /ai-usage/summary`; spend by feature / provider / month:
+  `GET /ai-usage/analytics?group_by=feature|provider|month`.
+
+Build order: tenancy → Student CRM → Lessons → Knowledge Base (+metering) →
+Readiness v2 → Classroom. All six steps are built. Readiness v2 is shadow-running (see
+above) but not yet the system of record — the deliberate v1→v2 cutover is still ahead.
+Classroom is built and testable end-to-end with mocked Google API calls, but has no
+real Google Cloud OAuth credentials configured in any environment yet — set
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (see `.env.example`) to connect a real
+account. Keep the test suite green at every step.
 
 ## Architecture
 
@@ -82,28 +190,81 @@ lost on restart. An in-process asyncio worker (started in `main.py`'s lifespan) 
 oldest pending job, runs its registered handler, and retries once on failure.
 
 - Handlers are registered by string type at the top of `main.py`
-  (`extract_assignment`, `mark_submission`, `recompute_readiness`, `generate_report`,
-  `extract_syllabus`). Adding an async workflow = write a handler + `register_handler` + a
+  (`extract_assignment`, `extract_past_paper`, `mark_submission`, `recompute_readiness`,
+  `compute_readiness_v2`, `generate_report`, `extract_syllabus`, `sync_classroom`).
+  Adding an async workflow = write a handler + `register_handler` + a
   caller that `enqueue()`s it.
+- **Every handler must be safe to re-run on the same payload.** The worker retries once on
+  failure, and `run_after` makes deliberate re-scheduling routine. `extract_assignment`
+  *replaces* an assignment's question list rather than appending; `mark_submission`
+  updates existing `QuestionMark` drafts in place, never overwrites a mark the tutor has
+  finalized, and skips the AI call entirely when every question is already decided;
+  `build_homework_evidence` is idempotent by `source_ref`. `compute_readiness_v2` is
+  deliberately append-only (a re-run is a new audited evaluation, not a duplicate).
+- **`Job.run_after`** (nullable) holds a job until a future time; the worker's claim query
+  filters on it. This is what readiness-synthesis coalescing is built on — see
+  `enqueue_readiness_v2_debounced()`, which no-ops if a run for that (student, subject) is
+  already pending and otherwise schedules one `READINESS_V2_COALESCE_SECONDS` out, so a
+  burst of auto-finalized submissions costs one synthesis call instead of one per
+  submission.
 - **Tests drive jobs synchronously** by calling `process_one_job()` — they don't run the
-  loop. Follow that pattern when testing AI-triggered flows.
+  loop. Follow that pattern when testing AI-triggered flows. To exercise a real AI service
+  path without the network, monkeypatch the *calling module's* `structured_complete` with
+  the `fake_ai` fixture (`tests/conftest.py`).
 
 ### AI integration (`services/ai.py` + callers)
 
-Anthropic API via the `anthropic` SDK; model id comes from `settings.anthropic_model`
-(`claude-opus-4-8`).
+**Two providers, routed per surface.** `services/ai.py` is the only place either SDK is
+touched. A *surface* (`marking`, `extraction`, `syllabus`, `reports`, `readiness`, `chat`,
+`class_brief`) resolves independently to a provider and model via `resolve_surface()`,
+reading `AI_<SURFACE>_PROVIDER` / `AI_<SURFACE>_MODEL` from config. Defaults: bulk
+document work (marking, question extraction, syllabus extraction) → **Gemini**
+(`google-genai`); chat → **Claude Haiku 4.5**; reports, readiness synthesis, class brief →
+**Claude Opus**. **Call sites name a surface, never a model.**
 
-- `get_client()` raises `AIUnavailableError` when `ANTHROPIC_API_KEY` is unset — **the app
-  runs fine without a key; AI jobs just fail with a clear, user-facing message.** Preserve
-  this graceful degradation.
-- `file_block()` builds document (PDF) / image content blocks from stored bytes, with
-  optional prompt caching (`cache=True`) — used to reuse the shared mark scheme across a
-  batch of submissions.
-- Structured outputs use `client.messages.parse(..., output_format=PydanticModel)`.
-- **Trust-first marking** (`services/marking.py`): the AI drafts transcription + proposed
-  marks + confidence, but for any question without official mark-scheme coverage it *must*
-  return `proposed_marks=null` / confidence `tutor_only`. Proposed marks are clamped to the
-  question's range. A tutor reviews and finalizes every mark before it becomes evidence.
+- Three helpers cover every call: `structured_complete()` (schema-constrained, both
+  providers), `text_complete()` (prose, both providers), `stream_complete()`
+  (**Anthropic-only** — chat is the sole streaming surface; a gemini-routed chat raises).
+  All three return a normalized `AiResponse{provider, model, prompt_version, parsed, text,
+  input_tokens, output_tokens}`, so nothing downstream branches on vendor.
+- `get_client()` / `get_gemini_client()` raise `AIUnavailableError` when their key is
+  unset — **the app runs fine without either key; the surfaces routed to that provider
+  just fail with a clear, user-facing message.** Preserve this graceful degradation.
+- `file_block()` builds document (PDF) / image content blocks from stored bytes in
+  Anthropic's shape — **the neutral wire format across the app**. `_gemini_parts()`
+  translates it. `cache=True` (prompt caching, used to reuse a shared mark scheme across a
+  batch) is Anthropic-only and a no-op on Gemini.
+- **Prompts live in `services/prompts.py`**, not in the service that calls the AI — one
+  `PROMPTS` dict keyed by surface, each with a `version`. The helpers look the prompt up
+  and stamp its version onto the `AiResponse`. Bump the version whenever the text changes
+  meaningfully.
+- **Every AI-generated record records what produced it.** `record_usage()` writes
+  `provider` / `model` / `prompt_version` / estimated `cost_usd` to `ai_usage_events`, and
+  `QuestionMark` carries `ai_model` / `ai_prompt_version` on the mark itself. Costs come
+  from `AI_MODEL_PRICING` (JSON env), which is **empty by default** — a model with no
+  configured price records `cost_usd = NULL`, and `GET /ai-usage/analytics` reports those
+  calls as `unpriced_call_count` rather than folding unknown spend in as zero. Never
+  invent a price.
+- **Auto-marking with a review queue** (`services/marking.py`): the AI marks every question
+  and its **confidence is the safety mechanism**. A mark that is both scheme-backed
+  (`has_mark_scheme`) and confident (`high`/`medium`) is **auto-finalized** — it counts
+  immediately, the student sees it, and it becomes evidence with no tutor action. Anything
+  else — no official scheme (marked from syllabus + comparable questions, always confidence
+  `unsure`), low confidence, or a question the AI skipped — sets `needs_review` and waits in
+  the tutor's queue with the AI's suggestion pre-filled. Proposed marks are always clamped
+  to the question's range, and a "no data" question is never silently scored 0.
+  - A submission is `auto_finalized` (nothing needed a tutor) or `needs_review`
+    (something did); `finalized` means a tutor signed it off. `finalize` only requires the
+    *unsure* questions to be resolved.
+  - **The tutor keeps final authority over every mark, always.** Changing a mark that had
+    already been set writes an append-only `MarkOverrideAudit` row (old → new → who → when);
+    there is no API to edit or delete those.
+  - **Students can contest any finalized mark** — auto- or tutor-finalized — via
+    `POST /submissions/{id}/questions/{qid}/remark-request`. A remark request is **never
+    resolved by AI**: it routes the question to the tutor's review queue with the AI's
+    original reasoning attached. **One request per question, ever** (DB-level unique
+    constraint), so the queue can't be gamed.
+  - Tutor workload lives at `GET /submissions/review-queue`, not in the assignment list.
 - Tutor chat (`api/chat.py` + `services/tutor_chat.py`) streams Server-Sent Events, grounds
   replies in `build_student_context()`, enforces anti-cheating guardrails and a rolling
   24h per-student message cap.
@@ -140,7 +301,7 @@ plus shared `components/` and per-domain `api/` wrappers.
 ## Conventions & gotchas
 
 - **Migrations are hand-written and sequentially numbered** (`alembic/versions/0001_…` →
-  `0011_…`), not autogenerated in practice — match that `NNNN_short_name.py` naming and set
+  `0020_…`), not autogenerated in practice — match that `NNNN_short_name.py` naming and set
   `down_revision` to the previous number.
 - `config.py` **rewrites `postgres://` / `postgresql://` URLs to `postgresql+asyncpg://`**
   automatically (hosting providers hand out the bare scheme). Don't fight this.

@@ -10,6 +10,8 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DbSession
 from app.db import async_session
 from app.models import (
+    AiFeature,
+    AiUsageEvent,
     ChatConversation,
     ChatMessage,
     ChatRole,
@@ -22,7 +24,8 @@ from app.schemas.chat import (
     MessageOut,
     SendMessage,
 )
-from app.services.ai import AIUnavailableError
+from app.services.ai import AIUnavailableError, estimate_cost_usd
+from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.student_context import build_student_context
 from app.services.tutor_chat import stream_reply
 
@@ -133,12 +136,16 @@ async def send_message(
 
     student = await db.get(User, user.id)
     context = await build_student_context(db, student)
+    tutor_id = await resolve_org_tutor_id(db, user.organization_id)
+    kb_context = await build_tutor_context(db, tutor_id) if tutor_id is not None else ""
     convo_id = convo.id
+    organization_id = user.organization_id
 
     async def event_stream() -> AsyncIterator[str]:
         collected: list[str] = []
+        usage: dict = {}
         try:
-            async for chunk in stream_reply(context, history):
+            async for chunk in stream_reply(context, history, kb_context=kb_context, usage=usage):
                 collected.append(chunk)
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
         except AIUnavailableError as exc:
@@ -167,6 +174,25 @@ async def send_message(
                 saved_convo = await save_session.get(ChatConversation, convo_id)
                 if saved_convo is not None:
                     saved_convo.updated_at = datetime.now(timezone.utc)
+                if usage and tutor_id is not None:
+                    save_session.add(
+                        AiUsageEvent(
+                            organization_id=organization_id,
+                            tutor_id=tutor_id,
+                            student_id=user.id,
+                            feature=AiFeature.chat,
+                            provider=usage["provider"],
+                            model=usage["model"],
+                            prompt_version=usage["prompt_version"],
+                            input_tokens=usage["input_tokens"],
+                            output_tokens=usage["output_tokens"],
+                            cost_usd=estimate_cost_usd(
+                                usage["model"],
+                                usage["input_tokens"],
+                                usage["output_tokens"],
+                            ),
+                        )
+                    )
                 await save_session.commit()
         yield f"event: done\ndata: {json.dumps({'ok': True})}\n\n"
 

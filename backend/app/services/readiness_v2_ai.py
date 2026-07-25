@@ -1,0 +1,302 @@
+"""Readiness Engine v2 — Layer 2: AI synthesis.
+
+Takes the Layer 1 FactorEvaluation rows for one (student, subject) run (see
+services/readiness_v2.py), the organization's ReadinessWeights, and the
+tutor's Knowledge Base, and asks the AI to synthesize the final readiness
+score, weak topics, rationale, and a revision plan.
+
+Every ReadinessSnapshot carries the evaluation_run_id linking it back to the
+exact FactorEvaluation rows it was built from. If the AI call fails, the
+deterministic Layer 1 rows are still committed and a snapshot is still
+written with status="failed" — the evaluation as a whole never silently
+disappears, only the AI's contribution to it.
+
+enqueue_v2_shadow() is how callers dual-run v2 alongside v1: it only
+enqueues compute_readiness_v2 when settings.readiness_v2_shadow_enabled is
+on, so v2 accumulates snapshots in the background for comparison without
+affecting what any existing endpoint serves (see api/readiness_v2.py for the
+read-only endpoints that expose them)."""
+
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import get_settings
+from app.models import (
+    AiFeature,
+    AiSynthesisStatus,
+    FactorEvaluation,
+    GradeBoundary,
+    Group,
+    GroupMember,
+    Job,
+    JobStatus,
+    ReadinessFactor,
+    ReadinessSnapshot,
+    ReadinessWeights,
+    Subject,
+    Topic,
+    User,
+)
+from app.services.ai import record_usage, structured_complete
+from app.services.grades import predict_grade
+from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
+from app.services.readiness_v2 import evaluate_subject_factors
+from app.workers.jobs import enqueue
+
+
+async def enqueue_readiness_v2_debounced(
+    db: AsyncSession,
+    student_id: int,
+    subject_id: int | None = None,
+    delay_seconds: int | None = None,
+) -> None:
+    """Schedule a v2 synthesis run for (student, subject), coalescing bursts.
+
+    Synthesis is an expensive AI call and auto-marking can finalize a dozen
+    submissions in seconds. If a run for the same (student, subject) is
+    already queued, this is a no-op: that pending job reads live DB state when
+    it fires, so it naturally covers everything that happened in the meantime.
+    Otherwise a job is queued to run `delay_seconds` from now, so the whole
+    burst costs one call instead of one per submission.
+    """
+    settings = get_settings()
+    if not settings.readiness_v2_shadow_enabled:
+        return
+    payload = {"student_id": student_id, "subject_id": subject_id}
+    # Compared in Python rather than SQL: the payload is a JSON column, and
+    # Postgres' json type has no equality operator.
+    pending = (
+        await db.scalars(
+            select(Job.payload).where(
+                Job.type == "compute_readiness_v2",
+                Job.status == JobStatus.pending,
+            )
+        )
+    ).all()
+    if any(
+        p.get("student_id") == student_id and p.get("subject_id") == subject_id for p in pending
+    ):
+        return
+    if delay_seconds is None:
+        delay_seconds = settings.readiness_v2_coalesce_seconds
+    await enqueue(
+        db,
+        "compute_readiness_v2",
+        payload,
+        run_after=datetime.now(timezone.utc) + timedelta(seconds=delay_seconds),
+    )
+
+
+async def enqueue_v2_shadow(
+    db: AsyncSession, student_id: int, subject_id: int | None = None
+) -> None:
+    """Back-compatible alias for the debounced enqueue — every caller wants
+    coalescing, so there is no un-debounced path."""
+    await enqueue_readiness_v2_debounced(db, student_id, subject_id)
+
+FACTOR_WEIGHT_ATTR = {
+    ReadinessFactor.topic_mastery: "weight_topic_mastery",
+    ReadinessFactor.past_paper_performance: "weight_past_paper_performance",
+    ReadinessFactor.homework_performance: "weight_homework_performance",
+    ReadinessFactor.assessment_performance: "weight_assessment_performance",
+    ReadinessFactor.syllabus_coverage: "weight_syllabus_coverage",
+    ReadinessFactor.mistake_analysis: "weight_mistake_analysis",
+    ReadinessFactor.consistency: "weight_consistency",
+}
+DEFAULT_WEIGHTS = {attr: 1.0 for attr in FACTOR_WEIGHT_ATTR.values()}
+
+
+class WeakTopicSuggestion(BaseModel):
+    topic_id: int = Field(description="Must be one of the topic ids in the Topic Mastery breakdown")
+    reason: str = Field(description="Why this topic needs attention, from the data only")
+
+
+class ReadinessSynthesis(BaseModel):
+    score: float = Field(ge=0, le=100)
+    weak_topics: list[WeakTopicSuggestion]
+    rationale: str
+    recommended_revision: str
+
+
+async def _resolve_weight_dict(session: AsyncSession, organization_id: int) -> dict[str, float]:
+    weights = await session.scalar(
+        select(ReadinessWeights).where(ReadinessWeights.organization_id == organization_id)
+    )
+    if weights is None:
+        return dict(DEFAULT_WEIGHTS)
+    return {attr: getattr(weights, attr) for attr in DEFAULT_WEIGHTS}
+
+
+async def _resolve_grade_boundaries(
+    session: AsyncSession, organization_id: int, subject: Subject
+) -> list[dict]:
+    """Org-entered grade boundaries take priority over the shared Subject
+    default (see CLAUDE.md: manually entered by the tutor per subject)."""
+    org_boundaries = (
+        await session.scalars(
+            select(GradeBoundary).where(
+                GradeBoundary.organization_id == organization_id,
+                GradeBoundary.subject_id == subject.id,
+            )
+        )
+    ).all()
+    if org_boundaries:
+        ordered = sorted(org_boundaries, key=lambda b: b.min_percentage, reverse=True)
+        return [{"grade": b.grade_label, "min": b.min_percentage} for b in ordered]
+    return subject.grade_boundaries
+
+
+def _factor_prompt_line(row: FactorEvaluation, weight: float, topics_by_id: dict[int, Topic]) -> str:
+    label = row.factor.value
+    if row.topic_id is not None:
+        topic = topics_by_id.get(row.topic_id)
+        label = f"{label} ({topic.title if topic else row.topic_id})"
+    score_text = f"{row.score:.1f}" if row.score is not None else "no data"
+    return (
+        f"- {label}: score={score_text}, confidence={row.confidence.value}, "
+        f"evidence_count={row.evidence_count}, tutor_weight={weight}, detail={row.detail}"
+    )
+
+
+async def _synthesize_subject(
+    session: AsyncSession, student: User, subject_id: int, now: datetime
+) -> None:
+    subject = await session.get(Subject, subject_id)
+    if subject is None:
+        return
+
+    evaluation_run_id = str(uuid.uuid4())
+    factor_rows = await evaluate_subject_factors(session, student.id, subject_id, evaluation_run_id, now)
+
+    if all(row.score is None for row in factor_rows):
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=evaluation_run_id,
+                student_id=student.id,
+                subject_id=subject_id,
+                status=AiSynthesisStatus.ready,
+                score=None,
+                predicted_grade=None,
+                weak_topics=[],
+                rationale="No evidence yet for this subject.",
+                recommended_revision=None,
+            )
+        )
+        return
+
+    weights = await _resolve_weight_dict(session, student.organization_id)
+    topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+    topics_by_id = {t.id: t for t in topics}
+
+    factors_text = "\n".join(
+        _factor_prompt_line(row, weights[FACTOR_WEIGHT_ATTR[row.factor]], topics_by_id)
+        for row in factor_rows
+    )
+    tutor_id = await resolve_org_tutor_id(session, student.organization_id)
+    kb_context = await build_tutor_context(session, tutor_id, subject_id) if tutor_id is not None else ""
+
+    prompt = (
+        f"Student: {student.name}\n"
+        f"Subject: {subject.name} ({subject.exam_board} {subject.code})\n\n"
+        f"Factor sub-scores:\n{factors_text}\n\n"
+        "Synthesize the overall readiness score, weak topics, rationale, and recommended revision."
+    )
+
+    try:
+        response = await structured_complete(
+            surface="readiness",
+            content=[{"type": "text", "text": prompt}],
+            output_format=ReadinessSynthesis,
+            max_tokens=2000,
+            extra_system=[kb_context] if kb_context else [],
+        )
+    except Exception as exc:  # noqa: BLE001 - AIUnavailableError or any API failure
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=evaluation_run_id,
+                student_id=student.id,
+                subject_id=subject_id,
+                status=AiSynthesisStatus.failed,
+                score=None,
+                predicted_grade=None,
+                weak_topics=[],
+                rationale=None,
+                recommended_revision=None,
+                error=str(exc) or exc.__class__.__name__,
+            )
+        )
+        return
+
+    if tutor_id is not None:
+        await record_usage(
+            session,
+            response,
+            organization_id=student.organization_id,
+            tutor_id=tutor_id,
+            student_id=student.id,
+            feature=AiFeature.readiness,
+        )
+    result: ReadinessSynthesis = response.parsed
+    boundaries = await _resolve_grade_boundaries(session, student.organization_id, subject)
+    grade = predict_grade(result.score, boundaries)
+
+    valid_topic_ids = {
+        row.topic_id for row in factor_rows if row.factor == ReadinessFactor.topic_mastery
+    }
+    weak_topics = [
+        {
+            "topic_id": w.topic_id,
+            "topic_title": topics_by_id[w.topic_id].title if w.topic_id in topics_by_id else None,
+            "reason": w.reason,
+        }
+        for w in result.weak_topics
+        if w.topic_id in valid_topic_ids
+    ]
+
+    session.add(
+        ReadinessSnapshot(
+            evaluation_run_id=evaluation_run_id,
+            student_id=student.id,
+            subject_id=subject_id,
+            status=AiSynthesisStatus.ready,
+            score=result.score,
+            predicted_grade=grade,
+            weak_topics=weak_topics,
+            rationale=result.rationale,
+            recommended_revision=result.recommended_revision,
+        )
+    )
+
+
+async def compute_readiness_v2(session: AsyncSession, payload: dict) -> None:
+    """Job handler. payload: {"student_id": int, "subject_id": int | None}.
+    Omitting subject_id computes every subject the student is enrolled in."""
+    student_id = payload["student_id"]
+    subject_id = payload.get("subject_id")
+    now = datetime.now(timezone.utc)
+
+    student = await session.get(User, student_id)
+    if student is None:
+        return
+
+    if subject_id is not None:
+        subject_ids = [subject_id]
+    else:
+        subject_ids = list(
+            (
+                await session.scalars(
+                    select(Group.subject_id)
+                    .join(GroupMember, GroupMember.group_id == Group.id)
+                    .where(GroupMember.student_id == student_id)
+                    .distinct()
+                )
+            ).all()
+        )
+
+    for sid in subject_ids:
+        await _synthesize_subject(session, student, sid, now)
+    await session.commit()

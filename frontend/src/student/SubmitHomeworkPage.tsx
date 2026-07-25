@@ -1,7 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { mySubmission, submitWork } from "../api/homework";
+import {
+  mySubmission,
+  requestRemark,
+  submitWork,
+  type StudentMarkRow,
+} from "../api/homework";
 import { ApiError } from "../api/client";
 
 export default function SubmitHomeworkPage() {
@@ -53,20 +58,12 @@ export default function SubmitHomeworkPage() {
           </p>
           <div className="mt-4 space-y-3">
             {v.marks.map((m) => (
-              <div key={m.number} className="rounded-lg border bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-slate-800">
-                    Q{m.number}{" "}
-                    <span className="font-normal text-slate-500">— {m.text_summary}</span>
-                  </span>
-                  <span className="text-sm font-medium text-slate-700">
-                    {m.final_marks}/{m.max_marks}
-                  </span>
-                </div>
-                {m.final_feedback && (
-                  <p className="mt-2 text-sm text-slate-600">{m.final_feedback}</p>
-                )}
-              </div>
+              <MarkedQuestion
+                key={m.number}
+                submissionId={v.submission_id}
+                mark={m}
+                assignmentId={id}
+              />
             ))}
           </div>
         </div>
@@ -115,6 +112,101 @@ export default function SubmitHomeworkPage() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function MarkedQuestion({
+  submissionId,
+  assignmentId,
+  mark,
+}: {
+  submissionId: number | null;
+  assignmentId: number;
+  mark: StudentMarkRow;
+}) {
+  const queryClient = useQueryClient();
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const ask = useMutation({
+    mutationFn: () =>
+      requestRemark(submissionId!, mark.question_id!, reason),
+    onSuccess: () => {
+      setAsking(false);
+      queryClient.invalidateQueries({ queryKey: ["my-submission", assignmentId] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  });
+
+  const canAsk =
+    submissionId !== null && mark.question_id !== null && mark.remark_status === null;
+
+  return (
+    <div className="rounded-lg border bg-white p-4">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-slate-800">
+          Q{mark.number}{" "}
+          <span className="font-normal text-slate-500">— {mark.text_summary}</span>
+        </span>
+        <span className="text-sm font-medium text-slate-700">
+          {mark.final_marks}/{mark.max_marks}
+        </span>
+      </div>
+      {mark.final_feedback && (
+        <p className="mt-2 text-sm text-slate-600">{mark.final_feedback}</p>
+      )}
+
+      {mark.remark_status === "open" && (
+        <p className="mt-2 text-sm text-purple-700">
+          Your tutor has been asked to look at this one again.
+        </p>
+      )}
+      {mark.remark_status === "resolved" && (
+        <p className="mt-2 text-sm text-slate-500">
+          Your tutor has already re-checked this question.
+        </p>
+      )}
+
+      {canAsk &&
+        (asking ? (
+          <div className="mt-3 space-y-2">
+            <textarea
+              className="w-full rounded border border-slate-300 px-2 py-1 text-sm"
+              rows={2}
+              placeholder="Why do you think this mark should change? (optional)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => ask.mutate()}
+                disabled={ask.isPending}
+                className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Send to my tutor
+              </button>
+              <button
+                onClick={() => setAsking(false)}
+                className="rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Your tutor decides — you can only ask once per question.
+            </p>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAsking(true)}
+            className="mt-2 text-xs text-blue-600 hover:underline"
+          >
+            Request a remark
+          </button>
+        ))}
     </div>
   );
 }

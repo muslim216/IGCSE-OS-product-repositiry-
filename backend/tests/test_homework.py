@@ -2,7 +2,9 @@ import pytest
 from sqlalchemy import select
 
 from app.models import (
+    Assignment,
     AssignmentQuestion,
+    Group,
     MarkConfidence,
     QuestionMark,
     QuestionTopic,
@@ -107,6 +109,11 @@ def fake_extraction(subject):
 
 
 async def fake_marking(session, submission):
+    """Stands in for the AI call in _run_marking, then hands off to the real
+    _settle_submission so the submission lands in the same state the live
+    pipeline would leave it in (auto-finalized vs review queue)."""
+    from app.services.marking import _settle_submission
+
     questions = (
         await session.scalars(
             select(AssignmentQuestion).where(
@@ -121,10 +128,18 @@ async def fake_marking(session, submission):
             mark.ai_marks = 1
             mark.ai_feedback = "Half right"
             mark.ai_confidence = MarkConfidence.high
+            mark.final_marks = 1
+            mark.final_feedback = "Half right"
+            mark.auto_finalized = True
         else:
             mark.ai_marks = None
-            mark.ai_confidence = MarkConfidence.tutor_only
+            mark.ai_confidence = MarkConfidence.unsure
+            mark.needs_review = True
         session.add(mark)
+
+    assignment = await session.get(Assignment, submission.assignment_id)
+    group = await session.get(Group, assignment.group_id)
+    await _settle_submission(session, submission, group.subject_id)
 
 
 @pytest.fixture
@@ -254,7 +269,7 @@ async def test_no_pdf_assignment_marking_guard_runs_before_ai_call(client, tutor
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     # Fails at the AI call (no API key), not at the classified lookup — the guard worked.
     assert subs.json()[0]["status"] == "ai_failed"
-    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
+    assert "GEMINI_API_KEY" in detail.json()["ai_error"]
 
 
 async def test_no_pdf_assignment_marking_does_not_crash(client, tutor, student, group, monkeypatch):
@@ -289,7 +304,7 @@ async def test_no_pdf_assignment_marking_does_not_crash(client, tutor, student, 
     assert await process_one_job() is True
 
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
-    assert subs.json()[0]["status"] == "ai_marked"
+    assert subs.json()[0]["status"] == "needs_review"
 
 
 async def test_full_marking_lifecycle(client, tutor, student, published_assignment, monkeypatch):
@@ -310,15 +325,19 @@ async def test_full_marking_lifecycle(client, tutor, student, published_assignme
     assert await process_one_job() is True
 
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
-    assert subs.json()[0]["status"] == "ai_marked"
+    # Q2 has no mark scheme, so the submission waits on the tutor.
+    assert subs.json()[0]["status"] == "needs_review"
     sid = subs.json()[0]["id"]
 
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     marks = detail.json()["marks"]
     assert marks[0]["ai_marks"] == 1
     assert marks[0]["ai_confidence"] == "high"
+    assert marks[0]["auto_finalized"] is True
+    assert marks[0]["needs_review"] is False
     assert marks[1]["ai_marks"] is None
-    assert marks[1]["ai_confidence"] == "tutor_only"
+    assert marks[1]["ai_confidence"] == "unsure"
+    assert marks[1]["needs_review"] is True
 
     # Students never see the AI draft.
     student_view = await client.get(
@@ -382,7 +401,7 @@ async def test_marking_fails_gracefully_without_api_key(client, tutor, student, 
     assert subs.json()[0]["status"] == "ai_failed"
     sid = subs.json()[0]["id"]
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
+    assert "GEMINI_API_KEY" in detail.json()["ai_error"]
 
     # The tutor can still mark manually and finalize.
     marks = detail.json()["marks"]
@@ -434,26 +453,8 @@ async def test_resubmission_resets_marking(client, tutor, student, published_ass
     assert subs.json()[0]["status"] == "submitted"
 
 
-class _FakeParseResponse:
-    def __init__(self, parsed_output):
-        self.parsed_output = parsed_output
-
-
-class _FakeMessages:
-    def __init__(self, parsed_output):
-        self._parsed_output = parsed_output
-
-    async def parse(self, **kwargs):
-        return _FakeParseResponse(self._parsed_output)
-
-
-class _FakeAIClient:
-    def __init__(self, parsed_output):
-        self.messages = _FakeMessages(parsed_output)
-
-
 async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
-    client, tutor, student, published_assignment, monkeypatch
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
 ):
     """Exercises the real _run_marking mapping logic (not the fake_marking test
     double used elsewhere) against a fabricated AI response, to check the
@@ -482,7 +483,7 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
         ]
     )
     monkeypatch.setattr(
-        "app.services.marking.get_client", lambda: _FakeAIClient(fake_result)
+        "app.services.marking.structured_complete", fake_ai(fake_result)
     )
 
     aid = published_assignment["id"]
@@ -494,7 +495,7 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
     assert await process_one_job() is True
 
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
-    assert subs.json()[0]["status"] == "ai_marked"
+    assert subs.json()[0]["status"] == "needs_review"
     sid = subs.json()[0]["id"]
 
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
@@ -505,12 +506,13 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
 
     assert q1_mark["ai_marks"] == 2, "proposed 10 must be clamped to the question's max of 2"
     assert q1_mark["ai_confidence"] == "high"
-    assert q2_mark["ai_marks"] is None, "no mark scheme -> AI marks must be discarded"
-    assert q2_mark["ai_confidence"] == "tutor_only"
+    assert q2_mark["ai_marks"] == 3, "no mark scheme -> the AI still suggests a mark"
+    assert q2_mark["final_marks"] is None, "...but it does not count until a tutor rules"
+    assert q2_mark["needs_review"] is True
 
 
 async def test_ai_marking_handles_question_missing_from_ai_response(
-    client, tutor, student, group, monkeypatch
+    client, tutor, student, group, monkeypatch, fake_ai
 ):
     """If the AI's response omits a question entirely, that question must get
     a safe tutor_only fallback rather than crashing or losing the record."""
@@ -571,7 +573,7 @@ async def test_ai_marking_handles_question_missing_from_ai_response(
         ]
     )
     monkeypatch.setattr(
-        "app.services.marking.get_client", lambda: _FakeAIClient(fake_result)
+        "app.services.marking.structured_complete", fake_ai(fake_result)
     )
 
     await client.post(
@@ -588,5 +590,6 @@ async def test_ai_marking_handles_question_missing_from_ai_response(
     q1 = next(m for m in marks if m["ai_marks"] == 2)
     q2 = next(m for m in marks if m is not q1)
     assert q2["ai_marks"] is None
-    assert q2["ai_confidence"] == "tutor_only"
+    assert q2["ai_confidence"] == "unsure"
+    assert q2["needs_review"] is True
     assert "did not return a result" in q2["ai_transcription"]

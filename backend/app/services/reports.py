@@ -5,8 +5,8 @@ it is told never to invent marks, grades, or facts not present in the data."""
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.models import (
+    AiFeature,
     Assignment,
     Group,
     GroupMember,
@@ -22,8 +22,9 @@ from app.models import (
     TopicReadiness,
     User,
 )
-from app.services.ai import get_client
+from app.services.ai import record_usage, text_complete
 from app.services.grades import predict_grade
+from app.services.knowledge import build_tutor_context
 
 AUDIENCE_GUIDANCE = {
     ReportAudience.parent: (
@@ -44,13 +45,6 @@ AUDIENCE_GUIDANCE = {
         "Bullet points are fine."
     ),
 }
-
-SYSTEM_PROMPT = """You are writing an academic progress report for an IGCSE/O Level \
-student. You must write ONLY from the factual data provided — never invent marks, \
-grades, percentages, topic names, or events that are not in the data. If the data \
-is limited, say so honestly rather than filling gaps. Always describe predicted \
-grades as estimates. Output clean Markdown with a short heading and a few sections."""
-
 
 async def build_report_facts(session: AsyncSession, student: User, subject_ids: list[int]) -> str:
     lines: list[str] = [f"Student: {student.name}"]
@@ -157,25 +151,34 @@ async def _visible_subjects(session: AsyncSession, student_id: int, subject_id: 
 
 
 async def _write_report(
-    audience: ReportAudience, facts: str
+    audience: ReportAudience,
+    facts: str,
+    session: AsyncSession,
+    *,
+    organization_id: int,
+    tutor_id: int,
+    student_id: int,
+    kb_context: str = "",
 ) -> str:
     """The AI call — factored out so tests can patch it."""
-    client = get_client()
-    response = await client.messages.create(
-        model=get_settings().anthropic_model,
+    response = await text_complete(
+        surface="reports",
+        prompt=(
+            f"{AUDIENCE_GUIDANCE[audience]}\n\n"
+            f"Here is the factual data — write the report from this only:\n\n{facts}"
+        ),
         max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"{AUDIENCE_GUIDANCE[audience]}\n\n"
-                    f"Here is the factual data — write the report from this only:\n\n{facts}"
-                ),
-            }
-        ],
+        extra_system=[kb_context] if kb_context else [],
     )
-    return "".join(block.text for block in response.content if block.type == "text").strip()
+    await record_usage(
+        session,
+        response,
+        organization_id=organization_id,
+        tutor_id=tutor_id,
+        student_id=student_id,
+        feature=AiFeature.report,
+    )
+    return response.text.strip()
 
 
 async def generate_report(session: AsyncSession, payload: dict) -> None:
@@ -187,7 +190,21 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
         student = await session.get(User, report.student_id)
         subject_ids = await _visible_subjects(session, report.student_id, report.subject_id)
         facts = await build_report_facts(session, student, subject_ids)
-        report.content = await _write_report(report.audience, facts)
+        tutor = await session.get(User, report.generated_by_id)
+        kb_context = (
+            await build_tutor_context(session, tutor.id, report.subject_id)
+            if tutor is not None
+            else ""
+        )
+        report.content = await _write_report(
+            report.audience,
+            facts,
+            session,
+            organization_id=student.organization_id,
+            tutor_id=report.generated_by_id,
+            student_id=report.student_id,
+            kb_context=kb_context,
+        )
         report.status = ReportStatus.ready
         from app.models.base import utcnow
 

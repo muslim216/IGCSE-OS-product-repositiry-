@@ -22,6 +22,9 @@ class EvidenceSource(str, enum.Enum):
     quiz = "quiz"
     mock = "mock"
     observation = "observation"
+    # Per-question marks from a full past paper. Feeds Topic Mastery as well as
+    # the Past Paper Performance factor, which reads the attempt total.
+    past_paper = "past_paper"
 
 
 class Evidence(Base):

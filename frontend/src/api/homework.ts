@@ -76,6 +76,39 @@ export interface MarkRow {
   final_marks: number | null;
   final_feedback: string | null;
   overridden: boolean;
+  /** Why this row is (or isn't) waiting on the tutor. */
+  needs_review: boolean;
+  auto_finalized: boolean;
+  remark_requested: boolean;
+  remark_reason: string | null;
+}
+
+export interface ReviewQueueItem {
+  submission_id: number;
+  assignment_id: number | null;
+  past_paper_id: number | null;
+  assignment_title: string;
+  student_id: number;
+  student_name: string;
+  submitted_at: string;
+  unsure_count: number;
+  remark_request_count: number;
+}
+
+export interface MarkHistoryEntry {
+  old_marks: number | null;
+  new_marks: number | null;
+  changed_by_name: string;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface RemarkRequestOut {
+  id: number;
+  question_id: number;
+  status: string;
+  reason: string | null;
+  created_at: string;
 }
 
 export interface SubmissionSummary {
@@ -97,7 +130,9 @@ export interface SubmissionFileInfo {
 
 export interface SubmissionDetail {
   id: number;
-  assignment_id: number;
+  /** Exactly one is set: the work is homework or a past paper. */
+  assignment_id: number | null;
+  past_paper_id: number | null;
   assignment_title: string;
   student_id: number;
   student_name: string;
@@ -109,14 +144,18 @@ export interface SubmissionDetail {
 }
 
 export interface StudentMarkRow {
+  question_id: number | null;
   number: string;
   text_summary: string;
   max_marks: number;
   final_marks: number | null;
   final_feedback: string | null;
+  /** Set once the student has asked for this mark to be looked at again. */
+  remark_status: string | null;
 }
 
 export interface StudentSubmissionView {
+  submission_id: number | null;
   status: string;
   submitted_at: string | null;
   finalized_at: string | null;
@@ -210,6 +249,26 @@ export const saveMarks = (
   });
 export const finalizeSubmission = (id: number) =>
   api<SubmissionDetail>(`/api/v1/submissions/${id}/finalize`, { method: "POST" });
+
+/** Everything waiting on the tutor: AI-unsure marks and student remark requests. */
+export const reviewQueue = () =>
+  api<ReviewQueueItem[]>("/api/v1/submissions/review-queue");
+
+export const markHistory = (submissionId: number, questionId: number) =>
+  api<MarkHistoryEntry[]>(
+    `/api/v1/submissions/${submissionId}/marks/${questionId}/history`,
+  );
+
+/** Student-initiated. Never re-marked by AI — it goes to the tutor's queue. */
+export const requestRemark = (
+  submissionId: number,
+  questionId: number,
+  reason: string,
+) =>
+  api<RemarkRequestOut>(
+    `/api/v1/submissions/${submissionId}/questions/${questionId}/remark-request`,
+    { method: "POST", body: JSON.stringify({ reason: reason || null }) },
+  );
 
 /** Fetch a protected file with auth and return an object URL for display. */
 export async function fetchFileUrl(path: string): Promise<string> {

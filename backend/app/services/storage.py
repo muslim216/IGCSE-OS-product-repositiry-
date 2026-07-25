@@ -37,9 +37,21 @@ async def save_upload(file: UploadFile) -> tuple[str, str, str]:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Files must be 20 MB or smaller"
         )
+    return save_bytes(data, mime, file.filename or "upload")
+
+
+def save_bytes(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
+    """Persist raw bytes fetched from an external source (e.g. a Google Drive
+    attachment) under the same validation and layout as a direct upload.
+    Raises ValueError (not HTTPException) since callers may be background
+    jobs rather than requests."""
+    if mime not in ALLOWED_MIMES:
+        raise ValueError(f"Unsupported file type: {mime}")
+    if len(data) > MAX_FILE_BYTES:
+        raise ValueError("File exceeds the 20 MB limit")
     rel_path = f"{secrets.token_hex(16)}{ALLOWED_MIMES[mime]}"
     (upload_root() / rel_path).write_bytes(data)
-    return rel_path, file.filename or rel_path, mime
+    return rel_path, filename, mime
 
 
 def read_file(rel_path: str) -> bytes:

@@ -59,7 +59,7 @@ async def world(client, tutor):
     }
 
 
-async def fake_write(audience, facts):
+async def fake_write(audience, facts, *args, **kwargs):
     return "# Progress report\n\nYour child is making steady progress."
 
 

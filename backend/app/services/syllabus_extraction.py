@@ -8,10 +8,9 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.models import SyllabusUpload, SyllabusUploadStatus
 from app.services import storage
-from app.services.ai import file_block, get_client
+from app.services.ai import file_block, structured_complete
 
 
 class ExtractedGradeBoundary(BaseModel):
@@ -41,20 +40,6 @@ class SyllabusExtractionResult(BaseModel):
     )
 
 
-SYSTEM_PROMPT = """You are converting an official IGCSE/O Level exam board syllabus document \
-into a structured topic tree so a tutoring platform can track a student's readiness against \
-every syllabus point.
-
-Rules:
-- Extract every assessable topic/sub-topic in the document, preserving the syllabus's own \
-numbering and hierarchy (nest sub-points under their parent section).
-- Use the syllabus's own section numbers as `code` exactly as printed.
-- grade_boundaries should reflect this syllabus's actual grading scale if stated; otherwise \
-give a reasonable standard scale for the qualification type and say so is not needed — just \
-provide your best estimate.
-- Do not invent topics that aren't in the document."""
-
-
 async def extract_syllabus(session: AsyncSession, payload: dict) -> None:
     upload_id = payload["syllabus_upload_id"]
     upload = await session.get(SyllabusUpload, upload_id)
@@ -80,15 +65,13 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
         }
     )
 
-    client = get_client()
-    response = await client.messages.parse(
-        model=get_settings().anthropic_model,
-        max_tokens=16000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": content}],
+    response = await structured_complete(
+        surface="syllabus",
+        content=content,
         output_format=SyllabusExtractionResult,
+        max_tokens=16000,
     )
-    result: SyllabusExtractionResult = response.parsed_output
+    result: SyllabusExtractionResult = response.parsed
     if not result.topics:
         raise ValueError("No topics were found in the document")
 

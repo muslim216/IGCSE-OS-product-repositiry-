@@ -41,6 +41,7 @@ async def upload_classified(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
     path, name, mime = await storage.save_upload(file)
     classified = Classified(
+        organization_id=user.organization_id,
         tutor_id=user.id,
         subject_id=subject.id,
         title=title,

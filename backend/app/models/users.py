@@ -24,6 +24,10 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, native_enum=False, length=16), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Every user belongs to an organization — auto-created for a tutor at
+    # signup; students/parents inherit the org of the tutor who created or
+    # invited them. Multi-tenant backbone, single-tutor UX (see CLAUDE.md).
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     # Bumped on logout/password change to invalidate any refresh tokens issued
     # before that point — JWTs are otherwise stateless and can't be revoked.
