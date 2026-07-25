@@ -81,8 +81,15 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      # Exactly one URL, and it must be the origin the tutor's browser is on
+      # when it lands on the callback page — Google redirects the browser here
+      # and the backend replays the same value in the token exchange. The
+      # Vercel deploy is the frontend users actually visit (the repo's
+      # homepage); change this to the Render static site's origin if that
+      # becomes the canonical one. Whatever it says must also be registered
+      # verbatim as an authorized redirect URI on the Google OAuth client.
       - key: GOOGLE_REDIRECT_URI
-        value: https://igcse-os.onrender.com/settings/classroom/callback
+        value: https://igcse-os-product-repositiry.vercel.app/settings/classroom/callback
       # Encrypts stored Google refresh tokens at rest. Falls back to a key
       # derived from JWT_SECRET when unset; a dedicated value is preferred so
       # rotating one secret does not invalidate the other.
@@ -90,8 +97,12 @@ services:
         generateValue: true
 
       # --- Web ----------------------------------------------------------
+      # Both frontends are listed because either may be serving. Neither needs
+      # CORS while it proxies /api/* server-side (the browser sees one origin);
+      # this only matters for a cross-origin VITE_API_BASE_URL build, and an
+      # origin missing here fails at the browser with no server-side trace.
       - key: CORS_ORIGINS
-        value: https://igcse-os.onrender.com
+        value: https://igcse-os-product-repositiry.vercel.app,https://igcse-os.onrender.com
       # The refresh cookie is HTTPS-only. Never set false on a real deploy.
       - key: REFRESH_COOKIE_SECURE
         value: "true"

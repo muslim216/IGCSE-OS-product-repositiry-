@@ -16,8 +16,8 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Anthropic API (`claude-opus-4-8`) — marking, extraction, chat, reports |
-| Deploy | Render blueprint (`render.yaml`); Docker for local dev |
+| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for chat/reports/readiness |
+| Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development
 
@@ -50,7 +50,15 @@ cd frontend && npm test                          # frontend
 
 ## Deployment
 
-### Render (recommended)
+The live setup is **the API on Render and the frontend on Vercel**
+(`igcse-os-product-repositiry.vercel.app`). `render.yaml` also provisions a Render static
+site for the frontend, so either host can serve it; whichever one is canonical is the
+origin that has to appear in `GOOGLE_REDIRECT_URI`.
+
+Both hosts build from the repository's **default branch**. A branch that is pushed but not
+merged into it does not deploy, however green its tests are.
+
+### Render (API + database)
 
 1. Push this repo to GitHub.
 2. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and
@@ -85,17 +93,23 @@ cd frontend && npm test                          # frontend
    `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
    on the Google Cloud OAuth client, or the Classroom connect flow fails.
 
-### Vercel (frontend only)
+### Vercel (frontend)
 
-If you deploy the frontend separately on Vercel instead of/alongside Render:
-
-1. Set the Vercel project's root directory to `frontend`.
+1. Set the Vercel project's root directory to `frontend`. Vite is detected automatically;
+   no build command needs setting.
 2. `frontend/vercel.json` rewrites `/api/*` to the Render backend and falls back to
    `index.html` for the SPA — update the destination URL in that file if your backend's
    Render URL differs from `igcse-os-api.onrender.com`.
-3. Alternatively, set `VITE_API_BASE_URL` to the backend's full URL at build time to call
-   it directly (cross-origin) instead of relying on the rewrite — in that case also add the
-   Vercel domain to the backend's `CORS_ORIGINS`.
+3. The same file sets the response headers the Render static site sets, so the app is
+   served with an identical CSP either way. Keep the two in sync when you change one: the
+   frontend holds an access token in `localStorage`, so `script-src 'self'` (no CDN, no
+   inline script) is what makes an injected script expensive.
+4. **Keep the API same-origin.** The `/api/*` rewrite is what lets the httpOnly refresh
+   cookie work — the browser sees one origin, and Vercel proxies to Render server-side.
+   Setting `VITE_API_BASE_URL` to the backend's URL instead makes the calls cross-origin,
+   which needs the Vercel domain in the backend's `CORS_ORIGINS` **and** a `connect-src`
+   change in the CSP, and still leaves sessions unable to refresh — a `SameSite=Lax`
+   cookie is not sent cross-site. Prefer the rewrite.
 
 ## Configuration
 
