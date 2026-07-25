@@ -1,6 +1,7 @@
 # Render blueprint: one Postgres database, the FastAPI backend, and the
 # static frontend. Deploy by connecting this repo at https://dashboard.render.com
-# ("New" -> "Blueprint") and setting ANTHROPIC_API_KEY when prompted.
+# ("New" -> "Blueprint"). Values marked `sync: false` are not stored in the repo
+# and must be filled in from the Render dashboard — see README "Deployment".
 
 databases:
   - name: igcse-os-db
@@ -12,6 +13,17 @@ services:
     runtime: docker
     rootDir: backend
     plan: starter
+    # Uploaded booklets, mark schemes and submissions are written to the local
+    # filesystem (services/storage.py), and DB rows store paths relative to
+    # UPLOAD_DIR. Without a persistent disk every deploy replaces the container
+    # and silently orphans those rows, so the files must live outside it.
+    # A service with a disk runs a single instance — fine here, and the job
+    # worker claims with FOR UPDATE SKIP LOCKED so scaling out stays safe if
+    # storage later moves to S3 and the disk goes away.
+    disk:
+      name: igcse-os-uploads
+      mountPath: /data
+      sizeGB: 10
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -19,10 +31,81 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      - key: UPLOAD_DIR
+        value: /data/uploads
+
+      # --- AI providers -------------------------------------------------
+      # Anthropic serves chat, reports, readiness synthesis and class briefs.
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Gemini serves the bulk document work: marking, question extraction and
+      # syllabus extraction. Without this key those three surfaces fail with a
+      # clear "not configured" error while the rest of the app keeps working —
+      # but that is the core homework pipeline, so set it before going live.
+      - key: GEMINI_API_KEY
+        sync: false
+      # The default in config.py is an owner-supplied placeholder. Set the real
+      # model id your account has access to rather than inheriting it.
+      - key: GEMINI_MODEL
+        sync: false
+
+      # Per-surface routing. Restated here (rather than left to config.py's
+      # defaults) so these three can be flipped to `anthropic` from the
+      # dashboard to stage without a Gemini key, with no code change.
+      - key: AI_MARKING_PROVIDER
+        value: gemini
+      - key: AI_EXTRACTION_PROVIDER
+        value: gemini
+      - key: AI_SYLLABUS_PROVIDER
+        value: gemini
+
+      # Per-token prices for ai_usage_events.cost_usd, as JSON. Empty means
+      # calls record an unknown cost and report as unpriced_call_count — never
+      # a fabricated $0. Fill in real prices for the models you actually use.
+      - key: AI_MODEL_PRICING
+        sync: false
+
+      # --- Readiness v2 -------------------------------------------------
+      # Kill switch, not a shadow flag: false stops v2 runs being enqueued and
+      # readiness falls back to the v1 engine instead of breaking.
+      - key: READINESS_V2_SHADOW_ENABLED
+        value: "true"
+      - key: READINESS_V2_COALESCE_SECONDS
+        value: "600"
+
+      # --- Google Classroom ---------------------------------------------
+      # Both unset -> the feature reports "not configured" and the app runs
+      # fine without it. The redirect URI must match an authorized redirect
+      # URI on the Google Cloud OAuth client exactly, frontend origin included.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Exactly one URL, and it must be the origin the tutor's browser is on
+      # when it lands on the callback page — Google redirects the browser here
+      # and the backend replays the same value in the token exchange. The
+      # Vercel deploy is the frontend users actually visit (the repo's
+      # homepage); change this to the Render static site's origin if that
+      # becomes the canonical one. Whatever it says must also be registered
+      # verbatim as an authorized redirect URI on the Google OAuth client.
+      - key: GOOGLE_REDIRECT_URI
+        value: https://igcse-os-product-repositiry.vercel.app/settings/classroom/callback
+      # Encrypts stored Google refresh tokens at rest. Falls back to a key
+      # derived from JWT_SECRET when unset; a dedicated value is preferred so
+      # rotating one secret does not invalidate the other.
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY
+        generateValue: true
+
+      # --- Web ----------------------------------------------------------
+      # Both frontends are listed because either may be serving. Neither needs
+      # CORS while it proxies /api/* server-side (the browser sees one origin);
+      # this only matters for a cross-origin VITE_API_BASE_URL build, and an
+      # origin missing here fails at the browser with no server-side trace.
       - key: CORS_ORIGINS
-        value: https://igcse-os.onrender.com
+        value: https://igcse-os-product-repositiry.vercel.app,https://igcse-os.onrender.com
+      # The refresh cookie is HTTPS-only. Never set false on a real deploy.
+      - key: REFRESH_COOKIE_SECURE
+        value: "true"
 
   - type: web
     name: igcse-os
@@ -30,6 +113,24 @@ services:
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
+    # The app holds an access token in localStorage (the refresh token stays in
+    # an httpOnly cookie the page cannot read), so an injected script is the
+    # thing to make expensive. The CSP allows only same-origin code — no CDN,
+    # no inline <script> — and nothing may frame the app.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self';
+          object-src 'none'; base-uri 'self'; form-action 'self';
+          frame-ancestors 'none'
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
     routes:
       # Send API calls to the backend service, everything else to the SPA.
       - type: rewrite

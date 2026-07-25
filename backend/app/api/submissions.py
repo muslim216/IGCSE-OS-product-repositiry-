@@ -50,6 +50,28 @@ router = APIRouter(tags=["submissions"])
 SETTLED_STATUSES = (SubmissionStatus.auto_finalized, SubmissionStatus.finalized)
 
 
+async def _tutor_owns(db, user: User, submission: Submission) -> bool:
+    """Whether this tutor may act on a submission.
+
+    Submission is polymorphic, so every caller has to branch on which parent it
+    hangs off — reading `assignment_id` unconditionally hits None on a past
+    paper. This is the one place that branch lives.
+    """
+    if user.role == UserRole.admin:
+        return True
+    if user.role != UserRole.tutor:
+        return False
+    if submission.past_paper_id is not None:
+        # Past papers belong to the organization, not to one tutor's group.
+        paper = await db.get(PastPaper, submission.past_paper_id)
+        return paper is not None and paper.organization_id == user.organization_id
+    assignment = await db.get(Assignment, submission.assignment_id)
+    if assignment is None:
+        return False
+    group = await db.get(Group, assignment.group_id)
+    return group is not None and group.tutor_id == user.id
+
+
 async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
     if user.role not in (UserRole.tutor, UserRole.admin):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
@@ -58,15 +80,7 @@ async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
     )
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
-    if submission.past_paper_id is not None:
-        # Past papers belong to the organization, not to one tutor's group.
-        paper = await db.get(PastPaper, submission.past_paper_id)
-        owned = paper is not None and paper.organization_id == user.organization_id
-    else:
-        assignment = await db.get(Assignment, submission.assignment_id)
-        group = await db.get(Group, assignment.group_id)
-        owned = group.tutor_id == user.id
-    if not owned and user.role != UserRole.admin:
+    if not await _tutor_owns(db, user, submission):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
     return submission
 
@@ -479,11 +493,8 @@ async def submission_file(
     submission = await db.get(Submission, submission_id, options=[selectinload(Submission.files)])
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    if user.id != submission.student_id:
-        assignment = await db.get(Assignment, submission.assignment_id)
-        group = await db.get(Group, assignment.group_id)
-        if group.tutor_id != user.id and user.role != UserRole.admin:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if user.id != submission.student_id and not await _tutor_owns(db, user, submission):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     file = next((f for f in submission.files if f.id == file_id), None)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")

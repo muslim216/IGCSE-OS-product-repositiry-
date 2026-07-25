@@ -32,10 +32,13 @@ export const classroomStatus = () => api<ClassroomStatus>("/api/v1/classroom/sta
 export const classroomAuthUrl = () =>
   api<ClassroomAuthUrl>("/api/v1/classroom/auth-url");
 
-export const connectClassroom = (code: string) =>
+// `state` goes back to the server as well as being compared in the browser:
+// the sessionStorage check catches a callback from another browser, and the
+// server's signature check catches one this tutor never started.
+export const connectClassroom = (code: string, state: string) =>
   api<ClassroomStatus>("/api/v1/classroom/connect", {
     method: "POST",
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, state }),
   });
 
 export const disconnectClassroom = () =>

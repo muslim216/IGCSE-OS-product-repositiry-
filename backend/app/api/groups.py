@@ -1,5 +1,3 @@
-import secrets
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -10,7 +8,6 @@ from app.models import (
     AiFeature,
     Group,
     GroupMember,
-    Invite,
     InviteKind,
     ScheduleSlot,
     Subject,
@@ -33,6 +30,7 @@ from app.schemas.groups import (
 )
 from app.security import hash_password
 from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.invites import build_invite
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -125,12 +123,7 @@ async def delete_group(group_id: int, db: DbSession, user: CurrentUser) -> None:
 @router.post("/{group_id}/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
 async def create_invite(group_id: int, db: DbSession, user: CurrentUser) -> InviteOut:
     group = await _owned_group(db, user, group_id)
-    invite = Invite(
-        code=secrets.token_urlsafe(8),
-        kind=InviteKind.student_join,
-        group_id=group.id,
-        created_by_id=user.id,
-    )
+    invite = build_invite(InviteKind.student_join, created_by_id=user.id, group_id=group.id)
     db.add(invite)
     await db.commit()
     return InviteOut(code=invite.code, kind=invite.kind.value, expires_at=invite.expires_at)
@@ -179,7 +172,13 @@ async def create_student_account(
 async def reset_student_password(
     group_id: int, student_id: int, body: StudentPasswordReset, db: DbSession, user: CurrentUser
 ) -> None:
-    """Tutors can reset passwords for username-only accounts of students in their groups."""
+    """Tutors can reset passwords for username-only accounts of students in their groups.
+
+    A reset is how a tutor evicts whoever else has been using a shared or stolen
+    account, so it revokes every token that account already holds — otherwise the
+    old refresh token keeps minting access tokens for its full 30 days and the
+    new password changes nothing for the attacker.
+    """
     group = await _owned_group(db, user, group_id)
     member = await db.scalar(
         select(GroupMember).where(
@@ -195,6 +194,7 @@ async def reset_student_password(
             "Password resets are only available for accounts without an email address",
         )
     student.password_hash = hash_password(body.password)
+    student.token_version += 1
     await db.commit()
 
 

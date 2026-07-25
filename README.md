@@ -16,8 +16,8 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Anthropic API (`claude-opus-4-8`) — marking, extraction, chat, reports |
-| Deploy | Render blueprint (`render.yaml`); Docker for local dev |
+| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for chat/reports/readiness |
+| Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development
 
@@ -50,29 +50,66 @@ cd frontend && npm test                          # frontend
 
 ## Deployment
 
-### Render (recommended)
+The live setup is **the API on Render and the frontend on Vercel**
+(`igcse-os-product-repositiry.vercel.app`). `render.yaml` also provisions a Render static
+site for the frontend, so either host can serve it; whichever one is canonical is the
+origin that has to appear in `GOOGLE_REDIRECT_URI`.
+
+Both hosts build from the repository's **default branch**. A branch that is pushed but not
+merged into it does not deploy, however green its tests are.
+
+### Render (API + database)
 
 1. Push this repo to GitHub.
 2. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and
    connect the repo. `render.yaml` provisions the Postgres database, the API, and the
    static frontend, including the `/api/*` rewrite from the frontend to the backend.
-3. Set `ANTHROPIC_API_KEY` when prompted (Render generates `JWT_SECRET` automatically).
-4. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
+3. Fill in the values the blueprint marks `sync: false` — Render prompts for them on the
+   first sync and lists them under the service's **Environment** tab afterwards:
+
+   | Variable | Needed for |
+   | --- | --- |
+   | `ANTHROPIC_API_KEY` | chat, reports, readiness synthesis, class briefs |
+   | `GEMINI_API_KEY` | marking, question extraction, syllabus extraction |
+   | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
+   | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; leave unset to run without it |
+
+   `JWT_SECRET` and `GOOGLE_TOKEN_ENCRYPTION_KEY` are generated automatically.
+   Every AI surface degrades gracefully when its provider key is missing, so a partial
+   deploy still runs — but marking and extraction default to Gemini, so without
+   `GEMINI_API_KEY` the homework pipeline fails. To stage without a Gemini key, set
+   `AI_MARKING_PROVIDER`, `AI_EXTRACTION_PROVIDER` and `AI_SYLLABUS_PROVIDER` to
+   `anthropic`.
+4. **Uploads need the persistent disk.** The blueprint mounts one at `/data` and sets
+   `UPLOAD_DIR=/data/uploads`. Uploaded booklets, mark schemes and submissions are stored
+   on the filesystem with only their relative paths in the database, so without the disk
+   every deploy replaces the container and orphans those rows. A service with a disk runs
+   a single instance; moving `services/storage.py` to S3 later is what lifts that.
+5. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
    start command) — confirm this in the Dockerfile/start command if you change it.
-5. If your service names/URLs differ, update the `routes` destinations in `render.yaml`
-   and the `CORS_ORIGINS` env var accordingly.
+6. If your service names/URLs differ, update the `routes` destinations in `render.yaml`,
+   and the `CORS_ORIGINS` and `GOOGLE_REDIRECT_URI` env vars accordingly.
+   `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
+   on the Google Cloud OAuth client, or the Classroom connect flow fails.
 
-### Vercel (frontend only)
+### Vercel (frontend)
 
-If you deploy the frontend separately on Vercel instead of/alongside Render:
-
-1. Set the Vercel project's root directory to `frontend`.
+1. Set the Vercel project's root directory to `frontend`. Vite is detected automatically;
+   no build command needs setting.
 2. `frontend/vercel.json` rewrites `/api/*` to the Render backend and falls back to
    `index.html` for the SPA — update the destination URL in that file if your backend's
    Render URL differs from `igcse-os-api.onrender.com`.
-3. Alternatively, set `VITE_API_BASE_URL` to the backend's full URL at build time to call
-   it directly (cross-origin) instead of relying on the rewrite — in that case also add the
-   Vercel domain to the backend's `CORS_ORIGINS`.
+3. The same file sets the response headers the Render static site sets, so the app is
+   served with an identical CSP either way. Keep the two in sync when you change one: the
+   frontend holds an access token in `localStorage`, so `script-src 'self'` (no CDN, no
+   inline script) is what makes an injected script expensive.
+4. **Keep the API same-origin.** The `/api/*` rewrite is what lets the httpOnly refresh
+   cookie work — the browser sees one origin, and Vercel proxies to Render server-side.
+   Setting `VITE_API_BASE_URL` to the backend's URL instead makes the calls cross-origin,
+   which needs the Vercel domain in the backend's `CORS_ORIGINS` **and** a `connect-src`
+   change in the CSP, and still leaves sessions unable to refresh — a `SameSite=Lax`
+   cookie is not sent cross-site. Prefer the rewrite.
 
 ## Configuration
 
@@ -82,7 +119,12 @@ All backend settings come from environment variables (see `backend/.env.example`
 |---|---|
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
-| `ANTHROPIC_API_KEY` | Enables AI marking, extraction, chat, and reports |
+| `ANTHROPIC_API_KEY` | Chat, reports, readiness synthesis, class briefs |
+| `GEMINI_API_KEY` | Marking, question extraction, syllabus extraction — the homework pipeline |
+| `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
+| `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
+| `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; unset means the feature reports "not configured" |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
 | `REFRESH_COOKIE_SECURE` | Default `true`; set `false` only for plain-HTTP local dev — the refresh-token cookie is `Secure` and browsers drop it over `http://` otherwise |
 
@@ -94,13 +136,30 @@ Frontend build-time variable (optional, see `frontend/.env` or your host's env s
 
 ### Auth
 
-Access tokens are short-lived Bearer tokens sent in the `Authorization` header, unchanged
-from before. Refresh tokens are now also set as an httpOnly `SameSite=Lax` cookie scoped to
-`/api/v1/auth`, so `POST /api/v1/auth/refresh` works with either the cookie or a JSON body
-(back-compat). Every token embeds the user's `token_version`; `POST /api/v1/auth/logout`
-requires a valid access token, bumps that user's `token_version`, and clears the cookie —
-this immediately invalidates every access/refresh token issued before the logout, closing
-the window a stolen token would otherwise have for its full lifetime.
+Access tokens are short-lived Bearer tokens sent in the `Authorization` header. Refresh
+tokens are set as an httpOnly `SameSite=Lax` cookie scoped to `/api/v1/auth`, so
+`POST /api/v1/auth/refresh` works with either the cookie or a JSON body (back-compat).
+Every token embeds the user's `token_version`; `POST /api/v1/auth/logout` requires a valid
+access token, bumps that user's `token_version`, and clears the cookie — this immediately
+invalidates every access/refresh token issued before the logout, closing the window a
+stolen token would otherwise have for its full lifetime.
+
+The same revocation runs when a tutor resets a student's password
+(`POST /groups/{id}/students/{id}/reset-password`). A reset is how a tutor evicts whoever
+else has been using a shared account, so it has to end the sessions that account already
+has, not just change what a new sign-in needs.
+
+**The browser stores the access token only.** `frontend/src/api/client.ts` deliberately
+does not persist `refresh_token`; the cookie is the only copy, and script on the page
+can't read it. That means refresh needs the API to be same-origin — both supported deploys
+proxy `/api/*` to the backend, so this holds — but a cross-origin `VITE_API_BASE_URL`
+build won't send a `SameSite=Lax` cookie and its sessions will end at the access token's
+expiry instead of refreshing.
+
+Other limits worth knowing: failed logins are throttled per identifier (10 per 15 minutes,
+in-process — see `services/rate_limit.py` for why that's per-instance and when it needs
+to move), and invite codes expire after 14 days, with parent-link codes single-use
+(`services/invites.py`).
 
 ## Project status
 

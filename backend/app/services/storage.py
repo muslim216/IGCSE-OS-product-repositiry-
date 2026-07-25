@@ -18,6 +18,30 @@ ALLOWED_MIMES = {
 }
 
 
+def _looks_like_webp(data: bytes) -> bool:
+    # RIFF container: "RIFF" <4-byte size> "WEBP".
+    return data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+
+
+#: Leading bytes each accepted format must actually start with. The declared
+#: Content-Type comes from the client and is trivially forged, so it decides
+#: nothing on its own — a .exe announced as image/png would otherwise be stored
+#: and handed back under that type. Files are served as attachments with
+#: server-generated names, so this is defence in depth rather than the only
+#: thing standing between a bad upload and a browser.
+_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "application/pdf": (b"%PDF",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+}
+
+
+def content_matches_mime(data: bytes, mime: str) -> bool:
+    if mime == "image/webp":
+        return _looks_like_webp(data)
+    return any(data.startswith(prefix) for prefix in _MAGIC.get(mime, ()))
+
+
 def upload_root() -> Path:
     root = Path(get_settings().upload_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -37,6 +61,12 @@ async def save_upload(file: UploadFile) -> tuple[str, str, str]:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Files must be 20 MB or smaller"
         )
+    if not content_matches_mime(data, mime):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            "This file's contents don't match its type — re-export it as a PDF or image "
+            "and try again",
+        )
     return save_bytes(data, mime, file.filename or "upload")
 
 
@@ -49,6 +79,8 @@ def save_bytes(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
         raise ValueError(f"Unsupported file type: {mime}")
     if len(data) > MAX_FILE_BYTES:
         raise ValueError("File exceeds the 20 MB limit")
+    if not content_matches_mime(data, mime):
+        raise ValueError(f"File contents do not match the declared type: {mime}")
     rel_path = f"{secrets.token_hex(16)}{ALLOWED_MIMES[mime]}"
     (upload_root() / rel_path).write_bytes(data)
     return rel_path, filename, mime

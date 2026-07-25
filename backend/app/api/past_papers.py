@@ -18,7 +18,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
@@ -54,21 +54,33 @@ def _require_tutor(user: User) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
 
 
-async def _enrolled_subject_ids(db, student_id: int) -> set[int]:
-    return set(
-        (
-            await db.scalars(
-                select(Group.subject_id)
-                .join(GroupMember, GroupMember.group_id == Group.id)
-                .where(GroupMember.student_id == student_id)
-            )
-        ).all()
-    )
+async def _enrolled_scope(db, student_id: int) -> set[tuple[int, int]]:
+    """The (organization_id, subject_id) pairs a student is actually taught in.
+
+    Subjects are global — every organization shares the same five built-in
+    syllabuses — so enrollment alone does not bound what a student may see.
+    Scoping on the pair keeps one tutor's uploads inside that tutor's
+    organization; matching on subject alone would show a student every past
+    paper any tutor anywhere had uploaded for their subject.
+
+    The pair comes from the groups the student is in rather than from
+    `user.organization_id`, so a student who joined a second tutor's group with
+    an invite (which does not move their organization) still sees that tutor's
+    papers, and only that tutor's.
+    """
+    rows = (
+        await db.execute(
+            select(Group.organization_id, Group.subject_id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(GroupMember.student_id == student_id)
+        )
+    ).all()
+    return {(org_id, subject_id) for org_id, subject_id in rows}
 
 
 async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
-    """A tutor sees their organization's papers; a student sees papers for the
-    subjects they're enrolled in."""
+    """A tutor sees their organization's papers; a student sees papers uploaded
+    in an organization that teaches them, for a subject they're enrolled in."""
     paper = await db.get(PastPaper, past_paper_id)
     if paper is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
@@ -77,7 +89,7 @@ async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
         return paper
     if user.role == UserRole.student:
-        if paper.subject_id in await _enrolled_subject_ids(db, user.id):
+        if (paper.organization_id, paper.subject_id) in await _enrolled_scope(db, user.id):
             return paper
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
 
@@ -162,8 +174,16 @@ async def list_past_papers(
         query = query.where(PastPaper.organization_id == user.organization_id)
         for_tutor = True
     elif user.role == UserRole.student:
-        enrolled = await _enrolled_subject_ids(db, user.id)
-        query = query.where(PastPaper.subject_id.in_(enrolled or [0]))
+        # One OR'd (organization, subject) pair per group the student is in.
+        # Filtering the two columns independently would let a student in
+        # org A + Chemistry see org B's Chemistry papers the moment they were
+        # also in any org B group. `false()` keeps a student with no groups
+        # seeing nothing rather than everything.
+        pairs = [
+            and_(PastPaper.organization_id == org_id, PastPaper.subject_id == subj_id)
+            for org_id, subj_id in await _enrolled_scope(db, user.id)
+        ]
+        query = query.where(or_(*pairs) if pairs else false())
         for_tutor = False
     else:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")

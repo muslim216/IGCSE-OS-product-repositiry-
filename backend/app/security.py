@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -42,6 +43,47 @@ def create_refresh_token(user_id: int, token_version: int) -> str:
     return _create_token(
         user_id, token_version, "refresh", timedelta(days=settings.refresh_token_expire_days)
     )
+
+
+#: OAuth round-trips leave the app and come back through Google. Ten minutes is
+#: long enough for a consent screen and short enough that a captured state is
+#: worthless by the time it is replayed.
+STATE_TOKEN_TTL = timedelta(minutes=10)
+
+
+def create_state_token(user_id: int, purpose: str) -> str:
+    """A signed, expiring OAuth `state`, bound to the user who started the flow.
+
+    The client also compares this against the copy it stashed before redirecting,
+    which catches a callback that started in a different browser. That check
+    alone is not enough — it lives in script the server cannot vouch for — so the
+    server signs the value too and re-checks it on the way back. Without that,
+    an attacker can hand a tutor a callback URL carrying the attacker's own
+    authorization code and silently connect the attacker's Google account to
+    the tutor's organization.
+    """
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "type": "oauth_state",
+        "purpose": purpose,
+        "nonce": secrets.token_urlsafe(8),
+        "iat": now,
+        "exp": now + STATE_TOKEN_TTL,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def verify_state_token(token: str, user_id: int, purpose: str) -> bool:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError:
+        return False
+    if payload.get("type") != "oauth_state" or payload.get("purpose") != purpose:
+        return False
+    return payload.get("sub") == str(user_id)
 
 
 def decode_token(token: str, expected_type: str) -> tuple[int, int] | None:

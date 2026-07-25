@@ -85,10 +85,22 @@ async def _fake_refresh_access_token(refresh_token: str) -> str:
     return "fresh-access-token"
 
 
+async def _state_for(client, tutor) -> str:
+    """The signed `state` /auth-url hands out. /connect verifies it, so the
+    tests go through the same round trip a browser does."""
+    resp = await client.get("/api/v1/classroom/auth-url", headers=tutor["headers"])
+    assert resp.status_code == 200, resp.text
+    return resp.json()["state"]
+
+
 async def _connect(client, tutor, monkeypatch) -> None:
     monkeypatch.setattr("app.services.google_classroom.exchange_code", _fake_exchange_code)
     monkeypatch.setattr("app.services.google_classroom.fetch_google_email", _fake_fetch_email)
-    resp = await client.post("/api/v1/classroom/connect", json={"code": "auth-code"}, headers=tutor["headers"])
+    resp = await client.post(
+        "/api/v1/classroom/connect",
+        json={"code": "auth-code", "state": await _state_for(client, tutor)},
+        headers=tutor["headers"],
+    )
     assert resp.status_code == 201, resp.text
 
 
@@ -144,7 +156,11 @@ async def test_connect_without_refresh_token_fails(client, tutor, monkeypatch):
 
     monkeypatch.setattr("app.services.google_classroom.exchange_code", fake_exchange_no_refresh)
     monkeypatch.setattr("app.services.google_classroom.fetch_google_email", _fake_fetch_email)
-    resp = await client.post("/api/v1/classroom/connect", json={"code": "x"}, headers=tutor["headers"])
+    resp = await client.post(
+        "/api/v1/classroom/connect",
+        json={"code": "x", "state": await _state_for(client, tutor)},
+        headers=tutor["headers"],
+    )
     assert resp.status_code == 503
 
 

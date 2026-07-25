@@ -1,5 +1,3 @@
-import secrets
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +6,6 @@ from app.api.deps import CurrentUser, DbSession
 from app.models import (
     Group,
     GroupMember,
-    Invite,
     InviteKind,
     ParentCommunication,
     ParentLink,
@@ -33,6 +30,7 @@ from app.schemas.crm import (
     TutorNoteOut,
 )
 from app.schemas.groups import InviteOut
+from app.services.invites import build_invite
 from app.services.student_crm import get_student_crm
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -97,12 +95,9 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
 async def create_parent_code(student_id: int, db: DbSession, user: CurrentUser) -> InviteOut:
     """Generate a code a parent uses to create an account linked to this student."""
     await _tutor_student(db, user, student_id)
-    invite = Invite(
-        code=secrets.token_urlsafe(8),
-        kind=InviteKind.parent_link,
-        student_id=student_id,
-        created_by_id=user.id,
-    )
+    # Single-use: this code hands over one child's whole academic record, and
+    # it is meant for one parent. See services/invites.py.
+    invite = build_invite(InviteKind.parent_link, created_by_id=user.id, student_id=student_id)
     db.add(invite)
     await db.commit()
     return InviteOut(code=invite.code, kind=invite.kind.value, expires_at=invite.expires_at)
