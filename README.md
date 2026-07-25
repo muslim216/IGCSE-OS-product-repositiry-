@@ -56,11 +56,34 @@ cd frontend && npm test                          # frontend
 2. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and
    connect the repo. `render.yaml` provisions the Postgres database, the API, and the
    static frontend, including the `/api/*` rewrite from the frontend to the backend.
-3. Set `ANTHROPIC_API_KEY` when prompted (Render generates `JWT_SECRET` automatically).
-4. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
+3. Fill in the values the blueprint marks `sync: false` — Render prompts for them on the
+   first sync and lists them under the service's **Environment** tab afterwards:
+
+   | Variable | Needed for |
+   | --- | --- |
+   | `ANTHROPIC_API_KEY` | chat, reports, readiness synthesis, class briefs |
+   | `GEMINI_API_KEY` | marking, question extraction, syllabus extraction |
+   | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
+   | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; leave unset to run without it |
+
+   `JWT_SECRET` and `GOOGLE_TOKEN_ENCRYPTION_KEY` are generated automatically.
+   Every AI surface degrades gracefully when its provider key is missing, so a partial
+   deploy still runs — but marking and extraction default to Gemini, so without
+   `GEMINI_API_KEY` the homework pipeline fails. To stage without a Gemini key, set
+   `AI_MARKING_PROVIDER`, `AI_EXTRACTION_PROVIDER` and `AI_SYLLABUS_PROVIDER` to
+   `anthropic`.
+4. **Uploads need the persistent disk.** The blueprint mounts one at `/data` and sets
+   `UPLOAD_DIR=/data/uploads`. Uploaded booklets, mark schemes and submissions are stored
+   on the filesystem with only their relative paths in the database, so without the disk
+   every deploy replaces the container and orphans those rows. A service with a disk runs
+   a single instance; moving `services/storage.py` to S3 later is what lifts that.
+5. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
    start command) — confirm this in the Dockerfile/start command if you change it.
-5. If your service names/URLs differ, update the `routes` destinations in `render.yaml`
-   and the `CORS_ORIGINS` env var accordingly.
+6. If your service names/URLs differ, update the `routes` destinations in `render.yaml`,
+   and the `CORS_ORIGINS` and `GOOGLE_REDIRECT_URI` env vars accordingly.
+   `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
+   on the Google Cloud OAuth client, or the Classroom connect flow fails.
 
 ### Vercel (frontend only)
 
