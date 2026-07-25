@@ -17,6 +17,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Invite, InviteKind
 
@@ -79,8 +81,29 @@ def check_usable(invite: Invite) -> None:
         raise HTTPException(status.HTTP_410_GONE, "This invite link has expired")
 
 
-def consume(invite: Invite) -> None:
-    """Mark a single-use code redeemed. A no-op for multi-use kinds, so callers
-    can call it unconditionally after a successful redemption."""
-    if invite.kind in SINGLE_USE_KINDS:
-        invite.used_at = datetime.now(timezone.utc)
+async def consume(db: AsyncSession, invite: Invite) -> None:
+    """Claim a single-use code. A no-op for multi-use kinds, so callers can
+    call it unconditionally after a successful redemption.
+
+    The guard lives in the UPDATE's WHERE clause, not in Python, because
+    `check_usable()` reading `used_at` and this writing it are two steps with a
+    password hash in between — wide enough for two parents redeeming the same
+    code to both pass the check and both end up linked to the child, which is
+    exactly what single-use exists to stop. Letting the database pick the
+    winner means the loser matches no rows and is told the code is spent.
+    """
+    if invite.kind not in SINGLE_USE_KINDS:
+        return
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(Invite)
+        .where(Invite.id == invite.id, Invite.used_at.is_(None))
+        .values(used_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            "This invite link has already been used — ask for a new one",
+        )
+    invite.used_at = now

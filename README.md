@@ -119,7 +119,12 @@ All backend settings come from environment variables (see `backend/.env.example`
 |---|---|
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
-| `ANTHROPIC_API_KEY` | Enables AI marking, extraction, chat, and reports |
+| `ANTHROPIC_API_KEY` | Chat, reports, readiness synthesis, class briefs |
+| `GEMINI_API_KEY` | Marking, question extraction, syllabus extraction — the homework pipeline |
+| `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
+| `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
+| `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; unset means the feature reports "not configured" |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
 | `REFRESH_COOKIE_SECURE` | Default `true`; set `false` only for plain-HTTP local dev — the refresh-token cookie is `Secure` and browsers drop it over `http://` otherwise |
 

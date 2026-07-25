@@ -47,11 +47,23 @@ export function apiUrl(path: string): string {
 export function getStoredTokens(): StoredTokens | null {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
-  const parsed = JSON.parse(raw) as Partial<TokenPair>;
-  if (!parsed.access_token) return null;
+  // Every request reads this, so anything unparseable here would throw before
+  // the fetch and take down the whole app — including the login that would
+  // replace the bad entry. Discard it and let the user sign in again instead.
+  let parsed: Partial<TokenPair>;
+  try {
+    parsed = JSON.parse(raw) as Partial<TokenPair>;
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+    return null;
+  }
+  if (typeof parsed.access_token !== "string" || !parsed.access_token) {
+    localStorage.removeItem(STORAGE_KEY);
+    return null;
+  }
   return {
     access_token: parsed.access_token,
-    token_type: parsed.token_type ?? "bearer",
+    token_type: typeof parsed.token_type === "string" ? parsed.token_type : "bearer",
   };
 }
 

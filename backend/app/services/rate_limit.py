@@ -62,7 +62,7 @@ class FixedWindowLimiter:
             del self._hits[key]
 
 
-#: Failed logins allowed per identifier and per client address, per window.
+#: Failed logins allowed per identifier, per window.
 #: Generous enough that a student fumbling their password never notices, small
 #: enough that guessing an 8-character password is not viable online.
 LOGIN_FAILURE_LIMIT = 10

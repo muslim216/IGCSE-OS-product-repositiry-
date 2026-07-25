@@ -9,10 +9,12 @@ green even if every other assertion about them changes.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.db import async_session
 from app.models import Invite, Submission, SubmissionFile, User
+from app.services.invites import consume
 from app.services.rate_limit import FixedWindowLimiter, LOGIN_FAILURE_LIMIT
 from app.workers.jobs import process_one_job
 
@@ -217,6 +219,25 @@ async def test_parent_link_codes_are_single_use(client, tutor, group, student): 
 
     async with async_session() as session:
         assert await session.scalar(select(User).where(User.email == "p2@example.com")) is None
+
+
+async def test_claiming_a_parent_code_twice_loses_the_race(client, tutor, student):  # noqa: F811
+    """The single-use check above passes even if `used_at` is only set in
+    Python, because the two redemptions are sequential. Two parents redeeming
+    at once are not: both read `used_at IS NULL` before either writes. Claim
+    the same code twice without a commit in between — the state the loser of
+    that race sees — and the second must be refused by the UPDATE itself."""
+    code_resp = await client.post(
+        f"/api/v1/students/{student['user']['id']}/parent-code", headers=tutor["headers"]
+    )
+    code = code_resp.json()["code"]
+
+    async with async_session() as session:
+        invite = await session.scalar(select(Invite).where(Invite.code == code))
+        await consume(session, invite)
+        with pytest.raises(HTTPException) as exc:
+            await consume(session, invite)
+        assert exc.value.status_code == 410
 
 
 # --- Login throttling ------------------------------------------------------
