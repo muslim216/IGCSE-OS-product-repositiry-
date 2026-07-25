@@ -117,13 +117,30 @@ Frontend build-time variable (optional, see `frontend/.env` or your host's env s
 
 ### Auth
 
-Access tokens are short-lived Bearer tokens sent in the `Authorization` header, unchanged
-from before. Refresh tokens are now also set as an httpOnly `SameSite=Lax` cookie scoped to
-`/api/v1/auth`, so `POST /api/v1/auth/refresh` works with either the cookie or a JSON body
-(back-compat). Every token embeds the user's `token_version`; `POST /api/v1/auth/logout`
-requires a valid access token, bumps that user's `token_version`, and clears the cookie —
-this immediately invalidates every access/refresh token issued before the logout, closing
-the window a stolen token would otherwise have for its full lifetime.
+Access tokens are short-lived Bearer tokens sent in the `Authorization` header. Refresh
+tokens are set as an httpOnly `SameSite=Lax` cookie scoped to `/api/v1/auth`, so
+`POST /api/v1/auth/refresh` works with either the cookie or a JSON body (back-compat).
+Every token embeds the user's `token_version`; `POST /api/v1/auth/logout` requires a valid
+access token, bumps that user's `token_version`, and clears the cookie — this immediately
+invalidates every access/refresh token issued before the logout, closing the window a
+stolen token would otherwise have for its full lifetime.
+
+The same revocation runs when a tutor resets a student's password
+(`POST /groups/{id}/students/{id}/reset-password`). A reset is how a tutor evicts whoever
+else has been using a shared account, so it has to end the sessions that account already
+has, not just change what a new sign-in needs.
+
+**The browser stores the access token only.** `frontend/src/api/client.ts` deliberately
+does not persist `refresh_token`; the cookie is the only copy, and script on the page
+can't read it. That means refresh needs the API to be same-origin — both supported deploys
+proxy `/api/*` to the backend, so this holds — but a cross-origin `VITE_API_BASE_URL`
+build won't send a `SameSite=Lax` cookie and its sessions will end at the access token's
+expiry instead of refreshing.
+
+Other limits worth knowing: failed logins are throttled per identifier (10 per 15 minutes,
+in-process — see `services/rate_limit.py` for why that's per-instance and when it needs
+to move), and invite codes expire after 14 days, with parent-link codes single-use
+(`services/invites.py`).
 
 ## Project status
 

@@ -68,6 +68,27 @@ async def lifespan(app: FastAPI):
         pass
 
 
+#: Sent on every API response. The API returns JSON and file downloads, never
+#: HTML meant to be rendered, so this is about how a browser treats a response
+#: it was tricked into loading:
+#: - nosniff stops a stored upload being re-interpreted as something executable
+#:   regardless of the Content-Type we set on it.
+#: - The frame-ancestors CSP (and X-Frame-Options for older browsers) keeps API
+#:   responses out of an attacker's iframe.
+#: - no-referrer keeps ids in request paths out of the Referer header on any
+#:   navigation away.
+#: The frontend is served separately (static host), so its own headers are set
+#: in render.yaml rather than here.
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Referrer-Policy": "no-referrer",
+}
+
+DOCS_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect"})
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -79,6 +100,19 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        response = await call_next(request)
+        for header, value in SECURITY_HEADERS.items():
+            # Swagger UI at /docs pulls its own JS and CSS from a CDN, which
+            # `default-src 'none'` would block. The docs are the one HTML page
+            # this service serves on purpose, so they opt out of the CSP and
+            # keep the rest.
+            if header == "Content-Security-Policy" and request.url.path in DOCS_PATHS:
+                continue
+            response.headers.setdefault(header, value)
+        return response
 
     @app.get("/api/v1/health")
     async def health() -> dict:

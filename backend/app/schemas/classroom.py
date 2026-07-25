@@ -17,6 +17,9 @@ class ClassroomAuthUrl(BaseModel):
 
 class ClassroomConnect(BaseModel):
     code: str = Field(min_length=1)
+    # The `state` handed out by /auth-url and echoed back by Google. Verified
+    # server-side against the tutor making this call — see security.py.
+    state: str = Field(min_length=1)
 
 
 class ClassroomCourseOut(BaseModel):

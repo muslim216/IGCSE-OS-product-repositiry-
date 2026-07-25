@@ -66,6 +66,9 @@ class Invite(TimestampMixin, Base):
     student_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when a single-use code (parent_link) is redeemed; always null for
+    # group-join codes, which a whole class shares. See services/invites.py.
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     group: Mapped[Group | None] = relationship()
 

@@ -45,6 +45,17 @@ def fake_ai():
 
 
 @pytest.fixture(autouse=True)
+def _reset_login_limiter():
+    """The failed-login counter is a process-global, so without this a test that
+    submits bad passwords would leak its count into every later test."""
+    from app.services.rate_limit import login_limiter
+
+    login_limiter._hits.clear()
+    yield
+    login_limiter._hits.clear()
+
+
+@pytest.fixture(autouse=True)
 async def _db_schema():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

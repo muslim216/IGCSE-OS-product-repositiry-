@@ -1,5 +1,3 @@
-import secrets
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
@@ -13,10 +11,13 @@ from app.schemas.classroom import (
     ClassroomLinkOut,
     ClassroomStatus,
 )
+from app.security import create_state_token, verify_state_token
 from app.services import google_classroom as gc
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/classroom", tags=["classroom"])
+
+OAUTH_PURPOSE = "classroom_connect"
 
 
 def _require_tutor(user: User) -> None:
@@ -47,7 +48,7 @@ async def classroom_status(db: DbSession, user: CurrentUser) -> ClassroomStatus:
 async def auth_url(user: CurrentUser) -> ClassroomAuthUrl:
     _require_tutor(user)
     try:
-        state = secrets.token_urlsafe(24)
+        state = create_state_token(user.id, OAUTH_PURPOSE)
         return ClassroomAuthUrl(url=gc.build_auth_url(state), state=state)
     except gc.GoogleClassroomUnavailableError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
@@ -56,6 +57,15 @@ async def auth_url(user: CurrentUser) -> ClassroomAuthUrl:
 @router.post("/connect", response_model=ClassroomStatus, status_code=status.HTTP_201_CREATED)
 async def connect(body: ClassroomConnect, db: DbSession, user: CurrentUser) -> ClassroomStatus:
     _require_tutor(user)
+    # Rejects a callback this tutor did not start: without it, a link crafted by
+    # an attacker could attach the attacker's Google account to this tutor's
+    # organization, and every subsequent sync would import their coursework.
+    if not verify_state_token(body.state, user.id, OAUTH_PURPOSE):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This connection attempt didn't start here, or it took too long. "
+            "Try connecting again.",
+        )
     try:
         account = await gc.connect_account(
             db, organization_id=user.organization_id, tutor_id=user.id, code=body.code

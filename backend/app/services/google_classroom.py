@@ -379,5 +379,7 @@ async def _download_attachments(access_token: str, sub: dict) -> list[tuple[str,
         try:
             files.append(storage.save_bytes(data, mime, meta.get("name", drive_file["id"])))
         except ValueError:
-            continue  # e.g. over the 20MB cap
+            # Over the 20MB cap, or bytes that don't match the type Drive
+            # declared. Skip the attachment rather than failing the whole sync.
+            continue
     return files

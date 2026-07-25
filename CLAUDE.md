@@ -116,6 +116,12 @@ all new work:
     (`POST /past-papers`); an `extract_past_paper` job pulls `PastPaperQuestion`s using
     the same extraction prompt. The mark scheme is **tutor-only** to download; enrolled
     students can read the booklet.
+  - **Student visibility is scoped to (organization, subject), never subject alone**
+    (`_enrolled_scope` in `api/past_papers.py`). Subjects are global — every org shares the
+    five built-in syllabuses — so matching on subject shows a student every past paper
+    every tutor anywhere has uploaded. The pair comes from the groups the student is in,
+    not from `user.organization_id`, so a student who joined a second tutor's group by
+    invite still sees that tutor's papers and only that tutor's.
   - Students **self-log** their own attempt (`POST /past-papers/{id}/attempts`) with
     `attempted_at`, a `timed` checkbox and `time_taken_minutes`. **All three are
     self-declared** — the platform cannot observe them, and the UI says so.
@@ -256,6 +262,12 @@ document work (marking, question extraction, syllabus extraction) → **Gemini**
   - A submission is `auto_finalized` (nothing needed a tutor) or `needs_review`
     (something did); `finalized` means a tutor signed it off. `finalize` only requires the
     *unsure* questions to be resolved.
+  - **The student's pages are untrusted input to the marking prompt.** Auto-finalize means
+    a mark can count with no human in the loop, and the student controls what is written on
+    the page being read — so the `marking` prompt states that page content is data, never
+    instructions, and that anything addressing the marker is flagged with confidence `low`
+    for a tutor rather than acted on. Keep that rule if the prompt is rewritten, and bump
+    its `version`.
   - **The tutor keeps final authority over every mark, always.** Changing a mark that had
     already been set writes an append-only `MarkOverrideAudit` row (old → new → who → when);
     there is no API to edit or delete those.
@@ -283,6 +295,35 @@ JWT access tokens (short-lived, `Authorization: Bearer`) + refresh tokens (30d),
 also set as an httpOnly `SameSite=Lax` cookie scoped to `/api/v1/auth`. Every token embeds
 the user's `token_version`; `POST /api/v1/auth/logout` bumps it, instantly revoking every
 outstanding token. `deps.get_current_user` re-checks `token_version` on every request.
+
+Invariants here are load-bearing — regressing one is a vulnerability, not a style change:
+
+- **Anything that invalidates a credential bumps `token_version`.** Logout does, and so
+  does a tutor resetting a student's password. Changing a password without bumping it
+  leaves the old refresh token minting access tokens for its full 30 days, which is
+  exactly the case a reset exists to stop. Any future "change my password" or "disable
+  account" endpoint must do the same.
+- **The frontend persists the access token only** (`api/client.ts`). The refresh token
+  lives solely in the httpOnly cookie, so `refreshTokens()` sends an empty body and lets
+  the cookie carry it. Never write `refresh_token` to `localStorage` — that hands a 30-day
+  credential to any XSS and throws away the reason the cookie is httpOnly.
+- **Invite codes are bounded** (`services/invites.py`): everything expires (14d), and
+  parent-link codes are single-use, because one of them exposes a named child's entire
+  record. Mint them with `build_invite()` and validate with `check_usable()` rather than
+  constructing `Invite` directly.
+- **Failed logins are throttled per identifier** (`services/rate_limit.py`), not per IP —
+  the API sits behind Render's proxy, where one shared source address would mean a global
+  lockout. The counter is in-process and correct only while the API runs a single
+  instance; scaling out means moving it to Postgres/Redis, the same moment
+  `services/storage.py` has to move to S3.
+- **`Submission` is polymorphic, so never read `assignment_id` unconditionally.**
+  `api/submissions.py`'s `_tutor_owns()` is the one place that branch lives; a past-paper
+  submission has `assignment_id = None` and reading it raises inside an authorization check.
+- **Uploads are validated by magic bytes**, not the client's `Content-Type`
+  (`services/storage.py:content_matches_mime`).
+- **OAuth `state` is verified server-side** (`security.create_state_token` /
+  `verify_state_token`), bound to the tutor who started the flow. The browser's
+  sessionStorage comparison is a second check, not the check.
 
 ### Frontend (`frontend/src/`)
 

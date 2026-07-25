@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import secrets
+from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import func, or_, select
@@ -30,6 +31,8 @@ from app.security import (
     hash_password,
     verify_password,
 )
+from app.services.invites import check_usable, consume
+from app.services.rate_limit import login_limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -83,16 +86,39 @@ async def register_tutor(body: TutorSignupRequest, db: DbSession, response: Resp
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
+@lru_cache
+def _dummy_hash() -> str:
+    """A real bcrypt hash of a value nobody knows, verified against when the
+    identifier does not exist so a miss costs the same as a wrong password.
+    Without it, response time tells an attacker which accounts are real."""
+    return hash_password(secrets.token_urlsafe(32))
+
+
 @router.post("/login", response_model=AuthResponse)
 async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthResponse:
     identifier = body.identifier.strip().lower()
+
+    # Throttled per identifier, not per client address: the API sits behind
+    # Render's proxy, so every request shares one source IP and an address-based
+    # limit would lock out the whole platform instead of one attacker. Per
+    # identifier is what actually stops guessing a single account's password.
+    if login_limiter.is_limited(identifier):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many failed sign-in attempts. Wait a few minutes and try again.",
+        )
+
     user = await db.scalar(
         select(User).where(
             or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
         )
     )
-    if user is None or not verify_password(body.password, user.password_hash):
+    password_ok = verify_password(body.password, user.password_hash if user else _dummy_hash())
+    if user is None or not password_ok:
+        login_limiter.record(identifier)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
+
+    login_limiter.reset(identifier)
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
@@ -137,8 +163,7 @@ async def _valid_invite(db: AsyncSession, code: str, kind: InviteKind) -> Invite
     )
     if invite is None or invite.kind != kind:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
-    if invite.expires_at is not None and invite.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status.HTTP_410_GONE, "This invite link has expired")
+    check_usable(invite)
     return invite
 
 
@@ -148,6 +173,9 @@ async def preview_invite(code: str, db: DbSession) -> InvitePreview:
     invite = await db.scalar(select(Invite).where(Invite.code == code))
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
+    # Unauthenticated endpoint: a spent or expired code must stop disclosing the
+    # tutor's name, the group, and the student's name along with it.
+    check_usable(invite)
     if invite.kind == InviteKind.student_join and invite.group_id is not None:
         group = await db.scalar(
             select(Group)
@@ -225,6 +253,7 @@ async def register_parent(body: ParentRegisterRequest, db: DbSession, response: 
     db.add(user)
     await db.flush()
     db.add(ParentLink(parent_id=user.id, student_id=invite.student_id))
+    consume(invite)
     await db.commit()
     await db.refresh(user)
     tokens = _token_pair(user)
@@ -238,8 +267,7 @@ async def join_with_invite(body: JoinRequest, db: DbSession, user: CurrentUser) 
     invite = await db.scalar(select(Invite).where(Invite.code == body.invite_code))
     if invite is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
-    if invite.expires_at is not None and invite.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status.HTTP_410_GONE, "This invite link has expired")
+    check_usable(invite)
 
     if invite.kind == InviteKind.student_join:
         if user.role != UserRole.student:
@@ -255,4 +283,5 @@ async def join_with_invite(body: JoinRequest, db: DbSession, user: CurrentUser) 
         )
         if existing is None:
             db.add(ParentLink(parent_id=user.id, student_id=invite.student_id))
+        consume(invite)
     await db.commit()

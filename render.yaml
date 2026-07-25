@@ -102,6 +102,24 @@ services:
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
+    # The app holds an access token in localStorage (the refresh token stays in
+    # an httpOnly cookie the page cannot read), so an injected script is the
+    # thing to make expensive. The CSP allows only same-origin code — no CDN,
+    # no inline <script> — and nothing may frame the app.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: >-
+          default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self';
+          object-src 'none'; base-uri 'self'; form-action 'self';
+          frame-ancestors 'none'
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
     routes:
       # Send API calls to the backend service, everything else to the SPA.
       - type: rewrite
