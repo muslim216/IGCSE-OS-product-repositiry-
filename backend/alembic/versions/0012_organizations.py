@@ -21,7 +21,13 @@ organizations = sa.Table(
     _meta,
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("name", sa.String),
-    sa.Column("created_at", sa.DateTime),
+    # Must match the real column created below (timezone=True). A naive
+    # sa.DateTime here compiles the backfill INSERT with a TIMESTAMP WITHOUT
+    # TIME ZONE cast, which asyncpg then refuses the tz-aware value from
+    # datetime.now(timezone.utc) — failing the upgrade on any Postgres
+    # database that has users to backfill. SQLite accepts either, so the
+    # test suite cannot catch this.
+    sa.Column("created_at", sa.DateTime(timezone=True)),
 )
 users = sa.Table(
     "users",
