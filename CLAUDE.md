@@ -20,10 +20,13 @@ describe the code **as it exists today**; build new work toward the target.
 ## How work reaches production
 
 **`main` is the only branch anything deploys from.** Render (API) and Vercel (frontend)
-both build from it and nothing else, so `main` and "what the user is running right now"
-are the same thing by definition. Pointing either service at another branch is what
-previously split the product across two divergent histories — a service left on a stale
-branch keeps serving it silently while `main` moves on, and the symptoms (missing
+both build from it and nothing else, so `main` is the sole *source* of what the user is
+running. It is not a guarantee of what they are running: a deploy can fail or lag, and a
+failed one leaves the previous revision serving while `main` has already moved. Treat a
+commit as live only once its deploy is confirmed green — `alembic upgrade head` failing
+mid-chain is a real outcome, not a hypothetical. Pointing either service at another branch
+is what previously split the product across two divergent histories — a service left on a
+stale branch keeps serving it silently while `main` moves on, and the symptoms (missing
 endpoints, migration revisions that "don't exist") look like application bugs rather than
 a deploy misconfiguration.
 
@@ -31,8 +34,9 @@ a deploy misconfiguration.
 > `claude/igcse-os-planning-q8be0t`. Read "`main`" below as "the default branch",
 > whatever it is currently called, and delete this note once it is renamed.
 
-**Nothing is committed directly to `main`.** A commit there is live the moment it merges,
-so unverified work must never land on it. Every change follows:
+**Nothing is committed directly to `main`.** A merge there ships immediately — it triggers
+the deploy with no further gate — so unverified work must never land on it. Every change
+follows:
 
 1. Branch off the latest `main`, named for the work — `fix/…`, `feat/…`, `chore/…`.
 2. Build it there; run the backend and frontend suites (`pytest`, `npm test`) locally.
