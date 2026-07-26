@@ -33,3 +33,13 @@ export const deleteResource = (id: number) =>
   api<void>(`/api/v1/resources/${id}`, { method: "DELETE" });
 
 export const resourceFilePath = (id: number) => `/api/v1/resources/${id}/file`;
+
+export function isSafeHttpUrl(url: string | null | undefined): url is string {
+  if (!url) return false;
+  try {
+    const scheme = new URL(url).protocol;
+    return scheme === "http:" || scheme === "https:";
+  } catch {
+    return false;
+  }
+}

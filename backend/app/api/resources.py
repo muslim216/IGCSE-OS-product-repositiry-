@@ -1,4 +1,5 @@
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -28,6 +29,15 @@ async def _can_view_group(db, user: User, group_id: int) -> Group:
     if is_member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     return group
+
+
+def _validated_url(url: str) -> str:
+    scheme = urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "The recording link must be an http(s) URL"
+        )
+    return url
 
 
 def _out(r: GroupResource) -> ResourceOut:
@@ -64,7 +74,7 @@ async def create_resource(
     if kind == "recording":
         if not url:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A recording needs a url")
-        resource.url = url
+        resource.url = _validated_url(url)
     else:
         if file is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A file resource needs a file")
