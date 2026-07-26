@@ -42,9 +42,11 @@ so unverified work must never land on it. Every change follows:
    the agent's, unless they have said otherwise for that change.
 5. Delete the branch on merge. Render and Vercel redeploy from `main` on their own.
 
-The only edits that may go straight to `main` are genuinely inert ones — a typo in prose,
-a comment. Anything touching `backend/`, `frontend/`, or `alembic/versions/` goes through
-a PR, however small it looks.
+The only edits that may go straight to `main` are **documentation-only** ones: prose in
+`README.md`, this file, or `docs/`. Nothing else qualifies — and a code comment is not a
+documentation change, because it lives in a file that ships. Anything under `backend/`,
+`frontend/`, or `alembic/versions/` goes through a PR however small it looks, a
+one-character edit included, since the deploy that carries it is the same size either way.
 
 **Branches are disposable and short-lived.** At any moment the repo should hold `main`,
 whatever single branch is actively in flight, and the `archive/*` branches preserving
