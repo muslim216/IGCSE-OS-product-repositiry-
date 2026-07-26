@@ -1,22 +1,55 @@
 @import "tailwindcss";
 
 @theme {
-  --color-neon-cyan: #22d3ee;
-  --color-neon-violet: #a78bfa;
+  /* Canvas & surfaces (warm stone) */
+  --color-canvas: #f7f5f1;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1eee8;
+
+  /* Ink (deep navy) text scale */
+  --color-ink-900: #1c2b36;
+  --color-ink-700: #35485a;
+  --color-ink-500: #5f7183;
+  --color-ink-400: #8b9aa8;
+
+  /* Brand: muted deep teal — guidance and trust */
+  --color-brand-700: #0d4f4b;
+  --color-brand-600: #136560;
+  --color-brand-500: #1d7a74;
+  --color-brand-100: #d9eae8;
+  --color-brand-50: #edf4f3;
+
+  /* Secondary: muted amber/gold — attention, milestones, readiness signals */
+  --color-gold-600: #9a7326;
+  --color-gold-500: #b98f3a;
+  --color-gold-100: #f2e9d5;
+
+  /* Calm, accessible status colors */
+  --color-ok-700: #2e6e51;
+  --color-ok-100: #e2efe7;
+  --color-warn-700: #8a6420;
+  --color-warn-100: #f4ecd9;
+  --color-risk-600: #a94b45;
+  --color-risk-100: #f5e6e4;
+
+  /* Hairlines */
+  --color-line: #e6e1d7;
+  --color-line-strong: #d4cec1;
 }
 
 /* ---------------------------------------------------------------------
-   Dark / glassmorphism / neon reskin.
+   MANARA light theme.
 
    Rather than hand-editing every page's Tailwind classes, the handful of
-   color utilities the app actually uses (bg-white cards, slate text/borders,
-   blue accents) are retargeted here. Unlayered rules always win over
-   Tailwind's own @layer utilities in the cascade, so this overrides the
-   generated classes app-wide without !important.
+   color utilities the app actually uses (white cards, slate text/borders,
+   blue accents, status tints) are retargeted here onto the MANARA palette.
+   Unlayered rules always win over Tailwind's own @layer utilities in the
+   cascade, so this re-themes the generated classes app-wide without
+   !important. Keep this block unlayered.
    --------------------------------------------------------------------- */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -26,16 +59,13 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
-    radial-gradient(1000px 500px at 110% 10%, rgba(167, 139, 250, 0.12), transparent 55%),
-    #05070f;
-  color: #e2e8f0;
+  background-color: var(--color-canvas);
+  color: var(--color-ink-900);
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.35);
-  color: #f8fafc;
+  background: var(--color-brand-100);
+  color: var(--color-ink-900);
 }
 
 ::-webkit-scrollbar {
@@ -46,177 +76,169 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
+  background: var(--color-line-strong);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: #c2bbab;
 }
 
-/* Card / panel surfaces (bg-white p-4 rounded-lg border ...) become glass. */
-.bg-white {
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-.hover\:bg-slate-50:hover {
-  background-color: rgba(148, 163, 184, 0.08);
+/* Neutral surfaces */
+.bg-slate-50 {
+  background-color: var(--color-surface-muted);
 }
 .disabled\:bg-slate-50:disabled {
-  background-color: rgba(148, 163, 184, 0.04);
+  background-color: var(--color-surface-muted);
 }
-
-.bg-slate-50 {
-  background-color: transparent;
+.hover\:bg-slate-50:hover,
+.hover\:bg-slate-100:hover {
+  background-color: #f4f1eb;
 }
 .bg-slate-100 {
-  background-color: rgba(148, 163, 184, 0.1);
+  background-color: #ece8e0;
+}
+.bg-slate-200 {
+  background-color: #e0dacd;
 }
 .hover\:bg-slate-200:hover {
-  background-color: rgba(148, 163, 184, 0.16);
+  background-color: #e0dacd;
 }
 .hover\:bg-slate-300:hover {
-  background-color: rgba(148, 163, 184, 0.22);
+  background-color: #d6cfc0;
+}
+.bg-slate-700 {
+  background-color: var(--color-ink-900);
 }
 .hover\:bg-slate-800:hover {
-  background-color: rgba(148, 163, 184, 0.14);
+  background-color: var(--color-ink-700);
 }
 
 /* Borders */
 .border {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: var(--color-line);
 }
 .border-slate-200 {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: var(--color-line);
 }
 .border-slate-300 {
-  border-color: rgba(148, 163, 184, 0.28);
+  border-color: var(--color-line-strong);
 }
 .divide-y > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgba(148, 163, 184, 0.14);
+  border-color: var(--color-line);
 }
 
 /* Text */
 .text-slate-800 {
-  color: #f1f5f9;
+  color: var(--color-ink-900);
 }
 .hover\:text-slate-800:hover {
-  color: #f8fafc;
+  color: var(--color-ink-900);
 }
 .text-slate-700 {
-  color: #e2e8f0;
+  color: var(--color-ink-700);
 }
 .hover\:text-slate-700:hover {
-  color: #f1f5f9;
+  color: var(--color-ink-900);
 }
 .text-slate-600 {
-  color: #cbd5e1;
+  color: var(--color-ink-700);
 }
 .text-slate-500 {
-  color: #94a3b8;
+  color: var(--color-ink-500);
 }
 .text-slate-400 {
-  color: #64748b;
+  color: var(--color-ink-400);
 }
 
-/* Primary accent: neon cyan -> violet gradient in place of flat blue. */
+/* Primary accent: muted deep teal in place of flat blue. */
 .bg-blue-600,
 .bg-blue-500 {
-  background-image: linear-gradient(135deg, var(--color-neon-cyan), var(--color-neon-violet));
-  background-color: transparent;
-  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
-  border: none;
+  background-color: var(--color-brand-600);
 }
 .hover\:bg-blue-700:hover {
-  filter: brightness(1.12);
-  box-shadow: 0 0 32px -4px rgba(167, 139, 250, 0.65);
+  background-color: var(--color-brand-700);
 }
 .text-blue-600,
 .text-blue-700 {
-  color: var(--color-neon-cyan);
+  color: var(--color-brand-600);
 }
 .hover\:text-blue-800:hover,
 .hover\:text-blue-700:hover {
-  color: var(--color-neon-violet);
+  color: var(--color-brand-700);
 }
 .border-blue-600,
 .focus\:border-blue-500:focus,
 .hover\:border-blue-400:hover {
-  border-color: var(--color-neon-cyan);
+  border-color: var(--color-brand-500);
+}
+.border-blue-200 {
+  border-color: var(--color-brand-100);
+}
+.bg-blue-50 {
+  background-color: var(--color-brand-50);
+}
+.bg-blue-100 {
+  background-color: var(--color-brand-100);
 }
 
-/* Status colors, brightened for legibility on a dark background. */
-.bg-green-100 {
-  background-color: rgba(52, 211, 153, 0.14);
+/* Status colors, calmed onto the MANARA palette. */
+.bg-green-100,
+.bg-green-50 {
+  background-color: var(--color-ok-100);
 }
-.text-green-700 {
-  color: #6ee7b7;
+.text-green-700,
+.text-green-600 {
+  color: var(--color-ok-700);
+}
+.bg-green-500 {
+  background-color: var(--color-ok-700);
 }
 .bg-red-100,
 .bg-red-50 {
-  background-color: rgba(248, 113, 113, 0.14);
+  background-color: var(--color-risk-100);
 }
 .text-red-700,
-.text-red-600 {
-  color: #fca5a5;
+.text-red-600,
+.text-red-500 {
+  color: var(--color-risk-600);
+}
+.hover\:text-red-600:hover,
+.hover\:text-red-500:hover {
+  color: var(--color-risk-600);
 }
 .hover\:bg-red-100:hover {
-  background-color: rgba(248, 113, 113, 0.2);
+  background-color: var(--color-risk-100);
+}
+.bg-red-600,
+.bg-red-500 {
+  background-color: var(--color-risk-600);
 }
 .hover\:bg-red-700:hover {
-  filter: brightness(1.15);
+  background-color: #934039;
 }
-.hover\:text-red-500:hover {
-  color: #fca5a5;
+.border-red-200 {
+  border-color: #ecd2cf;
 }
 .bg-amber-100,
 .bg-amber-50 {
-  background-color: rgba(251, 191, 36, 0.16);
+  background-color: var(--color-warn-100);
 }
 .text-amber-700,
-.text-amber-800 {
-  color: #fcd34d;
+.text-amber-800,
+.text-amber-600 {
+  color: var(--color-warn-700);
+}
+.border-amber-200,
+.border-amber-300 {
+  border-color: #e8dcc0;
+}
+.bg-amber-500 {
+  background-color: var(--color-gold-500);
 }
 
-/* Glass + glow helpers for hand-styled surfaces (AppShell, new tab pages). */
-.glass {
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-}
-.glow-cyan {
-  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
-}
-.glow-violet {
-  box-shadow: 0 0 24px -6px rgba(167, 139, 250, 0.55);
-}
-
-/* Left sidebar (desktop nav). Fixed width, full height, its own scroll. */
-.sidebar {
-  width: 248px;
-  height: 100vh;
-  position: sticky;
-  top: 0;
-  padding: 1.75rem 1rem;
-  background: rgba(8, 11, 22, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(148, 163, 184, 0.1);
-}
-
-/* Cards get a touch more presence than a flat Tailwind border: a soft lift on
-   hover for anything clickable, and a hairline top highlight so panels read as
-   physical surfaces rather than plain rectangles. */
+/* Cards: a whisper of depth, no lift or glow. */
 .rounded-lg.border.bg-white {
-  position: relative;
-  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 12px 24px -16px rgba(0, 0, 0, 0.5);
-}
-a.rounded-lg.border.bg-white:hover,
-button.rounded-lg.border.bg-white:hover {
-  border-color: rgba(148, 163, 184, 0.32);
-  transform: translateY(-1px);
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 1px 2px rgba(28, 43, 54, 0.05);
 }
 
 h1,

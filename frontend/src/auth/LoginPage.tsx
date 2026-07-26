@@ -31,7 +31,10 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow">
-        <h1 className="text-2xl font-semibold text-slate-800">IGCSE Student OS</h1>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-600">
+          by OASIS AI
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-[0.06em] text-slate-800">MANARA</h1>
         <p className="mt-1 text-sm text-slate-500">Sign in with your email or username.</p>
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>
