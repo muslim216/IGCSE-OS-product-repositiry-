@@ -84,12 +84,14 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-      # Exactly one URL, and it must be the origin the tutor's browser is on
-      # when it lands on the callback page — Google redirects the browser here
-      # and the backend replays the same value in the token exchange. The Vercel
-      # deploy is the only frontend, so this is its origin. Whatever it says must
-      # also be registered verbatim as an authorized redirect URI on the Google
-      # OAuth client.
+      # The full callback URL — origin *and* path — not just the origin. Google
+      # redirects the browser here and the backend replays the same value in the
+      # token exchange, so the whole string must be registered verbatim as an
+      # authorized redirect URI on the Google OAuth client; a bare origin there
+      # will not match. The origin is Vercel's because that is the page the
+      # tutor's browser is on when it lands on the callback. Change this only
+      # when the frontend's callback URL changes — a new backend URL is a
+      # frontend/vercel.json rewrite change and does not touch this value.
       - key: GOOGLE_REDIRECT_URI
         value: https://igcse-os-product-repositiry.vercel.app/settings/classroom/callback
       # Encrypts stored Google refresh tokens at rest. Falls back to a key

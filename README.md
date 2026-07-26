@@ -52,9 +52,10 @@ cd frontend && npm test                          # frontend
 
 The live setup is **the API on Render and the frontend on Vercel**
 (`igcse-os-product-repositiry.vercel.app`) — one host each, no overlap. Vercel serves the
-only copy of the app users visit, and its origin is what must appear in
-`GOOGLE_REDIRECT_URI`; Render runs the API, the database and the uploads disk, and users
-never open its URL directly.
+only copy of the app users visit, so `GOOGLE_REDIRECT_URI` is the full callback URL on
+that origin (`https://…vercel.app/settings/classroom/callback`, path included) and must be
+registered verbatim on the Google OAuth client. Render runs the API, the database and the
+uploads disk, and users never open its URL directly.
 
 Both hosts build from the repository's **default branch**. A branch that is pushed but not
 merged into it does not deploy, however green its tests are.
@@ -90,9 +91,11 @@ merged into it does not deploy, however green its tests are.
    a single instance; moving `services/storage.py` to S3 later is what lifts that.
 5. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
    start command) — confirm this in the Dockerfile/start command if you change it.
-6. If your service names/URLs differ, update the rewrite destination in
-   `frontend/vercel.json`, and the `CORS_ORIGINS` and `GOOGLE_REDIRECT_URI` env vars
-   accordingly.
+6. If your URLs differ, the three values change independently. A different **backend**
+   URL is only the rewrite destination in `frontend/vercel.json`. A different **frontend**
+   origin is `CORS_ORIGINS` (origin only, no path) *and* `GOOGLE_REDIRECT_URI` (the full
+   callback URL, path included) — `GOOGLE_REDIRECT_URI` otherwise stays put, since the
+   backend never appears in it.
    `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
    on the Google Cloud OAuth client, or the Classroom connect flow fails.
 
