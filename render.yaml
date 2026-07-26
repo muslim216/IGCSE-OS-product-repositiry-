@@ -1,7 +1,10 @@
-# Render blueprint: one Postgres database, the FastAPI backend, and the
-# static frontend. Deploy by connecting this repo at https://dashboard.render.com
-# ("New" -> "Blueprint"). Values marked `sync: false` are not stored in the repo
-# and must be filled in from the Render dashboard — see README "Deployment".
+# Render blueprint: one Postgres database and the FastAPI backend. The frontend
+# is served by Vercel alone (frontend/vercel.json) and is deliberately not
+# provisioned here — a second copy of the app on another origin would not match
+# GOOGLE_REDIRECT_URI, so Classroom would silently fail for anyone who reached it.
+# Deploy by connecting this repo at https://dashboard.render.com ("New" ->
+# "Blueprint"). Values marked `sync: false` are not stored in the repo and must
+# be filled in from the Render dashboard — see README "Deployment".
 
 databases:
   - name: igcse-os-db
@@ -83,11 +86,10 @@ services:
         sync: false
       # Exactly one URL, and it must be the origin the tutor's browser is on
       # when it lands on the callback page — Google redirects the browser here
-      # and the backend replays the same value in the token exchange. The
-      # Vercel deploy is the frontend users actually visit (the repo's
-      # homepage); change this to the Render static site's origin if that
-      # becomes the canonical one. Whatever it says must also be registered
-      # verbatim as an authorized redirect URI on the Google OAuth client.
+      # and the backend replays the same value in the token exchange. The Vercel
+      # deploy is the only frontend, so this is its origin. Whatever it says must
+      # also be registered verbatim as an authorized redirect URI on the Google
+      # OAuth client.
       - key: GOOGLE_REDIRECT_URI
         value: https://igcse-os-product-repositiry.vercel.app/settings/classroom/callback
       # Encrypts stored Google refresh tokens at rest. Falls back to a key
@@ -97,45 +99,12 @@ services:
         generateValue: true
 
       # --- Web ----------------------------------------------------------
-      # Both frontends are listed because either may be serving. Neither needs
-      # CORS while it proxies /api/* server-side (the browser sees one origin);
-      # this only matters for a cross-origin VITE_API_BASE_URL build, and an
-      # origin missing here fails at the browser with no server-side trace.
+      # The Vercel frontend does not need CORS while it proxies /api/*
+      # server-side (the browser sees one origin); this only matters for a
+      # cross-origin VITE_API_BASE_URL build, and an origin missing here fails
+      # at the browser with no server-side trace.
       - key: CORS_ORIGINS
-        value: https://igcse-os-product-repositiry.vercel.app,https://igcse-os.onrender.com
+        value: https://igcse-os-product-repositiry.vercel.app
       # The refresh cookie is HTTPS-only. Never set false on a real deploy.
       - key: REFRESH_COOKIE_SECURE
         value: "true"
-
-  - type: web
-    name: igcse-os
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    # The app holds an access token in localStorage (the refresh token stays in
-    # an httpOnly cookie the page cannot read), so an injected script is the
-    # thing to make expensive. The CSP allows only same-origin code — no CDN,
-    # no inline <script> — and nothing may frame the app.
-    headers:
-      - path: /*
-        name: Content-Security-Policy
-        value: >-
-          default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-          img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self';
-          object-src 'none'; base-uri 'self'; form-action 'self';
-          frame-ancestors 'none'
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: Referrer-Policy
-        value: strict-origin-when-cross-origin
-    routes:
-      # Send API calls to the backend service, everything else to the SPA.
-      - type: rewrite
-        source: /api/*
-        destination: https://igcse-os-api.onrender.com/api/*
-      - type: rewrite
-        source: /*
-        destination: /index.html

@@ -394,10 +394,13 @@ plus shared `components/` and per-domain `api/` wrappers.
 
 ## Deployment
 
-`render.yaml` is a Render Blueprint provisioning the Postgres DB, the Dockerized API
-(`backend/Dockerfile` runs `alembic upgrade head` then uvicorn on start), and the static
-frontend with the `/api/*` → backend rewrite. The frontend can alternatively deploy on
-Vercel (`frontend/vercel.json`). See `README.md` for the full deploy walkthrough.
+`render.yaml` is a Render Blueprint provisioning the Postgres DB and the Dockerized API
+(`backend/Dockerfile` runs `alembic upgrade head` then uvicorn on start). The frontend
+deploys on **Vercel alone** (`frontend/vercel.json`), which also holds the `/api/*` →
+backend rewrite and the app's security headers. Render deliberately does not serve a
+second copy: a duplicate origin would not match `GOOGLE_REDIRECT_URI`, so Classroom would
+fail for anyone who landed on it while everything else appeared to work. See `README.md`
+for the full deploy walkthrough.
 
 Both services track `main` and only `main` — see "How work reaches production" above
 before changing a connected branch on either dashboard.
