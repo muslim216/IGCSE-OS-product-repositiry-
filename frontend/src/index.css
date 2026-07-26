@@ -1,18 +1,55 @@
 @import "tailwindcss";
 
 @theme {
-  --color-neon-cyan: #22d3ee;
-  --color-neon-violet: #a78bfa;
+  /* Ground & elevated surfaces */
+  --color-canvas: #0c1022; /* Midnight — body, nav, hero */
+  --color-surface: #1c2543; /* Slate — cards, panels, modals */
+  --color-surface-muted: #242e52; /* raised rows, hovers, skeletons */
+
+  /* Text on dark, strongest first */
+  --color-ink-900: #f1ebe0; /* Parchment — headings, primary text */
+  --color-ink-700: #d7d3c8; /* body copy */
+  --color-ink-500: #8a9bbe; /* Horizon — labels, captions, nav */
+  --color-ink-400: #66739a; /* muted meta */
+
+  /* Beacon — the signature amber, and the product's only accent */
+  --color-brand-700: #a98844;
+  --color-brand-600: #c9a55a;
+  --color-brand-500: #d4b476;
+  --color-brand-100: rgba(201, 165, 90, 0.16);
+  --color-brand-50: rgba(201, 165, 90, 0.08);
+
+  /* Gold aliases (same family — kept so existing class names stay valid) */
+  --color-gold-600: #c9a55a;
+  --color-gold-500: #d4b476;
+  --color-gold-100: rgba(201, 165, 90, 0.15);
+
+  /* Calm status colors, tuned for legibility on navy */
+  --color-ok-700: #7fc79a;
+  --color-ok-100: rgba(84, 163, 120, 0.16);
+  --color-warn-700: #dba14e;
+  --color-warn-100: rgba(219, 161, 78, 0.14);
+  --color-risk-600: #d98a80;
+  --color-risk-100: rgba(199, 107, 98, 0.16);
+
+  /* Hairlines */
+  --color-line: #28325a;
+  --color-line-strong: #394472;
+
+  /* Editorial serif for display headings. System-only: the CSP blocks
+     external font hosts, so no webfont can be loaded. */
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
 }
 
 /* ---------------------------------------------------------------------
-   Dark / glassmorphism / neon reskin.
+   MANARA midnight theme.
 
    Rather than hand-editing every page's Tailwind classes, the handful of
-   color utilities the app actually uses (bg-white cards, slate text/borders,
-   blue accents) are retargeted here. Unlayered rules always win over
-   Tailwind's own @layer utilities in the cascade, so this overrides the
-   generated classes app-wide without !important.
+   color utilities the app actually uses (white cards, slate text/borders,
+   blue accents, status tints) are retargeted here onto the MANARA palette.
+   Unlayered rules always win over Tailwind's own @layer utilities in the
+   cascade, so this re-themes the generated classes app-wide without
+   !important. Keep this block unlayered.
    --------------------------------------------------------------------- */
 
 :root {
@@ -26,16 +63,13 @@ body,
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(34, 211, 238, 0.12), transparent 60%),
-    radial-gradient(1000px 500px at 110% 10%, rgba(167, 139, 250, 0.12), transparent 55%),
-    #05070f;
-  color: #e2e8f0;
+  background-color: var(--color-canvas);
+  color: var(--color-ink-700);
 }
 
 ::selection {
-  background: rgba(34, 211, 238, 0.35);
-  color: #f8fafc;
+  background: var(--color-brand-100);
+  color: var(--color-ink-900);
 }
 
 ::-webkit-scrollbar {
@@ -46,181 +80,204 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
+  background: var(--color-line-strong);
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: #4a5670;
 }
 
-/* Card / panel surfaces (bg-white p-4 rounded-lg border ...) become glass. */
+/* Neutral surfaces */
 .bg-white {
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background-color: var(--color-surface);
+  color: var(--color-ink-700);
 }
-.hover\:bg-slate-50:hover {
-  background-color: rgba(148, 163, 184, 0.08);
+.bg-slate-50 {
+  background-color: var(--color-surface-muted);
 }
 .disabled\:bg-slate-50:disabled {
-  background-color: rgba(148, 163, 184, 0.04);
+  background-color: var(--color-surface-muted);
 }
-
-.bg-slate-50 {
-  background-color: transparent;
+.hover\:bg-slate-50:hover,
+.hover\:bg-slate-100:hover {
+  background-color: #2a3457;
 }
 .bg-slate-100 {
-  background-color: rgba(148, 163, 184, 0.1);
+  background-color: #2a3457;
+}
+.bg-slate-200 {
+  background-color: #313c63;
 }
 .hover\:bg-slate-200:hover {
-  background-color: rgba(148, 163, 184, 0.16);
+  background-color: #313c63;
 }
 .hover\:bg-slate-300:hover {
-  background-color: rgba(148, 163, 184, 0.22);
+  background-color: #3a4670;
+}
+.bg-slate-700 {
+  background-color: var(--color-surface-muted);
 }
 .hover\:bg-slate-800:hover {
-  background-color: rgba(148, 163, 184, 0.14);
+  background-color: #2a3457;
+}
+
+/* Form controls on dark. Legacy inputs that don't carry .bg-white still
+   need a dark field, or the browser renders them light-on-light. */
+input,
+select,
+textarea {
+  background-color: var(--color-canvas);
+  color: var(--color-ink-900);
+  border-color: var(--color-line);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-ink-400);
 }
 
 /* Borders */
 .border {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: var(--color-line);
 }
 .border-slate-200 {
-  border-color: rgba(148, 163, 184, 0.16);
+  border-color: var(--color-line);
 }
 .border-slate-300 {
-  border-color: rgba(148, 163, 184, 0.28);
+  border-color: var(--color-line-strong);
 }
 .divide-y > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgba(148, 163, 184, 0.14);
+  border-color: var(--color-line);
 }
 
 /* Text */
 .text-slate-800 {
-  color: #f1f5f9;
+  color: var(--color-ink-900);
 }
 .hover\:text-slate-800:hover {
-  color: #f8fafc;
+  color: var(--color-ink-900);
 }
 .text-slate-700 {
-  color: #e2e8f0;
+  color: var(--color-ink-700);
 }
 .hover\:text-slate-700:hover {
-  color: #f1f5f9;
+  color: var(--color-ink-900);
 }
 .text-slate-600 {
-  color: #cbd5e1;
+  color: var(--color-ink-700);
 }
 .text-slate-500 {
-  color: #94a3b8;
+  color: var(--color-ink-500);
 }
 .text-slate-400 {
-  color: #64748b;
+  color: var(--color-ink-400);
 }
 
-/* Primary accent: neon cyan -> violet gradient in place of flat blue. */
+/* Primary accent: Beacon gold. Filled gold carries Midnight text — the
+   unlayered `color` here beats a co-located .text-white on the same button. */
 .bg-blue-600,
-.bg-blue-500 {
-  background-image: linear-gradient(135deg, var(--color-neon-cyan), var(--color-neon-violet));
-  background-color: transparent;
-  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
-  border: none;
+.bg-blue-500,
+.bg-brand-600 {
+  background-color: var(--color-brand-600);
+  color: var(--color-canvas);
 }
-.hover\:bg-blue-700:hover {
-  filter: brightness(1.12);
-  box-shadow: 0 0 32px -4px rgba(167, 139, 250, 0.65);
+.hover\:bg-blue-700:hover,
+.hover\:bg-brand-700:hover {
+  background-color: var(--color-brand-500);
+  color: var(--color-canvas);
 }
 .text-blue-600,
 .text-blue-700 {
-  color: var(--color-neon-cyan);
+  color: var(--color-brand-600);
 }
 .hover\:text-blue-800:hover,
 .hover\:text-blue-700:hover {
-  color: var(--color-neon-violet);
+  color: var(--color-brand-500);
 }
 .border-blue-600,
 .focus\:border-blue-500:focus,
 .hover\:border-blue-400:hover {
-  border-color: var(--color-neon-cyan);
+  border-color: var(--color-brand-600);
+}
+.border-blue-200 {
+  border-color: var(--color-brand-100);
+}
+.bg-blue-50 {
+  background-color: var(--color-brand-50);
+}
+.bg-blue-100 {
+  background-color: var(--color-brand-100);
 }
 
-/* Status colors, brightened for legibility on a dark background. */
-.bg-green-100 {
-  background-color: rgba(52, 211, 153, 0.14);
+/* Status colors, calmed onto the MANARA palette. */
+.bg-green-100,
+.bg-green-50 {
+  background-color: var(--color-ok-100);
 }
-.text-green-700 {
-  color: #6ee7b7;
+.text-green-700,
+.text-green-600 {
+  color: var(--color-ok-700);
+}
+.bg-green-500 {
+  background-color: var(--color-ok-700);
 }
 .bg-red-100,
 .bg-red-50 {
-  background-color: rgba(248, 113, 113, 0.14);
+  background-color: var(--color-risk-100);
 }
 .text-red-700,
-.text-red-600 {
-  color: #fca5a5;
+.text-red-600,
+.text-red-500 {
+  color: var(--color-risk-600);
+}
+.hover\:text-red-600:hover,
+.hover\:text-red-500:hover {
+  color: var(--color-risk-600);
 }
 .hover\:bg-red-100:hover {
-  background-color: rgba(248, 113, 113, 0.2);
+  background-color: var(--color-risk-100);
+}
+.bg-red-600,
+.bg-red-500 {
+  background-color: var(--color-risk-600);
+  color: var(--color-canvas);
 }
 .hover\:bg-red-700:hover {
-  filter: brightness(1.15);
+  background-color: #c4756b;
 }
-.hover\:text-red-500:hover {
-  color: #fca5a5;
+.border-red-200 {
+  border-color: rgba(199, 107, 98, 0.35);
 }
 .bg-amber-100,
 .bg-amber-50 {
-  background-color: rgba(251, 191, 36, 0.16);
+  background-color: var(--color-warn-100);
 }
 .text-amber-700,
-.text-amber-800 {
-  color: #fcd34d;
+.text-amber-800,
+.text-amber-600 {
+  color: var(--color-warn-700);
+}
+.border-amber-200,
+.border-amber-300 {
+  border-color: rgba(219, 161, 78, 0.35);
+}
+.bg-amber-500 {
+  background-color: var(--color-gold-500);
 }
 
-/* Glass + glow helpers for hand-styled surfaces (AppShell, new tab pages). */
-.glass {
-  background-color: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-}
-.glow-cyan {
-  box-shadow: 0 0 24px -6px rgba(34, 211, 238, 0.55);
-}
-.glow-violet {
-  box-shadow: 0 0 24px -6px rgba(167, 139, 250, 0.55);
-}
-
-/* Left sidebar (desktop nav). Fixed width, full height, its own scroll. */
-.sidebar {
-  width: 248px;
-  height: 100vh;
-  position: sticky;
-  top: 0;
-  padding: 1.75rem 1rem;
-  background: rgba(8, 11, 22, 0.6);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(148, 163, 184, 0.1);
-}
-
-/* Cards get a touch more presence than a flat Tailwind border: a soft lift on
-   hover for anything clickable, and a hairline top highlight so panels read as
-   physical surfaces rather than plain rectangles. */
+/* Cards: depth comes from the surface lift, not a glow. */
 .rounded-lg.border.bg-white {
-  position: relative;
-  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 12px 24px -16px rgba(0, 0, 0, 0.5);
-}
-a.rounded-lg.border.bg-white:hover,
-button.rounded-lg.border.bg-white:hover {
-  border-color: rgba(148, 163, 184, 0.32);
-  transform: translateY(-1px);
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* Editorial display type for the top of the hierarchy; h3 and below stay
+   sans so dense UI keeps its clarity. */
 h1,
-h2,
+h2 {
+  font-family: var(--font-display);
+  color: var(--color-ink-900);
+  letter-spacing: -0.01em;
+}
 h3 {
+  color: var(--color-ink-900);
   letter-spacing: -0.01em;
 }

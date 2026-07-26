@@ -1,140 +1,164 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
+import { LogOut, Sparkles, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import { InitialsAvatar } from "./ui";
 
 export interface NavItem {
   to: string;
   label: string;
+  icon: LucideIcon;
+  /** "bottom" items sit apart from the main workflow nav. */
+  slot?: "main" | "bottom";
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || "?";
+/** The beacon: MANARA's mark — a guiding light over a tapering tower. */
+function BeaconMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="h-8 w-8 shrink-0 text-brand-600">
+      <circle cx="12" cy="5" r="2.6" fill="currentColor" />
+      <path d="M8.5 10h7l2 9h-11z" fill="currentColor" />
+      <path d="M9.6 14.5h4.8" stroke="var(--color-canvas)" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-1">
-      <span
-        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-bold text-slate-950"
-        style={{
-          background: "linear-gradient(135deg, #22d3ee, #a78bfa)",
-          boxShadow: "0 0 20px -4px rgba(34, 211, 238, 0.7)",
-        }}
-      >
-        OS
-      </span>
-      <span className="text-[15px] font-semibold leading-tight tracking-tight text-slate-100">
-        IGCSE Student OS
+      <BeaconMark />
+      <span className="leading-tight">
+        <span className="block font-display text-[16px] tracking-[0.18em] text-ink-900">
+          MANARA
+        </span>
+        <span className="block text-[9px] font-semibold uppercase tracking-[0.2em] text-brand-600">
+          by OASIS AI
+        </span>
       </span>
     </div>
   );
 }
 
-function NavLinks({ nav, orientation }: { nav: NavItem[]; orientation: "vertical" | "horizontal" }) {
+function SidebarLink({ item }: { item: NavItem }) {
   return (
-    <nav
-      className={
-        orientation === "vertical"
-          ? "flex flex-col gap-0.5"
-          : "flex gap-1 overflow-x-auto"
+    <NavLink
+      to={item.to}
+      end
+      className={({ isActive }) =>
+        `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
+          isActive
+            ? "bg-brand-600 font-medium text-canvas"
+            : "text-ink-500 hover:bg-surface hover:text-ink-900"
+        }`
       }
     >
-      {nav.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end
-          className={({ isActive }) =>
-            orientation === "vertical"
-              ? `group relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  isActive
-                    ? "text-slate-50"
-                    : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
-                }`
-              : `whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                  isActive
-                    ? "text-slate-950"
-                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-100"
-                }`
-          }
-          style={({ isActive }) =>
-            !isActive
-              ? undefined
-              : orientation === "vertical"
-                ? {
-                    background:
-                      "linear-gradient(90deg, rgba(34,211,238,0.16), rgba(167,139,250,0.10))",
-                    boxShadow: "inset 2px 0 0 0 var(--color-neon-cyan)",
-                  }
-                : {
-                    background: "linear-gradient(135deg, #22d3ee, #a78bfa)",
-                    boxShadow: "0 0 16px -4px rgba(34, 211, 238, 0.6)",
-                  }
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
-    </nav>
+      <item.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
+      {item.label}
+    </NavLink>
+  );
+}
+
+function TabLink({ item }: { item: NavItem }) {
+  return (
+    <NavLink
+      to={item.to}
+      end
+      className={({ isActive }) =>
+        `flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${
+          isActive ? "bg-brand-600 text-canvas" : "text-ink-500 hover:bg-surface"
+        }`
+      }
+    >
+      <item.icon aria-hidden className="h-4 w-4 shrink-0" />
+      {item.label}
+    </NavLink>
   );
 }
 
 export default function AppShell({ title, nav = [] }: { title: string; nav?: NavItem[] }) {
   const { user, signOut } = useAuth();
+  const mainNav = nav.filter((item) => item.slot !== "bottom");
+  const bottomNav = nav.filter((item) => item.slot === "bottom");
+  const isTutor = title === "Tutor";
 
   return (
     <div className="min-h-screen md:flex">
       {/* Desktop: fixed left sidebar */}
-      <aside className="sidebar hidden shrink-0 flex-col justify-between md:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex">
         <div className="flex flex-col gap-8">
           <Brand />
           <div className="flex flex-col gap-1">
-            <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
               {title}
             </span>
-            <NavLinks nav={nav} orientation="vertical" />
+            <nav aria-label={`${title} navigation`} className="flex flex-col gap-0.5">
+              {mainNav.map((item) => (
+                <SidebarLink key={item.to} item={item} />
+              ))}
+            </nav>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 border-t border-white/[0.06] px-1 pt-4">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/[0.06] text-xs font-semibold text-slate-300">
-            {initials(user?.name ?? "?")}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-slate-200">{user?.name}</p>
+        <div className="flex flex-col gap-1 border-t border-line pt-4">
+          {bottomNav.map((item) => (
+            <SidebarLink key={item.to} item={item} />
+          ))}
+
+          {isTutor && (
+            <Link
+              to="/tutor"
+              className="flex items-start gap-2.5 rounded-md px-3 py-2 text-ink-700 transition hover:bg-surface"
+            >
+              <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+              <span className="leading-tight">
+                <span className="block text-sm">AI Guidance</span>
+                <span className="block text-xs text-ink-400">Evidence-grounded</span>
+              </span>
+            </Link>
+          )}
+
+          <div className="mt-2 flex items-center gap-2.5 px-1">
+            <InitialsAvatar name={user?.name ?? "?"} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
+              <p className="truncate text-xs text-ink-400">{title}</p>
+            </div>
             <button
               onClick={signOut}
-              className="text-xs text-slate-500 transition hover:text-slate-200"
+              aria-label="Sign out"
+              className="rounded-md p-1.5 text-ink-400 transition hover:bg-surface hover:text-ink-900"
             >
-              Sign out
+              <LogOut aria-hidden className="h-4 w-4" />
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Mobile: top bar with horizontal tabs */}
-      <header className="glass sticky top-0 z-10 border-x-0 border-t-0 md:hidden">
+      {/* Mobile: compact top bar with horizontal tabs */}
+      <header className="sticky top-0 z-10 border-b border-line bg-canvas md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-slate-400">{user?.name}</span>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="truncate text-ink-500">{user?.name}</span>
             <button
               onClick={signOut}
-              className="rounded-md px-2 py-1 text-slate-400 transition hover:text-slate-100"
+              aria-label="Sign out"
+              className="rounded-md p-1.5 text-ink-400 transition hover:text-ink-900"
             >
-              Sign out
+              <LogOut aria-hidden className="h-4 w-4" />
             </button>
           </div>
         </div>
         {nav.length > 0 && (
-          <div className="px-4 pb-3">
-            <NavLinks nav={nav} orientation="horizontal" />
-          </div>
+          <nav aria-label={`${title} navigation`} className="flex gap-1 overflow-x-auto px-4 pb-3">
+            {nav.map((item) => (
+              <TabLink key={item.to} item={item} />
+            ))}
+          </nav>
         )}
       </header>
 
-      <main className="min-w-0 flex-1 px-4 py-6 md:px-10 md:py-10">
-        <div className="mx-auto max-w-5xl">
+      <main className="min-w-0 flex-1 px-4 py-6 md:px-10 md:py-8">
+        <div className="mx-auto max-w-6xl">
           <Outlet />
         </div>
       </main>

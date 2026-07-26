@@ -66,20 +66,20 @@ test("student sees all 8 student tabs", async () => {
   }
 });
 
-test("tutor sees all 10 tutor tabs", async () => {
+test("tutor sees all 9 tutor tabs plus AI Guidance", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   for (const label of [
-    "Home",
+    "Today",
     "Classes",
     "Class readiness",
     "Homework",
+    "Past papers",
+    "Mocks",
     "Syllabuses",
     "Preferences",
-    "Mocks",
-    "Past papers",
-    "Today",
     "Settings",
+    "AI Guidance",
   ]) {
     await expectNavLabel(label);
   }

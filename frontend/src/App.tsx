@@ -1,5 +1,22 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import {
+  BookOpen,
+  ClipboardList,
+  FileText,
+  FolderOpen,
+  Gauge,
+  GraduationCap,
+  Home as HomeIcon,
+  PenLine,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+  Sparkles,
+  Sunrise,
+  Users,
+  Video,
+} from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
+import type { NavItem } from "./components/AppShell";
 import LoginPage from "./auth/LoginPage";
 import TutorSignupPage from "./auth/TutorSignupPage";
 import JoinPage from "./auth/JoinPage";
@@ -17,12 +34,13 @@ import MockEntryPage from "./tutor/MockEntryPage";
 import ClassReadinessPage from "./tutor/ClassReadinessPage";
 import HomeworkOverviewPage from "./tutor/HomeworkOverviewPage";
 import PreferencesPage from "./tutor/PreferencesPage";
-import TodayPage from "./tutor/TodayPage";
+import TodayDashboard from "./tutor/today/TodayDashboard";
 import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
 import ClassroomSettingsPage from "./tutor/ClassroomSettingsPage";
 import ClassroomCallbackPage from "./tutor/ClassroomCallbackPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
+
 import StudentDashboard from "./student/StudentDashboard";
 import StudentHomePage from "./student/StudentHomePage";
 import HomeworkPage from "./student/HomeworkPage";
@@ -33,7 +51,6 @@ import RecordingsPage from "./student/RecordingsPage";
 import ExamsPage from "./student/ExamsPage";
 import StudentPastPapersPage from "./student/PastPapersPage";
 import SitPastPaperPage from "./student/SitPastPaperPage";
-import TutorHomePage from "./tutor/TutorHomePage";
 import ParentDashboard from "./parent/ParentDashboard";
 
 function Home() {
@@ -44,28 +61,27 @@ function Home() {
   return <Navigate to={user ? homePathFor(user) : "/login"} replace />;
 }
 
-const STUDENT_NAV = [
-  { to: "/student", label: "Home" },
-  { to: "/student/readiness", label: "Readiness" },
-  { to: "/student/files", label: "Files" },
-  { to: "/student/recordings", label: "Recordings" },
-  { to: "/student/homework", label: "Homework" },
-  { to: "/student/tutor", label: "AI Tutor" },
-  { to: "/student/past-papers", label: "Past papers" },
-  { to: "/student/exams", label: "Exams" },
+const STUDENT_NAV: NavItem[] = [
+  { to: "/student", label: "Home", icon: HomeIcon },
+  { to: "/student/readiness", label: "Readiness", icon: Gauge },
+  { to: "/student/homework", label: "Homework", icon: ClipboardList },
+  { to: "/student/past-papers", label: "Past papers", icon: FileText },
+  { to: "/student/exams", label: "Exams", icon: GraduationCap },
+  { to: "/student/files", label: "Files", icon: FolderOpen },
+  { to: "/student/recordings", label: "Recordings", icon: Video },
+  { to: "/student/tutor", label: "AI Tutor", icon: Sparkles, slot: "bottom" },
 ];
 
-const TUTOR_NAV = [
-  { to: "/tutor", label: "Home" },
-  { to: "/tutor/classes", label: "Classes" },
-  { to: "/tutor/readiness", label: "Class readiness" },
-  { to: "/tutor/homework", label: "Homework" },
-  { to: "/tutor/syllabuses", label: "Syllabuses" },
-  { to: "/tutor/preferences", label: "Preferences" },
-  { to: "/tutor/mocks", label: "Mocks" },
-  { to: "/tutor/past-papers", label: "Past papers" },
-  { to: "/tutor/today", label: "Today" },
-  { to: "/tutor/settings", label: "Settings" },
+const TUTOR_NAV: NavItem[] = [
+  { to: "/tutor", label: "Today", icon: Sunrise },
+  { to: "/tutor/classes", label: "Classes", icon: Users },
+  { to: "/tutor/readiness", label: "Class readiness", icon: Gauge },
+  { to: "/tutor/homework", label: "Homework", icon: ClipboardList },
+  { to: "/tutor/past-papers", label: "Past papers", icon: FileText },
+  { to: "/tutor/mocks", label: "Mocks", icon: PenLine },
+  { to: "/tutor/syllabuses", label: "Syllabuses", icon: BookOpen },
+  { to: "/tutor/preferences", label: "Preferences", icon: SlidersHorizontal },
+  { to: "/tutor/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function App() {
@@ -79,14 +95,14 @@ export default function App() {
 
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
         <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} />}>
-          <Route path="/tutor" element={<TutorHomePage />} />
+          <Route path="/tutor" element={<TodayDashboard />} />
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
           <Route path="/tutor/homework" element={<HomeworkOverviewPage />} />
           <Route path="/tutor/syllabuses" element={<SyllabusUploadPage />} />
           <Route path="/tutor/preferences" element={<PreferencesPage />} />
           <Route path="/tutor/mocks" element={<MocksPage />} />
-          <Route path="/tutor/today" element={<TodayPage />} />
+          <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
           <Route path="/tutor/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/tutor/groups/:groupId/new-homework" element={<AssignmentCreatePage />} />
           <Route path="/tutor/groups/:groupId/analytics" element={<GroupAnalyticsPage />} />

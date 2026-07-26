@@ -8,7 +8,7 @@ import { listConversations } from "../api/chat";
 
 function StatTile({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "good" | "warn" }) {
   const color =
-    tone === "good" ? "text-emerald-400" : tone === "warn" ? "text-amber-400" : "text-slate-100";
+    tone === "good" ? "text-green-700" : tone === "warn" ? "text-amber-700" : "text-slate-800";
   return (
     <div className="rounded-lg border bg-white p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
@@ -47,7 +47,7 @@ export default function StudentHomePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-100">
+        <h2 className="text-2xl font-semibold tracking-tight text-slate-800">
           Welcome back, {firstName(user?.name)}
         </h2>
         <p className="mt-1 text-sm text-slate-500">Here's where things stand across the board.</p>
@@ -136,7 +136,7 @@ export default function StudentHomePage() {
         {latestChat ? (
           <Link
             to="/student/tutor"
-            className="mt-2 block truncate text-sm text-slate-500 hover:text-slate-300"
+            className="mt-2 block truncate text-sm text-slate-500 hover:text-slate-700"
           >
             Continue: “{latestChat.title}”
           </Link>

@@ -14,6 +14,6 @@ test("unauthenticated users see the login page", async () => {
       </AuthProvider>
     </QueryClientProvider>,
   );
-  expect(await screen.findByText("IGCSE Student OS")).toBeInTheDocument();
+  expect(await screen.findByText("MANARA")).toBeInTheDocument();
   expect(screen.getByText("Sign in with your email or username.")).toBeInTheDocument();
 });
