@@ -17,6 +17,42 @@ The codebase is mid-transition to the MANARA target architecture — see
 `docs/manara-architecture.md` and "The MANARA update" below. Sections that follow
 describe the code **as it exists today**; build new work toward the target.
 
+## How work reaches production
+
+**`main` is the only branch anything deploys from.** Render (API) and Vercel (frontend)
+both build from it and nothing else, so `main` and "what the user is running right now"
+are the same thing by definition. Pointing either service at another branch is what
+previously split the product across two divergent histories — a service left on a stale
+branch keeps serving it silently while `main` moves on, and the symptoms (missing
+endpoints, migration revisions that "don't exist") look like application bugs rather than
+a deploy misconfiguration.
+
+> Until the GitHub rename lands, the default branch is still literally named
+> `claude/igcse-os-planning-q8be0t`. Read "`main`" below as "the default branch",
+> whatever it is currently called, and delete this note once it is renamed.
+
+**Nothing is committed directly to `main`.** A commit there is live the moment it merges,
+so unverified work must never land on it. Every change follows:
+
+1. Branch off the latest `main`, named for the work — `fix/…`, `feat/…`, `chore/…`.
+2. Build it there; run the backend and frontend suites (`pytest`, `npm test`) locally.
+3. Open a PR into `main`. CI (CodeQL, Vercel preview build, CodeRabbit) gates it, and the
+   preview URL shows the change running before it is real.
+4. Merge once green **and** the tutor/owner approves — the merge button is theirs, not
+   the agent's, unless they have said otherwise for that change.
+5. Delete the branch on merge. Render and Vercel redeploy from `main` on their own.
+
+The only edits that may go straight to `main` are **documentation-only** ones: prose in
+`README.md`, this file, or `docs/`. Nothing else qualifies — and a code comment is not a
+documentation change, because it lives in a file that ships. Anything under `backend/`,
+`frontend/`, or `alembic/versions/` goes through a PR however small it looks, a
+one-character edit included, since the deploy that carries it is the same size either way.
+
+**Branches are disposable and short-lived.** At any moment the repo should hold `main`,
+whatever single branch is actively in flight, and the `archive/*` branches preserving
+superseded UI experiments and the original build history. A branch that has merged is
+finished — never reopen or stack new work on it; start again from `main`.
+
 ## Common commands
 
 Backend (run from `backend/`, Python 3.11+):
@@ -358,7 +394,13 @@ plus shared `components/` and per-domain `api/` wrappers.
 
 ## Deployment
 
-`render.yaml` is a Render Blueprint provisioning the Postgres DB, the Dockerized API
-(`backend/Dockerfile` runs `alembic upgrade head` then uvicorn on start), and the static
-frontend with the `/api/*` → backend rewrite. The frontend can alternatively deploy on
-Vercel (`frontend/vercel.json`). See `README.md` for the full deploy walkthrough.
+`render.yaml` is a Render Blueprint provisioning the Postgres DB and the Dockerized API
+(`backend/Dockerfile` runs `alembic upgrade head` then uvicorn on start). The frontend
+deploys on **Vercel alone** (`frontend/vercel.json`), which also holds the `/api/*` →
+backend rewrite and the app's security headers. Render deliberately does not serve a
+second copy: a duplicate origin would not match `GOOGLE_REDIRECT_URI`, so Classroom would
+fail for anyone who landed on it while everything else appeared to work. See `README.md`
+for the full deploy walkthrough.
+
+Both services track `main` and only `main` — see "How work reaches production" above
+before changing a connected branch on either dashboard.
