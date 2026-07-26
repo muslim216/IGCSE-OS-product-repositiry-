@@ -147,7 +147,7 @@ export default function CreateLessonModal({
           <button
             type="submit"
             disabled={mutation.isPending || options.length === 0}
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
+            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-500 disabled:opacity-50"
           >
             {mutation.isPending ? "Saving…" : "Schedule lesson"}
           </button>

@@ -11,17 +11,26 @@ export interface NavItem {
   slot?: "main" | "bottom";
 }
 
+/** The beacon: MANARA's mark — a guiding light over a tapering tower. */
+function BeaconMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden className="h-8 w-8 shrink-0 text-brand-600">
+      <circle cx="12" cy="5" r="2.6" fill="currentColor" />
+      <path d="M8.5 10h7l2 9h-11z" fill="currentColor" />
+      <path d="M9.6 14.5h4.8" stroke="var(--color-canvas)" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function Brand() {
   return (
     <div className="flex items-center gap-2.5 px-1">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-700 text-sm font-bold text-white">
-        M
-      </span>
+      <BeaconMark />
       <span className="leading-tight">
-        <span className="block text-[15px] font-semibold tracking-[0.06em] text-ink-900">
+        <span className="block font-display text-[16px] tracking-[0.18em] text-ink-900">
           MANARA
         </span>
-        <span className="block text-[9px] font-semibold uppercase tracking-[0.2em] text-gold-600">
+        <span className="block text-[9px] font-semibold uppercase tracking-[0.2em] text-brand-600">
           by OASIS AI
         </span>
       </span>
@@ -37,8 +46,8 @@ function SidebarLink({ item }: { item: NavItem }) {
       className={({ isActive }) =>
         `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
           isActive
-            ? "bg-brand-50 font-medium text-brand-700"
-            : "text-ink-500 hover:bg-surface-muted hover:text-ink-900"
+            ? "bg-brand-600 font-medium text-canvas"
+            : "text-ink-500 hover:bg-surface hover:text-ink-900"
         }`
       }
     >
@@ -55,7 +64,7 @@ function TabLink({ item }: { item: NavItem }) {
       end
       className={({ isActive }) =>
         `flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${
-          isActive ? "bg-brand-600 text-white" : "text-ink-500 hover:bg-surface-muted"
+          isActive ? "bg-brand-600 text-canvas" : "text-ink-500 hover:bg-surface"
         }`
       }
     >
@@ -74,7 +83,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
   return (
     <div className="min-h-screen md:flex">
       {/* Desktop: fixed left sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-surface px-4 py-6 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex">
         <div className="flex flex-col gap-8">
           <Brand />
           <div className="flex flex-col gap-1">
@@ -97,9 +106,9 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
           {isTutor && (
             <Link
               to="/tutor"
-              className="flex items-start gap-2.5 rounded-md px-3 py-2 text-ink-700 transition hover:bg-surface-muted"
+              className="flex items-start gap-2.5 rounded-md px-3 py-2 text-ink-700 transition hover:bg-surface"
             >
-              <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-gold-600" />
+              <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
               <span className="leading-tight">
                 <span className="block text-sm">AI Guidance</span>
                 <span className="block text-xs text-ink-400">Evidence-grounded</span>
@@ -116,7 +125,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
             <button
               onClick={signOut}
               aria-label="Sign out"
-              className="rounded-md p-1.5 text-ink-400 transition hover:bg-surface-muted hover:text-ink-900"
+              className="rounded-md p-1.5 text-ink-400 transition hover:bg-surface hover:text-ink-900"
             >
               <LogOut aria-hidden className="h-4 w-4" />
             </button>
@@ -125,7 +134,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
       </aside>
 
       {/* Mobile: compact top bar with horizontal tabs */}
-      <header className="sticky top-0 z-10 border-b border-line bg-surface md:hidden">
+      <header className="sticky top-0 z-10 border-b border-line bg-canvas md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
           <div className="flex items-center gap-2 text-sm">

@@ -14,7 +14,7 @@ export function InitialsAvatar({ name, size = "md" }: { name: string; size?: "sm
   return (
     <span
       aria-hidden
-      className={`grid ${sizing} shrink-0 place-items-center rounded-full bg-brand-50 font-semibold text-brand-700`}
+      className={`grid ${sizing} shrink-0 place-items-center rounded-full bg-brand-100 font-semibold text-brand-500`}
     >
       {initials(name)}
     </span>
@@ -33,7 +33,9 @@ export function SectionHeader({
   return (
     <div className="flex items-baseline justify-between gap-4">
       <div>
-        <h3 className="text-sm font-semibold text-ink-900">{title}</h3>
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-600">
+          {title}
+        </h3>
         {description && <p className="mt-0.5 text-xs text-ink-500">{description}</p>}
       </div>
       {action && <div className="shrink-0 text-sm">{action}</div>}
@@ -44,7 +46,7 @@ export function SectionHeader({
 export function SectionCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <section
-      className={`rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(28,43,54,0.05)] ${className}`}
+      className={`rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.35)] ${className}`}
     >
       {children}
     </section>
@@ -70,14 +72,14 @@ export function StatusBadge({ status }: { status: ReadinessStatus }) {
 
 const BAR_FILLS: Record<ReadinessStatus, string> = {
   on_track: "bg-ok-700",
-  needs_attention: "bg-gold-500",
+  needs_attention: "bg-warn-700",
   at_risk: "bg-risk-600",
 };
 
 /** Slim evidence bar. Decorative — the numeric score is always shown beside it. */
 export function ReadinessBar({ score, status }: { score: number; status: ReadinessStatus }) {
   return (
-    <span aria-hidden className="inline-block h-1 w-24 overflow-hidden rounded-full bg-surface-muted align-middle">
+    <span aria-hidden className="inline-block h-1 w-24 overflow-hidden rounded-full bg-canvas align-middle">
       <span
         className={`block h-full rounded-full ${BAR_FILLS[status]}`}
         style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
@@ -133,7 +135,7 @@ export function Modal({
       <button
         type="button"
         aria-label="Close dialog"
-        className="absolute inset-0 bg-ink-900/30"
+        className="absolute inset-0 bg-black/60"
         onClick={onClose}
         tabIndex={-1}
       />
@@ -170,7 +172,9 @@ export function useToast(): { toast: ReactNode; showToast: (message: string) => 
   const toast = (
     <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
       {message && (
-        <p className="rounded-lg bg-ink-900 px-4 py-2 text-sm text-white shadow-lg">{message}</p>
+        <p className="rounded-lg border border-line bg-surface-muted px-4 py-2 text-sm text-ink-900 shadow-lg">
+          {message}
+        </p>
       )}
     </div>
   );

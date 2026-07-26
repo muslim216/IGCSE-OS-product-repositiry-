@@ -29,12 +29,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-8 shadow">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-600">
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+      <div className="w-full max-w-md rounded-xl border border-line bg-surface p-8 shadow">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-600">
           by OASIS AI
         </p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-[0.06em] text-slate-800">MANARA</h1>
+        <h1 className="mt-1 text-2xl tracking-[0.18em] text-slate-800">MANARA</h1>
         <p className="mt-1 text-sm text-slate-500">Sign in with your email or username.</p>
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>

@@ -20,7 +20,7 @@ export default function ActivityPanel({
         title="Needs your review"
         description="Recent work waiting on you"
         action={
-          <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-700">
+          <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-500">
             All homework →
           </Link>
         }
@@ -52,7 +52,7 @@ export default function ActivityPanel({
                     ? `/tutor/submissions/${item.submission_id}`
                     : `/tutor/assignments/${item.assignment_id}`
                 }
-                className="block text-sm font-medium text-ink-900 hover:text-brand-700"
+                className="block text-sm font-medium text-ink-900 hover:text-brand-500"
               >
                 {item.assignment_title}
                 {item.student_name && (

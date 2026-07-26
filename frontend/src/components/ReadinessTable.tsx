@@ -83,17 +83,17 @@ export default function ReadinessTable({
       )}
 
       {rows.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-3 flex flex-wrap gap-5 border-b border-line">
           {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
               aria-pressed={filter === tab.id}
               onClick={() => onFilter(tab.id)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              className={`-mb-px border-b-2 pb-2 text-xs font-medium transition ${
                 filter === tab.id
-                  ? "bg-ink-900 text-white"
-                  : "text-ink-500 hover:bg-surface-muted hover:text-ink-900"
+                  ? "border-brand-600 text-ink-900"
+                  : "border-transparent text-ink-500 hover:text-ink-900"
               }`}
             >
               {tab.label}
@@ -120,7 +120,7 @@ export default function ReadinessTable({
           title="No readiness evidence yet."
           hint="Marked homework, assessments and past papers build each learner's picture."
           action={
-            <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-700">
+            <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-500">
               Go to homework →
             </Link>
           }
@@ -150,7 +150,7 @@ export default function ReadinessTable({
                   <td className="py-3 pr-3 text-ink-500">{row.subject_name}</td>
                   <td className="py-3 pr-3">
                     <span className="flex items-center gap-2">
-                      <span className="w-9 shrink-0 tabular-nums text-ink-900">
+                      <span className="w-9 shrink-0 font-display text-[15px] tabular-nums text-ink-900">
                         {Math.round(row.score)}%
                       </span>
                       <ReadinessBar score={row.score} status={row.status} />
@@ -162,7 +162,7 @@ export default function ReadinessTable({
                   <td className="py-3">
                     <Link
                       to={`/tutor/students/${row.student_id}`}
-                      className="font-medium text-brand-600 hover:text-brand-700"
+                      className="font-medium text-brand-600 hover:text-brand-500"
                     >
                       Review evidence →
                     </Link>

@@ -28,7 +28,7 @@ export default function LearningLoopStrip() {
             <span
               className={`grid h-9 w-9 place-items-center rounded-full border ${
                 step.emphasis
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
+                  ? "border-brand-600 bg-brand-100 text-brand-500"
                   : "border-line bg-surface text-ink-500"
               }`}
             >
@@ -36,7 +36,7 @@ export default function LearningLoopStrip() {
             </span>
             <span
               className={`text-xs ${
-                step.emphasis ? "font-medium text-brand-700" : "text-ink-500"
+                step.emphasis ? "font-medium text-brand-500" : "text-ink-500"
               }`}
             >
               {step.label}

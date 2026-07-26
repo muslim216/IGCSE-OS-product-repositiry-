@@ -36,7 +36,7 @@ export default function GuidancePanel({
   return (
     <div className="rounded-lg border border-line bg-surface-muted p-4">
       <p className="flex items-start gap-2 text-xs text-ink-500">
-        <Sparkles aria-hidden className="mt-px h-4 w-4 shrink-0 text-gold-600" />
+        <Sparkles aria-hidden className="mt-px h-4 w-4 shrink-0 text-brand-600" />
         <span>{evidenceNote}</span>
       </p>
 

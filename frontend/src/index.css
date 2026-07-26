@@ -1,44 +1,48 @@
 @import "tailwindcss";
 
 @theme {
-  /* Canvas & surfaces (warm stone) */
-  --color-canvas: #f7f5f1;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f1eee8;
+  /* Ground & elevated surfaces */
+  --color-canvas: #0c1022; /* Midnight — body, nav, hero */
+  --color-surface: #1c2543; /* Slate — cards, panels, modals */
+  --color-surface-muted: #242e52; /* raised rows, hovers, skeletons */
 
-  /* Ink (deep navy) text scale */
-  --color-ink-900: #1c2b36;
-  --color-ink-700: #35485a;
-  --color-ink-500: #5f7183;
-  --color-ink-400: #8b9aa8;
+  /* Text on dark, strongest first */
+  --color-ink-900: #f1ebe0; /* Parchment — headings, primary text */
+  --color-ink-700: #d7d3c8; /* body copy */
+  --color-ink-500: #8a9bbe; /* Horizon — labels, captions, nav */
+  --color-ink-400: #66739a; /* muted meta */
 
-  /* Brand: muted deep teal — guidance and trust */
-  --color-brand-700: #0d4f4b;
-  --color-brand-600: #136560;
-  --color-brand-500: #1d7a74;
-  --color-brand-100: #d9eae8;
-  --color-brand-50: #edf4f3;
+  /* Beacon — the signature amber, and the product's only accent */
+  --color-brand-700: #a98844;
+  --color-brand-600: #c9a55a;
+  --color-brand-500: #d4b476;
+  --color-brand-100: rgba(201, 165, 90, 0.16);
+  --color-brand-50: rgba(201, 165, 90, 0.08);
 
-  /* Secondary: muted amber/gold — attention, milestones, readiness signals */
-  --color-gold-600: #9a7326;
-  --color-gold-500: #b98f3a;
-  --color-gold-100: #f2e9d5;
+  /* Gold aliases (same family — kept so existing class names stay valid) */
+  --color-gold-600: #c9a55a;
+  --color-gold-500: #d4b476;
+  --color-gold-100: rgba(201, 165, 90, 0.15);
 
-  /* Calm, accessible status colors */
-  --color-ok-700: #2e6e51;
-  --color-ok-100: #e2efe7;
-  --color-warn-700: #8a6420;
-  --color-warn-100: #f4ecd9;
-  --color-risk-600: #a94b45;
-  --color-risk-100: #f5e6e4;
+  /* Calm status colors, tuned for legibility on navy */
+  --color-ok-700: #7fc79a;
+  --color-ok-100: rgba(84, 163, 120, 0.16);
+  --color-warn-700: #dba14e;
+  --color-warn-100: rgba(219, 161, 78, 0.14);
+  --color-risk-600: #d98a80;
+  --color-risk-100: rgba(199, 107, 98, 0.16);
 
   /* Hairlines */
-  --color-line: #e6e1d7;
-  --color-line-strong: #d4cec1;
+  --color-line: #28325a;
+  --color-line-strong: #394472;
+
+  /* Editorial serif for display headings. System-only: the CSP blocks
+     external font hosts, so no webfont can be loaded. */
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
 }
 
 /* ---------------------------------------------------------------------
-   MANARA light theme.
+   MANARA midnight theme.
 
    Rather than hand-editing every page's Tailwind classes, the handful of
    color utilities the app actually uses (white cards, slate text/borders,
@@ -49,7 +53,7 @@
    --------------------------------------------------------------------- */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 html,
@@ -60,7 +64,7 @@ body,
 
 body {
   background-color: var(--color-canvas);
-  color: var(--color-ink-900);
+  color: var(--color-ink-700);
 }
 
 ::selection {
@@ -80,10 +84,14 @@ body {
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #c2bbab;
+  background: #4a5670;
 }
 
 /* Neutral surfaces */
+.bg-white {
+  background-color: var(--color-surface);
+  color: var(--color-ink-700);
+}
 .bg-slate-50 {
   background-color: var(--color-surface-muted);
 }
@@ -92,25 +100,39 @@ body {
 }
 .hover\:bg-slate-50:hover,
 .hover\:bg-slate-100:hover {
-  background-color: #f4f1eb;
+  background-color: #2a3457;
 }
 .bg-slate-100 {
-  background-color: #ece8e0;
+  background-color: #2a3457;
 }
 .bg-slate-200 {
-  background-color: #e0dacd;
+  background-color: #313c63;
 }
 .hover\:bg-slate-200:hover {
-  background-color: #e0dacd;
+  background-color: #313c63;
 }
 .hover\:bg-slate-300:hover {
-  background-color: #d6cfc0;
+  background-color: #3a4670;
 }
 .bg-slate-700 {
-  background-color: var(--color-ink-900);
+  background-color: var(--color-surface-muted);
 }
 .hover\:bg-slate-800:hover {
-  background-color: var(--color-ink-700);
+  background-color: #2a3457;
+}
+
+/* Form controls on dark. Legacy inputs that don't carry .bg-white still
+   need a dark field, or the browser renders them light-on-light. */
+input,
+select,
+textarea {
+  background-color: var(--color-canvas);
+  color: var(--color-ink-900);
+  border-color: var(--color-line);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-ink-400);
 }
 
 /* Borders */
@@ -150,13 +172,18 @@ body {
   color: var(--color-ink-400);
 }
 
-/* Primary accent: muted deep teal in place of flat blue. */
+/* Primary accent: Beacon gold. Filled gold carries Midnight text — the
+   unlayered `color` here beats a co-located .text-white on the same button. */
 .bg-blue-600,
-.bg-blue-500 {
+.bg-blue-500,
+.bg-brand-600 {
   background-color: var(--color-brand-600);
+  color: var(--color-canvas);
 }
-.hover\:bg-blue-700:hover {
-  background-color: var(--color-brand-700);
+.hover\:bg-blue-700:hover,
+.hover\:bg-brand-700:hover {
+  background-color: var(--color-brand-500);
+  color: var(--color-canvas);
 }
 .text-blue-600,
 .text-blue-700 {
@@ -164,12 +191,12 @@ body {
 }
 .hover\:text-blue-800:hover,
 .hover\:text-blue-700:hover {
-  color: var(--color-brand-700);
+  color: var(--color-brand-500);
 }
 .border-blue-600,
 .focus\:border-blue-500:focus,
 .hover\:border-blue-400:hover {
-  border-color: var(--color-brand-500);
+  border-color: var(--color-brand-600);
 }
 .border-blue-200 {
   border-color: var(--color-brand-100);
@@ -212,12 +239,13 @@ body {
 .bg-red-600,
 .bg-red-500 {
   background-color: var(--color-risk-600);
+  color: var(--color-canvas);
 }
 .hover\:bg-red-700:hover {
-  background-color: #934039;
+  background-color: #c4756b;
 }
 .border-red-200 {
-  border-color: #ecd2cf;
+  border-color: rgba(199, 107, 98, 0.35);
 }
 .bg-amber-100,
 .bg-amber-50 {
@@ -230,19 +258,26 @@ body {
 }
 .border-amber-200,
 .border-amber-300 {
-  border-color: #e8dcc0;
+  border-color: rgba(219, 161, 78, 0.35);
 }
 .bg-amber-500 {
   background-color: var(--color-gold-500);
 }
 
-/* Cards: a whisper of depth, no lift or glow. */
+/* Cards: depth comes from the surface lift, not a glow. */
 .rounded-lg.border.bg-white {
-  box-shadow: 0 1px 2px rgba(28, 43, 54, 0.05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+/* Editorial display type for the top of the hierarchy; h3 and below stay
+   sans so dense UI keeps its clarity. */
 h1,
-h2,
+h2 {
+  font-family: var(--font-display);
+  color: var(--color-ink-900);
+  letter-spacing: -0.01em;
+}
 h3 {
+  color: var(--color-ink-900);
   letter-spacing: -0.01em;
 }

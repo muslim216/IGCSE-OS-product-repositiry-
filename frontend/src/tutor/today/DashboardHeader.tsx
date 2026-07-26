@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Bell, Plus, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AssignmentAttention } from "../../api/homework";
@@ -45,10 +46,19 @@ export default function DashboardHeader({
   }).format(now);
   const count = notifItems?.length ?? 0;
 
+  useEffect(() => {
+    if (!notifOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onNotifToggle();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [notifOpen, onNotifToggle]);
+
   return (
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-gold-600">{dateLabel}</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">{dateLabel}</p>
         <h1 className="mt-1.5 text-2xl font-semibold text-ink-900">
           {greetingFor(now.getHours())}, {firstName(name)}.
         </h1>
@@ -89,7 +99,7 @@ export default function DashboardHeader({
           >
             <Bell aria-hidden className="h-4 w-4" />
             {count > 0 && (
-              <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold-500 px-1 text-[10px] font-semibold text-white">
+              <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-brand-600 px-1 text-[10px] font-semibold text-canvas">
                 {count}
               </span>
             )}
@@ -108,7 +118,7 @@ export default function DashboardHeader({
                           ? `/tutor/submissions/${item.submission_id}`
                           : `/tutor/assignments/${item.assignment_id}`
                       }
-                      className="font-medium text-ink-900 hover:text-brand-700"
+                      className="font-medium text-ink-900 hover:text-brand-500"
                     >
                       {item.assignment_title}
                     </Link>
@@ -128,7 +138,7 @@ export default function DashboardHeader({
         <button
           type="button"
           onClick={onCreateLesson}
-          className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700"
+          className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-500"
         >
           <Plus aria-hidden className="h-4 w-4" />
           Create lesson
