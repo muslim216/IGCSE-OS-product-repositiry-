@@ -51,9 +51,10 @@ cd frontend && npm test                          # frontend
 ## Deployment
 
 The live setup is **the API on Render and the frontend on Vercel**
-(`igcse-os-product-repositiry.vercel.app`). `render.yaml` also provisions a Render static
-site for the frontend, so either host can serve it; whichever one is canonical is the
-origin that has to appear in `GOOGLE_REDIRECT_URI`.
+(`igcse-os-product-repositiry.vercel.app`) — one host each, no overlap. Vercel serves the
+only copy of the app users visit, and its origin is what must appear in
+`GOOGLE_REDIRECT_URI`; Render runs the API, the database and the uploads disk, and users
+never open its URL directly.
 
 Both hosts build from the repository's **default branch**. A branch that is pushed but not
 merged into it does not deploy, however green its tests are.
@@ -62,8 +63,9 @@ merged into it does not deploy, however green its tests are.
 
 1. Push this repo to GitHub.
 2. In the [Render dashboard](https://dashboard.render.com), choose **New → Blueprint** and
-   connect the repo. `render.yaml` provisions the Postgres database, the API, and the
-   static frontend, including the `/api/*` rewrite from the frontend to the backend.
+   connect the repo. `render.yaml` provisions the Postgres database and the API. The
+   frontend is not provisioned here — Vercel serves it, and `frontend/vercel.json` holds
+   the `/api/*` rewrite that points it at this backend.
 3. Fill in the values the blueprint marks `sync: false` — Render prompts for them on the
    first sync and lists them under the service's **Environment** tab afterwards:
 
@@ -88,8 +90,9 @@ merged into it does not deploy, however green its tests are.
    a single instance; moving `services/storage.py` to S3 later is what lifts that.
 5. Alembic migrations run automatically on deploy (`alembic upgrade head` in the backend
    start command) — confirm this in the Dockerfile/start command if you change it.
-6. If your service names/URLs differ, update the `routes` destinations in `render.yaml`,
-   and the `CORS_ORIGINS` and `GOOGLE_REDIRECT_URI` env vars accordingly.
+6. If your service names/URLs differ, update the rewrite destination in
+   `frontend/vercel.json`, and the `CORS_ORIGINS` and `GOOGLE_REDIRECT_URI` env vars
+   accordingly.
    `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
    on the Google Cloud OAuth client, or the Classroom connect flow fails.
 
@@ -100,10 +103,10 @@ merged into it does not deploy, however green its tests are.
 2. `frontend/vercel.json` rewrites `/api/*` to the Render backend and falls back to
    `index.html` for the SPA — update the destination URL in that file if your backend's
    Render URL differs from `igcse-os-api.onrender.com`.
-3. The same file sets the response headers the Render static site sets, so the app is
-   served with an identical CSP either way. Keep the two in sync when you change one: the
-   frontend holds an access token in `localStorage`, so `script-src 'self'` (no CDN, no
-   inline script) is what makes an injected script expensive.
+3. The same file sets the app's response headers, and it is the only place they are set
+   now that Vercel is the sole frontend host. The frontend holds an access token in
+   `localStorage`, so `script-src 'self'` (no CDN, no inline script) is what makes an
+   injected script expensive — do not loosen it without a reason.
 4. **Keep the API same-origin.** The `/api/*` rewrite is what lets the httpOnly refresh
    cookie work — the browser sees one origin, and Vercel proxies to Render server-side.
    Setting `VITE_API_BASE_URL` to the backend's URL instead makes the calls cross-origin,
