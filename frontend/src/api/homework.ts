@@ -183,6 +183,28 @@ export function uploadClassified(payload: {
   return api<Classified>("/api/v1/classifieds", { method: "POST", body: form });
 }
 
+/** One request: upload a paper and set it as homework. Only the group and the
+    file are required — the title falls back to the file name server-side. */
+export function uploadAssignment(payload: {
+  group_id: number;
+  file: File;
+  mark_scheme?: File | null;
+  title?: string;
+  instructions?: string;
+  due_at?: string | null;
+  question_range?: string | null;
+}) {
+  const form = new FormData();
+  form.append("group_id", String(payload.group_id));
+  form.append("file", payload.file);
+  if (payload.mark_scheme) form.append("mark_scheme", payload.mark_scheme);
+  if (payload.title) form.append("title", payload.title);
+  if (payload.instructions) form.append("instructions", payload.instructions);
+  if (payload.due_at) form.append("due_at", payload.due_at);
+  if (payload.question_range) form.append("question_range", payload.question_range);
+  return api<AssignmentDetail>("/api/v1/assignments/upload", { method: "POST", body: form });
+}
+
 export const createAssignment = (payload: {
   group_id: number;
   classified_id?: number | null;

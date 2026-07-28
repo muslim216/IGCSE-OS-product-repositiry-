@@ -8,14 +8,28 @@ export interface Subject {
   grade_scale: string;
 }
 
-export interface Group {
+export interface NextLesson {
+  weekday: number;
+  start_time: string;
+  duration_min: number;
+  title: string | null;
+}
+
+/** The aggregates a class card shows at a glance. */
+export interface GroupSummary {
+  member_count: number;
+  published_assignment_count: number;
+  awaiting_review_count: number;
+  next_lesson: NextLesson | null;
+}
+
+export interface Group extends GroupSummary {
   id: number;
   name: string;
   subject: Subject;
-  member_count: number;
 }
 
-export interface GroupDetail {
+export interface GroupDetail extends GroupSummary {
   id: number;
   name: string;
   subject: Subject;

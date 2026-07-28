@@ -34,16 +34,33 @@ class GroupUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
-class GroupOut(BaseModel):
+class NextLesson(BaseModel):
+    """The next occurrence of a group's weekly timetable."""
+
+    weekday: int
+    start_time: time
+    duration_min: int
+    title: str | None
+
+
+class GroupSummary(BaseModel):
+    """The aggregates a class card needs at a glance."""
+
+    member_count: int = 0
+    published_assignment_count: int = 0
+    awaiting_review_count: int = 0
+    next_lesson: NextLesson | None = None
+
+
+class GroupOut(GroupSummary):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
     subject: SubjectOut
-    member_count: int = 0
 
 
-class GroupDetail(BaseModel):
+class GroupDetail(GroupSummary):
     model_config = ConfigDict(from_attributes=True)
 
     id: int

@@ -30,6 +30,7 @@ from app.schemas.groups import (
 )
 from app.security import hash_password
 from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.groups import summaries as group_summaries
 from app.services.invites import build_invite
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -65,24 +66,23 @@ async def create_group(body: GroupCreate, db: DbSession, user: CurrentUser) -> G
 @router.get("", response_model=list[GroupOut])
 async def list_groups(db: DbSession, user: CurrentUser) -> list[GroupOut]:
     _require_tutor(user)
-    rows = (
-        await db.execute(
-            select(Group, func.count(GroupMember.id))
-            .outerjoin(GroupMember)
+    groups = (
+        await db.scalars(
+            select(Group)
             .where(Group.tutor_id == user.id)
-            .group_by(Group.id)
             .options(selectinload(Group.subject))
             .order_by(Group.created_at)
         )
     ).all()
+    summaries = await group_summaries(db, [g.id for g in groups])
     return [
         GroupOut(
             id=g.id,
             name=g.name,
             subject=SubjectOut.model_validate(g.subject),
-            member_count=count,
+            **summaries[g.id].model_dump(),
         )
-        for g, count in rows
+        for g in groups
     ]
 
 
@@ -97,11 +97,13 @@ async def group_detail(group_id: int, db: DbSession, user: CurrentUser) -> Group
             .order_by(User.name)
         )
     ).all()
+    summaries = await group_summaries(db, [group.id])
     return GroupDetail(
         id=group.id,
         name=group.name,
         subject=SubjectOut.model_validate(group.subject),
         members=[UserOut.model_validate(m) for m in members],
+        **summaries[group.id].model_dump(),
     )
 
 

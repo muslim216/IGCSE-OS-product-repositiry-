@@ -1,4 +1,7 @@
-from fastapi import APIRouter, HTTPException, status
+from datetime import datetime
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +31,7 @@ from app.schemas.homework import (
     QuestionOut,
     StudentAssignment,
 )
+from app.services.assignments import create_from_upload
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
@@ -43,6 +47,24 @@ async def _owned_assignment(db, user: User, assignment_id: int) -> Assignment:
     if group.tutor_id != user.id and user.role != UserRole.admin:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     return assignment
+
+
+def _detail_stub(assignment: Assignment) -> AssignmentDetail:
+    """The response for an assignment that has no questions yet — freshly
+    created, or still extracting."""
+    return AssignmentDetail(
+        id=assignment.id,
+        group_id=assignment.group_id,
+        lesson_id=assignment.lesson_id,
+        classified_id=assignment.classified_id,
+        title=assignment.title,
+        instructions=assignment.instructions,
+        due_at=assignment.due_at,
+        question_range=assignment.question_range,
+        status=assignment.status.value,
+        extraction_error=None,
+        questions=[],
+    )
 
 
 async def _question_rows(db, assignment_id: int) -> list[QuestionOut]:
@@ -101,19 +123,7 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
         db.add(assignment)
         await db.flush()
         await db.commit()
-        return AssignmentDetail(
-            id=assignment.id,
-            group_id=assignment.group_id,
-            lesson_id=assignment.lesson_id,
-            classified_id=None,
-            title=assignment.title,
-            instructions=assignment.instructions,
-            due_at=assignment.due_at,
-            question_range=assignment.question_range,
-            status=assignment.status.value,
-            extraction_error=None,
-            questions=[],
-        )
+        return _detail_stub(assignment)
 
     classified = await db.get(Classified, body.classified_id)
     if classified is None or classified.tutor_id != user.id:
@@ -137,19 +147,46 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
     await db.flush()
     await enqueue(db, "extract_assignment", {"assignment_id": assignment.id})
     await db.commit()
-    return AssignmentDetail(
-        id=assignment.id,
-        group_id=assignment.group_id,
-        lesson_id=assignment.lesson_id,
-        classified_id=assignment.classified_id,
-        title=assignment.title,
-        instructions=assignment.instructions,
-        due_at=assignment.due_at,
-        question_range=assignment.question_range,
-        status=assignment.status.value,
-        extraction_error=None,
-        questions=[],
+    return _detail_stub(assignment)
+
+
+@router.post("/upload", response_model=AssignmentDetail, status_code=status.HTTP_201_CREATED)
+async def create_assignment_with_paper(
+    db: DbSession,
+    user: CurrentUser,
+    group_id: Annotated[int, Form()],
+    file: Annotated[UploadFile, File()],
+    mark_scheme: Annotated[UploadFile | None, File()] = None,
+    title: Annotated[str | None, Form()] = None,
+    instructions: Annotated[str | None, Form()] = None,
+    due_at: Annotated[datetime | None, Form()] = None,
+    question_range: Annotated[str | None, Form()] = None,
+) -> AssignmentDetail:
+    """Upload a question paper and set it as homework in one request.
+
+    Previously the client had to POST the classified and then POST the
+    assignment; a failure between the two left an orphaned classified behind.
+    Only the group and the file are required — the title falls back to the
+    file name, and everything else can be edited afterwards.
+    """
+    if user.role not in (UserRole.tutor, UserRole.admin):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    group = await db.get(Group, group_id)
+    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
+
+    assignment = await create_from_upload(
+        db,
+        group=group,
+        tutor=user,
+        file=file,
+        mark_scheme=mark_scheme,
+        title=title,
+        instructions=instructions,
+        due_at=due_at,
+        question_range=question_range,
     )
+    return _detail_stub(assignment)
 
 
 @router.get("/group/{group_id}", response_model=list[AssignmentOut])
@@ -282,9 +319,31 @@ async def replace_questions(
 ) -> AssignmentDetail:
     """Bulk-replace the question list while the tutor reviews the extraction."""
     assignment = await _owned_assignment(db, user, assignment_id)
-    if assignment.status in (AssignmentStatus.published, AssignmentStatus.closed):
+    if assignment.status == AssignmentStatus.closed:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This homework is closed")
+    if not body and assignment.status == AssignmentStatus.published:
+        # Published homework students can already see must never drop to zero
+        # questions — publish enforces the same floor on the way in.
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "Questions cannot change after publishing"
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Published homework must keep at least one question",
+        )
+    # Hold the assignment row for the rest of the transaction. Without it a
+    # submission committed between the count below and the delete/insert would
+    # leave that student's QuestionMark rows pointing at questions this request
+    # then deletes — exactly what the count is there to prevent.
+    await db.execute(select(Assignment.id).where(Assignment.id == assignment.id).with_for_update())
+    # Publishing alone no longer freezes the questions — extraction publishes
+    # automatically, so that would permanently lock every assignment. The real
+    # invariant is marked work: once a student has submitted, QuestionMark rows
+    # may reference these questions and the list must not change under them.
+    submitted = await db.scalar(
+        select(func.count(Submission.id)).where(Submission.assignment_id == assignment.id)
+    )
+    if submitted:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Students have already submitted, so the questions can't change now",
         )
     existing = (
         await db.scalars(

@@ -191,3 +191,53 @@ async def test_student_cannot_create_group(client, tutor, group, subject_id):
         headers=student_headers,
     )
     assert resp.status_code == 403
+
+
+async def test_group_summary_counts_feed_the_class_card(client, tutor, group):
+    """The card fields must be populated on both the list and the detail view."""
+    listing = (await client.get("/api/v1/groups", headers=tutor["headers"])).json()[0]
+    assert listing["member_count"] == 0
+    assert listing["published_assignment_count"] == 0
+    assert listing["awaiting_review_count"] == 0
+    assert listing["next_lesson"] is None
+
+    await client.post(
+        f"/api/v1/groups/{group['id']}/students",
+        json={"name": "Ali", "username": "ali_2010", "password": "password123"},
+        headers=tutor["headers"],
+    )
+    await client.post(
+        f"/api/v1/groups/{group['id']}/lessons",
+        json={"weekday": 2, "start_time": "17:00", "duration_min": 90},
+        headers=tutor["headers"],
+    )
+
+    listing = (await client.get("/api/v1/groups", headers=tutor["headers"])).json()[0]
+    assert listing["member_count"] == 1
+    assert listing["next_lesson"]["weekday"] == 2
+    assert listing["next_lesson"]["duration_min"] == 90
+
+    # GroupDetail carries the same summary, so the header needs no second request.
+    detail = (
+        await client.get(f"/api/v1/groups/{group['id']}", headers=tutor["headers"])
+    ).json()
+    assert detail["member_count"] == 1
+    assert detail["next_lesson"]["weekday"] == 2
+
+
+async def test_next_lesson_picks_the_soonest_slot(client, tutor, group):
+    """With several weekly slots the card shows whichever comes round first."""
+    for weekday in (0, 3, 6):
+        await client.post(
+            f"/api/v1/groups/{group['id']}/lessons",
+            json={"weekday": weekday, "start_time": "09:00", "duration_min": 60},
+            headers=tutor["headers"],
+        )
+
+    from datetime import datetime, timezone
+
+    listing = (await client.get("/api/v1/groups", headers=tutor["headers"])).json()[0]
+    today = datetime.now(timezone.utc).weekday()
+    expected = min((0, 3, 6), key=lambda d: (d - today) % 7 or 7)
+    # A slot earlier today has passed, so "0 days away" only counts before 09:00.
+    assert listing["next_lesson"]["weekday"] in (expected, today)

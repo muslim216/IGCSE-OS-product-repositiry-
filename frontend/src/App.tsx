@@ -24,7 +24,11 @@ import ParentJoinPage from "./auth/ParentJoinPage";
 import { homePathFor, ProtectedRoute } from "./auth/ProtectedRoute";
 import AppShell from "./components/AppShell";
 import GroupsPage from "./tutor/GroupsPage";
-import GroupDetailPage from "./tutor/GroupDetailPage";
+import GroupLayout from "./tutor/GroupLayout";
+import HomeworkTab from "./tutor/tabs/HomeworkTab";
+import StudentsTab from "./tutor/tabs/StudentsTab";
+import ScheduleTab from "./tutor/tabs/ScheduleTab";
+import ResourcesTab from "./tutor/tabs/ResourcesTab";
 import AssignmentCreatePage from "./tutor/AssignmentCreatePage";
 import AssignmentDetailPage from "./tutor/AssignmentDetailPage";
 import SubmissionReviewPage from "./tutor/SubmissionReviewPage";
@@ -103,10 +107,17 @@ export default function App() {
           <Route path="/tutor/preferences" element={<PreferencesPage />} />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
-          <Route path="/tutor/groups/:groupId" element={<GroupDetailPage />} />
-          <Route path="/tutor/groups/:groupId/new-homework" element={<AssignmentCreatePage />} />
-          <Route path="/tutor/groups/:groupId/analytics" element={<GroupAnalyticsPage />} />
-          <Route path="/tutor/groups/:groupId/mock" element={<MockEntryPage />} />
+          {/* Everything belonging to a class renders inside its tabbed layout. */}
+          <Route path="/tutor/groups/:groupId" element={<GroupLayout />}>
+            <Route index element={<Navigate to="homework" replace />} />
+            <Route path="homework" element={<HomeworkTab />} />
+            <Route path="students" element={<StudentsTab />} />
+            <Route path="schedule" element={<ScheduleTab />} />
+            <Route path="resources" element={<ResourcesTab />} />
+            <Route path="analytics" element={<GroupAnalyticsPage />} />
+            <Route path="new-homework" element={<AssignmentCreatePage />} />
+            <Route path="mock" element={<MockEntryPage />} />
+          </Route>
           <Route path="/tutor/assignments/:assignmentId" element={<AssignmentDetailPage />} />
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
