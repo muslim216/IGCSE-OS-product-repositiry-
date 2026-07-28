@@ -3,13 +3,20 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { joinWithInvite, previewInvite, registerParent } from "../api/groups";
 import { ApiError } from "../api/client";
+import { InviteProblem } from "./InviteProblem";
 import { useAuth } from "./AuthContext";
 
 export default function ParentJoinPage() {
   const { code = "" } = useParams();
   const { user, signIn } = useAuth();
   const navigate = useNavigate();
-  const preview = useQuery({ queryKey: ["invite", code], queryFn: () => previewInvite(code) });
+  const preview = useQuery({
+    queryKey: ["invite", code],
+    queryFn: () => previewInvite(code),
+    // A bad or expired code is a definite answer, not a blip — retrying just
+    // leaves the visitor staring at "Loading…" before the explanation appears.
+    retry: false,
+  });
 
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
@@ -36,9 +43,10 @@ export default function ParentJoinPage() {
   }
   if (preview.isError || !preview.data || preview.data.kind !== "parent_link") {
     return (
-      <div className="flex h-screen items-center justify-center text-slate-600">
-        This link is not valid. Ask the tutor for a new one.
-      </div>
+      <InviteProblem
+        title="This parent link isn't valid"
+        detail="It may have expired, or been copied incompletely. Ask your child's tutor to send you a fresh link."
+      />
     );
   }
 

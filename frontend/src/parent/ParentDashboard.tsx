@@ -4,6 +4,7 @@ import { myChildren } from "../api/groups";
 import { studentReadiness } from "../api/readiness";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
+import { EmptyState } from "../ui";
 
 export default function ParentDashboard() {
   const children = useQuery({ queryKey: ["my-children"], queryFn: myChildren });
@@ -19,10 +20,14 @@ export default function ParentDashboard() {
 
   if (children.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (children.data?.length === 0) {
+    // No in-app action exists here — the tutor has to send the link — so this
+    // explains what will appear rather than offering a button that does nothing.
     return (
-      <p className="text-slate-500">
-        No children linked yet. Ask the tutor for a parent link.
-      </p>
+      <EmptyState
+        icon="👪"
+        title="No children linked yet"
+        description="Ask your child's tutor to send you a parent link. Once you're linked, this page shows how ready they are for each subject, which topics need work, and progress reports written in plain language."
+      />
     );
   }
 
@@ -61,9 +66,12 @@ export default function ParentDashboard() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-slate-500">
-            No progress data yet — it builds up as homework and mocks are marked.
-          </p>
+          <EmptyState
+            className="mt-3"
+            icon="📈"
+            title="No progress data yet"
+            description="Readiness builds up automatically as your child's homework and mock exams are marked. Nothing to do — check back after their next piece of work."
+          />
         )}
       </div>
 

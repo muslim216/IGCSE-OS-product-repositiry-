@@ -5,6 +5,7 @@ import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
+import { EmptyState } from "../ui";
 
 function nextLessonLabel(weekday: number, start: string): string {
   return `${WEEKDAYS[weekday]} ${start.slice(0, 5)}`;
@@ -33,9 +34,13 @@ export default function StudentDashboard() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-slate-500">
-            No readiness data yet — it builds up as your homework and mocks are marked.
-          </p>
+          <EmptyState
+            className="mt-3"
+            icon="📈"
+            title="No readiness data yet"
+            description="Your readiness score builds up as homework and mocks get marked. Submit your first piece of work and it'll start filling in."
+            action={due.length > 0 ? { label: "See your homework", to: "/student/homework" } : undefined}
+          />
         )}
       </div>
 

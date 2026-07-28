@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { cn } from "../ui";
+import { ActivityBell } from "./ActivityBell";
 
 export interface NavItem {
   to: string;
@@ -24,7 +25,8 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
               {title}
             </span>
           </div>
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-3 text-sm">
+            <ActivityBell />
             <span className="text-slate-600">{user?.name}</span>
             <button onClick={signOut} className="text-slate-500 hover:text-slate-900">
               Sign out

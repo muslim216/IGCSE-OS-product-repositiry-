@@ -6,7 +6,9 @@ import JoinPage from "./auth/JoinPage";
 import ParentJoinPage from "./auth/ParentJoinPage";
 import { homePathFor, ProtectedRoute } from "./auth/ProtectedRoute";
 import AppShell from "./components/AppShell";
+import LandingPage from "./marketing/LandingPage";
 import GroupsPage from "./tutor/GroupsPage";
+import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import GroupLayout from "./tutor/GroupLayout";
 import HomeworkTab from "./tutor/tabs/HomeworkTab";
 import StudentsTab from "./tutor/tabs/StudentsTab";
@@ -34,10 +36,14 @@ function Home() {
   if (loading) {
     return <div className="flex h-screen items-center justify-center text-slate-500">Loading…</div>;
   }
-  return <Navigate to={user ? homePathFor(user) : "/login"} replace />;
+  // Signed out, show what the product is rather than bouncing to a login form.
+  return user ? <Navigate to={homePathFor(user)} replace /> : <LandingPage />;
 }
 
-const TUTOR_NAV = [{ to: "/tutor", label: "Classes" }];
+const TUTOR_NAV = [
+  { to: "/tutor", label: "Classes", exact: true },
+  { to: "/tutor/review", label: "Needs review" },
+];
 const STUDENT_NAV = [
   { to: "/student", label: "Dashboard", exact: true },
   { to: "/student/homework", label: "Homework" },
@@ -57,6 +63,7 @@ export default function App() {
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
         <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} />}>
           <Route path="/tutor" element={<GroupsPage />} />
+          <Route path="/tutor/review" element={<ReviewQueuePage />} />
 
           {/* Everything belonging to a class lives inside it. */}
           <Route path="/tutor/groups/:groupId" element={<GroupLayout />}>
