@@ -90,7 +90,7 @@ export default function SubmitHomeworkPage() {
                 <input
                   type="file"
                   multiple
-                  accept="application/pdf,image/*"
+                  accept="application/pdf,image/*,.heic,.heif"
                   onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
                   className="text-sm"
                 />

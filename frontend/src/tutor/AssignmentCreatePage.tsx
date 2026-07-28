@@ -1,15 +1,24 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type DragEvent, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileUp } from "lucide-react";
 import { getGroup } from "../api/groups";
-import { createAssignment, listClassifieds, uploadClassified } from "../api/homework";
+import { createAssignment, listClassifieds, uploadAssignment } from "../api/homework";
 import { ApiError } from "../api/client";
 
+const ACCEPT = "application/pdf,image/*,.heic,.heif";
+
+/**
+ * Setting homework is one action: drop the paper in. The title falls back to
+ * the file name, extraction publishes automatically, and everything else is
+ * optional detail behind a disclosure.
+ */
 export default function AssignmentCreatePage() {
   const { groupId } = useParams();
   const gid = Number(groupId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const group = useQuery({ queryKey: ["group", gid], queryFn: () => getGroup(gid) });
   const subjectId = group.data?.subject.id;
@@ -19,48 +28,68 @@ export default function AssignmentCreatePage() {
     enabled: subjectId !== undefined,
   });
 
-  const [mode, setMode] = useState<"existing" | "upload" | "manual">("upload");
-  const [classifiedId, setClassifiedId] = useState<number | "">("");
-  const [newClassified, setNewClassified] = useState({ title: "" });
   const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [reuseId, setReuseId] = useState<number | "">("");
+  const [showDetails, setShowDetails] = useState(false);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
-  const [form, setForm] = useState({
-    title: "",
-    instructions: "",
-    due_at: "",
-    question_range: "",
-  });
+  const [form, setForm] = useState({ title: "", instructions: "", due_at: "", question_range: "" });
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
     mutationFn: async () => {
-      let cid: number | null = mode === "existing" ? (classifiedId as number) : null;
-      if (mode === "upload") {
-        if (!file || !subjectId) throw new Error("Choose the classified PDF first");
-        const uploaded = await uploadClassified({
-          title: newClassified.title || file.name,
-          subject_id: subjectId,
+      const instructions = form.instructions || undefined;
+      const due_at = form.due_at ? new Date(form.due_at).toISOString() : null;
+      const question_range = form.question_range || null;
+      if (file) {
+        return uploadAssignment({
+          group_id: gid,
           file,
           mark_scheme: markScheme,
+          title: form.title || undefined,
+          instructions,
+          due_at,
+          question_range,
         });
-        cid = uploaded.id;
       }
+      if (reuseId !== "") {
+        const chosen = classifieds.data?.find((c) => c.id === reuseId);
+        return createAssignment({
+          group_id: gid,
+          classified_id: reuseId as number,
+          title: form.title || chosen?.title || "Homework",
+          instructions,
+          due_at,
+          question_range,
+        });
+      }
+      // No paper at all: an empty assignment the tutor fills in by hand.
       return createAssignment({
         group_id: gid,
-        classified_id: cid,
-        title: form.title,
-        instructions: form.instructions || undefined,
-        due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
-        question_range: mode === "manual" ? null : form.question_range || null,
+        title: form.title || "Homework",
+        instructions,
+        due_at,
+        question_range: null,
       });
     },
     onSuccess: (assignment) => {
       queryClient.invalidateQueries({ queryKey: ["assignments", gid] });
       navigate(`/tutor/assignments/${assignment.id}`);
     },
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
+
+  function pick(next: File | null) {
+    setFile(next);
+    if (next) setReuseId("");
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    const dropped = e.dataTransfer.files?.[0];
+    if (dropped) pick(dropped);
+  }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -68,166 +97,164 @@ export default function AssignmentCreatePage() {
     create.mutate();
   }
 
+  const canSubmit = file !== null || reuseId !== "" || form.title.trim() !== "";
+
   return (
     <div className="max-w-2xl">
-      <Link to={`/tutor/groups/${gid}`} className="text-sm text-blue-600 hover:underline">
-        ← {group.data?.name ?? "Group"}
+      <Link
+        to={`/tutor/groups/${gid}/homework`}
+        className="text-sm text-brand-600 hover:underline"
+      >
+        ← All homework
       </Link>
-      <h2 className="mt-1 text-xl font-semibold text-slate-800">New homework</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Upload a classified (question booklet) and the AI builds the question list for you, or
-        skip the PDF and create the assignment straight away.
+      <h3 className="mt-1 font-semibold text-ink-900">Set homework</h3>
+      <p className="mt-1 text-sm text-ink-500">
+        Drop in a paper and you're done — the questions are extracted and it goes out to students
+        automatically. You can still edit the question list until someone submits.
       </p>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-5">
-        <div className="rounded-lg border bg-white p-4">
-          <div className="flex flex-wrap gap-4 text-sm">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={mode === "upload"}
-                onChange={() => setMode("upload")}
-              />
-              Upload a new classified
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={mode === "existing"}
-                onChange={() => setMode("existing")}
-                disabled={!classifieds.data?.length}
-              />
-              Reuse an uploaded one
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input
-                type="radio"
-                checked={mode === "manual"}
-                onChange={() => setMode("manual")}
-              />
-              No PDF — I'll type the questions
-            </label>
-          </div>
+      <form onSubmit={onSubmit} className="mt-5 space-y-4">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={`flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${
+            dragging
+              ? "border-brand-600 bg-brand-50"
+              : "border-line-strong bg-surface hover:border-brand-600"
+          }`}
+        >
+          <FileUp aria-hidden className="h-8 w-8 text-brand-600" />
+          {file ? (
+            <>
+              <span className="font-medium text-ink-900">{file.name}</span>
+              <span className="text-xs text-ink-400">Click to choose a different file</span>
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-ink-700">
+                Drop the question paper here, or click to browse
+              </span>
+              <span className="text-xs text-ink-400">PDF or photos — including iPhone HEIC</span>
+            </>
+          )}
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPT}
+          className="hidden"
+          onChange={(e) => pick(e.target.files?.[0] ?? null)}
+        />
 
-          {mode === "upload" ? (
-            <div className="mt-3 space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Classified PDF <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="file"
-                  accept="application/pdf,image/*"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  className="mt-1 text-sm"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Mark scheme (optional — skip if answers are inside the classified)
-                </label>
-                <input
-                  type="file"
-                  accept="application/pdf,image/*"
-                  onChange={(e) => setMarkScheme(e.target.files?.[0] ?? null)}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Name this classified (for reuse later)
-                </label>
-                <input
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="e.g. Atomic structure classified"
-                  value={newClassified.title}
-                  onChange={(e) => setNewClassified({ title: e.target.value })}
-                />
-              </div>
-            </div>
-          ) : mode === "existing" ? (
+        {!file && classifieds.data && classifieds.data.length > 0 && (
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-ink-500">
+              …or reuse a paper you've uploaded before
+            </span>
             <select
-              className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={classifiedId}
-              onChange={(e) => setClassifiedId(Number(e.target.value))}
-              required
+              className="w-full rounded-md border border-line px-3 py-2 text-sm"
+              value={reuseId}
+              onChange={(e) => setReuseId(e.target.value === "" ? "" : Number(e.target.value))}
             >
-              <option value="" disabled>
-                Choose a classified…
-              </option>
-              {classifieds.data?.map((c) => (
+              <option value="">Choose a previous paper…</option>
+              {classifieds.data.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title} {c.mark_scheme_name ? "(with mark scheme)" : ""}
                 </option>
               ))}
             </select>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">
-              The assignment is created empty and ready to review — add questions manually on
-              the next screen, then publish when you're done.
-            </p>
-          )}
-        </div>
+          </label>
+        )}
 
-        <div className="rounded-lg border bg-white p-4 space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Homework title <span className="text-red-500">*</span>
-            </label>
-            <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder="e.g. HW3 — Atomic structure Q1–15"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              required
-            />
-          </div>
-          {mode !== "manual" && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700">
-                Question range (optional — leave empty for the whole booklet)
+        <div className="rounded-xl border border-line bg-surface">
+          <button
+            type="button"
+            onClick={() => setShowDetails((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-ink-700"
+            aria-expanded={showDetails}
+          >
+            Optional details
+            <span className="text-ink-400">{showDetails ? "−" : "+"}</span>
+          </button>
+          {showDetails && (
+            <div className="space-y-3 border-t border-line px-4 py-4">
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-ink-500">
+                  Title (defaults to the file name)
+                </span>
+                <input
+                  className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                  placeholder="e.g. HW3 — Atomic structure"
+                  value={form.title}
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
+                />
               </label>
-              <input
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder='e.g. "Q1-15" or "pages 3-10"'
-                value={form.question_range}
-                onChange={(e) => setForm({ ...form, question_range: e.target.value })}
-              />
+              {file && (
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs font-medium text-ink-500">
+                    Mark scheme (skip if the answers are inside the paper)
+                  </span>
+                  <input
+                    type="file"
+                    accept={ACCEPT}
+                    className="text-sm"
+                    onChange={(e) => setMarkScheme(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+              )}
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-ink-500">
+                  Question range (leave empty for the whole booklet)
+                </span>
+                <input
+                  className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                  placeholder='e.g. "Q1-15" or "pages 3-10"'
+                  value={form.question_range}
+                  onChange={(e) => setForm({ ...form, question_range: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-ink-500">Due date</span>
+                <input
+                  type="datetime-local"
+                  className="rounded-md border border-line px-3 py-2 text-sm"
+                  value={form.due_at}
+                  onChange={(e) => setForm({ ...form, due_at: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium text-ink-500">Instructions</span>
+                <textarea
+                  className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder="Anything the students should know"
+                  value={form.instructions}
+                  onChange={(e) => setForm({ ...form, instructions: e.target.value })}
+                />
+              </label>
             </div>
           )}
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Due date</label>
-            <input
-              type="datetime-local"
-              className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-              value={form.due_at}
-              onChange={(e) => setForm({ ...form, due_at: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Instructions</label>
-            <textarea
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              rows={2}
-              placeholder="Anything the students should know"
-              value={form.instructions}
-              onChange={(e) => setForm({ ...form, instructions: e.target.value })}
-            />
-          </div>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {!file && reuseId === "" && (
+          <p className="text-xs text-ink-400">
+            No paper? Give it a title under “Optional details” and an empty assignment is created
+            for you to type the questions into.
+          </p>
+        )}
+        {error && <p className="text-sm text-risk-600">{error}</p>}
         <button
           type="submit"
-          disabled={create.isPending}
-          className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          disabled={create.isPending || !canSubmit}
+          className="rounded-md bg-brand-600 px-4 py-2 font-medium hover:bg-brand-700 disabled:opacity-50"
         >
-          {create.isPending
-            ? "Creating…"
-            : mode === "manual"
-              ? "Create assignment"
-              : "Create & extract questions"}
+          {create.isPending ? "Uploading…" : "Set homework"}
         </button>
       </form>
     </div>

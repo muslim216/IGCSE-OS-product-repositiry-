@@ -4,7 +4,15 @@ import type { Group } from "../api/groups";
 import type { TutorAnalytics } from "../api/readiness";
 
 const subject = { id: 1, exam_board: "CIE", code: "0580", name: "Maths", grade_scale: "9-1" };
-const group = (id: number, name: string): Group => ({ id, name, subject, member_count: 2 });
+const group = (id: number, name: string): Group => ({
+  id,
+  name,
+  subject,
+  member_count: 2,
+  published_assignment_count: 0,
+  awaiting_review_count: 0,
+  next_lesson: null,
+});
 
 function analytics(
   weak_students: TutorAnalytics["weak_students"],

@@ -2,6 +2,7 @@
 directory so the whole folder can move to object storage (S3) later without
 touching rows."""
 
+import io
 import secrets
 from pathlib import Path
 
@@ -16,6 +17,49 @@ ALLOWED_MIMES = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+
+# iPhones photograph in HEIC by default, which is most of what students upload.
+# The marking pipeline passes the stored mime straight to the Anthropic image
+# API, which doesn't accept HEIC — so these are transcoded to JPEG on the way in
+# rather than accepted here and failed later.
+CONVERT_TO_JPEG = {"image/heic", "image/heif", "image/heic-sequence"}
+
+# Some clients (and Google Drive) report these instead of the canonical type.
+MIME_ALIASES = {
+    "image/jpg": "image/jpeg",
+    "image/pjpeg": "image/jpeg",
+    "image/x-png": "image/png",
+}
+
+
+def _to_jpeg(data: bytes) -> bytes:
+    """Transcode a HEIC/HEIF image to JPEG. Decoding doubles as validation —
+    bytes that merely claim to be HEIC fail here rather than getting stored."""
+    import pillow_heif
+    from PIL import Image
+
+    pillow_heif.register_heif_opener()
+    with Image.open(io.BytesIO(data)) as img:
+        buffer = io.BytesIO()
+        img.convert("RGB").save(buffer, format="JPEG", quality=90)
+        return buffer.getvalue()
+
+
+def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
+    """Resolve mime aliases and transcode HEIC to JPEG.
+
+    Raises ValueError when a claimed HEIC photo can't actually be decoded.
+    """
+    mime = MIME_ALIASES.get(mime, mime)
+    if mime in CONVERT_TO_JPEG:
+        try:
+            data = _to_jpeg(data)
+        except Exception:
+            raise ValueError(
+                "That photo couldn't be read. Try saving it as JPEG and uploading again."
+            ) from None
+        mime = "image/jpeg"
+    return data, mime
 
 
 def _looks_like_webp(data: bytes) -> bool:
@@ -50,24 +94,28 @@ def upload_root() -> Path:
 
 async def save_upload(file: UploadFile) -> tuple[str, str, str]:
     """Persist an uploaded file; returns (relative_path, original_name, mime)."""
-    mime = file.content_type or ""
-    if mime not in ALLOWED_MIMES:
+    mime = MIME_ALIASES.get(file.content_type or "", file.content_type or "")
+    if mime not in ALLOWED_MIMES and mime not in CONVERT_TO_JPEG:
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "Only PDF, JPEG, PNG and WebP files are accepted",
+            "Only PDF, JPEG, PNG, WebP and iPhone (HEIC) files are accepted",
         )
     data = await file.read()
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Files must be 20 MB or smaller"
         )
+    try:
+        data, mime = _normalize(data, mime)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
     if not content_matches_mime(data, mime):
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "This file's contents don't match its type — re-export it as a PDF or image "
             "and try again",
         )
-    return save_bytes(data, mime, file.filename or "upload")
+    return _write(data, mime, file.filename or "upload")
 
 
 def save_bytes(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
@@ -75,12 +123,17 @@ def save_bytes(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
     attachment) under the same validation and layout as a direct upload.
     Raises ValueError (not HTTPException) since callers may be background
     jobs rather than requests."""
+    data, mime = _normalize(data, mime)
     if mime not in ALLOWED_MIMES:
         raise ValueError(f"Unsupported file type: {mime}")
     if len(data) > MAX_FILE_BYTES:
         raise ValueError("File exceeds the 20 MB limit")
     if not content_matches_mime(data, mime):
         raise ValueError(f"File contents do not match the declared type: {mime}")
+    return _write(data, mime, filename)
+
+
+def _write(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
     rel_path = f"{secrets.token_hex(16)}{ALLOWED_MIMES[mime]}"
     (upload_root() / rel_path).write_bytes(data)
     return rel_path, filename, mime

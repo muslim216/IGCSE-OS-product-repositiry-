@@ -69,7 +69,11 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
     await _clear_questions(session, assignment.id)
     try:
         await _run_extraction(session, assignment)
-        assignment.status = AssignmentStatus.review
+        # Publish straight away so students aren't blocked on the tutor coming
+        # back for a second pass. _run_extraction raises when no questions were
+        # found, so a published assignment always has at least one question —
+        # and the tutor can still edit the list until someone submits.
+        assignment.status = AssignmentStatus.published
         assignment.extraction_error = None
     except Exception as exc:
         assignment.status = AssignmentStatus.extraction_failed

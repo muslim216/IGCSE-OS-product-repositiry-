@@ -1,6 +1,5 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getGroup } from "../api/groups";
 import { groupAnalytics } from "../api/readiness";
 
 function scoreColor(score: number): string {
@@ -12,7 +11,6 @@ function scoreColor(score: number): string {
 export default function GroupAnalyticsPage() {
   const { groupId } = useParams();
   const id = Number(groupId);
-  const group = useQuery({ queryKey: ["group", id], queryFn: () => getGroup(id) });
   const analytics = useQuery({
     queryKey: ["analytics", id],
     queryFn: () => groupAnalytics(id),
@@ -21,14 +19,9 @@ export default function GroupAnalyticsPage() {
   if (analytics.isLoading) return <p className="text-slate-500">Loading…</p>;
   const a = analytics.data;
 
+  // Rendered as a tab inside GroupLayout, which already shows the class header.
   return (
     <div className="space-y-6">
-      <div>
-        <Link to={`/tutor/groups/${id}`} className="text-sm text-blue-600 hover:underline">
-          ← {group.data?.name ?? "Group"}
-        </Link>
-        <h2 className="mt-1 text-xl font-semibold text-slate-800">Analytics</h2>
-      </div>
 
       {a && (
         <>

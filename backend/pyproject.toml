@@ -19,6 +19,8 @@ dependencies = [
     "google-genai>=1.0",
     "httpx>=0.27",
     "cryptography>=42",
+    "pillow>=10.3",
+    "pillow-heif>=0.16",
 ]
 
 [project.optional-dependencies]
