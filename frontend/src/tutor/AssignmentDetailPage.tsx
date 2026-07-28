@@ -111,10 +111,10 @@ export default function AssignmentDetailPage() {
     <div className="space-y-6">
       <div>
         <Link
-          to={`/tutor/groups/${a.group_id}`}
-          className="text-sm text-blue-600 hover:underline"
+          to={`/tutor/groups/${a.group_id}/homework`}
+          className="text-sm text-brand-600 hover:underline"
         >
-          ← {group.data?.name ?? "Group"}
+          ← All homework
         </Link>
         <div className="mt-1 flex items-center gap-3">
           <h2 className="text-xl font-semibold text-slate-800">{a.title}</h2>
@@ -349,8 +349,8 @@ export default function AssignmentDetailPage() {
                     </span>
                   )}
                   <Link
-                    to={`/tutor/submissions/${s.id}`}
-                    className="text-blue-600 hover:underline"
+                    to={`/tutor/groups/${a.group_id}/submissions/${s.id}`}
+                    className="text-brand-600 hover:underline"
                   >
                     {s.status === "finalized" ? "View" : "Review"}
                   </Link>

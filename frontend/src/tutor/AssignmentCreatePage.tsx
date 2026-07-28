@@ -56,7 +56,7 @@ export default function AssignmentCreatePage() {
     },
     onSuccess: (assignment) => {
       queryClient.invalidateQueries({ queryKey: ["assignments", gid] });
-      navigate(`/tutor/assignments/${assignment.id}`);
+      navigate(`/tutor/groups/${gid}/homework/${assignment.id}`);
     },
     onError: (err) =>
       setError(err instanceof ApiError ? err.message : String(err)),
@@ -70,8 +70,8 @@ export default function AssignmentCreatePage() {
 
   return (
     <div className="max-w-2xl">
-      <Link to={`/tutor/groups/${gid}`} className="text-sm text-blue-600 hover:underline">
-        ← {group.data?.name ?? "Group"}
+      <Link to={`/tutor/groups/${gid}/homework`} className="text-sm text-brand-600 hover:underline">
+        ← All homework
       </Link>
       <h2 className="mt-1 text-xl font-semibold text-slate-800">New homework</h2>
       <p className="mt-1 text-sm text-slate-500">

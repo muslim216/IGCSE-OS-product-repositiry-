@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { getGroup } from "../api/groups";
 import { createAssessment } from "../api/readiness";
 import { ApiError } from "../api/client";
+import { Button, Card, CardHeader, Field, Input, Select } from "../ui";
 
 export default function MockEntryPage() {
   const { groupId } = useParams();
@@ -39,7 +40,7 @@ export default function MockEntryPage() {
         scores,
       });
     },
-    onSuccess: () => navigate(`/tutor/groups/${id}`),
+    onSuccess: () => navigate(`/tutor/groups/${id}/analytics`),
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
@@ -51,8 +52,8 @@ export default function MockEntryPage() {
 
   return (
     <div className="max-w-2xl">
-      <Link to={`/tutor/groups/${id}`} className="text-sm text-blue-600 hover:underline">
-        ← {group.data?.name ?? "Group"}
+      <Link to={`/tutor/groups/${id}/analytics`} className="text-sm text-brand-600 hover:underline">
+        ← Analytics
       </Link>
       <h2 className="mt-1 text-xl font-semibold text-slate-800">Record mock / test marks</h2>
       <p className="mt-1 text-sm text-slate-500">
@@ -60,63 +61,71 @@ export default function MockEntryPage() {
       </p>
 
       <form onSubmit={onSubmit} className="mt-5 space-y-4">
-        <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-white p-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Title</label>
-            <input
-              className="mt-1 rounded border border-slate-300 px-3 py-2 text-sm"
-              placeholder="e.g. October Mock"
-              value={meta.title}
-              onChange={(e) => setMeta({ ...meta, title: e.target.value })}
-              required
-            />
+        <Card>
+          <div className="flex flex-wrap items-end gap-3 p-4">
+            <Field label="Title" className="flex-1 basis-48">
+              {(props) => (
+                <Input
+                  {...props}
+                  placeholder="e.g. October Mock"
+                  value={meta.title}
+                  onChange={(e) => setMeta({ ...meta, title: e.target.value })}
+                  required
+                />
+              )}
+            </Field>
+            <Field label="Type" className="basis-36">
+              {(props) => (
+                <Select
+                  {...props}
+                  options={[
+                    { value: "mock", label: "Mock" },
+                    { value: "test", label: "Test" },
+                  ]}
+                  value={meta.type}
+                  onChange={(e) => setMeta({ ...meta, type: e.target.value })}
+                />
+              )}
+            </Field>
+            <Field label="Date" className="basis-40">
+              {(props) => (
+                <Input
+                  {...props}
+                  type="date"
+                  value={meta.date}
+                  onChange={(e) => setMeta({ ...meta, date: e.target.value })}
+                  required
+                />
+              )}
+            </Field>
+            <Field label="Out of" className="basis-24">
+              {(props) => (
+                <Input
+                  {...props}
+                  type="number"
+                  min={1}
+                  value={meta.max_marks}
+                  onChange={(e) => setMeta({ ...meta, max_marks: Number(e.target.value) })}
+                  required
+                />
+              )}
+            </Field>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Type</label>
-            <select
-              className="mt-1 rounded border border-slate-300 px-3 py-2 text-sm"
-              value={meta.type}
-              onChange={(e) => setMeta({ ...meta, type: e.target.value })}
-            >
-              <option value="mock">Mock</option>
-              <option value="test">Test</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Date</label>
-            <input
-              type="date"
-              className="mt-1 rounded border border-slate-300 px-3 py-2 text-sm"
-              value={meta.date}
-              onChange={(e) => setMeta({ ...meta, date: e.target.value })}
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Out of</label>
-            <input
-              type="number"
-              min={1}
-              className="mt-1 w-24 rounded border border-slate-300 px-3 py-2 text-sm"
-              value={meta.max_marks}
-              onChange={(e) => setMeta({ ...meta, max_marks: Number(e.target.value) })}
-              required
-            />
-          </div>
-        </div>
+        </Card>
 
-        <div className="rounded-lg border bg-white p-4">
-          <h3 className="text-sm font-medium text-slate-700">Marks</h3>
-          <ul className="mt-2 divide-y">
+        <Card>
+          <CardHeader title="Marks" />
+          <ul className="divide-y divide-slate-100">
             {group.data?.members.map((m) => (
-              <li key={m.id} className="flex items-center justify-between py-2">
+              <li key={m.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
                 <span className="text-sm text-slate-700">{m.name}</span>
-                <div className="flex items-center gap-1 text-sm">
-                  <input
+                <div className="flex items-center gap-2 text-sm">
+                  <Input
                     type="number"
                     min={0}
                     max={meta.max_marks}
-                    className="w-20 rounded border border-slate-300 px-2 py-1"
+                    className="w-24"
+                    aria-label={`Mark for ${m.name}`}
                     value={marks[m.id] ?? ""}
                     onChange={(e) => setMarks({ ...marks, [m.id]: e.target.value })}
                   />
@@ -125,19 +134,15 @@ export default function MockEntryPage() {
               </li>
             ))}
             {group.data?.members.length === 0 && (
-              <li className="py-2 text-sm text-slate-500">No students in this group.</li>
+              <li className="px-5 py-3 text-sm text-slate-500">No students in this class.</li>
             )}
           </ul>
-        </div>
+        </Card>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={save.isPending}
-          className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
+        {error && <p className="text-sm text-risk-600">{error}</p>}
+        <Button type="submit" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Save marks"}
-        </button>
+        </Button>
       </form>
     </div>
   );

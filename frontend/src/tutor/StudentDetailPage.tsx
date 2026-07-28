@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createObservation,
@@ -9,13 +9,14 @@ import {
 import { listTopics } from "../api/syllabus";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
+import { useGroupContext } from "./GroupLayout";
+import { Button, Field, Input, Select, Textarea } from "../ui";
 
 export default function StudentDetailPage() {
   const { studentId } = useParams();
   const sid = Number(studentId);
-  const [params] = useSearchParams();
-  const groupId = params.get("group");
-  const subjectIdParam = params.get("subject");
+  // The class (and so the subject) now comes from the route rather than a querystring.
+  const { group, groupId } = useGroupContext();
   const queryClient = useQueryClient();
 
   const readiness = useQuery({
@@ -30,9 +31,7 @@ export default function StudentDetailPage() {
     enabled: selectedTopic !== null,
   });
 
-  const subjectId = subjectIdParam
-    ? Number(subjectIdParam)
-    : readiness.data?.subjects[0]?.subject_id;
+  const subjectId = group.subject.id;
   const topics = useQuery({
     queryKey: ["topics", subjectId],
     queryFn: () => listTopics(subjectId!),
@@ -63,11 +62,12 @@ export default function StudentDetailPage() {
 
   return (
     <div className="space-y-6">
-      {groupId && (
-        <Link to={`/tutor/groups/${groupId}`} className="text-sm text-blue-600 hover:underline">
-          ← Back to group
-        </Link>
-      )}
+      <Link
+        to={`/tutor/groups/${groupId}/students`}
+        className="text-sm text-brand-600 hover:underline"
+      >
+        ← All students
+      </Link>
       <h2 className="text-xl font-semibold text-slate-800">
         {readiness.data?.student_name}
       </h2>
@@ -132,46 +132,52 @@ export default function StudentDetailPage() {
           A rating on a topic feeds into readiness as your professional judgement.
         </p>
         <form onSubmit={onObserve} className="mt-3 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <select
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
-              value={obs.topic_id}
-              onChange={(e) => setObs({ ...obs, topic_id: e.target.value })}
-            >
-              <option value="">General (no topic)</option>
-              {topics.data?.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code} {t.title}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="Rating 0–100"
-              className="w-32 rounded border border-slate-300 px-3 py-2 text-sm"
-              value={obs.rating}
-              onChange={(e) => setObs({ ...obs, rating: e.target.value })}
-            />
+          <div className="flex flex-wrap gap-3">
+            <Field label="Topic" className="flex-1 basis-64">
+              {(props) => (
+                <Select
+                  {...props}
+                  value={obs.topic_id}
+                  onChange={(e) => setObs({ ...obs, topic_id: e.target.value })}
+                >
+                  <option value="">General (no topic)</option>
+                  {topics.data?.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.code} {t.title}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Rating" hint="0–100, optional" className="basis-32">
+              {(props) => (
+                <Input
+                  {...props}
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={obs.rating}
+                  onChange={(e) => setObs({ ...obs, rating: e.target.value })}
+                />
+              )}
+            </Field>
           </div>
-          <textarea
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            rows={2}
-            placeholder="What did you notice?"
-            value={obs.comment}
-            onChange={(e) => setObs({ ...obs, comment: e.target.value })}
-            required
-          />
-          <button
-            type="submit"
-            disabled={addObservation.isPending}
-            className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            Save observation
-          </button>
+          <Field label="What did you notice?">
+            {(props) => (
+              <Textarea
+                {...props}
+                rows={2}
+                value={obs.comment}
+                onChange={(e) => setObs({ ...obs, comment: e.target.value })}
+                required
+              />
+            )}
+          </Field>
+          <Button type="submit" disabled={addObservation.isPending}>
+            {addObservation.isPending ? "Saving…" : "Save observation"}
+          </Button>
           {addObservation.isError && (
-            <p className="text-sm text-red-600">Could not save the observation.</p>
+            <p className="text-sm text-risk-600">Could not save the observation.</p>
           )}
         </form>
       </div>

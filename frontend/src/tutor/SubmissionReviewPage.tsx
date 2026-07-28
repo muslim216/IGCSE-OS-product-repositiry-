@@ -10,6 +10,7 @@ import {
 } from "../api/homework";
 import { AuthImage, AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
+import { useGroupContext } from "./GroupLayout";
 
 interface Draft {
   final_marks: number | null;
@@ -33,6 +34,7 @@ const CONFIDENCE_LABEL: Record<string, string> = {
 export default function SubmissionReviewPage() {
   const { submissionId } = useParams();
   const id = Number(submissionId);
+  const { groupId } = useGroupContext();
   const queryClient = useQueryClient();
 
   const submission = useQuery({
@@ -109,8 +111,8 @@ export default function SubmissionReviewPage() {
     <div className="space-y-5">
       <div>
         <Link
-          to={`/tutor/assignments/${s.assignment_id}`}
-          className="text-sm text-blue-600 hover:underline"
+          to={`/tutor/groups/${groupId}/homework/${s.assignment_id}`}
+          className="text-sm text-brand-600 hover:underline"
         >
           ← {s.assignment_title}
         </Link>
