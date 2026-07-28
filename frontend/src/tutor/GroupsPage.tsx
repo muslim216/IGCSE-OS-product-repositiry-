@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createGroup, listGroups, listSubjects } from "../api/groups";
+import { GroupCard } from "./GroupCard";
+import { Button, Card, EmptyState, Field, Input, Select } from "../ui";
 
 export default function GroupsPage() {
   const queryClient = useQueryClient();
@@ -26,79 +27,83 @@ export default function GroupsPage() {
     if (name && subjectId !== "") create.mutate();
   }
 
+  const isEmpty = groups.data?.length === 0;
+
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-800">Your groups</h2>
-        <button
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">Your classes</h2>
+          <p className="text-sm text-slate-500">
+            Everything — homework, syllabus, schedule and progress — lives inside a class.
+          </p>
+        </div>
+        <Button
+          variant={showForm ? "secondary" : "primary"}
           onClick={() => setShowForm((v) => !v)}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
-          {showForm ? "Cancel" : "New group"}
-        </button>
+          {showForm ? "Cancel" : "New class"}
+        </Button>
       </div>
 
       {showForm && (
-        <form onSubmit={onSubmit} className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border bg-white p-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Group name</label>
-            <input
-              className="mt-1 rounded-md border border-slate-300 px-3 py-2"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Chemistry — Year 10"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Subject</label>
-            <select
-              className="mt-1 rounded-md border border-slate-300 px-3 py-2"
-              value={subjectId}
-              onChange={(e) => setSubjectId(Number(e.target.value))}
-              required
-            >
-              <option value="" disabled>
-                Choose a subject…
-              </option>
-              {subjects.data?.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.exam_board} {s.code} — {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            Create
-          </button>
-          {create.isError && <p className="text-sm text-red-600">Could not create the group.</p>}
-        </form>
+        <Card className="mt-4">
+          <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-3 p-4">
+            <Field label="Class name" className="flex-1 basis-56">
+              {(props) => (
+                <Input
+                  {...props}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Chemistry — Year 10"
+                  required
+                />
+              )}
+            </Field>
+            <Field label="Subject" className="flex-1 basis-64">
+              {(props) => (
+                <Select
+                  {...props}
+                  value={subjectId}
+                  onChange={(e) => setSubjectId(Number(e.target.value))}
+                  required
+                >
+                  <option value="" disabled>
+                    Choose a subject…
+                  </option>
+                  {subjects.data?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.exam_board} {s.code} — {s.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Button type="submit" disabled={create.isPending}>
+              {create.isPending ? "Creating…" : "Create class"}
+            </Button>
+            {create.isError && (
+              <p className="basis-full text-sm text-risk-600">Could not create the class.</p>
+            )}
+          </form>
+        </Card>
       )}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {groups.data?.map((g) => (
-          <Link
-            key={g.id}
-            to={`/tutor/groups/${g.id}`}
-            className="rounded-lg border bg-white p-4 hover:border-blue-400"
-          >
-            <div className="font-medium text-slate-800">{g.name}</div>
-            <div className="mt-1 text-sm text-slate-500">
-              {g.subject.exam_board} {g.subject.code} — {g.subject.name}
-            </div>
-            <div className="mt-2 text-sm text-slate-500">
-              {g.member_count} student{g.member_count === 1 ? "" : "s"}
-            </div>
-          </Link>
-        ))}
-        {groups.data?.length === 0 && !showForm && (
-          <p className="text-slate-500">No groups yet — create your first group to invite students.</p>
-        )}
-      </div>
+      {isEmpty && !showForm ? (
+        <EmptyState
+          className="mt-6"
+          icon="📚"
+          title="Create your first class"
+          description="A class holds your students, their homework, the syllabus you're covering and the weekly timetable. Once it exists you can invite students and set work."
+          action={{ label: "New class", onClick: () => setShowForm(true) }}
+        />
+      ) : (
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {groups.data?.map((g) => (
+            <GroupCard key={g.id} group={g} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

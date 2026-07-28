@@ -1,1 +1,79 @@
 @import "tailwindcss";
+
+/*
+ * Design tokens. Everything in the app should reach for these rather than raw
+ * palette values, so the product reads as one system.
+ *
+ * `brand` is the primary action colour (it replaces the ad-hoc blue-600 that was
+ * scattered through the pages). `ready` / `caution` / `risk` carry the readiness
+ * semantics used by ReadinessView's score thresholds (>=70 / >=50 / below), so
+ * those meanings live in one place instead of being re-derived per component.
+ */
+@theme {
+  --color-brand-50: oklch(0.97 0.017 258);
+  --color-brand-100: oklch(0.935 0.035 258);
+  --color-brand-200: oklch(0.885 0.06 258);
+  --color-brand-300: oklch(0.81 0.095 258);
+  --color-brand-400: oklch(0.715 0.14 258);
+  --color-brand-500: oklch(0.635 0.175 258);
+  --color-brand-600: oklch(0.565 0.19 258);
+  --color-brand-700: oklch(0.492 0.175 258);
+  --color-brand-800: oklch(0.425 0.145 258);
+  --color-brand-900: oklch(0.375 0.115 258);
+
+  --color-accent-400: oklch(0.83 0.14 78);
+  --color-accent-500: oklch(0.765 0.155 70);
+  --color-accent-600: oklch(0.685 0.155 62);
+
+  --color-ready-50: oklch(0.96 0.04 155);
+  --color-ready-500: oklch(0.7 0.16 155);
+  --color-ready-600: oklch(0.615 0.15 155);
+
+  --color-caution-50: oklch(0.965 0.04 85);
+  --color-caution-500: oklch(0.79 0.15 78);
+  --color-caution-600: oklch(0.7 0.15 68);
+
+  --color-risk-50: oklch(0.96 0.03 25);
+  --color-risk-500: oklch(0.65 0.2 25);
+  --color-risk-600: oklch(0.58 0.205 25);
+
+  --color-surface: oklch(1 0 0);
+  --color-surface-sunken: oklch(0.985 0.002 258);
+  --color-surface-muted: oklch(0.968 0.004 258);
+
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+
+  --shadow-card: 0 1px 2px oklch(0.4 0.03 258 / 0.06), 0 1px 3px oklch(0.4 0.03 258 / 0.05);
+  --shadow-card-hover: 0 4px 12px oklch(0.4 0.03 258 / 0.09), 0 2px 4px oklch(0.4 0.03 258 / 0.05);
+  --shadow-pop: 0 10px 30px oklch(0.4 0.03 258 / 0.14);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif;
+}
+
+/*
+ * The native select arrow can't be styled, so every Select renders its own chevron
+ * over an appearance-none control. Sizing the background image here keeps the
+ * component markup free of a long inline style.
+ */
+@utility select-chevron {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748b' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-position: right 0.625rem center;
+  background-repeat: no-repeat;
+  background-size: 1.15rem 1.15rem;
+  padding-right: 2.25rem;
+}
+
+@layer base {
+  body {
+    @apply bg-surface-sunken text-slate-800 antialiased;
+  }
+
+  /* One focus treatment across every interactive control. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    @apply outline-none ring-2 ring-brand-500/60 ring-offset-1 ring-offset-white;
+  }
+}
