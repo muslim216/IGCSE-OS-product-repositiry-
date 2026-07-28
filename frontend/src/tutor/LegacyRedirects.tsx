@@ -19,6 +19,9 @@ export function LegacyAssignmentRedirect() {
   const assignment = useQuery({
     queryKey: ["assignment", id],
     queryFn: () => getAssignment(id),
+    // A stale link points at a record that may be gone; retrying just delays
+    // the fallback redirect by several seconds.
+    retry: false,
   });
 
   if (assignment.isLoading) return <Resolving />;
@@ -34,15 +37,17 @@ export function LegacySubmissionRedirect() {
   const submission = useQuery({
     queryKey: ["submission", id],
     queryFn: () => getSubmission(id),
+    retry: false,
   });
   // A submission knows its assignment; the assignment knows the class.
   const assignment = useQuery({
     queryKey: ["assignment", submission.data?.assignment_id],
     queryFn: () => getAssignment(submission.data!.assignment_id),
     enabled: submission.data !== undefined,
+    retry: false,
   });
 
-  if (submission.isLoading || assignment.isLoading) return <Resolving />;
+  if (submission.isLoading || (submission.data && assignment.isLoading)) return <Resolving />;
   if (!assignment.data) return <Navigate to="/tutor" replace />;
   return (
     <Navigate to={`/tutor/groups/${assignment.data.group_id}/submissions/${id}`} replace />
