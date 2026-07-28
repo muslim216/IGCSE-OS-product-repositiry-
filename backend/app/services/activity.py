@@ -70,6 +70,13 @@ def tutor_scope(user: User) -> Select:
     )
 
 
+async def _count(session: AsyncSession, scope: Select) -> int:
+    """The true total behind a feed, which `items` is capped below."""
+    return (
+        await session.execute(select(func.count()).select_from(scope.subquery()))
+    ).scalar_one()
+
+
 async def for_user(session: AsyncSession, user: User) -> ActivitySummary:
     if user.role in (UserRole.tutor, UserRole.admin):
         return await _tutor_activity(session, user)
@@ -85,13 +92,8 @@ async def _tutor_activity(session: AsyncSession, user: User) -> ActivitySummary:
             scope.order_by(Submission.submitted_at.desc()).limit(ACTIVITY_LIMIT)
         )
     ).all()
-    # COUNT in the database rather than materializing the backlog to len() it:
-    # this endpoint is polled by every open tutor session.
-    total = (
-        await session.execute(select(func.count()).select_from(scope.subquery()))
-    ).scalar_one()
     return ActivitySummary(
-        count=total,
+        count=await _count(session, scope),
         items=[
             ActivityItem(
                 kind="submission_awaiting_review",
@@ -107,16 +109,18 @@ async def _tutor_activity(session: AsyncSession, user: User) -> ActivitySummary:
 
 async def _student_activity(session: AsyncSession, user: User) -> ActivitySummary:
     """A student's own marked work — homework and past papers alike."""
+    scope = _polymorphic_submissions().where(
+        Submission.student_id == user.id, Submission.status.in_(SETTLED)
+    )
     rows = (
         await session.execute(
-            _polymorphic_submissions()
-            .where(Submission.student_id == user.id, Submission.status.in_(SETTLED))
-            .order_by(Submission.finalized_at.desc(), Submission.submitted_at.desc())
-            .limit(ACTIVITY_LIMIT)
+            scope.order_by(
+                Submission.finalized_at.desc(), Submission.submitted_at.desc()
+            ).limit(ACTIVITY_LIMIT)
         )
     ).all()
     return ActivitySummary(
-        count=len(rows),
+        count=await _count(session, scope),
         items=[
             ActivityItem(
                 kind="homework_marked",
@@ -134,22 +138,21 @@ async def _student_activity(session: AsyncSession, user: User) -> ActivitySummar
 
 
 async def _parent_activity(session: AsyncSession, user: User) -> ActivitySummary:
-    rows = (
-        await session.execute(
-            select(Report, User)
-            .join(User, User.id == Report.student_id)
-            .join(ParentLink, ParentLink.student_id == Report.student_id)
-            .where(
-                ParentLink.parent_id == user.id,
-                Report.audience == ReportAudience.parent,
-                Report.status == ReportStatus.ready,
-            )
-            .order_by(Report.created_at.desc())
-            .limit(ACTIVITY_LIMIT)
+    scope = (
+        select(Report, User)
+        .join(User, User.id == Report.student_id)
+        .join(ParentLink, ParentLink.student_id == Report.student_id)
+        .where(
+            ParentLink.parent_id == user.id,
+            Report.audience == ReportAudience.parent,
+            Report.status == ReportStatus.ready,
         )
+    )
+    rows = (
+        await session.execute(scope.order_by(Report.created_at.desc()).limit(ACTIVITY_LIMIT))
     ).all()
     return ActivitySummary(
-        count=len(rows),
+        count=await _count(session, scope),
         items=[
             ActivityItem(
                 kind="report_ready",

@@ -9,12 +9,37 @@ from app.workers.jobs import process_one_job
 from tests.test_homework import (  # noqa: F401
     PNG_BYTES,
     classified,
-    fake_marking,
     group,
     published_assignment,
     student,
     subject,
 )
+
+
+def marked_by_ai(fake_ai, monkeypatch):
+    """Run the real marking path against a fabricated AI response, patching the
+    normalized boundary rather than the marking function itself."""
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    result = MarkingResult(
+        questions=[
+            QuestionMarkDraft(
+                number="1",
+                transcription="An isotope has the same protons, different neutrons.",
+                proposed_marks=1,
+                feedback="Half right.",
+                confidence="high",
+            ),
+            QuestionMarkDraft(
+                number="2",
+                transcription="Ionic bonding is electrostatic attraction.",
+                proposed_marks=2,
+                feedback="Say more about the ions.",
+                confidence="high",
+            ),
+        ]
+    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(result))
 
 
 async def test_activity_is_empty_before_anything_happens(client, tutor):
@@ -24,9 +49,9 @@ async def test_activity_is_empty_before_anything_happens(client, tutor):
 
 
 async def test_tutor_sees_work_awaiting_review(
-    client, tutor, student, published_assignment, monkeypatch
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
 ):
-    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    marked_by_ai(fake_ai, monkeypatch)
     await client.post(
         f"/api/v1/assignments/{published_assignment['id']}/submissions",
         files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
@@ -44,9 +69,9 @@ async def test_tutor_sees_work_awaiting_review(
 
 
 async def test_a_student_sees_their_marked_work_not_the_tutor_queue(
-    client, tutor, student, published_assignment, monkeypatch
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
 ):
-    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    marked_by_ai(fake_ai, monkeypatch)
     await client.post(
         f"/api/v1/assignments/{published_assignment['id']}/submissions",
         files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
@@ -81,10 +106,10 @@ async def test_a_student_sees_their_marked_work_not_the_tutor_queue(
 
 
 async def test_a_tutor_never_sees_another_tutors_work(
-    client, tutor, student, published_assignment, monkeypatch
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
 ):
     """There has to be work to leak before an empty result proves anything."""
-    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    marked_by_ai(fake_ai, monkeypatch)
     await client.post(
         f"/api/v1/assignments/{published_assignment['id']}/submissions",
         files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
@@ -146,3 +171,52 @@ async def test_a_parent_sees_a_ready_report_for_their_child(client, tutor, stude
     assert body["count"] == 1
     assert body["items"][0]["kind"] == "report_ready"
     assert "Sara" in body["items"][0]["label"]
+
+
+async def test_count_is_the_true_total_not_the_page_size(
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
+):
+    """`count` drives the badge, so it must report everything outstanding even
+    when `items` is capped — otherwise a busy feed silently plateaus."""
+    marked_by_ai(fake_ai, monkeypatch)
+    await client.post(
+        f"/api/v1/assignments/{published_assignment['id']}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    # A second piece of work, so there is more than one thing waiting.
+    second = await client.post(
+        "/api/v1/assignments",
+        json={"group_id": published_assignment["group_id"], "title": "HW2"},
+        headers=tutor["headers"],
+    )
+    aid = second.json()["id"]
+    await client.put(
+        f"/api/v1/assignments/{aid}/questions",
+        json=[
+            {
+                "number": "1",
+                "text_summary": "Define an isotope",
+                "max_marks": 2,
+                # No mark scheme, so the AI's mark is discarded and this lands
+                # in the tutor's queue rather than auto-finalizing.
+                "has_mark_scheme": False,
+                "topic_ids": [],
+            }
+        ],
+        headers=tutor["headers"],
+    )
+    await client.post(f"/api/v1/assignments/{aid}/publish", headers=tutor["headers"])
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    monkeypatch.setattr("app.services.activity.ACTIVITY_LIMIT", 1)
+    body = (await client.get("/api/v1/me/activity", headers=tutor["headers"])).json()
+    assert len(body["items"]) == 1
+    assert body["count"] == 2
