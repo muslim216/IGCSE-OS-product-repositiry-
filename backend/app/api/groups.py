@@ -1,6 +1,3 @@
-from collections import defaultdict
-from datetime import datetime, time
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -9,29 +6,22 @@ from app.api.analytics import group_analytics
 from app.api.deps import CurrentUser, DbSession
 from app.models import (
     AiFeature,
-    Assignment,
-    AssignmentStatus,
     Group,
     GroupMember,
     InviteKind,
     ScheduleSlot,
     Subject,
-    Submission,
-    SubmissionStatus,
     User,
     UserRole,
 )
-from app.models.base import utcnow
 from app.schemas.auth import UserOut
 from app.schemas.groups import (
     ClassBrief,
     GroupCreate,
     GroupDetail,
     GroupOut,
-    GroupSummary,
     GroupUpdate,
     InviteOut,
-    NextLesson,
     ScheduleSlotCreate,
     ScheduleSlotOut,
     StudentCreate,
@@ -40,108 +30,10 @@ from app.schemas.groups import (
 )
 from app.security import hash_password
 from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.groups import summaries as group_summaries
 from app.services.invites import build_invite
 
 router = APIRouter(prefix="/groups", tags=["groups"])
-
-#: Submission states that are waiting on the tutor's eyes, mirroring the
-#: attention endpoint: an AI draft to confirm, an AI failure to handle, or
-#: auto-marking's uncertain rows. Finalized and auto-finalized work is done;
-#: submitted/marking is still in flight.
-_AWAITING_REVIEW = (
-    SubmissionStatus.ai_marked,
-    SubmissionStatus.ai_failed,
-    SubmissionStatus.needs_review,
-)
-
-
-def _soonest(slots: list[ScheduleSlot], now: datetime) -> NextLesson | None:
-    """Pick the next occurrence of a weekly timetable.
-
-    Slots repeat weekly (weekday + start_time, no date), so "next" means the
-    smallest number of days ahead; a slot earlier today has already passed and
-    rolls round to next week.
-    """
-    if not slots:
-        return None
-    today, current = now.weekday(), now.time()
-
-    def days_away(slot: ScheduleSlot) -> tuple[int, time]:
-        days = (slot.weekday - today) % 7
-        if days == 0 and slot.start_time <= current:
-            days = 7
-        return days, slot.start_time
-
-    nxt = min(slots, key=days_away)
-    return NextLesson(
-        weekday=nxt.weekday,
-        start_time=nxt.start_time,
-        duration_min=nxt.duration_min,
-        title=nxt.title,
-    )
-
-
-async def _summaries(db, group_ids: list[int]) -> dict[int, GroupSummary]:
-    """Per-group counts for the class cards.
-
-    Each aggregate is its own query rather than one wide join: joining members,
-    assignments and submissions together would multiply the rows and inflate
-    every count.
-    """
-    if not group_ids:
-        return {}
-
-    members = dict(
-        (
-            await db.execute(
-                select(GroupMember.group_id, func.count(GroupMember.id))
-                .where(GroupMember.group_id.in_(group_ids))
-                .group_by(GroupMember.group_id)
-            )
-        ).all()
-    )
-    published = dict(
-        (
-            await db.execute(
-                select(Assignment.group_id, func.count(Assignment.id))
-                .where(
-                    Assignment.group_id.in_(group_ids),
-                    Assignment.status == AssignmentStatus.published,
-                )
-                .group_by(Assignment.group_id)
-            )
-        ).all()
-    )
-    awaiting = dict(
-        (
-            await db.execute(
-                select(Assignment.group_id, func.count(Submission.id))
-                .join(Assignment, Assignment.id == Submission.assignment_id)
-                .where(
-                    Assignment.group_id.in_(group_ids),
-                    Submission.status.in_(_AWAITING_REVIEW),
-                )
-                .group_by(Assignment.group_id)
-            )
-        ).all()
-    )
-
-    by_group: dict[int, list[ScheduleSlot]] = defaultdict(list)
-    for slot in (
-        await db.scalars(select(ScheduleSlot).where(ScheduleSlot.group_id.in_(group_ids)))
-    ).all():
-        by_group[slot.group_id].append(slot)
-
-    now = utcnow()
-    return {
-        gid: GroupSummary(
-            member_count=members.get(gid, 0),
-            published_assignment_count=published.get(gid, 0),
-            awaiting_review_count=awaiting.get(gid, 0),
-            next_lesson=_soonest(by_group.get(gid, []), now),
-        )
-        for gid in group_ids
-    }
 
 
 def _require_tutor(user: User) -> None:
@@ -182,7 +74,7 @@ async def list_groups(db: DbSession, user: CurrentUser) -> list[GroupOut]:
             .order_by(Group.created_at)
         )
     ).all()
-    summaries = await _summaries(db, [g.id for g in groups])
+    summaries = await group_summaries(db, [g.id for g in groups])
     return [
         GroupOut(
             id=g.id,
@@ -205,7 +97,7 @@ async def group_detail(group_id: int, db: DbSession, user: CurrentUser) -> Group
             .order_by(User.name)
         )
     ).all()
-    summaries = await _summaries(db, [group.id])
+    summaries = await group_summaries(db, [group.id])
     return GroupDetail(
         id=group.id,
         name=group.name,

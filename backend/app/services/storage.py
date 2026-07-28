@@ -123,6 +123,11 @@ def save_bytes(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
     attachment) under the same validation and layout as a direct upload.
     Raises ValueError (not HTTPException) since callers may be background
     jobs rather than requests."""
+    # Cap the *source* bytes before _normalize, which may decode and re-encode
+    # a HEIC. Checking only afterwards would both let an arbitrarily large photo
+    # through the decoder and measure the (smaller) transcoded JPEG instead.
+    if len(data) > MAX_FILE_BYTES:
+        raise ValueError("File exceeds the 20 MB limit")
     data, mime = _normalize(data, mime)
     if mime not in ALLOWED_MIMES:
         raise ValueError(f"Unsupported file type: {mime}")
@@ -137,6 +142,15 @@ def _write(data: bytes, mime: str, filename: str) -> tuple[str, str, str]:
     rel_path = f"{secrets.token_hex(16)}{ALLOWED_MIMES[mime]}"
     (upload_root() / rel_path).write_bytes(data)
     return rel_path, filename, mime
+
+
+def delete_file(rel_path: str) -> None:
+    """Remove a stored file, tolerating one that is already gone.
+
+    Used to undo writes when a later step in the same request fails — a file on
+    disk with no row pointing at it is invisible and can never be cleaned up.
+    """
+    (upload_root() / rel_path).unlink(missing_ok=True)
 
 
 def read_file(rel_path: str) -> bytes:

@@ -9,8 +9,9 @@ import {
   formatDuration,
   formatTime,
 } from "../../lib/schedule";
+import { ApiError } from "../../api/client";
 import { useGroupContext } from "../GroupLayout";
-import { EmptyState } from "../../components/ui";
+import { EmptyState, Modal } from "../../components/ui";
 
 const selectClass = "rounded-md border border-line px-3 py-2 text-sm";
 
@@ -18,6 +19,10 @@ export default function ScheduleTab() {
   const { groupId } = useGroupContext();
   const queryClient = useQueryClient();
   const lessons = useQuery({ queryKey: ["lessons", groupId], queryFn: () => listLessons(groupId) });
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<{ id: number; label: string } | null>(null);
+  const onError = (err: unknown) =>
+    setActionError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
 
   const [form, setForm] = useState({
     weekday: 0,
@@ -31,22 +36,28 @@ export default function ScheduleTab() {
       queryClient.invalidateQueries({ queryKey: ["lessons", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
     },
+    onError,
   });
   const dropLesson = useMutation({
     mutationFn: (lessonId: number) => deleteLesson(groupId, lessonId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lessons", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      setRemoving(null);
     },
+    onError,
   });
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    setActionError(null);
     addLesson.mutate();
   }
 
   return (
     <div>
+      {actionError && <p className="mb-3 text-sm text-risk-600">{actionError}</p>}
+
       <div className="flex items-center justify-between">
         <h3 className="font-medium">Weekly lessons</h3>
         <Link
@@ -66,7 +77,12 @@ export default function ScheduleTab() {
               {lesson.title && <span className="text-ink-500"> — {lesson.title}</span>}
             </span>
             <button
-              onClick={() => dropLesson.mutate(lesson.id)}
+              onClick={() =>
+                setRemoving({
+                  id: lesson.id,
+                  label: `${WEEKDAYS[lesson.weekday]} ${formatTime(lesson.start_time)}`,
+                })
+              }
               className="text-red-500 hover:underline"
             >
               Remove
@@ -144,6 +160,31 @@ export default function ScheduleTab() {
           Add lesson
         </button>
       </form>
+
+      <Modal
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        title={`Remove the ${removing?.label ?? ""} lesson?`}
+      >
+        <p className="text-sm text-ink-500">
+          It disappears from this class's timetable and from students' dashboards.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={() => setRemoving(null)}
+            className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => removing && dropLesson.mutate(removing.id)}
+            disabled={dropLesson.isPending}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+          >
+            Remove
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

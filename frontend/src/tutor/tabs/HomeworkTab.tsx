@@ -31,6 +31,26 @@ export default function HomeworkTab() {
     queryFn: () => listGroupAssignments(groupId),
   });
 
+  // A failed load must not read as "no homework yet" — that invites the tutor
+  // to re-create work that already exists.
+  if (assignments.isError) {
+    return (
+      <EmptyState
+        title="Couldn't load this class's homework"
+        hint="The connection may have dropped."
+        action={
+          <button
+            type="button"
+            onClick={() => assignments.refetch()}
+            className="rounded-md bg-brand-600 px-3 py-1.5 font-medium hover:bg-brand-700"
+          >
+            Try again
+          </button>
+        }
+      />
+    );
+  }
+
   if (assignments.data?.length === 0) {
     return (
       <EmptyState

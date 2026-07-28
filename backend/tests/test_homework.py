@@ -647,7 +647,7 @@ async def test_iphone_photos_are_converted_to_jpeg():
     Image.new("RGB", (8, 8), (120, 30, 30)).save(buffer, format="HEIF")
     heic_bytes = buffer.getvalue()
 
-    path, name, mime = storage.save_bytes(heic_bytes, "image/heic", "work.heic")
+    path, _name, mime = storage.save_bytes(heic_bytes, "image/heic", "work.heic")
     assert mime == "image/jpeg"
     assert path.endswith(".jpg")
     assert storage.read_file(path).startswith(b"\xff\xd8")  # JPEG magic bytes
@@ -705,3 +705,45 @@ async def test_questions_stay_editable_until_work_is_submitted(
     )
     assert blocked.status_code == 409
     assert "submitted" in blocked.json()["detail"]
+
+
+async def test_published_homework_cannot_be_emptied_of_questions(
+    client, tutor, published_assignment
+):
+    """Publishing guarantees at least one question; clearing the list would
+    leave students looking at homework with nothing in it."""
+    resp = await client.put(
+        f"/api/v1/assignments/{published_assignment['id']}/questions",
+        json=[],
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 422
+    assert "at least one question" in resp.json()["detail"].lower()
+
+
+async def test_oversized_bytes_are_rejected_before_any_decode():
+    """The cap applies to the source bytes — a huge HEIC must not be decoded
+    first and then measured as a much smaller JPEG."""
+    from app.services import storage
+
+    with pytest.raises(ValueError, match="20 MB"):
+        storage.save_bytes(b"\x00" * (storage.MAX_FILE_BYTES + 1), "image/heic", "huge.heic")
+
+
+async def test_a_rejected_mark_scheme_leaves_no_orphaned_file(client, tutor, group):
+    """The paper is written to disk before the mark scheme is validated, so a
+    bad mark scheme must take the already-written paper with it."""
+    from app.services import storage
+
+    before = set(storage.upload_root().iterdir())
+    resp = await client.post(
+        "/api/v1/assignments/upload",
+        data={"group_id": group["id"]},
+        files={
+            "file": ("paper.pdf", PDF_BYTES, "application/pdf"),
+            "mark_scheme": ("scheme.zip", b"PK\x03\x04 not a document", "application/zip"),
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 415
+    assert set(storage.upload_root().iterdir()) == before

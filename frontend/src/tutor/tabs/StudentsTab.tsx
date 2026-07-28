@@ -8,8 +8,50 @@ import {
   removeMember,
   resetStudentPassword,
 } from "../../api/groups";
+import { ApiError } from "../../api/client";
 import { useGroupContext } from "../GroupLayout";
 import { EmptyState, Modal } from "../../components/ui";
+
+/**
+ * Masked by default so a password isn't left on screen in a classroom, but
+ * revealable — the tutor invents these and has to read them out to a student
+ * who has no email, so typing one blind is worse than useless.
+ */
+function PasswordField({
+  value,
+  onChange,
+  placeholder,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  autoFocus?: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span className="relative inline-flex items-center">
+      <input
+        type={visible ? "text" : "password"}
+        className="w-full rounded-md border border-line py-2 pl-3 pr-14 text-sm"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        minLength={8}
+        required
+        autoFocus={autoFocus}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        className="absolute right-2 text-xs text-ink-400 hover:text-ink-700"
+        aria-pressed={visible}
+      >
+        {visible ? "Hide" : "Show"}
+      </button>
+    </span>
+  );
+}
 
 function CopyBox({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
@@ -34,6 +76,10 @@ function CopyBox({ label, value }: { label: string; value: string }) {
 export default function StudentsTab() {
   const { group, groupId } = useGroupContext();
   const queryClient = useQueryClient();
+  // Every mutation here reports failure — a silent no-op reads as "it worked".
+  const [actionError, setActionError] = useState<string | null>(null);
+  const onError = (err: unknown) =>
+    setActionError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
 
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
@@ -45,6 +91,7 @@ export default function StudentsTab() {
   const invite = useMutation({
     mutationFn: () => createInvite(groupId),
     onSuccess: (data) => setInviteLink(`${window.location.origin}/join/${data.code}`),
+    onError,
   });
 
   const [studentForm, setStudentForm] = useState({ name: "", username: "", password: "" });
@@ -54,6 +101,7 @@ export default function StudentsTab() {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       setStudentForm({ name: "", username: "", password: "" });
     },
+    onError,
   });
 
   const remove = useMutation({
@@ -62,6 +110,7 @@ export default function StudentsTab() {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       setRemoving(null);
     },
+    onError,
   });
 
   const parentCode = useMutation({
@@ -71,6 +120,7 @@ export default function StudentsTab() {
         ...prev,
         [studentId]: `${window.location.origin}/parent-join/${data.code}`,
       })),
+    onError,
   });
 
   const resetPw = useMutation({
@@ -80,15 +130,19 @@ export default function StudentsTab() {
       setResetting(null);
       setNewPassword("");
     },
+    onError,
   });
 
   function onAddStudent(e: FormEvent) {
     e.preventDefault();
+    setActionError(null);
     addStudent.mutate();
   }
 
   return (
     <div>
+      {actionError && <p className="mb-3 text-sm text-risk-600">{actionError}</p>}
+
       <div className="flex items-center justify-between">
         <h3 className="font-medium">Students ({group.members.length})</h3>
         <button
@@ -166,13 +220,10 @@ export default function StudentsTab() {
             onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
             required
           />
-          <input
-            className="rounded-md border border-line px-3 py-2 text-sm"
+          <PasswordField
             placeholder="Password (min 8 chars)"
             value={studentForm.password}
-            onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
-            minLength={8}
-            required
+            onChange={(password) => setStudentForm({ ...studentForm, password })}
           />
           <button
             type="submit"
@@ -182,11 +233,7 @@ export default function StudentsTab() {
             Add student
           </button>
         </div>
-        {addStudent.isError && (
-          <p className="mt-1 text-sm text-risk-600">
-            Could not create the account (is the username taken?).
-          </p>
-        )}
+
       </form>
 
       <Modal
@@ -225,14 +272,10 @@ export default function StudentsTab() {
             if (resetting) resetPw.mutate({ studentId: resetting.id, password: newPassword });
           }}
         >
-          <input
-            type="text"
-            className="w-full rounded-md border border-line px-3 py-2 text-sm"
+          <PasswordField
             placeholder="At least 8 characters"
             value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            minLength={8}
-            required
+            onChange={setNewPassword}
             autoFocus
           />
           <p className="mt-2 text-xs text-ink-400">

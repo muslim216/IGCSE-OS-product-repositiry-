@@ -144,6 +144,15 @@ export default function AssignmentCreatePage() {
             </>
           )}
         </button>
+        {file && (
+          <button
+            type="button"
+            onClick={() => pick(null)}
+            className="text-xs text-ink-400 underline hover:text-ink-700"
+          >
+            Remove this file
+          </button>
+        )}
         <input
           ref={inputRef}
           type="file"
