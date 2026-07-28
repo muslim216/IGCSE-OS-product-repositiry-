@@ -82,6 +82,9 @@ export default function AssignmentCreatePage() {
   function pick(next: File | null) {
     setFile(next);
     if (next) setReuseId("");
+    // The mark-scheme input only renders while a paper is chosen, so a leftover
+    // one would be invisible — and would attach to whatever paper came next.
+    setMarkScheme(null);
   }
 
   function onDrop(e: DragEvent) {

@@ -91,6 +91,7 @@ export default function StudentsTab() {
   const invite = useMutation({
     mutationFn: () => createInvite(groupId),
     onSuccess: (data) => setInviteLink(`${window.location.origin}/join/${data.code}`),
+    onMutate: () => setActionError(null),
     onError,
   });
 
@@ -101,6 +102,7 @@ export default function StudentsTab() {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       setStudentForm({ name: "", username: "", password: "" });
     },
+    onMutate: () => setActionError(null),
     onError,
   });
 
@@ -110,6 +112,7 @@ export default function StudentsTab() {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       setRemoving(null);
     },
+    onMutate: () => setActionError(null),
     onError,
   });
 
@@ -120,6 +123,7 @@ export default function StudentsTab() {
         ...prev,
         [studentId]: `${window.location.origin}/parent-join/${data.code}`,
       })),
+    onMutate: () => setActionError(null),
     onError,
   });
 
@@ -130,12 +134,12 @@ export default function StudentsTab() {
       setResetting(null);
       setNewPassword("");
     },
+    onMutate: () => setActionError(null),
     onError,
   });
 
   function onAddStudent(e: FormEvent) {
     e.preventDefault();
-    setActionError(null);
     addStudent.mutate();
   }
 

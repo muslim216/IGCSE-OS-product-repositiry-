@@ -36,6 +36,7 @@ export default function ScheduleTab() {
       queryClient.invalidateQueries({ queryKey: ["lessons", groupId] });
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
     },
+    onMutate: () => setActionError(null),
     onError,
   });
   const dropLesson = useMutation({
@@ -45,12 +46,12 @@ export default function ScheduleTab() {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
       setRemoving(null);
     },
+    onMutate: () => setActionError(null),
     onError,
   });
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setActionError(null);
     addLesson.mutate();
   }
 
