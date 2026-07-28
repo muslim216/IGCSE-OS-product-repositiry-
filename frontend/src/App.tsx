@@ -9,6 +9,8 @@ import AppShell from "./components/AppShell";
 import LandingPage from "./marketing/LandingPage";
 import GroupsPage from "./tutor/GroupsPage";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
+import GoogleConnectPage from "./tutor/GoogleConnectPage";
+import ClassroomImportPage from "./tutor/ClassroomImportPage";
 import GroupLayout from "./tutor/GroupLayout";
 import HomeworkTab from "./tutor/tabs/HomeworkTab";
 import StudentsTab from "./tutor/tabs/StudentsTab";
@@ -43,6 +45,7 @@ function Home() {
 const TUTOR_NAV = [
   { to: "/tutor", label: "Classes", exact: true },
   { to: "/tutor/review", label: "Needs review" },
+  { to: "/tutor/integrations", label: "Integrations" },
 ];
 const STUDENT_NAV = [
   { to: "/student", label: "Dashboard", exact: true },
@@ -64,6 +67,7 @@ export default function App() {
         <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} />}>
           <Route path="/tutor" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
+          <Route path="/tutor/integrations" element={<GoogleConnectPage />} />
 
           {/* Everything belonging to a class lives inside it. */}
           <Route path="/tutor/groups/:groupId" element={<GroupLayout />}>
@@ -78,6 +82,7 @@ export default function App() {
             <Route path="submissions/:submissionId" element={<SubmissionReviewPage />} />
             <Route path="students/:studentId" element={<StudentDetailPage />} />
             <Route path="mock" element={<MockEntryPage />} />
+            <Route path="classroom" element={<ClassroomImportPage />} />
           </Route>
 
           {/* Pre-restructure URLs — resolve the class, then hand off. */}

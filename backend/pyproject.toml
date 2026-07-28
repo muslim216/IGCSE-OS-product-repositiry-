@@ -20,6 +20,10 @@ dependencies = [
     # it to JPEG on upload since the Anthropic image API won't take HEIC.
     "pillow>=10.3",
     "pillow-heif>=0.16",
+    # Google Classroom import. httpx is used directly rather than
+    # google-api-python-client, which is sync-only and would block the worker.
+    "httpx>=0.27",
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]

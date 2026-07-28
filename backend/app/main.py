@@ -11,6 +11,7 @@ from app.api import (
     auth,
     chat,
     classifieds,
+    google_classroom,
     groups,
     me,
     readiness,
@@ -21,6 +22,7 @@ from app.api import (
 )
 from app.config import get_settings
 from app.services.extraction import extract_assignment
+from app.services.google_import import import_coursework
 from app.services.marking import mark_submission
 from app.services.readiness import recompute_student
 from app.services.reports import generate_report
@@ -30,6 +32,7 @@ register_handler("extract_assignment", extract_assignment)
 register_handler("mark_submission", mark_submission)
 register_handler("recompute_readiness", recompute_student)
 register_handler("generate_report", generate_report)
+register_handler("import_google_coursework", import_coursework)
 
 
 @asynccontextmanager
@@ -66,6 +69,7 @@ def create_app() -> FastAPI:
         assignments.router,
         chat.router,
         classifieds.router,
+        google_classroom.router,
         groups.router,
         me.router,
         readiness.router,

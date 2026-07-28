@@ -22,5 +22,13 @@ services:
         generateValue: true
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_TOKEN_KEY
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: https://igcse-os-api.onrender.com/api/v1/google/oauth/callback
       - key: CORS_ORIGINS
         value: https://igcse-os-product-repositiry.vercel.app

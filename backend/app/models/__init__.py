@@ -1,5 +1,16 @@
 from app.models.base import Base
 from app.models.chat import ChatConversation, ChatMessage, ChatRole
+from app.models.google import (
+    GoogleAccount,
+    GoogleAccountStatus,
+    GoogleCourseLink,
+    GoogleCourseworkLink,
+    GoogleImportRun,
+    GoogleStudentLink,
+    GoogleSubmissionImport,
+    ImportOutcome,
+    ImportRunStatus,
+)
 from app.models.groups import Group, GroupMember, Invite, InviteKind, Lesson, ParentLink
 from app.models.homework import (
     Assignment,
@@ -44,8 +55,17 @@ __all__ = [
     "Classified",
     "Evidence",
     "EvidenceSource",
+    "GoogleAccount",
+    "GoogleAccountStatus",
+    "GoogleCourseLink",
+    "GoogleCourseworkLink",
+    "GoogleImportRun",
+    "GoogleStudentLink",
+    "GoogleSubmissionImport",
     "Group",
     "GroupMember",
+    "ImportOutcome",
+    "ImportRunStatus",
     "Invite",
     "InviteKind",
     "Job",

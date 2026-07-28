@@ -32,6 +32,7 @@ from app.schemas.homework import (
 )
 from app.services import storage
 from app.services.evidence import build_homework_evidence
+from app.services.submission_intake import SubmissionFinalized, open_submission_for_files
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
@@ -78,29 +79,10 @@ async def submit_work(
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
 
-    submission = await db.scalar(
-        select(Submission)
-        .where(Submission.assignment_id == assignment_id, Submission.student_id == user.id)
-        .options(selectinload(Submission.files), selectinload(Submission.marks))
-    )
-    if submission is not None and submission.status == SubmissionStatus.finalized:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "This homework has already been marked and finalized"
-        )
-    if submission is None:
-        submission = Submission(assignment_id=assignment_id, student_id=user.id)
-        db.add(submission)
-        await db.flush()
-    else:
-        # Resubmission before finalize: replace the files and restart marking.
-        for f in submission.files:
-            await db.delete(f)
-        for m in submission.marks:
-            await db.delete(m)
-        submission.status = SubmissionStatus.submitted
-        submission.ai_error = None
-        submission.submitted_at = datetime.now(timezone.utc)
-        await db.flush()
+    try:
+        submission = await open_submission_for_files(db, assignment_id, user.id)
+    except SubmissionFinalized as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
 
     for position, upload in enumerate(files):
         path, name, mime = await storage.save_upload(upload)

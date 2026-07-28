@@ -30,11 +30,16 @@ export default function HomeworkTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold text-slate-900">Homework</h3>
-        <ButtonLink to={`/tutor/groups/${groupId}/homework/new`} variant="primary">
-          Set homework
-        </ButtonLink>
+        <div className="flex gap-2">
+          <ButtonLink to={`/tutor/groups/${groupId}/classroom`} variant="secondary">
+            Import from Classroom
+          </ButtonLink>
+          <ButtonLink to={`/tutor/groups/${groupId}/homework/new`} variant="primary">
+            Set homework
+          </ButtonLink>
+        </div>
       </div>
 
       <Card className="mt-4">
