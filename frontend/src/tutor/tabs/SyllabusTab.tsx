@@ -116,6 +116,20 @@ export default function SyllabusTab() {
       <p className="text-sm text-ink-500">
         Topics your class is scoring lowest on are flagged as evidence builds up.
       </p>
+      {/* Without this, a failed analytics call is indistinguishable from a
+          class that has no evidence yet — every flag would simply vanish. */}
+      {analytics.isError && (
+        <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-risk-600">
+          <span>Class averages couldn't load, so no topics are flagged below.</span>
+          <button
+            type="button"
+            onClick={() => analytics.refetch()}
+            className="font-medium text-brand-600 hover:underline"
+          >
+            Try again
+          </button>
+        </div>
+      )}
       <div className="mt-4 rounded-xl border border-line bg-surface px-5 py-2">
         <ul>
           {tree.map((node) => (

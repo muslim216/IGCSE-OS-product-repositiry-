@@ -64,8 +64,10 @@ export default function ActivityMenu() {
         )}
       </button>
 
+      {/* Anchored right and clamped to the viewport: the sidebar this sits in
+          is only 240px wide, and the mobile header narrower still. */}
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-80 overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
+        <div className="absolute right-0 z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
           <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
             Activity
           </p>

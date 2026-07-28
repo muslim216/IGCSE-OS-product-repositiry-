@@ -80,11 +80,69 @@ async def test_a_student_sees_their_marked_work_not_the_tutor_queue(
     assert tutor_body["count"] == 0
 
 
-async def test_a_tutor_never_sees_another_tutors_work(client, tutor, published_assignment):
+async def test_a_tutor_never_sees_another_tutors_work(
+    client, tutor, student, published_assignment, monkeypatch
+):
+    """There has to be work to leak before an empty result proves anything."""
+    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    await client.post(
+        f"/api/v1/assignments/{published_assignment['id']}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+    # The first tutor can see it...
+    assert (await client.get("/api/v1/me/activity", headers=tutor["headers"])).json()["count"] == 1
+
     other = await client.post(
         "/api/v1/auth/register/tutor",
         json={"name": "Other", "email": "other@example.com", "password": "password123"},
     )
     headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
+    # ...and a tutor in another organization sees nothing of it.
     body = (await client.get("/api/v1/me/activity", headers=headers)).json()
     assert body == {"count": 0, "items": []}
+
+
+async def test_a_parent_sees_a_ready_report_for_their_child(client, tutor, student):
+    """Parents get reports, not the tutor's queue."""
+    from app.db import async_session
+    from app.models import Report, ReportAudience, ReportStatus
+
+    # Link the parent through the real invite flow so the account is built the
+    # way the app builds it (organization, roles and all).
+    code = await client.post(
+        f"/api/v1/students/{student['user']['id']}/parent-code", headers=tutor["headers"]
+    )
+    registered = await client.post(
+        "/api/v1/auth/register/parent",
+        json={
+            "link_code": code.json()["code"],
+            "name": "Parent",
+            "email": "parent@example.com",
+            "password": "password123",
+        },
+    )
+    assert registered.status_code == 201, registered.text
+    headers = {"Authorization": f"Bearer {registered.json()['tokens']['access_token']}"}
+
+    # Nothing to show until a report is actually ready.
+    assert (await client.get("/api/v1/me/activity", headers=headers)).json()["count"] == 0
+
+    async with async_session() as session:
+        session.add(
+            Report(
+                student_id=student["user"]["id"],
+                generated_by_id=tutor["user"]["id"],
+                title="Progress report",
+                audience=ReportAudience.parent,
+                status=ReportStatus.ready,
+                content="All going well.",
+            )
+        )
+        await session.commit()
+
+    body = (await client.get("/api/v1/me/activity", headers=headers)).json()
+    assert body["count"] == 1
+    assert body["items"][0]["kind"] == "report_ready"
+    assert "Sara" in body["items"][0]["label"]

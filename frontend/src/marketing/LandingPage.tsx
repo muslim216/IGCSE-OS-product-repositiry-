@@ -38,7 +38,7 @@ const LOOP = [
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-canvas">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-y-3 px-6 py-5">
         <div className="flex items-center gap-2.5">
           <BeaconMark className="h-8 w-8" />
           <span className="leading-tight">
