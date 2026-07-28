@@ -16,6 +16,10 @@ dependencies = [
     "PyJWT>=2.8",
     "bcrypt>=4.1",
     "anthropic>=0.40",
+    # Students photograph work on iPhones, which produce HEIC; these transcode
+    # it to JPEG on upload since the Anthropic image API won't take HEIC.
+    "pillow>=10.3",
+    "pillow-heif>=0.16",
 ]
 
 [project.optional-dependencies]

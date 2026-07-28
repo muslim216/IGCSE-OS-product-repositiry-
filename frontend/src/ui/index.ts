@@ -3,6 +3,7 @@ export { Button, ButtonLink } from "./Button";
 export { Card, CardBody, CardHeader } from "./Card";
 export { Badge, CountBadge } from "./Badge";
 export { ConfirmDialog, Dialog } from "./Dialog";
+export { DropZone } from "./DropZone";
 export { EmptyState } from "./EmptyState";
 export { Field, Input, Textarea, controlClass } from "./Field";
 export { Select, type SelectOption } from "./Select";

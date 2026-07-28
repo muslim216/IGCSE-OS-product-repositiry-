@@ -12,6 +12,7 @@ import {
 import { listTopics } from "../api/syllabus";
 import { getGroup } from "../api/groups";
 import { ApiError } from "../api/client";
+import { Button } from "../ui";
 
 interface EditableQuestion extends QuestionIn {
   key: number;
@@ -55,6 +56,7 @@ export default function AssignmentDetailPage() {
 
   const [rows, setRows] = useState<EditableQuestion[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,6 +78,7 @@ export default function AssignmentDetailPage() {
     mutationFn: () => replaceQuestions(id, rows.map(({ key, ...q }) => q)),
     onSuccess: () => {
       setDirty(false);
+      setEditing(false);
       queryClient.invalidateQueries({ queryKey: ["assignment", id] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
@@ -100,7 +103,13 @@ export default function AssignmentDetailPage() {
   if (assignment.isError || !assignment.data)
     return <p className="text-red-600">Assignment not found.</p>;
   const a = assignment.data;
-  const editable = a.status === "review" || a.status === "extraction_failed";
+  // Extraction fills in topics and marks, so review is a correction pass. Show
+  // the result read-only and let the tutor opt into editing, except when
+  // something actually needs their attention. Once work is submitted the
+  // questions are locked — changing them would orphan its marks.
+  const needsAttention = a.status === "review" || a.status === "extraction_failed";
+  const locked = a.status === "closed" || (submissions.data?.length ?? 0) > 0;
+  const editable = !locked && (needsAttention || editing);
 
   function update(key: number, patch: Partial<EditableQuestion>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -164,43 +173,53 @@ export default function AssignmentDetailPage() {
               Questions ({rows.length}) — total{" "}
               {rows.reduce((sum, r) => sum + (r.max_marks || 0), 0)} marks
             </h3>
-            {editable && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setRows((prev) => [
-                      ...prev,
-                      {
-                        key: Date.now(),
-                        number: String(prev.length + 1),
-                        text_summary: "",
-                        max_marks: 1,
-                        has_mark_scheme: false,
-                        topic_ids: [],
-                      },
-                    ]);
-                    setDirty(true);
-                  }}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                >
-                  Add question
-                </button>
-                <button
-                  onClick={() => save.mutate()}
-                  disabled={!dirty || save.isPending}
-                  className="rounded bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-800 disabled:opacity-40"
-                >
-                  Save changes
-                </button>
-                <button
-                  onClick={() => publish.mutate()}
-                  disabled={publish.isPending || rows.length === 0}
-                  className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
-                >
-                  Publish to students
-                </button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              {!editable && !locked && (
+                <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+                  Edit questions
+                </Button>
+              )}
+              {editable && (
+                <>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setRows((prev) => [
+                        ...prev,
+                        {
+                          key: Date.now(),
+                          number: String(prev.length + 1),
+                          text_summary: "",
+                          max_marks: 1,
+                          has_mark_scheme: false,
+                          topic_ids: [],
+                        },
+                      ]);
+                      setDirty(true);
+                    }}
+                  >
+                    Add question
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => save.mutate()}
+                    disabled={!dirty || save.isPending}
+                  >
+                    {save.isPending ? "Saving…" : "Save changes"}
+                  </Button>
+                  {needsAttention && (
+                    <Button
+                      size="sm"
+                      onClick={() => publish.mutate()}
+                      disabled={publish.isPending || rows.length === 0}
+                    >
+                      Publish to students
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 

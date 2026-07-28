@@ -2,7 +2,7 @@
 the assignment's question list for the tutor to review."""
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -53,7 +53,19 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
         return
     try:
         await _run_extraction(session, assignment)
-        assignment.status = AssignmentStatus.review
+        # Publish as soon as there are questions to answer. Review is a
+        # correction pass, not data entry — holding homework back until the
+        # tutor revisits the page blocked students for no gain. The tutor can
+        # still edit the questions, and a run that produced nothing stays in
+        # review so it can't be handed out empty.
+        question_count = await session.scalar(
+            select(func.count(AssignmentQuestion.id)).where(
+                AssignmentQuestion.assignment_id == assignment.id
+            )
+        )
+        assignment.status = (
+            AssignmentStatus.published if question_count else AssignmentStatus.review
+        )
         assignment.extraction_error = None
     except Exception as exc:
         assignment.status = AssignmentStatus.extraction_failed

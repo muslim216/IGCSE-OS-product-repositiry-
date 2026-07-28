@@ -145,15 +145,12 @@ async def published_assignment(client, tutor, group, classified, subject, monkey
     assert assignment["status"] == "extracting"
     assert await process_one_job() is True
 
+    # Extraction that produced questions publishes itself, so students aren't
+    # blocked waiting for the tutor to come back and press a button.
     detail = await client.get(f"/api/v1/assignments/{assignment['id']}", headers=tutor["headers"])
-    assert detail.json()["status"] == "review"
+    assert detail.json()["status"] == "published"
     assert len(detail.json()["questions"]) == 2
-
-    publish = await client.post(
-        f"/api/v1/assignments/{assignment['id']}/publish", headers=tutor["headers"]
-    )
-    assert publish.status_code == 200
-    return publish.json()
+    return detail.json()
 
 
 async def test_extraction_flow(published_assignment):
@@ -313,3 +310,121 @@ async def test_resubmission_resets_marking(client, tutor, student, published_ass
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
     assert len(subs.json()) == 1
     assert subs.json()[0]["status"] == "submitted"
+
+
+async def test_upload_and_set_homework_in_one_request(client, tutor, group, subject, monkeypatch):
+    """A tutor should be able to drop a paper in and be done."""
+    monkeypatch.setattr("app.services.extraction._run_extraction", fake_extraction(subject))
+    resp = await client.post(
+        "/api/v1/assignments/upload",
+        data={"group_id": group["id"]},
+        files={"file": ("4CH1 June 2023 Paper 1.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assignment = resp.json()
+    # Title falls back to the file name rather than being a required field.
+    assert assignment["title"] == "4CH1 June 2023 Paper 1"
+    assert assignment["status"] == "extracting"
+
+    # One request created both the classified and the assignment.
+    classifieds = await client.get("/api/v1/classifieds", headers=tutor["headers"])
+    assert len(classifieds.json()) == 1
+
+    assert await process_one_job() is True
+    detail = await client.get(
+        f"/api/v1/assignments/{assignment['id']}", headers=tutor["headers"]
+    )
+    assert detail.json()["status"] == "published"
+
+
+async def test_upload_rejects_a_class_the_tutor_does_not_own(client, tutor, group):
+    other = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Other", "email": "other@example.com", "password": "password123"},
+    )
+    headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
+    resp = await client.post(
+        "/api/v1/assignments/upload",
+        data={"group_id": group["id"]},
+        files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+async def test_iphone_photos_are_converted_to_jpeg(client, tutor, group, subject, monkeypatch):
+    """HEIC is what an iPhone camera produces, but the AI image API won't take it."""
+    import io
+
+    import pillow_heif
+    from PIL import Image
+
+    pillow_heif.register_heif_opener()
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), (120, 30, 30)).save(buffer, format="HEIF")
+    heic_bytes = buffer.getvalue()
+
+    from app.services import storage
+
+    path, name, mime = storage.save_bytes(heic_bytes, "image/heic", "work.heic")
+    assert mime == "image/jpeg"
+    assert path.endswith(".jpg")
+    assert storage.read_file(path).startswith(b"\xff\xd8")  # JPEG magic bytes
+
+
+async def test_unsupported_file_type_is_rejected_clearly():
+    from fastapi import HTTPException
+
+    from app.services import storage
+
+    with pytest.raises(HTTPException) as excinfo:
+        storage.save_bytes(b"not a real file", "application/zip", "notes.zip")
+    assert excinfo.value.status_code == 415
+    assert "HEIC" in excinfo.value.detail
+
+
+async def test_mime_aliases_are_normalised():
+    """Some clients report image/jpg; it must not be rejected as unknown."""
+    from app.services import storage
+
+    _, _, mime = storage.save_bytes(b"\xff\xd8\xff fake jpeg", "image/jpg", "photo.jpg")
+    assert mime == "image/jpeg"
+
+
+async def test_questions_stay_editable_until_work_is_submitted(
+    client, tutor, student, published_assignment, monkeypatch
+):
+    """Auto-publishing must not mean the tutor can never correct the AI."""
+    aid = published_assignment["id"]
+    questions = published_assignment["questions"]
+    edited = [
+        {
+            "number": q["number"],
+            "text_summary": "Corrected wording" if i == 0 else q["text_summary"],
+            "max_marks": q["max_marks"],
+            "has_mark_scheme": q["has_mark_scheme"],
+            "topic_ids": [t["id"] for t in q["topics"]],
+        }
+        for i, q in enumerate(questions)
+    ]
+    resp = await client.put(
+        f"/api/v1/assignments/{aid}/questions", json=edited, headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["questions"][0]["text_summary"] == "Corrected wording"
+
+    # Once a student has submitted, editing would orphan their marks.
+    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    submit = await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert submit.status_code == 201
+
+    blocked = await client.put(
+        f"/api/v1/assignments/{aid}/questions", json=edited, headers=tutor["headers"]
+    )
+    assert blocked.status_code == 409
+    assert "submitted" in blocked.json()["detail"]

@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { mySubmission, submitWork } from "../api/homework";
 import { ApiError } from "../api/client";
+import { PageUploader } from "./PageUploader";
+import { Button } from "../ui";
 
 export default function SubmitHomeworkPage() {
   const { assignmentId } = useParams();
@@ -86,30 +88,15 @@ export default function SubmitHomeworkPage() {
                 </div>
               )}
               <p className="mt-2 text-sm text-slate-500">
-                Take clear photos or a scan of your handwritten answers (JPG, PNG or PDF).
-                Upload every page in order.
+                Take clear photos or a scan of your handwritten answers. Photos straight from an
+                iPhone are fine.
               </p>
-              <form onSubmit={onSubmit} className="mt-4 space-y-3">
-                <input
-                  type="file"
-                  multiple
-                  accept="application/pdf,image/*"
-                  onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-                  className="text-sm"
-                />
-                {files.length > 0 && (
-                  <p className="text-sm text-slate-500">
-                    {files.length} file{files.length === 1 ? "" : "s"} selected
-                  </p>
-                )}
-                {error && <p className="text-sm text-red-600">{error}</p>}
-                <button
-                  type="submit"
-                  disabled={submit.isPending || files.length === 0}
-                  className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                >
+              <form onSubmit={onSubmit} className="mt-4 space-y-4">
+                <PageUploader files={files} onChange={setFiles} />
+                {error && <p className="text-sm text-risk-600">{error}</p>}
+                <Button type="submit" disabled={submit.isPending || files.length === 0}>
                   {submit.isPending ? "Uploading…" : "Submit work"}
-                </button>
+                </Button>
               </form>
             </>
           )}
