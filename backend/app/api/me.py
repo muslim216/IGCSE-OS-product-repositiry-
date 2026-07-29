@@ -6,8 +6,10 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.models import Group, GroupMember, ParentLink, ScheduleSlot, User, UserRole
+from app.schemas.activity import ActivitySummary
 from app.schemas.auth import UserOut
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
+from app.services import activity
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -98,3 +100,9 @@ async def my_children(db: DbSession, user: CurrentUser) -> list[UserOut]:
         )
     ).all()
     return [UserOut.model_validate(c) for c in children]
+
+
+@router.get("/activity", response_model=ActivitySummary)
+async def my_activity(db: DbSession, user: CurrentUser) -> ActivitySummary:
+    """What needs this user's attention. See services/activity.py."""
+    return await activity.for_user(db, user)

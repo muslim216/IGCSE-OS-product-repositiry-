@@ -23,11 +23,13 @@ import JoinPage from "./auth/JoinPage";
 import ParentJoinPage from "./auth/ParentJoinPage";
 import { homePathFor, ProtectedRoute } from "./auth/ProtectedRoute";
 import AppShell from "./components/AppShell";
+import LandingPage from "./marketing/LandingPage";
 import GroupsPage from "./tutor/GroupsPage";
 import GroupLayout from "./tutor/GroupLayout";
 import HomeworkTab from "./tutor/tabs/HomeworkTab";
 import StudentsTab from "./tutor/tabs/StudentsTab";
 import ScheduleTab from "./tutor/tabs/ScheduleTab";
+import SyllabusTab from "./tutor/tabs/SyllabusTab";
 import ResourcesTab from "./tutor/tabs/ResourcesTab";
 import AssignmentCreatePage from "./tutor/AssignmentCreatePage";
 import AssignmentDetailPage from "./tutor/AssignmentDetailPage";
@@ -62,7 +64,8 @@ function Home() {
   if (loading) {
     return <div className="flex h-screen items-center justify-center text-slate-500">Loading…</div>;
   }
-  return <Navigate to={user ? homePathFor(user) : "/login"} replace />;
+  // Signed out, show what the product is rather than bouncing to a login form.
+  return user ? <Navigate to={homePathFor(user)} replace /> : <LandingPage />;
 }
 
 const STUDENT_NAV: NavItem[] = [
@@ -112,6 +115,7 @@ export default function App() {
             <Route index element={<Navigate to="homework" replace />} />
             <Route path="homework" element={<HomeworkTab />} />
             <Route path="students" element={<StudentsTab />} />
+            <Route path="syllabus" element={<SyllabusTab />} />
             <Route path="schedule" element={<ScheduleTab />} />
             <Route path="resources" element={<ResourcesTab />} />
             <Route path="analytics" element={<GroupAnalyticsPage />} />

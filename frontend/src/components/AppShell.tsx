@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet } from "react-router-dom";
 import { LogOut, Sparkles, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InitialsAvatar } from "./ui";
+import ActivityMenu from "./ActivityMenu";
 
 export interface NavItem {
   to: string;
@@ -122,6 +123,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
               <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
               <p className="truncate text-xs text-ink-400">{title}</p>
             </div>
+            <ActivityMenu />
             <button
               onClick={signOut}
               aria-label="Sign out"
@@ -139,6 +141,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
           <Brand />
           <div className="flex items-center gap-2 text-sm">
             <span className="truncate text-ink-500">{user?.name}</span>
+            <ActivityMenu />
             <button
               onClick={signOut}
               aria-label="Sign out"
