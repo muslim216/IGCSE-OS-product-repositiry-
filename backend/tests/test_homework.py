@@ -592,6 +592,188 @@ async def test_ai_marking_handles_question_missing_from_ai_response(
     assert "did not return a result" in q2["ai_transcription"]
 
 
+def _capturing_ai(parsed):
+    """A structured_complete double that records the kwargs it was called with.
+
+    The shared `fake_ai` fixture throws its kwargs away, and what the marking
+    guidelines need asserted is exactly what got passed as system context.
+    """
+    from app.services.ai import AiProvider, AiResponse
+
+    calls: dict = {}
+
+    async def _call(**kwargs):
+        calls.update(kwargs)
+        return AiResponse(
+            provider=AiProvider.anthropic,
+            model="test-model",
+            prompt_version="test",
+            input_tokens=10,
+            output_tokens=10,
+            parsed=parsed,
+        )
+
+    return calls, _call
+
+
+async def _submit_and_mark(client, headers, aid, stub, monkeypatch):
+    monkeypatch.setattr("app.services.marking.structured_complete", stub)
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=headers,
+    )
+    assert await process_one_job() is True
+
+
+async def test_marking_prompt_carries_the_exam_boards_principles(
+    client, tutor, student, published_assignment, monkeypatch
+):
+    """The board's published principles must reach the marker as system
+    context, and the tutor's Knowledge Base must stay the last block — it is
+    the more local authority, and it is the block prompt caching targets."""
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    await client.post(
+        "/api/v1/knowledge",
+        json={
+            "kind": "marking_preference",
+            "title": "Method over presentation",
+            "body": "Do not withhold marks for untidy working.",
+        },
+        headers=tutor["headers"],
+    )
+
+    calls, stub = _capturing_ai(
+        MarkingResult(
+            questions=[
+                QuestionMarkDraft(
+                    number="1",
+                    transcription="An isotope has the same protons, different neutrons.",
+                    proposed_marks=2,
+                    feedback="Correct.",
+                    confidence="high",
+                )
+            ]
+        )
+    )
+    await _submit_and_mark(
+        client, student["headers"], published_assignment["id"], stub, monkeypatch
+    )
+
+    blocks = calls["extra_system"]
+    assert len(blocks) == 2
+    # The `subject` fixture is Edexcel IGCSE, so it is Edexcel's principles.
+    assert "All candidates receive the same treatment" in blocks[0]
+    assert "Never score 0 to represent your own uncertainty." in blocks[0]
+    assert "Cambridge general marking principles" not in blocks[0]
+    assert "Do not withhold marks for untidy working." in blocks[1]
+
+
+async def test_marking_still_runs_for_an_unrecognised_exam_board(
+    client, tutor, student, published_assignment, subject, monkeypatch
+):
+    """exam_board is free text a syllabus upload can fill with anything. An
+    unrecognised board loses the principles block and nothing else — marking
+    must not fail, and must not fall back to some other board's rules."""
+    from app.db import async_session
+    from app.models import Subject
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    async with async_session() as session:
+        row = await session.get(Subject, subject["id"])
+        row.exam_board = "Some Regional Board"
+        await session.commit()
+
+    calls, stub = _capturing_ai(
+        MarkingResult(
+            questions=[
+                QuestionMarkDraft(
+                    number="1",
+                    transcription="An isotope has the same protons, different neutrons.",
+                    proposed_marks=2,
+                    feedback="Correct.",
+                    confidence="high",
+                )
+            ]
+        )
+    )
+    await _submit_and_mark(
+        client, student["headers"], published_assignment["id"], stub, monkeypatch
+    )
+
+    assert calls["extra_system"] == []
+    subs = await client.get(
+        f"/api/v1/assignments/{published_assignment['id']}/submissions",
+        headers=tutor["headers"],
+    )
+    detail = await client.get(
+        f"/api/v1/submissions/{subs.json()[0]['id']}", headers=tutor["headers"]
+    )
+    q1 = detail.json()["marks"][0]
+    assert q1["ai_marks"] == 2, "the mark itself is unaffected by the missing block"
+
+
+async def test_a_certain_blank_scores_zero_but_an_unfound_answer_does_not(
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
+):
+    """The two halves of the zero rule, at the gate rather than in the prompt.
+
+    A confident 0 on a scheme-backed question is a real mark and counts. An
+    answer the AI could not find is not a zero — it is no mark plus low
+    confidence, so the tutor rules on whether a page was simply missing.
+    """
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete",
+        fake_ai(
+            MarkingResult(
+                questions=[
+                    # Q1 (has_mark_scheme=True): certain the space was blank.
+                    QuestionMarkDraft(
+                        number="1",
+                        transcription="No answer written; the space for Q1 is empty.",
+                        proposed_marks=0,
+                        feedback="You left this one out — attempt it next time.",
+                        confidence="high",
+                    ),
+                    # Q2: the AI could not locate the answer at all.
+                    QuestionMarkDraft(
+                        number="2",
+                        transcription="Could not find an answer to this question on the pages.",
+                        proposed_marks=None,
+                        feedback="I could not find this answer on the pages provided.",
+                        confidence="low",
+                    ),
+                ]
+            )
+        ),
+    )
+    aid = published_assignment["id"]
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    detail = await client.get(
+        f"/api/v1/submissions/{subs.json()[0]['id']}", headers=tutor["headers"]
+    )
+    marks = {m["question_id"]: m for m in detail.json()["marks"]}
+    q1 = marks[published_assignment["questions"][0]["id"]]
+    q2 = marks[published_assignment["questions"][1]["id"]]
+
+    assert q1["final_marks"] == 0, "a certain blank is a real 0 and counts"
+    assert q1["auto_finalized"] is True
+    assert q1["needs_review"] is False
+
+    assert q2["final_marks"] is None, "'could not find it' must never be recorded as a 0"
+    assert q2["needs_review"] is True
+
+
 async def test_upload_and_set_homework_in_one_request(client, tutor, group, subject, monkeypatch):
     """A tutor should be able to drop a paper in and be done."""
     monkeypatch.setattr("app.services.extraction._run_extraction", fake_extraction(subject))

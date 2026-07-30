@@ -34,6 +34,7 @@ from app.models import (
     PastPaperAttempt,
     PastPaperQuestion,
     QuestionMark,
+    Subject,
     Submission,
     SubmissionStatus,
 )
@@ -41,6 +42,7 @@ from app.services import storage
 from app.services.ai import file_block, record_usage, structured_complete
 from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
+from app.services.marking_guidelines import build_marking_guidelines
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.workers.jobs import enqueue
 
@@ -97,6 +99,13 @@ class _MarkingSource:
     organization_id: int
     tutor_id: int
     subject_id: int
+    # The subject's board and code, carried here so _run_marking can look up
+    # the board's marking guidance without knowing which kind of work this is.
+    exam_board: str
+    subject_code: str
+    # Only a past paper has one. Paper-level guidance is skipped without it,
+    # since homework and classifieds carry no paper number.
+    paper_number: str | None
     is_past_paper: bool
 
 
@@ -117,6 +126,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         ).all()
     )
     group = await session.get(Group, assignment.group_id)
+    subject = await session.get(Subject, group.subject_id)
     if classified is not None:
         intro = (
             "The documents above are: (1) the question booklet, "
@@ -144,6 +154,9 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         organization_id=group.organization_id,
         tutor_id=group.tutor_id,
         subject_id=group.subject_id,
+        exam_board=subject.exam_board,
+        subject_code=subject.code,
+        paper_number=None,
         is_past_paper=False,
     )
 
@@ -163,6 +176,7 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         raise ValueError(
             "This past paper's questions haven't been extracted yet — try again shortly"
         )
+    subject = await session.get(Subject, paper.subject_id)
     return _MarkingSource(
         questions=questions,
         booklet=(
@@ -183,6 +197,9 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         organization_id=paper.organization_id,
         tutor_id=paper.tutor_id,
         subject_id=paper.subject_id,
+        exam_board=subject.exam_board,
+        subject_code=subject.code,
+        paper_number=paper.paper_number,
         is_past_paper=True,
     )
 
@@ -245,6 +262,13 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         }
     )
 
+    # The board's published principles, then this tutor's own preferences. That
+    # order is the precedence the prompt states — the tutor is the more local
+    # authority, so their block reads last — and it keeps the Knowledge Base as
+    # the final block, which is the one cache_extra_system marks for caching.
+    guidelines = build_marking_guidelines(
+        source.exam_board, source.subject_code, source.paper_number
+    )
     kb_context = await build_tutor_context(session, source.tutor_id, source.subject_id)
 
     response = await structured_complete(
@@ -252,7 +276,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         content=content,
         output_format=MarkingResult,
         max_tokens=32000,
-        extra_system=[kb_context] if kb_context else [],
+        extra_system=[block for block in (guidelines, kb_context) if block],
         cache_extra_system=True,
     )
     await record_usage(
