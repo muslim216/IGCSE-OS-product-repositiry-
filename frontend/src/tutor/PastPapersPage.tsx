@@ -1,19 +1,121 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  deleteExaminerReport,
+  examinerReportPath,
+  listExaminerReports,
   listPastPapers,
   pastPaperBookletPath,
   pastPaperMarkSchemePath,
+  uploadExaminerReport,
   uploadPastPaper,
+  type ExaminerReport,
+  type PastPaper,
 } from "../api/pastPapers";
 import { listSubjects } from "../api/groups";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
 
+/**
+ * The examiner report for one paper sitting.
+ *
+ * The library is shared across tutors — one upload of "Chemistry 5070 Paper 2,
+ * June 2022" serves everybody — so a report someone else added shows as
+ * present and readable but not removable. `can_manage` carries that.
+ */
+function ExaminerReportRow({
+  paper,
+  report,
+}: {
+  paper: PastPaper;
+  report: ExaminerReport | undefined;
+}) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["examiner-reports"] });
+
+  const upload = useMutation({
+    mutationFn: (file: File) =>
+      uploadExaminerReport({
+        subject_id: paper.subject_id,
+        paper_number: paper.paper_number,
+        session_label: paper.session_label,
+        file,
+      }),
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteExaminerReport(report!.id),
+    onSuccess: invalidate,
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  });
+
+  return (
+    <div className="mt-2 border-t pt-2 text-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-slate-500">Examiner report</span>
+        {report ? (
+          <>
+            <AuthFileLink path={examinerReportPath(report.id)} label={report.file_name} />
+            {report.can_manage && (
+              <button
+                type="button"
+                onClick={() => remove.mutate()}
+                disabled={remove.isPending}
+                className="text-slate-500 underline hover:text-red-600 disabled:opacity-50"
+              >
+                Remove
+              </button>
+            )}
+          </>
+        ) : (
+          <label className="text-slate-500">
+            <span className="sr-only">Add the examiner report for this paper</span>
+            <input
+              type="file"
+              accept="application/pdf,image/*"
+              disabled={upload.isPending}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) upload.mutate(file);
+              }}
+              className="block text-xs"
+            />
+          </label>
+        )}
+      </div>
+      {!report && (
+        <p className="mt-1 text-slate-400">
+          Shared with every tutor once added, and used when marking this paper —
+          it tells the marker how the board read its own scheme.
+        </p>
+      )}
+      {error && <p className="mt-1 text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 export default function PastPapersPage() {
   const queryClient = useQueryClient();
   const papers = useQuery({ queryKey: ["past-papers"], queryFn: () => listPastPapers() });
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
+  const reports = useQuery({
+    queryKey: ["examiner-reports"],
+    queryFn: () => listExaminerReports(),
+  });
+  const reportFor = (p: PastPaper) =>
+    reports.data?.find(
+      (r) =>
+        r.subject_id === p.subject_id &&
+        r.paper_number === p.paper_number &&
+        r.session_label === p.session_label,
+    );
 
   const [subjectId, setSubjectId] = useState("");
   const [sessionLabel, setSessionLabel] = useState("");
@@ -162,6 +264,7 @@ export default function PastPapersPage() {
                   <AuthFileLink path={pastPaperMarkSchemePath(p.id)} label="Mark scheme" />
                 </div>
               </div>
+              <ExaminerReportRow paper={p} report={reportFor(p)} />
             </li>
           ))}
           {papers.data?.length === 0 && (

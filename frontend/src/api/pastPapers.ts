@@ -99,3 +99,45 @@ export const pastPaperBookletPath = (id: number) =>
   `/api/v1/past-papers/${id}/booklet`;
 export const pastPaperMarkSchemePath = (id: number) =>
   `/api/v1/past-papers/${id}/mark-scheme`;
+
+/**
+ * The board's examiner report for one paper sitting. Unlike everything else
+ * here the library is shared across tutors, so `can_manage` says whether this
+ * tutor is the one who uploaded it and may therefore replace or remove it.
+ */
+export interface ExaminerReport {
+  id: number;
+  subject_id: number;
+  paper_number: string;
+  session_label: string;
+  file_name: string;
+  can_manage: boolean;
+}
+
+export const listExaminerReports = (subjectId?: number) =>
+  api<ExaminerReport[]>(
+    `/api/v1/examiner-reports${subjectId ? `?subject_id=${subjectId}` : ""}`,
+  );
+
+export function uploadExaminerReport(payload: {
+  subject_id: number;
+  paper_number: string;
+  session_label: string;
+  file: File;
+}) {
+  const form = new FormData();
+  form.append("subject_id", String(payload.subject_id));
+  form.append("paper_number", payload.paper_number);
+  form.append("session_label", payload.session_label);
+  form.append("file", payload.file);
+  return api<ExaminerReport>("/api/v1/examiner-reports", {
+    method: "POST",
+    body: form,
+  });
+}
+
+export const deleteExaminerReport = (id: number) =>
+  api<void>(`/api/v1/examiner-reports/${id}`, { method: "DELETE" });
+
+export const examinerReportPath = (id: number) =>
+  `/api/v1/examiner-reports/${id}/file`;

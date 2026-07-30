@@ -28,6 +28,7 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     Classified,
+    ExaminerReport,
     Group,
     MarkConfidence,
     PastPaper,
@@ -95,6 +96,9 @@ class _MarkingSource:
     questions: list  # AssignmentQuestion | PastPaperQuestion, ordered
     booklet: tuple[bytes, str] | None
     mark_scheme: tuple[bytes, str] | None
+    # The board's examiner report for this sitting, when the shared library has
+    # one. Past papers only — homework has no paper to report on.
+    examiner_report: tuple[bytes, str] | None
     intro: str
     organization_id: int
     tutor_id: int
@@ -150,6 +154,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
             if classified is not None and classified.mark_scheme_path
             else None
         ),
+        examiner_report=None,
         intro=intro,
         organization_id=group.organization_id,
         tutor_id=group.tutor_id,
@@ -177,6 +182,22 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
             "This past paper's questions haven't been extracted yet — try again shortly"
         )
     subject = await session.get(Subject, paper.subject_id)
+    # The shared examiner-report library is matched on the same three fields
+    # that identify the paper, so a tutor never links the two by hand.
+    report = await session.scalar(
+        select(ExaminerReport).where(
+            ExaminerReport.subject_id == paper.subject_id,
+            ExaminerReport.paper_number == paper.paper_number,
+            ExaminerReport.session_label == paper.session_label,
+        )
+    )
+    has_scheme = bool(paper.mark_scheme_path)
+    documents = ["the question paper"]
+    if has_scheme:
+        documents.append("the official mark scheme")
+    if report is not None:
+        documents.append("the board's examiner report for this sitting")
+    numbered = ", ".join(f"({i}) {d}" for i, d in enumerate(documents, start=1))
     return _MarkingSource(
         questions=questions,
         booklet=(
@@ -186,13 +207,17 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         ),
         mark_scheme=(
             (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
-            if paper.mark_scheme_path
+            if has_scheme
+            else None
+        ),
+        examiner_report=(
+            (storage.read_file(report.file_path), report.file_mime)
+            if report is not None
             else None
         ),
         intro=(
             f"The documents above are {paper.session_label} {paper.paper_number}: "
-            "(1) the question paper, (2) the official mark scheme, followed by the "
-            "student's handwritten answer pages."
+            f"{numbered}, followed by the student's handwritten answer pages."
         ),
         organization_id=paper.organization_id,
         tutor_id=paper.tutor_id,
@@ -248,6 +273,10 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         content.append(file_block(*source.booklet, cache=True))
     if source.mark_scheme is not None:
         content.append(file_block(*source.mark_scheme, cache=True))
+    # Same for the examiner report — identical for every student sitting this
+    # paper, so it shares the cached prefix rather than being re-sent per mark.
+    if source.examiner_report is not None:
+        content.append(file_block(*source.examiner_report, cache=True))
     for f in files:
         content.append(file_block(storage.read_file(f.path), f.mime))
 

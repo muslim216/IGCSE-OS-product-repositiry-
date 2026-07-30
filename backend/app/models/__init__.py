@@ -36,6 +36,7 @@ from app.models.readiness import (
 )
 from app.models.readiness_v2 import (
     AiSynthesisStatus,
+    ExaminerReport,
     FactorConfidence,
     FactorEvaluation,
     GradeBoundary,
@@ -76,6 +77,7 @@ __all__ = [
     "ClassroomWorkLink",
     "Evidence",
     "EvidenceSource",
+    "ExaminerReport",
     "FactorConfidence",
     "FactorEvaluation",
     "GradeBoundary",

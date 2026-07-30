@@ -29,6 +29,17 @@ class PastPaperDetail(PastPaperOut):
     questions: list[PastPaperQuestionOut] = []
 
 
+class ExaminerReportOut(BaseModel):
+    id: int
+    subject_id: int
+    paper_number: str
+    session_label: str
+    file_name: str
+    # Whether this requester uploaded it, so the UI knows who may replace it
+    # without leaking which tutor did.
+    can_manage: bool = False
+
+
 class PastPaperAttemptOut(BaseModel):
     submission_id: int
     past_paper_id: int

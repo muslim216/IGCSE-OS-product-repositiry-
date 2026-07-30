@@ -117,6 +117,43 @@ class PastPaperQuestion(Base):
     ai_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
+class ExaminerReport(TimestampMixin, Base):
+    """The board's published examiner report for one paper sitting.
+
+    Identified the same way a PastPaper is — subject, paper number, session —
+    so a paper finds its report by matching those three, without the tutor
+    linking them by hand.
+
+    **This table is global, unlike everything else in the past-paper world.**
+    Papers, booklets and mark schemes are scoped to (organization, subject) so
+    one tutor's upload can never reach another tutor's students. An examiner
+    report is a public board document rather than a tutor's own compilation,
+    and the library is meant to be built up once for everyone, so it is shared
+    across organizations. The cost of that is real: a wrong upload changes
+    marking for every org at once. Hence the unique constraint (one report per
+    paper, first upload wins) and uploaded_by_tutor_id, which is who may
+    replace or remove it.
+
+    Tutor-only to download, like a mark scheme — examiner reports discuss the
+    answers the board expected."""
+
+    __tablename__ = "examiner_reports"
+    __table_args__ = (UniqueConstraint("subject_id", "paper_number", "session_label"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
+    paper_number: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "Paper 2"
+    session_label: Mapped[str] = mapped_column(String(64), nullable=False)  # e.g. "June 2022"
+    file_path: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_mime: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Who uploaded it — nullable so a row survives the account being removed,
+    # at the cost of nobody but an admin being able to replace that row.
+    uploaded_by_tutor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+
+
 class PastPaperQuestionTopic(Base):
     __tablename__ = "past_paper_question_topics"
     __table_args__ = (UniqueConstraint("question_id", "topic_id"),)

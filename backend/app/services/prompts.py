@@ -50,6 +50,11 @@ minor doubt; 'low' = hard to read, ambiguous, or a judgement call the tutor shou
 than a correct mark that gets reviewed.
 - Feedback is for the student: brief, specific, encouraging, and references what the mark \
 scheme (or the syllabus) wanted.
+- You may be given the board's examiner report for this sitting. It is the board's own \
+commentary on how candidates actually answered — what was commonly got wrong, what alternatives \
+were accepted, where the scheme needed interpreting. Use it to read the scheme the way the board \
+did, especially when deciding whether an unusual but sound answer earns credit. It explains the \
+mark scheme; it does not replace it, and where the two appear to differ the mark scheme decides.
 
 You may also be given the exam board's general marking principles, that subject's marking \
 conventions, and the tutor's own preferences, each as further system context below. They are \
@@ -152,9 +157,11 @@ PROMPTS: dict[str, PromptTemplate] = {
     # v4: exam board marking principles and subject conventions are injected as
     # system context (services/marking_guidelines.py), so the prompt now states
     # the precedence between them, the mark scheme and the tutor's preferences.
-    # Bump this whenever that module's text changes too — it is part of the
-    # prompt as far as a QuestionMark's ai_prompt_version is concerned.
-    "marking": PromptTemplate(version="v4", system=MARKING),
+    # v5: past papers may also carry the board's examiner report for that
+    # sitting, which explains the scheme rather than replacing it.
+    # Bump this whenever marking_guidelines.py's text changes too — it is part
+    # of the prompt as far as a QuestionMark's ai_prompt_version is concerned.
+    "marking": PromptTemplate(version="v5", system=MARKING),
     "extraction": PromptTemplate(version="v2", system=EXTRACTION),
     "syllabus": PromptTemplate(version="v1", system=SYLLABUS),
     "reports": PromptTemplate(version="v1", system=REPORTS),
