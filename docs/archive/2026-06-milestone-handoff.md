@@ -1,5 +1,12 @@
 # Handoff — MANARA Gemini/Auto-Marking/Past-Papers/Classroom-UI/Readiness-v2 Milestone
 
+> **Historical. Not maintained.** This is a point-in-time session handoff, archived
+> unedited as a record of one milestone. It describes the codebase as it stood at that
+> moment and has not been updated since — several statements below (branch names, "head is
+> `0020`", "CLAUDE.md is up to date") were true then and are not now. For the system as it
+> is, read the engineering handbook at `docs/README.md`.
+
+
 **Branch:** `claude/analyze-what-built-ct7n3n` (pushed, up to date)
 **Status:** All 5 planned workstreams complete, tested, committed, pushed. Nothing in-flight.
 **Tests:** 215 backend (pytest) + 14 frontend (vitest), all green as of last full run.
