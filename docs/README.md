@@ -1,142 +1,218 @@
-# The MANARA Engineering Handbook
+# The MANARA Engineering Constitution
 
-This is the constitution for MANARA by OASIS AI. Fourteen documents in four volumes
-describe how the system is built, what every engineer — human or AI — must do when
-building on it, and where it currently falls short.
+**Version 1.0** · Status: Active
 
-It exists because MANARA outgrew the four markdown files that used to hold everything.
-The product is ~12,400 lines of Python and ~9,800 lines of TypeScript: 52 tables, 23
-routers, 24 services, 21 migrations, 8 background job handlers, 60+ React pages. No one
-holds that in their head, and the next engineer to touch it should not have to.
+This is the source of truth for how MANARA by OASIS AI is built. Four volumes of fourteen
+numbered documents describe the system and the standards that govern it, sitting on a
+governance layer that says which document wins when two disagree and how the standards
+themselves change.
 
-## The one rule that keeps this true
+It exists because MANARA outgrew the four markdown files that used to hold everything. The
+product is ~12,400 lines of Python and ~9,800 lines of TypeScript: 52 tables, 23 routers, 24
+services, 21 migrations, 8 background job handlers, 60+ React pages. No one holds that in
+their head, and the next engineer to touch it should not have to.
 
-> **A pull request that changes behaviour a document describes MUST update that document
-> in the same pull request.**
+It is written to be read by humans and by AI agents equally. Every rule has a stable
+identifier, every document has the same shape, and every claim names the file it was read
+from.
 
-Documentation that drifts is worse than no documentation, because it is trusted. Several
-findings in these pages exist precisely because the old docs described a system that had
-stopped being real — an authorization helper presented as the RBAC mechanism that nothing
-calls, a CI gate with no configuration in the repository. Each document ends with **Review
-triggers**: the specific events that oblige someone to come back and edit it.
+---
 
-## How these documents are written
+## Start here
 
-Every one of the fourteen has the same seven-part shape, so you always know where to look:
-
-| Section | What it holds |
+| If you are… | Read |
 |---|---|
-| Header | Volume, purpose, who it applies to, and the **Sources** it was written from |
-| Contents | In-page table of contents |
-| Principles | Short, quotable articles — the constitutional layer |
-| How it works today | The **descriptive** half: real paths, real names, warts included |
-| Standards | The **prescriptive** half: numbered, citable rules |
-| Known gaps | What is missing, why it matters, and how bad it is |
-| Review triggers | When this document must be updated |
+| New to the codebase | `README.md` (root), then §01, then the [reading order](#reading-order) |
+| About to write code | §13 Coding Standards and the document for your layer |
+| About to change a standard | `governance/change-process.md` |
+| Trying to decide something no rule covers | `governance/engineering-philosophy.md` |
+| Unsure what a word means here | `governance/glossary.md` |
+| Responding to an incident | §14 Operations Runbooks |
+| Wondering why something is built this way | `adr/` |
 
-**"How it works today" and "Standards" are deliberately separate.** The first tells you
-what you will find when you open the code. The second tells you what to do. Where they
-disagree, the gap is named rather than smoothed over — that divergence is the most useful
-thing a handbook can record.
+## The governance layer
 
-### Citing a rule
+These five documents govern the constitution itself. They bind the fourteen numbered
+documents and each other.
 
-Every standard carries an ID: `SEC-3`, `API-7`, `DB-11`. Cite them in review comments,
-commit messages, and agent instructions rather than re-arguing the convention. IDs are
-stable and never reused; a withdrawn rule is struck through, not deleted.
+| Document | What it settles |
+|---|---|
+| [`governance/engineering-philosophy.md`](governance/engineering-philosophy.md) | The eight ordered principles that decide cases no rule covers |
+| [`governance/documentation-authority.md`](governance/documentation-authority.md) | The authority hierarchy, the rule format, rule classification and lifecycle, document structure, versioning |
+| [`governance/change-process.md`](governance/change-process.md) | How rules are proposed, changed, deprecated, superseded; when an ADR is required; the `GOV-*` documentation obligations |
+| [`governance/non-goals.md`](governance/non-goals.md) | What MANARA deliberately does not do and is not built with — and the trigger that would revisit each |
+| [`governance/glossary.md`](governance/glossary.md) | Domain terminology, defined once |
+| [`governance/ownership.md`](governance/ownership.md) | Who owns each subsystem and document, plus the dependency map |
+| [`governance/risk-register.md`](governance/risk-register.md) | Standing architectural risks with likelihood, impact, and mitigation |
+| [`adr/`](adr/README.md) | Architecture Decision Records — why each structural decision was made, and what it cost |
+
+### The authority hierarchy, in brief
+
+1. **Engineering Constitution** (`docs/governance/` + the 14 numbered documents)
+2. **Architecture Specifications** (`docs/manara-architecture.md`, `docs/adr/`)
+3. **`CLAUDE.md`**
+4. **`README.md`**
+5. **Inline documentation**
+6. **Comments**
+7. **Examples**
+
+A lower tier may clarify a higher one. **It may never contradict one.** Full rules,
+including how to resolve a conflict, in `governance/documentation-authority.md`.
+
+## The fourteen documents
+
+### Volume 1 — Product & UX
+
+| # | Document | Read this when… |
+|---|---|---|
+| 01 | [Product Architecture](volume-1-product-and-ux/01-product-architecture.md) | You need the system map: the six surfaces, the operating loop, the roles, and how evidence becomes a readiness score. **Start here.** |
+| 02 | [UX & Accessibility Standards](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) | You are writing any interface. Holds the MANARA design system — which lived only in `frontend/src/index.css` until now — and the accessibility standard. |
+
+### Volume 2 — Application Engineering
+
+| # | Document | Read this when… |
+|---|---|---|
+| 03 | [Frontend Engineering](volume-2-application-engineering/03-frontend-engineering.md) | You are adding a page, a query, or an API wrapper in `frontend/src/`. |
+| 04 | [Backend Engineering](volume-2-application-engineering/04-backend-engineering.md) | You are adding a router, a service, or a background job in `backend/app/`. |
+| 05 | [API Standards](volume-2-application-engineering/05-api-standards.md) | You are designing or changing an endpoint. |
+| 06 | [Database Design](volume-2-application-engineering/06-database-design.md) | You are adding a table, a column, or a migration. |
+
+### Volume 3 — Platform Engineering
+
+| # | Document | Read this when… |
+|---|---|---|
+| 07 | [Security Architecture](volume-3-platform-engineering/07-security-architecture.md) | You are touching auth, authorization, uploads, secrets, or AI trust boundaries. **Its invariants are load-bearing.** |
+| 08 | [Infrastructure & Deployment](volume-3-platform-engineering/08-infrastructure-and-deployment.md) | You are deploying, changing configuration, or wondering why production is shaped this way. |
+| 09 | [AI Platform](volume-3-platform-engineering/09-ai-platform.md) | You are calling a model, writing a prompt, or changing how AI output is trusted. |
+| 10 | [Performance Engineering](volume-3-platform-engineering/10-performance-engineering.md) | Something is slow, or you are about to write a query that will be. |
+
+### Volume 4 — Reliability & Operations
+
+| # | Document | Read this when… |
+|---|---|---|
+| 11 | [Reliability (SRE)](volume-4-reliability-and-operations/11-reliability-sre.md) | You are thinking about failure: what breaks, what it takes with it, and how we would know. |
+| 12 | [Quality Engineering](volume-4-reliability-and-operations/12-quality-engineering.md) | You are writing tests, or deciding whether a change is done. |
+| 13 | [Coding Standards](volume-4-reliability-and-operations/13-coding-standards.md) | You are writing code, or reviewing someone who did. |
+| 14 | [Operations Runbooks](volume-4-reliability-and-operations/14-operations-runbooks.md) | Something is broken right now. **Bookmark this one.** |
+
+## Reading order
+
+Roughly a day, in this order:
+
+1. **`README.md`** (repository root) — what the product is, and how to run it.
+2. **§01 Product Architecture** — the map. Nothing else makes sense without it.
+3. **`governance/glossary.md`** — skim it. Several ordinary words mean something specific here.
+4. **§13 Coding Standards** and **§05 API Standards** — the two you will breach first.
+5. **§04 Backend** or **§03 Frontend** — whichever you are touching.
+6. **§07 Security Architecture** — before your first pull request, not after.
+7. **§12 Quality Engineering** — how to prove your change works.
+8. **§14 Operations Runbooks** — skim it now so you know it exists at 3am.
+
+Then, when the work reaches them: §02, §06, §08, §09, §10, §11, and the ADRs behind whatever
+you are changing.
+
+## How a document is structured
+
+All fourteen follow the same nine-part shape. Full specification in
+`governance/documentation-authority.md`.
+
+**Header · Purpose · Scope (including non-goals) · Sources · Principles · Current Reality ·
+Standards · Known Gaps · Review Triggers**
+
+**Current Reality, Standards, and Known Gaps are never mixed.** Current Reality is what you
+will find when you open the code, warts included. Standards are what to do. Known Gaps are
+the distance between them. Blending the three produces a document that reads as though the
+system already works the way we wish it did — which is exactly how the previous
+documentation came to describe an RBAC mechanism that nothing calls.
+
+## How a rule is written
+
+```
+**`PREFIX-N` — VERB · Class · Status**
+The rule, as a single declarative sentence.
+*Rationale:* why it exists.
+```
+
+- **VERB** — RFC 2119: MUST / MUST NOT / SHOULD / SHOULD NOT / MAY.
+- **Class** — Critical (blocks merge), Important (blocks unless justified), Recommended
+  (reviewer discretion).
+- **Status** — Draft / Active / Deprecated / Superseded.
+
+**Every rule has a rationale.** **IDs are never reused.** **Rules are never silently
+deleted** — they are deprecated or superseded in place.
+
+### Rule registry
+
+Each prefix is owned by exactly one document. Other documents cite rules; they never restate
+them.
 
 | Prefix | Document | Prefix | Document |
 |---|---|---|---|
+| `GOV` | `governance/change-process.md`, `governance/ownership.md` | `SEC` | §07 Security Architecture |
 | `PROD` | §01 Product Architecture | `INF` | §08 Infrastructure & Deployment |
 | `UX` | §02 UX & Accessibility Standards | `AI` | §09 AI Platform |
 | `FE` | §03 Frontend Engineering | `PERF` | §10 Performance Engineering |
 | `BE` | §04 Backend Engineering | `REL` | §11 Reliability (SRE) |
 | `API` | §05 API Standards | `QA` | §12 Quality Engineering |
 | `DB` | §06 Database Design | `CODE` | §13 Coding Standards |
-| `SEC` | §07 Security Architecture | `OPS` | §14 Operations Runbooks |
+| | | `OPS` | §14 Operations Runbooks |
 
-Rules use RFC 2119 verbs. **MUST** and **MUST NOT** are binding: breaking one is a defect,
-and a reviewer may block on it alone. **SHOULD** and **SHOULD NOT** carry real weight and
-need a stated reason to depart from. **MAY** is genuinely optional.
+Risks are `RISK-N` in `governance/risk-register.md`. Decisions are `ADR-NNNN` in `adr/`.
+Principles are `P1`…`Pn` within a document, cited as `§01 P3`.
 
-## The documents
+## The obligations that keep this true
 
-### Volume 1 — Product & UX
+Stated in full in `governance/change-process.md`; repeated here because they are the ones
+everyone must know.
 
-| # | Document | Read this when… |
-|---|---|---|
-| 01 | `volume-1-product-and-ux/01-product-architecture.md` | You need the system map: the six surfaces, the operating loop, the roles, and how evidence becomes a readiness score. **Start here.** |
-| 02 | `volume-1-product-and-ux/02-ux-and-accessibility-standards.md` | You are writing any UI. Holds the MANARA design system — which lived only in `frontend/src/index.css` until now — and the accessibility standard. |
+- **`GOV-1`** — A pull request that changes behaviour a document describes updates that
+  document in the same pull request.
+- **`GOV-2`** — A pull request that closes a Known Gap removes that gap entry.
+- **`GOV-3`** — A pull request that breaks an Active rule either fixes the code, supersedes
+  the rule, or records a gap. Never none of these.
+- **`GOV-4`** — Every rule cites what motivated it; every claim cites the file it came from.
+- **`GOV-5`** — Cite a rule rather than restating it.
+- **`GOV-6`** — Glossary terms are used with their glossary meaning.
 
-### Volume 2 — Application Engineering
+## Honesty policy
 
-| # | Document | Read this when… |
-|---|---|---|
-| 03 | `volume-2-application-engineering/03-frontend-engineering.md` | You are adding a page, a query, or an API wrapper in `frontend/src/`. |
-| 04 | `volume-2-application-engineering/04-backend-engineering.md` | You are adding a router, a service, or a background job in `backend/app/`. |
-| 05 | `volume-2-application-engineering/05-api-standards.md` | You are designing or changing an endpoint. Covers naming, status codes, errors, pagination, and versioning. |
-| 06 | `volume-2-application-engineering/06-database-design.md` | You are adding a table, a column, or a migration. Holds the full schema and the migration convention. |
+These documents record things that are broken, missing, or contradicted by the code. That is
+deliberate, and it is the property that makes the rest believable.
 
-### Volume 3 — Platform Engineering
+Severity in a Known Gaps table:
 
-| # | Document | Read this when… |
-|---|---|---|
-| 07 | `volume-3-platform-engineering/07-security-architecture.md` | You are touching auth, authorization, uploads, secrets, or anything an attacker would enjoy. **Its invariants are load-bearing.** |
-| 08 | `volume-3-platform-engineering/08-infrastructure-and-deployment.md` | You are deploying, changing configuration, or wondering why the app is shaped the way it is in production. |
-| 09 | `volume-3-platform-engineering/09-ai-platform.md` | You are calling a model, writing a prompt, or changing how AI output is trusted. |
-| 10 | `volume-3-platform-engineering/10-performance-engineering.md` | Something is slow, or you are about to write a query that will be. |
+| Severity | Meaning |
+|---|---|
+| **`blocking`** | Costs correctness, security, or velocity now. Fix next. |
+| **`before scale`** | Fine at current volume, breaks at the next order of magnitude. Trigger named. |
+| **`nice to have`** | Real, but leaving it costs nothing important. |
 
-### Volume 4 — Reliability & Operations
+Gaps are **recorded** here, not fixed here. Closing one is a code change through the normal
+pull-request flow in `CLAUDE.md`.
 
-| # | Document | Read this when… |
-|---|---|---|
-| 11 | `volume-4-reliability-and-operations/11-reliability-sre.md` | You are thinking about failure: what breaks, what it takes down with it, and how we would know. |
-| 12 | `volume-4-reliability-and-operations/12-quality-engineering.md` | You are writing tests, or deciding whether a change is done. |
-| 13 | `volume-4-reliability-and-operations/13-coding-standards.md` | You are writing code and want to match the house style, or you are reviewing someone who did not. |
-| 14 | `volume-4-reliability-and-operations/14-operations-runbooks.md` | Something is broken right now. Symptoms → diagnosis → action → verification. **Bookmark this one.** |
-
-## Reading order for a new engineer
-
-Roughly a day, in this order:
-
-1. **`README.md`** (repository root) — what the product is, and how to run it locally.
-2. **§01 Product Architecture** — the map. Nothing else makes sense without it.
-3. **§13 Coding Standards** and **§05 API Standards** — the two you will breach first.
-4. **§04 Backend Engineering** or **§03 Frontend Engineering** — whichever you are touching.
-5. **§07 Security Architecture** — before your first pull request, not after.
-6. **§12 Quality Engineering** — how to prove your change works.
-7. **§14 Operations Runbooks** — skim it now so you know it exists at 3am.
-
-Volumes 3 and 4 are reference material. Read §06, §09, §10 and §11 when the work reaches
-them.
+Architectural **risks** are different from gaps and live in `governance/risk-register.md`: a
+gap is something wrong now and has a fix; a risk is a way the system could fail later, and
+may only have a mitigation.
 
 ## The other documents in this repository
 
 | File | What it is | Maintained? |
 |---|---|---|
 | `README.md` (root) | Product introduction, local setup, deploy walkthrough | Yes |
-| `CLAUDE.md` (root) | The agent-facing brief: binding rules plus a map into this handbook | Yes |
+| `CLAUDE.md` (root) | The agent-facing brief: binding rules plus a map into this constitution | Yes |
 | `docs/manara-architecture.md` | The **design spec** for the MANARA update — target state, product decisions, build order | Yes, as a design document |
 | `docs/archive/` | Point-in-time records kept for history | No, deliberately |
 
-The distinction between `docs/manara-architecture.md` and this handbook matters:
-**that document says what MANARA is being built toward; these say what MANARA is.** Where
-the two disagree, the handbook describes reality and the architecture document describes
-intent. Neither is wrong — but only one of them tells you what your code will run against.
+The distinction between `docs/manara-architecture.md` and this constitution matters: **that
+document says what MANARA is being built toward; these say what MANARA is.** Where the two
+disagree, neither is wrong — they answer different questions. But only one tells you what
+your code will run against.
 
-## Honesty policy
+## Version history
 
-These documents record several things that are broken, missing, or contradicted by the
-code. That is deliberate. A "Known gaps" section with a severity is more useful than a
-confident description of a system nobody built, and it turns tacit knowledge — the kind
-that currently lives in one person's memory — into a list someone else can work through.
+| Version | Date | Change |
+|---|---|---|
+| **1.0** | 2026-08 | Initial constitution: governance layer, 14 numbered documents, 9 seed ADRs, risk register. Establishes the authority hierarchy, rule format, and change process. |
 
-Severity means:
-
-- **`blocking`** — actively costs us correctness, security, or velocity now. Fix next.
-- **`before scale`** — fine at current volume, breaks at the next order of magnitude, and
-  the trigger is named.
-- **`nice to have`** — real, but the cost of leaving it exceeds nothing important.
-
-Gaps are recorded here, not fixed here. Closing one is a code change and goes through the
-normal pull-request flow in `CLAUDE.md`.
+Versioning rules — what constitutes a minor versus major bump — are in
+`governance/documentation-authority.md`.
