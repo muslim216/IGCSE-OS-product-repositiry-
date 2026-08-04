@@ -313,20 +313,19 @@ objectives are unmeasurable.
 ### Objectives
 
 **`REL-17` — SHOULD · Recommended · Active**
-Service level objectives, stated as targets to begin measuring against rather than as measured
-baselines:
+Hold the service to the objectives in the table below. They are targets to begin measuring
+against, **not measured baselines** — with one exception, marked in the table.
+*Rationale:* P5 — none is measured today, and they are stated so the first measurement has
+something to disagree with. Durability is the exception: a lost finalized mark is a lost piece
+of a child's academic record, so it is a requirement rather than a target.
 
 | Indicator | Objective |
 |---|---|
 | API availability (non-5xx on health-relevant paths) | 99.5% monthly |
 | Successful marking of a submitted piece of work | 99% within 10 minutes |
 | Readiness freshness after settling evidence | 99% within one debounce window plus 5 minutes |
-| Data durability — a finalized mark, once written | 100%. No acceptable loss rate |
+| Data durability — a finalized mark, once written | **100%. A requirement, not a target.** No acceptable loss rate |
 | Planned deploy downtime | Accepted; single instance, no blue/green |
-
-*Rationale:* P5 — none of these is measured today, and they are stated so the first measurement
-has something to disagree with. Durability is the one that is not a target but a requirement:
-a lost finalized mark is a lost piece of a child's academic record.
 
 **`REL-18` — MUST · Important · Active**
 A change that weakens a stated objective is called out explicitly in its pull request.

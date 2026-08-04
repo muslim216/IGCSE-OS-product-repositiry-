@@ -281,7 +281,10 @@ together.
 ### Budgets
 
 **`PERF-16` — SHOULD · Recommended · Active**
-Targets to measure against, not measured baselines:
+Work to the targets in the table below. They are targets to measure against, **not measured
+baselines**.
+*Rationale:* P3 — a target that nothing measures is a hypothesis, and these are stated so the
+first real measurement has something to disagree with.
 
 | Path | Target |
 |---|---|
@@ -293,9 +296,6 @@ Targets to measure against, not measured baselines:
 | Chat first token | < 2 s |
 | Frontend first contentful paint, 4G mobile | < 2.5 s |
 | Initial JavaScript bundle | < 400 KB gzipped |
-
-*Rationale:* P3 — a target that nothing measures is a hypothesis, and these are stated so the
-first measurement has something to disagree with.
 
 **`PERF-17` — SHOULD · Important · Active**
 A change expected to affect one of these paths states its expected effect in the pull request,

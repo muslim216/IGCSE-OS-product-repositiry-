@@ -157,9 +157,15 @@ unexpected place.
 
 ### The frontend suite
 
-**7 files, 20 tests, 528 lines.** `App.test.tsx` (1), `ClassroomSettings.test.tsx` (3),
-`Nav.test.tsx` (2), `PastPapers.test.tsx` (4), `ReadinessView.test.tsx` (4),
+**7 files, 23 tests, 528 lines.** `App.test.tsx` (1), `Nav.test.tsx` (2),
+`ClassroomSettings.test.tsx` (3), `PastPapers.test.tsx` (4), `ReadinessView.test.tsx` (4),
 `TodayDashboard.test.tsx` (4), and `readiness-lib.test.ts` (5) — the only pure-unit spec.
+
+The test names are worth reading as a statement of intent: several assert the constitution's
+own rules rather than mechanics — *"with no data it explains the empty state and invents no
+scores"* (`PROD-2`), *"says the score is being recalculated rather than passing it off as
+current"* (`UX-21`), *"explains itself instead of offering a dead button when unconfigured"*
+(`INF-9`). This is the pattern to extend.
 
 Vitest is configured inline in `vite.config.ts`: `environment: "jsdom"`, `globals: true`, one
 setup file importing `@testing-library/jest-dom/vitest`. No `include`/`exclude` patterns, no
@@ -346,7 +352,7 @@ informs where to write real ones.
 | **Migrations are never exercised by tests.** Schema comes from `Base.metadata.create_all`. | All 21 run first in production, where failure means the service does not start. `RISK-3`. `QA-11` is a manual compensating control. | `blocking` |
 | **No linter, formatter, or type checker on the backend.** `pyproject.toml` has two lines of pytest config. The `# noqa` comments are read by nothing. | Every §13 rule is enforced by review alone. Blocks `QA-20`. | `blocking` |
 | **`vitest run` does not type-check**, and nothing runs `npm run build` automatically. | The strict `tsconfig.json` is real value gated behind a step nobody runs. | `blocking` |
-| **The frontend suite is 20 tests against 60+ pages**, and the four largest pages have none. | The highest-change-risk frontend files are unverified. | `before scale` |
+| **The frontend suite is 23 tests against 60+ pages**, and the four largest pages have none. | The highest-change-risk frontend files are unverified. | `before scale` |
 | **No coverage measurement.** `.gitignore` anticipates it; nothing produces it. | No signal on which risky paths are untested. Blocks `QA-21`. | `nice to have` |
 | **The test schema differs from production** — four indexes exist only in migrations. | No test exercises an indexed query plan. §06, `DB-12`. | `before scale` |
 | **No contract test between backend schemas and frontend types.** | A field rename passes both suites and fails at runtime. `RISK-6`. | `blocking` |

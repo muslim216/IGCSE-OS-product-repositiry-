@@ -12,7 +12,7 @@
 - [Scope](#scope)
 - [Sources](#sources)
 - [Principles](#principles)
-- [Before anything else](#before-anything-else)
+- [Current Reality](#current-reality)
 - [Runbooks](#runbooks)
   - [R1 — Deploy a change](#r1--deploy-a-change)
   - [R2 — Verify what is actually running](#r2--verify-what-is-actually-running)
@@ -89,7 +89,10 @@ radius that surprises people. See R12.
 
 ---
 
-## Before anything else
+## Current Reality
+
+Everything in this section is the operating context the runbooks assume. Read it once; the
+procedures below all depend on it.
 
 **Access needed:** the Render dashboard (service, database, logs, shell), the Vercel dashboard,
 GitHub, and the Google Cloud console for Classroom.
