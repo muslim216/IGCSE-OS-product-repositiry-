@@ -71,12 +71,15 @@ The rule, stated as a single declarative sentence, plus any necessary qualificat
 *Rationale:* one line on why this rule exists.
 ```
 
-Worked example:
+Worked example. **`EXAMPLE-1` is not a real rule** — the format is illustrated with a
+fictional ID deliberately, so that this specimen can never drift from a rule's actual
+definition:
 
-> **`PROD-2` — MUST NOT · Critical · Active**
-> No surface may render a missing measurement as `0`, as `0%`, or as an empty progress bar
-> that reads as zero. Absent data is displayed as absent.
-> *Rationale:* a fabricated zero tells a student they failed something they never attempted.
+> **`EXAMPLE-1` — MUST NOT · Critical · Active**
+> No surface may render a missing measurement as a zero.
+> *Rationale:* a fabricated zero asserts something the system does not know.
+
+For the real version of that rule, see `PROD-2` in §01 — cited, not restated, per `GOV-5`.
 
 **VERB** is RFC 2119:
 

@@ -162,17 +162,19 @@ Principles are `P1`…`Pn` within a document, cited as `§01 P3`.
 
 ## The obligations that keep this true
 
-Stated in full in `governance/change-process.md`; repeated here because they are the ones
-everyone must know.
+**`GOV-1` through `GOV-6` are defined in
+[`governance/change-process.md`](governance/change-process.md)** — that document is
+authoritative for their wording. What follows is a one-line index so you know which rule to
+look up, not a second copy of them.
 
-- **`GOV-1`** — A pull request that changes behaviour a document describes updates that
-  document in the same pull request.
-- **`GOV-2`** — A pull request that closes a Known Gap removes that gap entry.
-- **`GOV-3`** — A pull request that breaks an Active rule either fixes the code, supersedes
-  the rule, or records a gap. Never none of these.
-- **`GOV-4`** — Every rule cites what motivated it; every claim cites the file it came from.
-- **`GOV-5`** — Cite a rule rather than restating it.
-- **`GOV-6`** — Glossary terms are used with their glossary meaning.
+| Rule | Subject |
+|---|---|
+| `GOV-1` | Changing documented behaviour updates the document, same pull request |
+| `GOV-2` | Closing a gap removes its entry |
+| `GOV-3` | Breaking an Active rule: fix, supersede, or record — never none |
+| `GOV-4` | Rules cite what motivated them; claims cite their source file |
+| `GOV-5` | Cite a rule; do not restate it |
+| `GOV-6` | Glossary terms carry their glossary meaning |
 
 ## Honesty policy
 

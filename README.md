@@ -10,6 +10,16 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
   grade), weak topics, upcoming lessons, and chat with an AI academic mentor.
 - **Parents** get plain-language progress views and reports.
 
+## Documentation
+
+This file covers what the product is, how to run it, and how to deploy it. **Everything about
+how it is built lives in [`docs/README.md`](docs/README.md) — the MANARA Engineering
+Constitution**: four volumes of fourteen documents describing the system as built, the
+standards that govern new work, and the gaps between them, on a governance layer of
+principles, decision records, a glossary, and a risk register.
+
+New engineers should read `docs/README.md` first; it carries a reading order.
+
 ## Stack
 
 | Part | Tech |

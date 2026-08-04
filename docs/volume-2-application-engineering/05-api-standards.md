@@ -249,7 +249,9 @@ update; `DELETE` removes.
 *Rationale:* a mutating `GET` will be retried, prefetched, or cached by something.
 
 **`API-6` — MUST · Important · Active**
-Status codes follow this table:
+Status codes follow the table below.
+*Rationale:* the codebase already follows it; writing it down is what keeps a new endpoint
+from inventing a ninth meaning for 400.
 
 | Situation | Code |
 |---|---|
@@ -265,8 +267,6 @@ Status codes follow this table:
 | Semantically invalid | 422 |
 | Rate limited | 429 |
 | Dependency unavailable or not configured | 503 |
-
-*Rationale:* the codebase already follows this; writing it down keeps it followed.
 
 **`API-7` — MUST · Critical · Active**
 Return `404`, not `403`, when a caller may not know a resource exists — including any resource

@@ -1,5 +1,11 @@
 # MANARA by OASIS AI — Core Architecture
 
+> **This is a design specification: the target state.** It says what MANARA is being built
+> toward and why. For the system **as built** — including where the code has diverged from
+> this document — read the Engineering Constitution at `docs/README.md`. Where the two differ
+> they are answering different questions, but only the constitution tells you what your code
+> will run against. Authority hierarchy: `docs/governance/documentation-authority.md`.
+
 MANARA is an **AI Operating System for IGCSE education**: it helps tutors and students
 understand performance, personalize learning, and improve exam outcomes. Long-term it
 expands beyond IGCSE to any curriculum, school, or tutoring institution. This document is
