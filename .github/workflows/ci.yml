@@ -1,0 +1,133 @@
+# The only automated gate on a change reaching production.
+#
+# The default branch deploys the moment something merges into it — Render builds
+# the API and Vercel the frontend, with no further approval step. Until this file
+# existed nothing ran on a pull request at all, so "the tests pass" meant "someone
+# remembered to run them". That is RISK-2 in docs/governance/risk-register.md.
+#
+# Three jobs, deliberately separate so a red run names the failure rather than
+# just failing: application tests, migration reversibility, and the frontend
+# build (which is the only type check anywhere in the repo).
+name: CI
+
+on:
+  pull_request:
+  push:
+    # The default branch is still literally named claude/igcse-os-planning-q8be0t
+    # pending the rename to main; both are listed so the rename does not silently
+    # stop CI running on the branch that deploys.
+    branches:
+      - main
+      - claude/igcse-os-planning-q8be0t
+
+# A second push to the same PR makes the first run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # tests/conftest.py forces sqlite+aiosqlite:///:memory: before any app
+      # module is imported, so this job needs no database service and no API key.
+      - name: pytest
+        run: python -m pytest -q
+
+  migrations:
+    name: Migrations up/down/up (Postgres)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # The test suite builds its schema from Base.metadata, never from Alembic
+    # (QA-11), so without this job the 21 migrations first execute when a
+    # container boots in production — and the start command is
+    # `alembic upgrade head && uvicorn`, so a bad one means the API never starts
+    # rather than degrading. That is RISK-3, and migration 0012 has already done
+    # it once on Postgres with existing users.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: igcse
+          POSTGRES_PASSWORD: igcse
+          POSTGRES_DB: igcse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U igcse"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # config.py rewrites the bare scheme to postgresql+asyncpg:// on the way in,
+      # so this is the same URL shape a hosting provider hands out.
+      DATABASE_URL: postgresql://igcse:igcse@localhost:5432/igcse
+      JWT_SECRET: ci-only-secret-not-used-to-sign-anything-real
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Upgrade to head
+        run: python -m alembic upgrade head
+
+      # DB-16 requires every migration to have a working downgrade, verified
+      # up -> down -> up. Verifying it by hand on SQLite does not catch the
+      # Postgres-specific failures, which is exactly the class that has occurred.
+      - name: Downgrade to base
+        run: python -m alembic downgrade base
+
+      - name: Upgrade to head again
+        run: python -m alembic upgrade head
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: vitest
+        run: npm test
+
+      # `npm run build` is `tsc -b && vite build`. `npm test` does NOT type-check,
+      # so this step is the only thing in the repository that ever type-checks the
+      # frontend — including the hand-maintained TypeScript interfaces that mirror
+      # the backend response schemas (FE-4).
+      - name: Type check and build
+        run: npm run build
