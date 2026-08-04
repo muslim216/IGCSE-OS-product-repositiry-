@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, require_role
 from app.api.readiness import visible_subject_ids
 from app.models import (
     Report,
@@ -18,6 +19,13 @@ from app.schemas.reports import ReportDetail, ReportGenerate, ReportOut
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+#: Same gate as TutorUser, keeping this endpoint's own 403 message rather than
+#: quietly restyling it — the generic require_role() exists for exactly this.
+ReportAuthor = Annotated[
+    User,
+    require_role(UserRole.tutor, UserRole.admin, detail="Only tutors can generate reports"),
+]
 
 ALLOWED_AUDIENCES = {
     UserRole.student: {ReportAudience.student},
@@ -35,9 +43,7 @@ async def _check_can_view_student(db: AsyncSession, viewer: User, student_id: in
 
 
 @router.post("/generate", response_model=ReportDetail, status_code=status.HTTP_201_CREATED)
-async def generate(body: ReportGenerate, db: DbSession, user: CurrentUser) -> ReportDetail:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only tutors can generate reports")
+async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> ReportDetail:
     audience = ReportAudience(body.audience)
     if audience not in ALLOWED_AUDIENCES[user.role]:
         raise HTTPException(

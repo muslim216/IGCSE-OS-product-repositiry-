@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import DbSession, TutorUser
 from app.models import (
     Assignment,
     Group,
@@ -29,9 +29,7 @@ WEAK_THRESHOLD = 60.0
 
 
 @router.get("/groups/{group_id}", response_model=TutorAnalytics)
-async def group_analytics(group_id: int, db: DbSession, user: CurrentUser) -> TutorAnalytics:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> TutorAnalytics:
     group = await db.get(Group, group_id)
     if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")

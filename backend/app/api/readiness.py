@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, StudentUser
 from app.models import (
     AiSynthesisStatus,
     Evidence,
@@ -76,9 +76,7 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
 
 
 @router.get("/me", response_model=StudentReadinessSummary)
-async def my_readiness(db: DbSession, user: CurrentUser) -> StudentReadinessSummary:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
+async def my_readiness(db: DbSession, user: StudentUser) -> StudentReadinessSummary:
     subject_ids = await visible_subject_ids(db, user, user.id)
     return await build_summary_v2(db, user, subject_ids or [])
 

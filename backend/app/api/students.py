@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, assert_tutor
 from app.models import (
     Group,
     GroupMember,
@@ -72,8 +72,7 @@ async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> 
 async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User:
     """CRM record edits (profile, enrollments, notes, communications) are
     tutor-only, and only for a student the tutor actually teaches."""
-    if tutor.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    assert_tutor(tutor)
     student = await db.get(User, student_id)
     if student is None or student.role != UserRole.student:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")

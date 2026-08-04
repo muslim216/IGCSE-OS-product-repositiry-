@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
-from app.models import ClassroomCourseLink, GoogleAccount, Group, User, UserRole
+from app.api.deps import DbSession, TutorUser
+from app.models import ClassroomCourseLink, GoogleAccount, Group, User
 from app.schemas.classroom import (
     ClassroomAuthUrl,
     ClassroomConnect,
@@ -20,11 +20,6 @@ router = APIRouter(prefix="/classroom", tags=["classroom"])
 OAUTH_PURPOSE = "classroom_connect"
 
 
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
-
-
 async def _own_account(db: DbSession, user: User) -> GoogleAccount:
     account = await db.scalar(select(GoogleAccount).where(GoogleAccount.tutor_id == user.id))
     if account is None:
@@ -33,8 +28,7 @@ async def _own_account(db: DbSession, user: User) -> GoogleAccount:
 
 
 @router.get("/status", response_model=ClassroomStatus)
-async def classroom_status(db: DbSession, user: CurrentUser) -> ClassroomStatus:
-    _require_tutor(user)
+async def classroom_status(db: DbSession, user: TutorUser) -> ClassroomStatus:
     account = await db.scalar(select(GoogleAccount).where(GoogleAccount.tutor_id == user.id))
     return ClassroomStatus(
         configured=gc.is_configured(),
@@ -45,8 +39,7 @@ async def classroom_status(db: DbSession, user: CurrentUser) -> ClassroomStatus:
 
 
 @router.get("/auth-url", response_model=ClassroomAuthUrl)
-async def auth_url(user: CurrentUser) -> ClassroomAuthUrl:
-    _require_tutor(user)
+async def auth_url(user: TutorUser) -> ClassroomAuthUrl:
     try:
         state = create_state_token(user.id, OAUTH_PURPOSE)
         return ClassroomAuthUrl(url=gc.build_auth_url(state), state=state)
@@ -55,8 +48,7 @@ async def auth_url(user: CurrentUser) -> ClassroomAuthUrl:
 
 
 @router.post("/connect", response_model=ClassroomStatus, status_code=status.HTTP_201_CREATED)
-async def connect(body: ClassroomConnect, db: DbSession, user: CurrentUser) -> ClassroomStatus:
-    _require_tutor(user)
+async def connect(body: ClassroomConnect, db: DbSession, user: TutorUser) -> ClassroomStatus:
     # Rejects a callback this tutor did not start: without it, a link crafted by
     # an attacker could attach the attacker's Google account to this tutor's
     # organization, and every subsequent sync would import their coursework.
@@ -82,16 +74,14 @@ async def connect(body: ClassroomConnect, db: DbSession, user: CurrentUser) -> C
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
-async def disconnect(db: DbSession, user: CurrentUser) -> None:
-    _require_tutor(user)
+async def disconnect(db: DbSession, user: TutorUser) -> None:
     account = await _own_account(db, user)
     await db.delete(account)
     await db.commit()
 
 
 @router.get("/courses", response_model=list[ClassroomCourseOut])
-async def list_courses(db: DbSession, user: CurrentUser) -> list[ClassroomCourseOut]:
-    _require_tutor(user)
+async def list_courses(db: DbSession, user: TutorUser) -> list[ClassroomCourseOut]:
     account = await _own_account(db, user)
     try:
         access_token = await gc.get_valid_access_token(account)
@@ -102,8 +92,7 @@ async def list_courses(db: DbSession, user: CurrentUser) -> list[ClassroomCourse
 
 
 @router.get("/links", response_model=list[ClassroomLinkOut])
-async def list_links(db: DbSession, user: CurrentUser) -> list[ClassroomLinkOut]:
-    _require_tutor(user)
+async def list_links(db: DbSession, user: TutorUser) -> list[ClassroomLinkOut]:
     account = await _own_account(db, user)
     rows = (
         await db.execute(
@@ -126,8 +115,7 @@ async def list_links(db: DbSession, user: CurrentUser) -> list[ClassroomLinkOut]
 
 
 @router.post("/links", response_model=ClassroomLinkOut, status_code=status.HTTP_201_CREATED)
-async def create_link(body: ClassroomLinkCreate, db: DbSession, user: CurrentUser) -> ClassroomLinkOut:
-    _require_tutor(user)
+async def create_link(body: ClassroomLinkCreate, db: DbSession, user: TutorUser) -> ClassroomLinkOut:
     account = await _own_account(db, user)
     group = await db.get(Group, body.group_id)
     if group is None or group.tutor_id != user.id:
@@ -159,8 +147,7 @@ async def create_link(body: ClassroomLinkCreate, db: DbSession, user: CurrentUse
 
 
 @router.delete("/links/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_link(link_id: int, db: DbSession, user: CurrentUser) -> None:
-    _require_tutor(user)
+async def delete_link(link_id: int, db: DbSession, user: TutorUser) -> None:
     account = await _own_account(db, user)
     link = await db.get(ClassroomCourseLink, link_id)
     if link is None or link.google_account_id != account.id:
@@ -170,8 +157,7 @@ async def delete_link(link_id: int, db: DbSession, user: CurrentUser) -> None:
 
 
 @router.post("/sync", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_sync(db: DbSession, user: CurrentUser) -> dict:
-    _require_tutor(user)
+async def trigger_sync(db: DbSession, user: TutorUser) -> dict:
     account = await _own_account(db, user)
     await enqueue(db, "sync_classroom", {"google_account_id": account.id})
     await db.commit()
