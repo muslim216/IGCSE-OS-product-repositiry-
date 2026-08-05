@@ -58,6 +58,12 @@ select = [
     "SIM",   # simplifiable constructs
     "ASYNC", # blocking calls inside async — this codebase is async end to end
     "UP",    # pyupgrade
+    # Seven `# noqa: BLE001` comments were already written across the codebase
+    # for a linter that had never been configured, so they suppressed nothing and
+    # documented a decision no tool was checking. Enabling the rule makes them
+    # mean what they say, and makes the next blind `except Exception` an explicit
+    # choice rather than an accident.
+    "BLE",
 ]
 ignore = [
     # The formatter owns line length. Keeping the lint rule as well means

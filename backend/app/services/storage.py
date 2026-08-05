@@ -54,7 +54,12 @@ def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
     if mime in CONVERT_TO_JPEG:
         try:
             data = _to_jpeg(data)
-        except Exception:
+        except Exception:  # noqa: BLE001 — a corrupt photo is not a server fault
+            # Pillow and pillow-heif raise across a wide surface on a malformed
+            # file — UnidentifiedImageError, OSError, struct.error, and whatever
+            # the HEIF decoder decides. Narrowing this list would mean a student
+            # photographing their homework gets a 500 for the one decoder error
+            # nobody enumerated.
             raise ValueError(
                 "That photo couldn't be read. Try saving it as JPEG and uploading again."
             ) from None
