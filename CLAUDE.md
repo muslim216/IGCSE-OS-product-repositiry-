@@ -89,14 +89,15 @@ whatever single branch is actively in flight, and the `archive/*` branches prese
 superseded UI experiments and the original build history. A branch that has merged is finished
 — **never reopen or stack new work on it**; start again from `main`.
 
-> **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request — `pytest`,
-> `vitest`, `npm run build` (the only type check anywhere), and an Alembic
+> **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request in four jobs —
+> `ruff check` + `ruff format --check` and `eslint --max-warnings 0`; `pytest`; `vitest` and
+> `npm run build` (the only type check anywhere); and an Alembic
 > `upgrade head` → `downgrade base` → `upgrade head` against a real Postgres 16. **Still run
-> both suites locally before opening a PR**; CI is a backstop, not a substitute for knowing
-> your change works. Note what CI does *not* cover: **no linter, formatter or Python type
-> checker is configured**, so every style and typing rule remains enforced by review alone.
-> CodeQL, Vercel preview builds, and CodeRabbit are GitHub Apps and may also run; nothing in
-> the repo evidences them.
+> both suites and both linters locally before opening a PR**; CI is a backstop, not a
+> substitute for knowing your change works. Note what CI does *not* cover: **there is no
+> Python type checker**, so every annotation in `backend/` is decoration nothing verifies —
+> unlike the frontend, where `tsc -b` is real. CodeQL, Vercel preview builds, and CodeRabbit
+> are GitHub Apps and may also run; nothing in the repo evidences them.
 
 ## Common commands
 
@@ -114,6 +115,10 @@ uvicorn app.main:app --reload        # http://localhost:8000, OpenAPI docs at /d
 .venv/bin/python -m pytest tests/test_readiness_engine.py          # one file
 .venv/bin/python -m pytest tests/test_homework.py::test_name -q    # one test
 
+.venv/bin/ruff check .               # lint — same command CI runs
+.venv/bin/ruff check --fix .         # and fix what is mechanical
+.venv/bin/ruff format .              # format (CI runs `--check`, which never writes)
+
 python -m seed.load_syllabus         # load the 5 built-in subject topic trees
 python -m seed.demo                  # idempotent demo tutor/students/parent with ~90d of data
 ```
@@ -125,6 +130,8 @@ npm install
 npm run dev        # http://localhost:5173, proxies /api -> localhost:8000 (vite.config.ts)
 npm run build      # tsc -b && vite build — the ONLY type check anywhere
 npm test           # vitest run (does NOT type-check)
+npm run lint       # eslint (CI adds --max-warnings 0)
+npm run format     # prettier --write (CI runs format:check, which never writes)
 ```
 
 Demo login after seeding: `demo-tutor@example.com` / `demo1234`.

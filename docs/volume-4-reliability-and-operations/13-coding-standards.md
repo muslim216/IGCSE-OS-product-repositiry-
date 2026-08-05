@@ -192,15 +192,26 @@ its mechanics. Subject lines are lowercase, imperative, and scoped where it help
 
 ### Tooling
 
-**None.** No ruff, black, isort, flake8, mypy, pyright, ESLint, Prettier, EditorConfig, or
-pre-commit. `pyproject.toml` holds two lines of pytest configuration and nothing else;
-`package.json` has no lint script.
+**ruff** (`backend/pyproject.toml`) lints and formats Python; **ESLint 9** flat config
+(`frontend/eslint.config.js`) lints TypeScript and **Prettier** (`frontend/.prettierrc.json`)
+formats it. All four run in the `lint` job of `.github/workflows/ci.yml` on every pull
+request: `ruff check`, `ruff format --check`, `eslint --max-warnings 0`, `prettier --check`.
 
-The `# noqa: BLE001` comments in `workers/jobs.py` and `api/chat.py` were written for a linter
-that does not exist here.
+Line width is **100 in both languages**, chosen by measuring rather than by adopting a
+default: the 99th-percentile line is 99 characters in Python and 103 in TypeScript. Taking
+ruff's 88 would have reformatted 109 of 145 Python files, and Prettier's 80 would have
+reformatted 75 of the frontend's instead of 47 — churn wearing a standard's clothes.
 
-`tsc -b` inside `npm run build` is the only static check in the repository, and no automation
-runs it (§12).
+No `eslint-config-prettier`, because there is nothing to reconcile: the ESLint config enables
+no stylistic rules at all, only ones that catch defects the type checker cannot see.
+
+The `# noqa: BLE001` comments across `workers/jobs.py`, `api/chat.py`, `main.py`,
+`readiness_v2_ai.py` and `storage.py` now suppress a rule that runs — `BLE` is selected
+precisely so those comments mean what they say.
+
+Still absent: **mypy/pyright**, **EditorConfig**, **pre-commit**, and any import-direction
+check. `tsc -b` inside `npm run build` remains the only *type* check in the repository, and
+CI does now run it (§12).
 
 ---
 
@@ -334,22 +345,35 @@ deleted.
 
 ### Tooling
 
-**`CODE-23` — SHOULD · Important · Draft**
+**`CODE-23` — SHOULD · Important · Active**
 Python is formatted and linted by **ruff**, configured in `pyproject.toml`, enforced in CI.
-*Rationale:* every rule above is currently enforced by review alone. **Draft** because adding
-the configuration is a code change outside this documentation branch. Pairs with `QA-20`.
+*Rationale:* every rule above was otherwise enforced by review alone. Pairs with `QA-20`.
 
-**`CODE-24` — SHOULD · Important · Draft**
+**`CODE-24` — SHOULD · Important · Active**
 TypeScript is linted by **ESLint** with the React hooks plugin and formatted by **Prettier**,
 enforced in CI.
-*Rationale:* hook-dependency mistakes are invisible today, and `noUnusedLocals` only fires at
-build time. **Draft** — same reason.
+*Rationale:* hook-dependency mistakes are invisible to the type checker, and `noUnusedLocals`
+only fires at build time. Only `rules-of-hooks` and `exhaustive-deps` are taken from the hooks
+plugin — the sixteen React Compiler rules it ships by default are a decision about how the app
+is written, and adopting them silently as a side effect of turning linting on would be exactly
+the kind of unargued change this document exists to prevent.
+
+**`CODE-26` — SHOULD · Important · Active**
+A lint exclusion carries its reason where it is configured or suppressed — a `# noqa` names the
+rule and why, and a disabled rule says what it would cost to obey.
+*Rationale:* an unexplained suppression is indistinguishable from an unnoticed one, and it is
+the first thing deleted when someone is tidying. The `# noqa: BLE001` comments in this
+codebase spent months suppressing a linter that did not exist; nobody could tell, because
+nothing said why they were there.
 
 **`CODE-25` — SHOULD · Recommended · Draft**
 An import-direction check enforces the layering — `models/` importing nothing from `services/`,
 `services/` nothing from `api/`.
-*Rationale:* `BE-1` and `GOV-7` are Critical rules with no mechanism. **Draft** — needs a
-linter first.
+*Rationale:* `BE-1` and `GOV-7` are Critical rules with no mechanism. **Draft** — the linter
+that was blocking this now exists, so what remains is writing the rule: ruff's
+`flake8-tidy-imports` `banned-api` section can express the direction per package. Left out of
+the initial ruff config deliberately, because a layering violation it finds is a real
+architectural change to argue, not something to discover inside a formatting pull request.
 
 ---
 
@@ -357,10 +381,7 @@ linter first.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No linter or formatter for Python.** No ruff, black, isort, flake8, mypy. `pyproject.toml` still holds two lines of pytest config. | Every `CODE-*` Python rule is enforced by a human remembering. CI now gates tests, types and migrations, so this is the whole of what `RISK-2` still covers. Blocks `CODE-23`. | `blocking` |
-| **No ESLint or Prettier.** `package.json` has no lint script. | Hook-dependency mistakes and unused imports are invisible until a build somebody may not run. Blocks `CODE-24`. | `blocking` |
-| **`# noqa: BLE001` comments exist for a linter that does not.** | Harmless, but evidence the toolchain was assumed rather than configured — worth removing or making true. | `nice to have` |
-| **Nothing enforces the layering.** `BE-1` and `GOV-7` are Critical with no mechanism. | An import from `services/` into `models/` would pass review only by being noticed. Blocks `CODE-25`. | `before scale` |
+| **Nothing enforces the layering.** `BE-1` and `GOV-7` are Critical with no mechanism. | An import from `services/` into `models/` would pass review only by being noticed. ruff can do this with `flake8-tidy-imports` banned-api rules; it was left out of the initial config to keep that change reviewable. Blocks `CODE-25`. | `before scale` |
 | **No `.editorconfig`.** | Indentation and line endings depend on each contributor's editor. | `nice to have` |
 | **No commit-message or branch-name check.** | `CODE-18` and `CODE-19` are conventions only. | `nice to have` |
 | **No type checker for Python.** `mypy`/`pyright` would catch the `Optional`-handling class of bug that `API-20`'s polymorphic trap belongs to. | A `None` reached inside an authorization check is exactly what a type checker exists to find. | `before scale` |
@@ -371,7 +392,8 @@ linter first.
 
 Update this document when:
 
-- A linter, formatter, or type checker is configured — most Draft rules become Active together.
+- A type checker is configured, or the ruff/ESLint rule selection changes — a rule added or
+  removed changes what this document is actually able to claim.
 - The Python or TypeScript version changes, or `tsconfig.json` strictness changes.
 - The branch or deploy workflow changes, including the documentation-only exception.
 - A new language or runtime enters the repository.

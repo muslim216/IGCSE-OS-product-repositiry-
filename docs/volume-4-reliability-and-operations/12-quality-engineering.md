@@ -202,22 +202,35 @@ have none.
 
 ### Static analysis
 
-**Backend: none.** No ruff, black, isort, flake8, mypy, pyright, or pre-commit.
-`pyproject.toml` contains exactly two lines of tool configuration:
+**Backend: ruff**, configured in `pyproject.toml` and run in CI as `ruff check` plus
+`ruff format --check`. Rules are selected to catch defects rather than to enforce taste — a
+broad selection reports 1,071 findings on this codebase and the configured one reports 57,
+which is the difference between a gate someone clears and a number everybody learns to
+ignore. `line-length = 100` because that is what the code already is (99th-percentile line:
+99 characters). Every exclusion is argued at the site; the two that are substantive rather
+than cosmetic are `UP042` (`(str, Enum)` → `StrEnum` changes `str(Member)` on enums that get
+serialized) and `F811` in tests (pytest's fixture idiom is a redefinition by construction).
 
-```toml
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-```
+The `# noqa: BLE001` comments in `workers/jobs.py`, `api/chat.py`, `main.py` and
+`readiness_v2_ai.py` are no longer vestigial: `BLE` is selected, so they suppress a rule that
+actually runs, and the next blind `except Exception` is a decision on the record.
 
-The `# noqa: BLE001` comments in `workers/jobs.py` and `api/chat.py` are vestigial — no linter
-reads them.
+**Frontend: ESLint 9 (flat config) and Prettier**, run in CI as `eslint --max-warnings 0` and
+`prettier --check`. ESLint adds only what types cannot see — `rules-of-hooks`,
+`exhaustive-deps`, `no-unused-vars` — because `tsc -b` already covers the rest and a rule
+that duplicates the type checker only adds a second place to silence the same thing. The
+React Compiler rule set the plugin ships by default is deliberately not adopted: it is a
+decision about how the app is written, not a lint baseline.
 
-**Frontend: no ESLint, no Prettier.** `package.json` scripts are exactly `dev`, `build`,
-`preview`, `test`. `tsconfig.json` is genuinely strict — `strict`, `noUnusedLocals`,
-`noUnusedParameters`, `noFallthroughCasesInSwitch`, `isolatedModules` — which is real value,
-gated behind a build nothing runs automatically.
+`tsconfig.json` is genuinely strict — `strict`, `noUnusedLocals`, `noUnusedParameters`,
+`noFallthroughCasesInSwitch`, `isolatedModules` — and is now gated by a build CI runs on
+every pull request.
+
+**Both clean sets were verified rather than assumed.** A linter reporting nothing is
+indistinguishable from a linter that is not running, so each rule was checked against a
+planted violation: a conditionally-called hook, a dependency array missing its closure, an
+unused argument, an unused local, an indented `def _require_tutor`. Each reported; each file
+was then removed.
 
 **Coverage:** not configured on either side. `.gitignore` lists `.coverage` and `htmlcov/`, but
 nothing produces them.
@@ -238,9 +251,11 @@ than racing it.
 
 **What CI does not do**, stated plainly because the gap is easy to mistake for coverage:
 
-- **No linter, formatter or Python type checker.** No ruff, black, mypy, ESLint or Prettier is
-  configured, so every rule in §13 and every `# noqa: BLE001` comment is still enforced —
-  or ignored — by review alone.
+- **No Python type checker.** No mypy or pyright, so every annotation in ~22k lines of Python
+  is decoration nothing verifies — the asymmetry with the frontend, where `tsc -b` is real.
+  This is now the whole of `RISK-2`.
+- **No dependency scan**, which is not a theoretical gap: the first `npm audit` anyone ran
+  reported a critical and a high advisory in `vitest` and `vite`. See `RISK-11`.
 - **No coverage measurement**, so nothing reports which risky paths the 297 backend tests miss.
 - **The `migrations` database is empty.** Schema operations are proven; safety against
   existing rows, which is how 0012 actually failed, is not.
@@ -375,13 +390,23 @@ that gate is a constitutional change, not a workflow tweak.
 *Rationale:* `RISK-2`. `main` deploys on merge, so an unverified merge is an unverified deploy.
 Satisfied by `.github/workflows/ci.yml`.
 
-**`QA-20` — SHOULD · Important · Draft**
+**`QA-20` — SHOULD · Important · Active**
 A linter and formatter run in CI for both languages — ruff for Python, ESLint and Prettier for
 TypeScript.
-*Rationale:* `CODE-*` in §13 is otherwise enforced entirely by review. **Draft** because no
-linter is configured for either language yet — and because introducing one across ~12,400
-lines of Python and the frontend produces a reformatting diff that would bury any real change
-shipped alongside it, so it wants its own pull request.
+*Rationale:* `CODE-*` in §13 is otherwise enforced entirely by review. Satisfied by the `lint`
+job in `.github/workflows/ci.yml`. The rule sets are scoped to defects rather than taste, and
+every exclusion is argued where it is configured — a suppression with a stated reason is a
+decision, a suppression without one is a rule that will be deleted the first time it is
+inconvenient.
+
+**`QA-22` — SHOULD · Important · Draft**
+A formatting-only change is committed on its own, never mixed into a substantive one.
+*Rationale:* the reformatting pass that introduced ruff and Prettier touched 133 files across
+both languages. Mixed into a real change, a diff that size is skimmed rather than read, and
+the two lines that mattered ship unreviewed. **Draft** because it is a convention this
+document can state but nothing can check — the reviewable form of it is that a
+formatting-only commit is verifiable by re-running the tool, and the ruff pass was
+additionally proved a no-op by comparing every file's AST before and after.
 
 **`QA-21` — SHOULD · Recommended · Draft**
 Coverage is measured and reported for `services/` and `api/`, without a repository-wide
@@ -395,7 +420,8 @@ informs where to write real ones.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No linter, formatter, or type checker on the backend.** `pyproject.toml` still has two lines of pytest config. The `# noqa` comments are read by nothing. | Every §13 rule is enforced by review alone. This is what remains of `RISK-2` and it is the largest gap in this document. Blocks `QA-20`. | `blocking` |
+| **No type checker on the backend.** ruff and Prettier now cover style on both languages; mypy and pyright are still absent. | ~22k lines of Python annotations that nothing verifies, where the frontend has `tsc -b` in CI. This is the whole of what `RISK-2` still covers. Adding it wants a per-module ratchet, not one sweep. | `before scale` |
+| **Nothing scans dependencies.** The first `npm audit` anyone ran reported 8 advisories — 1 critical (`vitest`), 1 high (`vite`), both needing a semver-major. | `RISK-11`'s stated trigger has fired. Both are dev-only and neither ships to a user, but the count grew unobserved for two majors, and an audit step in the existing `lint` job is the cheapest control in this document. | `blocking` |
 | **CI's migration check runs against an empty database.** Up/down/up on Postgres 16 is automated; data safety is not. | It cannot catch the failure that has actually happened — 0012 added a non-nullable column to a populated table. `QA-11`'s "with data" clause and `DB-18` are manual compensating controls. `RISK-3` residual. | `before scale` |
 | **The test suite itself still runs no migration.** Schema comes from `Base.metadata.create_all` on SQLite. | Model/migration drift is invisible to `pytest`; only the separate CI job would catch a migration that fails outright, and it would not catch one that merely disagrees with the models. | `before scale` |
 | **`vitest run` does not type-check.** `npm run build` does, and CI runs it — but a developer running `npm test` locally still gets no type errors. | The strict `tsconfig.json` is now enforced on every PR; the local feedback loop still misses it, so type errors are found late rather than never. | `nice to have` |
@@ -411,9 +437,8 @@ informs where to write real ones.
 
 Update this document when:
 
-- CI is introduced — most Draft rules here become Active at once, and several `blocking` gaps
-  close.
-- A linter, formatter, type checker, or coverage tool is configured.
+- A type checker or coverage tool is configured — the two remaining static-analysis gaps.
+- A dependency scan is added to CI, or the `vite`/`vitest` advisories are resolved.
 - `conftest.py`'s fixtures or environment setup change.
 - The test database stops being SQLite, which retires Trap 2 and changes `QA-11`.
 - A new established testing pattern emerges that others should follow.
