@@ -117,12 +117,25 @@ def test_role_gates_are_one_shared_dependency():
     assert len(gated) > 40, f"only {len(gated)} routes carry a role gate"
 
 
+#: Resolved from this file, not the working directory. `Path("app/api")` only
+#: works when pytest is invoked from `backend/`; run from the repository root it
+#: matches nothing, and a scan over zero files reports zero offenders and passes.
+#: A guard that can silently check nothing is worse than no guard, because it
+#: reads as evidence.
+API_DIR = pathlib.Path(__file__).resolve().parents[1] / "app" / "api"
+
+
 def test_no_router_has_grown_its_own_copy_of_the_gate():
     """The private helpers are gone; this fails if one comes back."""
+    sources = sorted(API_DIR.rglob("*.py"))
+    assert sources, f"no modules found under {API_DIR} — the scan checked nothing"
+
     offenders = []
-    for path in sorted(pathlib.Path("app/api").glob("*.py")):
+    for path in sources:
         source = path.read_text()
-        if re.search(r"^def _require_(tutor|student)\b", source, re.M):
+        # `\s*` and the optional `async` because a copy that comes back indented
+        # inside a class, or written `async def`, is the same copy.
+        if re.search(r"^\s*(async\s+)?def\s+_require_(tutor|student)\b", source, re.M):
             offenders.append(path.name)
     assert not offenders, (
         f"{offenders} defines a private role check again — use TutorUser / "
@@ -186,3 +199,31 @@ async def test_the_reports_endpoint_keeps_its_own_message(client, student):  # n
     )
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Only tutors can generate reports"
+
+
+async def test_a_gate_carried_by_an_ownership_helper_still_refuses(client, student, group):  # noqa: F811
+    """BE-18, proved rather than assumed.
+
+    Nine groups.py handlers declare no role gate of their own and rely entirely
+    on _owned_group()'s assert_tutor(). The parametrized cases above cannot
+    reach them — they need a real group id — so the pattern that carries the
+    check one layer down was the one part of the convergence with no test
+    behind it. A reviewer reading class_brief() in isolation sees `CurrentUser`
+    and reasonably concludes it is ungated; this is the answer to that.
+    """
+    resp = await client.post(
+        f"/api/v1/groups/{group['id']}/brief", headers=student["headers"]
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Tutor account required"
+
+
+async def test_the_analytics_a_helper_gated_handler_calls_is_gated_too(client, student, group):  # noqa: F811
+    """class_brief() calls group_analytics() directly rather than over HTTP, so
+    the callee needs its own gate — a route dependency does not protect a plain
+    function call."""
+    resp = await client.get(
+        f"/api/v1/analytics/groups/{group['id']}", headers=student["headers"]
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Tutor account required"

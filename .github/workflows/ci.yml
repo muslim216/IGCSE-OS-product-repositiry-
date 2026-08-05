@@ -10,6 +10,12 @@
 # build (which is the only type check anywhere in the repo).
 name: CI
 
+# Read-only by default. These jobs check out pull-request code and run it, so
+# the token they inherit should not be able to write anything; a job that ever
+# needs more gets its own narrower grant rather than widening this.
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:

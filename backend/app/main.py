@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from app.api import (
     ai_usage,
@@ -42,7 +42,12 @@ from app.services.readiness import recompute_student
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
 from app.services.syllabus_extraction import extract_syllabus
-from app.workers.jobs import register_handler, worker_loop, worker_status
+from app.workers.jobs import (
+    note_worker_restart,
+    register_handler,
+    worker_loop,
+    worker_status,
+)
 
 log = logging.getLogger("api")
 
@@ -90,6 +95,11 @@ async def _supervised_worker() -> None:
         else:
             # worker_loop() loops forever, so a clean return is itself a bug.
             log.error("job worker returned unexpectedly; restarting in %ss", WORKER_RESTART_SECONDS)
+        # Counted, not just logged. worker_loop() re-stamps its liveness clock on
+        # entry, so without this a loop that raises immediately and restarts every
+        # few seconds reports `running` forever while completing no work — the one
+        # failure readiness exists to catch, hidden by the fix for the other one.
+        note_worker_restart()
         await asyncio.sleep(WORKER_RESTART_SECONDS)
 
 
@@ -123,6 +133,28 @@ SECURITY_HEADERS = {
 }
 
 DOCS_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect"})
+
+
+#: Cap on the readiness endpoint's database probe. Well under any sensible
+#: monitor timeout, so a hung database is reported rather than waited out.
+READINESS_DB_TIMEOUT_SECONDS = 5.0
+
+
+async def _queue_snapshot() -> tuple[dict, datetime | None]:
+    """Job counts by status, and when the oldest pending job was queued.
+
+    The aggregate proves connectivity on its own, so there is no separate
+    `SELECT 1` — a round-trip that returns rows has already answered the
+    question a liveness probe would ask.
+    """
+    async with async_session() as session:
+        counts = await session.execute(
+            select(Job.status, func.count(Job.id)).group_by(Job.status)
+        )
+        oldest_pending = await session.scalar(
+            select(func.min(Job.created_at)).where(Job.status == JobStatus.pending)
+        )
+    return dict(counts.all()), oldest_pending
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -202,15 +234,15 @@ def create_app() -> FastAPI:
         database: dict = {"ok": False}
         queue: dict | None = None
         try:
-            async with async_session() as session:
-                await session.execute(text("SELECT 1"))
-                counts = await session.execute(
-                    select(Job.status, func.count(Job.id)).group_by(Job.status)
-                )
-                by_status = dict(counts.all())
-                oldest_pending = await session.scalar(
-                    select(func.min(Job.created_at)).where(Job.status == JobStatus.pending)
-                )
+            # Bounded, because a refused connection raises promptly but an
+            # exhausted pool does not — session.execute() would wait out
+            # pool_timeout (30s by default) and a dropped-packet path longer
+            # still. An endpoint whose job is to give a straight answer must not
+            # hang; a monitor that times out learns nothing, where a 503 with
+            # error "TimeoutError" says exactly what is wrong.
+            by_status, oldest_pending = await asyncio.wait_for(
+                _queue_snapshot(), timeout=READINESS_DB_TIMEOUT_SECONDS
+            )
             database = {"ok": True}
             queue = {
                 "pending": by_status.get(JobStatus.pending, 0),
@@ -235,6 +267,8 @@ def create_app() -> FastAPI:
                 "last_loop_at": _iso(worker.last_loop_at),
                 "seconds_since_loop": worker.seconds_since_loop,
                 "job_running_seconds": worker.job_running_seconds,
+                "restarts_in_window": worker.restarts_in_window,
+                "last_restart_at": _iso(worker.last_restart_at),
             },
             "queue": queue,
         }

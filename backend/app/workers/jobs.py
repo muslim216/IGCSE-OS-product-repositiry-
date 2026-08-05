@@ -9,6 +9,7 @@ directly instead of running the loop.
 import asyncio
 import logging
 import traceback
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,15 @@ STALE_AFTER_SECONDS = 120.0
 #: would.
 JOB_STALL_SECONDS = 900.0
 
+#: A worker that raises on every iteration is restarted by the supervisor every
+#: WORKER_RESTART_SECONDS, and each restart re-stamps _last_loop_at — so without
+#: counting restarts a crash loop is indistinguishable from a healthy worker,
+#: which is the one condition readiness exists to expose. One restart is the
+#: supervisor doing its job; several inside the window is a loop that cannot
+#: survive itself, and no job will ever complete.
+CRASH_LOOP_WINDOW_SECONDS = 300.0
+CRASH_LOOP_THRESHOLD = 3
+
 Handler = Callable[[AsyncSession, dict], Awaitable[None]]
 _handlers: dict[str, Handler] = {}
 
@@ -52,6 +62,21 @@ _handlers: dict[str, Handler] = {}
 _started_at: datetime | None = None
 _last_loop_at: datetime | None = None
 _job_started_at: datetime | None = None
+
+#: When the supervisor restarted the loop. Bounded so a long-lived process that
+#: restarts occasionally cannot grow this without limit; only the most recent
+#: CRASH_LOOP_WINDOW_SECONDS are ever read.
+_restart_times: deque[datetime] = deque(maxlen=64)
+
+
+def note_worker_restart(now: datetime | None = None) -> None:
+    """Record that the supervisor had to restart the loop.
+
+    Called by the supervisor rather than by worker_loop() itself, because the
+    thing worth counting is the restart, and worker_loop() has already died by
+    the time one happens.
+    """
+    _restart_times.append(now or datetime.now(timezone.utc))
 
 
 def register_handler(job_type: str, handler: Handler) -> None:
@@ -67,13 +92,20 @@ class WorkerStatus:
     - `not_started` — worker_loop() has never run in this process. That is the
       normal state under the test client, which never enters the app's lifespan.
     - `running` — the loop completed an iteration recently, or is inside a job.
+    - `crash_looping` — the supervisor has restarted the loop CRASH_LOOP_THRESHOLD
+      times inside the window. The loop is alive and no work is getting done.
     - `stalled` — a single job has been in flight past JOB_STALL_SECONDS.
     - `stale` — the loop stopped completing iterations with nothing in flight.
 
-    The two timestamps are kept apart on purpose. A worker part-way through a
-    slow AI call is healthy and a worker whose loop has stopped is not, and a
-    single "last seen" clock cannot tell those apart — it would either page on
-    every slow marking run or stay silent through a dead loop.
+    The timestamps are kept apart on purpose. A worker part-way through a slow
+    AI call is healthy and a worker whose loop has stopped is not, and a single
+    "last seen" clock cannot tell those apart — it would either page on every
+    slow marking run or stay silent through a dead loop.
+
+    `restarts` is the third clock, and it exists because the other two lie in one
+    specific case: worker_loop() re-stamps _last_loop_at on entry, so a loop that
+    raises immediately and is restarted every few seconds keeps a fresh
+    timestamp and reports `running` forever while completing nothing.
     """
 
     state: str
@@ -81,6 +113,8 @@ class WorkerStatus:
     last_loop_at: datetime | None
     seconds_since_loop: float | None
     job_running_seconds: float | None
+    restarts_in_window: int
+    last_restart_at: datetime | None
 
     @property
     def healthy(self) -> bool:
@@ -92,8 +126,16 @@ def worker_status(now: datetime | None = None) -> WorkerStatus:
     job_seconds = (now - _job_started_at).total_seconds() if _job_started_at else None
     loop_seconds = (now - _last_loop_at).total_seconds() if _last_loop_at else None
 
+    window_start = now - timedelta(seconds=CRASH_LOOP_WINDOW_SECONDS)
+    recent_restarts = [t for t in _restart_times if t >= window_start]
+
     if _started_at is None:
         state = "not_started"
+    elif len(recent_restarts) >= CRASH_LOOP_THRESHOLD:
+        # Checked before the timestamp states on purpose: a crash loop presents
+        # as `running`, so asking about liveness first would answer the wrong
+        # question with the wrong answer.
+        state = "crash_looping"
     elif job_seconds is not None:
         state = "stalled" if job_seconds > JOB_STALL_SECONDS else "running"
     elif loop_seconds is not None and loop_seconds > STALE_AFTER_SECONDS:
@@ -107,6 +149,8 @@ def worker_status(now: datetime | None = None) -> WorkerStatus:
         last_loop_at=_last_loop_at,
         seconds_since_loop=loop_seconds,
         job_running_seconds=job_seconds,
+        restarts_in_window=len(recent_restarts),
+        last_restart_at=_restart_times[-1] if _restart_times else None,
     )
 
 
