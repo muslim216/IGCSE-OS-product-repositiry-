@@ -90,7 +90,7 @@ export default function LandingPage() {
               I have an account
             </Link>
           </div>
-          <p className="mt-4 text-sm text-ink-400">
+          <p className="mt-4 text-sm text-ink-500">
             Students and parents join with an invite from their tutor.
           </p>
         </section>
@@ -120,7 +120,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-sm text-ink-400">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-sm text-ink-500">
           <span>MANARA by OASIS AI</span>
           <Link to="/login" className="transition hover:text-ink-900">
             Sign in

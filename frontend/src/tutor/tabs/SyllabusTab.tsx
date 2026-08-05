@@ -34,7 +34,7 @@ function TopicRow({ node, scores }: { node: TopicNode; scores: Map<string, numbe
     <li>
       <div className="flex items-center justify-between gap-3 py-2">
         <span className="min-w-0">
-          <span className="mr-2 font-mono text-xs text-ink-400">{node.code}</span>
+          <span className="mr-2 font-mono text-xs text-ink-500">{node.code}</span>
           <span className="text-sm text-ink-700">{node.title}</span>
         </span>
         {score !== undefined && (

@@ -130,7 +130,7 @@ export default function ReadinessTable({
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Learner readiness, lowest first</caption>
             <thead>
-              <tr className="text-xs uppercase tracking-wide text-ink-400">
+              <tr className="text-xs uppercase tracking-wide text-ink-500">
                 <th scope="col" className="py-2 pr-3 font-medium">Learner</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Subject</th>
                 <th scope="col" className="py-2 pr-3 font-medium">Readiness</th>
@@ -182,7 +182,7 @@ export default function ReadinessTable({
       )}
 
       {rows.length > 0 && (
-        <p className="mt-3 text-xs text-ink-400">
+        <p className="mt-3 text-xs text-ink-500">
           {capped && "Showing the lowest-readiness learners per class. "}
           Learners without marked evidence aren't scored yet.
         </p>

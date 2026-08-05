@@ -88,7 +88,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
         <div className="flex flex-col gap-8">
           <Brand />
           <div className="flex flex-col gap-1">
-            <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+            <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
               {title}
             </span>
             <nav aria-label={`${title} navigation`} className="flex flex-col gap-0.5">
@@ -112,7 +112,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
               <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
               <span className="leading-tight">
                 <span className="block text-sm">AI Guidance</span>
-                <span className="block text-xs text-ink-400">Evidence-grounded</span>
+                <span className="block text-xs text-ink-500">Evidence-grounded</span>
               </span>
             </Link>
           )}
@@ -121,13 +121,13 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
             <InitialsAvatar name={user?.name ?? "?"} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
-              <p className="truncate text-xs text-ink-400">{title}</p>
+              <p className="truncate text-xs text-ink-500">{title}</p>
             </div>
             <ActivityMenu />
             <button
               onClick={signOut}
               aria-label="Sign out"
-              className="rounded-md p-1.5 text-ink-400 transition hover:bg-surface hover:text-ink-900"
+              className="rounded-md p-1.5 text-ink-500 transition hover:bg-surface hover:text-ink-900"
             >
               <LogOut aria-hidden className="h-4 w-4" />
             </button>
@@ -145,7 +145,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
             <button
               onClick={signOut}
               aria-label="Sign out"
-              className="rounded-md p-1.5 text-ink-400 transition hover:text-ink-900"
+              className="rounded-md p-1.5 text-ink-500 transition hover:text-ink-900"
             >
               <LogOut aria-hidden className="h-4 w-4" />
             </button>
