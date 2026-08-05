@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser
 from app.models import (
     Group,
     GroupMember,
@@ -47,11 +47,6 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
 
 SETTLED = (SubmissionStatus.auto_finalized, SubmissionStatus.finalized)
-
-
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
 
 
 async def _enrolled_scope(db, student_id: int) -> set[tuple[int, int]]:
@@ -119,7 +114,7 @@ async def _out(db, paper: PastPaper, *, for_tutor: bool) -> PastPaperOut:
 @router.post("", response_model=PastPaperOut, status_code=status.HTTP_201_CREATED)
 async def upload_past_paper(
     db: DbSession,
-    user: CurrentUser,
+    user: TutorUser,
     subject_id: Annotated[int, Form()],
     session_label: Annotated[str, Form(min_length=1, max_length=64)],
     paper_number: Annotated[str, Form(min_length=1, max_length=32)],
@@ -128,7 +123,6 @@ async def upload_past_paper(
     total_marks: Annotated[int | None, Form()] = None,
     duration_minutes: Annotated[int | None, Form()] = None,
 ) -> PastPaperOut:
-    _require_tutor(user)
     subject = await db.get(Subject, subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
@@ -239,10 +233,9 @@ async def past_paper_booklet(
 
 @router.get("/{past_paper_id}/mark-scheme")
 async def past_paper_mark_scheme(
-    past_paper_id: int, db: DbSession, user: CurrentUser
+    past_paper_id: int, db: DbSession, user: TutorUser
 ) -> FileResponse:
     """Tutor-only — handing this to a student would defeat the exercise."""
-    _require_tutor(user)
     paper = await _visible_paper(db, user, past_paper_id)
     if paper.mark_scheme_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No mark scheme uploaded")
@@ -286,7 +279,7 @@ async def _attempt_out(db, submission: Submission) -> PastPaperAttemptOut:
 async def log_attempt(
     past_paper_id: int,
     db: DbSession,
-    user: CurrentUser,
+    user: StudentUser,
     files: Annotated[list[UploadFile], File()],
     attempted_at: Annotated[date, Form()],
     timed: Annotated[bool, Form()] = False,
@@ -294,8 +287,6 @@ async def log_attempt(
 ) -> PastPaperAttemptOut:
     """A student logging a paper they sat. Creates a Submission, so marking,
     review and evidence all work exactly as they do for homework."""
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
     paper = await _visible_paper(db, user, past_paper_id)
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
@@ -340,10 +331,8 @@ async def log_attempt(
 
 @router.get("/{past_paper_id}/my-attempt", response_model=PastPaperAttemptOut | None)
 async def my_attempt(
-    past_paper_id: int, db: DbSession, user: CurrentUser
+    past_paper_id: int, db: DbSession, user: StudentUser
 ) -> PastPaperAttemptOut | None:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
     paper = await _visible_paper(db, user, past_paper_id)
     submission = await db.scalar(
         select(Submission).where(

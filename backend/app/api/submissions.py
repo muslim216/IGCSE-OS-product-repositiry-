@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, assert_tutor
 from app.models import (
     Assignment,
     AssignmentQuestion,
@@ -73,8 +73,7 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
 
 
 async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    assert_tutor(user)
     submission = await db.get(
         Submission, submission_id, options=[selectinload(Submission.files)]
     )
@@ -93,11 +92,9 @@ async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
 async def submit_work(
     assignment_id: int,
     db: DbSession,
-    user: CurrentUser,
+    user: StudentUser,
     files: Annotated[list[UploadFile], File()],
 ) -> StudentSubmissionView:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None or assignment.status != AssignmentStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
@@ -225,9 +222,7 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
 
 
 @router.get("/me/assignments", response_model=list[StudentAssignment])
-async def my_assignments(db: DbSession, user: CurrentUser) -> list[StudentAssignment]:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
+async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssignment]:
     rows = (
         await db.execute(
             select(Assignment, Group)
@@ -275,9 +270,7 @@ async def my_assignments(db: DbSession, user: CurrentUser) -> list[StudentAssign
 
 
 @router.get("/assignments/{assignment_id}/my-submission", response_model=StudentSubmissionView)
-async def my_submission(assignment_id: int, db: DbSession, user: CurrentUser) -> StudentSubmissionView:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
+async def my_submission(assignment_id: int, db: DbSession, user: StudentUser) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
@@ -297,9 +290,7 @@ async def my_submission(assignment_id: int, db: DbSession, user: CurrentUser) ->
 
 
 @router.get("/assignments/{assignment_id}/submissions", response_model=list[SubmissionSummary])
-async def list_submissions(assignment_id: int, db: DbSession, user: CurrentUser) -> list[SubmissionSummary]:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+async def list_submissions(assignment_id: int, db: DbSession, user: TutorUser) -> list[SubmissionSummary]:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
@@ -406,13 +397,11 @@ async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
 
 
 @router.get("/submissions/review-queue", response_model=list[ReviewQueueItem])
-async def review_queue(db: DbSession, user: CurrentUser) -> list[ReviewQueueItem]:
+async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
     """Everything waiting on this tutor: submissions with at least one question
     the AI was unsure about, or with a student's remark request open. This is
     the whole of the tutor's marking workload — confidently marked work never
     appears here."""
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
     # Left-joined both ways: a submission belongs to an assignment (homework)
     # or a past paper, never both, and the queue covers both kinds.
     rows = (
@@ -716,14 +705,12 @@ async def request_remark(
     question_id: int,
     body: RemarkRequestCreate,
     db: DbSession,
-    user: CurrentUser,
+    user: StudentUser,
 ) -> RemarkRequestOut:
     """A student contesting a mark that counted. This never triggers an AI
     re-mark: it puts the question in front of the tutor, with the AI's original
     reasoning attached. One request per question, ever — once the tutor rules
     on it, that question is settled."""
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
     submission = await db.get(Submission, submission_id)
     if submission is None or submission.student_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")

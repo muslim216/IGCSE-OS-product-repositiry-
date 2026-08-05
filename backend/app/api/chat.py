@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import DbSession, StudentUser
 from app.db import async_session
 from app.models import (
     AiFeature,
@@ -16,7 +16,6 @@ from app.models import (
     ChatMessage,
     ChatRole,
     User,
-    UserRole,
 )
 from app.schemas.chat import (
     ConversationDetail,
@@ -36,11 +35,6 @@ logger = logging.getLogger(__name__)
 DAILY_MESSAGE_LIMIT = 50
 
 
-def _require_student(user: User) -> None:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
-
-
 async def _owned_conversation(db, user: User, conversation_id: int) -> ChatConversation:
     convo = await db.get(ChatConversation, conversation_id)
     if convo is None or convo.student_id != user.id:
@@ -49,8 +43,7 @@ async def _owned_conversation(db, user: User, conversation_id: int) -> ChatConve
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
-async def list_conversations(db: DbSession, user: CurrentUser) -> list[ConversationOut]:
-    _require_student(user)
+async def list_conversations(db: DbSession, user: StudentUser) -> list[ConversationOut]:
     rows = (
         await db.scalars(
             select(ChatConversation)
@@ -64,8 +57,7 @@ async def list_conversations(db: DbSession, user: CurrentUser) -> list[Conversat
 
 
 @router.post("/conversations", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
-async def create_conversation(db: DbSession, user: CurrentUser) -> ConversationDetail:
-    _require_student(user)
+async def create_conversation(db: DbSession, user: StudentUser) -> ConversationDetail:
     convo = ChatConversation(student_id=user.id, title="New chat")
     db.add(convo)
     await db.commit()
@@ -74,9 +66,8 @@ async def create_conversation(db: DbSession, user: CurrentUser) -> ConversationD
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
 async def get_conversation(
-    conversation_id: int, db: DbSession, user: CurrentUser
+    conversation_id: int, db: DbSession, user: StudentUser
 ) -> ConversationDetail:
-    _require_student(user)
     convo = await _owned_conversation(db, user, conversation_id)
     messages = (
         await db.scalars(
@@ -97,9 +88,8 @@ async def get_conversation(
 
 @router.post("/conversations/{conversation_id}/messages")
 async def send_message(
-    conversation_id: int, body: SendMessage, db: DbSession, user: CurrentUser
+    conversation_id: int, body: SendMessage, db: DbSession, user: StudentUser
 ) -> StreamingResponse:
-    _require_student(user)
     convo = await _owned_conversation(db, user, conversation_id)
 
     since = datetime.now(timezone.utc) - timedelta(days=1)
@@ -205,9 +195,8 @@ async def send_message(
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(
-    conversation_id: int, db: DbSession, user: CurrentUser
+    conversation_id: int, db: DbSession, user: StudentUser
 ) -> None:
-    _require_student(user)
     convo = await _owned_conversation(db, user, conversation_id)
     await db.delete(convo)
     await db.commit()
