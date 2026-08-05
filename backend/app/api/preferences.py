@@ -1,18 +1,13 @@
 from sqlalchemy import select
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
-from app.api.deps import CurrentUser, DbSession
-from app.models import Group, GroupMember, TutorPreferences, User, UserRole
+from app.api.deps import DbSession, TutorUser
+from app.models import Group, GroupMember, TutorPreferences
 from app.schemas.readiness import PreferencesOut, PreferencesUpdate
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/me/preferences", tags=["preferences"])
-
-
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
 
 
 def _out(p: TutorPreferences | None) -> PreferencesOut:
@@ -31,17 +26,15 @@ def _out(p: TutorPreferences | None) -> PreferencesOut:
 
 
 @router.get("", response_model=PreferencesOut)
-async def get_preferences(db: DbSession, user: CurrentUser) -> PreferencesOut:
-    _require_tutor(user)
+async def get_preferences(db: DbSession, user: TutorUser) -> PreferencesOut:
     prefs = await db.scalar(select(TutorPreferences).where(TutorPreferences.tutor_id == user.id))
     return _out(prefs)
 
 
 @router.put("", response_model=PreferencesOut)
 async def update_preferences(
-    body: PreferencesUpdate, db: DbSession, user: CurrentUser
+    body: PreferencesUpdate, db: DbSession, user: TutorUser
 ) -> PreferencesOut:
-    _require_tutor(user)
     prefs = await db.scalar(select(TutorPreferences).where(TutorPreferences.tutor_id == user.id))
     if prefs is None:
         prefs = TutorPreferences(tutor_id=user.id)

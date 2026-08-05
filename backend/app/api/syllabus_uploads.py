@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import Subject, SyllabusUpload, SyllabusUploadStatus, Topic, User, UserRole
 from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
 from app.services import storage
@@ -12,13 +12,8 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
 
 
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
-
-
 async def _owned_upload(db, user: User, upload_id: int) -> SyllabusUpload:
-    _require_tutor(user)
+    assert_tutor(user)
     upload = await db.get(SyllabusUpload, upload_id)
     if upload is None or (upload.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Syllabus upload not found")
@@ -41,11 +36,10 @@ def _detail(upload: SyllabusUpload) -> SyllabusUploadDetail:
 @router.post("", response_model=SyllabusUploadDetail, status_code=status.HTTP_201_CREATED)
 async def upload_syllabus(
     db: DbSession,
-    user: CurrentUser,
+    user: TutorUser,
     title: Annotated[str, Form(min_length=1, max_length=255)],
     file: Annotated[UploadFile, File()],
 ) -> SyllabusUploadDetail:
-    _require_tutor(user)
     path, name, mime = await storage.save_upload(file)
     upload = SyllabusUpload(
         tutor_id=user.id,
@@ -63,8 +57,7 @@ async def upload_syllabus(
 
 
 @router.get("", response_model=list[SyllabusUploadOut])
-async def list_syllabus_uploads(db: DbSession, user: CurrentUser) -> list[SyllabusUploadOut]:
-    _require_tutor(user)
+async def list_syllabus_uploads(db: DbSession, user: TutorUser) -> list[SyllabusUploadOut]:
     query = select(SyllabusUpload).order_by(SyllabusUpload.created_at.desc())
     if user.role != UserRole.admin:
         query = query.where(SyllabusUpload.tutor_id == user.id)

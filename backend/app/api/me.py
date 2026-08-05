@@ -1,11 +1,11 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
-from app.models import Group, GroupMember, ParentLink, ScheduleSlot, User, UserRole
+from app.api.deps import CurrentUser, DbSession, TutorUser
+from app.models import Group, GroupMember, ParentLink, ScheduleSlot, User
 from app.schemas.activity import ActivitySummary
 from app.schemas.auth import UserOut
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
@@ -59,9 +59,7 @@ async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleS
 
 
 @router.get("/today-lessons", response_model=list[UpcomingScheduleSlot])
-async def my_today_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleSlot]:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+async def my_today_lessons(db: DbSession, user: TutorUser) -> list[UpcomingScheduleSlot]:
     today_weekday = datetime.now(timezone.utc).weekday()
     rows = (
         await db.execute(

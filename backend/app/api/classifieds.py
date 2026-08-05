@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.models import (
     Assignment,
     AssignmentStatus,
@@ -21,21 +21,15 @@ from app.services import storage
 router = APIRouter(prefix="/classifieds", tags=["classifieds"])
 
 
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
-
-
 @router.post("", response_model=ClassifiedOut, status_code=status.HTTP_201_CREATED)
 async def upload_classified(
     db: DbSession,
-    user: CurrentUser,
+    user: TutorUser,
     title: Annotated[str, Form(min_length=1, max_length=255)],
     subject_id: Annotated[int, Form()],
     file: Annotated[UploadFile, File()],
     mark_scheme: Annotated[UploadFile | None, File()] = None,
 ) -> ClassifiedOut:
-    _require_tutor(user)
     subject = await db.get(Subject, subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
@@ -61,9 +55,8 @@ async def upload_classified(
 
 @router.get("", response_model=list[ClassifiedOut])
 async def list_classifieds(
-    db: DbSession, user: CurrentUser, subject_id: int | None = None
+    db: DbSession, user: TutorUser, subject_id: int | None = None
 ) -> list[ClassifiedOut]:
-    _require_tutor(user)
     query = select(Classified).where(Classified.tutor_id == user.id).order_by(Classified.created_at.desc())
     if subject_id is not None:
         query = query.where(Classified.subject_id == subject_id)

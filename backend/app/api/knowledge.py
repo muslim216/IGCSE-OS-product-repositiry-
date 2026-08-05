@@ -1,16 +1,11 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import KnowledgeEntry, Subject, User, UserRole
 from app.schemas.knowledge import KnowledgeEntryCreate, KnowledgeEntryOut, KnowledgeEntryUpdate
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
-
-
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
 
 
 def _out(entry: KnowledgeEntry) -> KnowledgeEntryOut:
@@ -25,7 +20,7 @@ def _out(entry: KnowledgeEntry) -> KnowledgeEntryOut:
 
 
 async def _owned_entry(db: DbSession, user: User, entry_id: int) -> KnowledgeEntry:
-    _require_tutor(user)
+    assert_tutor(user)
     entry = await db.get(KnowledgeEntry, entry_id)
     if entry is None or (entry.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Knowledge entry not found")
@@ -34,9 +29,8 @@ async def _owned_entry(db: DbSession, user: User, entry_id: int) -> KnowledgeEnt
 
 @router.post("", response_model=KnowledgeEntryOut, status_code=status.HTTP_201_CREATED)
 async def create_entry(
-    body: KnowledgeEntryCreate, db: DbSession, user: CurrentUser
+    body: KnowledgeEntryCreate, db: DbSession, user: TutorUser
 ) -> KnowledgeEntryOut:
-    _require_tutor(user)
     if body.subject_id is not None and await db.get(Subject, body.subject_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
     entry = KnowledgeEntry(
@@ -55,9 +49,8 @@ async def create_entry(
 
 @router.get("", response_model=list[KnowledgeEntryOut])
 async def list_entries(
-    db: DbSession, user: CurrentUser, subject_id: int | None = None
+    db: DbSession, user: TutorUser, subject_id: int | None = None
 ) -> list[KnowledgeEntryOut]:
-    _require_tutor(user)
     query = select(KnowledgeEntry).where(KnowledgeEntry.tutor_id == user.id)
     if subject_id is not None:
         query = query.where(KnowledgeEntry.subject_id == subject_id)

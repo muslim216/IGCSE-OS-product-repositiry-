@@ -1,10 +1,10 @@
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query
 from sqlalchemy import case, func, select
 
-from app.api.deps import CurrentUser, DbSession
-from app.models import AiUsageEvent, UserRole
+from app.api.deps import DbSession, TutorUser
+from app.models import AiUsageEvent
 from app.schemas.ai_usage import (
     AiCostAnalytics,
     AiCostBucket,
@@ -16,11 +16,9 @@ router = APIRouter(prefix="/ai-usage", tags=["ai-usage"])
 
 
 @router.get("/summary", response_model=AiUsageSummary)
-async def usage_summary(db: DbSession, user: CurrentUser) -> AiUsageSummary:
+async def usage_summary(db: DbSession, user: TutorUser) -> AiUsageSummary:
     """Per-feature AI token usage for the tutor's organization. Tracking
     only — no allowance enforcement or billing yet (see CLAUDE.md)."""
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
     rows = (
         await db.execute(
             select(
@@ -62,15 +60,13 @@ def _month_expr(dialect: str):
 @router.get("/analytics", response_model=AiCostAnalytics)
 async def cost_analytics(
     db: DbSession,
-    user: CurrentUser,
+    user: TutorUser,
     group_by: Literal["feature", "month", "provider"] = Query("feature"),
 ) -> AiCostAnalytics:
     """AI spend for the tutor's organization, bucketed by feature, provider or
     month. Calls on a model with no configured price are counted separately
     (unpriced_call_count) instead of being folded in as zero — an unknown cost
     is reported as unknown."""
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
 
     if group_by == "feature":
         bucket = AiUsageEvent.feature
