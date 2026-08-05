@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.analytics import group_analytics
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import (
     AiFeature,
     Group,
@@ -36,13 +36,8 @@ from app.services.invites import build_invite
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
-
-
 async def _owned_group(db, user: User, group_id: int) -> Group:
-    _require_tutor(user)
+    assert_tutor(user)
     group = await db.get(Group, group_id, options=[selectinload(Group.subject)])
     if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
@@ -50,8 +45,7 @@ async def _owned_group(db, user: User, group_id: int) -> Group:
 
 
 @router.post("", response_model=GroupOut, status_code=status.HTTP_201_CREATED)
-async def create_group(body: GroupCreate, db: DbSession, user: CurrentUser) -> GroupOut:
-    _require_tutor(user)
+async def create_group(body: GroupCreate, db: DbSession, user: TutorUser) -> GroupOut:
     subject = await db.get(Subject, body.subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
@@ -64,8 +58,7 @@ async def create_group(body: GroupCreate, db: DbSession, user: CurrentUser) -> G
 
 
 @router.get("", response_model=list[GroupOut])
-async def list_groups(db: DbSession, user: CurrentUser) -> list[GroupOut]:
-    _require_tutor(user)
+async def list_groups(db: DbSession, user: TutorUser) -> list[GroupOut]:
     groups = (
         await db.scalars(
             select(Group)

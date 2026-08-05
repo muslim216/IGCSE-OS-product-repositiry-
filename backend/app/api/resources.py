@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.models import Group, GroupMember, GroupResource, ResourceKind, User, UserRole
 from app.schemas.resources import ResourceOut
 from app.services import storage
@@ -58,14 +58,12 @@ def _out(r: GroupResource) -> ResourceOut:
 async def create_resource(
     group_id: int,
     db: DbSession,
-    user: CurrentUser,
+    user: TutorUser,
     kind: Annotated[str, Form(pattern="^(file|recording)$")],
     title: Annotated[str, Form(min_length=1, max_length=255)],
     url: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ResourceOut:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
     group = await _can_view_group(db, user, group_id)
 
     resource = GroupResource(

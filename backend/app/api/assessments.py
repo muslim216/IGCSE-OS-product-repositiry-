@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import DbSession, StudentUser, TutorUser
 from app.models import (
     Assessment,
     AssessmentScore,
@@ -15,8 +15,6 @@ from app.models import (
     Subject,
     Topic,
     TutorObservation,
-    User,
-    UserRole,
 )
 from app.schemas.readiness import (
     AssessmentCreate,
@@ -29,11 +27,6 @@ from app.services.readiness_v2_ai import enqueue_v2_shadow
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["assessments"])
-
-
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
 
 
 async def _tutor_teaches(db, tutor_id: int, student_id: int, subject_id: int) -> bool:
@@ -51,8 +44,7 @@ async def _tutor_teaches(db, tutor_id: int, student_id: int, subject_id: int) ->
 
 
 @router.post("/assessments", response_model=AssessmentOut, status_code=status.HTTP_201_CREATED)
-async def create_assessment(body: AssessmentCreate, db: DbSession, user: CurrentUser) -> AssessmentOut:
-    _require_tutor(user)
+async def create_assessment(body: AssessmentCreate, db: DbSession, user: TutorUser) -> AssessmentOut:
     subject = await db.get(Subject, body.subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
@@ -139,8 +131,7 @@ async def create_assessment(body: AssessmentCreate, db: DbSession, user: Current
 
 
 @router.get("/assessments", response_model=list[AssessmentOut])
-async def list_assessments(db: DbSession, user: CurrentUser, subject_id: int | None = None) -> list[AssessmentOut]:
-    _require_tutor(user)
+async def list_assessments(db: DbSession, user: TutorUser, subject_id: int | None = None) -> list[AssessmentOut]:
     query = select(Assessment).where(Assessment.tutor_id == user.id).order_by(Assessment.date.desc())
     if subject_id is not None:
         query = query.where(Assessment.subject_id == subject_id)
@@ -164,9 +155,7 @@ async def list_assessments(db: DbSession, user: CurrentUser, subject_id: int | N
 
 
 @router.get("/me/assessments", response_model=list[MyAssessmentScore])
-async def my_assessments(db: DbSession, user: CurrentUser) -> list[MyAssessmentScore]:
-    if user.role != UserRole.student:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Student account required")
+async def my_assessments(db: DbSession, user: StudentUser) -> list[MyAssessmentScore]:
     rows = (
         await db.execute(
             select(AssessmentScore, Assessment, Subject, Topic)
@@ -196,8 +185,7 @@ async def my_assessments(db: DbSession, user: CurrentUser) -> list[MyAssessmentS
 
 
 @router.post("/observations", response_model=ObservationOut, status_code=status.HTTP_201_CREATED)
-async def create_observation(body: ObservationCreate, db: DbSession, user: CurrentUser) -> ObservationOut:
-    _require_tutor(user)
+async def create_observation(body: ObservationCreate, db: DbSession, user: TutorUser) -> ObservationOut:
     # The tutor must share at least one group with the student.
     shares = await db.scalar(
         select(GroupMember.id)
@@ -257,8 +245,7 @@ async def create_observation(body: ObservationCreate, db: DbSession, user: Curre
 
 
 @router.get("/students/{student_id}/observations", response_model=list[ObservationOut])
-async def list_observations(student_id: int, db: DbSession, user: CurrentUser) -> list[ObservationOut]:
-    _require_tutor(user)
+async def list_observations(student_id: int, db: DbSession, user: TutorUser) -> list[ObservationOut]:
     shares = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)

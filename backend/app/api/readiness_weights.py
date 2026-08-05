@@ -6,11 +6,11 @@ otherwise the sliders would appear to do nothing until the next piece of
 evidence arrived.
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
-from app.models import Group, GroupMember, ReadinessWeights, User, UserRole
+from app.api.deps import DbSession, TutorUser
+from app.models import Group, GroupMember, ReadinessWeights
 from app.schemas.readiness import ReadinessWeightsOut, ReadinessWeightsUpdate
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 
@@ -28,11 +28,6 @@ WEIGHT_FIELDS = (
 )
 
 
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
-
-
 def _out(weights: ReadinessWeights | None) -> ReadinessWeightsOut:
     if weights is None:
         # Never persisted: report the model defaults rather than inventing a row.
@@ -43,8 +38,7 @@ def _out(weights: ReadinessWeights | None) -> ReadinessWeightsOut:
 
 
 @router.get("/weights", response_model=ReadinessWeightsOut)
-async def get_weights(db: DbSession, user: CurrentUser) -> ReadinessWeightsOut:
-    _require_tutor(user)
+async def get_weights(db: DbSession, user: TutorUser) -> ReadinessWeightsOut:
     weights = await db.scalar(
         select(ReadinessWeights).where(
             ReadinessWeights.organization_id == user.organization_id
@@ -55,9 +49,8 @@ async def get_weights(db: DbSession, user: CurrentUser) -> ReadinessWeightsOut:
 
 @router.put("/weights", response_model=ReadinessWeightsOut)
 async def update_weights(
-    body: ReadinessWeightsUpdate, db: DbSession, user: CurrentUser
+    body: ReadinessWeightsUpdate, db: DbSession, user: TutorUser
 ) -> ReadinessWeightsOut:
-    _require_tutor(user)
     weights = await db.scalar(
         select(ReadinessWeights).where(
             ReadinessWeights.organization_id == user.organization_id

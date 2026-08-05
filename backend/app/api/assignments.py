@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import (
     Assignment,
     AssignmentQuestion,
@@ -38,8 +38,7 @@ router = APIRouter(prefix="/assignments", tags=["assignments"])
 
 
 async def _owned_assignment(db, user: User, assignment_id: int) -> Assignment:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    assert_tutor(user)
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
@@ -95,9 +94,7 @@ async def _question_rows(db, assignment_id: int) -> list[QuestionOut]:
 
 
 @router.post("", response_model=AssignmentDetail, status_code=status.HTTP_201_CREATED)
-async def create_assignment(body: AssignmentCreate, db: DbSession, user: CurrentUser) -> AssignmentDetail:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+async def create_assignment(body: AssignmentCreate, db: DbSession, user: TutorUser) -> AssignmentDetail:
     group = await db.get(Group, body.group_id)
     if group is None or group.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
@@ -153,7 +150,7 @@ async def create_assignment(body: AssignmentCreate, db: DbSession, user: Current
 @router.post("/upload", response_model=AssignmentDetail, status_code=status.HTTP_201_CREATED)
 async def create_assignment_with_paper(
     db: DbSession,
-    user: CurrentUser,
+    user: TutorUser,
     group_id: Annotated[int, Form()],
     file: Annotated[UploadFile, File()],
     mark_scheme: Annotated[UploadFile | None, File()] = None,
@@ -169,8 +166,6 @@ async def create_assignment_with_paper(
     Only the group and the file are required — the title falls back to the
     file name, and everything else can be edited afterwards.
     """
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
     group = await db.get(Group, group_id)
     if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
@@ -190,9 +185,7 @@ async def create_assignment_with_paper(
 
 
 @router.get("/group/{group_id}", response_model=list[AssignmentOut])
-async def list_group_assignments(group_id: int, db: DbSession, user: CurrentUser) -> list[AssignmentOut]:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+async def list_group_assignments(group_id: int, db: DbSession, user: TutorUser) -> list[AssignmentOut]:
     group = await db.get(Group, group_id)
     if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
@@ -232,11 +225,9 @@ async def list_group_assignments(group_id: int, db: DbSession, user: CurrentUser
 
 
 @router.get("/attention", response_model=list[AssignmentAttention])
-async def assignments_needing_attention(db: DbSession, user: CurrentUser) -> list[AssignmentAttention]:
+async def assignments_needing_attention(db: DbSession, user: TutorUser) -> list[AssignmentAttention]:
     """Surfaces homework that needs a tutor's eyes: failed extraction/marking,
     or AI-marked submissions still waiting to be finalized."""
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
     tutor_groups = select(Group.id)
     if user.role != UserRole.admin:
         tutor_groups = tutor_groups.where(Group.tutor_id == user.id)

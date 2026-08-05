@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, assert_tutor
 from app.models import (
     Evidence,
     EvidenceSource,
@@ -33,8 +33,7 @@ router = APIRouter(prefix="/lessons", tags=["lessons"])
 
 
 async def _owned_group(db: AsyncSession, user: User, group_id: int) -> Group:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    assert_tutor(user)
     group = await db.get(Group, group_id)
     if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
@@ -42,8 +41,7 @@ async def _owned_group(db: AsyncSession, user: User, group_id: int) -> Group:
 
 
 async def _owned_lesson(db: AsyncSession, user: User, lesson_id: int) -> Lesson:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tutor account required")
+    assert_tutor(user)
     lesson = await db.get(Lesson, lesson_id)
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")

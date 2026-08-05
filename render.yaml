@@ -16,6 +16,14 @@ services:
     runtime: docker
     rootDir: backend
     plan: starter
+    # Without this Render never probes the service at all: a deploy is marked
+    # live without one successful request, and an instance whose uvicorn has
+    # wedged keeps taking traffic. Points at the shallow liveness endpoint on
+    # purpose — /api/v1/health/ready also checks the database and the job
+    # worker, and pointing a restart trigger at those would turn a brief
+    # database blip into a restart loop. Deep state is for a human to read, not
+    # for the platform to react to.
+    healthCheckPath: /api/v1/health
     # Uploaded booklets, mark schemes and submissions are written to the local
     # filesystem (services/storage.py), and DB rows store paths relative to
     # UPLOAD_DIR. Without a persistent disk every deploy replaces the container
