@@ -23,7 +23,6 @@ from fastapi.routing import APIRoute
 
 from app.api.deps import get_current_user, require_student, require_tutor
 from app.main import app
-
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     group,
     student,

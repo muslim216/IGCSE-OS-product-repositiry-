@@ -95,7 +95,12 @@ async def list_resources(
         try:
             query = query.where(GroupResource.kind == ResourceKind(kind))
         except ValueError:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind")
+            # `from None`: an unrecognised ?kind= is a client mistake, not an
+            # internal fault, so the ValueError behind it is noise in the
+            # traceback rather than context worth carrying.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind"
+            ) from None
     rows = (await db.scalars(query.order_by(GroupResource.created_at.desc()))).all()
     return [_out(r) for r in rows]
 

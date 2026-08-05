@@ -14,8 +14,8 @@ at any time, every override is audited, and a student can contest any
 finalized mark through a remark request.
 """
 
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field

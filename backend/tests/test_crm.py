@@ -148,7 +148,7 @@ async def test_crm_access_control(client, tutor, world):
     assert edit.status_code == 404
 
     # Another student can't view this student's CRM record.
-    other_student = await client.post(
+    await client.post(
         f"/api/v1/groups/{world['group']['id']}/students",
         json={"name": "Bob", "username": "bob01", "password": "password123"},
         headers=tutor["headers"],

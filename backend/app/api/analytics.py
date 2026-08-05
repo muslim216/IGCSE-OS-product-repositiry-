@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.api.deps import DbSession, TutorUser
 from app.models import (

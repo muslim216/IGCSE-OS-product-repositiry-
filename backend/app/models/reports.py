@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, utcnow
+from app.models.base import Base, TimestampMixin
 
 
 class ReportAudience(str, enum.Enum):

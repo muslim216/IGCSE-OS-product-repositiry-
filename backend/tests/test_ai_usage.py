@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from app.db import async_session
 from app.models import AiFeature, AiUsageEvent, User
-
 from tests.test_homework import group, student, subject  # noqa: F401 - shared fixtures
 
 

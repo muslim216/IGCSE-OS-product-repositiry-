@@ -17,7 +17,6 @@ from app.models import (
     ReportStatus,
     Subject,
     Submission,
-    SubmissionStatus,
     Topic,
     TopicReadiness,
     User,

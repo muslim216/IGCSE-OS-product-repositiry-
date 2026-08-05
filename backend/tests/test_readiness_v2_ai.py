@@ -15,7 +15,11 @@ from app.models import (
     Subject,
     User,
 )
-from app.services.readiness_v2_ai import ReadinessSynthesis, WeakTopicSuggestion, compute_readiness_v2
+from app.services.readiness_v2_ai import (
+    ReadinessSynthesis,
+    WeakTopicSuggestion,
+    compute_readiness_v2,
+)
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 

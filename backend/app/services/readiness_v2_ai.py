@@ -107,7 +107,7 @@ FACTOR_WEIGHT_ATTR = {
     ReadinessFactor.mistake_analysis: "weight_mistake_analysis",
     ReadinessFactor.consistency: "weight_consistency",
 }
-DEFAULT_WEIGHTS = {attr: 1.0 for attr in FACTOR_WEIGHT_ATTR.values()}
+DEFAULT_WEIGHTS = dict.fromkeys(FACTOR_WEIGHT_ATTR.values(), 1.0)
 
 
 class WeakTopicSuggestion(BaseModel):

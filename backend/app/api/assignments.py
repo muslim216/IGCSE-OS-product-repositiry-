@@ -12,7 +12,6 @@ from app.models import (
     AssignmentStatus,
     Classified,
     Group,
-    GroupMember,
     Lesson,
     QuestionTopic,
     Submission,
@@ -29,7 +28,6 @@ from app.schemas.homework import (
     AssignmentOut,
     QuestionIn,
     QuestionOut,
-    StudentAssignment,
 )
 from app.services.assignments import create_from_upload
 from app.workers.jobs import enqueue

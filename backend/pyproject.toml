@@ -82,6 +82,11 @@ ignore = [
 # Migrations are a historical record. They are formatted and import-sorted like
 # everything else, but a merged migration is never edited to satisfy a new rule.
 "alembic/versions/*" = ["E402"]
+# The seed scripts are one-shot CLI entry points (`python -m seed.demo`) that do
+# their work and exit. ASYNC240 is right that a blocking read stalls the event
+# loop, and here there is nothing else on the loop to stall — no request is
+# waiting. Rewriting them against anyio would add a dependency to buy nothing.
+"seed/*" = ["ASYNC230", "ASYNC240"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -108,10 +109,11 @@ async def lifespan(app: FastAPI):
     worker = asyncio.create_task(_supervised_worker())
     yield
     worker.cancel()
-    try:
+    # Awaiting the task we just cancelled is how shutdown waits for it to
+    # actually stop; the CancelledError that comes back is the acknowledgement,
+    # not a failure.
+    with contextlib.suppress(asyncio.CancelledError):
         await worker
-    except asyncio.CancelledError:
-        pass
 
 
 #: Sent on every API response. The API returns JSON and file downloads, never

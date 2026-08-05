@@ -9,12 +9,12 @@ from sqlalchemy import select
 
 from app.db import async_session
 from app.models import (
-    Assignment,
-    AssignmentQuestion,
-    AssignmentStatus,
     Assessment,
     AssessmentScore,
     AssessmentType,
+    Assignment,
+    AssignmentQuestion,
+    AssignmentStatus,
     Evidence,
     EvidenceSource,
     FactorEvaluation,

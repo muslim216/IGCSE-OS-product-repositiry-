@@ -15,7 +15,6 @@ from app.models import (
     SubmissionStatus,
 )
 from app.workers.jobs import process_one_job
-
 from tests.test_homework import PDF_BYTES, PNG_BYTES, group, student, subject  # noqa: F401
 
 

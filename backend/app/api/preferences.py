@@ -1,6 +1,5 @@
-from sqlalchemy import select
-
 from fastapi import APIRouter
+from sqlalchemy import select
 
 from app.api.deps import DbSession, TutorUser
 from app.models import Group, GroupMember, TutorPreferences

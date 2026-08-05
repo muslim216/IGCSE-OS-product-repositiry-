@@ -9,7 +9,6 @@ from app.models import (
     Assignment,
     AssignmentStatus,
     Classified,
-    Group,
     GroupMember,
     Subject,
     User,

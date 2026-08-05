@@ -26,7 +26,7 @@ class ExtractedTopic(BaseModel):
         description="Relative importance for readiness weighting; 1.0 unless the syllabus "
         "clearly emphasises some sections over others",
     )
-    children: list["ExtractedTopic"] = Field(default_factory=list)
+    children: list[ExtractedTopic] = Field(default_factory=list)
 
 
 class SyllabusExtractionResult(BaseModel):

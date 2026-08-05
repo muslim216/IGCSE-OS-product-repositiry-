@@ -173,16 +173,15 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
                 .order_by(AssignmentQuestion.position)
             )
         ).all()
-        remark_status = {
-            mark_id: state
-            for mark_id, state in (
+        remark_status = dict(
+            (
                 await db.execute(
                     select(RemarkRequest.question_mark_id, RemarkRequest.status).where(
                         RemarkRequest.question_mark_id.in_([m.id for m, _ in rows] or [0])
                     )
                 )
             ).all()
-        }
+        )
         marks = [
             StudentMarkRow(
                 question_id=q.id,
@@ -349,7 +348,7 @@ async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
             )
         )
     ).all()
-    return {mark_id: reason for mark_id, reason in rows}
+    return dict(rows)
 
 
 async def _mark_rows(db, submission: Submission) -> list[MarkRow]:

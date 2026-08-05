@@ -16,8 +16,9 @@ Revises: 0019
 Create Date: 2026-07-24
 
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 # SQLite rebuilds a whole table to add a foreign key or alter a column, which
 # means every constraint on it has to be nameable — and the existing ones were

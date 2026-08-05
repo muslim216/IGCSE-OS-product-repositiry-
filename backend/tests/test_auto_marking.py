@@ -16,7 +16,6 @@ from app.models import (
     SubmissionStatus,
 )
 from app.workers.jobs import process_one_job
-
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     PNG_BYTES,
     classified,

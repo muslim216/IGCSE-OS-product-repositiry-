@@ -17,7 +17,6 @@ from app.models import (
 )
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.workers.jobs import enqueue, process_one_job
-
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     PNG_BYTES,
     classified,

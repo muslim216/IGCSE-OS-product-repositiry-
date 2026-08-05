@@ -7,12 +7,8 @@ from app.db import async_session
 from app.models import (
     Evidence,
     EvidenceSource,
-    Group,
-    GroupMember,
     Subject,
     Topic,
-    User,
-    UserRole,
 )
 from app.workers.jobs import process_one_job
 

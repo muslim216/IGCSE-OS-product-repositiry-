@@ -15,9 +15,8 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import Invite, Submission, SubmissionFile, User
 from app.services.invites import consume
-from app.services.rate_limit import FixedWindowLimiter, LOGIN_FAILURE_LIMIT
+from app.services.rate_limit import LOGIN_FAILURE_LIMIT, FixedWindowLimiter
 from app.workers.jobs import process_one_job
-
 from tests.test_homework import PDF_BYTES, PNG_BYTES, group, student, subject  # noqa: F401
 from tests.test_past_papers import (  # noqa: F401
     _extraction_double,

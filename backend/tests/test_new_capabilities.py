@@ -2,7 +2,6 @@
 class briefs, and the homework attention list."""
 
 import pytest
-from sqlalchemy import select
 
 from app.db import async_session
 from app.models import Subject, Topic
