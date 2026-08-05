@@ -45,6 +45,7 @@ AUDIENCE_GUIDANCE = {
     ),
 }
 
+
 async def build_report_facts(session: AsyncSession, student: User, subject_ids: list[int]) -> str:
     lines: list[str] = [f"Student: {student.name}"]
     for subject_id in subject_ids:
@@ -79,9 +80,7 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
         lines.append(f"Overall readiness: {overall}% (estimated grade: {grade})")
 
         strong = sorted(confident, key=lambda r: r.score, reverse=True)[:3]
-        weak = sorted(
-            (r for r in confident if r.score <= 60), key=lambda r: r.score
-        )[:5]
+        weak = sorted((r for r in confident if r.score <= 60), key=lambda r: r.score)[:5]
         if strong:
             lines.append(
                 "Strongest topics: "
@@ -135,7 +134,9 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
     return "\n".join(lines)
 
 
-async def _visible_subjects(session: AsyncSession, student_id: int, subject_id: int | None) -> list[int]:
+async def _visible_subjects(
+    session: AsyncSession, student_id: int, subject_id: int | None
+) -> list[int]:
     enrolled = (
         await session.scalars(
             select(Group.subject_id)

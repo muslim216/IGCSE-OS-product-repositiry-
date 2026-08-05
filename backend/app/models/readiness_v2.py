@@ -59,7 +59,9 @@ class Mistake(TimestampMixin, Base):
     category: Mapped[MistakeCategory] = mapped_column(
         Enum(MistakeCategory, native_enum=False, length=16), nullable=False
     )
-    severity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)  # 1 (minor) .. 3 (major)
+    severity: Mapped[int] = mapped_column(
+        Integer, default=1, nullable=False
+    )  # 1 (minor) .. 3 (major)
     confirmed_by_tutor: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
@@ -122,9 +124,7 @@ class PastPaperQuestionTopic(Base):
     __table_args__ = (UniqueConstraint("question_id", "topic_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    question_id: Mapped[int] = mapped_column(
-        ForeignKey("past_paper_questions.id"), nullable=False
-    )
+    question_id: Mapped[int] = mapped_column(ForeignKey("past_paper_questions.id"), nullable=False)
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), nullable=False)
 
 

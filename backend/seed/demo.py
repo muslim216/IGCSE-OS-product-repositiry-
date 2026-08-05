@@ -70,16 +70,12 @@ FAKE_PDF_BYTES = (
 
 async def main() -> None:
     async with async_session() as session:
-        existing = await session.scalar(
-            select(User).where(User.email == "demo-tutor@example.com")
-        )
+        existing = await session.scalar(select(User).where(User.email == "demo-tutor@example.com"))
         if existing is not None:
             print("demo data already present — nothing to do")
             return
 
-        subject = await session.scalar(
-            select(Subject).where(Subject.code == "4CH1")
-        )
+        subject = await session.scalar(select(Subject).where(Subject.code == "4CH1"))
         if subject is None:
             raise SystemExit("Run `python -m seed.load_syllabus` first")
 
@@ -89,50 +85,86 @@ async def main() -> None:
         await session.flush()
 
         tutor = User(
-            email="demo-tutor@example.com", password_hash=pw, role=UserRole.tutor,
-            name="Demo Tutor", organization_id=org.id,
+            email="demo-tutor@example.com",
+            password_hash=pw,
+            role=UserRole.tutor,
+            name="Demo Tutor",
+            organization_id=org.id,
         )
         student1 = User(
-            email="demo-student@example.com", password_hash=pw, role=UserRole.student,
-            name="Sara Student", organization_id=org.id,
+            email="demo-student@example.com",
+            password_hash=pw,
+            role=UserRole.student,
+            name="Sara Student",
+            organization_id=org.id,
         )
         parent = User(
-            email="demo-parent@example.com", password_hash=pw, role=UserRole.parent,
-            name="Demo Parent", organization_id=org.id,
+            email="demo-parent@example.com",
+            password_hash=pw,
+            role=UserRole.parent,
+            name="Demo Parent",
+            organization_id=org.id,
         )
         session.add_all([tutor, student1, parent])
         await session.flush()
 
         student2 = User(
-            username="demo_ali", password_hash=pw, role=UserRole.student,
-            name="Ali Student", created_by_id=tutor.id, organization_id=org.id,
+            username="demo_ali",
+            password_hash=pw,
+            role=UserRole.student,
+            name="Ali Student",
+            created_by_id=tutor.id,
+            organization_id=org.id,
         )
         session.add(student2)
         await session.flush()
 
         group = Group(
-            organization_id=org.id, tutor_id=tutor.id, subject_id=subject.id, name="Chemistry — Year 10"
+            organization_id=org.id,
+            tutor_id=tutor.id,
+            subject_id=subject.id,
+            name="Chemistry — Year 10",
         )
         session.add(group)
         await session.flush()
         today_weekday = datetime.now(timezone.utc).weekday()
         fixed_slots = [
-            ScheduleSlot(group_id=group.id, weekday=1, start_time=time(17, 0), duration_min=90, title="Weekly lesson"),
-            ScheduleSlot(group_id=group.id, weekday=4, start_time=time(17, 0), duration_min=90, title="Problem solving"),
+            ScheduleSlot(
+                group_id=group.id,
+                weekday=1,
+                start_time=time(17, 0),
+                duration_min=90,
+                title="Weekly lesson",
+            ),
+            ScheduleSlot(
+                group_id=group.id,
+                weekday=4,
+                start_time=time(17, 0),
+                duration_min=90,
+                title="Problem solving",
+            ),
         ]
         # A slot today so the tutor's "Today" tab has something to show
         # regardless of what day the demo is loaded — unless today already
         # coincides with one of the fixed slots above.
         if today_weekday not in (1, 4):
             fixed_slots.append(
-                ScheduleSlot(group_id=group.id, weekday=today_weekday, start_time=time(17, 0), duration_min=90, title="Today's lesson")
+                ScheduleSlot(
+                    group_id=group.id,
+                    weekday=today_weekday,
+                    start_time=time(17, 0),
+                    duration_min=90,
+                    title="Today's lesson",
+                )
             )
-        session.add_all([
-            GroupMember(group_id=group.id, student_id=student1.id),
-            GroupMember(group_id=group.id, student_id=student2.id),
-            ParentLink(parent_id=parent.id, student_id=student1.id),
-            *fixed_slots,
-        ])
+        session.add_all(
+            [
+                GroupMember(group_id=group.id, student_id=student1.id),
+                GroupMember(group_id=group.id, student_id=student2.id),
+                ParentLink(parent_id=parent.id, student_id=student1.id),
+                *fixed_slots,
+            ]
+        )
         await session.flush()
 
         topics = (
@@ -184,7 +216,9 @@ async def main() -> None:
         session.add(LessonTopic(lesson_id=lesson.id, topic_id=topics[0].id))
         session.add(
             LessonObservation(
-                lesson_id=lesson.id, student_id=student1.id, topic_id=topics[0].id,
+                lesson_id=lesson.id,
+                student_id=student1.id,
+                topic_id=topics[0].id,
                 body="Sara answered confidently in class — ready for harder questions.",
                 rating=80,
             )
@@ -245,8 +279,11 @@ async def main() -> None:
             await session.flush()
             session.add(
                 SubmissionFile(
-                    submission_id=submission.id, position=0,
-                    path=classified.file_path, name="answer.pdf", mime="application/pdf",
+                    submission_id=submission.id,
+                    position=0,
+                    path=classified.file_path,
+                    name="answer.pdf",
+                    mime="application/pdf",
                 )
             )
             for q in questions:
@@ -266,8 +303,10 @@ async def main() -> None:
 
         # One mock assessment with per-topic scores.
         assessment = Assessment(
-            tutor_id=tutor.id, subject_id=subject.id,
-            title="Term 1 Mock Exam", type=AssessmentType.mock,
+            tutor_id=tutor.id,
+            subject_id=subject.id,
+            title="Term 1 Mock Exam",
+            type=AssessmentType.mock,
             date=date.today() - timedelta(days=14),
         )
         session.add(assessment)
@@ -277,26 +316,36 @@ async def main() -> None:
                 marks = round(20 * rng.uniform(0.5, 0.9))
                 session.add(
                     AssessmentScore(
-                        assessment_id=assessment.id, student_id=student.id,
-                        topic_id=topic.id, marks=marks, max_marks=20,
+                        assessment_id=assessment.id,
+                        student_id=student.id,
+                        topic_id=topic.id,
+                        marks=marks,
+                        max_marks=20,
                     )
                 )
         await session.flush()
 
         # Group resources: one file, one recording link.
-        session.add_all([
-            GroupResource(
-                group_id=group.id, tutor_id=tutor.id, kind=ResourceKind.recording,
-                title="Lesson 3 recording — Atomic structure",
-                url="https://example.com/recordings/lesson-3",
-            ),
-            GroupResource(
-                group_id=group.id, tutor_id=tutor.id, kind=ResourceKind.file,
-                title="Revision notes — Atomic structure",
-                file_path=classified.file_path, file_name="revision-notes.pdf",
-                file_mime="application/pdf",
-            ),
-        ])
+        session.add_all(
+            [
+                GroupResource(
+                    group_id=group.id,
+                    tutor_id=tutor.id,
+                    kind=ResourceKind.recording,
+                    title="Lesson 3 recording — Atomic structure",
+                    url="https://example.com/recordings/lesson-3",
+                ),
+                GroupResource(
+                    group_id=group.id,
+                    tutor_id=tutor.id,
+                    kind=ResourceKind.file,
+                    title="Revision notes — Atomic structure",
+                    file_path=classified.file_path,
+                    file_name="revision-notes.pdf",
+                    file_mime="application/pdf",
+                ),
+            ]
+        )
 
         # Tutor preferences (defaults, just so the row exists to edit).
         session.add(TutorPreferences(tutor_id=tutor.id))
@@ -309,35 +358,46 @@ async def main() -> None:
         # conditions, and become the dominant evidence source later in the
         # IGCSE year.
         past_paper = PastPaper(
-            organization_id=org.id, subject_id=subject.id,
-            session_label="June 2026", paper_number="Paper 1",
+            organization_id=org.id,
+            subject_id=subject.id,
+            session_label="June 2026",
+            paper_number="Paper 1",
         )
         session.add(past_paper)
         await session.flush()
         session.add(
             PastPaperAttempt(
-                past_paper_id=past_paper.id, student_id=student1.id,
-                raw_marks=32, max_marks=40, timed=True,
+                past_paper_id=past_paper.id,
+                student_id=student1.id,
+                raw_marks=32,
+                max_marks=40,
+                timed=True,
                 attempted_at=(now - timedelta(days=10)).date(),
             )
         )
 
         # Knowledge base entries — injected into every AI surface so the AI
         # behaves like this specific tutor.
-        session.add_all([
-            KnowledgeEntry(
-                organization_id=org.id, tutor_id=tutor.id, subject_id=None,
-                kind=KnowledgeEntryKind.ai_instruction,
-                title="Tone with students",
-                body="Always be warm and encouraging, never sarcastic. Celebrate small wins.",
-            ),
-            KnowledgeEntry(
-                organization_id=org.id, tutor_id=tutor.id, subject_id=subject.id,
-                kind=KnowledgeEntryKind.marking_preference,
-                title="Chemistry equations",
-                body="Always require balanced equations with state symbols for full marks.",
-            ),
-        ])
+        session.add_all(
+            [
+                KnowledgeEntry(
+                    organization_id=org.id,
+                    tutor_id=tutor.id,
+                    subject_id=None,
+                    kind=KnowledgeEntryKind.ai_instruction,
+                    title="Tone with students",
+                    body="Always be warm and encouraging, never sarcastic. Celebrate small wins.",
+                ),
+                KnowledgeEntry(
+                    organization_id=org.id,
+                    tutor_id=tutor.id,
+                    subject_id=subject.id,
+                    kind=KnowledgeEntryKind.marking_preference,
+                    title="Chemistry equations",
+                    body="Always require balanced equations with state symbols for full marks.",
+                ),
+            ]
+        )
 
         await session.commit()
 

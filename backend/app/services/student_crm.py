@@ -79,9 +79,7 @@ async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
     )
 
     enrollment_rows = (
-        await session.scalars(
-            select(StudentSubject).where(StudentSubject.student_id == student.id)
-        )
+        await session.scalars(select(StudentSubject).where(StudentSubject.student_id == student.id))
     ).all()
     enrollments: list[Enrollment] = []
     for row in enrollment_rows:
@@ -107,8 +105,7 @@ async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
             .join(GroupMember, GroupMember.group_id == Group.id)
             .outerjoin(
                 Submission,
-                (Submission.assignment_id == Assignment.id)
-                & (Submission.student_id == student.id),
+                (Submission.assignment_id == Assignment.id) & (Submission.student_id == student.id),
             )
             .where(
                 GroupMember.student_id == student.id,

@@ -55,6 +55,7 @@ def _isolated_worker_state():
         jobs._restart_times,
     ) = saved
 
+
 STALE_MARKER = "app.workers.jobs._last_loop_at"
 STARTED_MARKER = "app.workers.jobs._started_at"
 IN_FLIGHT_MARKER = "app.workers.jobs._job_started_at"

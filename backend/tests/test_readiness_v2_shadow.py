@@ -74,7 +74,9 @@ async def test_v2_enqueues_alongside_v1_and_creates_a_snapshot(client, tutor, wo
     assert subject["status"] == "failed"
     assert len(subject["factors"]) > 0
     topic1_factor = next(
-        f for f in subject["factors"] if f["factor"] == "topic_mastery" and f["topic_id"] == world["topic1"]
+        f
+        for f in subject["factors"]
+        if f["factor"] == "topic_mastery" and f["topic_id"] == world["topic1"]
     )
     assert topic1_factor["score"] is None  # observation feeds Evidence, not QuestionMark
 

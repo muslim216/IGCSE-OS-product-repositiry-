@@ -149,9 +149,7 @@ async def recompute_student(session: AsyncSession, payload: dict) -> None:
     subjects = (await session.scalars(subject_query)).all()
 
     for subject in subjects:
-        topics = (
-            await session.scalars(select(Topic).where(Topic.subject_id == subject.id))
-        ).all()
+        topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject.id))).all()
         topic_ids = [t.id for t in topics]
         if not topic_ids:
             continue

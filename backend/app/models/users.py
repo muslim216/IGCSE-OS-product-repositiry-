@@ -22,7 +22,9 @@ class User(TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     username: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole, native_enum=False, length=16), nullable=False)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, native_enum=False, length=16), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     # Every user belongs to an organization — auto-created for a tutor at
     # signup; students/parents inherit the org of the tutor who created or

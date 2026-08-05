@@ -120,7 +120,12 @@ async def test_coalescing_is_a_no_op_while_v2_is_disabled(client, monkeypatch):
 
 
 async def test_re_running_extraction_replaces_questions_instead_of_duplicating(
-    client, tutor, group, classified, subject, monkeypatch  # noqa: F811
+    client,
+    tutor,
+    group,
+    classified,
+    subject,
+    monkeypatch,  # noqa: F811
 ):
     """The worker retries a failed job once, and a tutor can re-trigger
     extraction — neither may leave two copies of every question."""
@@ -141,9 +146,7 @@ async def test_re_running_extraction_replaces_questions_instead_of_duplicating(
 
     async with async_session() as session:
         first = await session.scalar(
-            select(func.count(AssignmentQuestion.id)).where(
-                AssignmentQuestion.assignment_id == aid
-            )
+            select(func.count(AssignmentQuestion.id)).where(AssignmentQuestion.assignment_id == aid)
         )
         assert first > 0
 
@@ -154,9 +157,7 @@ async def test_re_running_extraction_replaces_questions_instead_of_duplicating(
 
     async with async_session() as session:
         second = await session.scalar(
-            select(func.count(AssignmentQuestion.id)).where(
-                AssignmentQuestion.assignment_id == aid
-            )
+            select(func.count(AssignmentQuestion.id)).where(AssignmentQuestion.assignment_id == aid)
         )
         assert second == first, "re-extraction must replace the question list, not append to it"
         # The topic links go with them rather than piling up orphaned.
@@ -192,11 +193,14 @@ def _marking_double(fake_ai):
 
 
 async def test_re_running_marking_does_not_duplicate_marks(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     from app.services.marking import mark_submission
 
     aid = published_assignment["id"]
@@ -210,9 +214,7 @@ async def test_re_running_marking_does_not_duplicate_marks(
     async with async_session() as session:
         submission = await session.scalar(select(Submission))
         first = await session.scalar(
-            select(func.count(QuestionMark.id)).where(
-                QuestionMark.submission_id == submission.id
-            )
+            select(func.count(QuestionMark.id)).where(QuestionMark.submission_id == submission.id)
         )
         assert first > 0
         submission_id = submission.id
@@ -223,24 +225,25 @@ async def test_re_running_marking_does_not_duplicate_marks(
 
     async with async_session() as session:
         second = await session.scalar(
-            select(func.count(QuestionMark.id)).where(
-                QuestionMark.submission_id == submission_id
-            )
+            select(func.count(QuestionMark.id)).where(QuestionMark.submission_id == submission_id)
         )
         assert second == first
 
 
 async def test_re_marking_never_overwrites_a_tutor_finalized_mark(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """If marking is re-run after a tutor has decided a mark, the tutor's
     number must survive — and with every question decided, no AI call is made
     at all."""
     from app.services.marking import MarkingResult, QuestionMarkDraft, mark_submission
 
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     aid = published_assignment["id"]
     await client.post(
         f"/api/v1/assignments/{aid}/submissions",

@@ -77,7 +77,9 @@ async def list_syllabus_uploads(db: DbSession, user: TutorUser) -> list[Syllabus
 
 
 @router.get("/{upload_id}", response_model=SyllabusUploadDetail)
-async def get_syllabus_upload(upload_id: int, db: DbSession, user: CurrentUser) -> SyllabusUploadDetail:
+async def get_syllabus_upload(
+    upload_id: int, db: DbSession, user: CurrentUser
+) -> SyllabusUploadDetail:
     upload = await _owned_upload(db, user, upload_id)
     return _detail(upload)
 
@@ -135,7 +137,8 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     await db.flush()
 
     existing = {
-        t.code: t for t in (await db.scalars(select(Topic).where(Topic.subject_id == subject.id))).all()
+        t.code: t
+        for t in (await db.scalars(select(Topic).where(Topic.subject_id == subject.id))).all()
     }
 
     async def upsert(node, parent_id: int | None) -> None:

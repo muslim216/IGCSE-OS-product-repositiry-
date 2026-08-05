@@ -213,8 +213,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         ).all()
     }
     if questions and all(
-        (m := existing_marks.get(q.id)) is not None and m.final_marks is not None
-        for q in questions
+        (m := existing_marks.get(q.id)) is not None and m.final_marks is not None for q in questions
     ):
         return
 

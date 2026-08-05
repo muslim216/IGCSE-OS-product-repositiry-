@@ -107,9 +107,7 @@ async def test_crm_aggregate_endpoint(client, tutor, world):
         headers=tutor["headers"],
     )
 
-    resp = await client.get(
-        f"/api/v1/students/{world['student_id']}/crm", headers=tutor["headers"]
-    )
+    resp = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["student_name"] == "Sara"
@@ -135,9 +133,7 @@ async def test_crm_access_control(client, tutor, world):
     other_headers = {"Authorization": f"Bearer {other_tutor.json()['tokens']['access_token']}"}
 
     # A tutor who doesn't teach this student can't view or edit their CRM record.
-    view = await client.get(
-        f"/api/v1/students/{world['student_id']}/crm", headers=other_headers
-    )
+    view = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=other_headers)
     assert view.status_code == 404
 
     edit = await client.put(
@@ -156,10 +152,6 @@ async def test_crm_access_control(client, tutor, world):
     login = await client.post(
         "/api/v1/auth/login", json={"identifier": "bob01", "password": "password123"}
     )
-    bob_headers = {
-        "Authorization": f"Bearer {login.json()['tokens']['access_token']}"
-    }
-    forbidden = await client.get(
-        f"/api/v1/students/{world['student_id']}/crm", headers=bob_headers
-    )
+    bob_headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+    forbidden = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=bob_headers)
     assert forbidden.status_code == 403

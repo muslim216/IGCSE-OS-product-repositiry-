@@ -223,9 +223,7 @@ async def past_paper_detail(
 
 
 @router.get("/{past_paper_id}/booklet")
-async def past_paper_booklet(
-    past_paper_id: int, db: DbSession, user: CurrentUser
-) -> FileResponse:
+async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
     """The question paper — readable by enrolled students so they can sit it."""
     paper = await _visible_paper(db, user, past_paper_id)
     if paper.booklet_path is None:

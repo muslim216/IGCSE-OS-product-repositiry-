@@ -5,6 +5,7 @@ Revises: 0005
 Create Date: 2026-07-19
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -22,8 +23,20 @@ def upgrade() -> None:
         sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("subject_id", sa.Integer(), sa.ForeignKey("subjects.id"), nullable=True),
         sa.Column("generated_by_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("audience", sa.Enum("student", "tutor", "parent", name="reportaudience", native_enum=False, length=12), nullable=False),
-        sa.Column("status", sa.Enum("generating", "ready", "failed", name="reportstatus", native_enum=False, length=12), nullable=False),
+        sa.Column(
+            "audience",
+            sa.Enum(
+                "student", "tutor", "parent", name="reportaudience", native_enum=False, length=12
+            ),
+            nullable=False,
+        ),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "generating", "ready", "failed", name="reportstatus", native_enum=False, length=12
+            ),
+            nullable=False,
+        ),
         sa.Column("title", sa.String(length=255), nullable=False),
         sa.Column("content", sa.Text(), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),

@@ -74,9 +74,7 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
 
 async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
     assert_tutor(user)
-    submission = await db.get(
-        Submission, submission_id, options=[selectinload(Submission.files)]
-    )
+    submission = await db.get(Submission, submission_id, options=[selectinload(Submission.files)])
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
     if not await _tutor_owns(db, user, submission):
@@ -144,7 +142,9 @@ async def submit_work(
     return await _student_view(db, assignment, submission)
 
 
-async def _student_view(db, assignment: Assignment, submission: Submission | None) -> StudentSubmissionView:
+async def _student_view(
+    db, assignment: Assignment, submission: Submission | None
+) -> StudentSubmissionView:
     total_max = (
         await db.scalar(
             select(func.coalesce(func.sum(AssignmentQuestion.max_marks), 0)).where(
@@ -190,9 +190,7 @@ async def _student_view(db, assignment: Assignment, submission: Submission | Non
                 max_marks=q.max_marks,
                 final_marks=m.final_marks,
                 final_feedback=m.final_feedback,
-                remark_status=(
-                    remark_status[m.id].value if m.id in remark_status else None
-                ),
+                remark_status=(remark_status[m.id].value if m.id in remark_status else None),
             )
             for m, q in rows
         ]
@@ -269,7 +267,9 @@ async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssign
 
 
 @router.get("/assignments/{assignment_id}/my-submission", response_model=StudentSubmissionView)
-async def my_submission(assignment_id: int, db: DbSession, user: StudentUser) -> StudentSubmissionView:
+async def my_submission(
+    assignment_id: int, db: DbSession, user: StudentUser
+) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
@@ -289,7 +289,9 @@ async def my_submission(assignment_id: int, db: DbSession, user: StudentUser) ->
 
 
 @router.get("/assignments/{assignment_id}/submissions", response_model=list[SubmissionSummary])
-async def list_submissions(assignment_id: int, db: DbSession, user: TutorUser) -> list[SubmissionSummary]:
+async def list_submissions(
+    assignment_id: int, db: DbSession, user: TutorUser
+) -> list[SubmissionSummary]:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
@@ -450,7 +452,9 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
 
 
 @router.get("/submissions/{submission_id}", response_model=SubmissionDetail)
-async def submission_detail(submission_id: int, db: DbSession, user: CurrentUser) -> SubmissionDetail:
+async def submission_detail(
+    submission_id: int, db: DbSession, user: CurrentUser
+) -> SubmissionDetail:
     submission = await _tutor_submission(db, user, submission_id)
     student = await db.get(User, submission.student_id)
     if submission.past_paper_id is not None:
@@ -620,7 +624,9 @@ async def _refresh_review_state(db, submission: Submission) -> None:
 
 
 @router.post("/submissions/{submission_id}/finalize", response_model=SubmissionDetail)
-async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUser) -> SubmissionDetail:
+async def finalize_submission(
+    submission_id: int, db: DbSession, user: CurrentUser
+) -> SubmissionDetail:
     """Sign off a submission. Only the questions the AI wasn't sure about (and
     any open remark requests) need the tutor's attention — confidently
     auto-marked questions already carry a final mark."""
@@ -638,9 +644,7 @@ async def finalize_submission(submission_id: int, db: DbSession, user: CurrentUs
     if unresolved:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Resolve the open remark requests first (Q"
-            + ", Q".join(unresolved)
-            + ")",
+            "Resolve the open remark requests first (Q" + ", Q".join(unresolved) + ")",
         )
     submission.status = SubmissionStatus.finalized
     submission.finalized_at = datetime.now(timezone.utc)
@@ -722,9 +726,7 @@ async def request_remark(
     if mark is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mark not found")
     if mark.final_marks is None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "This question hasn't been marked yet"
-        )
+        raise HTTPException(status.HTTP_409_CONFLICT, "This question hasn't been marked yet")
     existing = await db.scalar(
         select(RemarkRequest).where(RemarkRequest.question_mark_id == mark.id)
     )
@@ -736,9 +738,7 @@ async def request_remark(
         )
         raise HTTPException(status.HTTP_409_CONFLICT, detail)
 
-    request = RemarkRequest(
-        question_mark_id=mark.id, requested_by_id=user.id, reason=body.reason
-    )
+    request = RemarkRequest(question_mark_id=mark.id, requested_by_id=user.id, reason=body.reason)
     db.add(request)
     # Put the submission back in front of the tutor.
     submission.status = SubmissionStatus.needs_review

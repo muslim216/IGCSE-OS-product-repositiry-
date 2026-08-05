@@ -44,7 +44,9 @@ async def _tutor_teaches(db, tutor_id: int, student_id: int, subject_id: int) ->
 
 
 @router.post("/assessments", response_model=AssessmentOut, status_code=status.HTTP_201_CREATED)
-async def create_assessment(body: AssessmentCreate, db: DbSession, user: TutorUser) -> AssessmentOut:
+async def create_assessment(
+    body: AssessmentCreate, db: DbSession, user: TutorUser
+) -> AssessmentOut:
     subject = await db.get(Subject, body.subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
@@ -70,9 +72,13 @@ async def create_assessment(body: AssessmentCreate, db: DbSession, user: TutorUs
         if s.topic_id is not None:
             topic = await db.get(Topic, s.topic_id)
             if topic is None or topic.subject_id != subject.id:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid topic for subject")
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid topic for subject"
+                )
         if s.marks > s.max_marks:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "marks cannot exceed max_marks")
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "marks cannot exceed max_marks"
+            )
         db.add(
             AssessmentScore(
                 assessment_id=assessment.id,
@@ -117,7 +123,9 @@ async def create_assessment(body: AssessmentCreate, db: DbSession, user: TutorUs
         affected_students.add(s.student_id)
 
     for student_id in affected_students:
-        await enqueue(db, "recompute_readiness", {"student_id": student_id, "subject_id": subject.id})
+        await enqueue(
+            db, "recompute_readiness", {"student_id": student_id, "subject_id": subject.id}
+        )
         await enqueue_v2_shadow(db, student_id, subject.id)
     await db.commit()
     return AssessmentOut(
@@ -131,8 +139,12 @@ async def create_assessment(body: AssessmentCreate, db: DbSession, user: TutorUs
 
 
 @router.get("/assessments", response_model=list[AssessmentOut])
-async def list_assessments(db: DbSession, user: TutorUser, subject_id: int | None = None) -> list[AssessmentOut]:
-    query = select(Assessment).where(Assessment.tutor_id == user.id).order_by(Assessment.date.desc())
+async def list_assessments(
+    db: DbSession, user: TutorUser, subject_id: int | None = None
+) -> list[AssessmentOut]:
+    query = (
+        select(Assessment).where(Assessment.tutor_id == user.id).order_by(Assessment.date.desc())
+    )
     if subject_id is not None:
         query = query.where(Assessment.subject_id == subject_id)
     rows = (await db.scalars(query)).all()
@@ -185,7 +197,9 @@ async def my_assessments(db: DbSession, user: StudentUser) -> list[MyAssessmentS
 
 
 @router.post("/observations", response_model=ObservationOut, status_code=status.HTTP_201_CREATED)
-async def create_observation(body: ObservationCreate, db: DbSession, user: TutorUser) -> ObservationOut:
+async def create_observation(
+    body: ObservationCreate, db: DbSession, user: TutorUser
+) -> ObservationOut:
     # The tutor must share at least one group with the student.
     shares = await db.scalar(
         select(GroupMember.id)
@@ -245,7 +259,9 @@ async def create_observation(body: ObservationCreate, db: DbSession, user: Tutor
 
 
 @router.get("/students/{student_id}/observations", response_model=list[ObservationOut])
-async def list_observations(student_id: int, db: DbSession, user: TutorUser) -> list[ObservationOut]:
+async def list_observations(
+    student_id: int, db: DbSession, user: TutorUser
+) -> list[ObservationOut]:
     shares = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)

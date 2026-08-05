@@ -36,9 +36,7 @@ async def world(client, tutor):
     ).json()
     # Link a parent.
     code = (
-        await client.post(
-            f"/api/v1/students/{student['id']}/parent-code", headers=tutor["headers"]
-        )
+        await client.post(f"/api/v1/students/{student['id']}/parent-code", headers=tutor["headers"])
     ).json()["code"]
     parent = await client.post(
         "/api/v1/auth/register/parent",
@@ -53,9 +51,7 @@ async def world(client, tutor):
         "subject_id": subject_id,
         "group": group,
         "student_id": student["id"],
-        "parent_headers": {
-            "Authorization": f"Bearer {parent.json()['tokens']['access_token']}"
-        },
+        "parent_headers": {"Authorization": f"Bearer {parent.json()['tokens']['access_token']}"},
     }
 
 
@@ -145,9 +141,7 @@ async def test_student_cannot_generate_reports(client, tutor, world, monkeypatch
         headers=tutor["headers"],
     )
     await process_one_job()
-    listing = await client.get(
-        f"/api/v1/reports?student_id={world['student_id']}", headers=headers
-    )
+    listing = await client.get(f"/api/v1/reports?student_id={world['student_id']}", headers=headers)
     assert listing.status_code == 200
     assert any(r["id"] == generated.json()["id"] for r in listing.json())
 

@@ -47,9 +47,7 @@ async def world(client, tutor):
         "topic_id": topic_id,
         "group": group,
         "student_id": student["id"],
-        "student_headers": {
-            "Authorization": f"Bearer {login.json()['tokens']['access_token']}"
-        },
+        "student_headers": {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"},
     }
 
 
@@ -151,7 +149,12 @@ async def test_updating_preferences_changes_readiness(client, tutor, world):
             "type": "mock",
             "date": "2026-06-15",
             "scores": [
-                {"student_id": world["student_id"], "topic_id": world["topic_id"], "marks": 18, "max_marks": 20}
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic_id"],
+                    "marks": 18,
+                    "max_marks": 20,
+                }
             ],
         },
         headers=tutor["headers"],
@@ -201,7 +204,12 @@ async def test_student_sees_own_assessment_scores(client, tutor, world):
             "type": "mock",
             "date": "2026-06-15",
             "scores": [
-                {"student_id": world["student_id"], "topic_id": world["topic_id"], "marks": 15, "max_marks": 20}
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic_id"],
+                    "marks": 15,
+                    "max_marks": 20,
+                }
             ],
         },
         headers=tutor["headers"],
@@ -250,7 +258,12 @@ async def test_class_brief_fails_gracefully_without_api_key(client, tutor, world
             "type": "mock",
             "date": "2026-06-15",
             "scores": [
-                {"student_id": world["student_id"], "topic_id": world["topic_id"], "marks": 5, "max_marks": 20}
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic_id"],
+                    "marks": 5,
+                    "max_marks": 20,
+                }
             ],
         },
         headers=tutor["headers"],

@@ -30,7 +30,9 @@ class ExtractedTopic(BaseModel):
 
 
 class SyllabusExtractionResult(BaseModel):
-    exam_board: str = Field(description="Exam board name, e.g. 'Edexcel IGCSE', 'Cambridge O Level'")
+    exam_board: str = Field(
+        description="Exam board name, e.g. 'Edexcel IGCSE', 'Cambridge O Level'"
+    )
     code: str = Field(description="Official syllabus/specification code, e.g. '4CH1', '5070'")
     name: str = Field(description="Subject name, e.g. 'Chemistry'")
     grade_scale: str = Field(description="'9-1' or 'A*-E' etc., as used by this syllabus")

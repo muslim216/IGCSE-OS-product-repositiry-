@@ -39,9 +39,7 @@ async def test_create_list_update_delete_entry(client, tutor):
     assert updated.json()["kind"] == "marking_preference"
     assert updated.json()["title"] == "Be strict on units"
 
-    deleted = await client.delete(
-        f"/api/v1/knowledge/{entry['id']}", headers=tutor["headers"]
-    )
+    deleted = await client.delete(f"/api/v1/knowledge/{entry['id']}", headers=tutor["headers"])
     assert deleted.status_code == 204
     listing2 = await client.get("/api/v1/knowledge", headers=tutor["headers"])
     assert listing2.json() == []
@@ -150,9 +148,7 @@ async def test_build_tutor_context_compiles_entries(client, tutor):
     )
 
     async with async_session() as session:
-        tutor_user = await session.scalar(
-            select(User).where(User.email == "tutor@example.com")
-        )
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
         context = await build_tutor_context(session, tutor_user.id, subject_id)
         no_subject_context = await build_tutor_context(session, tutor_user.id, None)
 
@@ -165,9 +161,7 @@ async def test_build_tutor_context_compiles_entries(client, tutor):
 
 async def test_ai_usage_summary(client, tutor):
     async with async_session() as session:
-        tutor_user = await session.scalar(
-            select(User).where(User.email == "tutor@example.com")
-        )
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
         session.add(
             AiUsageEvent(
                 organization_id=tutor_user.organization_id,
@@ -242,9 +236,7 @@ async def test_ai_usage_forbidden_for_students(client, tutor):
     login = await client.post(
         "/api/v1/auth/login", json={"identifier": "sara-kb", "password": "password123"}
     )
-    student_headers = {
-        "Authorization": f"Bearer {login.json()['tokens']['access_token']}"
-    }
+    student_headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
 
     resp = await client.get("/api/v1/ai-usage/summary", headers=student_headers)
     assert resp.status_code == 403

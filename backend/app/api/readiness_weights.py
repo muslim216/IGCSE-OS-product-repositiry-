@@ -40,9 +40,7 @@ def _out(weights: ReadinessWeights | None) -> ReadinessWeightsOut:
 @router.get("/weights", response_model=ReadinessWeightsOut)
 async def get_weights(db: DbSession, user: TutorUser) -> ReadinessWeightsOut:
     weights = await db.scalar(
-        select(ReadinessWeights).where(
-            ReadinessWeights.organization_id == user.organization_id
-        )
+        select(ReadinessWeights).where(ReadinessWeights.organization_id == user.organization_id)
     )
     return _out(weights)
 
@@ -52,14 +50,10 @@ async def update_weights(
     body: ReadinessWeightsUpdate, db: DbSession, user: TutorUser
 ) -> ReadinessWeightsOut:
     weights = await db.scalar(
-        select(ReadinessWeights).where(
-            ReadinessWeights.organization_id == user.organization_id
-        )
+        select(ReadinessWeights).where(ReadinessWeights.organization_id == user.organization_id)
     )
     if weights is None:
-        weights = ReadinessWeights(
-            organization_id=user.organization_id, tutor_id=user.id
-        )
+        weights = ReadinessWeights(organization_id=user.organization_id, tutor_id=user.id)
         db.add(weights)
     for field in WEIGHT_FIELDS:
         setattr(weights, field, getattr(body, field))

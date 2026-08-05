@@ -98,6 +98,7 @@ async def enqueue_v2_shadow(
     coalescing, so there is no un-debounced path."""
     await enqueue_readiness_v2_debounced(db, student_id, subject_id)
 
+
 FACTOR_WEIGHT_ATTR = {
     ReadinessFactor.topic_mastery: "weight_topic_mastery",
     ReadinessFactor.past_paper_performance: "weight_past_paper_performance",
@@ -150,7 +151,9 @@ async def _resolve_grade_boundaries(
     return subject.grade_boundaries
 
 
-def _factor_prompt_line(row: FactorEvaluation, weight: float, topics_by_id: dict[int, Topic]) -> str:
+def _factor_prompt_line(
+    row: FactorEvaluation, weight: float, topics_by_id: dict[int, Topic]
+) -> str:
     label = row.factor.value
     if row.topic_id is not None:
         topic = topics_by_id.get(row.topic_id)
@@ -170,7 +173,9 @@ async def _synthesize_subject(
         return
 
     evaluation_run_id = str(uuid.uuid4())
-    factor_rows = await evaluate_subject_factors(session, student.id, subject_id, evaluation_run_id, now)
+    factor_rows = await evaluate_subject_factors(
+        session, student.id, subject_id, evaluation_run_id, now
+    )
 
     if all(row.score is None for row in factor_rows):
         session.add(
@@ -197,7 +202,9 @@ async def _synthesize_subject(
         for row in factor_rows
     )
     tutor_id = await resolve_org_tutor_id(session, student.organization_id)
-    kb_context = await build_tutor_context(session, tutor_id, subject_id) if tutor_id is not None else ""
+    kb_context = (
+        await build_tutor_context(session, tutor_id, subject_id) if tutor_id is not None else ""
+    )
 
     prompt = (
         f"Student: {student.name}\n"

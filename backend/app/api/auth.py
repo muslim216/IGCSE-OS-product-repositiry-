@@ -61,7 +61,9 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/register/tutor", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register_tutor(body: TutorSignupRequest, db: DbSession, response: Response) -> AuthResponse:
+async def register_tutor(
+    body: TutorSignupRequest, db: DbSession, response: Response
+) -> AuthResponse:
     email = body.email.lower()
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     if existing is not None:
@@ -203,7 +205,9 @@ async def _add_to_group(db: AsyncSession, group_id: int, student_id: int) -> Non
 
 
 @router.post("/register/student", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register_student(body: StudentRegisterRequest, db: DbSession, response: Response) -> AuthResponse:
+async def register_student(
+    body: StudentRegisterRequest, db: DbSession, response: Response
+) -> AuthResponse:
     invite = await _valid_invite(db, body.invite_code, InviteKind.student_join)
     email = body.email.lower()
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
@@ -232,7 +236,9 @@ async def register_student(body: StudentRegisterRequest, db: DbSession, response
 
 
 @router.post("/register/parent", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register_parent(body: ParentRegisterRequest, db: DbSession, response: Response) -> AuthResponse:
+async def register_parent(
+    body: ParentRegisterRequest, db: DbSession, response: Response
+) -> AuthResponse:
     invite = await _valid_invite(db, body.link_code, InviteKind.parent_link)
     email = body.email.lower()
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))

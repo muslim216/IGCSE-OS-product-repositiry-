@@ -59,9 +59,7 @@ async def world(client, tutor):
         "topic2": t2_id,
         "group": group,
         "student_id": student["id"],
-        "student_headers": {
-            "Authorization": f"Bearer {login.json()['tokens']['access_token']}"
-        },
+        "student_headers": {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"},
     }
 
 
@@ -74,8 +72,18 @@ async def test_mock_entry_produces_readiness_and_grade(client, tutor, world):
             "type": "mock",
             "date": "2026-06-15",
             "scores": [
-                {"student_id": world["student_id"], "topic_id": world["topic1"], "marks": 18, "max_marks": 20},
-                {"student_id": world["student_id"], "topic_id": world["topic2"], "marks": 8, "max_marks": 20},
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic1"],
+                    "marks": 18,
+                    "max_marks": 20,
+                },
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic2"],
+                    "marks": 8,
+                    "max_marks": 20,
+                },
             ],
         },
         headers=tutor["headers"],
@@ -131,7 +139,11 @@ async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypat
     assignment = (
         await client.post(
             "/api/v1/assignments",
-            json={"group_id": world["group"]["id"], "classified_id": classified["id"], "title": "HW1"},
+            json={
+                "group_id": world["group"]["id"],
+                "classified_id": classified["id"],
+                "title": "HW1",
+            },
             headers=tutor["headers"],
         )
     ).json()
@@ -184,9 +196,7 @@ async def test_tutor_only_sees_own_students_readiness(client, world):
         json={"name": "Other", "email": "other2@example.com", "password": "password123"},
     )
     headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
-    resp = await client.get(
-        f"/api/v1/readiness/students/{world['student_id']}", headers=headers
-    )
+    resp = await client.get(f"/api/v1/readiness/students/{world['student_id']}", headers=headers)
     assert resp.status_code == 404
 
 
@@ -222,7 +232,12 @@ async def test_group_analytics_and_agreement(client, tutor, world):
             "type": "mock",
             "date": "2026-06-15",
             "scores": [
-                {"student_id": world["student_id"], "topic_id": world["topic2"], "marks": 5, "max_marks": 20},
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic2"],
+                    "marks": 5,
+                    "max_marks": 20,
+                },
             ],
         },
         headers=tutor["headers"],

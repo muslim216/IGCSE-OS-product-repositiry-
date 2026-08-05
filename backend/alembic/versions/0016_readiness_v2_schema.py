@@ -11,6 +11,7 @@ Revises: 0015
 Create Date: 2026-07-23
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -26,7 +27,9 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column(
                 "difficulty",
-                sa.Enum("easy", "medium", "hard", name="questiondifficulty", native_enum=False, length=8),
+                sa.Enum(
+                    "easy", "medium", "hard", name="questiondifficulty", native_enum=False, length=8
+                ),
                 nullable=True,
             )
         )
@@ -64,7 +67,9 @@ def upgrade() -> None:
     op.create_table(
         "past_papers",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("subject_id", sa.Integer(), sa.ForeignKey("subjects.id"), nullable=False),
         sa.Column("session_label", sa.String(length=64), nullable=False),
         sa.Column("paper_number", sa.String(length=32), nullable=False),
@@ -85,7 +90,9 @@ def upgrade() -> None:
     op.create_table(
         "grade_boundaries",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("subject_id", sa.Integer(), sa.ForeignKey("subjects.id"), nullable=False),
         sa.Column("grade_label", sa.String(length=16), nullable=False),
         sa.Column("min_percentage", sa.Float(), nullable=False),
@@ -104,9 +111,13 @@ def upgrade() -> None:
         ),
         sa.Column("tutor_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("weight_topic_mastery", sa.Float(), nullable=False, server_default="1.0"),
-        sa.Column("weight_past_paper_performance", sa.Float(), nullable=False, server_default="1.0"),
+        sa.Column(
+            "weight_past_paper_performance", sa.Float(), nullable=False, server_default="1.0"
+        ),
         sa.Column("weight_homework_performance", sa.Float(), nullable=False, server_default="1.0"),
-        sa.Column("weight_assessment_performance", sa.Float(), nullable=False, server_default="1.0"),
+        sa.Column(
+            "weight_assessment_performance", sa.Float(), nullable=False, server_default="1.0"
+        ),
         sa.Column("weight_syllabus_coverage", sa.Float(), nullable=False, server_default="1.0"),
         sa.Column("weight_mistake_analysis", sa.Float(), nullable=False, server_default="1.0"),
         sa.Column("weight_consistency", sa.Float(), nullable=False, server_default="1.0"),
@@ -141,8 +152,13 @@ def upgrade() -> None:
         sa.Column(
             "confidence",
             sa.Enum(
-                "no_data", "low", "medium", "high",
-                name="factorconfidence", native_enum=False, length=8,
+                "no_data",
+                "low",
+                "medium",
+                "high",
+                name="factorconfidence",
+                native_enum=False,
+                length=8,
             ),
             nullable=False,
         ),

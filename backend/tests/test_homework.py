@@ -347,8 +347,16 @@ async def test_full_marking_lifecycle(client, tutor, student, published_assignme
     save = await client.put(
         f"/api/v1/submissions/{sid}/marks",
         json=[
-            {"question_id": marks[0]["question_id"], "final_marks": 1, "final_feedback": "Half right"},
-            {"question_id": marks[1]["question_id"], "final_marks": 3, "final_feedback": "Good diagram"},
+            {
+                "question_id": marks[0]["question_id"],
+                "final_marks": 1,
+                "final_feedback": "Half right",
+            },
+            {
+                "question_id": marks[1]["question_id"],
+                "final_marks": 3,
+                "final_feedback": "Good diagram",
+            },
         ],
         headers=tutor["headers"],
     )
@@ -368,7 +376,9 @@ async def test_full_marking_lifecycle(client, tutor, student, published_assignme
     assert body["marks"][1]["final_feedback"] == "Good diagram"
 
 
-async def test_finalize_requires_all_marks(client, tutor, student, published_assignment, monkeypatch):
+async def test_finalize_requires_all_marks(
+    client, tutor, student, published_assignment, monkeypatch
+):
     monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
     aid = published_assignment["id"]
     await client.post(
@@ -384,7 +394,9 @@ async def test_finalize_requires_all_marks(client, tutor, student, published_ass
     assert "missing" in resp.json()["detail"].lower()
 
 
-async def test_marking_fails_gracefully_without_api_key(client, tutor, student, published_assignment):
+async def test_marking_fails_gracefully_without_api_key(
+    client, tutor, student, published_assignment
+):
     aid = published_assignment["id"]
     await client.post(
         f"/api/v1/assignments/{aid}/submissions",
@@ -428,7 +440,9 @@ async def test_other_tutor_cannot_see_assignment(client, published_assignment):
     assert resp.status_code == 404
 
 
-async def test_resubmission_resets_marking(client, tutor, student, published_assignment, monkeypatch):
+async def test_resubmission_resets_marking(
+    client, tutor, student, published_assignment, monkeypatch
+):
     monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
     aid = published_assignment["id"]
     first = await client.post(
@@ -479,9 +493,7 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
             ),
         ]
     )
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(fake_result)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(fake_result))
 
     aid = published_assignment["id"]
     await client.post(
@@ -497,9 +509,10 @@ async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(
 
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     marks = {m["question_id"]: m for m in detail.json()["marks"]}
-    q1_mark, q2_mark = marks[published_assignment["questions"][0]["id"]], marks[
-        published_assignment["questions"][1]["id"]
-    ]
+    q1_mark, q2_mark = (
+        marks[published_assignment["questions"][0]["id"]],
+        marks[published_assignment["questions"][1]["id"]],
+    )
 
     assert q1_mark["ai_marks"] == 2, "proposed 10 must be clamped to the question's max of 2"
     assert q1_mark["ai_confidence"] == "high"
@@ -553,9 +566,7 @@ async def test_ai_marking_handles_question_missing_from_ai_response(
             "password": "password123",
         },
     )
-    student2_headers = {
-        "Authorization": f"Bearer {reg.json()['tokens']['access_token']}"
-    }
+    student2_headers = {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"}
 
     fake_result = MarkingResult(
         questions=[
@@ -569,9 +580,7 @@ async def test_ai_marking_handles_question_missing_from_ai_response(
             # Q2 intentionally omitted.
         ]
     )
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(fake_result)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(fake_result))
 
     await client.post(
         f"/api/v1/assignments/{aid}/submissions",
@@ -612,9 +621,7 @@ async def test_upload_and_set_homework_in_one_request(client, tutor, group, subj
     assert len(classifieds.json()) == 1
 
     assert await process_one_job() is True
-    detail = await client.get(
-        f"/api/v1/assignments/{assignment['id']}", headers=tutor["headers"]
-    )
+    detail = await client.get(f"/api/v1/assignments/{assignment['id']}", headers=tutor["headers"])
     assert detail.json()["status"] == "published"
 
 

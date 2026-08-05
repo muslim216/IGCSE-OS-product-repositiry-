@@ -50,12 +50,18 @@ def _marking_double(fake_ai, *, confidence="high"):
         MarkingResult(
             questions=[
                 QuestionMarkDraft(
-                    number="1", transcription="a", proposed_marks=2,
-                    feedback="Correct.", confidence=confidence,
+                    number="1",
+                    transcription="a",
+                    proposed_marks=2,
+                    feedback="Correct.",
+                    confidence=confidence,
                 ),
                 QuestionMarkDraft(
-                    number="2", transcription="b", proposed_marks=3,
-                    feedback="Nearly.", confidence=confidence,
+                    number="2",
+                    transcription="b",
+                    proposed_marks=3,
+                    feedback="Nearly.",
+                    confidence=confidence,
                 ),
             ]
         )
@@ -81,9 +87,7 @@ async def _upload(client, tutor, subject, *, with_scheme=True):  # noqa: F811
 
 @pytest.fixture
 async def past_paper(client, tutor, subject, monkeypatch, fake_ai):  # noqa: F811
-    monkeypatch.setattr(
-        "app.services.extraction.structured_complete", _extraction_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
     resp = await _upload(client, tutor, subject)
     assert resp.status_code == 201, resp.text
     assert await process_one_job() is True  # extraction
@@ -98,9 +102,7 @@ async def test_upload_requires_the_official_mark_scheme(client, tutor, subject):
 
 
 async def test_upload_extracts_the_question_list(client, tutor, past_paper):
-    detail = await client.get(
-        f"/api/v1/past-papers/{past_paper['id']}", headers=tutor["headers"]
-    )
+    detail = await client.get(f"/api/v1/past-papers/{past_paper['id']}", headers=tutor["headers"])
     assert detail.status_code == 200
     body = detail.json()
     assert body["question_count"] == 2
@@ -113,7 +115,10 @@ async def test_upload_extracts_the_question_list(client, tutor, past_paper):
 
 
 async def test_a_student_can_read_the_booklet_but_never_the_mark_scheme(
-    client, tutor, student, past_paper  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,  # noqa: F811
 ):
     booklet = await client.get(
         f"/api/v1/past-papers/{past_paper['id']}/booklet", headers=student["headers"]
@@ -147,11 +152,14 @@ async def _log_attempt(client, student, paper_id, **overrides):  # noqa: F811
 
 
 async def test_a_student_self_logs_an_attempt_and_it_is_auto_marked(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     resp = await _log_attempt(client, student, past_paper["id"])
     assert resp.status_code == 201, resp.text
     assert resp.json()["timed"] is True
@@ -170,11 +178,14 @@ async def test_a_student_self_logs_an_attempt_and_it_is_auto_marked(
 
 
 async def test_a_settled_attempt_rolls_up_for_the_past_paper_factor(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     await _log_attempt(client, student, past_paper["id"])
     assert await process_one_job() is True
 
@@ -189,12 +200,15 @@ async def test_a_settled_attempt_rolls_up_for_the_past_paper_factor(
 
 
 async def test_marks_become_per_topic_past_paper_evidence(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """Past papers feed Topic Mastery too, not just the Past Paper factor."""
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     await _log_attempt(client, student, past_paper["id"])
     assert await process_one_job() is True
 
@@ -205,7 +219,12 @@ async def test_marks_become_per_topic_past_paper_evidence(
 
 
 async def test_an_unsure_question_sends_the_attempt_to_the_review_queue(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """Past papers inherit the review queue with no extra code, because an
     attempt is just a Submission."""
@@ -223,7 +242,10 @@ async def test_an_unsure_question_sends_the_attempt_to_the_review_queue(
 
 
 async def test_marking_without_an_api_key_fails_gracefully(
-    client, tutor, student, past_paper  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,  # noqa: F811
 ):
     await _log_attempt(client, student, past_paper["id"])
     await process_one_job()
@@ -234,11 +256,14 @@ async def test_marking_without_an_api_key_fails_gracefully(
 
 
 async def test_a_student_cannot_log_the_same_paper_twice_once_marked(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     await _log_attempt(client, student, past_paper["id"])
     assert await process_one_job() is True
     again = await _log_attempt(client, student, past_paper["id"])
@@ -246,7 +271,10 @@ async def test_a_student_cannot_log_the_same_paper_twice_once_marked(
 
 
 async def test_re_logging_before_marking_replaces_the_pages(
-    client, tutor, student, past_paper  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,  # noqa: F811
 ):
     first = await _log_attempt(client, student, past_paper["id"])
     assert first.status_code == 201
@@ -259,16 +287,19 @@ async def test_re_logging_before_marking_replaces_the_pages(
 
 
 async def test_my_attempt_reports_the_result(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     before = await client.get(
         f"/api/v1/past-papers/{past_paper['id']}/my-attempt", headers=student["headers"]
     )
     assert before.json() is None
 
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", _marking_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
     await _log_attempt(client, student, past_paper["id"])
     assert await process_one_job() is True
 
@@ -282,7 +313,10 @@ async def test_my_attempt_reports_the_result(
 
 
 async def test_a_student_only_sees_papers_for_subjects_they_take(
-    client, tutor, student, past_paper  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,  # noqa: F811
 ):
     from app.models import Subject
 
@@ -316,9 +350,7 @@ async def test_a_student_only_sees_papers_for_subjects_they_take(
 
     listed = await client.get("/api/v1/past-papers", headers=student["headers"])
     assert [p["id"] for p in listed.json()] == [past_paper["id"]]
-    denied = await client.get(
-        f"/api/v1/past-papers/{physics_id}", headers=student["headers"]
-    )
+    denied = await client.get(f"/api/v1/past-papers/{physics_id}", headers=student["headers"])
     assert denied.status_code == 404
 
 
@@ -335,24 +367,29 @@ async def test_another_organizations_paper_is_invisible(client, tutor, past_pape
 
 
 async def test_re_extraction_replaces_the_question_list(
-    client, tutor, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     from app.services.extraction import extract_past_paper
 
-    monkeypatch.setattr(
-        "app.services.extraction.structured_complete", _extraction_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
     async with async_session() as session:
         await extract_past_paper(session, {"past_paper_id": past_paper["id"]})
         await session.commit()
-    detail = await client.get(
-        f"/api/v1/past-papers/{past_paper['id']}", headers=tutor["headers"]
-    )
+    detail = await client.get(f"/api/v1/past-papers/{past_paper['id']}", headers=tutor["headers"])
     assert detail.json()["question_count"] == 2
 
 
 async def test_a_tutor_can_review_and_finalize_a_past_paper_attempt(
-    client, tutor, student, past_paper, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """The tutor's whole review path — open, override, finalize — works on a
     past paper without a single past-paper-specific screen."""
@@ -363,9 +400,7 @@ async def test_a_tutor_can_review_and_finalize_a_past_paper_attempt(
     await _log_attempt(client, student, past_paper["id"])
     assert await process_one_job() is True
 
-    queue = (
-        await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])
-    ).json()
+    queue = (await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json()
     sid = queue[0]["submission_id"]
     assert queue[0]["past_paper_id"] == past_paper["id"]
     assert queue[0]["assignment_id"] is None

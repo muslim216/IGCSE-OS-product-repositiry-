@@ -5,6 +5,7 @@ Revises: 0016
 Create Date: 2026-07-24
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -19,7 +20,9 @@ def upgrade() -> None:
     op.create_table(
         "google_accounts",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("tutor_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, unique=True),
         sa.Column("google_email", sa.String(length=255), nullable=False),
         sa.Column("encrypted_refresh_token", sa.Text(), nullable=False),
@@ -30,9 +33,15 @@ def upgrade() -> None:
     op.create_table(
         "classroom_course_links",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
-        sa.Column("google_account_id", sa.Integer(), sa.ForeignKey("google_accounts.id"), nullable=False),
-        sa.Column("group_id", sa.Integer(), sa.ForeignKey("groups.id"), nullable=False, unique=True),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
+        sa.Column(
+            "google_account_id", sa.Integer(), sa.ForeignKey("google_accounts.id"), nullable=False
+        ),
+        sa.Column(
+            "group_id", sa.Integer(), sa.ForeignKey("groups.id"), nullable=False, unique=True
+        ),
         sa.Column("classroom_course_id", sa.String(length=64), nullable=False),
         sa.Column("classroom_course_name", sa.String(length=255), nullable=False),
         sa.Column("last_synced_at", sa.DateTime(timezone=True), nullable=True),
@@ -45,9 +54,18 @@ def upgrade() -> None:
         "classroom_work_links",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column(
-            "course_link_id", sa.Integer(), sa.ForeignKey("classroom_course_links.id"), nullable=False
+            "course_link_id",
+            sa.Integer(),
+            sa.ForeignKey("classroom_course_links.id"),
+            nullable=False,
         ),
-        sa.Column("assignment_id", sa.Integer(), sa.ForeignKey("assignments.id"), nullable=False, unique=True),
+        sa.Column(
+            "assignment_id",
+            sa.Integer(),
+            sa.ForeignKey("assignments.id"),
+            nullable=False,
+            unique=True,
+        ),
         sa.Column("classroom_coursework_id", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint(

@@ -14,9 +14,7 @@ NOW = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
 
 def point(source, score, days_ago):
-    return EvidencePoint(
-        source=source, score_pct=score, occurred_at=NOW - timedelta(days=days_ago)
-    )
+    return EvidencePoint(source=source, score_pct=score, occurred_at=NOW - timedelta(days=days_ago))
 
 
 def test_no_evidence_is_none_confidence():

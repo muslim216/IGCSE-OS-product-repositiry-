@@ -28,9 +28,7 @@ async def fake_extraction(session, upload):
 
 @pytest.fixture
 async def uploaded(client, tutor, monkeypatch):
-    monkeypatch.setattr(
-        "app.services.syllabus_extraction._run_extraction", fake_extraction
-    )
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
     resp = await client.post(
         "/api/v1/syllabus-uploads",
         data={"title": "Test syllabus"},
@@ -53,9 +51,7 @@ async def test_upload_and_extract_flow(client, tutor, uploaded):
 
 
 async def test_apply_creates_subject_and_topic_tree(client, tutor, uploaded):
-    resp = await client.post(
-        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
-    )
+    resp = await client.post(f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "applied"
@@ -102,9 +98,7 @@ async def test_apply_upserts_existing_subject_by_exam_board_and_code(
             ],
         }
 
-    monkeypatch.setattr(
-        "app.services.syllabus_extraction._run_extraction", fake_extraction_v2
-    )
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction_v2)
     resp = await client.post(
         "/api/v1/syllabus-uploads",
         data={"title": "Test syllabus v2"},

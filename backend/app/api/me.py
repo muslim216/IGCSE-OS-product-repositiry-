@@ -26,8 +26,7 @@ async def my_groups(db: DbSession, user: CurrentUser) -> list[GroupOut]:
         )
     ).all()
     return [
-        GroupOut(id=g.id, name=g.name, subject=SubjectOut.model_validate(g.subject))
-        for g in groups
+        GroupOut(id=g.id, name=g.name, subject=SubjectOut.model_validate(g.subject)) for g in groups
     ]
 
 

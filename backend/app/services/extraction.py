@@ -90,7 +90,9 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
     ).all()
     topic_list = "\n".join(f"- {t.code}: {t.title}" for t in topics)
 
-    content: list[dict] = [file_block(storage.read_file(classified.file_path), classified.file_mime)]
+    content: list[dict] = [
+        file_block(storage.read_file(classified.file_path), classified.file_mime)
+    ]
     if classified.mark_scheme_path:
         content.append(
             file_block(storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
@@ -193,9 +195,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
     ).all()
     topic_list = "\n".join(f"- {t.code}: {t.title}" for t in topics)
 
-    content: list[dict] = [
-        file_block(storage.read_file(paper.booklet_path), paper.booklet_mime)
-    ]
+    content: list[dict] = [file_block(storage.read_file(paper.booklet_path), paper.booklet_mime)]
     if paper.mark_scheme_path:
         content.append(
             file_block(storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
@@ -251,8 +251,6 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
         for code in q.topic_codes:
             topic = topic_by_code.get(code)
             if topic is not None:
-                session.add(
-                    PastPaperQuestionTopic(question_id=question.id, topic_id=topic.id)
-                )
+                session.add(PastPaperQuestionTopic(question_id=question.id, topic_id=topic.id))
     if paper.total_marks is None:
         paper.total_marks = sum(max(1, q.max_marks) for q in result.questions)

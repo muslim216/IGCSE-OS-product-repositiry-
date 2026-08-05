@@ -92,7 +92,9 @@ async def _question_rows(db, assignment_id: int) -> list[QuestionOut]:
 
 
 @router.post("", response_model=AssignmentDetail, status_code=status.HTTP_201_CREATED)
-async def create_assignment(body: AssignmentCreate, db: DbSession, user: TutorUser) -> AssignmentDetail:
+async def create_assignment(
+    body: AssignmentCreate, db: DbSession, user: TutorUser
+) -> AssignmentDetail:
     group = await db.get(Group, body.group_id)
     if group is None or group.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
@@ -183,13 +185,17 @@ async def create_assignment_with_paper(
 
 
 @router.get("/group/{group_id}", response_model=list[AssignmentOut])
-async def list_group_assignments(group_id: int, db: DbSession, user: TutorUser) -> list[AssignmentOut]:
+async def list_group_assignments(
+    group_id: int, db: DbSession, user: TutorUser
+) -> list[AssignmentOut]:
     group = await db.get(Group, group_id)
     if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     assignments = (
         await db.scalars(
-            select(Assignment).where(Assignment.group_id == group_id).order_by(Assignment.created_at.desc())
+            select(Assignment)
+            .where(Assignment.group_id == group_id)
+            .order_by(Assignment.created_at.desc())
         )
     ).all()
     out = []
@@ -223,7 +229,9 @@ async def list_group_assignments(group_id: int, db: DbSession, user: TutorUser) 
 
 
 @router.get("/attention", response_model=list[AssignmentAttention])
-async def assignments_needing_attention(db: DbSession, user: TutorUser) -> list[AssignmentAttention]:
+async def assignments_needing_attention(
+    db: DbSession, user: TutorUser
+) -> list[AssignmentAttention]:
     """Surfaces homework that needs a tutor's eyes: failed extraction/marking,
     or AI-marked submissions still waiting to be finalized."""
     tutor_groups = select(Group.id)
@@ -285,7 +293,9 @@ async def assignments_needing_attention(db: DbSession, user: TutorUser) -> list[
 
 
 @router.get("/{assignment_id}", response_model=AssignmentDetail)
-async def assignment_detail(assignment_id: int, db: DbSession, user: CurrentUser) -> AssignmentDetail:
+async def assignment_detail(
+    assignment_id: int, db: DbSession, user: CurrentUser
+) -> AssignmentDetail:
     assignment = await _owned_assignment(db, user, assignment_id)
     return AssignmentDetail(
         id=assignment.id,
@@ -364,7 +374,9 @@ async def replace_questions(
 
 
 @router.post("/{assignment_id}/publish", response_model=AssignmentDetail)
-async def publish_assignment(assignment_id: int, db: DbSession, user: CurrentUser) -> AssignmentDetail:
+async def publish_assignment(
+    assignment_id: int, db: DbSession, user: CurrentUser
+) -> AssignmentDetail:
     assignment = await _owned_assignment(db, user, assignment_id)
     if assignment.status not in (AssignmentStatus.review, AssignmentStatus.extraction_failed):
         raise HTTPException(status.HTTP_409_CONFLICT, "Only assignments in review can be published")
@@ -381,14 +393,18 @@ async def publish_assignment(assignment_id: int, db: DbSession, user: CurrentUse
 
 
 @router.post("/{assignment_id}/retry-extraction", response_model=AssignmentDetail)
-async def retry_extraction(assignment_id: int, db: DbSession, user: CurrentUser) -> AssignmentDetail:
+async def retry_extraction(
+    assignment_id: int, db: DbSession, user: CurrentUser
+) -> AssignmentDetail:
     assignment = await _owned_assignment(db, user, assignment_id)
     if assignment.classified_id is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This assignment has no question booklet to re-extract"
         )
     if assignment.status not in (AssignmentStatus.extraction_failed, AssignmentStatus.review):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Extraction can only be retried before publishing")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Extraction can only be retried before publishing"
+        )
     existing = (
         await db.scalars(
             select(AssignmentQuestion).where(AssignmentQuestion.assignment_id == assignment.id)

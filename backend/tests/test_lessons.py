@@ -35,9 +35,7 @@ async def test_create_list_update_delete_lesson(client, tutor, world):
     assert updated.status_code == 200
     assert updated.json()["notes"] == "Updated notes."
 
-    deleted = await client.delete(
-        f"/api/v1/lessons/{lesson['id']}", headers=tutor["headers"]
-    )
+    deleted = await client.delete(f"/api/v1/lessons/{lesson['id']}", headers=tutor["headers"])
     assert deleted.status_code == 204
 
 

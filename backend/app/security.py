@@ -18,7 +18,9 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def _create_token(user_id: int, token_version: int, token_type: str, expires_delta: timedelta) -> str:
+def _create_token(
+    user_id: int, token_version: int, token_type: str, expires_delta: timedelta
+) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     payload = {

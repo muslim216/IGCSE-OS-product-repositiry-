@@ -27,9 +27,7 @@ async def build_summary(
         subject = await db.get(Subject, subject_id)
         if subject is None:
             continue
-        topics = (
-            await db.scalars(select(Topic).where(Topic.subject_id == subject_id))
-        ).all()
+        topics = (await db.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
         topic_by_id = {t.id: t for t in topics}
         readiness_rows = (
             await db.scalars(
@@ -71,9 +69,7 @@ async def build_summary(
                 )
 
         overall = round(weighted_sum / weight_total, 1) if weight_total > 0 else None
-        grade = (
-            predict_grade(overall, subject.grade_boundaries) if overall is not None else None
-        )
+        grade = predict_grade(overall, subject.grade_boundaries) if overall is not None else None
         topic_out.sort(key=lambda t: t.topic_code)
         weak.sort(key=lambda w: w.score)
         subjects_out.append(

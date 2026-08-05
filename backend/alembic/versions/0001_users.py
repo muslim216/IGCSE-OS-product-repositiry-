@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-07-19
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -22,7 +23,13 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=255), nullable=True),
         sa.Column("username", sa.String(length=64), nullable=True),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
-        sa.Column("role", sa.Enum("student", "tutor", "parent", "admin", name="userrole", native_enum=False, length=16), nullable=False),
+        sa.Column(
+            "role",
+            sa.Enum(
+                "student", "tutor", "parent", "admin", name="userrole", native_enum=False, length=16
+            ),
+            nullable=False,
+        ),
         sa.Column("name", sa.String(length=128), nullable=False),
         sa.Column("created_by_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

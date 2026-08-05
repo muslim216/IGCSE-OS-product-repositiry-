@@ -5,6 +5,7 @@ Revises: 0004
 Create Date: 2026-07-19
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -27,8 +28,14 @@ def upgrade() -> None:
     op.create_table(
         "chat_messages",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("conversation_id", sa.Integer(), sa.ForeignKey("chat_conversations.id"), nullable=False),
-        sa.Column("role", sa.Enum("user", "assistant", name="chatrole", native_enum=False, length=12), nullable=False),
+        sa.Column(
+            "conversation_id", sa.Integer(), sa.ForeignKey("chat_conversations.id"), nullable=False
+        ),
+        sa.Column(
+            "role",
+            sa.Enum("user", "assistant", name="chatrole", native_enum=False, length=12),
+            nullable=False,
+        ),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )

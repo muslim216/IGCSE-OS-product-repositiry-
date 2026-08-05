@@ -74,7 +74,11 @@ async def student(client, tutor, group):
 
 
 async def _fake_exchange_code(code: str) -> dict:
-    return {"access_token": "fake-access", "refresh_token": "fake-refresh", "scope": "classroom.readonly"}
+    return {
+        "access_token": "fake-access",
+        "refresh_token": "fake-refresh",
+        "scope": "classroom.readonly",
+    }
 
 
 async def _fake_fetch_email(access_token: str) -> str:
@@ -183,7 +187,11 @@ async def test_list_courses_and_link_lifecycle(client, tutor, group, monkeypatch
 
     link = await client.post(
         "/api/v1/classroom/links",
-        json={"group_id": group["id"], "classroom_course_id": "course-1", "classroom_course_name": "Period 3 Chemistry"},
+        json={
+            "group_id": group["id"],
+            "classroom_course_id": "course-1",
+            "classroom_course_name": "Period 3 Chemistry",
+        },
         headers=tutor["headers"],
     )
     assert link.status_code == 201, link.text
@@ -214,7 +222,11 @@ async def test_sync_imports_coursework_and_submission_with_attachment(
 
     link = await client.post(
         "/api/v1/classroom/links",
-        json={"group_id": group["id"], "classroom_course_id": "course-1", "classroom_course_name": "Period 3"},
+        json={
+            "group_id": group["id"],
+            "classroom_course_id": "course-1",
+            "classroom_course_name": "Period 3",
+        },
         headers=tutor["headers"],
     )
     assert link.status_code == 201
@@ -229,9 +241,7 @@ async def test_sync_imports_coursework_and_submission_with_attachment(
             {
                 "userId": "google-user-1",
                 "state": "TURNED_IN",
-                "assignmentSubmission": {
-                    "attachments": [{"driveFile": {"id": "drive-file-1"}}]
-                },
+                "assignmentSubmission": {"attachments": [{"driveFile": {"id": "drive-file-1"}}]},
             }
         ]
 
@@ -247,9 +257,13 @@ async def test_sync_imports_coursework_and_submission_with_attachment(
         return PDF_BYTES
 
     monkeypatch.setattr("app.services.google_classroom.list_coursework", fake_list_coursework)
-    monkeypatch.setattr("app.services.google_classroom.list_student_submissions", fake_list_submissions)
+    monkeypatch.setattr(
+        "app.services.google_classroom.list_student_submissions", fake_list_submissions
+    )
     monkeypatch.setattr("app.services.google_classroom.get_student_profile", fake_student_profile)
-    monkeypatch.setattr("app.services.google_classroom.get_drive_file_metadata", fake_drive_metadata)
+    monkeypatch.setattr(
+        "app.services.google_classroom.get_drive_file_metadata", fake_drive_metadata
+    )
     monkeypatch.setattr("app.services.google_classroom.download_drive_file", fake_download)
 
     sync = await client.post("/api/v1/classroom/sync", headers=tutor["headers"])
@@ -257,7 +271,9 @@ async def test_sync_imports_coursework_and_submission_with_attachment(
     assert await process_one_job() is True  # sync_classroom
 
     async with async_session() as session:
-        assignment = await session.scalar(select(Assignment).where(Assignment.title == "Worksheet 1"))
+        assignment = await session.scalar(
+            select(Assignment).where(Assignment.title == "Worksheet 1")
+        )
         assert assignment is not None
         assert assignment.group_id == group["id"]
 
@@ -310,7 +326,11 @@ async def test_sync_skips_submission_with_no_matching_student(client, tutor, gro
     )
     await client.post(
         "/api/v1/classroom/links",
-        json={"group_id": group["id"], "classroom_course_id": "course-1", "classroom_course_name": "Period 3"},
+        json={
+            "group_id": group["id"],
+            "classroom_course_id": "course-1",
+            "classroom_course_name": "Period 3",
+        },
         headers=tutor["headers"],
     )
 
@@ -324,14 +344,18 @@ async def test_sync_skips_submission_with_no_matching_student(client, tutor, gro
         return {"profile": {"emailAddress": "not-a-manara-student@example.com"}}
 
     monkeypatch.setattr("app.services.google_classroom.list_coursework", fake_list_coursework)
-    monkeypatch.setattr("app.services.google_classroom.list_student_submissions", fake_list_submissions)
+    monkeypatch.setattr(
+        "app.services.google_classroom.list_student_submissions", fake_list_submissions
+    )
     monkeypatch.setattr("app.services.google_classroom.get_student_profile", fake_student_profile)
 
     await client.post("/api/v1/classroom/sync", headers=tutor["headers"])
     assert await process_one_job() is True
 
     async with async_session() as session:
-        assignment = await session.scalar(select(Assignment).where(Assignment.title == "Worksheet 1"))
+        assignment = await session.scalar(
+            select(Assignment).where(Assignment.title == "Worksheet 1")
+        )
         assert assignment is not None  # the draft assignment still gets created
         submissions = (await session.scalars(select(Submission))).all()
         assert submissions == []  # but no submission — no matching student account

@@ -16,6 +16,7 @@ Revises: 0019
 Create Date: 2026-07-24
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -36,12 +37,14 @@ depends_on = None
 
 def upgrade() -> None:
     with op.batch_alter_table("past_papers", naming_convention=NAMING) as batch:
-        batch.add_column(sa.Column(
+        batch.add_column(
+            sa.Column(
                 "tutor_id",
                 sa.Integer(),
                 sa.ForeignKey("users.id", name="fk_past_papers_tutor_id_users"),
                 nullable=True,
-            ))
+            )
+        )
         batch.add_column(sa.Column("total_marks", sa.Integer(), nullable=True))
         batch.add_column(sa.Column("duration_minutes", sa.Integer(), nullable=True))
         batch.add_column(sa.Column("booklet_path", sa.String(length=255), nullable=True))
@@ -55,9 +58,7 @@ def upgrade() -> None:
     op.create_table(
         "past_paper_questions",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column(
-            "past_paper_id", sa.Integer(), sa.ForeignKey("past_papers.id"), nullable=False
-        ),
+        sa.Column("past_paper_id", sa.Integer(), sa.ForeignKey("past_papers.id"), nullable=False),
         sa.Column("position", sa.Integer(), nullable=False),
         sa.Column("number", sa.String(length=16), nullable=False),
         sa.Column("text_summary", sa.Text(), nullable=False),

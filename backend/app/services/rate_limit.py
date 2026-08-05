@@ -68,6 +68,4 @@ class FixedWindowLimiter:
 LOGIN_FAILURE_LIMIT = 10
 LOGIN_WINDOW_SECONDS = 15 * 60
 
-login_limiter = FixedWindowLimiter(
-    limit=LOGIN_FAILURE_LIMIT, window_seconds=LOGIN_WINDOW_SECONDS
-)
+login_limiter = FixedWindowLimiter(limit=LOGIN_FAILURE_LIMIT, window_seconds=LOGIN_WINDOW_SECONDS)

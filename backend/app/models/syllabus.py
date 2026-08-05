@@ -19,7 +19,9 @@ class Subject(Base):
     # Ordered list of {"grade": "9", "min": 90} — readiness % → predicted grade.
     grade_boundaries: Mapped[list] = mapped_column(JSON, nullable=False)
 
-    topics: Mapped[list["Topic"]] = relationship(back_populates="subject", cascade="all, delete-orphan")
+    topics: Mapped[list["Topic"]] = relationship(
+        back_populates="subject", cascade="all, delete-orphan"
+    )
 
 
 class Topic(Base):

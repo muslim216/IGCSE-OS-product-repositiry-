@@ -5,6 +5,7 @@ Revises: 0003
 Create Date: 2026-07-19
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -21,7 +22,19 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("topic_id", sa.Integer(), sa.ForeignKey("topics.id"), nullable=False),
-        sa.Column("source_type", sa.Enum("homework", "quiz", "mock", "observation", name="evidencesource", native_enum=False, length=16), nullable=False),
+        sa.Column(
+            "source_type",
+            sa.Enum(
+                "homework",
+                "quiz",
+                "mock",
+                "observation",
+                name="evidencesource",
+                native_enum=False,
+                length=16,
+            ),
+            nullable=False,
+        ),
         sa.Column("score_pct", sa.Float(), nullable=False),
         sa.Column("max_marks", sa.Integer(), nullable=False),
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
@@ -35,7 +48,19 @@ def upgrade() -> None:
         sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("topic_id", sa.Integer(), sa.ForeignKey("topics.id"), nullable=False),
         sa.Column("score", sa.Float(), nullable=False),
-        sa.Column("confidence", sa.Enum("none", "low", "medium", "high", name="readinessconfidence", native_enum=False, length=8), nullable=False),
+        sa.Column(
+            "confidence",
+            sa.Enum(
+                "none",
+                "low",
+                "medium",
+                "high",
+                name="readinessconfidence",
+                native_enum=False,
+                length=8,
+            ),
+            nullable=False,
+        ),
         sa.Column("evidence_count", sa.Integer(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("student_id", "topic_id"),
@@ -64,7 +89,11 @@ def upgrade() -> None:
         sa.Column("tutor_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("subject_id", sa.Integer(), sa.ForeignKey("subjects.id"), nullable=False),
         sa.Column("title", sa.String(length=255), nullable=False),
-        sa.Column("type", sa.Enum("mock", "test", name="assessmenttype", native_enum=False, length=8), nullable=False),
+        sa.Column(
+            "type",
+            sa.Enum("mock", "test", name="assessmenttype", native_enum=False, length=8),
+            nullable=False,
+        ),
         sa.Column("date", sa.Date(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )

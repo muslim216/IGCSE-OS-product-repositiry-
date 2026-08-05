@@ -94,11 +94,14 @@ async def _submit(client, aid, student):  # noqa: F811
 
 
 async def test_confident_scheme_backed_marks_auto_finalize_with_no_tutor_action(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(_confident_result())
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
     await _submit(client, assignment_all_scheme, student)
 
     subs = await client.get(
@@ -121,7 +124,12 @@ async def test_confident_scheme_backed_marks_auto_finalize_with_no_tutor_action(
 
 
 async def test_auto_finalized_marks_become_readiness_evidence(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """The whole point: marks that count feed the Readiness Engine without
     waiting for a tutor who may never get to them."""
@@ -177,7 +185,12 @@ async def test_auto_finalized_marks_become_readiness_evidence(
 
 
 async def test_a_low_confidence_mark_goes_to_review_even_with_a_scheme(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     monkeypatch.setattr(
         "app.services.marking.structured_complete",
@@ -185,9 +198,7 @@ async def test_a_low_confidence_mark_goes_to_review_even_with_a_scheme(
     )
     await _submit(client, assignment_all_scheme, student)
 
-    queue = (
-        await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])
-    ).json()
+    queue = (await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json()
     assert len(queue) == 1
     assert queue[0]["unsure_count"] == 2
     assert queue[0]["remark_request_count"] == 0
@@ -195,7 +206,12 @@ async def test_a_low_confidence_mark_goes_to_review_even_with_a_scheme(
 
 
 async def test_a_no_scheme_question_is_marked_but_flagged_unsure(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """The AI marks scheme-less questions from the syllabus rather than
     refusing — but the mark is a suggestion, not a result."""
@@ -207,12 +223,18 @@ async def test_a_no_scheme_question_is_marked_but_flagged_unsure(
             MarkingResult(
                 questions=[
                     QuestionMarkDraft(
-                        number="1", transcription="a", proposed_marks=2,
-                        feedback="Good.", confidence="high",
+                        number="1",
+                        transcription="a",
+                        proposed_marks=2,
+                        feedback="Good.",
+                        confidence="high",
                     ),
                     QuestionMarkDraft(
-                        number="2", transcription="b", proposed_marks=3,
-                        feedback="Reasonable.", confidence="unsure",
+                        number="2",
+                        transcription="b",
+                        proposed_marks=3,
+                        feedback="Reasonable.",
+                        confidence="unsure",
                     ),
                 ]
             )
@@ -225,9 +247,9 @@ async def test_a_no_scheme_question_is_marked_but_flagged_unsure(
             headers=tutor["headers"],
         )
     ).json()[0]["id"]
-    marks = (
-        await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    ).json()["marks"]
+    marks = (await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])).json()[
+        "marks"
+    ]
     no_scheme = next(m for m in marks if not m["has_mark_scheme"])
     assert no_scheme["ai_marks"] == 3, "the AI's suggestion is kept for the tutor"
     assert no_scheme["final_marks"] is None, "but it does not count on its own"
@@ -235,7 +257,12 @@ async def test_a_no_scheme_question_is_marked_but_flagged_unsure(
 
 
 async def test_finalize_only_needs_the_unsure_questions_resolved(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     from app.services.marking import MarkingResult, QuestionMarkDraft
 
@@ -245,12 +272,18 @@ async def test_finalize_only_needs_the_unsure_questions_resolved(
             MarkingResult(
                 questions=[
                     QuestionMarkDraft(
-                        number="1", transcription="a", proposed_marks=2,
-                        feedback="Good.", confidence="high",
+                        number="1",
+                        transcription="a",
+                        proposed_marks=2,
+                        feedback="Good.",
+                        confidence="high",
                     ),
                     QuestionMarkDraft(
-                        number="2", transcription="b", proposed_marks=3,
-                        feedback="Reasonable.", confidence="unsure",
+                        number="2",
+                        transcription="b",
+                        proposed_marks=3,
+                        feedback="Reasonable.",
+                        confidence="unsure",
                     ),
                 ]
             )
@@ -263,9 +296,9 @@ async def test_finalize_only_needs_the_unsure_questions_resolved(
             headers=tutor["headers"],
         )
     ).json()[0]["id"]
-    marks = (
-        await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    ).json()["marks"]
+    marks = (await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])).json()[
+        "marks"
+    ]
     unsure = next(m for m in marks if m["needs_review"])
 
     # Only the unsure one is submitted — the confident one already has a mark.
@@ -280,11 +313,14 @@ async def test_finalize_only_needs_the_unsure_questions_resolved(
 
 
 async def test_overriding_a_mark_that_already_counted_is_audited(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(_confident_result())
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
     await _submit(client, assignment_all_scheme, student)
     sid = (
         await client.get(
@@ -292,9 +328,9 @@ async def test_overriding_a_mark_that_already_counted_is_audited(
             headers=tutor["headers"],
         )
     ).json()[0]["id"]
-    marks = (
-        await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    ).json()["marks"]
+    marks = (await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])).json()[
+        "marks"
+    ]
     q1 = marks[0]
     assert q1["final_marks"] == 2
 
@@ -319,7 +355,12 @@ async def test_overriding_a_mark_that_already_counted_is_audited(
 
 
 async def test_setting_a_mark_for_the_first_time_is_not_an_override(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     from app.services.marking import MarkingResult, QuestionMarkDraft
 
@@ -329,12 +370,18 @@ async def test_setting_a_mark_for_the_first_time_is_not_an_override(
             MarkingResult(
                 questions=[
                     QuestionMarkDraft(
-                        number="1", transcription="a", proposed_marks=2,
-                        feedback="Good.", confidence="high",
+                        number="1",
+                        transcription="a",
+                        proposed_marks=2,
+                        feedback="Good.",
+                        confidence="high",
                     ),
                     QuestionMarkDraft(
-                        number="2", transcription="b", proposed_marks=3,
-                        feedback="ok", confidence="unsure",
+                        number="2",
+                        transcription="b",
+                        proposed_marks=3,
+                        feedback="ok",
+                        confidence="unsure",
                     ),
                 ]
             )
@@ -347,9 +394,9 @@ async def test_setting_a_mark_for_the_first_time_is_not_an_override(
             headers=tutor["headers"],
         )
     ).json()[0]["id"]
-    marks = (
-        await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    ).json()["marks"]
+    marks = (await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])).json()[
+        "marks"
+    ]
     unsure = next(m for m in marks if m["needs_review"])
     await client.put(
         f"/api/v1/submissions/{sid}/marks",
@@ -361,19 +408,20 @@ async def test_setting_a_mark_for_the_first_time_is_not_an_override(
 
 
 async def test_a_student_can_contest_an_auto_finalized_mark_once(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(_confident_result())
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
     await _submit(client, assignment_all_scheme, student)
     async with async_session() as session:
         submission = await session.scalar(select(Submission))
         sid = submission.id
-        question_id = (
-            await session.scalar(
-                select(QuestionMark.question_id).where(QuestionMark.submission_id == sid)
-            )
+        question_id = await session.scalar(
+            select(QuestionMark.question_id).where(QuestionMark.submission_id == sid)
         )
 
     resp = await client.post(
@@ -385,15 +433,11 @@ async def test_a_student_can_contest_an_auto_finalized_mark_once(
     assert resp.json()["status"] == "open"
 
     # It lands in front of the tutor, never in front of the AI.
-    queue = (
-        await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])
-    ).json()
+    queue = (await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json()
     assert len(queue) == 1
     assert queue[0]["remark_request_count"] == 1
 
-    detail = (
-        await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    ).json()
+    detail = (await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])).json()
     contested = next(m for m in detail["marks"] if m["question_id"] == question_id)
     assert contested["remark_requested"] is True
     assert "second mark" in contested["remark_reason"]
@@ -410,11 +454,14 @@ async def test_a_student_can_contest_an_auto_finalized_mark_once(
 
 
 async def test_resolving_a_remark_request_closes_and_audits_it(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(_confident_result())
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
     await _submit(client, assignment_all_scheme, student)
     async with async_session() as session:
         sid = (await session.scalar(select(Submission))).id
@@ -452,7 +499,12 @@ async def test_resolving_a_remark_request_closes_and_audits_it(
 
 
 async def test_a_remark_cannot_be_requested_on_an_unmarked_question(
-    client, tutor, student, published_assignment, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    published_assignment,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     from app.services.marking import MarkingResult, QuestionMarkDraft
 
@@ -462,12 +514,18 @@ async def test_a_remark_cannot_be_requested_on_an_unmarked_question(
             MarkingResult(
                 questions=[
                     QuestionMarkDraft(
-                        number="1", transcription="a", proposed_marks=2,
-                        feedback="Good.", confidence="high",
+                        number="1",
+                        transcription="a",
+                        proposed_marks=2,
+                        feedback="Good.",
+                        confidence="high",
                     ),
                     QuestionMarkDraft(
-                        number="2", transcription="b", proposed_marks=3,
-                        feedback="ok", confidence="unsure",
+                        number="2",
+                        transcription="b",
+                        proposed_marks=3,
+                        feedback="ok",
+                        confidence="unsure",
                     ),
                 ]
             )
@@ -490,11 +548,14 @@ async def test_a_remark_cannot_be_requested_on_an_unmarked_question(
 
 
 async def test_a_student_cannot_contest_someone_elses_submission(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(_confident_result())
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
     await _submit(client, assignment_all_scheme, student)
     async with async_session() as session:
         sid = (await session.scalar(select(Submission))).id
@@ -516,7 +577,12 @@ async def test_a_student_cannot_contest_someone_elses_submission(
 
 
 async def test_the_review_queue_is_scoped_to_the_tutors_organization(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     monkeypatch.setattr(
         "app.services.marking.structured_complete",
@@ -529,9 +595,7 @@ async def test_the_review_queue_is_scoped_to_the_tutors_organization(
         json={"name": "Other", "email": "other-queue@example.com", "password": "password123"},
     )
     headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
-    assert (
-        await client.get("/api/v1/submissions/review-queue", headers=headers)
-    ).json() == []
+    assert (await client.get("/api/v1/submissions/review-queue", headers=headers)).json() == []
     assert (
         len((await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json())
         == 1
@@ -544,11 +608,14 @@ async def test_a_student_cannot_see_the_review_queue(client, tutor, student):  #
 
 
 async def test_resubmission_is_blocked_once_marks_have_counted(
-    client, tutor, student, assignment_all_scheme, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
-    monkeypatch.setattr(
-        "app.services.marking.structured_complete", fake_ai(_confident_result())
-    )
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
     await _submit(client, assignment_all_scheme, student)
     async with async_session() as session:
         submission = await session.scalar(select(Submission))

@@ -1,7 +1,6 @@
 """The activity hub: what's waiting, derived from live rows rather than a
 read/unread table."""
 
-
 from app.workers.jobs import process_one_job
 
 # Reuse the homework fixtures rather than rebuilding a tutor/group/student.

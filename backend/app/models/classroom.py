@@ -33,7 +33,9 @@ class ClassroomCourseLink(TimestampMixin, Base):
 
     __tablename__ = "classroom_course_links"
     __table_args__ = (
-        UniqueConstraint("google_account_id", "classroom_course_id", name="uq_course_link_account_course"),
+        UniqueConstraint(
+            "google_account_id", "classroom_course_id", name="uq_course_link_account_course"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -56,12 +58,18 @@ class ClassroomWorkLink(TimestampMixin, Base):
 
     __tablename__ = "classroom_work_links"
     __table_args__ = (
-        UniqueConstraint("course_link_id", "classroom_coursework_id", name="uq_work_link_course_coursework"),
+        UniqueConstraint(
+            "course_link_id", "classroom_coursework_id", name="uq_work_link_course_coursework"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    course_link_id: Mapped[int] = mapped_column(ForeignKey("classroom_course_links.id"), nullable=False)
-    assignment_id: Mapped[int] = mapped_column(ForeignKey("assignments.id"), unique=True, nullable=False)
+    course_link_id: Mapped[int] = mapped_column(
+        ForeignKey("classroom_course_links.id"), nullable=False
+    )
+    assignment_id: Mapped[int] = mapped_column(
+        ForeignKey("assignments.id"), unique=True, nullable=False
+    )
     classroom_coursework_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
     course_link: Mapped[ClassroomCourseLink] = relationship(back_populates="work_links")

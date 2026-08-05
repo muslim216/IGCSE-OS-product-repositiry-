@@ -71,7 +71,9 @@ class Assignment(TimestampMixin, Base):
 
     classified: Mapped[Classified | None] = relationship()
     questions: Mapped[list["AssignmentQuestion"]] = relationship(
-        back_populates="assignment", cascade="all, delete-orphan", order_by="AssignmentQuestion.position"
+        back_populates="assignment",
+        cascade="all, delete-orphan",
+        order_by="AssignmentQuestion.position",
     )
 
 
@@ -146,12 +148,8 @@ class Submission(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    assignment_id: Mapped[int | None] = mapped_column(
-        ForeignKey("assignments.id"), nullable=True
-    )
-    past_paper_id: Mapped[int | None] = mapped_column(
-        ForeignKey("past_papers.id"), nullable=True
-    )
+    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id"), nullable=True)
+    past_paper_id: Mapped[int | None] = mapped_column(ForeignKey("past_papers.id"), nullable=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # Past papers only, and self-declared: the platform can't measure how long
     # a student took or whether they really sat it under timed conditions.
@@ -172,7 +170,9 @@ class Submission(TimestampMixin, Base):
 
     assignment: Mapped[Assignment | None] = relationship()
     files: Mapped[list["SubmissionFile"]] = relationship(
-        back_populates="submission", cascade="all, delete-orphan", order_by="SubmissionFile.position"
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="SubmissionFile.position",
     )
     marks: Mapped[list["QuestionMark"]] = relationship(
         back_populates="submission", cascade="all, delete-orphan"

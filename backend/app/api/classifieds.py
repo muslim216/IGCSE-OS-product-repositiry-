@@ -56,7 +56,11 @@ async def upload_classified(
 async def list_classifieds(
     db: DbSession, user: TutorUser, subject_id: int | None = None
 ) -> list[ClassifiedOut]:
-    query = select(Classified).where(Classified.tutor_id == user.id).order_by(Classified.created_at.desc())
+    query = (
+        select(Classified)
+        .where(Classified.tutor_id == user.id)
+        .order_by(Classified.created_at.desc())
+    )
     if subject_id is not None:
         query = query.where(Classified.subject_id == subject_id)
     rows = (await db.scalars(query)).all()
@@ -93,7 +97,9 @@ async def download_classified(classified_id: int, db: DbSession, user: CurrentUs
 
 
 @router.get("/{classified_id}/mark-scheme")
-async def download_mark_scheme(classified_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+async def download_mark_scheme(
+    classified_id: int, db: DbSession, user: CurrentUser
+) -> FileResponse:
     classified = await db.get(Classified, classified_id)
     if classified is None or classified.mark_scheme_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
