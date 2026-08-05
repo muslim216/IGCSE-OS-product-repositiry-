@@ -1,6 +1,6 @@
 # 03. Frontend Engineering
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how the React application is structured, routed, and connected to the API.
@@ -169,13 +169,26 @@ down the app including the login that would fix it.
 it is a string**:
 
 ```ts
-if (typeof body.detail === "string") detail = body.detail;
+const parsed = parseErrorBody(await resp.json());
+if (parsed.detail) detail = parsed.detail;
+fields = parsed.fields;
 ```
 
-The backend raises `HTTPException(status, "sentence")`, which is always a string — so this
-works for deliberate errors. **FastAPI's 422 validation response is a list**, so every field
-validation error falls through to `resp.statusText` and the user sees "Unprocessable Entity"
-instead of what was wrong. See the gap below and `API` rules in §05.
+`parseErrorBody()` reads both shapes the API produces. A handler-raised
+`HTTPException(status, "sentence")` gives a string and passes through unchanged. FastAPI's
+schema validation gives `{"detail": [{loc, msg, type}, …]}`, which becomes
+`"Target grade: Input should be a valid integer"` — the `loc` source prefix dropped because
+the user did not choose it, and list indices rendered 1-based because someone counting
+questions on screen starts at one.
+
+`ApiError` carries the parsed `fields` alongside `message`, so a form can render them against
+the offending inputs without another client change. **Every existing caller reads
+`err.message` and needed no edit.**
+
+When the body says nothing usable the detail stays empty and the caller falls back to
+`resp.statusText`. That fallback is deliberate: an empty string presented as a message leaves
+the user with a blank error box, which is worse than the "Unprocessable Entity" this replaced.
+`API-11`, and `src/test/client-errors.test.ts`.
 
 ### Server state
 
@@ -326,10 +339,10 @@ leaks memory across navigations.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **422 validation errors are discarded.** `client.ts:139` reads `detail` only when it is a string; FastAPI's validation `detail` is a list, so the user sees `resp.statusText`. | Every field-level validation failure surfaces as "Unprocessable Entity". Fixing it is one branch here plus the envelope work in §05. | `blocking` |
+| **`ApiError.fields` is populated and nothing renders it.** Forms show the joined `message` string, not per-field errors against the inputs. | The information now reaches the client and stops at the form. Rendering it is per-form work; the joined sentence is readable in the meantime, so this is an improvement left on the table rather than a defect. `API-11`. | `nice to have` |
 | **No OpenAPI codegen or contract test.** Response types are hand-mirrored. | A backend rename fails silently at runtime. `FE-4` is a convention with nothing enforcing it. `RISK-6`. | `blocking` |
 | **`QueryClient` has no defaults.** No `staleTime`, no `retry` policy. | Refetch-heavy behaviour and inconsistent retry semantics across the app. See §10. | `before scale` |
-| **No ESLint or Prettier.** | `FE-*` and §13 are enforced by review alone. Unused imports and hook-dependency mistakes are invisible. `RISK-2`. | `blocking` |
+| **No ESLint or Prettier.** | `FE-*` and §13 are enforced by review alone. Unused imports and hook-dependency mistakes are invisible. This is what remains of `RISK-2`; CI runs the suite and `tsc -b`, but no linter exists to run. | `blocking` |
 | **`vitest run` does not type-check.** Only `npm run build` does, and no automation runs it. | A type error reaches `main` unless someone builds locally. | `blocking` |
 | **Auth state is a hand-rolled context** with a single `fetchMe()` on mount. | No refetch on focus and no cross-tab synchronization: signing out in one tab leaves another believing it is signed in until its next 401. | `nice to have` |
 | **Four pages exceed 300 lines** and none is covered by a test. | The highest-change-risk files in the frontend are the least verified. | `before scale` |

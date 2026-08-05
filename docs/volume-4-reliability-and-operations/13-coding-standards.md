@@ -1,6 +1,6 @@
 # 13. Coding Standards
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how code is written, commented, and delivered.

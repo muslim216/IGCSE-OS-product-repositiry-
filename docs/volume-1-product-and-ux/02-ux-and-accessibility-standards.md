@@ -1,6 +1,6 @@
 # 02. UX & Accessibility Standards
 
-> **Volume 1 — Product & UX** · Engineering Constitution v1.1 · Status: Active
+> **Volume 1 — Product & UX** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the MANARA design system, interaction patterns, and the accessibility standard the
@@ -63,7 +63,7 @@ that feeds the interface (§05); the CSP that constrains font loading (§07, §0
 
 ## Sources
 
-Written from: `frontend/src/index.css` (283 lines); `frontend/src/components/ui.tsx`;
+Written from: `frontend/src/index.css` (306 lines); `frontend/src/components/ui.tsx`;
 `frontend/src/components/AppShell.tsx`; `frontend/src/App.tsx`; `frontend/index.html`;
 `frontend/vercel.json`; and a repository-wide audit of ARIA attribute and semantic element
 usage across `frontend/src/**/*.tsx`. Contrast figures are computed from the token values in
@@ -106,10 +106,10 @@ plugin and `@import "tailwindcss"`.
 
 The file has two halves, and they behave very differently:
 
-1. **Lines 3–42, the `@theme` block.** Design tokens as CSS custom properties. Tailwind
+1. **The `@theme` block at the top.** Design tokens as CSS custom properties. Tailwind
    generates utility classes from these: `bg-canvas`, `text-ink-500`, `border-line`,
    `bg-brand-600`, `font-display`.
-2. **Lines 44–283, the retarget layer.** Unlayered CSS that redefines Tailwind's *stock*
+2. **The rest of the file, the retarget layer.** Unlayered CSS that redefines Tailwind's *stock*
    palette utilities — `.bg-white`, `.text-slate-500`, `.bg-blue-600` — to point at MANARA
    tokens.
 
@@ -123,14 +123,14 @@ The file has two halves, and they behave very differently:
 | Text | `--color-ink-900` | `#f1ebe0` | "Parchment" — headings, primary text |
 | | `--color-ink-700` | `#d7d3c8` | Body copy |
 | | `--color-ink-500` | `#8a9bbe` | "Horizon" — labels, captions, nav |
-| | `--color-ink-400` | `#66739a` | Muted meta, placeholders |
 | Accent | `--color-brand-700/600/500` | `#a98844` / `#c9a55a` / `#d4b476` | "Beacon" — the product's only accent |
 | | `--color-brand-100/50` | amber at 16% / 8% | Accent tints |
 | Status | `--color-ok-700` / `ok-100` | `#7fc79a` | On track |
 | | `--color-warn-700` / `warn-100` | `#dba14e` | Needs attention |
 | | `--color-risk-600` / `risk-100` | `#d98a80` | At risk |
-| Hairlines | `--color-line` | `#28325a` | Default borders, dividers |
-| | `--color-line-strong` | `#394472` | Emphasised borders, scrollbar thumb |
+| Hairlines | `--color-line` | `#28325a` | Decorative borders and dividers |
+| | `--color-line-strong` | `#394472` | Emphasised dividers, scrollbar thumb |
+| | `--color-line-control` | `#6e79a3` | The boundary of an interactive control — inputs, selects, textareas. The only one of the three that meets WCAG 1.4.11 |
 
 `--color-gold-600/500/100` are aliases of the brand ramp, kept so older class names stay
 valid. They are not a separate colour.
@@ -147,7 +147,7 @@ utilities:
 .bg-green-100   { background-color: var(--color-ok-100); }
 ```
 
-The comment at `index.css:44–53` explains why it works: **unlayered rules always win over
+The comment above that block explains why it works: **unlayered rules always win over
 Tailwind's own `@layer utilities` in the cascade**, so this re-themes every generated class
 app-wide without `!important` and without editing every page.
 
@@ -164,7 +164,7 @@ Three consequences a new engineer must know:
 
 The layer also styles bare elements, which is why legacy inputs render correctly on dark:
 `input, select, textarea` get `--color-canvas` background, `--color-ink-900` text, and
-`--color-line` borders; placeholders get `--color-ink-400`.
+`--color-line-control` borders; placeholders get `--color-ink-500`.
 
 ### Typography
 
@@ -209,31 +209,45 @@ two things fail.
 | `ink-900` | 15.91 | Passes AA and AAA |
 | `ink-700` | 12.62 | Passes AA and AAA |
 | `ink-500` | 6.75 | Passes AA |
-| `ink-400` | **4.03** | **Fails AA for normal text** (passes large text / UI) |
 | `brand-600` | 8.10 | Passes AA |
 | `ok-700` / `warn-700` / `risk-600` | 9.47 / 8.29 / 7.10 | All pass AA |
 
 **Text on `--color-surface` (`#1c2543`):** `ink-900` 12.69, `ink-700` 10.06, `ink-500` 5.39,
-`brand-700` 4.51 — all pass. **`ink-400` is 3.21 and fails AA for normal text.**
+`brand-700` 4.51 — all pass.
 
-**Text on `--color-surface-muted` (`#242e52`):** **`ink-400` is 2.82 and fails every
-threshold.** `brand-700` is 3.96 and fails AA for normal text.
+**Text on `--color-surface-muted` (`#242e52`):** `ink-500` is 4.73 and passes.
+**`brand-700` is 3.96 and fails AA for normal text** — it is an accent, not a text token.
+
+> **A fourth text step used to sit here.** `--color-ink-400` (`#66739a`) measured 4.03 / 3.21
+> / 2.82 and so failed AA on every surface, while all 23 of its uses in the app were 11–14px
+> copy. It could not be retuned: on this palette the darkest value clearing 4.5:1 against
+> `surface-muted` is `#8a9bbe`, which is `ink-500` itself. The two muted steps were one step,
+> one of which was illegible, so the token was removed and its uses moved to `ink-500` rather
+> than left as a trap. `src/test/contrast.test.ts` fails if the name comes back.
 
 **Non-text contrast (WCAG 1.4.11 requires 3:1 for component boundaries and state
 indicators):**
 
 | Pair | Ratio | Verdict |
 |---|---|---|
-| `line` on `surface` | **1.21** | **Fails** — this is the default input border |
-| `line` on `canvas` | **1.52** | **Fails** |
-| `line-strong` on `canvas` | **2.02** | **Fails** |
+| `line-control` on `surface` | 3.53 | Passes — this is the input border |
+| `line-control` on `canvas` | 4.43 | Passes |
+| `line-control` on `surface-muted` | 3.10 | Passes |
+| `line` on `surface` | 1.21 | Decorative only — dividers and card edges, where WCAG sets no ratio |
+| `line` on `canvas` | 1.52 | Decorative only |
+| `line-strong` on `canvas` | 2.02 | Decorative only |
 | `surface` vs `canvas` | 1.25 | Card edges are carried by the border and shadow, not the fill |
 
 Filled buttons are fine: canvas text on `brand-600` is 8.10, and on `risk-600` is 7.10.
 
-The conclusion is specific rather than general: **the palette is well-built, `ink-400` is
-being used for text it cannot carry, and the hairline tokens are too quiet to serve as the
-sole boundary of an interactive control.**
+The conclusion is specific rather than general: **the palette is well-built, and the two
+places it failed were a text step that could not carry text and a hairline standing in for a
+control boundary.** Both are fixed; the hairlines themselves are unchanged, because a divider
+is not a control and dimming is the correct behaviour for one.
+
+These numbers are not maintained by hand. `frontend/src/test/contrast.test.ts` parses the
+tokens out of `index.css` and recomputes every ratio on each run, so a palette change that
+breaks `UX-8` or `UX-9` fails the build rather than this table going quietly stale.
 
 ### Accessibility as practiced
 
@@ -324,18 +338,24 @@ a school. This is the baseline, stated once.
 
 **`UX-8` — MUST · Critical · Active**
 Text meets 4.5:1 against its actual background; large text (≥18.66px bold or ≥24px) meets
-3:1. **`--color-ink-400` MUST NOT be used for body text on any surface** — it measures 4.03
-on canvas, 3.21 on surface, and 2.82 on surface-muted.
-*Rationale:* measured; see [Measured contrast](#measured-contrast). `ink-400` is usable only
-for large text on canvas, and for genuinely decorative marks.
+3:1. **`ink-500` is the dimmest token that may carry normal text** — 6.75 / 5.39 / 4.73 across
+the three surfaces. `brand-700` is an accent and MUST NOT carry normal text on
+`surface-muted`, where it measures 3.96.
+*Rationale:* measured; see [Measured contrast](#measured-contrast). The rule previously named
+`--color-ink-400` as forbidden for body text; that token no longer exists, which is the
+stronger form of the same rule. Enforced by `frontend/src/test/contrast.test.ts`.
 
 **`UX-9` — MUST · Critical · Active**
 Interactive component boundaries and state indicators meet 3:1 against their background.
-`--color-line` (1.21 on surface) MUST NOT be the sole visual boundary of an interactive
-control; use `--color-line-strong` or a stronger token for input, select and textarea
-borders.
+**`--color-line-control` is the token for that job** (3.53 on surface, 4.43 on canvas, 3.10 on
+surface-muted). `--color-line` (1.21) and `--color-line-strong` (2.02) are decorative
+hairlines — dividers, card edges, table rules — and MUST NOT be the sole visual boundary of an
+interactive control.
 *Rationale:* WCAG 1.4.11. A field whose edge is invisible is a field a low-vision user cannot
-find.
+find. The rule previously pointed at `line-strong` as the remedy, which also fails 3:1;
+`line-control` was added because nothing in the palette met the bar. Enforced by
+`frontend/src/test/contrast.test.ts`, which also asserts the hairlines stay quiet, so their
+low ratios read as a decision rather than an oversight.
 
 **`UX-10` — MUST · Critical · Active**
 Every interactive element has a visible focus indicator meeting 3:1 against adjacent colours.
@@ -440,7 +460,7 @@ from — it corrupts the data, not just the ethics.
 | Gap | Why it matters | Severity |
 |---|---|---|
 | **`Modal` has no focus trap and no focus restore** (`components/ui.tsx:120–157`). | Breaks `UX-11`. Keyboard and screen-reader users tab out of the dialog into the page behind it and lose their place on close. | `blocking` |
-| **`--color-ink-400` is used for body text and placeholders** but fails AA on every surface (4.03 / 3.21 / 2.82). | Breaks `UX-8` wherever it carries normal text — including `input::placeholder` at `index.css:133–136`. | `blocking` |
+| **Contrast is guarded at the token level, not at the point of use.** `contrast.test.ts` proves every token clears the ratio its role needs; nothing checks that a given token is used in the role it was measured for. | A `brand-700` label on `surface-muted` (3.96) would pass every test and still fail AA. The guard closes the systemic failure, not the individual mistake. | `before scale` |
 | **`--color-line` (1.21 on surface) is the default input border.** | Breaks `UX-9`. Form fields have no perceptible boundary for low-vision users. | `blocking` |
 | **`role="assistant"` in `TutorChatPage.tsx`** is not a valid ARIA role. | Breaks `UX-16`. Silently does nothing; the author presumably believed it conveyed something. | `blocking` |
 | **No focus-ring styling anywhere**, and `Modal`'s panel sets `outline-none`. | Breaks `UX-10`. The browser default is unreliable against `#0c1022`. | `blocking` |

@@ -1,6 +1,6 @@
 # The MANARA Engineering Constitution
 
-**Version 1.1** · Status: Active
+**Version 1.2** · Status: Active
 
 This is the source of truth for how MANARA by OASIS AI is built. Four volumes of fourteen
 numbered documents describe the system and the standards that govern it, sitting on a
@@ -214,6 +214,7 @@ your code will run against.
 
 | Version | Date | Change |
 |---|---|---|
+| **1.2** | 2026-08 | The two user-visible defects fixed. `API-11` promoted Draft → Active — `client.ts` reads FastAPI's 422 list, so a field mistake names the field instead of saying "Unprocessable Entity". `UX-8` and `UX-9` rewritten against a changed palette: `--color-ink-400` removed as unusable (it failed AA on every surface and could not be retuned without becoming `ink-500`), and `--color-line-control` added because nothing existing met WCAG 1.4.11 for a control boundary. §02 contrast table, §03 error handling, §05 error shape and §12 suite counts updated. |
 | **1.1** | 2026-08 | Four P1 risks fixed in code and the constitution brought back into agreement with it. `BE-17`, `SEC-11`, `REL-5`, `REL-6`, `QA-19` and `INF-16` promoted Draft → Active; `BE-18` added. `RISK-2`, `RISK-3`, `RISK-4` and `RISK-7` reduced from P1 to residual entries with their remaining gaps named. Current Reality rewritten in §01, §04, §05, §06, §07, §08, §10, §11, §12, §13, §14 and `ADR-0002`. |
 | **1.0** | 2026-08 | Initial constitution: governance layer, 14 numbered documents, 9 seed ADRs, risk register. Establishes the authority hierarchy, rule format, and change process. |
 

@@ -3,7 +3,7 @@
 > **Tier 2 — Architecture Specifications.** Why the structural decisions were made, and
 > what each one cost.
 >
-> **Status:** Active · Part of Engineering Constitution v1.1
+> **Status:** Active · Part of Engineering Constitution v1.2
 
 ## What an ADR is for
 

@@ -1,6 +1,6 @@
 # 08. Infrastructure & Deployment
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how MANARA is built, configured, and deployed, and the constraints production

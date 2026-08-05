@@ -1,6 +1,6 @@
 # 09. AI Platform
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how MANARA calls models: routing, prompts, metering, and the rules that decide when

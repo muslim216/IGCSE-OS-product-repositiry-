@@ -1,6 +1,6 @@
 # 04. Backend Engineering
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the layering of the FastAPI application, the service layer, and the background job

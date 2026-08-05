@@ -1,6 +1,6 @@
 # 01. Product Architecture
 
-> **Volume 1 — Product & UX** · Engineering Constitution v1.1 · Status: Active
+> **Volume 1 — Product & UX** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the system map: what MANARA is, the loop it runs, who sees what, and how a mark on

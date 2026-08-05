@@ -1,6 +1,6 @@
 # 07. Security Architecture
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs authentication, authorization, data protection, upload safety, secrets, and the AI

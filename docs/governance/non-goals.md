@@ -3,7 +3,7 @@
 > **Governance layer.** What MANARA deliberately does not do, and what it is deliberately
 > not built with.
 >
-> **Status:** Active · Part of Engineering Constitution v1.1
+> **Status:** Active · Part of Engineering Constitution v1.2
 
 ## Purpose
 

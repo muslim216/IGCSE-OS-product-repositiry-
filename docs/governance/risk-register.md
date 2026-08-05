@@ -3,7 +3,7 @@
 > **Governance layer.** Standing architectural risks, their likelihood, impact, and
 > mitigation.
 >
-> **Status:** Active · Part of Engineering Constitution v1.1
+> **Status:** Active · Part of Engineering Constitution v1.2
 >
 > **Review cadence:** quarterly, per `governance/change-process.md`.
 

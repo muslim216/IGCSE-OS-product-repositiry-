@@ -3,7 +3,7 @@
 > **Governance layer.** Who is accountable for each subsystem and each document, and the
 > dependency map that shows what depends on what.
 >
-> **Status:** Active · Part of Engineering Constitution v1.1
+> **Status:** Active · Part of Engineering Constitution v1.2
 
 ## Purpose
 

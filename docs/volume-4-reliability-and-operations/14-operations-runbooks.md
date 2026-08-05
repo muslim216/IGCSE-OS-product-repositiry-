@@ -1,6 +1,6 @@
 # 14. Operations Runbooks
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > What to do when something is broken. Each runbook: symptoms → diagnosis → action →

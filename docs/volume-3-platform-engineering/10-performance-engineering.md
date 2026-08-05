@@ -1,6 +1,6 @@
 # 10. Performance Engineering
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs latency, throughput, and cost — which in this system are the same discipline.

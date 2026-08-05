@@ -1,6 +1,6 @@
 # 12. Quality Engineering
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how a change is proven correct before it ships.
@@ -168,15 +168,26 @@ unexpected place.
 
 ### The frontend suite
 
-**7 files, 23 tests, 528 lines.** `App.test.tsx` (1), `Nav.test.tsx` (2),
-`ClassroomSettings.test.tsx` (3), `PastPapers.test.tsx` (4), `ReadinessView.test.tsx` (4),
-`TodayDashboard.test.tsx` (4), and `readiness-lib.test.ts` (5) — the only pure-unit spec.
+**9 files, 49 tests.** `App.test.tsx` (1), `Nav.test.tsx` (2), `ClassroomSettings.test.tsx`
+(3), `PastPapers.test.tsx` (4), `ReadinessView.test.tsx` (4), `TodayDashboard.test.tsx` (4),
+`readiness-lib.test.ts` (5), `client-errors.test.ts` (17) and `contrast.test.ts` (9).
 
 The test names are worth reading as a statement of intent: several assert the constitution's
 own rules rather than mechanics — *"with no data it explains the empty state and invents no
 scores"* (`PROD-2`), *"says the score is being recalculated rather than passing it off as
 current"* (`UX-21`), *"explains itself instead of offering a dead button when unconfigured"*
 (`INF-9`). This is the pattern to extend.
+
+The two newest files extend it furthest, by asserting **properties of the product rather than
+behaviour of a component**. `contrast.test.ts` parses the design tokens out of `index.css` and
+recomputes every WCAG ratio, so `UX-8` and `UX-9` are checked arithmetic rather than a table
+someone has to remember to update — and it pins the formula against black-on-white = 21:1,
+because a contrast guard computing the wrong ratio guards nothing. `client-errors.test.ts`
+covers the error parser and then stubs `fetch` to prove a real 422 reaches a caller readable,
+on the principle that the parser being correct is not the fix.
+
+Together with `test_authorization.py` on the backend, these are the tests that make a fixed
+defect stay fixed. They fail on the class of mistake, not the instance of it.
 
 Vitest is configured inline in `vite.config.ts`: `environment: "jsdom"`, `globals: true`, one
 setup file importing `@testing-library/jest-dom/vitest`. No `include`/`exclude` patterns, no
@@ -388,7 +399,7 @@ informs where to write real ones.
 | **CI's migration check runs against an empty database.** Up/down/up on Postgres 16 is automated; data safety is not. | It cannot catch the failure that has actually happened — 0012 added a non-nullable column to a populated table. `QA-11`'s "with data" clause and `DB-18` are manual compensating controls. `RISK-3` residual. | `before scale` |
 | **The test suite itself still runs no migration.** Schema comes from `Base.metadata.create_all` on SQLite. | Model/migration drift is invisible to `pytest`; only the separate CI job would catch a migration that fails outright, and it would not catch one that merely disagrees with the models. | `before scale` |
 | **`vitest run` does not type-check.** `npm run build` does, and CI runs it — but a developer running `npm test` locally still gets no type errors. | The strict `tsconfig.json` is now enforced on every PR; the local feedback loop still misses it, so type errors are found late rather than never. | `nice to have` |
-| **The frontend suite is 23 tests against 60+ pages**, and the four largest pages have none. | The highest-change-risk frontend files are unverified. | `before scale` |
+| **The frontend suite is 49 tests against 60+ pages**, and the four largest pages still have none. | 26 of those 49 guard the design tokens and the error parser, which is real but is not page coverage. The highest-change-risk frontend files remain unverified. | `before scale` |
 | **No coverage measurement.** `.gitignore` anticipates it; nothing produces it. | No signal on which risky paths are untested. Blocks `QA-21`. | `nice to have` |
 | **The test schema differs from production** — four indexes exist only in migrations. | No test exercises an indexed query plan. §06, `DB-12`. | `before scale` |
 | **No contract test between backend schemas and frontend types.** | A field rename passes both suites and fails at runtime. `RISK-6`. | `blocking` |

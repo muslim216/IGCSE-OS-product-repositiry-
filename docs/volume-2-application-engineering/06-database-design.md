@@ -1,6 +1,6 @@
 # 06. Database Design
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the schema, its conventions, and the migration process.

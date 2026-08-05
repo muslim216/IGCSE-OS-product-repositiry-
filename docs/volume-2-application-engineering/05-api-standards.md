@@ -1,6 +1,6 @@
 # 05. API Standards
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the HTTP contract: resource naming, methods and status codes, error shapes,
@@ -130,10 +130,15 @@ Status-code usage across `api/*.py`:
 | 400 | 1 | — |
 | 202 | 1 | — |
 
-**The frontend mirrors the string-only shape exactly.** `frontend/src/api/client.ts:139`
-reads `body.detail` only when `typeof body.detail === "string"`, so **every 422 validation
-error reaches the user as the bare HTTP status text**. This is the single most user-visible
-consequence of having no error contract.
+**The frontend reads both shapes.** `parseErrorBody()` in `frontend/src/api/client.ts`
+handles the string a handler raises and the `[{loc, msg, type}]` list schema validation
+produces, turning the latter into `"Target grade: Input should be a valid integer"` and
+exposing the parsed entries as `ApiError.fields`. It previously accepted only the string, so
+**every 422 in the product reached the user as the bare HTTP status text** — the single most
+user-visible consequence of having no error contract, and the reason `API-11` exists.
+
+The contract itself is still FastAPI's default rather than anything this API declares. What
+changed is that the client no longer discards half of it.
 
 ### Pagination
 
@@ -299,11 +304,15 @@ machine-readable slug.
 **Draft** because adding `code` is additive and safe, but it is only worth adopting alongside
 the 422 fix and a client change — see Known Gaps.
 
-**`API-11` — MUST · Important · Draft**
+**`API-11` — MUST · Important · Active**
 Validation failures return field-level detail the client can render against the offending
-input.
-*Rationale:* FastAPI already produces this; `client.ts` discards it, so users see
-"Unprocessable Entity". **Draft** until the client-side fix lands (`FE` gap in §03).
+input, and the client renders it rather than discarding it.
+*Rationale:* FastAPI already produces this and `client.ts` used to discard it, so users saw
+"Unprocessable Entity" for every field mistake in the product. Promoted from Draft when
+`parseErrorBody()` landed; `src/test/client-errors.test.ts` covers the parser and stubs fetch
+to prove a real 422 arrives readable. A handler that hand-rolls its own validation message
+should still prefer a schema constraint, so the detail is produced in the standard shape —
+see `API-16`.
 
 ### Pagination and collections
 
@@ -401,7 +410,7 @@ today, and the declarative one fails less quietly.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **422 validation errors are invisible to users.** FastAPI returns a `detail` list; `client.ts:139` accepts only strings, so the user sees "Unprocessable Entity". | Every field validation failure across the product is unreadable. Fixing needs `API-11` plus the client change in §03. | `blocking` |
+| **The 422 body is FastAPI's default, not a declared contract.** The client parses it, but nothing pins its shape; a FastAPI upgrade that changed `loc`/`msg` would break the parser silently on the server side. | The user-visible half is fixed and tested. The contract half is not: `API-10`'s error envelope is still Draft, and without it clients branch on HTTP status alone. | `before scale` |
 | **No error codes.** Clients branch on HTTP status alone and cannot distinguish two 409s. | `API-10` is Draft for this reason; without codes, error handling is string-matching or nothing. | `before scale` |
 | **No pagination on any of the 29 list endpoints.** | Evidence, usage events, and messages grow monotonically; the first to exceed a page of memory or a request timeout will do so in production. `API-12` binds new endpoints only. | `before scale` |
 | **No correlation id on any response.** | A user-reported error cannot be tied to a log line. See §11. | `before scale` |
