@@ -1,11 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  createObservation,
-  studentReadiness,
-  topicEvidence,
-} from "../api/readiness";
+import { createObservation, studentReadiness, topicEvidence } from "../api/readiness";
 import { listTopics } from "../api/syllabus";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
@@ -68,17 +64,11 @@ export default function StudentDetailPage() {
           ← Back to group
         </Link>
       )}
-      <h2 className="text-xl font-semibold text-slate-800">
-        {readiness.data?.student_name}
-      </h2>
+      <h2 className="text-xl font-semibold text-slate-800">{readiness.data?.student_name}</h2>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {readiness.data?.subjects.map((s) => (
-          <SubjectReadinessCard
-            key={s.subject_id}
-            subject={s}
-            onTopicClick={setSelectedTopic}
-          />
+          <SubjectReadinessCard key={s.subject_id} subject={s} onTopicClick={setSelectedTopic} />
         ))}
         {readiness.data?.subjects.length === 0 && (
           <p className="text-slate-500">No readiness data yet for this student.</p>

@@ -22,7 +22,6 @@ export default function GroupAnalyticsPage() {
   // Rendered as a tab inside GroupLayout, which already shows the class header.
   return (
     <div className="space-y-6">
-
       {a && (
         <>
           <div className="rounded-lg border bg-white p-4">
@@ -38,9 +37,7 @@ export default function GroupAnalyticsPage() {
                 </span>
               </p>
             ) : (
-              <p className="mt-2 text-sm text-slate-500">
-                No AI-marked questions finalized yet.
-              </p>
+              <p className="mt-2 text-sm text-slate-500">No AI-marked questions finalized yet.</p>
             )}
           </div>
 
@@ -73,9 +70,7 @@ export default function GroupAnalyticsPage() {
                     <span className="text-slate-700">
                       {t.topic_code} {t.topic_title}
                     </span>
-                    <span className={scoreColor(t.avg_score)}>
-                      {Math.round(t.avg_score)}%
-                    </span>
+                    <span className={scoreColor(t.avg_score)}>{Math.round(t.avg_score)}%</span>
                   </li>
                 ))}
                 {a.weak_topics.length === 0 && (

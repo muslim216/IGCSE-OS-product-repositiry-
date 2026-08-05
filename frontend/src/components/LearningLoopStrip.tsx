@@ -35,9 +35,7 @@ export default function LearningLoopStrip() {
               <step.icon aria-hidden className="h-[18px] w-[18px]" />
             </span>
             <span
-              className={`text-xs ${
-                step.emphasis ? "font-medium text-brand-500" : "text-ink-500"
-              }`}
+              className={`text-xs ${step.emphasis ? "font-medium text-brand-500" : "text-ink-500"}`}
             >
               {step.label}
             </span>

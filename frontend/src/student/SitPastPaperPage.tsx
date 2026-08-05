@@ -1,12 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  getPastPaper,
-  logAttempt,
-  myAttempt,
-  pastPaperBookletPath,
-} from "../api/pastPapers";
+import { getPastPaper, logAttempt, myAttempt, pastPaperBookletPath } from "../api/pastPapers";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
 
@@ -19,14 +14,11 @@ export default function SitPastPaperPage() {
   const attempt = useQuery({
     queryKey: ["past-paper-attempt", id],
     queryFn: () => myAttempt(id),
-    refetchInterval: (query) =>
-      query.state.data?.status === "being_marked" ? 4000 : false,
+    refetchInterval: (query) => (query.state.data?.status === "being_marked" ? 4000 : false),
   });
 
   const [files, setFiles] = useState<File[]>([]);
-  const [attemptedAt, setAttemptedAt] = useState(
-    () => new Date().toISOString().slice(0, 10),
-  );
+  const [attemptedAt, setAttemptedAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [timed, setTimed] = useState(true);
   const [minutes, setMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -53,8 +45,7 @@ export default function SitPastPaperPage() {
   }
 
   if (paper.isLoading) return <p className="text-slate-500">Loading…</p>;
-  if (paper.isError || !paper.data)
-    return <p className="text-red-600">Past paper not found.</p>;
+  if (paper.isError || !paper.data) return <p className="text-red-600">Past paper not found.</p>;
   const p = paper.data;
   const a = attempt.data;
 
@@ -89,8 +80,7 @@ export default function SitPastPaperPage() {
             {a.time_taken_minutes ? ` · took ${a.time_taken_minutes} minutes` : ""}
           </p>
           <p className="mt-3 text-sm text-slate-500">
-            Your per-question marks and feedback are in your readiness
-            breakdown.
+            Your per-question marks and feedback are in your readiness breakdown.
           </p>
         </div>
       ) : a?.status === "being_marked" ? (
@@ -101,8 +91,7 @@ export default function SitPastPaperPage() {
         <form onSubmit={onSubmit} className="space-y-3 rounded-lg border bg-white p-4">
           <h3 className="font-medium text-slate-800">Log your attempt</h3>
           <p className="text-sm text-slate-500">
-            Upload clear photos or a scan of every page of your answers, in
-            order.
+            Upload clear photos or a scan of every page of your answers, in order.
           </p>
           <input
             type="file"
@@ -141,16 +130,11 @@ export default function SitPastPaperPage() {
           </div>
 
           <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              checked={timed}
-              onChange={(e) => setTimed(e.target.checked)}
-            />
-            I sat this under timed exam conditions
+            <input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} />I
+            sat this under timed exam conditions
           </label>
           <p className="text-xs text-slate-400">
-            We take your word for this — be honest, it changes what your
-            readiness score means.
+            We take your word for this — be honest, it changes what your readiness score means.
           </p>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

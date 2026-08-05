@@ -5,8 +5,10 @@ Revises: 0001
 Create Date: 2026-07-19
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0002"
 down_revision = "0001"
@@ -55,7 +57,11 @@ def upgrade() -> None:
         "invites",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("code", sa.String(length=32), nullable=False),
-        sa.Column("kind", sa.Enum("student_join", "parent_link", name="invitekind", native_enum=False, length=16), nullable=False),
+        sa.Column(
+            "kind",
+            sa.Enum("student_join", "parent_link", name="invitekind", native_enum=False, length=16),
+            nullable=False,
+        ),
         sa.Column("group_id", sa.Integer(), sa.ForeignKey("groups.id"), nullable=True),
         sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("created_by_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
@@ -84,5 +90,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    for table in ("lessons", "parent_links", "invites", "group_members", "groups", "topics", "subjects"):
+    for table in (
+        "lessons",
+        "parent_links",
+        "invites",
+        "group_members",
+        "groups",
+        "topics",
+        "subjects",
+    ):
         op.drop_table(table)

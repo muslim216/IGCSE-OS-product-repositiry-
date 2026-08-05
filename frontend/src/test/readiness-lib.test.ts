@@ -14,9 +14,7 @@ const group = (id: number, name: string): Group => ({
   next_lesson: null,
 });
 
-function analytics(
-  weak_students: TutorAnalytics["weak_students"],
-): TutorAnalytics {
+function analytics(weak_students: TutorAnalytics["weak_students"]): TutorAnalytics {
   return {
     weak_students,
     weak_topics: [],

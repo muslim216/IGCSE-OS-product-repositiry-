@@ -11,7 +11,9 @@ export default function MocksPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Mocks &amp; quizzes</h2>
-        <p className="text-sm text-slate-500">Enter mock/test marks for a group, or review past ones.</p>
+        <p className="text-sm text-slate-500">
+          Enter mock/test marks for a group, or review past ones.
+        </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -38,8 +40,9 @@ export default function MocksPage() {
             <li key={a.id} className="flex items-center justify-between py-2">
               <span className="text-slate-700">{a.title}</span>
               <span className="text-slate-500">
-                {a.type} · {new Date(a.date).toLocaleDateString(undefined, { day: "numeric", month: "short" })} ·{" "}
-                {a.score_count} score{a.score_count === 1 ? "" : "s"}
+                {a.type} ·{" "}
+                {new Date(a.date).toLocaleDateString(undefined, { day: "numeric", month: "short" })}{" "}
+                · {a.score_count} score{a.score_count === 1 ? "" : "s"}
               </span>
             </li>
           ))}

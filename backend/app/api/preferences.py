@@ -1,6 +1,5 @@
-from sqlalchemy import select
-
 from fastapi import APIRouter
+from sqlalchemy import select
 
 from app.api.deps import DbSession, TutorUser
 from app.models import Group, GroupMember, TutorPreferences
@@ -13,7 +12,10 @@ router = APIRouter(prefix="/me/preferences", tags=["preferences"])
 def _out(p: TutorPreferences | None) -> PreferencesOut:
     if p is None:
         return PreferencesOut(
-            weight_mock=1.5, weight_homework=1.0, weight_quiz=0.8, weight_observation=0.5,
+            weight_mock=1.5,
+            weight_homework=1.0,
+            weight_quiz=0.8,
+            weight_observation=0.5,
             half_life_days=45.0,
         )
     return PreferencesOut(

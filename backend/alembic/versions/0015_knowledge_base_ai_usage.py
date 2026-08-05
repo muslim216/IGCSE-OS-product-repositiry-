@@ -5,8 +5,10 @@ Revises: 0014
 Create Date: 2026-07-23
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0015"
 down_revision = "0014"
@@ -18,7 +20,9 @@ def upgrade() -> None:
     op.create_table(
         "knowledge_entries",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("tutor_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("subject_id", sa.Integer(), sa.ForeignKey("subjects.id"), nullable=True),
         sa.Column(
@@ -46,7 +50,9 @@ def upgrade() -> None:
     op.create_table(
         "ai_usage_events",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("tutor_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column(

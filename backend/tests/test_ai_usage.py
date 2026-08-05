@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 
 from app.db import async_session
 from app.models import AiFeature, AiUsageEvent, User
-
 from tests.test_homework import group, student, subject  # noqa: F401 - shared fixtures
 
 
@@ -72,9 +71,7 @@ async def test_analytics_groups_by_feature(client, tutor):
 
 async def test_unpriced_calls_are_reported_not_counted_as_free(client, tutor):
     await _seed_events(tutor["user"]["id"])
-    body = (
-        await client.get("/api/v1/ai-usage/analytics", headers=tutor["headers"])
-    ).json()
+    body = (await client.get("/api/v1/ai-usage/analytics", headers=tutor["headers"])).json()
     readiness = next(b for b in body["buckets"] if b["bucket"] == "readiness")
     assert readiness["cost_usd"] == 0.0
     assert readiness["unpriced_call_count"] == 1
@@ -86,9 +83,7 @@ async def test_unpriced_calls_are_reported_not_counted_as_free(client, tutor):
 async def test_analytics_groups_by_month(client, tutor):
     await _seed_events(tutor["user"]["id"])
     body = (
-        await client.get(
-            "/api/v1/ai-usage/analytics?group_by=month", headers=tutor["headers"]
-        )
+        await client.get("/api/v1/ai-usage/analytics?group_by=month", headers=tutor["headers"])
     ).json()
     by_bucket = {b["bucket"]: b for b in body["buckets"]}
     assert set(by_bucket) == {"2026-06", "2026-07"}
@@ -99,9 +94,7 @@ async def test_analytics_groups_by_month(client, tutor):
 async def test_analytics_groups_by_provider(client, tutor):
     await _seed_events(tutor["user"]["id"])
     body = (
-        await client.get(
-            "/api/v1/ai-usage/analytics?group_by=provider", headers=tutor["headers"]
-        )
+        await client.get("/api/v1/ai-usage/analytics?group_by=provider", headers=tutor["headers"])
     ).json()
     by_bucket = {b["bucket"]: b for b in body["buckets"]}
     assert by_bucket["gemini"]["call_count"] == 2

@@ -5,8 +5,10 @@ Revises: 0002
 Create Date: 2026-07-19
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0003"
 down_revision = "0002"
@@ -38,7 +40,20 @@ def upgrade() -> None:
         sa.Column("instructions", sa.Text(), nullable=True),
         sa.Column("due_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("question_range", sa.String(length=128), nullable=True),
-        sa.Column("status", sa.Enum("extracting", "extraction_failed", "review", "published", "closed", name="assignmentstatus", native_enum=False, length=20), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "extracting",
+                "extraction_failed",
+                "review",
+                "published",
+                "closed",
+                name="assignmentstatus",
+                native_enum=False,
+                length=20,
+            ),
+            nullable=False,
+        ),
         sa.Column("extraction_error", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
@@ -55,7 +70,9 @@ def upgrade() -> None:
     op.create_table(
         "question_topics",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("question_id", sa.Integer(), sa.ForeignKey("assignment_questions.id"), nullable=False),
+        sa.Column(
+            "question_id", sa.Integer(), sa.ForeignKey("assignment_questions.id"), nullable=False
+        ),
         sa.Column("topic_id", sa.Integer(), sa.ForeignKey("topics.id"), nullable=False),
         sa.UniqueConstraint("question_id", "topic_id"),
     )
@@ -64,7 +81,20 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("assignment_id", sa.Integer(), sa.ForeignKey("assignments.id"), nullable=False),
         sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("status", sa.Enum("submitted", "marking", "ai_marked", "ai_failed", "finalized", name="submissionstatus", native_enum=False, length=16), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "submitted",
+                "marking",
+                "ai_marked",
+                "ai_failed",
+                "finalized",
+                name="submissionstatus",
+                native_enum=False,
+                length=16,
+            ),
+            nullable=False,
+        ),
         sa.Column("ai_error", sa.Text(), nullable=True),
         sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("finalized_at", sa.DateTime(timezone=True), nullable=True),
@@ -85,11 +115,25 @@ def upgrade() -> None:
         "question_marks",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("submission_id", sa.Integer(), sa.ForeignKey("submissions.id"), nullable=False),
-        sa.Column("question_id", sa.Integer(), sa.ForeignKey("assignment_questions.id"), nullable=False),
+        sa.Column(
+            "question_id", sa.Integer(), sa.ForeignKey("assignment_questions.id"), nullable=False
+        ),
         sa.Column("ai_transcription", sa.Text(), nullable=True),
         sa.Column("ai_marks", sa.Integer(), nullable=True),
         sa.Column("ai_feedback", sa.Text(), nullable=True),
-        sa.Column("ai_confidence", sa.Enum("high", "medium", "low", "tutor_only", name="markconfidence", native_enum=False, length=16), nullable=True),
+        sa.Column(
+            "ai_confidence",
+            sa.Enum(
+                "high",
+                "medium",
+                "low",
+                "tutor_only",
+                name="markconfidence",
+                native_enum=False,
+                length=16,
+            ),
+            nullable=True,
+        ),
         sa.Column("final_marks", sa.Integer(), nullable=True),
         sa.Column("final_feedback", sa.Text(), nullable=True),
         sa.Column("overridden", sa.Boolean(), nullable=False),
@@ -100,7 +144,19 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("type", sa.String(length=32), nullable=False),
         sa.Column("payload", sa.JSON(), nullable=False),
-        sa.Column("status", sa.Enum("pending", "running", "done", "failed", name="jobstatus", native_enum=False, length=12), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "pending",
+                "running",
+                "done",
+                "failed",
+                name="jobstatus",
+                native_enum=False,
+                length=12,
+            ),
+            nullable=False,
+        ),
         sa.Column("attempts", sa.Integer(), nullable=False),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),

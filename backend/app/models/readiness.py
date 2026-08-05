@@ -119,7 +119,9 @@ class Assessment(TimestampMixin, Base):
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[AssessmentType] = mapped_column(
-        Enum(AssessmentType, native_enum=False, length=8), default=AssessmentType.mock, nullable=False
+        Enum(AssessmentType, native_enum=False, length=8),
+        default=AssessmentType.mock,
+        nullable=False,
     )
     date: Mapped[datetime] = mapped_column(Date, nullable=False)
 

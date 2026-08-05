@@ -10,8 +10,7 @@ export default function PastPapersPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Past papers</h2>
         <p className="text-sm text-slate-500">
-          Sit a full paper, then upload your answers to get it marked question by
-          question.
+          Sit a full paper, then upload your answers to get it marked question by question.
         </p>
       </div>
 
@@ -36,9 +35,7 @@ export default function PastPapersPage() {
       </div>
 
       {papers.data?.length === 0 && (
-        <p className="text-slate-500">
-          No past papers have been added for your subjects yet.
-        </p>
+        <p className="text-slate-500">No past papers have been added for your subjects yet.</p>
       )}
     </div>
   );

@@ -29,9 +29,7 @@ describe("list detail — FastAPI's 422, the shape that was discarded", () => {
       detail: [{ loc: ["body", "email"], msg: "Field required", type: "missing" }],
     });
     expect(detail).toBe("Email: Field required");
-    expect(fields).toEqual([
-      { path: "email", label: "Email", message: "Field required" },
-    ]);
+    expect(fields).toEqual([{ path: "email", label: "Email", message: "Field required" }]);
   });
 
   test("the loc source prefix is dropped — the user did not choose it", () => {

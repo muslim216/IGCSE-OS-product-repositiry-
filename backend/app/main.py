@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -108,10 +109,11 @@ async def lifespan(app: FastAPI):
     worker = asyncio.create_task(_supervised_worker())
     yield
     worker.cancel()
-    try:
+    # Awaiting the task we just cancelled is how shutdown waits for it to
+    # actually stop; the CancelledError that comes back is the acknowledgement,
+    # not a failure.
+    with contextlib.suppress(asyncio.CancelledError):
         await worker
-    except asyncio.CancelledError:
-        pass
 
 
 #: Sent on every API response. The API returns JSON and file downloads, never
@@ -148,9 +150,7 @@ async def _queue_snapshot() -> tuple[dict, datetime | None]:
     question a liveness probe would ask.
     """
     async with async_session() as session:
-        counts = await session.execute(
-            select(Job.status, func.count(Job.id)).group_by(Job.status)
-        )
+        counts = await session.execute(select(Job.status, func.count(Job.id)).group_by(Job.status))
         oldest_pending = await session.scalar(
             select(func.min(Job.created_at)).where(Job.status == JobStatus.pending)
         )

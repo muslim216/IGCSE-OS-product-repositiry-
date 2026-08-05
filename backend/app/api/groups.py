@@ -50,7 +50,10 @@ async def create_group(body: GroupCreate, db: DbSession, user: TutorUser) -> Gro
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
     group = Group(
-        organization_id=user.organization_id, tutor_id=user.id, subject_id=subject.id, name=body.name
+        organization_id=user.organization_id,
+        tutor_id=user.id,
+        subject_id=subject.id,
+        name=body.name,
     )
     db.add(group)
     await db.commit()
@@ -101,7 +104,9 @@ async def group_detail(group_id: int, db: DbSession, user: CurrentUser) -> Group
 
 
 @router.patch("/{group_id}", response_model=GroupOut)
-async def update_group(group_id: int, body: GroupUpdate, db: DbSession, user: CurrentUser) -> GroupOut:
+async def update_group(
+    group_id: int, body: GroupUpdate, db: DbSession, user: CurrentUser
+) -> GroupOut:
     group = await _owned_group(db, user, group_id)
     group.name = body.name
     await db.commit()
@@ -163,7 +168,9 @@ async def create_student_account(
     return UserOut.model_validate(student)
 
 
-@router.post("/{group_id}/students/{student_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/{group_id}/students/{student_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT
+)
 async def reset_student_password(
     group_id: int, student_id: int, body: StudentPasswordReset, db: DbSession, user: CurrentUser
 ) -> None:
@@ -213,7 +220,9 @@ async def create_schedule_slot(
 
 
 @router.get("/{group_id}/lessons", response_model=list[ScheduleSlotOut])
-async def list_schedule_slots(group_id: int, db: DbSession, user: CurrentUser) -> list[ScheduleSlotOut]:
+async def list_schedule_slots(
+    group_id: int, db: DbSession, user: CurrentUser
+) -> list[ScheduleSlotOut]:
     group = await _owned_group(db, user, group_id)
     slots = (
         await db.scalars(
@@ -271,7 +280,9 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
 
 
 @router.delete("/{group_id}/lessons/{slot_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_schedule_slot(group_id: int, slot_id: int, db: DbSession, user: CurrentUser) -> None:
+async def delete_schedule_slot(
+    group_id: int, slot_id: int, db: DbSession, user: CurrentUser
+) -> None:
     group = await _owned_group(db, user, group_id)
     slot = await db.scalar(
         select(ScheduleSlot).where(ScheduleSlot.id == slot_id, ScheduleSlot.group_id == group.id)

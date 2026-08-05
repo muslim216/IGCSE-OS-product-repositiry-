@@ -14,7 +14,7 @@ class SyllabusTopicIn(BaseModel):
     code: str
     title: str
     weight: float = 1.0
-    children: list["SyllabusTopicIn"] = []
+    children: list[SyllabusTopicIn] = []
 
 
 class SyllabusDraft(BaseModel):

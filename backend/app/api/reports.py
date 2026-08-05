@@ -78,9 +78,7 @@ async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> R
 
 
 @router.get("", response_model=list[ReportOut])
-async def list_reports(
-    student_id: int, db: DbSession, user: CurrentUser
-) -> list[ReportOut]:
+async def list_reports(student_id: int, db: DbSession, user: CurrentUser) -> list[ReportOut]:
     await _check_can_view_student(db, user, student_id)
     allowed = ALLOWED_AUDIENCES[user.role]
     rows = (

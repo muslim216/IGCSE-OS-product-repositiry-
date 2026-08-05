@@ -173,7 +173,9 @@ async def list_coursework(access_token: str, course_id: str) -> list[dict]:
         return resp.json().get("courseWork", [])
 
 
-async def list_student_submissions(access_token: str, course_id: str, coursework_id: str) -> list[dict]:
+async def list_student_submissions(
+    access_token: str, course_id: str, coursework_id: str
+) -> list[dict]:
     async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as http:
         resp = await http.get(
             f"{CLASSROOM_API_BASE}/courses/{course_id}/courseWork/{coursework_id}/studentSubmissions",

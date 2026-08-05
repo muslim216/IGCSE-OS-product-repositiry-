@@ -72,9 +72,7 @@ def tutor_scope(user: User) -> Select:
 
 async def _count(session: AsyncSession, scope: Select) -> int:
     """The true total behind a feed, which `items` is capped below."""
-    return (
-        await session.execute(select(func.count()).select_from(scope.subquery()))
-    ).scalar_one()
+    return (await session.execute(select(func.count()).select_from(scope.subquery()))).scalar_one()
 
 
 async def for_user(session: AsyncSession, user: User) -> ActivitySummary:
@@ -88,9 +86,7 @@ async def for_user(session: AsyncSession, user: User) -> ActivitySummary:
 async def _tutor_activity(session: AsyncSession, user: User) -> ActivitySummary:
     scope = tutor_scope(user)
     rows = (
-        await session.execute(
-            scope.order_by(Submission.submitted_at.desc()).limit(ACTIVITY_LIMIT)
-        )
+        await session.execute(scope.order_by(Submission.submitted_at.desc()).limit(ACTIVITY_LIMIT))
     ).all()
     return ActivitySummary(
         count=await _count(session, scope),
@@ -114,9 +110,9 @@ async def _student_activity(session: AsyncSession, user: User) -> ActivitySummar
     )
     rows = (
         await session.execute(
-            scope.order_by(
-                Submission.finalized_at.desc(), Submission.submitted_at.desc()
-            ).limit(ACTIVITY_LIMIT)
+            scope.order_by(Submission.finalized_at.desc(), Submission.submitted_at.desc()).limit(
+                ACTIVITY_LIMIT
+            )
         )
     ).all()
     return ActivitySummary(

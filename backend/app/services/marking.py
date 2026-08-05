@@ -14,8 +14,8 @@ at any time, every override is audited, and a student can contest any
 finalized mark through a remark request.
 """
 
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -213,8 +213,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         ).all()
     }
     if questions and all(
-        (m := existing_marks.get(q.id)) is not None and m.final_marks is not None
-        for q in questions
+        (m := existing_marks.get(q.id)) is not None and m.final_marks is not None for q in questions
     ):
         return
 

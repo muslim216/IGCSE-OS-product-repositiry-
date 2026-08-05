@@ -51,12 +51,12 @@ async def list_conversations(db: DbSession, user: StudentUser) -> list[Conversat
             .order_by(ChatConversation.updated_at.desc())
         )
     ).all()
-    return [
-        ConversationOut(id=c.id, title=c.title, updated_at=c.updated_at) for c in rows
-    ]
+    return [ConversationOut(id=c.id, title=c.title, updated_at=c.updated_at) for c in rows]
 
 
-@router.post("/conversations", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/conversations", response_model=ConversationDetail, status_code=status.HTTP_201_CREATED
+)
 async def create_conversation(db: DbSession, user: StudentUser) -> ConversationDetail:
     convo = ChatConversation(student_id=user.id, title="New chat")
     db.add(convo)
@@ -157,9 +157,7 @@ async def send_message(
         if reply:
             async with async_session() as save_session:
                 save_session.add(
-                    ChatMessage(
-                        conversation_id=convo_id, role=ChatRole.assistant, content=reply
-                    )
+                    ChatMessage(conversation_id=convo_id, role=ChatRole.assistant, content=reply)
                 )
                 saved_convo = await save_session.get(ChatConversation, convo_id)
                 if saved_convo is not None:
@@ -194,9 +192,7 @@ async def send_message(
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(
-    conversation_id: int, db: DbSession, user: StudentUser
-) -> None:
+async def delete_conversation(conversation_id: int, db: DbSession, user: StudentUser) -> None:
     convo = await _owned_conversation(db, user, conversation_id)
     await db.delete(convo)
     await db.commit()

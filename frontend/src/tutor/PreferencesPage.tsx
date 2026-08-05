@@ -118,8 +118,8 @@ export default function PreferencesPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Preferences</h2>
         <p className="text-sm text-slate-500">
-          Control how much each of the seven readiness factors counts towards
-          your students' scores. Saving recalculates everyone you teach.
+          Control how much each of the seven readiness factors counts towards your students' scores.
+          Saving recalculates everyone you teach.
         </p>
       </div>
 
@@ -146,9 +146,8 @@ export default function PreferencesPage() {
           onChange={(v) => setForm({ ...form, half_life_days: v })}
         />
         <p className="text-xs text-slate-400">
-          Higher weights count that factor more; a shorter half-life makes recent
-          evidence dominate faster. A factor with no evidence is weighed out of
-          the score rather than counted as zero.
+          Higher weights count that factor more; a shorter half-life makes recent evidence dominate
+          faster. A factor with no evidence is weighed out of the score rather than counted as zero.
         </p>
 
         <div className="flex items-center gap-3">

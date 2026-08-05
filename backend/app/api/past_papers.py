@@ -83,7 +83,13 @@ async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
         if paper.organization_id != user.organization_id and user.role != UserRole.admin:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
         return paper
-    if user.role == UserRole.student:
+    # Left nested rather than collapsed into one `and`: this is the
+    # (organization, subject) scoping rule that decides which tutor's papers a
+    # student can see. Nested, it reads as two named steps — is this a student,
+    # and are they in scope. Collapsed, it is a 110-character boolean, and the
+    # cost of nobody checking that line twice is a student seeing another
+    # tutor's material.
+    if user.role == UserRole.student:  # noqa: SIM102
         if (paper.organization_id, paper.subject_id) in await _enrolled_scope(db, user.id):
             return paper
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
@@ -217,9 +223,7 @@ async def past_paper_detail(
 
 
 @router.get("/{past_paper_id}/booklet")
-async def past_paper_booklet(
-    past_paper_id: int, db: DbSession, user: CurrentUser
-) -> FileResponse:
+async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
     """The question paper — readable by enrolled students so they can sit it."""
     paper = await _visible_paper(db, user, past_paper_id)
     if paper.booklet_path is None:

@@ -20,9 +20,7 @@ export default function ParentDashboard() {
   if (children.isLoading) return <p className="text-slate-500">Loading…</p>;
   if (children.data?.length === 0) {
     return (
-      <p className="text-slate-500">
-        No children linked yet. Ask the tutor for a parent link.
-      </p>
+      <p className="text-slate-500">No children linked yet. Ask the tutor for a parent link.</p>
     );
   }
 
@@ -51,8 +49,8 @@ export default function ParentDashboard() {
           {readiness.data?.student_name}'s progress
         </h2>
         <p className="text-sm text-slate-500">
-          A simple view of how your child is doing. Predicted grades are estimates
-          based on their homework, mocks and their tutor's observations.
+          A simple view of how your child is doing. Predicted grades are estimates based on their
+          homework, mocks and their tutor's observations.
         </p>
         {readiness.data && readiness.data.subjects.length > 0 ? (
           <div className="mt-3 grid gap-4 lg:grid-cols-2">

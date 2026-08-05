@@ -13,8 +13,10 @@ Revises: 0018
 Create Date: 2026-07-24
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0019"
 down_revision = "0018"
@@ -25,14 +27,10 @@ depends_on = None
 def upgrade() -> None:
     with op.batch_alter_table("question_marks") as batch:
         batch.add_column(
-            sa.Column(
-                "needs_review", sa.Boolean(), nullable=False, server_default=sa.false()
-            )
+            sa.Column("needs_review", sa.Boolean(), nullable=False, server_default=sa.false())
         )
         batch.add_column(
-            sa.Column(
-                "auto_finalized", sa.Boolean(), nullable=False, server_default=sa.false()
-            )
+            sa.Column("auto_finalized", sa.Boolean(), nullable=False, server_default=sa.false())
         )
 
     op.create_table(

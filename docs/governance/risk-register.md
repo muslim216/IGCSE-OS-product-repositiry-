@@ -61,28 +61,40 @@ is bounded and the trigger is observable.
 
 ## RISK-2 — Nothing automated verifies any change
 
-**Likelihood:** Low · **Impact:** High · **Priority:** P3 (residual) · **Owner:** Founder
+**Likelihood:** Low · **Impact:** Medium · **Priority:** P4 (residual) · **Owner:** Founder
 
-**Largely mitigated.** `.github/workflows/ci.yml` now runs on every pull request: `pytest`,
-`vitest`, `npm run build` (which is `tsc -b && vite build`, the only type check anywhere),
-and an Alembic `upgrade head` → `downgrade base` → `upgrade head` against Postgres 16.
+**Mitigated.** `.github/workflows/ci.yml` runs on every pull request in four jobs: `ruff
+check` + `ruff format --check` and `eslint --max-warnings 0`; `pytest`; `vitest` and
+`npm run build` (which is `tsc -b && vite build`, the only type check anywhere); and an
+Alembic `upgrade head` → `downgrade base` → `upgrade head` against Postgres 16.
 
 Until then `.github/` had never existed on any branch, and `CLAUDE.md` stated that CI gated
 pull requests via CodeQL, Vercel preview builds and CodeRabbit. Those are GitHub-App
 configured and may well run, but nothing in the repository proved it. Both claims are now
 corrected.
 
-**Residual:** no linter, formatter or Python type checker is configured — no ruff, black,
-isort, mypy, or eslint. Every `CODE-*` style rule and every Python type annotation is still
-enforced by review alone. Adding them was deliberately excluded from the CI change so the
-gate would not arrive buried in a formatting diff across ~22k lines.
+The static-analysis job closed the residual that the first CI change deliberately left
+open. Both rule sets are scoped to catch defects rather than enforce taste — the argued
+exclusions are in `backend/pyproject.toml` and `frontend/eslint.config.js`, and each one
+says why at the site rather than being silently absent. The two that are substantive rather
+than cosmetic: `UP042` is off because `(str, Enum)` → `StrEnum` changes `str(Member)` on
+serialized enums, and `react-refresh` is not installed because its only rule would have
+split six files of correctly co-located code.
 
-**Trigger:** a style or typing regression merging unnoticed; or CI being disabled, made
+**Residual:** no Python type checker — no mypy or pyright. Every annotation in ~22k lines
+of Python is still decoration that nothing verifies, where the frontend has `tsc -b` in CI.
+That is now the whole of this risk, and it is a smaller thing than what it replaced: a
+wrong annotation misleads a reader, where an unlinted codebase merged unread.
+
+**Trigger:** a typing regression merging unnoticed; or CI being disabled, made
 non-blocking, or its jobs allowed to stay red.
 
-**Mitigation:** done for correctness, outstanding for style. Recorded in §12 and §13.
+**Mitigation:** done for correctness and style; outstanding for Python types. Adding mypy
+to ~22k lines of previously unchecked code is its own project — expect it to want
+`--ignore-missing-imports` and a per-module opt-in ratchet rather than a single sweep.
+Recorded in §12 and §13.
 
-**Not accepted.** This is the highest-priority item in the register.
+**Accepted for now**, at P4. No longer the highest-priority item in the register.
 
 ---
 
@@ -276,7 +288,7 @@ against the real provider before a prompt or model change ships. See §09.
 
 ## RISK-11 — Dependencies are unpinned and unscanned
 
-**Likelihood:** Medium · **Impact:** High · **Priority:** P2 · **Owner:** Founder
+**Likelihood:** High · **Impact:** High · **Priority:** P1 · **Owner:** Founder
 
 `backend/Dockerfile` runs `pip install .` against the `>=` ranges in `pyproject.toml` with no
 lockfile, so two builds of the same commit can produce different dependency trees. The image
@@ -286,8 +298,31 @@ vulnerabilities.
 **Trigger:** an upstream release breaking a build that previously worked; a published CVE in
 a transitive dependency.
 
-**Mitigation:** lockfile, non-root user, `.dockerignore`, and a vulnerability scan. See §08
-and §07.
+**The trigger has fired.** Running `npm audit` for the first time — incidentally, while
+adding eslint, which is how nobody had run it before — reports **8 advisories on the
+frontend: 1 critical, 1 high, 6 moderate.** Both serious ones are in the test and build
+toolchain and both need a major upgrade:
+
+| Package | Severity | Vulnerable | Fix |
+|---|---|---|---|
+| `vitest` | Critical | `<=3.2.5` (repo has `^2.0.5`) | `4.1.10`, semver-major |
+| `vite` | High | `<=6.4.2` (repo has `^5.4.0`) | `8.2.0`, semver-major |
+
+Both are `devDependencies`, and Vercel serves a static build, so neither ships to a user —
+the exposure is a developer running the dev server or the vitest UI, and CI running
+untrusted PR code. That bounds the blast radius; it does not make the finding stale, and
+the numbers are two majors behind on each.
+
+Deliberately **not** fixed in the lint change that found them: a `vite` and `vitest` double
+major is a real upgrade with its own regression surface across 49 frontend tests and the
+Tailwind v4 plugin, and burying it inside a formatting pass is exactly the pattern the split
+commits there exist to avoid.
+
+**Mitigation:** lockfile, non-root user, `.dockerignore`, and a vulnerability scan. The
+scan is the cheapest of the four and now has a demonstrated hit rate — an `npm audit` and
+`pip-audit` step in the CI lint job would have caught this two majors ago. Next: upgrade
+`vite`/`vitest` on their own branch, then add the audit step so the count cannot climb
+again unobserved. See §08 and §07.
 
 ---
 
@@ -315,23 +350,31 @@ breaker. The metering foundation is deliberately built for exactly this.
 
 | ID | Risk | L | I | P | Note |
 |---|---|---|---|---|---|
-| RISK-5 | Two readiness engines can disagree | High | Med | P2 | highest-ranked open risk |
+| RISK-11 | Dependencies unpinned and unscanned | High | High | P1 | **trigger fired** — 1 critical + 1 high advisory, both dev-only, both needing a major |
+| RISK-5 | Two readiness engines can disagree | High | Med | P2 | highest-ranked *unfired* risk |
 | RISK-6 | Frontend/backend contracts drift silently | High | Med | P2 | `tsc -b` now runs in CI, but nothing compares the two sides |
 | RISK-1 | Single-instance with no scale-out path | Med | High | P2 | |
 | RISK-3 | Migrations validated only by production | Low | Severe | P2 | up/down/up in CI; database not seeded |
 | RISK-4 | A dead worker is silent | Low | Med | P2 | detected and supervised; nothing alerts |
 | RISK-8 | Uploads on a disk with no backup story | Med | Severe | P2 | |
 | RISK-9 | Minors' data with no formal policy | Med | Severe | P2 | |
-| RISK-11 | Dependencies unpinned and unscanned | Med | High | P2 | |
-| RISK-2 | Nothing automated verifies any change | Low | High | P3 | tests, types and migrations gated; no linter |
 | RISK-7 | Authorization duplicated eleven times | Low | Severe | P3 | role checks closed; org scoping still per query |
 | RISK-10 | Prompt changes have no regression net | Med | Med | P3 | |
 | RISK-12 | AI cost model is unbounded | Med | Med | P3 | |
+| RISK-2 | Nothing automated verifies any change | Low | Med | P4 | lint, tests, types and migrations all gated; no Python type checker |
 
-**No entry is currently ranked P1.** All four that were — `RISK-2`, `RISK-3`, `RISK-4`,
-`RISK-7` — have shipped mitigations and been re-ranked against their residuals.
+**One entry is ranked P1: `RISK-11`.** It is the only one in the register whose stated
+trigger has actually fired rather than being anticipated — `npm audit`, run for the first
+time, reports a critical and a high advisory in the frontend toolchain. It is ranked above
+the P2 entries despite being dev-only exposure because it is the difference between a risk
+we are watching and a finding we are holding.
 
-The highest-ranked open item is now `RISK-5`: readiness v1 and v2 coexisting, with
+The four that were previously P1 — `RISK-2`, `RISK-3`, `RISK-4`, `RISK-7` — have all shipped
+mitigations and been re-ranked against their residuals. `RISK-2` has since dropped again to
+P4, its residual now narrowed to the absence of a Python type checker.
+
+The highest-ranked item with no realised failure behind it is `RISK-5`: readiness v1 and v2
+coexisting, with
 `analytics.py`, `reports.py` and `student_crm.py` still reading v1 tables directly while
 `/readiness/*` serves v2, so two screens can show a student different numbers. Nothing about
 it has changed — it is simply what is left. **It is left at P2 rather than promoted**, because

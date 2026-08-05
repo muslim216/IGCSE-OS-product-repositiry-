@@ -72,9 +72,7 @@ export default function ActivityMenu() {
             Activity
           </p>
           {items.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-ink-500">
-              Nothing waiting on you.
-            </p>
+            <p className="px-4 py-6 text-center text-sm text-ink-500">Nothing waiting on you.</p>
           ) : (
             <ul className="max-h-96 divide-y divide-line overflow-y-auto">
               {items.map((item) => (

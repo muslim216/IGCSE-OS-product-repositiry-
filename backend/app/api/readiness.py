@@ -92,9 +92,7 @@ async def student_readiness(
     return await build_summary_v2(db, student, subject_ids or [])
 
 
-@router.get(
-    "/students/{student_id}/topics/{topic_id}/evidence", response_model=TopicEvidence
-)
+@router.get("/students/{student_id}/topics/{topic_id}/evidence", response_model=TopicEvidence)
 async def topic_evidence(
     student_id: int, topic_id: int, db: DbSession, user: CurrentUser
 ) -> TopicEvidence:
@@ -135,9 +133,7 @@ async def topic_evidence(
 
 
 @router.get("/students/{student_id}/trend", response_model=list[SubjectTrend])
-async def student_trend(
-    student_id: int, db: DbSession, user: CurrentUser
-) -> list[SubjectTrend]:
+async def student_trend(student_id: int, db: DbSession, user: CurrentUser) -> list[SubjectTrend]:
     """Score over time. Reads v2 snapshots, falling back to v1's history for a
     subject that has no scored snapshot yet — same cutover rule as the summary,
     so a student never loses their trend line mid-migration."""
@@ -157,9 +153,7 @@ async def student_trend(
                 .order_by(ReadinessSnapshot.created_at)
             )
         ).all()
-        points = [
-            TrendPoint(recorded_at=s.created_at, score=s.score) for s in snapshots
-        ]
+        points = [TrendPoint(recorded_at=s.created_at, score=s.score) for s in snapshots]
         if not points:
             legacy = (
                 await db.scalars(
@@ -171,14 +165,8 @@ async def student_trend(
                     .order_by(ReadinessHistory.recorded_at)
                 )
             ).all()
-            points = [
-                TrendPoint(recorded_at=p.recorded_at, score=p.score) for p in legacy
-            ]
+            points = [TrendPoint(recorded_at=p.recorded_at, score=p.score) for p in legacy]
         if not points:
             continue
-        out.append(
-            SubjectTrend(
-                subject_id=subject_id, subject_name=subject.name, points=points
-            )
-        )
+        out.append(SubjectTrend(subject_id=subject_id, subject_name=subject.name, points=points))
     return out

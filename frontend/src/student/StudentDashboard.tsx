@@ -15,9 +15,7 @@ export default function StudentDashboard() {
   const lessons = useQuery({ queryKey: ["my-lessons"], queryFn: myLessons });
   const assignments = useQuery({ queryKey: ["my-assignments"], queryFn: myAssignments });
 
-  const due = (assignments.data ?? []).filter(
-    (a) => a.submission_status === "not_submitted",
-  );
+  const due = (assignments.data ?? []).filter((a) => a.submission_status === "not_submitted");
 
   return (
     <div className="space-y-6">

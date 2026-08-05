@@ -132,9 +132,7 @@ function toFieldError(item: { loc?: unknown[]; msg?: unknown }): FieldError | nu
   if (loc.length > 0 && typeof loc[0] === "string" && LOC_SOURCES.has(loc[0])) {
     loc.shift();
   }
-  const parts = loc.map((seg) =>
-    typeof seg === "number" ? `#${seg + 1}` : humanise(String(seg)),
-  );
+  const parts = loc.map((seg) => (typeof seg === "number" ? `#${seg + 1}` : humanise(String(seg))));
   return {
     path: loc.join("."),
     label: parts.join(" → "),
@@ -158,16 +156,15 @@ export function parseErrorBody(body: unknown): { detail: string; fields: FieldEr
 
   if (Array.isArray(detail)) {
     const fields = detail
-      .filter((item): item is { loc?: unknown[]; msg?: unknown } =>
-        typeof item === "object" && item !== null,
+      .filter(
+        (item): item is { loc?: unknown[]; msg?: unknown } =>
+          typeof item === "object" && item !== null,
       )
       .map(toFieldError)
       .filter((f): f is FieldError => f !== null);
     if (fields.length > 0) {
       return {
-        detail: fields
-          .map((f) => (f.label ? `${f.label}: ${f.message}` : f.message))
-          .join("; "),
+        detail: fields.map((f) => (f.label ? `${f.label}: ${f.message}` : f.message)).join("; "),
         fields,
       };
     }
@@ -199,11 +196,7 @@ export async function refreshTokens(): Promise<StoredTokens | null> {
   return getStoredTokens();
 }
 
-export async function api<T>(
-  path: string,
-  options: RequestInit = {},
-  retry = true,
-): Promise<T> {
+export async function api<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
   const tokens = getStoredTokens();
   const headers = new Headers(options.headers);
   if (!(options.body instanceof FormData) && options.body !== undefined) {

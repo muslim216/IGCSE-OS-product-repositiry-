@@ -26,11 +26,13 @@ class ExtractedTopic(BaseModel):
         description="Relative importance for readiness weighting; 1.0 unless the syllabus "
         "clearly emphasises some sections over others",
     )
-    children: list["ExtractedTopic"] = Field(default_factory=list)
+    children: list[ExtractedTopic] = Field(default_factory=list)
 
 
 class SyllabusExtractionResult(BaseModel):
-    exam_board: str = Field(description="Exam board name, e.g. 'Edexcel IGCSE', 'Cambridge O Level'")
+    exam_board: str = Field(
+        description="Exam board name, e.g. 'Edexcel IGCSE', 'Cambridge O Level'"
+    )
     code: str = Field(description="Official syllabus/specification code, e.g. '4CH1', '5070'")
     name: str = Field(description="Subject name, e.g. 'Chemistry'")
     grade_scale: str = Field(description="'9-1' or 'A*-E' etc., as used by this syllabus")

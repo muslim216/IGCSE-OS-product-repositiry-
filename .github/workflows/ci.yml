@@ -5,9 +5,9 @@
 # existed nothing ran on a pull request at all, so "the tests pass" meant "someone
 # remembered to run them". That is RISK-2 in docs/governance/risk-register.md.
 #
-# Three jobs, deliberately separate so a red run names the failure rather than
-# just failing: application tests, migration reversibility, and the frontend
-# build (which is the only type check anywhere in the repo).
+# Four jobs, deliberately separate so a red run names the failure rather than
+# just failing: static analysis, application tests, migration reversibility, and
+# the frontend build (which is the only type check anywhere in the repo).
 name: CI
 
 # Read-only by default. These jobs check out pull-request code and run it, so
@@ -32,6 +32,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (ruff + eslint)
+    runs-on: ubuntu-latest
+    # Its own job rather than steps bolted onto the test jobs, for the reason at
+    # the top of this file: a lint break reported as "Backend tests" names the
+    # wrong thing, and the first question about a red run is always which kind of
+    # wrong it is. This one is also the cheapest, so it answers first.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - name: ruff check
+        working-directory: backend
+        run: python -m ruff check .
+
+      # Separate from `check` so the failure message distinguishes "this code is
+      # wrong" from "this code is unformatted". --check never writes; the fix is
+      # `ruff format .` locally.
+      - name: ruff format --check
+        working-directory: backend
+        run: python -m ruff format --check .
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+
+      # --max-warnings 0 because a warning nobody has to clear is a warning that
+      # accumulates until the output is scrolled past rather than read. The two
+      # warning-level rules here (exhaustive-deps, only-export-components) are
+      # warnings to mark that they are advisory in kind, not that they are
+      # optional to resolve.
+      - name: eslint
+        working-directory: frontend
+        run: npm run lint -- --max-warnings 0
+
+      # The frontend counterpart to `ruff format --check`, and split from eslint
+      # for the same reason: "this code is wrong" and "this code is unformatted"
+      # are different messages. The fix is `npm run format` locally.
+      - name: prettier --check
+        working-directory: frontend
+        run: npm run format:check
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest

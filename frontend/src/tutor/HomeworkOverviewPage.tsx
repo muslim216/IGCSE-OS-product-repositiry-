@@ -23,9 +23,8 @@ export default function HomeworkOverviewPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Homework</h2>
         <p className="text-sm text-slate-500">
-          Homework is marked automatically. You only review the marks the AI
-          wasn't sure about, plus anything a student has asked you to look at
-          again.
+          Homework is marked automatically. You only review the marks the AI wasn't sure about, plus
+          anything a student has asked you to look at again.
         </p>
       </div>
 
@@ -40,10 +39,7 @@ export default function HomeworkOverviewPage() {
         </div>
         <ul className="mt-2 divide-y text-sm">
           {queue.data?.map((item) => (
-            <li
-              key={item.submission_id}
-              className="flex items-center justify-between py-2"
-            >
+            <li key={item.submission_id} className="flex items-center justify-between py-2">
               <div>
                 <Link
                   to={`/tutor/submissions/${item.submission_id}`}
@@ -97,9 +93,7 @@ export default function HomeworkOverviewPage() {
                 >
                   {a.assignment_title}
                 </Link>
-                {a.student_name && (
-                  <span className="ml-2 text-slate-500">— {a.student_name}</span>
-                )}
+                {a.student_name && <span className="ml-2 text-slate-500">— {a.student_name}</span>}
               </div>
               <span className="text-amber-700">{REASON_LABELS[a.reason] ?? a.reason}</span>
             </li>

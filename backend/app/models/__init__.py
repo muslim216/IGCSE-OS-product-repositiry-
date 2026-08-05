@@ -2,6 +2,7 @@ from app.models.ai_usage import AiFeature, AiUsageEvent
 from app.models.base import Base
 from app.models.chat import ChatConversation, ChatMessage, ChatRole
 from app.models.classroom import ClassroomCourseLink, ClassroomWorkLink, GoogleAccount
+from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
 from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
 from app.models.homework import (
     Assignment,
@@ -21,7 +22,9 @@ from app.models.homework import (
     SubmissionFile,
     SubmissionStatus,
 )
+from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
 from app.models.lessons import Lesson, LessonObservation, LessonTopic
+from app.models.orgs import Organization
 from app.models.readiness import (
     Assessment,
     AssessmentScore,
@@ -49,9 +52,6 @@ from app.models.readiness_v2 import (
     ReadinessSnapshot,
     ReadinessWeights,
 )
-from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
-from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
-from app.models.orgs import Organization
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
 from app.models.syllabus import Subject, SyllabusUpload, SyllabusUploadStatus, Topic

@@ -75,7 +75,9 @@ async def create_resource(
         resource.url = _validated_url(url)
     else:
         if file is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A file resource needs a file")
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "A file resource needs a file"
+            )
         path, name, mime = await storage.save_upload(file)
         resource.file_path = path
         resource.file_name = name
@@ -95,13 +97,18 @@ async def list_resources(
         try:
             query = query.where(GroupResource.kind == ResourceKind(kind))
         except ValueError:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind")
+            # `from None`: an unrecognised ?kind= is a client mistake, not an
+            # internal fault, so the ValueError behind it is noise in the
+            # traceback rather than context worth carrying.
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind") from None
     rows = (await db.scalars(query.order_by(GroupResource.created_at.desc()))).all()
     return [_out(r) for r in rows]
 
 
 @router.get("/resources/{resource_id}/file")
-async def download_resource_file(resource_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+async def download_resource_file(
+    resource_id: int, db: DbSession, user: CurrentUser
+) -> FileResponse:
     resource = await db.get(GroupResource, resource_id)
     if resource is None or resource.file_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")

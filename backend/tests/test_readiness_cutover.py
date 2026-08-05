@@ -147,7 +147,9 @@ async def test_a_queued_recompute_marks_the_score_as_updating(client, tutor, wor
 
 
 async def test_a_whole_student_recompute_marks_every_subject_updating(
-    client, tutor, world  # noqa: F811
+    client,
+    tutor,
+    world,  # noqa: F811
 ):
     await _write_snapshot(world)
     async with async_session() as session:
@@ -166,7 +168,9 @@ async def test_a_whole_student_recompute_marks_every_subject_updating(
 
 
 async def test_a_finished_recompute_does_not_mark_the_score_updating(
-    client, tutor, world  # noqa: F811
+    client,
+    tutor,
+    world,  # noqa: F811
 ):
     await _write_snapshot(world)
     async with async_session() as session:
@@ -239,9 +243,7 @@ async def test_saving_weights_persists_them(client, tutor):
         "weight_consistency": 0.0,
         "half_life_days": 30.0,
     }
-    resp = await client.put(
-        "/api/v1/readiness/weights", json=payload, headers=tutor["headers"]
-    )
+    resp = await client.put("/api/v1/readiness/weights", json=payload, headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
     assert resp.json()["weight_past_paper_performance"] == 2.5
 
@@ -267,11 +269,7 @@ async def test_saving_weights_recomputes_the_tutors_students(client, tutor, worl
     }
     await client.put("/api/v1/readiness/weights", json=payload, headers=tutor["headers"])
     async with async_session() as session:
-        jobs = (
-            await session.scalars(
-                select(Job).where(Job.type == "compute_readiness_v2")
-            )
-        ).all()
+        jobs = (await session.scalars(select(Job).where(Job.type == "compute_readiness_v2"))).all()
         assert len(jobs) == 1
         assert jobs[0].payload["student_id"] == world["student_id"]
 
@@ -296,9 +294,7 @@ async def test_weights_reject_out_of_range_values(client, tutor):
 
 async def test_students_cannot_read_or_change_the_weights(client, tutor, world):  # noqa: F811
     headers = world["student_headers"]
-    assert (
-        await client.get("/api/v1/readiness/weights", headers=headers)
-    ).status_code == 403
+    assert (await client.get("/api/v1/readiness/weights", headers=headers)).status_code == 403
     assert (
         await client.put(
             "/api/v1/readiness/weights",

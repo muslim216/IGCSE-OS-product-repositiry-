@@ -55,8 +55,7 @@ async def connect(body: ClassroomConnect, db: DbSession, user: TutorUser) -> Cla
     if not verify_state_token(body.state, user.id, OAUTH_PURPOSE):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "This connection attempt didn't start here, or it took too long. "
-            "Try connecting again.",
+            "This connection attempt didn't start here, or it took too long. Try connecting again.",
         )
     try:
         account = await gc.connect_account(
@@ -115,13 +114,17 @@ async def list_links(db: DbSession, user: TutorUser) -> list[ClassroomLinkOut]:
 
 
 @router.post("/links", response_model=ClassroomLinkOut, status_code=status.HTTP_201_CREATED)
-async def create_link(body: ClassroomLinkCreate, db: DbSession, user: TutorUser) -> ClassroomLinkOut:
+async def create_link(
+    body: ClassroomLinkCreate, db: DbSession, user: TutorUser
+) -> ClassroomLinkOut:
     account = await _own_account(db, user)
     group = await db.get(Group, body.group_id)
     if group is None or group.tutor_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
 
-    link = await db.scalar(select(ClassroomCourseLink).where(ClassroomCourseLink.group_id == body.group_id))
+    link = await db.scalar(
+        select(ClassroomCourseLink).where(ClassroomCourseLink.group_id == body.group_id)
+    )
     if link is None:
         link = ClassroomCourseLink(
             organization_id=user.organization_id,

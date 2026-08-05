@@ -165,9 +165,7 @@ export interface StudentSubmissionView {
 }
 
 export const listClassifieds = (subjectId?: number) =>
-  api<Classified[]>(
-    `/api/v1/classifieds${subjectId ? `?subject_id=${subjectId}` : ""}`,
-  );
+  api<Classified[]>(`/api/v1/classifieds${subjectId ? `?subject_id=${subjectId}` : ""}`);
 
 export function uploadClassified(payload: {
   title: string;
@@ -220,8 +218,7 @@ export const createAssignment = (payload: {
 
 export const listGroupAssignments = (groupId: number) =>
   api<Assignment[]>(`/api/v1/assignments/group/${groupId}`);
-export const getAssignment = (id: number) =>
-  api<AssignmentDetail>(`/api/v1/assignments/${id}`);
+export const getAssignment = (id: number) => api<AssignmentDetail>(`/api/v1/assignments/${id}`);
 export const replaceQuestions = (id: number, questions: QuestionIn[]) =>
   api<AssignmentDetail>(`/api/v1/assignments/${id}/questions`, {
     method: "PUT",
@@ -259,8 +256,7 @@ export function submitWork(assignmentId: number, files: File[]) {
 
 export const listSubmissions = (assignmentId: number) =>
   api<SubmissionSummary[]>(`/api/v1/assignments/${assignmentId}/submissions`);
-export const getSubmission = (id: number) =>
-  api<SubmissionDetail>(`/api/v1/submissions/${id}`);
+export const getSubmission = (id: number) => api<SubmissionDetail>(`/api/v1/submissions/${id}`);
 export const saveMarks = (
   id: number,
   marks: { question_id: number; final_marks: number | null; final_feedback: string | null }[],
@@ -273,20 +269,13 @@ export const finalizeSubmission = (id: number) =>
   api<SubmissionDetail>(`/api/v1/submissions/${id}/finalize`, { method: "POST" });
 
 /** Everything waiting on the tutor: AI-unsure marks and student remark requests. */
-export const reviewQueue = () =>
-  api<ReviewQueueItem[]>("/api/v1/submissions/review-queue");
+export const reviewQueue = () => api<ReviewQueueItem[]>("/api/v1/submissions/review-queue");
 
 export const markHistory = (submissionId: number, questionId: number) =>
-  api<MarkHistoryEntry[]>(
-    `/api/v1/submissions/${submissionId}/marks/${questionId}/history`,
-  );
+  api<MarkHistoryEntry[]>(`/api/v1/submissions/${submissionId}/marks/${questionId}/history`);
 
 /** Student-initiated. Never re-marked by AI — it goes to the tutor's queue. */
-export const requestRemark = (
-  submissionId: number,
-  questionId: number,
-  reason: string,
-) =>
+export const requestRemark = (submissionId: number, questionId: number, reason: string) =>
   api<RemarkRequestOut>(
     `/api/v1/submissions/${submissionId}/questions/${questionId}/remark-request`,
     { method: "POST", body: JSON.stringify({ reason: reason || null }) },

@@ -1,12 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  mySubmission,
-  requestRemark,
-  submitWork,
-  type StudentMarkRow,
-} from "../api/homework";
+import { mySubmission, requestRemark, submitWork, type StudentMarkRow } from "../api/homework";
 import { ApiError } from "../api/client";
 
 export default function SubmitHomeworkPage() {
@@ -17,8 +12,7 @@ export default function SubmitHomeworkPage() {
   const view = useQuery({
     queryKey: ["my-submission", id],
     queryFn: () => mySubmission(id),
-    refetchInterval: (query) =>
-      query.state.data?.status === "being_marked" ? 4000 : false,
+    refetchInterval: (query) => (query.state.data?.status === "being_marked" ? 4000 : false),
   });
 
   const [files, setFiles] = useState<File[]>([]);
@@ -83,8 +77,8 @@ export default function SubmitHomeworkPage() {
                 </div>
               )}
               <p className="mt-2 text-sm text-slate-500">
-                Take clear photos or a scan of your handwritten answers (JPG, PNG or PDF).
-                Upload every page in order.
+                Take clear photos or a scan of your handwritten answers (JPG, PNG or PDF). Upload
+                every page in order.
               </p>
               <form onSubmit={onSubmit} className="mt-4 space-y-3">
                 <input
@@ -131,8 +125,7 @@ function MarkedQuestion({
   const [error, setError] = useState<string | null>(null);
 
   const ask = useMutation({
-    mutationFn: () =>
-      requestRemark(submissionId!, mark.question_id!, reason),
+    mutationFn: () => requestRemark(submissionId!, mark.question_id!, reason),
     onSuccess: () => {
       setAsking(false);
       queryClient.invalidateQueries({ queryKey: ["my-submission", assignmentId] });
@@ -140,23 +133,19 @@ function MarkedQuestion({
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
-  const canAsk =
-    submissionId !== null && mark.question_id !== null && mark.remark_status === null;
+  const canAsk = submissionId !== null && mark.question_id !== null && mark.remark_status === null;
 
   return (
     <div className="rounded-lg border bg-white p-4">
       <div className="flex items-center justify-between">
         <span className="font-medium text-slate-800">
-          Q{mark.number}{" "}
-          <span className="font-normal text-slate-500">— {mark.text_summary}</span>
+          Q{mark.number} <span className="font-normal text-slate-500">— {mark.text_summary}</span>
         </span>
         <span className="text-sm font-medium text-slate-700">
           {mark.final_marks}/{mark.max_marks}
         </span>
       </div>
-      {mark.final_feedback && (
-        <p className="mt-2 text-sm text-slate-600">{mark.final_feedback}</p>
-      )}
+      {mark.final_feedback && <p className="mt-2 text-sm text-slate-600">{mark.final_feedback}</p>}
 
       {mark.remark_status === "open" && (
         <p className="mt-2 text-sm text-purple-700">

@@ -15,9 +15,8 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import Invite, Submission, SubmissionFile, User
 from app.services.invites import consume
-from app.services.rate_limit import FixedWindowLimiter, LOGIN_FAILURE_LIMIT
+from app.services.rate_limit import LOGIN_FAILURE_LIMIT, FixedWindowLimiter
 from app.workers.jobs import process_one_job
-
 from tests.test_homework import PDF_BYTES, PNG_BYTES, group, student, subject  # noqa: F401
 from tests.test_past_papers import (  # noqa: F401
     _extraction_double,
@@ -81,13 +80,17 @@ async def test_password_reset_revokes_existing_tokens(client, tutor, group):  # 
 
 
 async def test_students_cannot_see_another_organizations_past_papers(
-    client, tutor, subject, student, other_tutor, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    subject,
+    student,
+    other_tutor,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """Subjects are global, so matching a past paper on subject alone would show
     every student every tutor's uploads. Scope is (organization, subject)."""
-    monkeypatch.setattr(
-        "app.services.extraction.structured_complete", _extraction_double(fake_ai)
-    )
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
     rival = await client.post(
         "/api/v1/past-papers",
         data={
@@ -115,7 +118,10 @@ async def test_students_cannot_see_another_organizations_past_papers(
 
 
 async def test_students_still_see_their_own_tutors_past_papers(
-    client, tutor, student, past_paper  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,  # noqa: F811
 ):
     """The tenancy fix must not cut students off from the papers they're set."""
     listing = await client.get("/api/v1/past-papers", headers=student["headers"])
@@ -133,7 +139,13 @@ async def test_students_still_see_their_own_tutors_past_papers(
 
 
 async def test_tutor_can_open_a_past_paper_submission_page(
-    client, tutor, student, past_paper, other_tutor, monkeypatch, fake_ai  # noqa: F811
+    client,
+    tutor,
+    student,
+    past_paper,
+    other_tutor,
+    monkeypatch,
+    fake_ai,  # noqa: F811
 ):
     """Submission is polymorphic: a past-paper attempt has no assignment_id, and
     reading it unconditionally used to raise AttributeError (a 500) on the one
@@ -161,9 +173,7 @@ async def test_tutor_can_open_a_past_paper_submission_page(
 async def test_group_invites_expire(client, tutor, group):  # noqa: F811
     """A join code gets pasted into a group chat and lives there forever. It is
     multi-use on purpose, so the expiry is the only thing bounding it."""
-    invite = await client.post(
-        f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"]
-    )
+    invite = await client.post(f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"])
     code = invite.json()["code"]
     assert invite.json()["expires_at"] is not None
 
@@ -303,7 +313,9 @@ def test_fixed_window_limiter_counts_and_rolls_over():
 
 
 async def test_upload_rejects_contents_that_belie_the_declared_type(
-    client, tutor, subject  # noqa: F811
+    client,
+    tutor,
+    subject,  # noqa: F811
 ):
     """Content-Type is the client's word. A file is what its bytes say it is."""
     resp = await client.post(

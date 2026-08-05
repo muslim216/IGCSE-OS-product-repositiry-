@@ -38,8 +38,7 @@ export default function ClassroomSettingsPage() {
     enabled: connected,
   });
 
-  const fail = (err: unknown) =>
-    setError(err instanceof ApiError ? err.message : String(err));
+  const fail = (err: unknown) => setError(err instanceof ApiError ? err.message : String(err));
 
   const connect = useMutation({
     mutationFn: classroomAuthUrl,
@@ -101,9 +100,9 @@ export default function ClassroomSettingsPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Google Classroom</h2>
         <p className="text-sm text-slate-500">
-          Import coursework and turned-in student work from Classroom. Anything
-          imported goes through the same marking as work uploaded here — this
-          adds a way in, it doesn't replace direct upload.
+          Import coursework and turned-in student work from Classroom. Anything imported goes
+          through the same marking as work uploaded here — this adds a way in, it doesn't replace
+          direct upload.
         </p>
       </div>
 
@@ -112,8 +111,8 @@ export default function ClassroomSettingsPage() {
 
       {status.data?.configured === false ? (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          Google Classroom isn't set up on this deployment yet. Ask your
-          administrator to add the Google OAuth credentials.
+          Google Classroom isn't set up on this deployment yet. Ask your administrator to add the
+          Google OAuth credentials.
         </div>
       ) : (
         <div className="rounded-lg border bg-white p-4">
@@ -148,9 +147,7 @@ export default function ClassroomSettingsPage() {
             </div>
           ) : (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-slate-600">
-                Not connected to Google Classroom.
-              </p>
+              <p className="text-sm text-slate-600">Not connected to Google Classroom.</p>
               <button
                 onClick={() => connect.mutate()}
                 disabled={connect.isPending}

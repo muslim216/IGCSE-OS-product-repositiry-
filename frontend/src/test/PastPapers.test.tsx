@@ -69,15 +69,11 @@ test("the tutor upload form requires the mark scheme before it will submit", asy
   renderPage(<TutorPastPapersPage />);
   const button = await screen.findByRole("button", { name: /Add past paper/ });
   expect(button).toBeDisabled();
-  expect(
-    screen.getByText(/mark scheme is required/),
-  ).toBeInTheDocument();
+  expect(screen.getByText(/mark scheme is required/)).toBeInTheDocument();
 });
 
 test("the tutor list shows extraction still in progress", async () => {
   mockFetch([{ ...paper, question_count: 0 }]);
   renderPage(<TutorPastPapersPage />);
-  expect(
-    await screen.findByText(/Reading the questions out of the paper/),
-  ).toBeInTheDocument();
+  expect(await screen.findByText(/Reading the questions out of the paper/)).toBeInTheDocument();
 });

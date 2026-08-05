@@ -63,8 +63,7 @@ export default function SubmissionReviewPage() {
   const finalized = submission.data?.status === "finalized";
   const autoFinalized = submission.data?.status === "auto_finalized";
   const reviewCount =
-    submission.data?.marks.filter((m) => m.needs_review || m.remark_requested)
-      .length ?? 0;
+    submission.data?.marks.filter((m) => m.needs_review || m.remark_requested).length ?? 0;
 
   const save = useMutation({
     mutationFn: () =>
@@ -116,19 +115,13 @@ export default function SubmissionReviewPage() {
     <div className="space-y-5">
       <div>
         <Link
-          to={
-            s.assignment_id
-              ? `/tutor/assignments/${s.assignment_id}`
-              : "/tutor/past-papers"
-          }
+          to={s.assignment_id ? `/tutor/assignments/${s.assignment_id}` : "/tutor/past-papers"}
           className="text-sm text-blue-600 hover:underline"
         >
           ← {s.assignment_title}
         </Link>
         <div className="mt-1 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-slate-800">
-            {s.student_name}'s work
-          </h2>
+          <h2 className="text-xl font-semibold text-slate-800">{s.student_name}'s work</h2>
           <div className="flex items-center gap-3 text-sm">
             <span className="font-medium text-slate-700">
               {totals.got} / {totals.max}
@@ -228,8 +221,7 @@ function QuestionCard({
   onChange: (patch: Partial<Draft>) => void;
 }) {
   const confidence = mark.ai_confidence ?? "unsure";
-  const matchesAi =
-    mark.ai_marks !== null && draft?.final_marks === mark.ai_marks;
+  const matchesAi = mark.ai_marks !== null && draft?.final_marks === mark.ai_marks;
   const [showHistory, setShowHistory] = useState(false);
   const history = useQuery({
     queryKey: ["mark-history", submissionId, mark.question_id],
@@ -240,11 +232,7 @@ function QuestionCard({
   return (
     <div
       className={`rounded-lg border bg-white p-4 ${
-        mark.remark_requested
-          ? "border-purple-300"
-          : mark.needs_review
-            ? "border-amber-300"
-            : ""
+        mark.remark_requested ? "border-purple-300" : mark.needs_review ? "border-amber-300" : ""
       }`}
     >
       <div className="flex items-center justify-between">
@@ -260,9 +248,7 @@ function QuestionCard({
               Counted
             </span>
           )}
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs ${CONFIDENCE_STYLE[confidence]}`}
-          >
+          <span className={`rounded-full px-2 py-0.5 text-xs ${CONFIDENCE_STYLE[confidence]}`}>
             {CONFIDENCE_LABEL[confidence]}
           </span>
         </div>

@@ -77,9 +77,7 @@ async def test_student_join_via_invite(client, tutor, group):
     assert [m["name"] for m in members] == ["Sara"]
 
     # The student sees the group on their side too.
-    student_headers = {
-        "Authorization": f"Bearer {resp.json()['tokens']['access_token']}"
-    }
+    student_headers = {"Authorization": f"Bearer {resp.json()['tokens']['access_token']}"}
     mine = await client.get("/api/v1/me/groups", headers=student_headers)
     assert [g["name"] for g in mine.json()] == ["Chemistry Y10"]
 
@@ -137,9 +135,7 @@ async def test_parent_link_flow(client, tutor, group):
         },
     )
     assert parent.status_code == 201
-    parent_headers = {
-        "Authorization": f"Bearer {parent.json()['tokens']['access_token']}"
-    }
+    parent_headers = {"Authorization": f"Bearer {parent.json()['tokens']['access_token']}"}
     children = await client.get("/api/v1/me/children", headers=parent_headers)
     assert [c["name"] for c in children.json()] == ["Ali"]
 
@@ -162,9 +158,7 @@ async def test_lessons_and_student_view(client, tutor, group):
             "password": "password123",
         },
     )
-    student_headers = {
-        "Authorization": f"Bearer {student.json()['tokens']['access_token']}"
-    }
+    student_headers = {"Authorization": f"Bearer {student.json()['tokens']['access_token']}"}
     lessons = await client.get("/api/v1/me/lessons", headers=student_headers)
     assert lessons.status_code == 200
     assert lessons.json()[0]["subject_name"] == "Chemistry"
@@ -182,9 +176,7 @@ async def test_student_cannot_create_group(client, tutor, group, subject_id):
             "password": "password123",
         },
     )
-    student_headers = {
-        "Authorization": f"Bearer {student.json()['tokens']['access_token']}"
-    }
+    student_headers = {"Authorization": f"Bearer {student.json()['tokens']['access_token']}"}
     resp = await client.post(
         "/api/v1/groups",
         json={"name": "Hacked", "subject_id": subject_id},
@@ -218,9 +210,7 @@ async def test_group_summary_counts_feed_the_class_card(client, tutor, group):
     assert listing["next_lesson"]["duration_min"] == 90
 
     # GroupDetail carries the same summary, so the header needs no second request.
-    detail = (
-        await client.get(f"/api/v1/groups/{group['id']}", headers=tutor["headers"])
-    ).json()
+    detail = (await client.get(f"/api/v1/groups/{group['id']}", headers=tutor["headers"])).json()
     assert detail["member_count"] == 1
     assert detail["next_lesson"]["weekday"] == 2
 

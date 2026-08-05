@@ -52,8 +52,8 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
     <form onSubmit={onSubmit} className="rounded-lg border bg-white p-4">
       <h3 className="font-medium text-slate-800">Upload a syllabus</h3>
       <p className="mt-1 text-sm text-slate-500">
-        Upload the exam board's syllabus PDF and the AI drafts the full topic tree — review and
-        edit it, then apply it to make the subject available for groups and homework.
+        Upload the exam board's syllabus PDF and the AI drafts the full topic tree — review and edit
+        it, then apply it to make the subject available for groups and homework.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div>
@@ -162,7 +162,9 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
       </button>
       <div className="flex items-center gap-3">
         <h2 className="text-xl font-semibold text-slate-800">{upload.title}</h2>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[upload.status]}`}>
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[upload.status]}`}
+        >
           {STATUS_LABEL[upload.status]}
         </span>
       </div>
@@ -190,7 +192,9 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
         <section className="rounded-lg border bg-white p-4">
           <div className="grid gap-3 sm:grid-cols-4">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Exam board</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Exam board
+              </p>
               <p className="text-sm text-slate-700">{upload.draft.exam_board}</p>
             </div>
             <div>
@@ -202,7 +206,9 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
               <p className="text-sm text-slate-700">{upload.draft.name}</p>
             </div>
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Grade scale</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Grade scale
+              </p>
               <p className="text-sm text-slate-700">{upload.draft.grade_scale}</p>
             </div>
           </div>
@@ -234,7 +240,10 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
             <tbody>
               {flatten(upload.draft.topics).map(({ path, node }) => (
                 <tr key={path.join(".")} className="border-b align-top">
-                  <td className="py-1.5 pr-2" style={{ paddingLeft: `${(path.length - 1) * 16}px` }}>
+                  <td
+                    className="py-1.5 pr-2"
+                    style={{ paddingLeft: `${(path.length - 1) * 16}px` }}
+                  >
                     {editable ? (
                       <input
                         className="w-20 rounded border border-slate-300 px-1.5 py-1"
@@ -293,8 +302,8 @@ export default function SyllabusUploadPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Syllabuses</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Upload additional exam board syllabuses beyond the built-in set — the AI drafts the
-          topic tree for you to review before it powers readiness tracking and homework.
+          Upload additional exam board syllabuses beyond the built-in set — the AI drafts the topic
+          tree for you to review before it powers readiness tracking and homework.
         </p>
       </div>
 
@@ -305,13 +314,12 @@ export default function SyllabusUploadPage() {
         <ul className="mt-2 divide-y">
           {uploads.data?.map((u) => (
             <li key={u.id} className="flex items-center justify-between py-2 text-sm">
-              <button
-                onClick={() => setSelectedId(u.id)}
-                className="text-blue-600 hover:underline"
-              >
+              <button onClick={() => setSelectedId(u.id)} className="text-blue-600 hover:underline">
                 {u.title}
               </button>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[u.status]}`}>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[u.status]}`}
+              >
                 {STATUS_LABEL[u.status]}
               </span>
             </li>

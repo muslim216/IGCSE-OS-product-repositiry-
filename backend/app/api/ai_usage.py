@@ -83,9 +83,7 @@ async def cost_analytics(
                 func.coalesce(func.sum(AiUsageEvent.input_tokens), 0),
                 func.coalesce(func.sum(AiUsageEvent.output_tokens), 0),
                 func.coalesce(func.sum(AiUsageEvent.cost_usd), 0.0),
-                func.coalesce(
-                    func.sum(case((AiUsageEvent.cost_usd.is_(None), 1), else_=0)), 0
-                ),
+                func.coalesce(func.sum(case((AiUsageEvent.cost_usd.is_(None), 1), else_=0)), 0),
             )
             .where(AiUsageEvent.organization_id == user.organization_id)
             .group_by(bucket)

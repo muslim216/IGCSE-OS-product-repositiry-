@@ -55,6 +55,7 @@ def _isolated_worker_state():
         jobs._restart_times,
     ) = saved
 
+
 STALE_MARKER = "app.workers.jobs._last_loop_at"
 STARTED_MARKER = "app.workers.jobs._started_at"
 IN_FLIGHT_MARKER = "app.workers.jobs._job_started_at"
@@ -170,12 +171,21 @@ async def test_an_unreachable_database_reports_503_without_raising(client, monke
 # --- Supervision -----------------------------------------------------------
 
 
-async def _run_supervisor_until(restarted: asyncio.Event, timeout: float = 5.0) -> None:
+async def _run_supervisor_until(
+    restarted: asyncio.Event,
+    timeout: float = 5.0,  # noqa: ASYNC109 — reasoned in the docstring
+) -> None:
     """Run the supervisor until it has restarted the worker, then stop it.
 
     Waits on an event rather than sleeping a fixed interval: a wall-clock sleep
     makes the assertion depend on how loaded the CI runner is, and it fails as a
     confusing count comparison rather than as "the restart never happened".
+
+    ASYNC109 would have the caller wrap this in `asyncio.timeout` instead of the
+    helper taking the argument. That rule is aimed at library APIs, where the
+    caller owns the deadline. Here the deadline is a property of the helper —
+    every call site wants the same "it should have restarted by now" bound — and
+    pushing it outward would repeat it at each one.
     """
     task = asyncio.create_task(_supervised_worker())
     try:

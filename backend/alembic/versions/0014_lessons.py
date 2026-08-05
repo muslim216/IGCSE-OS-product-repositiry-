@@ -5,8 +5,10 @@ Revises: 0013
 Create Date: 2026-07-23
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0014"
 down_revision = "0013"
@@ -23,12 +25,16 @@ def upgrade() -> None:
     op.create_table(
         "lessons",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("group_id", sa.Integer(), sa.ForeignKey("groups.id"), nullable=False),
         sa.Column("date", sa.Date(), nullable=False),
         sa.Column("duration_min", sa.Integer(), nullable=False, server_default="60"),
         sa.Column("notes", sa.Text(), nullable=True),
-        sa.Column("schedule_slot_id", sa.Integer(), sa.ForeignKey("schedule_slots.id"), nullable=True),
+        sa.Column(
+            "schedule_slot_id", sa.Integer(), sa.ForeignKey("schedule_slots.id"), nullable=True
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_table(
@@ -51,9 +57,7 @@ def upgrade() -> None:
 
     with op.batch_alter_table("assignments") as batch_op:
         batch_op.add_column(sa.Column("lesson_id", sa.Integer(), nullable=True))
-        batch_op.create_foreign_key(
-            "fk_assignments_lesson_id", "lessons", ["lesson_id"], ["id"]
-        )
+        batch_op.create_foreign_key("fk_assignments_lesson_id", "lessons", ["lesson_id"], ["id"])
 
 
 def downgrade() -> None:

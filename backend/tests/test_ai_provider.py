@@ -5,15 +5,15 @@ import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models import AiFeature, AiUsageEvent, User
 from app.db import async_session
+from app.models import AiFeature, AiUsageEvent, User
 from app.services import ai as ai_service
 from app.services.ai import (
     SURFACE_FEATURE,
     SURFACES,
-    AIUnavailableError,
     AiProvider,
     AiResponse,
+    AIUnavailableError,
     estimate_cost_usd,
     file_block,
     record_usage,

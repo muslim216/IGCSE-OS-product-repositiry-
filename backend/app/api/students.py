@@ -178,9 +178,7 @@ async def update_student_profile(
     student_id: int, body: StudentProfileUpdate, db: DbSession, user: CurrentUser
 ) -> StudentProfileOut:
     student = await _tutor_student(db, user, student_id)
-    profile = await db.scalar(
-        select(StudentProfile).where(StudentProfile.student_id == student.id)
-    )
+    profile = await db.scalar(select(StudentProfile).where(StudentProfile.student_id == student.id))
     if profile is None:
         profile = StudentProfile(student_id=student.id, organization_id=user.organization_id)
         db.add(profile)
@@ -282,7 +280,11 @@ async def add_note(
     await db.commit()
     await db.refresh(note)
     return TutorNoteOut(
-        id=note.id, tutor_id=user.id, tutor_name=user.name, body=note.body, created_at=note.created_at
+        id=note.id,
+        tutor_id=user.id,
+        tutor_name=user.name,
+        body=note.body,
+        created_at=note.created_at,
     )
 
 
@@ -300,5 +302,9 @@ async def add_communication(
     await db.commit()
     await db.refresh(comm)
     return ParentCommunicationOut(
-        id=comm.id, tutor_id=user.id, tutor_name=user.name, body=comm.body, created_at=comm.created_at
+        id=comm.id,
+        tutor_id=user.id,
+        tutor_name=user.name,
+        body=comm.body,
+        created_at=comm.created_at,
     )

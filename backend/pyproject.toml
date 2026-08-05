@@ -28,11 +28,71 @@ dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
+    "ruff>=0.16",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+# 100, not the 88 default, because that is what this codebase already is: the
+# 99th percentile line is 99 characters. Adopting 88 would reformat 109 of 145
+# files to satisfy a number nothing here was ever written to, which is churn
+# wearing a standard's clothes.
+line-length = 100
+target-version = "py311"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+# Chosen to catch bugs, not to enforce taste. A rule set that reports a thousand
+# things is one nobody ever gets to zero, and a linter that is permanently red
+# tells you nothing on the day it goes red for a real reason.
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes — undefined names, unused imports, the real bug-catcher
+    "I",     # import sorting
+    "B",     # bugbear — mutable defaults, unchained raises
+    "C4",    # comprehension correctness
+    "SIM",   # simplifiable constructs
+    "ASYNC", # blocking calls inside async — this codebase is async end to end
+    "UP",    # pyupgrade
+    # Seven `# noqa: BLE001` comments were already written across the codebase
+    # for a linter that had never been configured, so they suppressed nothing and
+    # documented a decision no tool was checking. Enabling the rule makes them
+    # mean what they say, and makes the next blind `except Exception` an explicit
+    # choice rather than an accident.
+    "BLE",
+]
+ignore = [
+    # The formatter owns line length. Keeping the lint rule as well means
+    # fighting it over the long strings and URLs in comments it cannot split,
+    # which is a fight the formatter always wins.
+    "E501",
+    # `timezone.utc` -> `datetime.UTC`. Identical object, 65 call sites, zero
+    # behaviour change: pure diff.
+    "UP017",
+    # `(str, Enum)` -> `StrEnum` is NOT equivalent — it changes `str(Member)`
+    # from "Class.member" to "member". These enums are serialized, so an
+    # autofix here could quietly alter what goes over the wire and into the
+    # database. Not a formatting question.
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest's fixture idiom is to import a fixture into the module and then name it
+# as a test parameter, which is by definition a redefinition. F811 is right
+# about the shape and wrong about the meaning, 30 times.
+"tests/*" = ["F811"]
+# Migrations are a historical record. They are formatted and import-sorted like
+# everything else, but a merged migration is never edited to satisfy a new rule.
+"alembic/versions/*" = ["E402"]
+# The seed scripts are one-shot CLI entry points (`python -m seed.demo`) that do
+# their work and exit. ASYNC240 is right that a blocking read stalls the event
+# loop, and here there is nothing else on the loop to stall — no request is
+# waiting. Rewriting them against anyio would add a dependency to buy nothing.
+"seed/*" = ["ASYNC230", "ASYNC240"]
 
 [build-system]
 requires = ["setuptools>=68"]

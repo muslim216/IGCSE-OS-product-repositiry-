@@ -18,7 +18,12 @@ function BeaconMark() {
     <svg viewBox="0 0 24 24" aria-hidden className="h-8 w-8 shrink-0 text-brand-600">
       <circle cx="12" cy="5" r="2.6" fill="currentColor" />
       <path d="M8.5 10h7l2 9h-11z" fill="currentColor" />
-      <path d="M9.6 14.5h4.8" stroke="var(--color-canvas)" strokeWidth="1.8" strokeLinecap="round" />
+      <path
+        d="M9.6 14.5h4.8"
+        stroke="var(--color-canvas)"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

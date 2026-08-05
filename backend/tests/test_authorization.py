@@ -23,7 +23,6 @@ from fastapi.routing import APIRoute
 
 from app.api.deps import get_current_user, require_student, require_tutor
 from app.main import app
-
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     group,
     student,
@@ -109,11 +108,7 @@ def test_the_api_still_has_the_routes_this_file_thinks_it_does():
 def test_role_gates_are_one_shared_dependency():
     """Identity, not shape. Two functions that both happen to check the role are
     exactly the situation this replaced."""
-    gated = [
-        r
-        for r in _routes()
-        if {require_tutor, require_student} & _dependency_calls(r)
-    ]
+    gated = [r for r in _routes() if {require_tutor, require_student} & _dependency_calls(r)]
     assert len(gated) > 40, f"only {len(gated)} routes carry a role gate"
 
 
@@ -211,9 +206,7 @@ async def test_a_gate_carried_by_an_ownership_helper_still_refuses(client, stude
     behind it. A reviewer reading class_brief() in isolation sees `CurrentUser`
     and reasonably concludes it is ungated; this is the answer to that.
     """
-    resp = await client.post(
-        f"/api/v1/groups/{group['id']}/brief", headers=student["headers"]
-    )
+    resp = await client.post(f"/api/v1/groups/{group['id']}/brief", headers=student["headers"])
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Tutor account required"
 
@@ -222,8 +215,6 @@ async def test_the_analytics_a_helper_gated_handler_calls_is_gated_too(client, s
     """class_brief() calls group_analytics() directly rather than over HTTP, so
     the callee needs its own gate — a route dependency does not protect a plain
     function call."""
-    resp = await client.get(
-        f"/api/v1/analytics/groups/{group['id']}", headers=student["headers"]
-    )
+    resp = await client.get(f"/api/v1/analytics/groups/{group['id']}", headers=student["headers"])
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Tutor account required"

@@ -43,7 +43,13 @@ export function SectionHeader({
   );
 }
 
-export function SectionCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function SectionCard({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <section
       className={`rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.35)] ${className}`}
@@ -79,7 +85,10 @@ const BAR_FILLS: Record<ReadinessStatus, string> = {
 /** Slim evidence bar. Decorative — the numeric score is always shown beside it. */
 export function ReadinessBar({ score, status }: { score: number; status: ReadinessStatus }) {
   return (
-    <span aria-hidden className="inline-block h-1 w-24 overflow-hidden rounded-full bg-canvas align-middle">
+    <span
+      aria-hidden
+      className="inline-block h-1 w-24 overflow-hidden rounded-full bg-canvas align-middle"
+    >
       <span
         className={`block h-full rounded-full ${BAR_FILLS[status]}`}
         style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
@@ -170,7 +179,10 @@ export function useToast(): { toast: ReactNode; showToast: (message: string) => 
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const toast = (
-    <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center"
+    >
       {message && (
         <p className="rounded-lg border border-line bg-surface-muted px-4 py-2 text-sm text-ink-900 shadow-lg">
           {message}

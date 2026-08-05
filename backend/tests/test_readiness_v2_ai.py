@@ -15,7 +15,11 @@ from app.models import (
     Subject,
     User,
 )
-from app.services.readiness_v2_ai import ReadinessSynthesis, WeakTopicSuggestion, compute_readiness_v2
+from app.services.readiness_v2_ai import (
+    ReadinessSynthesis,
+    WeakTopicSuggestion,
+    compute_readiness_v2,
+)
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -25,8 +29,11 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
     # once a subject has topics) reports "no data".
     async with async_session() as session:
         empty_subject = Subject(
-            exam_board="Edexcel IGCSE", code="4XX1", name="Empty Subject",
-            grade_scale="9-1", grade_boundaries=[],
+            exam_board="Edexcel IGCSE",
+            code="4XX1",
+            name="Empty Subject",
+            grade_scale="9-1",
+            grade_boundaries=[],
         )
         session.add(empty_subject)
         await session.commit()
@@ -96,15 +103,21 @@ async def test_ai_unavailable_writes_failed_snapshot_but_keeps_factors(client, t
     async with async_session() as session:
         tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
         assessment = Assessment(
-            tutor_id=tutor_user.id, subject_id=world["subject_id"], title="Mock",
-            type=AssessmentType.mock, date=date.today(),
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            title="Mock",
+            type=AssessmentType.mock,
+            date=date.today(),
         )
         session.add(assessment)
         await session.flush()
         session.add(
             AssessmentScore(
-                assessment_id=assessment.id, student_id=world["student_id"],
-                topic_id=world["topic1"], marks=15, max_marks=20,
+                assessment_id=assessment.id,
+                student_id=world["student_id"],
+                topic_id=world["topic1"],
+                marks=15,
+                max_marks=20,
             )
         )
         await session.commit()
@@ -141,15 +154,21 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
     async with async_session() as session:
         tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
         assessment = Assessment(
-            tutor_id=tutor_user.id, subject_id=world["subject_id"], title="Mock",
-            type=AssessmentType.mock, date=date.today(),
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            title="Mock",
+            type=AssessmentType.mock,
+            date=date.today(),
         )
         session.add(assessment)
         await session.flush()
         session.add(
             AssessmentScore(
-                assessment_id=assessment.id, student_id=world["student_id"],
-                topic_id=world["topic1"], marks=10, max_marks=20,
+                assessment_id=assessment.id,
+                student_id=world["student_id"],
+                topic_id=world["topic1"],
+                marks=10,
+                max_marks=20,
             )
         )
         await session.commit()
@@ -163,9 +182,7 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
         rationale="Assessment performance is the only signal so far and it's middling.",
         recommended_revision="Do another topic quiz and a past paper attempt.",
     )
-    monkeypatch.setattr(
-        "app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result)
-    )
+    monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result))
 
     async with async_session() as session:
         await compute_readiness_v2(

@@ -74,7 +74,10 @@ export default function GroupLayout() {
         </div>
       </div>
 
-      <nav aria-label="Class sections" className="mt-5 flex gap-1 overflow-x-auto border-b border-line pb-3">
+      <nav
+        aria-label="Class sections"
+        className="mt-5 flex gap-1 overflow-x-auto border-b border-line pb-3"
+      >
         <Tab to={`${base}/homework`} label="Homework" badge={g.awaiting_review_count} />
         <Tab to={`${base}/students`} label="Students" />
         <Tab to={`${base}/syllabus`} label="Syllabus" />

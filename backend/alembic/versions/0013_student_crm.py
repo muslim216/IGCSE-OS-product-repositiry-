@@ -5,8 +5,10 @@ Revises: 0012
 Create Date: 2026-07-23
 
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0013"
 down_revision = "0012"
@@ -18,8 +20,12 @@ def upgrade() -> None:
     op.create_table(
         "student_profiles",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, unique=True),
-        sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False),
+        sa.Column(
+            "student_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, unique=True
+        ),
+        sa.Column(
+            "organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=False
+        ),
         sa.Column("school", sa.String(length=255), nullable=True),
         sa.Column("year_group", sa.String(length=64), nullable=True),
         sa.Column("parent_name", sa.String(length=128), nullable=True),

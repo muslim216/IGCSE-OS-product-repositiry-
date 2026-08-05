@@ -6,7 +6,15 @@ import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
 import { listConversations } from "../api/chat";
 
-function StatTile({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "good" | "warn" }) {
+function StatTile({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "good" | "warn";
+}) {
   const color =
     tone === "good" ? "text-green-700" : tone === "warn" ? "text-amber-700" : "text-slate-800";
   return (
@@ -57,7 +65,9 @@ export default function StudentHomePage() {
         <StatTile
           label="Overall readiness"
           value={overall !== null ? `${overall}%` : "—"}
-          tone={overall === null ? "default" : overall >= 70 ? "good" : overall >= 50 ? "warn" : "warn"}
+          tone={
+            overall === null ? "default" : overall >= 70 ? "good" : overall >= 50 ? "warn" : "warn"
+          }
         />
         <StatTile
           label="Homework due"
@@ -66,7 +76,11 @@ export default function StudentHomePage() {
         />
         <StatTile
           label="Next lesson"
-          value={nextLesson ? `${WEEKDAYS[nextLesson.weekday]} ${nextLesson.start_time.slice(0, 5)}` : "—"}
+          value={
+            nextLesson
+              ? `${WEEKDAYS[nextLesson.weekday]} ${nextLesson.start_time.slice(0, 5)}`
+              : "—"
+          }
         />
       </div>
 
@@ -90,9 +104,7 @@ export default function StudentHomePage() {
               ))}
             </ul>
           ) : (
-            <p className="mt-2 text-sm text-slate-500">
-              No weak spots flagged yet — keep it up.
-            </p>
+            <p className="mt-2 text-sm text-slate-500">No weak spots flagged yet — keep it up.</p>
           )}
         </div>
 
@@ -113,7 +125,10 @@ export default function StudentHomePage() {
                   <span className="text-slate-700">{a.title}</span>
                   <span className="text-slate-400">
                     {a.due_at
-                      ? new Date(a.due_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })
+                      ? new Date(a.due_at).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                        })
                       : "no due date"}
                   </span>
                 </Link>

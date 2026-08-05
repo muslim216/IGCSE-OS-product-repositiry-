@@ -129,8 +129,7 @@ export const createAssessment = (payload: {
   type: string;
   date: string;
   scores: AssessmentScoreIn[];
-}) =>
-  api<Assessment>("/api/v1/assessments", { method: "POST", body: JSON.stringify(payload) });
+}) => api<Assessment>("/api/v1/assessments", { method: "POST", body: JSON.stringify(payload) });
 
 export interface MyAssessmentScore {
   assessment_id: number;
@@ -170,8 +169,7 @@ export interface ReadinessWeights {
   half_life_days: number;
 }
 
-export const getReadinessWeights = () =>
-  api<ReadinessWeights>("/api/v1/readiness/weights");
+export const getReadinessWeights = () => api<ReadinessWeights>("/api/v1/readiness/weights");
 export const updateReadinessWeights = (payload: ReadinessWeights) =>
   api<ReadinessWeights>("/api/v1/readiness/weights", {
     method: "PUT",
@@ -185,5 +183,4 @@ export const createObservation = (payload: {
   topic_id: number | null;
   comment: string;
   rating: number | null;
-}) =>
-  api<unknown>("/api/v1/observations", { method: "POST", body: JSON.stringify(payload) });
+}) => api<unknown>("/api/v1/observations", { method: "POST", body: JSON.stringify(payload) });

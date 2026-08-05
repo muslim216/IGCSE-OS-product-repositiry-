@@ -71,7 +71,9 @@ function stubFetch(empty = false) {
 
 function renderDashboard() {
   return render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
       <AuthProvider>
         <MemoryRouter initialEntries={["/tutor"]}>
           <App />

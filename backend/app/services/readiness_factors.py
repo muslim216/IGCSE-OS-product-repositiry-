@@ -107,7 +107,11 @@ def past_paper_performance(attempts: list[PastPaperAttemptPoint]) -> FactorResul
         score=round(avg, 1),
         confidence=_confidence_from_count(len(ordered)),
         evidence_count=len(ordered),
-        detail={"trend": trend, "timed_ratio": round(timed_ratio, 2), "attempt_count": len(ordered)},
+        detail={
+            "trend": trend,
+            "timed_ratio": round(timed_ratio, 2),
+            "attempt_count": len(ordered),
+        },
     )
 
 
@@ -130,7 +134,11 @@ def homework_performance(points: list[HomeworkPoint]) -> FactorResult:
             score=round(completion_rate * 100, 1),
             confidence=_confidence_from_count(len(points)),
             evidence_count=len(points),
-            detail={"completion_rate": round(completion_rate, 2), "accuracy": None, "on_time_rate": None},
+            detail={
+                "completion_rate": round(completion_rate, 2),
+                "accuracy": None,
+                "on_time_rate": None,
+            },
         )
     accuracy = sum(p.pct for p in submitted) / len(submitted)
     on_time_points = [p for p in submitted if p.on_time is not None]

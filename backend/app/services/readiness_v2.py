@@ -114,12 +114,18 @@ async def _past_paper_attempts(
     session: AsyncSession, student_id: int, subject_id: int
 ) -> list[PastPaperAttemptPoint]:
     rows = (
-        await session.execute(
-            select(PastPaperAttempt)
-            .join(PastPaper, PastPaper.id == PastPaperAttempt.past_paper_id)
-            .where(PastPaper.subject_id == subject_id, PastPaperAttempt.student_id == student_id)
+        (
+            await session.execute(
+                select(PastPaperAttempt)
+                .join(PastPaper, PastPaper.id == PastPaperAttempt.past_paper_id)
+                .where(
+                    PastPaper.subject_id == subject_id, PastPaperAttempt.student_id == student_id
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         PastPaperAttemptPoint(
             pct=(a.raw_marks / a.max_marks * 100) if a.max_marks else 0.0,
@@ -138,8 +144,7 @@ async def _homework_assignment_rows(session: AsyncSession, student_id: int, subj
             .join(GroupMember, GroupMember.group_id == Group.id)
             .outerjoin(
                 Submission,
-                (Submission.assignment_id == Assignment.id)
-                & (Submission.student_id == student_id),
+                (Submission.assignment_id == Assignment.id) & (Submission.student_id == student_id),
             )
             .where(
                 GroupMember.student_id == student_id,
@@ -174,9 +179,7 @@ async def _homework_points(
         total_final = sum(m.final_marks or 0 for m in marks)
         pct = (total_final / total_max * 100) if total_max else 0.0
         on_time = (
-            submission.submitted_at <= assignment.due_at
-            if assignment.due_at is not None
-            else None
+            submission.submitted_at <= assignment.due_at if assignment.due_at is not None else None
         )
         points.append(HomeworkPoint(pct=pct, on_time=on_time))
     return points
@@ -209,7 +212,10 @@ async def _assessment_points(
         AssessmentPoint(
             pct=(score.marks / score.max_marks * 100) if score.max_marks else 0.0,
             occurred_at=datetime(
-                assessment.date.year, assessment.date.month, assessment.date.day, tzinfo=timezone.utc
+                assessment.date.year,
+                assessment.date.month,
+                assessment.date.day,
+                tzinfo=timezone.utc,
             ),
         )
         for score, assessment in rows
@@ -274,15 +280,19 @@ async def _mistake_points_and_total(
         )
     ) or 0
     mistakes = (
-        await session.execute(
-            select(Mistake)
-            .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
-            .join(Submission, Submission.id == QuestionMark.submission_id)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
-            .join(Group, Group.id == Assignment.group_id)
-            .where(Mistake.student_id == student_id, Group.subject_id == subject_id)
+        (
+            await session.execute(
+                select(Mistake)
+                .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
+                .join(Submission, Submission.id == QuestionMark.submission_id)
+                .join(Assignment, Assignment.id == Submission.assignment_id)
+                .join(Group, Group.id == Assignment.group_id)
+                .where(Mistake.student_id == student_id, Group.subject_id == subject_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     points = [
         MistakePoint(category=m.category.value, severity=m.severity, occurred_at=m.created_at)
         for m in mistakes
@@ -312,42 +322,86 @@ async def evaluate_subject_factors(
         mastery_by_topic[topic.id] = result.score
         rows.append(
             _factor_row(
-                evaluation_run_id, student_id, subject_id,
-                ReadinessFactor.topic_mastery, result, topic_id=topic.id,
+                evaluation_run_id,
+                student_id,
+                subject_id,
+                ReadinessFactor.topic_mastery,
+                result,
+                topic_id=topic.id,
             )
         )
 
     pp_result = past_paper_performance(await _past_paper_attempts(session, student_id, subject_id))
     rows.append(
-        _factor_row(evaluation_run_id, student_id, subject_id, ReadinessFactor.past_paper_performance, pp_result)
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.past_paper_performance,
+            pp_result,
+        )
     )
 
     hw_result = homework_performance(await _homework_points(session, student_id, subject_id))
     rows.append(
-        _factor_row(evaluation_run_id, student_id, subject_id, ReadinessFactor.homework_performance, hw_result)
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.homework_performance,
+            hw_result,
+        )
     )
 
-    as_result = assessment_performance(await _assessment_points(session, student_id, subject_id), now)
+    as_result = assessment_performance(
+        await _assessment_points(session, student_id, subject_id), now
+    )
     rows.append(
-        _factor_row(evaluation_run_id, student_id, subject_id, ReadinessFactor.assessment_performance, as_result)
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.assessment_performance,
+            as_result,
+        )
     )
 
     coverage_result = syllabus_coverage(
         await _topic_coverage(session, student_id, subject_id, mastery_by_topic, topics)
     )
     rows.append(
-        _factor_row(evaluation_run_id, student_id, subject_id, ReadinessFactor.syllabus_coverage, coverage_result)
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.syllabus_coverage,
+            coverage_result,
+        )
     )
 
-    mistake_points, total_questions = await _mistake_points_and_total(session, student_id, subject_id)
+    mistake_points, total_questions = await _mistake_points_and_total(
+        session, student_id, subject_id
+    )
     mistake_result = mistake_analysis(mistake_points, total_questions, now)
     rows.append(
-        _factor_row(evaluation_run_id, student_id, subject_id, ReadinessFactor.mistake_analysis, mistake_result)
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.mistake_analysis,
+            mistake_result,
+        )
     )
 
     consistency_result = consistency(await _consistency_points(session, student_id, subject_id))
     rows.append(
-        _factor_row(evaluation_run_id, student_id, subject_id, ReadinessFactor.consistency, consistency_result)
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.consistency,
+            consistency_result,
+        )
     )
 
     for row in rows:

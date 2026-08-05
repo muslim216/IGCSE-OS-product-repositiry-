@@ -104,10 +104,7 @@ export default function AssignmentCreatePage() {
 
   return (
     <div className="max-w-2xl">
-      <Link
-        to={`/tutor/groups/${gid}/homework`}
-        className="text-sm text-brand-600 hover:underline"
-      >
+      <Link to={`/tutor/groups/${gid}/homework`} className="text-sm text-brand-600 hover:underline">
         ← All homework
       </Link>
       <h3 className="mt-1 font-semibold text-ink-900">Set homework</h3>

@@ -66,9 +66,7 @@ async def test_chat_flow(client, student, monkeypatch):
     assert '"text":' in body
     assert "event: done" in body
 
-    detail = await client.get(
-        f"/api/v1/chat/conversations/{cid}", headers=student["headers"]
-    )
+    detail = await client.get(f"/api/v1/chat/conversations/{cid}", headers=student["headers"])
     messages = detail.json()["messages"]
     assert len(messages) == 2
     assert messages[0]["role"] == "user"
@@ -97,9 +95,7 @@ async def test_chat_without_api_key_streams_error(client, student):
     assert "isn't set up yet" in body
 
     # No assistant message is persisted when the AI fails.
-    detail = await client.get(
-        f"/api/v1/chat/conversations/{cid}", headers=student["headers"]
-    )
+    detail = await client.get(f"/api/v1/chat/conversations/{cid}", headers=student["headers"])
     roles = [m["role"] for m in detail.json()["messages"]]
     assert roles == ["user"]
 

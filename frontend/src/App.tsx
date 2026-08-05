@@ -128,10 +128,7 @@ export default function App() {
           <Route path="/tutor/settings" element={<ClassroomSettingsPage />} />
           <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
         </Route>
-        <Route
-          path="/settings/classroom/callback"
-          element={<ClassroomCallbackPage />}
-        />
+        <Route path="/settings/classroom/callback" element={<ClassroomCallbackPage />} />
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>
@@ -144,10 +141,7 @@ export default function App() {
           <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
           <Route path="/student/tutor" element={<TutorChatPage />} />
           <Route path="/student/past-papers" element={<StudentPastPapersPage />} />
-          <Route
-            path="/student/past-papers/:pastPaperId"
-            element={<SitPastPaperPage />}
-          />
+          <Route path="/student/past-papers/:pastPaperId" element={<SitPastPaperPage />} />
           <Route path="/student/exams" element={<ExamsPage />} />
         </Route>
       </Route>
