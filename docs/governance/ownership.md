@@ -3,7 +3,7 @@
 > **Governance layer.** Who is accountable for each subsystem and each document, and the
 > dependency map that shows what depends on what.
 >
-> **Status:** Active · Part of Engineering Constitution v1.0
+> **Status:** Active · Part of Engineering Constitution v1.1
 
 ## Purpose
 
@@ -112,7 +112,7 @@ column is what fails; the right is what stops working with it.
 |---|---|
 | **Postgres** | Everything. No graceful degradation exists. |
 | **Upload disk** | New uploads; existing file downloads; extraction and marking of anything not yet read. |
-| **The in-process worker** | All extraction, marking, readiness synthesis, report generation, and Classroom sync. **The API keeps serving requests and reports healthy**, so this failure is silent. |
+| **The in-process worker** | All extraction, marking, readiness synthesis, report generation, and Classroom sync. The loop is supervised and `/health/ready` reports its state, so the failure is now **findable** — but nothing alerts, so it stays silent until someone looks. |
 | **Anthropic** | Chat, reports, readiness synthesis, class briefs. Marking and extraction survive (Gemini). |
 | **Gemini** | Marking, question extraction, syllabus extraction — the homework pipeline. Chat and reports survive (Anthropic). |
 | **Google Classroom** | Import only. Direct upload is unaffected by design. |

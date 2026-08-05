@@ -3,7 +3,7 @@
 > **Governance layer.** Standing architectural risks, their likelihood, impact, and
 > mitigation.
 >
-> **Status:** Active · Part of Engineering Constitution v1.0
+> **Status:** Active · Part of Engineering Constitution v1.1
 >
 > **Review cadence:** quarterly, per `governance/change-process.md`.
 
@@ -61,23 +61,26 @@ is bounded and the trigger is observable.
 
 ## RISK-2 — Nothing automated verifies any change
 
-**Likelihood:** High · **Impact:** High · **Priority:** P1 · **Owner:** Founder
+**Likelihood:** Low · **Impact:** High · **Priority:** P3 (residual) · **Owner:** Founder
 
-`.github/` has never existed on any branch. No test run, build, lint, type check, or
-migration check happens on a pull request. The backend has no linter, formatter, or type
-checker configured at all; the frontend's only static gate is `tsc -b` inside
-`npm run build`, which no automation runs.
+**Largely mitigated.** `.github/workflows/ci.yml` now runs on every pull request: `pytest`,
+`vitest`, `npm run build` (which is `tsc -b && vite build`, the only type check anywhere),
+and an Alembic `upgrade head` → `downgrade base` → `upgrade head` against Postgres 16.
 
-`CLAUDE.md` states that CI gates pull requests via CodeQL, Vercel preview builds, and
-CodeRabbit. Those are GitHub-App-configured and may well run — but nothing in the repository
-proves it, and a repository whose verification is invisible cannot be reasoned about.
+Until then `.github/` had never existed on any branch, and `CLAUDE.md` stated that CI gated
+pull requests via CodeQL, Vercel preview builds and CodeRabbit. Those are GitHub-App
+configured and may well run, but nothing in the repository proved it. Both claims are now
+corrected.
 
-**Trigger:** already materialized. A regression reaching `main` undetected is a matter of
-time, and `main` deploys immediately on merge.
+**Residual:** no linter, formatter or Python type checker is configured — no ruff, black,
+isort, mypy, or eslint. Every `CODE-*` style rule and every Python type annotation is still
+enforced by review alone. Adding them was deliberately excluded from the CI change so the
+gate would not arrive buried in a formatting diff across ~22k lines.
 
-**Mitigation:** add `.github/workflows/` running pytest, vitest, `tsc -b`, and an
-Alembic up/down/up check. Add ruff and eslint. This is a code change requiring its own pull
-request; it is recorded as a `blocking` gap in §12 and §13.
+**Trigger:** a style or typing regression merging unnoticed; or CI being disabled, made
+non-blocking, or its jobs allowed to stay red.
+
+**Mitigation:** done for correctness, outstanding for style. Recorded in §12 and §13.
 
 **Not accepted.** This is the highest-priority item in the register.
 
@@ -85,47 +88,60 @@ request; it is recorded as a `blocking` gap in §12 and §13.
 
 ## RISK-3 — Migrations are validated only by production
 
-**Likelihood:** Medium · **Impact:** Severe · **Priority:** P1 · **Owner:** Founder
+**Likelihood:** Low · **Impact:** Severe · **Priority:** P2 (residual) · **Owner:** Founder
 
-`backend/tests/conftest.py` builds the schema from `Base.metadata.create_all`, not from
-Alembic. All 21 migrations are therefore exercised for the first time when a container
-starts in production — and the container start command is
-`alembic upgrade head && uvicorn`, so **a failing migration means the service never
-starts**, taking the whole API down rather than degrading.
+**Largely mitigated.** CI's `migrations` job runs `upgrade head` → `downgrade base` →
+`upgrade head` against a real `postgres:16-alpine` on every pull request. The first full
+run of that cycle was clean: all 21 upgrades and all 21 downgrades succeeded, and
+`downgrade base` left only `alembic_version` behind — so `DB-16` holds, having previously
+been verified only by hand and only on SQLite.
 
-This has already bitten once: migration 0012 failed on Postgres with existing users, fixed
-in a follow-up.
+`backend/tests/conftest.py` still builds its schema from `Base.metadata.create_all` rather
+than Alembic, and that is not changing: the suite wants a fast in-memory database, and
+migration correctness is a different question answered by a different job. Before CI, the
+21 migrations first executed when a container booted in production — where the start command
+is `alembic upgrade head && uvicorn`, so **a failing migration means the service never
+starts**, taking the whole API down rather than degrading. Migration 0012 did exactly that
+once, on Postgres, with existing users.
 
-**Trigger:** any migration touching an existing table with data.
+**Residual:** CI runs against an *empty* database. A migration that succeeds on empty tables
+and fails on production data — which is what 0012 was — would still pass. Seeding the
+migration job is the remaining work.
 
-**Mitigation:** run `alembic upgrade head` / `downgrade` / `upgrade` against a real Postgres
-in CI, ideally seeded. Partially mitigated today by the convention of verifying up/down/up
-on SQLite by hand — which does not catch Postgres-specific failures, which is exactly the
-class that has occurred.
+**Trigger:** any migration that backfills, adds a NOT NULL column to a populated table, or
+changes a constraint on existing rows.
+
+**Mitigation:** partly done. Seed the CI database before the upgrade leg to close the rest.
 
 ---
 
 ## RISK-4 — A dead worker is silent
 
-**Likelihood:** Medium · **Impact:** High · **Priority:** P1 · **Owner:** Founder
+**Likelihood:** Low · **Impact:** Medium · **Priority:** P2 (residual) · **Owner:** Founder
 
-The worker is an asyncio task in the API process. If it dies, the API keeps serving requests
-and `GET /api/v1/health` keeps returning `{"status": "ok"}` — the health endpoint is a
-static literal that checks nothing, and `render.yaml` does not even declare a
-`healthCheckPath`.
+**Largely mitigated**, in three parts:
 
-Meanwhile extraction, marking, readiness synthesis, reports, and Classroom sync all stop.
-The user-visible symptom is homework that is "processing" forever.
+1. The worker no longer dies unnoticed. `_supervised_worker()` in `main.py` restarts
+   `worker_loop` on any exception *and* on a clean return, logging at error level. Previously
+   `lifespan` created the task and never looked at it again.
+2. `GET /api/v1/health/ready` reports the worker's state, the database, and the queue's
+   pending/running/failed counts, returning 503 when the database is unreachable or the
+   worker has stopped turning. `GET /api/v1/health` stays a shallow literal on purpose —
+   it is what `healthCheckPath` polls, and a database round-trip there would turn a blip
+   into a restart loop.
+3. `render.yaml` now sets `healthCheckPath: /api/v1/health`. Render previously never probed
+   the service at all, so a deploy was marked live without one successful request.
 
-Compounding it: a job that fails twice is marked failed and nothing announces it. There is
-no alert, no dead-letter queue, and no metric.
+**Residual, and it is the important half: nothing announces any of this.** Readiness tells
+the truth to whoever asks, and nobody is asking. There is no alerting, no dead-letter queue
+and no metric, so a job that fails twice is still recorded and forgotten. Uptime monitoring
+pointed at `/api/v1/health/ready` would close it; that needs a service the platform does not
+have.
 
-**Trigger:** unhandled exception escaping `worker_loop`; process restart under load; a
-poisoned job.
+**Trigger:** a failed job count that nobody notices; a stalled queue discovered by a student
+rather than by the system.
 
-**Mitigation:** health check that verifies the database and the worker's liveness;
-`healthCheckPath` set in `render.yaml`; alerting on failed-job count and on queue age. None
-done. See §11.
+**Mitigation:** detection done, notification outstanding. See §11.
 
 ---
 
@@ -171,21 +187,31 @@ request — a convention, not a check.
 
 ## RISK-7 — Authorization logic is duplicated eleven times
 
-**Likelihood:** Medium · **Impact:** Severe · **Priority:** P1 · **Owner:** Founder
+**Likelihood:** Low · **Impact:** Severe · **Priority:** P3 (residual) · **Owner:** Founder
 
-`api/deps.py` defines `require_role(*roles)`, `get_current_org_id()` and `CurrentOrg`. **None
-of the three is called anywhere.** Authorization is instead 10 hand-copied
-`def _require_tutor(user)` functions plus one `_require_student`, invoked imperatively inside
-handler bodies, with organization scoping applied ad hoc per query.
+**Closed for role checks.** Every route now takes `user: TutorUser` or `user: StudentUser`
+from `api/deps.py` — 38 tutor-gated routes and 13 student-gated, out of 125. All eleven
+private helpers are deleted, and the seven ownership helpers below the routing layer call the
+shared `assert_tutor()` rather than re-writing the condition.
 
-Eleven copies of an authorization check are eleven places to forget one. A new router that
-omits the call has no role check at all, and nothing — no test, no linter, no type error —
-notices.
+Previously `require_role`, `get_current_org_id` and `CurrentOrg` were all defined and none
+called; what ran was ten byte-identical `_require_tutor` copies plus one `_require_student`,
+invoked in 35 handler bodies. The duplication was never the real problem — the location was.
+A check in the body fails **open** when omitted; a check in the signature cannot be omitted.
 
-**Trigger:** a new router, or a new endpoint on an existing router.
+`tests/test_authorization.py` is what keeps it closed: it asserts the exact set of eight
+routes reachable without a token, that no module defines a private `_require_*` again, and
+that the wrong role is refused on sixteen endpoints. Both regressions were confirmed to
+actually fail the suite before the tests were trusted.
 
-**Mitigation:** converge on the dependency, which enforces the check at the signature rather
-than in the body. Recorded as a gap in §04 and §07.
+**Residual:** `get_current_org_id` and `CurrentOrg` are still unused. Organization scoping is
+applied per query against `user.organization_id` — which satisfies `SEC-7`, but by convention
+rather than by construction, so `PROD-4` remains enforced by memory in every query. That is
+the same class of risk one layer down, and it is tracked in §01's Known Gaps.
+
+**Trigger:** a query over a tenant-scoped table that forgets its organization filter.
+
+**Mitigation:** role checks done. Org scoping unaddressed.
 
 ---
 
@@ -287,20 +313,30 @@ breaker. The metering foundation is deliberately built for exactly this.
 
 ## Summary
 
-| ID | Risk | L | I | P |
-|---|---|---|---|---|
-| RISK-2 | Nothing automated verifies any change | High | High | **P1** |
-| RISK-3 | Migrations validated only by production | Med | Severe | **P1** |
-| RISK-4 | A dead worker is silent | Med | High | **P1** |
-| RISK-7 | Authorization duplicated eleven times | Med | Severe | **P1** |
-| RISK-1 | Single-instance with no scale-out path | Med | High | P2 |
-| RISK-5 | Two readiness engines can disagree | High | Med | P2 |
-| RISK-6 | Frontend/backend contracts drift silently | High | Med | P2 |
-| RISK-8 | Uploads on a disk with no backup story | Med | Severe | P2 |
-| RISK-9 | Minors' data with no formal policy | Med | Severe | P2 |
-| RISK-11 | Dependencies unpinned and unscanned | Med | High | P2 |
-| RISK-10 | Prompt changes have no regression net | Med | Med | P3 |
-| RISK-12 | AI cost model is unbounded | Med | Med | P3 |
+| ID | Risk | L | I | P | Note |
+|---|---|---|---|---|---|
+| RISK-5 | Two readiness engines can disagree | High | Med | P2 | highest-ranked open risk |
+| RISK-6 | Frontend/backend contracts drift silently | High | Med | P2 | `tsc -b` now runs in CI, but nothing compares the two sides |
+| RISK-1 | Single-instance with no scale-out path | Med | High | P2 | |
+| RISK-3 | Migrations validated only by production | Low | Severe | P2 | up/down/up in CI; database not seeded |
+| RISK-4 | A dead worker is silent | Low | Med | P2 | detected and supervised; nothing alerts |
+| RISK-8 | Uploads on a disk with no backup story | Med | Severe | P2 | |
+| RISK-9 | Minors' data with no formal policy | Med | Severe | P2 | |
+| RISK-11 | Dependencies unpinned and unscanned | Med | High | P2 | |
+| RISK-2 | Nothing automated verifies any change | Low | High | P3 | tests, types and migrations gated; no linter |
+| RISK-7 | Authorization duplicated eleven times | Low | Severe | P3 | role checks closed; org scoping still per query |
+| RISK-10 | Prompt changes have no regression net | Med | Med | P3 | |
+| RISK-12 | AI cost model is unbounded | Med | Med | P3 | |
+
+**No entry is currently ranked P1.** All four that were — `RISK-2`, `RISK-3`, `RISK-4`,
+`RISK-7` — have shipped mitigations and been re-ranked against their residuals.
+
+The highest-ranked open item is now `RISK-5`: readiness v1 and v2 coexisting, with
+`analytics.py`, `reports.py` and `student_crm.py` still reading v1 tables directly while
+`/readiness/*` serves v2, so two screens can show a student different numbers. Nothing about
+it has changed — it is simply what is left. **It is left at P2 rather than promoted**, because
+re-ranking an untouched risk is a judgement for the quarterly review and its owner, not a
+side effect of other work landing.
 
 ## Review triggers
 

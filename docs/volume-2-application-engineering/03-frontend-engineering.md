@@ -1,6 +1,6 @@
 # 03. Frontend Engineering
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how the React application is structured, routed, and connected to the API.

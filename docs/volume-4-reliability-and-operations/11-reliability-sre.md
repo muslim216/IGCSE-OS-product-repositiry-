@@ -1,6 +1,6 @@
 # 11. Reliability (SRE)
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.0 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs what happens when things break: failure domains, degradation, health, observability,
@@ -89,7 +89,7 @@ that has no measurement attached is recorded as a gap.
 |---|---|---|---|
 | **Postgres** | Everything | None. No graceful path exists | Request failures |
 | **Uploads disk** | New uploads, file downloads, extraction and marking of unread files | None | Request failures |
-| **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | None — **and the API keeps reporting healthy** | **None** |
+| **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
 | **Anthropic** | Chat, reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
 | **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; chat and reports unaffected | Error persisted to a domain column |
 | **Google Classroom** | Import only | Direct upload unaffected by design | `sync_classroom` job failure |
@@ -117,23 +117,45 @@ Four patterns are implemented and are the ones to copy:
 
 ### Health checking
 
+Two endpoints, both declared inline on the app in `main.py` rather than in a router, split
+along the `REL-7` line.
+
+**`GET /api/v1/health` — liveness.** Still `{"status": "ok"}`, still a static literal, and
+that is deliberate rather than unfinished:
+
 ```python
 @app.get("/api/v1/health")
 async def health() -> dict:
     return {"status": "ok"}
 ```
 
-That is the whole implementation, defined inline on the app rather than in a router. **It is a
-static literal.** It does not touch the database, does not check the worker, and does not
-report a version or build.
+`render.yaml` points `healthCheckPath` here. This is the endpoint whose failure *restarts the
+process*, so it must fail only for reasons a restart fixes. A database round-trip here would
+mean a thirty-second Postgres blip becomes a restart loop — the process is killed, comes back,
+still cannot reach the database, and is killed again, all while the outage it is reacting to
+would have resolved on its own. It answers the one question a supervisor can act on: is this
+process still able to serve a request at all.
 
-`render.yaml` declares **no `healthCheckPath`**, so Render never calls it. There is no
-`/readyz`, no `/livez`, and no version endpoint. `docker-compose.yml` has a healthcheck for the
-database only.
+**`GET /api/v1/health/ready` — readiness.** The deep check, for humans and uptime monitors:
 
-The combination is the system's sharpest reliability edge: **a process whose worker has died,
-whose database is unreachable, or which is running a stale revision will answer `{"status":
-"ok"}` to anything that asks.**
+- a `SELECT 1` round-trip to the database;
+- worker state from `worker_status()` — `not_started`, `running`, `stalled`, or `stale`;
+- job counts by status and the age of the oldest pending job.
+
+It returns **503** when the database is unreachable or the worker is unhealthy, and 200
+otherwise. When the database is unreachable the `queue` block is `null` rather than a set of
+zeroes — `PROD-2` applies to the platform's own telemetry as much as to a student's readiness
+score, and "0 pending jobs" and "I cannot see the queue" are opposite facts.
+
+**Worker liveness uses two clocks, not one.** `_last_loop_at` stamps each pass of the loop;
+`_job_started_at` stamps a job being claimed and clears in a `finally`. `stale` means the loop
+stopped **and** nothing is in flight; a handler that has been inside a slow AI call for three
+minutes reports `running`, not dead. One clock cannot tell those apart, and a health check
+that reports a working system as dead is the same defect as one that reports a dead system as
+working.
+
+There is still no version or build endpoint, and `docker-compose.yml` has a healthcheck for
+the database only.
 
 ### Job reliability
 
@@ -142,12 +164,20 @@ The mechanism is described in §04. Its reliability properties:
 - **Nothing is lost on restart.** Jobs are rows, written before they run.
 - **At-least-once delivery**, which makes handler idempotency a correctness requirement
   (`BE-6`).
-- **One retry** (`MAX_ATTEMPTS = 2`), **with no backoff** — a failed job returns to `pending`
-  and is re-claimed on the next 2-second poll, so both attempts are spent within seconds. For
-  a transient blip that is fine; for a provider rate limit it wastes the retry.
+- **One retry** (`MAX_ATTEMPTS = 2`) **with a 60-second backoff** — the failed job returns to
+  `pending` with `run_after = now + RETRY_BACKOFF_SECONDS`, so the second attempt is not
+  claimed on the next 2-second poll. It previously had no backoff and both attempts were spent
+  within seconds, which wasted the retry on exactly the rate limits and timeouts it exists for.
 - **`worker_loop` survives handler errors.** It catches every exception except
-  `CancelledError`, logs, and continues. The loop is genuinely robust; the process it lives in
-  is the single point of failure.
+  `CancelledError`, logs, and continues.
+- **The loop itself is supervised.** `_supervised_worker()` in `main.py` restarts
+  `worker_loop()` after 5 seconds if it raises or returns, logging at `error` each time, and
+  re-raises `CancelledError` so shutdown still works. The loop was always robust against a
+  *handler* failing; nothing protected against the loop itself ending, and a bare
+  `create_task()` meant one unhandled exception silently ended every asynchronous surface for
+  the life of the process.
+- **A terminal failure is logged, not announced.** Giving up after the second attempt writes
+  an `error` line with the job id, type, attempt count and message. Nothing pages anyone.
 - **A job that fails twice is terminal.** Status `failed`, error recorded, **no alert, no
   dead-letter queue, no metric, and no retry path except a manual re-enqueue.**
 
@@ -237,16 +267,22 @@ decouple them to "improve availability".
 
 ### Health and readiness
 
-**`REL-5` — MUST · Critical · Draft**
-The health endpoint verifies the dependencies whose failure it is meant to detect: at minimum
-a database round-trip, and the worker's liveness. It reports the running revision.
+**`REL-5` — MUST · Critical · Active**
+A readiness endpoint verifies the dependencies whose failure it is meant to detect — at minimum
+a database round-trip and the worker's liveness — and returns a non-2xx status when they fail.
+A dependency it cannot observe is reported as unobserved, never as zero.
 *Rationale:* a static `{"status": "ok"}` reports health for a process that cannot reach its
-database. **Draft** until implemented — it is a code change.
+database. Satisfied by `/api/v1/health/ready`. The "never as zero" clause is `PROD-2` applied
+to telemetry: a `queue` of `null` and a `queue` of all-zeroes describe opposite situations, and
+the one that invents data is the one that gets acted on wrongly. **Still missing: the running
+revision**, which needs a build identifier the deploy does not currently inject.
 
-**`REL-6` — MUST · Critical · Draft**
-`render.yaml` declares `healthCheckPath` so the platform actually calls the health endpoint.
-*Rationale:* an unchecked health endpoint detects nothing. **Draft** — pairs with `REL-5`;
-pointing a platform check at an endpoint that always returns `ok` would be worse than none.
+**`REL-6` — MUST · Critical · Active**
+`render.yaml` declares `healthCheckPath`, pointed at **liveness**, not readiness.
+*Rationale:* an unchecked health endpoint detects nothing, so the path must be set. It must
+point at the shallow endpoint because this check restarts the process: aiming a restart
+trigger at a database round-trip converts a dependency blip into a restart loop, which is
+worse than not checking at all. Pairs with `REL-5` and `REL-7`.
 
 **`REL-7` — MUST · Important · Active**
 Liveness and readiness are distinguished: liveness answers "should this process be restarted",
@@ -356,21 +392,29 @@ knowing the complete list.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **The health check verifies nothing and nothing calls it.** A static literal, and `render.yaml` sets no `healthCheckPath`. | A process with a dead worker or an unreachable database reports healthy. `RISK-4`. Blocks `REL-5`, `REL-6`. | `blocking` |
-| **A dead worker is invisible.** It shares the API process; if it dies the API keeps serving and reporting healthy while every asynchronous surface stops. | The largest silent-failure surface in the system. User-visible symptom: work that stays "processing" forever. `RISK-4`. | `blocking` |
-| **A terminally failed job is silent.** No alert, no dead-letter queue, no metric, no retry path except manual re-enqueue. | Marking simply stops for that submission and nobody is told. Blocks `REL-10`. | `blocking` |
+| **Nothing announces a failure; something must ask.** `/health/ready` reports a stalled queue, a dead worker and an unreachable database accurately — to whoever polls it, and no one polls it. | This is the whole residual of `RISK-4`. Visible is not announced. Closing it needs an external uptime monitor pointed at `/api/v1/health/ready` and alerting on 503 — a configuration step outside this repo, which is why it is not a code task. Blocks `REL-10`. | `blocking` |
+| **No revision reported anywhere.** Neither health endpoint says which build is running. | "Is the fix deployed?" is answerable only by reading Render's dashboard. `REL-5` is Active with this clause unmet; it needs a build identifier injected at deploy time. | `before scale` |
+| **A terminally failed job has no dead-letter queue and no re-enqueue path.** It is logged at `error` and counted in `/health/ready`, but recovering it is a manual database action. | The job is findable now, which it was not before; it is still not recoverable without someone writing SQL. §14 has the procedure. | `before scale` |
 | **No logging configuration and only two loggers.** Most failures leave no trace outside a database column. | Blocks `REL-12`. An incident could not be reconstructed. | `blocking` |
 | **No request ids.** | A user-reported error cannot be tied to a log line. Blocks `REL-13`. | `blocking` |
 | **No metrics and no error tracking.** | Every objective in `REL-17` is unmeasurable, and unhandled exceptions go to stdout on one container. | `blocking` |
-| **Job retries have no backoff.** Both attempts are spent within ~2 seconds. | Wastes the retry budget on exactly the failures retrying would fix. Blocks `REL-9`. | `before scale` |
+| **The retry budget is still one attempt at a fixed 60s.** No exponential backoff, no jitter, no per-error-class policy. | Better than the immediate re-claim it replaced, but a provider outage longer than a minute still exhausts the budget, and a burst of failures retries in lockstep. `REL-9` is partially met. | `before scale` |
 | **No documented or tested database restore.** | An untested backup is a hypothesis. §14 has the procedure; it has not been executed. Blocks `REL-19`. | `blocking` |
 | **No backup for the uploads disk and no row/file reconciliation.** | A disk loss destroys every submission while the database still references them. `RISK-8`. Blocks `REL-20`. | `blocking` |
 | **No on-call or escalation path.** | Nothing defines who responds out of hours. See `governance/ownership.md`. | `before scale` |
 | **Single instance, single region, single database.** | Any deploy is downtime; any instance loss is an outage. Deliberate today; §08 has the unwind order. `RISK-1`. | `before scale` |
 
-This document has more `blocking` gaps than any other in the constitution. That is an accurate
-picture: MANARA is built to explain its own numbers and is not yet built to explain its own
-failures.
+This document still has more `blocking` gaps than any other in the constitution, and that is
+an accurate picture: MANARA is built to explain its own numbers and is only beginning to be
+built to explain its own failures.
+
+What changed is worth naming precisely, because it is one step and not the journey. The
+system can now **be asked** how it is doing and will answer truthfully — worker state, queue
+depth, oldest pending job, database reachability, and `null` rather than a fabricated zero
+where it cannot see. Every remaining row in this table is some form of the same gap: **nothing
+asks, and nothing tells anyone.** Alerting, logging configuration, request ids, metrics and
+error tracking all sit behind that one wall, and the next reliability change worth making is
+whichever of them turns "observable" into "observed".
 
 ---
 
@@ -378,7 +422,9 @@ failures.
 
 Update this document when:
 
-- The health endpoint changes, or `healthCheckPath` is configured.
+- Either health endpoint changes, `worker_status()` gains or loses a state, or
+  `healthCheckPath` is repointed.
+- The worker's supervision policy changes.
 - Logging, metrics, request ids, or error tracking are introduced — most of this document's
   Draft rules become Active together.
 - The worker moves out of the API process, which changes the top three failure rows.

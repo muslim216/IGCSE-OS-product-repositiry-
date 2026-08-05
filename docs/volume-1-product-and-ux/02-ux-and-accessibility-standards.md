@@ -1,6 +1,6 @@
 # 02. UX & Accessibility Standards
 
-> **Volume 1 — Product & UX** · Engineering Constitution v1.0 · Status: Active
+> **Volume 1 — Product & UX** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the MANARA design system, interaction patterns, and the accessibility standard the

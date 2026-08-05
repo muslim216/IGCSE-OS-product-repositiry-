@@ -1,6 +1,6 @@
 # 12. Quality Engineering
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.0 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how a change is proven correct before it ships.
@@ -82,8 +82,8 @@ enforced by a human remembering. Say so, rather than implying otherwise.
 
 ### The backend suite
 
-**26 files, roughly 262 test functions, ~6,100 lines. 247 tests pass** in about three minutes
-with no database and no API key.
+**28 files, ~6,600 lines. 297 tests pass** in about three and a half minutes with no database
+and no API key.
 
 Coverage is concentrated where the risk is:
 
@@ -96,9 +96,20 @@ Coverage is concentrated where the risk is:
 | Classroom | `test_classroom.py` (362, 10) | Fully mocked Google API |
 | Jobs | `test_jobs.py` (299, 9) | |
 | Auth | `test_auth.py` (125, 16) | |
+| Authorization | `test_authorization.py` (188, 37) | Route inventory + negative cases; fails if any route drops its gate |
+| Health and worker | `test_health.py` (268, 13) | Liveness, readiness, worker supervision, retry backoff |
 
-Note the earlier `handoff.md` recorded 215 tests. The suite has grown to 247; that document is
-archived rather than corrected, with a header saying so.
+Note the earlier `handoff.md` recorded 215 tests; that document is archived rather than
+corrected, with a header saying so. The suite reached 247 by the time this handbook was
+written and 297 once the `RISK-4` and `RISK-7` fixes landed with their tests.
+
+**Two of these files test properties rather than behaviour**, which is worth knowing before
+editing them. `test_authorization.py` walks the app's route tree and asserts things *about the
+shape of the API* — that exactly eight routes are reachable without a token, that role gates
+are one shared dependency by identity, that no module has grown its own copy of the check. It
+fails when someone adds an endpoint without a gate, which is the point; the fix is to add the
+gate, or to add the route to `PUBLIC_ROUTES` deliberately. `test_health.py` likewise asserts
+that a slow job is not mistaken for a dead worker.
 
 ### The test harness and its two traps
 
@@ -202,13 +213,32 @@ nothing produces them.
 
 ### What verifies a pull request
 
-**Nothing in this repository.** `.github/` has never existed on any branch — no test run, no
-build, no lint, no type check, no migration check.
+`.github/workflows/ci.yml`, on every pull request and on every push to the default branch.
+Three jobs:
 
-`CLAUDE.md` states that CI gates pull requests via CodeQL, Vercel preview builds, and
-CodeRabbit. Those are GitHub-App-configured and may well run; **nothing in the repository
-evidences it**, and a repository whose verification is invisible cannot be reasoned about. This
-is `RISK-2`, the highest-priority entry in the register.
+| Job | Runs | Catches |
+|---|---|---|
+| `backend` | Python 3.11, `pip install -e ".[dev]"`, `pytest` from `backend/` | Every backend regression the suite covers. No service container — `conftest.py` forces in-memory SQLite |
+| `migrations` | `postgres:16-alpine` service, then `alembic upgrade head` → `downgrade base` → `upgrade head` | A migration that is invalid or irreversible on Postgres. This is the only thing that has ever executed the downgrade path |
+| `frontend` | Node 20, `npm ci`, `npm test`, `npm run build` | Vitest regressions, and — via `tsc -b` inside `build` — every type error, which is the **only** type check that exists anywhere |
+
+`concurrency` with `cancel-in-progress` means a force-push supersedes the previous run rather
+than racing it.
+
+**What CI does not do**, stated plainly because the gap is easy to mistake for coverage:
+
+- **No linter, formatter or Python type checker.** No ruff, black, mypy, ESLint or Prettier is
+  configured, so every rule in §13 and every `# noqa: BLE001` comment is still enforced —
+  or ignored — by review alone.
+- **No coverage measurement**, so nothing reports which risky paths the 297 backend tests miss.
+- **The `migrations` database is empty.** Schema operations are proven; safety against
+  existing rows, which is how 0012 actually failed, is not.
+- **No contract check between backend schemas and frontend types** (`RISK-6`).
+
+`CLAUDE.md` also mentions CodeQL, Vercel preview builds, and CodeRabbit. Those are
+GitHub-App-configured and may well run; **nothing in the repository evidences them**, so they
+are not part of the gate this document describes. `RISK-2` is largely mitigated; the linting
+half is what remains.
 
 ---
 
@@ -276,9 +306,12 @@ far from the cause.
 
 **`QA-11` — MUST · Critical · Active**
 A migration is verified `upgrade` → `downgrade` → `upgrade` before merge, and — where it alters
-a populated table — against Postgres with data.
+a populated table — against Postgres **with data**.
 *Rationale:* Trap 2. The suite never runs migrations, and the failures that have occurred were
-Postgres-specific. `DB-16`, `DB-19`.
+Postgres-specific. CI's `migrations` job now performs the up/down/up half automatically on
+Postgres 16, which turns most of this rule from a request into a check. **The "with data" half
+is still manual** — the CI database is empty — and it is the half that caught 0012 out.
+`DB-16`, `DB-18`, `DB-19`.
 
 **`QA-12` — MUST · Critical · Active**
 A change touching authentication or authorization ships with a test asserting the **negative**
@@ -324,17 +357,20 @@ what they were not told about.
 
 ### Tooling
 
-**`QA-19` — MUST · Critical · Draft**
+**`QA-19` — MUST · Critical · Active**
 Continuous integration runs, on every pull request: the backend suite, the frontend suite,
-`tsc -b`, and an Alembic up/down/up against Postgres.
+`tsc -b`, and an Alembic up/down/up against Postgres. A change that removes or weakens a leg of
+that gate is a constitutional change, not a workflow tweak.
 *Rationale:* `RISK-2`. `main` deploys on merge, so an unverified merge is an unverified deploy.
-**Draft** because it requires adding `.github/workflows/`, which is a code change outside this
-documentation branch.
+Satisfied by `.github/workflows/ci.yml`.
 
 **`QA-20` — SHOULD · Important · Draft**
 A linter and formatter run in CI for both languages — ruff for Python, ESLint and Prettier for
 TypeScript.
-*Rationale:* `CODE-*` in §13 is otherwise enforced entirely by review. **Draft** — same reason.
+*Rationale:* `CODE-*` in §13 is otherwise enforced entirely by review. **Draft** because no
+linter is configured for either language yet — and because introducing one across ~12,400
+lines of Python and the frontend produces a reformatting diff that would bury any real change
+shipped alongside it, so it wants its own pull request.
 
 **`QA-21` — SHOULD · Recommended · Draft**
 Coverage is measured and reported for `services/` and `api/`, without a repository-wide
@@ -348,10 +384,10 @@ informs where to write real ones.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **Nothing verifies a pull request.** `.github/` has never existed. No test run, build, lint, type check, or migration check. | `main` deploys on merge, so an unverified merge is an unverified deploy. `RISK-2` — the highest-priority entry in the register. Blocks `QA-19`. | `blocking` |
-| **Migrations are never exercised by tests.** Schema comes from `Base.metadata.create_all`. | All 21 run first in production, where failure means the service does not start. `RISK-3`. `QA-11` is a manual compensating control. | `blocking` |
-| **No linter, formatter, or type checker on the backend.** `pyproject.toml` has two lines of pytest config. The `# noqa` comments are read by nothing. | Every §13 rule is enforced by review alone. Blocks `QA-20`. | `blocking` |
-| **`vitest run` does not type-check**, and nothing runs `npm run build` automatically. | The strict `tsconfig.json` is real value gated behind a step nobody runs. | `blocking` |
+| **No linter, formatter, or type checker on the backend.** `pyproject.toml` still has two lines of pytest config. The `# noqa` comments are read by nothing. | Every §13 rule is enforced by review alone. This is what remains of `RISK-2` and it is the largest gap in this document. Blocks `QA-20`. | `blocking` |
+| **CI's migration check runs against an empty database.** Up/down/up on Postgres 16 is automated; data safety is not. | It cannot catch the failure that has actually happened — 0012 added a non-nullable column to a populated table. `QA-11`'s "with data" clause and `DB-18` are manual compensating controls. `RISK-3` residual. | `before scale` |
+| **The test suite itself still runs no migration.** Schema comes from `Base.metadata.create_all` on SQLite. | Model/migration drift is invisible to `pytest`; only the separate CI job would catch a migration that fails outright, and it would not catch one that merely disagrees with the models. | `before scale` |
+| **`vitest run` does not type-check.** `npm run build` does, and CI runs it — but a developer running `npm test` locally still gets no type errors. | The strict `tsconfig.json` is now enforced on every PR; the local feedback loop still misses it, so type errors are found late rather than never. | `nice to have` |
 | **The frontend suite is 23 tests against 60+ pages**, and the four largest pages have none. | The highest-change-risk frontend files are unverified. | `before scale` |
 | **No coverage measurement.** `.gitignore` anticipates it; nothing produces it. | No signal on which risky paths are untested. Blocks `QA-21`. | `nice to have` |
 | **The test schema differs from production** — four indexes exist only in migrations. | No test exercises an indexed query plan. §06, `DB-12`. | `before scale` |

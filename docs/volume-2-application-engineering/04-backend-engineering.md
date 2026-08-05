@@ -1,6 +1,6 @@
 # 04. Backend Engineering
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the layering of the FastAPI application, the service layer, and the background job
@@ -98,36 +98,48 @@ remark surface — which is where `BE-2` is under most pressure.
 
 ### Dependencies
 
-`api/deps.py` is 53 lines and holds the entire dependency surface:
+`api/deps.py` holds the entire dependency surface:
 
 | Symbol | What it does | Used? |
 |---|---|---|
 | `DbSession` | `Annotated[AsyncSession, Depends(get_db)]` | Yes, everywhere |
 | `get_current_user` / `CurrentUser` | Decodes the access token, loads the `User`, rejects when the token's `token_version` ≠ the user's | Yes, everywhere |
+| `TutorUser` | `CurrentUser` plus a tutor-or-admin gate | Yes — 38 routes |
+| `StudentUser` | `CurrentUser` plus a student gate | Yes — 13 routes |
+| `require_role(*roles, detail=...)` | Builds a gate dependency with a custom 403 message | Once, `reports.generate` |
+| `assert_tutor` / `assert_student` | The same condition in imperative form | The 7 ownership helpers |
 | `get_current_org_id` / `CurrentOrg` | Returns `user.organization_id` for scoping | **Never called** |
-| `require_role(*roles)` | Returns a `Depends` raising 403 on role mismatch | **Never called** |
 
 `get_current_user` raises four distinct 401 messages: `Not authenticated`, `Invalid or
 expired token`, `User no longer exists`, `Token has been revoked`.
 
-**Authorization as actually practiced** is 10 hand-copied module-local functions:
+**Authorization is a dependency, not a call.** A handler declares the role it needs in its
+signature:
 
 ```python
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(403, "Tutors only")
+@router.get("", response_model=PreferencesOut)
+async def get_preferences(db: DbSession, user: TutorUser) -> PreferencesOut:
+    ...
 ```
 
-They appear in `assessments.py`, `classifieds.py`, `classroom.py`, `groups.py`,
-`knowledge.py`, `past_papers.py`, `preferences.py`, `readiness_weights.py`, and
-`syllabus_uploads.py`, plus one `_require_student` in `chat.py`. Each is called imperatively
-in the handler body. Organization scoping is likewise applied ad hoc, per query, using
-`user.organization_id`.
+Of 125 routes, 38 are tutor-gated, 13 student-gated, 66 authenticated without a role gate
+(they branch on role internally, or serve every role), and 8 are public — the six auth
+endpoints plus the two health ones.
 
-The consequence is `RISK-7`: **a new endpoint that forgets the call has no role check at all,
-and nothing — no test, no linter, no type error — notices.** The dependency form fails closed
-because it is in the signature; the imperative form fails open because it is a line someone
-can omit.
+**Why the signature and not the body.** The imperative form fails **open**: a handler that
+omits the line has no role check, and nothing detects it. The dependency form fails closed,
+because a request cannot be resolved without it. This is not hypothetical — until recently
+this codebase had ten byte-identical `_require_tutor` copies plus one `_require_student`,
+called at the top of 35 handler bodies, while `require_role` sat in `deps.py` unused
+(`RISK-7`).
+
+Ownership helpers that sit *below* the routing layer — `_owned_group`, `_owned_assignment`,
+`_tutor_submission` and four others — take a plain `User` rather than a request-scoped
+dependency, so they keep their check and call the shared `assert_tutor()`. That matters more
+than it looks: nine `groups.py` handlers have no gate of their own and rely entirely on
+`_owned_group`'s.
+
+Organization scoping is still applied ad hoc, per query, using `user.organization_id`.
 
 ### Services
 
@@ -170,23 +182,28 @@ when searching for it.
   marks it `failed`. The error is written to `Job.error` and logged with a traceback.
 - **Loop:** `worker_loop()` polls every `POLL_SECONDS = 2.0` when idle, catches every
   exception except `CancelledError`, and continues.
-- **Lifecycle:** started as an `asyncio` task in `main.py`'s `lifespan`, cancelled on
-  shutdown.
+- **Lifecycle:** started in `main.py`'s `lifespan` as an `asyncio` task wrapped in
+  `_supervised_worker()`, which logs at `error` and restarts the loop after
+  `WORKER_RESTART_SECONDS` (5s) if it raises *or* returns, and re-raises `CancelledError` so
+  shutdown still stops it. The bare `create_task(worker_loop())` it replaced meant a single
+  unhandled exception ended every AI workflow for the life of the process, silently.
 
 ```mermaid
 stateDiagram-v2
   [*] --> pending: enqueue()
   pending --> running: claimed (run_after due)
   running --> done: handler returns
-  running --> pending: failed, attempts < 2
+  running --> pending: failed, attempts < 2 (run_after = now + 60s)
   running --> failed: failed, attempts = 2
   done --> [*]
-  failed --> [*]: no alert, no retry
+  failed --> [*]: logged at error, no alert, no retry
 ```
 
-**A retry has no backoff.** A failed job returns to `pending` with `run_after` untouched, so
-it is re-claimed on the next poll — roughly two seconds later. For a transient network blip
-that is fine; for a provider rate limit it burns the second attempt immediately.
+**A retry waits 60 seconds.** The `attempts < MAX_ATTEMPTS` branch sets
+`run_after = now + RETRY_BACKOFF_SECONDS` before returning the job to `pending`, so the second
+attempt is not claimed on the next poll. It previously left `run_after` untouched and both
+attempts were spent within about two seconds — fine for a transient network blip, exactly
+wrong for the provider rate limits and timeouts a retry budget exists to survive.
 
 **`run_after` is the scheduling primitive.** `enqueue_readiness_v2_debounced()` is built on
 it: it no-ops if a run for that (student, subject) is already pending, and otherwise schedules
@@ -320,12 +337,22 @@ Every endpoint that is not deliberately public enforces a role check, and every 
 returning tenant data filters by organization.
 *Rationale:* `PROD-4`; nothing detects an endpoint that forgot.
 
-**`BE-17` — SHOULD · Important · Draft**
-New routers enforce roles with `require_role(...)` from `api/deps.py` and scope with
-`CurrentOrg`, rather than a module-local `_require_tutor` helper.
+**`BE-17` — MUST · Critical · Active**
+A role gate is declared in the handler signature — `user: TutorUser` or `user: StudentUser`
+from `api/deps.py`, or `require_role(...)` where the 403 message must differ. Never a
+module-local `_require_tutor` helper called from the handler body.
 *Rationale:* a dependency in the signature fails closed; an imperative call in the body fails
-open when omitted. **Draft** because all 23 existing routers use the imperative form and
-converging them is unscheduled work — see Known Gaps and `RISK-7`.
+open when omitted, with nothing to detect it. Promoted from Draft when the eleven hand-copied
+helpers were converged onto the shared dependency; `tests/test_authorization.py` now fails if
+a route loses its gate or a router grows its own copy again. `SEC-11`, `RISK-7`.
+
+**`BE-18` — MUST · Important · Active**
+An ownership helper below the routing layer takes a plain `User` and calls `assert_tutor()` /
+`assert_student()` from `api/deps.py` rather than repeating the condition.
+*Rationale:* seven helpers (`_owned_group`, `_owned_entry`, `_owned_upload`,
+`_owned_assignment`, `_owned_lesson`, `_tutor_student`, `_tutor_submission`) carry the role
+check for handlers that have none of their own — nine in `groups.py` alone. They are the same
+copy-paste surface as the routers were, one layer down.
 
 ---
 
@@ -333,10 +360,9 @@ converging them is unscheduled work — see Known Gaps and `RISK-7`.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **`require_role`, `get_current_org_id` and `CurrentOrg` are dead code.** Authorization is 10 copies of `_require_tutor` plus one `_require_student`, called imperatively. | Eleven places to forget one check, and a new endpoint that omits it has no role check at all with nothing to notice. `RISK-7`. This also makes `CLAUDE.md`'s longstanding claim that `require_role` is the RBAC mechanism false. | `blocking` |
-| **Job retries have no backoff.** A failed job returns to `pending` and is re-claimed ~2s later. | Both attempts are spent within seconds, so a provider rate limit or a brief outage exhausts the retry budget without benefiting from it. `run_after` already exists to fix this. | `before scale` |
-| **A failed job is terminal and silent.** No alert, no dead-letter queue, no metric. | Marking simply stops for that submission and nobody is told. See `RISK-4` and §11. | `blocking` |
-| **The worker dies with the API process and its death is invisible.** `/health` is a static literal. | Every AI workflow stops while the app reports healthy. `RISK-4`. | `blocking` |
+| **`get_current_org_id` and `CurrentOrg` are still dead code.** Organization scoping is applied per query against `user.organization_id`. | That satisfies `SEC-7`, but by convention rather than by mechanism — a query that forgets the filter is not detectable the way a missing role gate now is. Do not cite `CurrentOrg` as the scoping mechanism; it is not one. `RISK-7` residual. | `before scale` |
+| **A failed job is terminal.** It is logged at `error` with the job id, type, attempt count and message, but there is no alert, no dead-letter queue and no metric. | Marking stops for that submission and nobody is told unless someone reads the logs or polls `/health/ready`. `RISK-4` residual; see §11. | `before scale` |
+| **Nothing announces a stalled queue.** `/health/ready` reports depth, oldest-pending age and worker state, but only when something asks. | Visible is not the same as announced. Closing this needs an external uptime monitor polling the endpoint — a configuration step outside the repo. `RISK-4` residual. | `before scale` |
 | **`api/submissions.py` is 766 lines.** | The most safety-critical surface in the product — marking, finalize, override, remark — is also the least navigable. `BE-2` is under most pressure here. | `before scale` |
 | **`BE-1` is unenforceable.** Nothing checks import direction. | `GOV-7` and `BE-1` are Critical rules with no mechanism. An import linter would fix it. | `before scale` |
 | **`schemas/__init__.py` is empty** while `models/__init__.py` is a barrel. | Harmless but inconsistent; a reader reasonably expects the same convention in both. | `nice to have` |
@@ -349,7 +375,9 @@ Update this document when:
 
 - A job handler is added, removed, or changes its idempotency mechanism.
 - `workers/jobs.py` changes — retry policy, claim query, polling, or backoff.
-- `api/deps.py` gains or loses a dependency, or `require_role`/`CurrentOrg` are adopted.
+- `api/deps.py` gains or loses a dependency, or `CurrentOrg` is adopted.
+- A route's role gate changes, or `tests/test_authorization.py`'s `PUBLIC_ROUTES` grows.
+- The worker's supervision or health reporting changes.
 - The worker moves out of the API process.
 - A new top-level package appears under `backend/app/`.
 - The layering rule changes or gains enforcement.

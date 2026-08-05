@@ -1,6 +1,6 @@
 # 10. Performance Engineering
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs latency, throughput, and cost — which in this system are the same discipline.
@@ -50,7 +50,9 @@ constraint and how to unwind it (§08); alerting on any of this (§11).
 - **No CDN for API responses.** Every response is authenticated and per-user.
 - **No horizontal scaling today.** Three constraints prevent it (§08). Performance work
   currently means making one instance sufficient.
-- **No performance budget enforcement in CI.** There is no CI (`RISK-2`).
+- **No performance budget enforcement in CI.** CI exists now and runs both suites, the type
+  check and the migration cycle — but nothing in it measures latency, query counts, or bundle
+  size, so every budget in this document is still checked by a human or not at all.
 
 ## Sources
 
@@ -300,7 +302,8 @@ first real measurement has something to disagree with.
 **`PERF-17` — SHOULD · Important · Active**
 A change expected to affect one of these paths states its expected effect in the pull request,
 and measures it if the effect is more than incidental.
-*Rationale:* nothing measures automatically (`RISK-2`), so the review is the only checkpoint.
+*Rationale:* nothing measures performance automatically — CI gates correctness, not latency —
+so the review is the only checkpoint for every budget above.
 
 ---
 

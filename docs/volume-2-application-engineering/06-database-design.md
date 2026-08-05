@@ -1,6 +1,6 @@
 # 06. Database Design
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the schema, its conventions, and the migration process.
@@ -293,9 +293,17 @@ NAMING = {
 New ForeignKeys in such a migration also need an explicit `name=`. This was discovered
 painfully in 0020 and must be reused rather than rediscovered.
 
-**Migrations are never exercised by the test suite** (`conftest.py` uses
-`Base.metadata.create_all`), so their first execution is in production. Migration 0012 has
-already failed this way on Postgres with existing users. This is `RISK-3`.
+**Migrations are never exercised by the test suite** — `conftest.py` builds the schema from
+`Base.metadata.create_all` and forces in-memory SQLite, so `pytest` proves nothing about
+Alembic. **CI is what exercises them.** The `migrations` job in `.github/workflows/ci.yml`
+runs `upgrade head` → `downgrade base` → `upgrade head` against a real `postgres:16-alpine`
+service container on every pull request, so all 21 migrations and all 21 downgrades run before
+a merge rather than for the first time in production.
+
+**What that check still cannot see.** The CI database is **empty**. It proves the schema
+operations are valid and reversible; it cannot prove a migration is safe against existing
+rows, which is precisely how 0012 failed — a non-nullable column added to a populated table.
+`DB-18` remains enforced by review. This is the residual of `RISK-3`.
 
 `config.py` rewrites `postgres://` and `postgresql://` to `postgresql+asyncpg://`
 automatically, because hosting providers hand out the bare scheme.
@@ -392,7 +400,8 @@ mode, which this project has already had to work around by hand.
 **`DB-16` — MUST · Critical · Active**
 Every migration has a working `downgrade()`, verified up → down → up before merge.
 *Rationale:* a migration runs at container start, so a failure with no way back means the
-service does not start at all.
+service does not start at all. CI's `migrations` job runs this cycle on Postgres 16 for every
+PR, so the rule is now checked rather than asserted.
 
 **`DB-17` — MUST · Critical · Active**
 A migration altering an existing table uses `op.batch_alter_table(...,
@@ -449,7 +458,8 @@ wrong reason.
 | **Foreign key columns are not indexed.** | Every join and parent-id filter on a growing table is a sequential scan. `DB-11` binds new work only. | `before scale` |
 | **No ForeignKey declares `ondelete=`.** Cascades are ORM-level only. | Any delete outside a mapped relationship orphans rows, with no constraint to catch it. Uploaded files compound this — see `RISK-8`. | `before scale` |
 | **The polymorphic exactly-one invariant has no CHECK constraint.** | A row with both or neither foreign key set is representable, and `API-20`'s trap becomes a data problem rather than a code one. | `before scale` |
-| **Migrations are never exercised by tests.** `conftest.py` uses `Base.metadata.create_all`. | All 21 migrations run first in production, where failure means the service does not start. `RISK-3`. | `blocking` |
+| **CI verifies migrations against an empty database.** The `migrations` job runs up → down → up on Postgres 16, but with no rows in any table. | It catches invalid or irreversible schema operations. It cannot catch the failure that actually happened — 0012 added a non-nullable column to a *populated* table. `DB-18` is still enforced by review alone. `RISK-3` residual. | `before scale` |
+| **The test suite still runs no migration.** `conftest.py` uses `Base.metadata.create_all` on SQLite. | A model and its migration can drift without any test noticing; only CI's separate Postgres job would catch a migration that fails outright. `DB-12` — four of five indexes exist only in migrations — is a live instance of this drift. | `before scale` |
 | **No retention policy is implemented.** `DB-20` is Draft; `factor_evaluations` grows unbounded. | Flagged as needed in two prior documents. The policy now exists on paper; the pruning job does not. | `before scale` |
 | **v1 readiness tables are still written and read** — `topic_readiness`, `readiness_history`, `tutor_preferences`. | Three tables and their writes exist to serve three modules that have not been repointed. `RISK-5`. | `before scale` |
 | **`updated_at` is inconsistent** — present on 4 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |

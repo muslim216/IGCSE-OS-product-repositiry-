@@ -1,6 +1,6 @@
 # 14. Operations Runbooks
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.0 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > What to do when something is broken. Each runbook: symptoms → diagnosis → action →
@@ -102,12 +102,34 @@ GitHub, and the Google Cloud console for Classroom.
 1. **`main` deploys on merge.** There is no gate after the merge button.
 2. **Migrations run at container start**, chained `alembic upgrade head && uvicorn`. A failing
    migration means the service **never starts** — the previous revision keeps serving.
-3. **The job worker lives inside the API process.** If it dies, the API keeps answering
-   requests and keeps reporting healthy while all background work stops.
+3. **The job worker lives inside the API process**, supervised by `_supervised_worker()`,
+   which restarts the loop after 5 seconds if it raises or returns. If the *process* dies the
+   background work dies with it; if only the loop dies it comes back and logs why.
 
-**The health endpoint tells you nothing.** `GET /api/v1/health` returns a static
-`{"status": "ok"}` without touching the database or the worker. Treat a healthy response as
-"the process is accepting connections", not as "the system works".
+**Two health endpoints, and only one of them tells you anything.**
+
+- **`GET /api/v1/health`** returns a static `{"status": "ok"}` without touching the database
+  or the worker. This is what Render polls, deliberately (§11). Treat a healthy response as
+  "the process is accepting connections", not as "the system works".
+- **`GET /api/v1/health/ready`** is the one to open during an incident. It is public — no
+  token needed — and returns:
+
+  ```json
+  {
+    "status": "ok",
+    "database": {"ok": true},
+    "worker": {"state": "running", "seconds_since_loop": 0.4, "job_running_seconds": null},
+    "queue": {"pending": 0, "running": 0, "failed": 0, "done": 812,
+              "oldest_pending_age_seconds": null}
+  }
+  ```
+
+  It answers with **503** when the database is unreachable or the worker is unhealthy. Read
+  `worker.state` carefully: `running` is fine, `not_started` means the lifespan never ran,
+  `stalled` means a single job has been in flight past `JOB_STALL_SECONDS` (900), and `stale`
+  means the loop itself stopped. **A `queue` of `null` means the database was unreachable** —
+  it is not a queue of zeroes, and the distinction is the difference between "nothing to do"
+  and "I cannot see".
 
 ---
 
@@ -149,6 +171,14 @@ migration revision "does not exist".
 
 **Action:** if the deploy failed, read the reason. Migration failure → R4. Build failure → fix
 forward or R3.
+
+**A third reason now exists: a failed health check.** `render.yaml` sets
+`healthCheckPath: /api/v1/health`, so a revision whose process never answers that path is
+marked failed rather than going live. This is the intended behaviour — it is what stops a
+wedged uvicorn from being reported as a successful deploy — but it is new, so the first time
+you see it, check that the process is actually starting before assuming the check itself is
+wrong. Migrations run before uvicorn, so a health check that never passes usually means the
+process died after Alembic succeeded.
 
 **Verification:** the deployed commit matches `main`, the deploy is "Live", and the behaviour
 you expected is present.
@@ -221,13 +251,27 @@ means a failed migration is a service that never starts.
 ### R5 — Background work has stopped
 
 **Symptoms:** homework stays "processing" forever; readiness never updates; reports never
-finish; nothing appears from Classroom. **The API responds normally and reports healthy.**
+finish; nothing appears from Classroom. **The API responds normally and `/api/v1/health`
+returns `ok`** — liveness cannot see this. `/api/v1/health/ready` can.
 
 This is the system's signature silent failure. The worker shares the API process.
 
 **Diagnosis**
 
-Query the `jobs` table:
+**Start with `GET /api/v1/health/ready`** — it answers most of this runbook in one request,
+without a database console:
+
+| `worker.state` | Meaning |
+|---|---|
+| `running` | The loop is turning. If work is still stuck, the problem is a handler, not the worker — go to R6. |
+| `stalled` | One job has been in flight for over 15 minutes. A handler is hung; restart, then R6. |
+| `stale` | The loop stopped and nothing is in flight. The supervisor should have restarted it — check the logs for `job worker died` and how often it repeats. |
+| `not_started` | `lifespan` never ran. The process is misconfigured or came up wrong; restart. |
+
+`queue.oldest_pending_age_seconds` tells you how long this has been going on, and
+`queue.failed` tells you whether jobs are dying rather than queueing.
+
+Then query the `jobs` table for detail:
 
 ```sql
 SELECT status, COUNT(*) FROM jobs GROUP BY status;
@@ -250,8 +294,16 @@ Interpret:
 | Many `failed` with the same error | A dependency is down (R7) or a handler has a bug. |
 | `pending` jobs with a future `run_after` | Normal. Debounced readiness synthesis waits up to `READINESS_V2_COALESCE_SECONDS` (default 600). |
 
-Also check Render logs for `job worker started`, `job worker stopped`, or
-`job worker iteration crashed`.
+Also check Render logs for `job worker started`, `job worker stopped`,
+`job worker iteration crashed`, and — the one that matters most — **`job worker died;
+restarting`**. A single occurrence is the supervisor doing its job. The same line repeating
+every five seconds means the loop cannot survive startup, and the queue will not drain until
+whatever it names is fixed.
+
+Note the asymmetry in what you will actually see: the app configures no logging, so `log.info`
+lines from the `jobs` logger are invisible, while `log.error` and `log.exception` reach stderr
+through Python's last-resort handler. The supervisor's failures show up; the routine
+lifecycle messages do not.
 
 **Action**
 
@@ -689,7 +741,7 @@ Check `/data` usage before any change expected to increase upload volume.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **Nothing alerts.** Every runbook starts from a human noticing. | Detection latency is however long until a tutor complains — and for a dead worker, that is however long until someone waits for marking. §11. | `blocking` |
+| **Nothing alerts.** Every runbook still starts from a human noticing. | `/api/v1/health/ready` now answers the "is it broken" question in one request, so *diagnosis* is fast. *Detection* is unchanged: it is however long until a tutor complains. An external monitor polling that endpoint and alerting on 503 would close this, and it is the single highest-value operational change available. §11. | `blocking` |
 | **The database restore procedure has never been executed.** | R13 is a plan, not a verified capability. `REL-19`. | `blocking` |
 | **No reconciliation tool for rows against files.** | R11 and R13 both require it and neither can offer one. `RISK-8`. | `blocking` |
 | **Backup retention is unverified.** Nothing records what Render's plan actually retains or for how long. | R13 step 2 cannot be planned without it. | `blocking` |
@@ -711,5 +763,6 @@ Update this document when:
 - The deploy, rollback, or migration process changes.
 - A new external dependency is added — it needs an outage runbook.
 - A secret is added — it needs a row in R12.
-- The health endpoint gains real checks, which changes the diagnosis step of R2 and R5.
+- Either health endpoint changes what it reports, which changes the diagnosis step of R2 and R5.
+- Alerting is introduced, which changes the opening assumption of every runbook here.
 - A staging environment appears.

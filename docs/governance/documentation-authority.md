@@ -3,7 +3,7 @@
 > **Governance layer.** Which document wins when two disagree, how a rule is written, and
 > what a rule's classification and status mean.
 >
-> **Status:** Active · Part of Engineering Constitution v1.0
+> **Status:** Active · Part of Engineering Constitution v1.1
 >
 > **Audience:** every engineer and every AI agent working in this repository.
 
@@ -189,7 +189,7 @@ came to describe an RBAC mechanism that nothing calls.
 
 ## Constitution versioning
 
-The constitution as a whole carries a version. **This is Engineering Constitution v1.0.**
+The constitution as a whole carries a version. **This is Engineering Constitution v1.1.**
 
 | Change | Version effect |
 |---|---|

@@ -2,7 +2,7 @@
 
 > **Governance layer.** The principles that decide cases no rule covers.
 >
-> **Status:** Active · Part of Engineering Constitution v1.0
+> **Status:** Active · Part of Engineering Constitution v1.1
 >
 > **Authority:** Tier 1. Where a specific rule and a principle here appear to conflict, the
 > specific rule wins for the case it names — but a rule that repeatedly conflicts with a

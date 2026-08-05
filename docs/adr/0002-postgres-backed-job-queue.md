@@ -54,8 +54,17 @@ job support beyond `run_after`. At-least-once delivery makes **handler idempoten
 correctness requirement**, not a nicety — which is why it is a Critical rule in §04.
 
 **Bad consequence, explicitly:** because the worker lives in the API process, it dies with
-the API and its death is invisible — the health endpoint keeps returning `ok`. That is
-RISK-4, and it is a direct cost of this decision.
+the API. That is RISK-4, and it is a direct cost of this decision.
+
+> **Update — the "invisible" half of that consequence has been addressed.** As originally
+> written this paragraph continued "and its death is invisible — the health endpoint keeps
+> returning `ok`", which was true and is no longer. `_supervised_worker()` restarts the loop
+> if it raises or returns, and `GET /api/v1/health/ready` reports worker state, queue depth
+> and the oldest pending job, returning 503 when the worker is unhealthy. **The decision
+> itself is unchanged and so is its structural cost:** the worker still shares the API's
+> process and event loop, so a process death still stops all background work, and scaling to
+> a second instance is still a correctness change (`RISK-1`). What is different is that the
+> failure can now be seen by anyone who asks. Nothing yet asks — see §11.
 
 ## Revisit when
 

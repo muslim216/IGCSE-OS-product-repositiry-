@@ -89,11 +89,14 @@ whatever single branch is actively in flight, and the `archive/*` branches prese
 superseded UI experiments and the original build history. A branch that has merged is finished
 — **never reopen or stack new work on it**; start again from `main`.
 
-> **CI, accurately:** there is **no `.github/` directory in this repository** and there never
-> has been. CodeQL, Vercel preview builds, and CodeRabbit are configured as GitHub Apps and may
-> well run, but nothing in the repo evidences or enforces them, and no test, lint, type check,
-> or migration check runs automatically on a PR. **Run both suites yourself before opening
-> one.** This is `RISK-2`, the highest-priority entry in the risk register.
+> **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request — `pytest`,
+> `vitest`, `npm run build` (the only type check anywhere), and an Alembic
+> `upgrade head` → `downgrade base` → `upgrade head` against a real Postgres 16. **Still run
+> both suites locally before opening a PR**; CI is a backstop, not a substitute for knowing
+> your change works. Note what CI does *not* cover: **no linter, formatter or Python type
+> checker is configured**, so every style and typing rule remains enforced by review alone.
+> CodeQL, Vercel preview builds, and CodeRabbit are GitHub Apps and may also run; nothing in
+> the repo evidences them.
 
 ## Common commands
 
@@ -167,11 +170,19 @@ Keep these loaded. Each cites the document holding its full reasoning.
   submission has it as `None`, and reading it raises *inside* an authorization check.
   `_tutor_owns()` in `api/submissions.py` is the one place that branch lives. (`API-20`)
 
-> **Known divergence:** `api/deps.py` defines `require_role`, `get_current_org_id` and
-> `CurrentOrg`, and **none of the three is called anywhere.** Authorization is really 10
-> hand-copied `_require_tutor` helpers plus one `_require_student`, invoked imperatively in
-> handler bodies — so an endpoint that forgets the call has no role check and nothing detects
-> it. Prefer the dependency in new routers (`BE-17`, `SEC-11`, both Draft). This is `RISK-7`.
+- **A role gate goes in the signature, never in the handler body.** `user: TutorUser` or
+  `user: StudentUser` from `api/deps.py` — 38 routes are tutor-gated and 13 student-gated
+  this way. A dependency cannot be forgotten; an imperative call can, and omitting it fails
+  **open** with nothing to detect it. That was the real state of this codebase until
+  recently: eleven hand-copied `_require_tutor`/`_require_student` helpers called in 35
+  handler bodies (`BE-17`, `SEC-11`, `RISK-7`). `tests/test_authorization.py` fails if any
+  route loses its gate or becomes reachable without a token.
+- **Ownership helpers below the routing layer call `assert_tutor()`**, not their own copy of
+  the condition — `_owned_group`, `_tutor_submission` and five others take a plain `User`.
+
+> **Still divergent:** `get_current_org_id` and `CurrentOrg` remain **unused**. Organization
+> scoping is applied per query against `user.organization_id`, which is what `SEC-7` requires;
+> the dependency is simply not the mechanism. Do not cite it as one.
 
 ### Auth
 
@@ -213,7 +224,8 @@ Keep these loaded. Each cites the document holding its full reasoning.
   schema both build from that barrel — a missing model silently gets **no table in tests**.
   (`BE-3`)
 - **Every job handler must be safe to re-run on the same payload.** Delivery is at-least-once:
-  the worker retries once, and `run_after` makes re-scheduling routine. `extract_assignment`
+  the worker retries once, after a 60s backoff carried by `run_after` — the same field that
+  makes deliberate re-scheduling routine. `extract_assignment`
   *replaces* the question list rather than appending; `mark_submission` updates existing
   `QuestionMark` drafts in place, **never overwrites a tutor-finalized mark**, and skips the AI
   call entirely when every question is already decided; `compute_readiness_v2` is deliberately
@@ -294,7 +306,10 @@ Keep these loaded. Each cites the document holding its full reasoning.
   another organization's row, a revoked token. (`QA-12`)
 - Tests force `DATABASE_URL=sqlite+aiosqlite:///:memory:` in `conftest.py` **before any app
   import**, with a `StaticPool` shared connection, and build the schema from `Base.metadata` —
-  so **the 21 migrations are never exercised by the suite.** Verify them by hand. (`QA-11`)
+  so **the suite still never runs a migration.** Alembic is exercised by CI's `migrations`
+  job instead (up → down → up on Postgres 16), which is what makes `QA-11` a real check
+  rather than a request. A migration that is correct on SQLite and wrong on Postgres is the
+  failure that has actually happened here (`RISK-3`).
 
 ### Documentation
 

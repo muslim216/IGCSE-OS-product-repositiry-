@@ -1,6 +1,6 @@
 # 08. Infrastructure & Deployment
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how MANARA is built, configured, and deployed, and the constraints production
@@ -137,8 +137,16 @@ operational fact in this document: **a failing migration means the service never
 does not degrade — it is down, and the previous revision keeps serving while `main` has already
 moved.
 
-`render.yaml` declares **no `healthCheckPath`**, so Render never calls `GET /api/v1/health` —
-which is itself a static literal that checks nothing (§11).
+`render.yaml` declares `healthCheckPath: /api/v1/health`. Two consequences worth stating
+before the first deploy that exercises them:
+
+- **A revision whose health check never passes now fails the deploy** instead of silently
+  going live. Previously Render never probed the service at all, so a wedged uvicorn was
+  invisible and a deploy was marked live without one successful request.
+- **It points at liveness, deliberately, not at `/health/ready`.** Liveness is a static
+  literal with no I/O; readiness touches the database. Pointing a restart trigger at a
+  database round-trip turns a brief Postgres blip into a restart loop, which is strictly worse
+  than the outage it is reacting to. See §11 for the full split.
 
 ### The frontend
 
@@ -364,11 +372,13 @@ locally.
 `REFRESH_COOKIE_SECURE` (sessions silently stop refreshing) — both presenting as application
 bugs.
 
-**`INF-16` — SHOULD · Important · Draft**
+**`INF-16` — MUST · Critical · Active**
 A change to migrations or the start command is verified against a real Postgres before merge.
 *Rationale:* the test suite runs on SQLite and never executes migrations, so this class of
-failure is currently found in production (`RISK-3`). **Draft** until a staging path or CI
-service container exists.
+failure used to be found in production (`RISK-3`). Promoted from Draft when CI gained a
+`postgres:16-alpine` service container running `upgrade head` → `downgrade base` →
+`upgrade head` on every PR. Note the limit: that database is empty, so `DB-18` — safety
+against existing rows — is still on the author.
 
 ---
 
@@ -376,8 +386,7 @@ service container exists.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No staging environment for the API.** Vercel previews cover the frontend; the backend has nothing. | A migration's first execution is in production, where failure means the service does not start. `RISK-3`. | `blocking` |
-| **`render.yaml` declares no `healthCheckPath`.** | Render never calls the health endpoint, so a broken revision is not detected. Compounded by the endpoint checking nothing (§11). `RISK-4`. | `blocking` |
+| **No staging environment for the API.** Vercel previews cover the frontend; the backend has nothing. | CI now runs migrations against a real Postgres, so a migration's first *execution* is no longer in production — but its first execution against **real data** still is, and nothing exercises the built image, the start command, or the persistent disk before the deploy does. `RISK-3` residual. | `before scale` |
 | **No lockfile, root user, no `.dockerignore`, no `HEALTHCHECK`.** | Non-reproducible builds and unnecessary privilege. `RISK-11`, `INF-12`. | `before scale` |
 | **`docker-compose.yml`'s `full` profile omits `GEMINI_API_KEY` and `REFRESH_COOKIE_SECURE`.** | The homework pipeline fails and sessions stop refreshing, both presenting as application bugs. Breaks `INF-15`. | `before scale` |
 | **`UPLOAD_DIR` is missing from `.env.example`** while documented in `config.py` and set in `render.yaml`. | Breaks `INF-8`; a developer's local storage path differs from production without knowing. | `nice to have` |

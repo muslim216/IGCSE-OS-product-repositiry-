@@ -1,6 +1,6 @@
 # 13. Coding Standards
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.0 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how code is written, commented, and delivered.
@@ -96,7 +96,7 @@ the pure scoring types are `@dataclass(frozen=True)`.
 | Kind | Convention | Examples |
 |---|---|---|
 | Modules | lowercase, singular or domain-plural | `marking.py`, `readiness_v2_ai.py`, `past_papers.py` |
-| Module-private helpers | leading underscore | `_require_tutor`, `_out`, `_decay`, `_write` |
+| Module-private helpers | leading underscore | `_owned_group`, `_out`, `_decay`, `_write` |
 | Constants | upper snake | `MAX_ATTEMPTS`, `HALF_LIFE_DAYS`, `SOURCE_WEIGHTS`, `ALLOWED_MIMES` |
 | Enums | `str, enum.Enum`, lowercase members | `UserRole.tutor`, `MarkConfidence.high` |
 | Pydantic schemas | `XCreate` / `XUpdate` / `XOut` / `XDetail` / `XIn` / `XSummary` | §05 |
@@ -357,7 +357,7 @@ linter first.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No linter or formatter for Python.** No ruff, black, isort, flake8, mypy. `pyproject.toml` holds two lines of pytest config. | Every `CODE-*` Python rule is enforced by a human remembering. Blocks `CODE-23`. `RISK-2`. | `blocking` |
+| **No linter or formatter for Python.** No ruff, black, isort, flake8, mypy. `pyproject.toml` still holds two lines of pytest config. | Every `CODE-*` Python rule is enforced by a human remembering. CI now gates tests, types and migrations, so this is the whole of what `RISK-2` still covers. Blocks `CODE-23`. | `blocking` |
 | **No ESLint or Prettier.** `package.json` has no lint script. | Hook-dependency mistakes and unused imports are invisible until a build somebody may not run. Blocks `CODE-24`. | `blocking` |
 | **`# noqa: BLE001` comments exist for a linter that does not.** | Harmless, but evidence the toolchain was assumed rather than configured — worth removing or making true. | `nice to have` |
 | **Nothing enforces the layering.** `BE-1` and `GOV-7` are Critical with no mechanism. | An import from `services/` into `models/` would pass review only by being noticed. Blocks `CODE-25`. | `before scale` |

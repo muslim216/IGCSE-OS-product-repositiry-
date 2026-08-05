@@ -1,6 +1,6 @@
 # 07. Security Architecture
 
-> **Volume 3 — Platform Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 3 — Platform Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs authentication, authorization, data protection, upload safety, secrets, and the AI
@@ -170,25 +170,37 @@ See `ADR-0008` for why the two tokens are stored differently.
 Two independent checks, both required: **role** (what kind of user) and **ownership or
 organization** (which rows).
 
-`api/deps.py` provides `require_role(*roles)`, `get_current_org_id()`, and `CurrentOrg` for
-this. **None of the three is called anywhere.** What actually runs is ten hand-copied
-module-local functions:
+**The role check is a dependency.** A handler declares what it needs in its signature:
 
 ```python
-def _require_tutor(user: User) -> None:
-    if user.role not in (UserRole.tutor, UserRole.admin):
-        raise HTTPException(403, "Tutors only")
+async def get_preferences(db: DbSession, user: TutorUser) -> PreferencesOut:
 ```
 
-in `assessments.py`, `classifieds.py`, `classroom.py`, `groups.py`, `knowledge.py`,
-`past_papers.py`, `preferences.py`, `readiness_weights.py`, `syllabus_uploads.py`, plus one
-`_require_student` in `chat.py` — each invoked imperatively inside the handler body.
-Organization scoping is likewise applied per query with `user.organization_id`.
+`TutorUser` (tutor or admin → 403 `Tutor account required`) gates 38 routes and `StudentUser`
+(→ 403 `Student account required`) gates 13. `require_role(*roles, detail=...)` builds the
+same gate with a different message and is used once, by `reports.generate`. The seven
+ownership helpers that sit below the routing layer take a plain `User` and call
+`assert_tutor()` / `assert_student()` rather than repeating the condition — that matters
+because nine `groups.py` handlers have no gate of their own and rely entirely on
+`_owned_group`'s.
 
-**This is a security-relevant gap, not a style one.** A dependency in the signature fails
-closed: forget it and the endpoint has no `CurrentUser` and cannot compile a caller. An
-imperative call in the body fails **open**: forget it and the endpoint authenticates fine and
-authorizes nothing. Eleven copies are eleven opportunities. See `RISK-7`.
+**Why this is a security property and not a style one.** A dependency in the signature fails
+closed: a request cannot be resolved without it. An imperative call in the body fails **open**:
+forget the line and the endpoint authenticates fine and authorizes nothing — no test, no
+linter and no type error would say so.
+
+Until recently that was the real state of this codebase: ten byte-identical `_require_tutor`
+copies plus one `_require_student`, called at the top of 35 handler bodies, while
+`require_role` sat unused in `deps.py`. Converging them was only half the fix.
+`tests/test_authorization.py` is the other half — it holds an explicit inventory of the eight
+routes reachable without a token, asserts no route becomes public by accident, asserts the
+gates are one shared dependency by *identity* rather than by shape, and fails if any router
+grows its own copy of the helper again. See `RISK-7`.
+
+**Organization scoping did not converge.** It is still applied per query with
+`user.organization_id`, which satisfies `SEC-7` but by convention — a new query that omits the
+filter is exactly the failure the role gate no longer has. `get_current_org_id` and
+`CurrentOrg` remain unused; do not cite either as the mechanism.
 
 Two authorization traps are already known and both have bitten:
 
@@ -406,11 +418,14 @@ Never treat a frontend role gate, hidden control, or disabled input as an author
 control.
 *Rationale:* P1. The client is the attacker's own software.
 
-**`SEC-11` — SHOULD · Important · Draft**
-New routers enforce roles with `require_role(...)` and scope with `CurrentOrg` from
-`api/deps.py`, rather than a module-local helper.
+**`SEC-11` — MUST · Critical · Active**
+A role gate is declared in the handler signature (`TutorUser`, `StudentUser`, or
+`require_role(...)` where the message must differ), never as a module-local helper called from
+the handler body. An ownership helper below the routing layer calls `assert_tutor()` /
+`assert_student()`.
 *Rationale:* a dependency in the signature fails closed; an imperative call in the body fails
-open. **Draft** because all 23 routers use the imperative form; see `RISK-7`. Mirrors `BE-17`.
+open, and nothing detects the omission. Promoted from Draft when all 23 routers were converged
+and `tests/test_authorization.py` made the property enforceable. `RISK-7`. Mirrors `BE-17`.
 
 ### Credentials and invites
 
@@ -520,8 +535,8 @@ Application containers run as a non-root user.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **Authorization is duplicated eleven times** and the intended dependencies (`require_role`, `CurrentOrg`) are dead code. | Eleven places to forget a check, and omission fails **open** with nothing to detect it. `SEC-11` is Draft for this reason. `RISK-7`. | `blocking` |
-| **No automated security testing in CI, because there is no CI.** `test_security_hardening.py` exists and runs only when someone runs it. | Every Critical rule here is enforced by review alone. `RISK-2`. | `blocking` |
+| **Organization scoping is still a convention, not a mechanism.** `get_current_org_id` and `CurrentOrg` remain dead code. | The role half of `RISK-7` closed; this half did not. A query that omits the organization filter fails open with nothing to detect it — `SEC-7` rests on every author remembering. | `before scale` |
+| **No security-specific job in CI.** `.github/workflows/ci.yml` runs the whole suite, so `test_security_hardening.py` and `test_authorization.py` do gate every PR — but there is no dependency audit, no secret scan in the workflow, and no SAST. | The rules with tests behind them are now enforced; the rest are still enforced by review alone. `RISK-2` residual. | `before scale` |
 | **No dependency pinning or vulnerability scanning.** No lockfile; `pip install .` resolves `>=` ranges at build time. | Non-reproducible builds and no signal on a published CVE. `RISK-11`, `SEC-27`. | `before scale` |
 | **The container runs as root** with no `.dockerignore`. | Breaks `SEC-28`; the build context also carries whatever is in the directory. | `before scale` |
 | **No data retention or deletion policy**, and no subject-access or erasure path. | C2 data on minors is kept indefinitely with no defined basis or route to remove it. `RISK-9`. | `before scale` |
@@ -539,7 +554,8 @@ Update this document when:
 
 - The token model, lifetime, storage, or revocation mechanism changes.
 - A new event should invalidate credentials — it must be added to `SEC-1`.
-- `api/deps.py`'s authorization surface changes, or `require_role`/`CurrentOrg` are adopted.
+- `api/deps.py`'s authorization surface changes, or `CurrentOrg` is adopted.
+- A route's role gate changes, or `PUBLIC_ROUTES` in `tests/test_authorization.py` grows.
 - `services/storage.py`'s allowlist, limits, or validation changes.
 - A CSP or security header changes in `main.py` or `frontend/vercel.json`.
 - A new third-party integration stores a credential.

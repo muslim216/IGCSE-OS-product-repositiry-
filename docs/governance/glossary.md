@@ -2,7 +2,7 @@
 
 > **Governance layer.** Domain and system terminology, defined once.
 >
-> **Status:** Active · Part of Engineering Constitution v1.0
+> **Status:** Active · Part of Engineering Constitution v1.1
 >
 > **Binding:** `GOV-6` — terminology defined here is used with this meaning throughout the
 > constitution. A document needing a different meaning defines a different term.

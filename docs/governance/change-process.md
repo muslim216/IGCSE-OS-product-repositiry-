@@ -3,7 +3,7 @@
 > **Governance layer.** How engineering standards are proposed, changed, deprecated, and
 > versioned — and when a decision needs an ADR instead of a rule.
 >
-> **Status:** Active · Part of Engineering Constitution v1.0
+> **Status:** Active · Part of Engineering Constitution v1.1
 >
 > **Depends on:** `governance/documentation-authority.md` for rule format, classification,
 > and lifecycle states.

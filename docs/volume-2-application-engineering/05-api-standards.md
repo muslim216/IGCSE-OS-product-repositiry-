@@ -1,6 +1,6 @@
 # 05. API Standards
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.0 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the HTTP contract: resource naming, methods and status codes, error shapes,
@@ -184,8 +184,11 @@ is exactly one `field_validator` in the codebase, and it is in `config.py`, not 
 All handlers are `async def` with the parameter order `(path params, body, db: DbSession,
 user: CurrentUser)`.
 
-Authorization is imperative: a module-local `_require_tutor(user)` call in the body, then
-ownership checks per query. See §04 and `RISK-7`.
+A role gate is declared in the signature — `user: TutorUser` or `user: StudentUser` in place
+of `user: CurrentUser` — so the parameter order above becomes `(path params, body, db, user)`
+with the gate carried by the annotation. Ownership is then checked per query in the body. The
+imperative `_require_tutor(user)` call this replaced is gone from all 23 routers; see §04,
+`BE-17` and `RISK-7`.
 
 ### Uploads, downloads, and streaming
 
@@ -405,7 +408,7 @@ today, and the declarative one fails less quietly.
 | **`/readiness` is owned by three routers** (`readiness.py`, `readiness_weights.py`, `readiness_v2.py`), two sharing a tag. | Violates `API-3`. No functional collision, but the OpenAPI grouping is misleading and "where is this endpoint" needs a search. | `nice to have` |
 | **Response construction is inconsistent** — 8 classes use `from_attributes`, the rest hand-build via `_out(row)`. | A new model field is silently absent from hand-built responses. `API-25` binds new code only. | `nice to have` |
 | **No rate limiting except on login and chat.** | Every other endpoint, including AI-triggering ones, is unbounded per user. See §07 and §10. | `before scale` |
-| **`GET /api/v1/health` is not in a router** and returns a static literal that checks nothing. | Documented in §11 as a reliability gap; noted here because it is the one endpoint outside every convention in this document. | `blocking` |
+| **The two health endpoints are not in a router.** `GET /api/v1/health` and `GET /api/v1/health/ready` are declared directly on the app in `main.py`. | Noted here because they are the only endpoints outside every convention in this document — no router, no tag, no `response_model`. That is deliberate for liveness (§11 explains why it must do no I/O), incidental for readiness. | `nice to have` |
 
 ---
 

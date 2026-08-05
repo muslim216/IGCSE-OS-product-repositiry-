@@ -1,6 +1,6 @@
 # 01. Product Architecture
 
-> **Volume 1 — Product & UX** · Engineering Constitution v1.0 · Status: Active
+> **Volume 1 — Product & UX** · Engineering Constitution v1.1 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the system map: what MANARA is, the loop it runs, who sees what, and how a mark on
@@ -158,8 +158,13 @@ organization of the tutor who created them. Every top-level aggregate carries
 
 `api/deps.py` provides `get_current_org_id()` and `CurrentOrg` for scoping — **and neither is
 called anywhere.** Scoping is applied ad hoc per query using `user.organization_id`. The
-tenancy design is sound; the mechanism intended to make it safe was never adopted. See
-`RISK-7` and the gaps below.
+tenancy design is sound; the mechanism intended to make it safe was never adopted.
+
+Note the asymmetry, because it is easy to read one as the other. The *role* half of `RISK-7`
+is closed: a gate is now a dependency in the handler signature (`TutorUser`, `StudentUser`),
+and `tests/test_authorization.py` fails if a route drops it. The *tenancy* half is not. An
+organization filter is still a line in a query that a new query can omit, with nothing to
+notice. See `RISK-7` and the gaps below.
 
 ### The evidence pipeline
 
@@ -402,7 +407,7 @@ a date and a lesson behind it.
 | Gap | Why it matters | Severity |
 |---|---|---|
 | **v1 readiness is not retired.** `analytics.py`, `reports.py` and `student_crm.py` still read `topic_readiness` / `readiness_history` / `tutor_preferences` directly while `/readiness/*` serves v2. | A tutor can see one readiness number on the dashboard and a different one in a report for the same student. Largest open architectural debt in the product. See `RISK-5`. | `blocking` |
-| **`CurrentOrg` and `get_current_org_id()` are dead code.** Org scoping is applied ad hoc per query. | `PROD-4` is enforced by memory in every query rather than by a dependency at the signature. See `RISK-7`, §04, §07. | `blocking` |
+| **`CurrentOrg` and `get_current_org_id()` are dead code.** Org scoping is applied ad hoc per query. | `PROD-4` is enforced by memory in every query rather than by a dependency at the signature. The role gate was converged onto a dependency and tested; tenancy scoping was not, so this is what remains of `RISK-7`. See §04, §07. | `before scale` |
 | **No `factor_evaluations` retention policy.** Append-only, one row per factor per run. | Unbounded growth. Named as needed in two prior documents and never written; §06 now sets the policy. | `before scale` |
 | **Difficulty and topic proposals are not wired into the extraction review interface.** The AI assigns `assignment_questions.difficulty` with tutor override by design; the review screen does not surface it. | Topic Mastery buckets by difficulty, so an unreviewed AI guess silently shapes the score — a `PROD-1` traceability weakness. | `before scale` |
 | **`READINESS_V2_SHADOW_ENABLED` is misnamed.** It has been a kill switch since the cutover. | Someone will disable it believing it merely stops a duplicate computation, and silently move the product back to v1. | `nice to have` |
