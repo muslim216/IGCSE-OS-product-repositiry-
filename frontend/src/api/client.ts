@@ -82,12 +82,98 @@ export function storeTokens(tokens: TokenPair | StoredTokens | null) {
   }
 }
 
+/** One field-level complaint, unpacked from FastAPI's 422 body. */
+export interface FieldError {
+  /** Dotted path as the server named it — `email`, `questions.0.max_marks`. */
+  path: string;
+  /** Humanised label for that path — `Email`, `Questions #1 → Max marks`. */
+  label: string;
+  /** The server's own wording — `Field required`. */
+  message: string;
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /**
+   * Populated only for a 422 carrying FastAPI's validation list. A form can
+   * render these against the offending inputs; `message` already contains the
+   * same information joined into one sentence, so a caller that only shows
+   * `err.message` needs no change. API-11.
+   */
+  fields: FieldError[];
+  constructor(status: number, message: string, fields: FieldError[] = []) {
     super(message);
     this.status = status;
+    this.fields = fields;
   }
+}
+
+//: FastAPI prefixes every `loc` with where it looked. That is useful to the
+//: API author and noise to the person filling in the form.
+const LOC_SOURCES = new Set(["body", "query", "path", "header", "cookie"]);
+
+function humanise(segment: string): string {
+  const words = segment.replace(/[_-]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
+ * Turn one `{loc, msg}` entry into something a person can act on.
+ *
+ * `loc` is a path, not a name: `["body", "questions", 0, "max_marks"]` means
+ * the fourth key of the first question. Numbers become 1-based because the
+ * user counting questions on their screen starts at one.
+ */
+function toFieldError(item: { loc?: unknown[]; msg?: unknown }): FieldError | null {
+  const message = typeof item.msg === "string" && item.msg ? humanise(item.msg) : "";
+  if (!message) return null;
+
+  const loc = Array.isArray(item.loc) ? [...item.loc] : [];
+  if (loc.length > 0 && typeof loc[0] === "string" && LOC_SOURCES.has(loc[0])) {
+    loc.shift();
+  }
+  const parts = loc.map((seg) =>
+    typeof seg === "number" ? `#${seg + 1}` : humanise(String(seg)),
+  );
+  return {
+    path: loc.join("."),
+    label: parts.join(" → "),
+    message,
+  };
+}
+
+/**
+ * Read the `detail` of an error body in either shape the API produces.
+ *
+ * A handler-raised `HTTPException` gives a string. Schema validation gives a
+ * list of `{loc, msg, type}`. This only ever read the string form, so every
+ * field-level failure in the product fell through to `resp.statusText` and the
+ * user was shown "Unprocessable Entity" — which names neither the field nor
+ * the problem. API-11.
+ */
+export function parseErrorBody(body: unknown): { detail: string; fields: FieldError[] } {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+
+  if (typeof detail === "string") return { detail, fields: [] };
+
+  if (Array.isArray(detail)) {
+    const fields = detail
+      .filter((item): item is { loc?: unknown[]; msg?: unknown } =>
+        typeof item === "object" && item !== null,
+      )
+      .map(toFieldError)
+      .filter((f): f is FieldError => f !== null);
+    if (fields.length > 0) {
+      return {
+        detail: fields
+          .map((f) => (f.label ? `${f.label}: ${f.message}` : f.message))
+          .join("; "),
+        fields,
+      };
+    }
+  }
+
+  return { detail: "", fields: [] };
 }
 
 export async function refreshTokens(): Promise<StoredTokens | null> {
@@ -134,13 +220,17 @@ export async function api<T>(
   }
   if (!resp.ok) {
     let detail = resp.statusText;
+    let fields: FieldError[] = [];
     try {
-      const body = await resp.json();
-      if (typeof body.detail === "string") detail = body.detail;
+      const parsed = parseErrorBody(await resp.json());
+      // Fall back to statusText only when the body told us nothing. An empty
+      // string here would leave the user with a blank error box.
+      if (parsed.detail) detail = parsed.detail;
+      fields = parsed.fields;
     } catch {
       // non-JSON error body
     }
-    throw new ApiError(resp.status, detail);
+    throw new ApiError(resp.status, detail, fields);
   }
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;

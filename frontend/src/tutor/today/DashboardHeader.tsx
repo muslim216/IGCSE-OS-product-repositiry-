@@ -76,7 +76,7 @@ export default function DashboardHeader({
             placeholder="Search learners…"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-44 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-500 focus:outline-none"
+            className="w-44 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none"
           />
         )}
         <button
@@ -106,7 +106,7 @@ export default function DashboardHeader({
           </button>
           {notifOpen && (
             <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-line bg-surface p-3 shadow-lg">
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">
                 Needs your review
               </p>
               <ul className="mt-2 space-y-2">

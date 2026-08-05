@@ -44,7 +44,7 @@ function PasswordField({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        className="absolute right-2 text-xs text-ink-400 hover:text-ink-700"
+        className="absolute right-2 text-xs text-ink-500 hover:text-ink-700"
         aria-pressed={visible}
       >
         {visible ? "Hide" : "Show"}
@@ -169,7 +169,7 @@ export default function StudentsTab() {
                 >
                   {m.name}
                 </Link>{" "}
-                <span className="text-sm text-ink-400">{m.email ?? `@${m.username}`}</span>
+                <span className="text-sm text-ink-500">{m.email ?? `@${m.username}`}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <button
@@ -282,7 +282,7 @@ export default function StudentsTab() {
             onChange={setNewPassword}
             autoFocus
           />
-          <p className="mt-2 text-xs text-ink-400">
+          <p className="mt-2 text-xs text-ink-500">
             Resetting signs the account out everywhere — share the new password with the student
             directly.
           </p>

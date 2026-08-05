@@ -54,7 +54,7 @@ export default function ActivityMenu() {
         onClick={() => setOpen((v) => !v)}
         aria-label={count > 0 ? `Activity, ${count} waiting` : "Activity"}
         aria-expanded={open}
-        className="relative rounded-md p-1.5 text-ink-400 transition hover:bg-surface hover:text-ink-900"
+        className="relative rounded-md p-1.5 text-ink-500 transition hover:bg-surface hover:text-ink-900"
       >
         <Bell aria-hidden className="h-4 w-4" />
         {count > 0 && (
@@ -68,7 +68,7 @@ export default function ActivityMenu() {
           is only 240px wide, and the mobile header narrower still. */}
       {open && (
         <div className="absolute right-0 z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-lg">
-          <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-ink-400">
+          <p className="border-b border-line px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
             Activity
           </p>
           {items.length === 0 ? (
@@ -85,7 +85,7 @@ export default function ActivityMenu() {
                     className="block px-4 py-3 transition hover:bg-surface-muted"
                   >
                     <span className="block text-sm text-ink-700">{item.label}</span>
-                    <span className="mt-0.5 block text-xs text-ink-400">
+                    <span className="mt-0.5 block text-xs text-ink-500">
                       {item.sublabel ? `${item.sublabel} · ` : ""}
                       {relativeTime(item.occurred_at)}
                     </span>

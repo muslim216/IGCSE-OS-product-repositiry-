@@ -9,8 +9,19 @@
   /* Text on dark, strongest first */
   --color-ink-900: #f1ebe0; /* Parchment — headings, primary text */
   --color-ink-700: #d7d3c8; /* body copy */
-  --color-ink-500: #8a9bbe; /* Horizon — labels, captions, nav */
-  --color-ink-400: #66739a; /* muted meta */
+  /* Horizon — labels, captions, nav, and every piece of muted copy. Measures
+     6.75 / 5.39 / 4.73 against canvas, surface and surface-muted, so it passes
+     4.5:1 everywhere.
+
+     There was a fourth step here, --color-ink-400 (#66739a), and it is gone
+     deliberately rather than retuned. It measured 4.03 / 3.21 / 2.82 and so
+     failed AA on every surface, while all 23 of its uses in the app were
+     11-14px text that needs 4.5:1. Solving that by lightening it does not
+     work: on this palette the darkest value clearing 4.5:1 against
+     surface-muted is #8a9bbe itself. The two muted steps were therefore one
+     step, one of which was illegible — so the token is removed instead of
+     left as a trap for the next person who reaches for it. */
+  --color-ink-500: #8a9bbe;
 
   /* Beacon — the signature amber, and the product's only accent */
   --color-brand-700: #a98844;
@@ -32,9 +43,15 @@
   --color-risk-600: #d98a80;
   --color-risk-100: rgba(199, 107, 98, 0.16);
 
-  /* Hairlines */
+  /* Hairlines. These two are decorative — dividers, card edges, table rules —
+     where WCAG sets no ratio, and they are deliberately quiet. */
   --color-line: #28325a;
   --color-line-strong: #394472;
+  /* The boundary of an interactive control, which WCAG 1.4.11 requires to
+     reach 3:1. Measured 4.43 / 3.53 / 3.10 against canvas, surface and
+     surface-muted. Inputs previously used --color-line at 1.21 on surface: a
+     field whose edge is invisible is a field a low-vision user cannot find. */
+  --color-line-control: #6e79a3;
 
   /* Editorial serif for display headings. System-only: the CSP blocks
      external font hosts, so no webfont can be loaded. */
@@ -128,11 +145,13 @@ select,
 textarea {
   background-color: var(--color-canvas);
   color: var(--color-ink-900);
-  border-color: var(--color-line);
+  border-color: var(--color-line-control);
 }
+/* Placeholder text is normal-size copy and needs 4.5:1. This used the removed
+   ink-400, which managed 2.82 against surface-muted. */
 input::placeholder,
 textarea::placeholder {
-  color: var(--color-ink-400);
+  color: var(--color-ink-500);
 }
 
 /* Borders */
@@ -168,8 +187,12 @@ textarea::placeholder {
 .text-slate-500 {
   color: var(--color-ink-500);
 }
+/* Was the removed ink-400. This class carries normal-size muted copy across
+   the app — timestamps, counts, helper text — so it needs a token that clears
+   4.5:1, and .text-slate-500 above is now its twin. A hierarchy a low-vision
+   user cannot read is not a hierarchy. */
 .text-slate-400 {
-  color: var(--color-ink-400);
+  color: var(--color-ink-500);
 }
 
 /* Primary accent: Beacon gold. Filled gold carries Midnight text — the

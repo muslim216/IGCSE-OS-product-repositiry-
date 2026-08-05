@@ -136,14 +136,14 @@ export default function AssignmentCreatePage() {
           {file ? (
             <>
               <span className="font-medium text-ink-900">{file.name}</span>
-              <span className="text-xs text-ink-400">Click to choose a different file</span>
+              <span className="text-xs text-ink-500">Click to choose a different file</span>
             </>
           ) : (
             <>
               <span className="font-medium text-ink-700">
                 Drop the question paper here, or click to browse
               </span>
-              <span className="text-xs text-ink-400">PDF or photos — including iPhone HEIC</span>
+              <span className="text-xs text-ink-500">PDF or photos — including iPhone HEIC</span>
             </>
           )}
         </button>
@@ -151,7 +151,7 @@ export default function AssignmentCreatePage() {
           <button
             type="button"
             onClick={() => pick(null)}
-            className="text-xs text-ink-400 underline hover:text-ink-700"
+            className="text-xs text-ink-500 underline hover:text-ink-700"
           >
             Remove this file
           </button>
@@ -192,7 +192,7 @@ export default function AssignmentCreatePage() {
             aria-expanded={showDetails}
           >
             Optional details
-            <span className="text-ink-400">{showDetails ? "−" : "+"}</span>
+            <span className="text-ink-500">{showDetails ? "−" : "+"}</span>
           </button>
           {showDetails && (
             <div className="space-y-3 border-t border-line px-4 py-4">
@@ -255,7 +255,7 @@ export default function AssignmentCreatePage() {
         </div>
 
         {!file && reuseId === "" && (
-          <p className="text-xs text-ink-400">
+          <p className="text-xs text-ink-500">
             No paper? Give it a title under “Optional details” and an empty assignment is created
             for you to type the questions into.
           </p>
