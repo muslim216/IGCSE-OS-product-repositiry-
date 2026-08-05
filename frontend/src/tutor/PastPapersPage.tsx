@@ -57,9 +57,8 @@ export default function PastPapersPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Past papers</h2>
         <p className="text-sm text-slate-500">
-          Upload a full paper once and every student taking that subject can sit
-          it. Their answers are marked question by question, feeding both topic
-          mastery and their past-paper score.
+          Upload a full paper once and every student taking that subject can sit it. Their answers
+          are marked question by question, feeding both topic mastery and their past-paper score.
         </p>
       </div>
 
@@ -120,9 +119,9 @@ export default function PastPapersPage() {
           </label>
         </div>
         <p className="text-xs text-slate-500">
-          The mark scheme is required — a full paper contributes to a predicted
-          grade, so its marks can't rest on the AI's judgement alone. Students
-          can open the question paper but never the mark scheme.
+          The mark scheme is required — a full paper contributes to a predicted grade, so its marks
+          can't rest on the AI's judgement alone. Students can open the question paper but never the
+          mark scheme.
         </p>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

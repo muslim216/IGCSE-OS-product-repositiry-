@@ -41,9 +41,7 @@ export default function ClassroomCallbackPage() {
 
     connectClassroom(code, state)
       .then(() => navigate("/tutor/settings", { replace: true }))
-      .catch((err) =>
-        setError(err instanceof ApiError ? err.message : String(err)),
-      );
+      .catch((err) => setError(err instanceof ApiError ? err.message : String(err)));
   }, [params, navigate]);
 
   return (

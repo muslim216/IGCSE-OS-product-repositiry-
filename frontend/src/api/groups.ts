@@ -85,13 +85,11 @@ export const listGroups = () => api<Group[]>("/api/v1/groups");
 export const getGroup = (id: number) => api<GroupDetail>(`/api/v1/groups/${id}`);
 export const createGroup = (name: string, subject_id: number) =>
   api<Group>("/api/v1/groups", { method: "POST", body: JSON.stringify({ name, subject_id }) });
-export const deleteGroup = (id: number) =>
-  api<void>(`/api/v1/groups/${id}`, { method: "DELETE" });
+export const deleteGroup = (id: number) => api<void>(`/api/v1/groups/${id}`, { method: "DELETE" });
 
 export const createInvite = (groupId: number) =>
   api<Invite>(`/api/v1/groups/${groupId}/invites`, { method: "POST" });
-export const previewInvite = (code: string) =>
-  api<InvitePreview>(`/api/v1/auth/invites/${code}`);
+export const previewInvite = (code: string) => api<InvitePreview>(`/api/v1/auth/invites/${code}`);
 export const joinWithInvite = (invite_code: string) =>
   api<void>("/api/v1/auth/join", { method: "POST", body: JSON.stringify({ invite_code }) });
 
@@ -138,8 +136,7 @@ export const resetStudentPassword = (groupId: number, studentId: number, passwor
 export const createParentCode = (studentId: number) =>
   api<Invite>(`/api/v1/students/${studentId}/parent-code`, { method: "POST" });
 
-export const listLessons = (groupId: number) =>
-  api<Lesson[]>(`/api/v1/groups/${groupId}/lessons`);
+export const listLessons = (groupId: number) => api<Lesson[]>(`/api/v1/groups/${groupId}/lessons`);
 export const createLesson = (
   groupId: number,
   payload: { weekday: number; start_time: string; duration_min: number; title: string | null },

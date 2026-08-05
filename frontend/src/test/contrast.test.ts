@@ -32,9 +32,7 @@ function token(name: string): string {
 /** WCAG 2.x relative luminance. */
 function luminance(hex: string): number {
   const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-  const [r, g, b] = channels.map((c) =>
-    c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
-  );
+  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
@@ -56,17 +54,13 @@ describe("the arithmetic itself", () => {
 });
 
 describe("UX-8 — text meets 4.5:1 on every surface it can land on", () => {
-  test.each(["ink-900", "ink-700", "ink-500"])(
-    "%s carries normal-size copy",
-    (name) => {
-      for (const surface of SURFACES) {
-        expect(
-          ratio(token(name), token(surface)),
-          `${name} on ${surface}`,
-        ).toBeGreaterThanOrEqual(4.5);
-      }
-    },
-  );
+  test.each(["ink-900", "ink-700", "ink-500"])("%s carries normal-size copy", (name) => {
+    for (const surface of SURFACES) {
+      expect(ratio(token(name), token(surface)), `${name} on ${surface}`).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+  });
 
   test("ink-400 stays removed", () => {
     // It is not retunable: on this palette the darkest value clearing 4.5:1

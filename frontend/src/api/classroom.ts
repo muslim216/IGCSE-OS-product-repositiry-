@@ -29,8 +29,7 @@ export interface ClassroomLink {
 
 export const classroomStatus = () => api<ClassroomStatus>("/api/v1/classroom/status");
 
-export const classroomAuthUrl = () =>
-  api<ClassroomAuthUrl>("/api/v1/classroom/auth-url");
+export const classroomAuthUrl = () => api<ClassroomAuthUrl>("/api/v1/classroom/auth-url");
 
 // `state` goes back to the server as well as being compared in the browser:
 // the sessionStorage check catches a callback from another browser, and the
@@ -44,11 +43,9 @@ export const connectClassroom = (code: string, state: string) =>
 export const disconnectClassroom = () =>
   api<void>("/api/v1/classroom/account", { method: "DELETE" });
 
-export const listClassroomCourses = () =>
-  api<ClassroomCourse[]>("/api/v1/classroom/courses");
+export const listClassroomCourses = () => api<ClassroomCourse[]>("/api/v1/classroom/courses");
 
-export const listClassroomLinks = () =>
-  api<ClassroomLink[]>("/api/v1/classroom/links");
+export const listClassroomLinks = () => api<ClassroomLink[]>("/api/v1/classroom/links");
 
 export const createClassroomLink = (payload: {
   group_id: number;

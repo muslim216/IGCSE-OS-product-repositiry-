@@ -67,9 +67,7 @@ export function SubjectReadinessCard({
         </p>
       )}
 
-      {subject.rationale && (
-        <p className="mt-3 text-sm text-slate-600">{subject.rationale}</p>
-      )}
+      {subject.rationale && <p className="mt-3 text-sm text-slate-600">{subject.rationale}</p>}
 
       {subject.recommended_revision && (
         <div className="mt-3 rounded bg-slate-50 p-3 text-sm text-slate-600">

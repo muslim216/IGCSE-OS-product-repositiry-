@@ -82,6 +82,13 @@ jobs:
         working-directory: frontend
         run: npm run lint -- --max-warnings 0
 
+      # The frontend counterpart to `ruff format --check`, and split from eslint
+      # for the same reason: "this code is wrong" and "this code is unformatted"
+      # are different messages. The fix is `npm run format` locally.
+      - name: prettier --check
+        working-directory: frontend
+        run: npm run format:check
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest

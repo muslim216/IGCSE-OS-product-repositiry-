@@ -19,8 +19,7 @@ export interface ConversationDetail {
   messages: ChatMessage[];
 }
 
-export const listConversations = () =>
-  api<Conversation[]>("/api/v1/chat/conversations");
+export const listConversations = () => api<Conversation[]>("/api/v1/chat/conversations");
 export const createConversation = () =>
   api<ConversationDetail>("/api/v1/chat/conversations", { method: "POST" });
 export const getConversation = (id: number) =>

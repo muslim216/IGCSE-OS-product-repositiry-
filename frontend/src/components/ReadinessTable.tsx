@@ -131,11 +131,21 @@ export default function ReadinessTable({
             <caption className="sr-only">Learner readiness, lowest first</caption>
             <thead>
               <tr className="text-xs uppercase tracking-wide text-ink-500">
-                <th scope="col" className="py-2 pr-3 font-medium">Learner</th>
-                <th scope="col" className="py-2 pr-3 font-medium">Subject</th>
-                <th scope="col" className="py-2 pr-3 font-medium">Readiness</th>
-                <th scope="col" className="py-2 pr-3 font-medium">Status</th>
-                <th scope="col" className="py-2 font-medium">Next step</th>
+                <th scope="col" className="py-2 pr-3 font-medium">
+                  Learner
+                </th>
+                <th scope="col" className="py-2 pr-3 font-medium">
+                  Subject
+                </th>
+                <th scope="col" className="py-2 pr-3 font-medium">
+                  Readiness
+                </th>
+                <th scope="col" className="py-2 pr-3 font-medium">
+                  Status
+                </th>
+                <th scope="col" className="py-2 font-medium">
+                  Next step
+                </th>
               </tr>
             </thead>
             <tbody>

@@ -51,9 +51,7 @@ export default function JoinPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow">
-        <h1 className="text-xl font-semibold text-slate-800">
-          Join {preview.data.group_name}
-        </h1>
+        <h1 className="text-xl font-semibold text-slate-800">Join {preview.data.group_name}</h1>
         <p className="mt-1 text-sm text-slate-500">
           {preview.data.subject_name} with {preview.data.tutor_name}
         </p>

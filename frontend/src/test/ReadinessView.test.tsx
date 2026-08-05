@@ -48,10 +48,6 @@ test("surfaces the v2 rationale and revision plan when present", () => {
 });
 
 test("says so plainly when there is not enough evidence", () => {
-  render(
-    <SubjectReadinessCard
-      subject={{ ...base, score: null, predicted_grade: null }}
-    />,
-  );
+  render(<SubjectReadinessCard subject={{ ...base, score: null, predicted_grade: null }} />);
   expect(screen.getByText("Not enough data yet")).toBeInTheDocument();
 });

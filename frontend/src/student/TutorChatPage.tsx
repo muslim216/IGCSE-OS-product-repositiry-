@@ -146,14 +146,10 @@ export default function TutorChatPage() {
             <MessageBubble key={m.id} role={m.role} content={m.content} />
           ))}
           {streaming && <MessageBubble role="assistant" content={streaming} />}
-          {busy && !streaming && (
-            <div className="text-sm text-slate-400">Tutor is thinking…</div>
-          )}
+          {busy && !streaming && <div className="text-sm text-slate-400">Tutor is thinking…</div>}
         </div>
 
-        {error && (
-          <p className="border-t bg-red-50 px-4 py-2 text-sm text-red-600">{error}</p>
-        )}
+        {error && <p className="border-t bg-red-50 px-4 py-2 text-sm text-red-600">{error}</p>}
         <form onSubmit={onSend} className="flex gap-2 border-t p-3">
           <input
             className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"

@@ -30,8 +30,7 @@ export function ReportsPanel({
     queryKey: ["report", openId],
     queryFn: () => getReport(openId!),
     enabled: openId !== null,
-    refetchInterval: (query) =>
-      query.state.data?.status === "generating" ? 3000 : false,
+    refetchInterval: (query) => (query.state.data?.status === "generating" ? 3000 : false),
   });
 
   const generate = useMutation({
@@ -100,9 +99,7 @@ export function ReportsPanel({
             </span>
           </li>
         ))}
-        {reports.data?.length === 0 && (
-          <li className="py-2 text-slate-500">No reports yet.</li>
-        )}
+        {reports.data?.length === 0 && <li className="py-2 text-slate-500">No reports yet.</li>}
       </ul>
 
       {openId !== null && opened.data && (

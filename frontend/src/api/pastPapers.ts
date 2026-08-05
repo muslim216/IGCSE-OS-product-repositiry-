@@ -42,12 +42,9 @@ export interface PastPaperAttempt {
 }
 
 export const listPastPapers = (subjectId?: number) =>
-  api<PastPaper[]>(
-    `/api/v1/past-papers${subjectId ? `?subject_id=${subjectId}` : ""}`,
-  );
+  api<PastPaper[]>(`/api/v1/past-papers${subjectId ? `?subject_id=${subjectId}` : ""}`);
 
-export const getPastPaper = (id: number) =>
-  api<PastPaperDetail>(`/api/v1/past-papers/${id}`);
+export const getPastPaper = (id: number) => api<PastPaperDetail>(`/api/v1/past-papers/${id}`);
 
 export function uploadPastPaper(payload: {
   subject_id: number;
@@ -66,8 +63,7 @@ export function uploadPastPaper(payload: {
   form.append("booklet", payload.booklet);
   form.append("mark_scheme", payload.mark_scheme);
   if (payload.total_marks) form.append("total_marks", String(payload.total_marks));
-  if (payload.duration_minutes)
-    form.append("duration_minutes", String(payload.duration_minutes));
+  if (payload.duration_minutes) form.append("duration_minutes", String(payload.duration_minutes));
   return api<PastPaper>("/api/v1/past-papers", { method: "POST", body: form });
 }
 
@@ -95,7 +91,5 @@ export function logAttempt(
 export const myAttempt = (pastPaperId: number) =>
   api<PastPaperAttempt | null>(`/api/v1/past-papers/${pastPaperId}/my-attempt`);
 
-export const pastPaperBookletPath = (id: number) =>
-  `/api/v1/past-papers/${id}/booklet`;
-export const pastPaperMarkSchemePath = (id: number) =>
-  `/api/v1/past-papers/${id}/mark-scheme`;
+export const pastPaperBookletPath = (id: number) => `/api/v1/past-papers/${id}/booklet`;
+export const pastPaperMarkSchemePath = (id: number) => `/api/v1/past-papers/${id}/mark-scheme`;

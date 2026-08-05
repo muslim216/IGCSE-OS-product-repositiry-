@@ -1,17 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  getStoredTokens,
-  storeTokens,
-  type AuthResponse,
-  type User,
-} from "../api/client";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { getStoredTokens, storeTokens, type AuthResponse, type User } from "../api/client";
 import { fetchMe, logout } from "../api/auth";
 
 interface AuthState {

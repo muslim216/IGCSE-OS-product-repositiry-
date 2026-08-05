@@ -57,7 +57,12 @@ export function GroupResourcesPanel({ groupId }: { groupId: number }) {
                 <AuthFileLink path={resourceFilePath(r.id)} label="Open" />
               ) : (
                 isSafeHttpUrl(r.url) && (
-                  <a href={r.url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
                     Watch
                   </a>
                 )

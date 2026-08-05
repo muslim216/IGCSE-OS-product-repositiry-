@@ -33,8 +33,7 @@ export default function AssignmentDetailPage() {
   const assignment = useQuery({
     queryKey: ["assignment", id],
     queryFn: () => getAssignment(id),
-    refetchInterval: (query) =>
-      query.state.data?.status === "extracting" ? 2500 : false,
+    refetchInterval: (query) => (query.state.data?.status === "extracting" ? 2500 : false),
   });
   const group = useQuery({
     queryKey: ["group", assignment.data?.group_id],
@@ -73,7 +72,11 @@ export default function AssignmentDetailPage() {
   }, [assignment.data, dirty]);
 
   const save = useMutation({
-    mutationFn: () => replaceQuestions(id, rows.map(({ key, ...q }) => q)),
+    mutationFn: () =>
+      replaceQuestions(
+        id,
+        rows.map(({ key, ...q }) => q),
+      ),
     onSuccess: () => {
       setDirty(false);
       queryClient.invalidateQueries({ queryKey: ["assignment", id] });
@@ -82,7 +85,11 @@ export default function AssignmentDetailPage() {
   });
   const publish = useMutation({
     mutationFn: async () => {
-      if (dirty) await replaceQuestions(id, rows.map(({ key, ...q }) => q));
+      if (dirty)
+        await replaceQuestions(
+          id,
+          rows.map(({ key, ...q }) => q),
+        );
       return publishAssignment(id);
     },
     onSuccess: () => {
@@ -110,10 +117,7 @@ export default function AssignmentDetailPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to={`/tutor/groups/${a.group_id}`}
-          className="text-sm text-blue-600 hover:underline"
-        >
+        <Link to={`/tutor/groups/${a.group_id}`} className="text-sm text-blue-600 hover:underline">
           ← {group.data?.name ?? "Group"}
         </Link>
         <div className="mt-1 flex items-center gap-3">
@@ -130,24 +134,20 @@ export default function AssignmentDetailPage() {
             {STATUS_LABEL[a.status] ?? a.status}
           </span>
         </div>
-        {a.question_range && (
-          <p className="text-sm text-slate-500">Range: {a.question_range}</p>
-        )}
+        {a.question_range && <p className="text-sm text-slate-500">Range: {a.question_range}</p>}
       </div>
 
       {a.status === "extracting" && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          The AI is reading the classified and building the question list — this usually takes
-          under a minute. The page refreshes automatically.
+          The AI is reading the classified and building the question list — this usually takes under
+          a minute. The page refreshes automatically.
         </div>
       )}
 
       {a.status === "extraction_failed" && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <p className="font-medium">Extraction failed: {a.extraction_error}</p>
-          <p className="mt-1">
-            You can retry, or add the questions manually below and publish.
-          </p>
+          <p className="mt-1">You can retry, or add the questions manually below and publish.</p>
           <button
             onClick={() => retry.mutate()}
             className="mt-2 rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700"
@@ -280,9 +280,7 @@ export default function AssignmentDetailPage() {
                         value={r.topic_ids.map(String)}
                         onChange={(e) =>
                           update(r.key, {
-                            topic_ids: Array.from(e.target.selectedOptions, (o) =>
-                              Number(o.value),
-                            ),
+                            topic_ids: Array.from(e.target.selectedOptions, (o) => Number(o.value)),
                           })
                         }
                       >
@@ -348,10 +346,7 @@ export default function AssignmentDetailPage() {
                           : s.status}
                     </span>
                   )}
-                  <Link
-                    to={`/tutor/submissions/${s.id}`}
-                    className="text-blue-600 hover:underline"
-                  >
+                  <Link to={`/tutor/submissions/${s.id}`} className="text-blue-600 hover:underline">
                     {s.status === "finalized" ? "View" : "Review"}
                   </Link>
                 </span>

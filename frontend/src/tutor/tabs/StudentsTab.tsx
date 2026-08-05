@@ -237,7 +237,6 @@ export default function StudentsTab() {
             Add student
           </button>
         </div>
-
       </form>
 
       <Modal

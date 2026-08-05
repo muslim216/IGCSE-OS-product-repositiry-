@@ -14,7 +14,9 @@ export default function ExamsPage() {
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Exams</h2>
-        <p className="text-sm text-slate-500">Your mock and test scores, as entered by your tutor.</p>
+        <p className="text-sm text-slate-500">
+          Your mock and test scores, as entered by your tutor.
+        </p>
       </div>
 
       <div className="overflow-hidden rounded-lg border bg-white">
@@ -35,7 +37,10 @@ export default function ExamsPage() {
                 <td className="px-4 py-2 text-slate-500">{s.subject_name}</td>
                 <td className="px-4 py-2 text-slate-500">{s.topic_title ?? "Overall"}</td>
                 <td className="px-4 py-2 text-slate-500">
-                  {new Date(s.date).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                  {new Date(s.date).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                  })}
                 </td>
                 <td className={`px-4 py-2 text-right font-medium ${scoreColor(s.pct)}`}>
                   {s.marks}/{s.max_marks} ({s.pct}%)
