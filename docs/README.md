@@ -203,12 +203,14 @@ may only have a mitigation.
 | `README.md` (root) | Product introduction, local setup, deploy walkthrough | Yes |
 | `CLAUDE.md` (root) | The agent-facing brief: binding rules plus a map into this constitution | Yes |
 | `docs/manara-architecture.md` | The **design spec** for the MANARA update — target state, product decisions, build order | Yes, as a design document |
+| [`docs/experience-design.md`](experience-design.md) | The **experience spec** — what the tutor, student and parent each see, in what order and in what states; the shared grade and readiness vocabulary; the cold start | Yes, as a design document |
+| [`docs/experience-implementation-plan.md`](experience-implementation-plan.md) | The **delivery plan** for that spec — every state each surface can be in, the copy it says in each, and the 30 pull requests that build it, in order | Yes, until Stage 9 lands |
 | `docs/archive/` | Point-in-time records kept for history | No, deliberately |
 
-The distinction between `docs/manara-architecture.md` and this constitution matters: **that
-document says what MANARA is being built toward; these say what MANARA is.** Where the two
-disagree, neither is wrong — they answer different questions. But only one tells you what
-your code will run against.
+The distinction between the two design documents — `docs/manara-architecture.md` and
+`docs/experience-design.md` — and this constitution matters: **those documents say what MANARA
+is being built toward; these say what MANARA is.** Where the two disagree, neither is wrong —
+they answer different questions. But only one tells you what your code will run against.
 
 ## Version history
 

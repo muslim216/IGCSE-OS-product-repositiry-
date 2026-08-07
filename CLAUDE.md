@@ -30,6 +30,8 @@ Read `docs/volume-1-product-and-ux/01-product-architecture.md` before your first
 |---|---|
 | Anything, first | `docs/volume-1-product-and-ux/01-product-architecture.md` |
 | UI, styling, accessibility | `docs/volume-1-product-and-ux/02-ux-and-accessibility-standards.md` |
+| What a tutor, student or parent sees | `docs/experience-design.md` |
+| Building any of that — states, copy, PR order | `docs/experience-implementation-plan.md` |
 | `frontend/src/` | `docs/volume-2-application-engineering/03-frontend-engineering.md` |
 | `backend/app/` structure, services, jobs | `docs/volume-2-application-engineering/04-backend-engineering.md` |
 | An endpoint | `docs/volume-2-application-engineering/05-api-standards.md` |
@@ -52,8 +54,10 @@ convention. `docs/governance/documentation-authority.md` defines the rule format
 authority hierarchy, and how rules are deprecated.
 
 **`docs/manara-architecture.md` is the design spec** for the MANARA update — the target state.
-The constitution documents the system **as built**. Where they differ they are answering
-different questions; the constitution tells you what your code will run against.
+**`docs/experience-design.md` is the experience spec** — what each role sees, the shared grade
+and readiness vocabulary, and the cold start. The constitution documents the system **as
+built**. Where they differ they are answering different questions; the constitution tells you
+what your code will run against.
 
 ## How work reaches production
 
@@ -363,3 +367,7 @@ Full detail in §01 and §04; this is orientation only.
 **The API is pinned to a single instance** by three things at once — the uploads disk, the
 in-process worker, and the in-process rate limiter. Scaling out is a correctness change, not a
 configuration change (`RISK-1`, §08).
+
+
+PLugins / ECC 
+whenever you do any job use  everything you would need from ECC so hooks rules subagents anything that would imrpove the output you can give 
