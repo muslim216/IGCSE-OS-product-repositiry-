@@ -31,6 +31,15 @@ class SubjectReadiness(BaseModel):
     # source of the colour every surface shows (UX-28). None when there is no
     # grade or no boundaries, so an absent band renders as absent (PROD-2).
     status: str | None = None
+    # The plain mean of marked work, mapped through the same boundaries as the
+    # predicted grade above. Backward-looking, where predicted_grade is
+    # forward-looking; the gap between them is what the surfaces explain
+    # (experience-design.md §3.3). None when nothing has been marked yet —
+    # never 0 (PROD-2). marked_piece_count says what the value came from
+    # (PROD-1) and is 0 exactly when averaging_score is None.
+    averaging_score: float | None = None
+    averaging_grade: str | None = None
+    marked_piece_count: int = 0
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
     # Which engine produced this. "v2" is the system of record; "v1" means no

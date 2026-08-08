@@ -138,10 +138,12 @@ async def resolve_grade_boundaries(
     """Org-entered grade boundaries take priority over the shared Subject
     default (see CLAUDE.md: manually entered by the tutor per subject).
 
-    Public because the read path shares it: readiness_summary_v2 must band a
-    snapshot's predicted grade against the same ordered list that produced it,
-    and nothing constrains an organization's grade_label set to match the
-    subject's."""
+    Public because the read path shares it: readiness_summary_v2 bands a
+    snapshot's predicted grade, and maps the averaging grade, through the same
+    ordered list that produced the predicted grade — nothing constrains an
+    organization's grade_label set to match the subject's, so both the band and
+    the predicted-beside-averaging comparison only hold if they read this list
+    rather than Subject.grade_boundaries."""
     org_boundaries = (
         await session.scalars(
             select(GradeBoundary).where(

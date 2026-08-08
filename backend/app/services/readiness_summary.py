@@ -12,6 +12,7 @@ from app.schemas.readiness import (
     TopicReadinessOut,
     WeakTopic,
 )
+from app.services.averaging import subject_averaging
 from app.services.grades import grade_band, predict_grade
 
 # Topics at or below this score (with enough confidence) are surfaced as weak.
@@ -71,6 +72,14 @@ async def build_summary(
         overall = round(weighted_sum / weight_total, 1) if weight_total > 0 else None
         grade = predict_grade(overall, subject.grade_boundaries) if overall is not None else None
         status = grade_band(grade, subject.grade_boundaries)
+        # Same boundary list as the predicted grade above, so the two grades are
+        # comparable — which is the only reason showing both is useful (§3.3).
+        averaging = await subject_averaging(db, student.id, subject_id)
+        averaging_grade = (
+            predict_grade(averaging.score, subject.grade_boundaries)
+            if averaging.score is not None
+            else None
+        )
         topic_out.sort(key=lambda t: t.topic_code)
         weak.sort(key=lambda w: w.score)
         subjects_out.append(
@@ -82,6 +91,9 @@ async def build_summary(
                 score=overall,
                 predicted_grade=grade,
                 status=status,
+                averaging_score=averaging.score,
+                averaging_grade=averaging_grade,
+                marked_piece_count=averaging.marked_piece_count,
                 topics=topic_out,
                 weak_topics=weak[:5],
             )

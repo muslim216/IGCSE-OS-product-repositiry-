@@ -187,10 +187,15 @@ async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypat
 
     await process_one_job()  # recompute
     summary = await client.get("/api/v1/readiness/me", headers=world["student_headers"])
-    topic1 = next(
-        t for t in summary.json()["subjects"][0]["topics"] if t["topic_id"] == world["topic1"]
-    )
+    subject = summary.json()["subjects"][0]
+    topic1 = next(t for t in subject["topics"] if t["topic_id"] == world["topic1"])
     assert topic1["score"] == 80.0
+
+    # The one finalized piece is also the whole of the averaging grade: 8/10,
+    # mapped through the same boundaries as the prediction ([9, 7, 4, U]).
+    assert subject["averaging_score"] == 80.0
+    assert subject["averaging_grade"] == "7"
+    assert subject["marked_piece_count"] == 1
 
 
 async def test_tutor_only_sees_own_students_readiness(client, world):
