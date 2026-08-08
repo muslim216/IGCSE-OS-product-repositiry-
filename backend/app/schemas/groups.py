@@ -47,6 +47,10 @@ class GroupSummary(BaseModel):
     """The aggregates a class card needs at a glance."""
 
     member_count: int = 0
+    # Coverage numerator over member_count: enrolled students who have
+    # confident readiness evidence in this class's subject. Always present, so
+    # "0 of 11" is a statement the surface can make rather than a missing field.
+    students_with_evidence: int = 0
     published_assignment_count: int = 0
     awaiting_review_count: int = 0
     next_lesson: NextLesson | None = None

@@ -173,6 +173,11 @@ async def _subject_from_snapshot(
             if snapshot.score is not None
             else None
         ),
+        # topic_out is already filtered to factors that had evidence, so its
+        # length is the covered count; the denominator is every topic in the
+        # subject, evidence or not.
+        topics_with_evidence=len(topic_out),
+        topic_count=len(topics),
         topics=topic_out,
         weak_topics=weak[:5],
         rationale=snapshot.rationale,

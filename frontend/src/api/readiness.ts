@@ -39,6 +39,11 @@ export interface SubjectReadiness {
   /** Direction of travel over the trend series. null means too little history
       to say — render no arrow at all, never "→", which would be a claim. */
   direction: "up" | "flat" | "down" | null;
+  /** Coverage: topics carrying evidence over topics that exist. The pair is
+      what lets a surface show `9/11` rather than implying the score speaks
+      for the whole subject. */
+  topics_with_evidence: number;
+  topic_count: number;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
   /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */

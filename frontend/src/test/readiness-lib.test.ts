@@ -9,6 +9,7 @@ const group = (id: number, name: string): Group => ({
   name,
   subject,
   member_count: 2,
+  students_with_evidence: 0,
   published_assignment_count: 0,
   awaiting_review_count: 0,
   next_lesson: null,

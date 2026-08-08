@@ -44,6 +44,12 @@ class SubjectReadiness(BaseModel):
     # None when there is too little history to say (UX-31). None renders as no
     # arrow — a "→" would claim a movement that was never measured (PROD-2).
     direction: str | None = None
+    # Coverage: how much of the subject the score above is drawn from — topics
+    # carrying evidence, over topics that exist. A value from part of a subject
+    # is a different claim from one drawn from all of it, and the pair is what
+    # lets a surface say so instead of implying completeness (PROD-2).
+    topics_with_evidence: int = 0
+    topic_count: int = 0
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
     # Which engine produced this. "v2" is the system of record; "v1" means no
