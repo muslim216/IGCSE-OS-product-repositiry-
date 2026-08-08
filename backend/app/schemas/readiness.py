@@ -26,6 +26,11 @@ class SubjectReadiness(BaseModel):
     grade_scale: str
     score: float | None  # None when there is no confident evidence yet
     predicted_grade: str | None
+    # Readiness band ("on_track" | "needs_attention" | "at_risk") derived from
+    # the predicted grade's position in the subject's boundary list — the one
+    # source of the colour every surface shows (UX-28). None when there is no
+    # grade or no boundaries, so an absent band renders as absent (PROD-2).
+    status: str | None = None
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
     # Which engine produced this. "v2" is the system of record; "v1" means no

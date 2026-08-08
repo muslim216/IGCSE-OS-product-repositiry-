@@ -12,7 +12,7 @@ from app.schemas.readiness import (
     TopicReadinessOut,
     WeakTopic,
 )
-from app.services.grades import predict_grade
+from app.services.grades import grade_band, predict_grade
 
 # Topics at or below this score (with enough confidence) are surfaced as weak.
 WEAK_THRESHOLD = 60.0
@@ -70,6 +70,7 @@ async def build_summary(
 
         overall = round(weighted_sum / weight_total, 1) if weight_total > 0 else None
         grade = predict_grade(overall, subject.grade_boundaries) if overall is not None else None
+        status = grade_band(grade, subject.grade_boundaries)
         topic_out.sort(key=lambda t: t.topic_code)
         weak.sort(key=lambda w: w.score)
         subjects_out.append(
@@ -80,6 +81,7 @@ async def build_summary(
                 grade_scale=subject.grade_scale,
                 score=overall,
                 predicted_grade=grade,
+                status=status,
                 topics=topic_out,
                 weak_topics=weak[:5],
             )

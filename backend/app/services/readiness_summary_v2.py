@@ -40,6 +40,7 @@ from app.schemas.readiness import (
     TopicReadinessOut,
     WeakTopic,
 )
+from app.services.grades import grade_band
 from app.services.readiness_summary import build_summary
 
 # Job types whose presence means "a new score is on its way".
@@ -142,6 +143,9 @@ async def _subject_from_snapshot(
         grade_scale=subject.grade_scale,
         score=snapshot.score,
         predicted_grade=snapshot.predicted_grade,
+        # The band follows the grade's position in the subject's boundary list;
+        # see grades.grade_band re RISK-5 on which of the two sources it reads.
+        status=grade_band(snapshot.predicted_grade, subject.grade_boundaries),
         topics=topic_out,
         weak_topics=weak[:5],
         rationale=snapshot.rationale,

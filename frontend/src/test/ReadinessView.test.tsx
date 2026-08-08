@@ -10,6 +10,7 @@ const base: SubjectReadiness = {
   grade_scale: "9-1",
   score: 72,
   predicted_grade: "6",
+  status: "needs_attention",
   topics: [],
   weak_topics: [],
   engine: "v2",

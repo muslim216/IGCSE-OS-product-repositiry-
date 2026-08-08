@@ -99,6 +99,9 @@ async def test_mock_entry_produces_readiness_and_grade(client, tutor, world):
     # topic1 = 90%, topic2 = 40%, weighted (1*90 + 2*40)/3 = 56.7
     assert subject["score"] == pytest.approx(56.7, abs=0.2)
     assert subject["predicted_grade"] == "4"  # 56.7 -> grade 4
+    # Band is positional: this subject's boundary list is [9, 7, 4, U], so "4"
+    # sits at index 2 — inside the top band — regardless of the 56.7 percentage.
+    assert subject["status"] == "on_track"
     # Weak topics need medium+ confidence; a single mock is low confidence,
     # so nothing is surfaced as weak yet.
     assert subject["weak_topics"] == []

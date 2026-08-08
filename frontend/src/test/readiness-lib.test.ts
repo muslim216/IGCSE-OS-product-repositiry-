@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { deriveLearnerRows, greetingFor, statusOf } from "../lib/readiness";
+import { deriveLearnerRows, greetingFor } from "../lib/readiness";
 import type { Group } from "../api/groups";
 import type { TutorAnalytics } from "../api/readiness";
 
@@ -22,11 +22,12 @@ function analytics(weak_students: TutorAnalytics["weak_students"]): TutorAnalyti
   };
 }
 
-test("statusOf uses the class readiness thresholds", () => {
-  expect(statusOf(70)).toBe("on_track");
-  expect(statusOf(69.9)).toBe("needs_attention");
-  expect(statusOf(50)).toBe("needs_attention");
-  expect(statusOf(49.9)).toBe("at_risk");
+test("statusOf is no longer exported — bands come from the backend, not a threshold", async () => {
+  // A readiness band is now a grade's position in its boundary list (UX-28),
+  // computed server-side and delivered as SubjectReadiness.status. No frontend
+  // module may re-derive it from a percentage, so statusOf is not a public API.
+  const mod = await import("../lib/readiness");
+  expect("statusOf" in mod).toBe(false);
 });
 
 test("greetingFor tracks the time of day", () => {

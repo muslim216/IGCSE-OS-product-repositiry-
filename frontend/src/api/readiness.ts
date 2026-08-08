@@ -1,3 +1,4 @@
+import type { ReadinessStatus } from "../components/ui";
 import { api } from "./client";
 
 export interface TopicReadiness {
@@ -23,6 +24,10 @@ export interface SubjectReadiness {
   grade_scale: string;
   score: number | null;
   predicted_grade: string | null;
+  /** Readiness band from the predicted grade's boundary position — the one
+      source of the colour surfaces show. null when there is no grade or no
+      boundaries, and is then rendered as absent, never a defaulted colour. */
+  status: ReadinessStatus | null;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
   /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */

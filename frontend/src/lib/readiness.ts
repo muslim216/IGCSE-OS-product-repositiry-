@@ -5,8 +5,13 @@ import type { ReadinessStatus } from "../components/ui";
 /* Pure derivation over readiness evidence — no React, unit-testable.
    Shared by the Today dashboard and reusable by readiness / org-level views. */
 
-/** Thresholds match ClassReadinessPage's score coloring. */
-export function statusOf(score: number): ReadinessStatus {
+/* No longer exported: a readiness band is derived from a grade's position in
+   its subject's boundary list, not a percentage threshold (UX-28), and that
+   band arrives from the backend as SubjectReadiness.status. This last score
+   threshold is kept private and confined to the legacy analytics-driven learner
+   table below, whose only datum per student is a bare score with no grade or
+   boundaries; a later stage replaces that table and this with it. */
+function statusOf(score: number): ReadinessStatus {
   if (score >= 70) return "on_track";
   if (score >= 50) return "needs_attention";
   return "at_risk";
