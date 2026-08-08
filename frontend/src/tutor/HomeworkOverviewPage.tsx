@@ -2,13 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listGroups } from "../api/groups";
 import { assignmentsNeedingAttention, reviewQueue } from "../api/homework";
-
-const REASON_LABELS: Record<string, string> = {
-  extraction_failed: "Question extraction failed",
-  ai_failed: "AI marking failed",
-  ai_marked: "AI-marked — awaiting your review",
-  needs_review: "Some marks need your decision",
-};
+import { REASON_LABELS } from "../lib/labels";
 
 export default function HomeworkOverviewPage() {
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
