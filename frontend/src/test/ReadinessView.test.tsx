@@ -14,6 +14,7 @@ const base: SubjectReadiness = {
   averaging_score: null,
   averaging_grade: null,
   marked_piece_count: 0,
+  direction: null,
   topics: [],
   weak_topics: [],
   engine: "v2",

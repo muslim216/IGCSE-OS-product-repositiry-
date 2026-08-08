@@ -36,6 +36,9 @@ export interface SubjectReadiness {
   /** How many marked pieces the averaging value came from; 0 exactly when
       averaging_score is null. */
   marked_piece_count: number;
+  /** Direction of travel over the trend series. null means too little history
+      to say — render no arrow at all, never "→", which would be a claim. */
+  direction: "up" | "flat" | "down" | null;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
   /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */

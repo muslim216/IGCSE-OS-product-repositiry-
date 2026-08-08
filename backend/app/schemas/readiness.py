@@ -40,6 +40,10 @@ class SubjectReadiness(BaseModel):
     averaging_score: float | None = None
     averaging_grade: str | None = None
     marked_piece_count: int = 0
+    # Direction of travel over the trend series: "up" | "flat" | "down", or
+    # None when there is too little history to say (UX-31). None renders as no
+    # arrow — a "→" would claim a movement that was never measured (PROD-2).
+    direction: str | None = None
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
     # Which engine produced this. "v2" is the system of record; "v1" means no
