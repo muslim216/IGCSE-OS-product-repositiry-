@@ -95,15 +95,26 @@ export default function SubmissionReviewPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
+  /* An unmarked question contributes nothing to either side of the total, and
+     the count of them is shown beside it. Adding its max to the denominator
+     while its blank mark counted 0 in the numerator — which is what `?? 0` did
+     — showed the tutor a total the student had not scored, and it fell as they
+     worked rather than climbing (PROD-2, UX-19). */
   const totals = useMemo(() => {
-    if (!submission.data) return { got: 0, max: 0 };
+    if (!submission.data) return { got: 0, max: 0, unmarked: 0 };
     let got = 0;
     let max = 0;
+    let unmarked = 0;
     for (const m of submission.data.marks) {
+      const marks = drafts[m.question_id]?.final_marks;
+      if (marks === null || marks === undefined) {
+        unmarked += 1;
+        continue;
+      }
+      got += marks;
       max += m.max_marks;
-      got += drafts[m.question_id]?.final_marks ?? 0;
     }
-    return { got, max };
+    return { got, max, unmarked };
   }, [submission.data, drafts]);
 
   if (submission.isLoading) return <p className="text-slate-500">Loading…</p>;
@@ -125,6 +136,11 @@ export default function SubmissionReviewPage() {
           <div className="flex items-center gap-3 text-sm">
             <span className="font-medium text-slate-700">
               {totals.got} / {totals.max}
+              {totals.unmarked > 0 && (
+                <span className="ml-1.5 font-normal text-slate-500">
+                  ({totals.unmarked} not marked yet)
+                </span>
+              )}
             </span>
             {autoFinalized && (
               <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
