@@ -62,6 +62,18 @@ describe("UX-8 — text meets 4.5:1 on every surface it can land on", () => {
     }
   });
 
+  // Status tints carry real copy — a confidence badge, a remark notice, a
+  // status label — so they answer to the same 4.5:1 as body text. remark-600
+  // is the family purple resolves to; before it existed those five sites
+  // rendered an unmeasured raw palette colour onto the navy.
+  test.each(["ok-700", "warn-700", "risk-600", "remark-600"])("%s carries status copy", (name) => {
+    for (const surface of SURFACES) {
+      expect(ratio(token(name), token(surface)), `${name} on ${surface}`).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+  });
+
   test("ink-400 stays removed", () => {
     // It is not retunable: on this palette the darkest value clearing 4.5:1
     // against surface-muted is ink-500 itself, so a fourth muted step can only
@@ -93,6 +105,23 @@ describe("UX-9 — an interactive boundary meets 3:1 (WCAG 1.4.11)", () => {
     // so a future reader does not "fix" them into shouting.
     expect(ratio(token("line"), token("surface"))).toBeLessThan(3);
     expect(ratio(token("line-strong"), token("canvas"))).toBeLessThan(3);
+  });
+});
+
+describe("every palette family the app uses is retargeted", () => {
+  // The failure this guards is not a wrong colour but an *unhandled* one: a
+  // Tailwind family with no rule in the retarget block renders its stock value
+  // straight onto the navy, with no token and no measured contrast. That is
+  // how purple and orange shipped. A new family must be retargeted here or it
+  // repeats it.
+  const USED = ["purple", "orange"] as const;
+
+  test.each(USED)("%s resolves to a MANARA token", (family) => {
+    const rules = css.match(new RegExp(`\\.[a-z-]*${family}-\\d+[^{]*\\{[^}]*\\}`, "g"));
+    expect(rules, `no retarget rule for ${family}-*`).not.toBeNull();
+    for (const rule of rules!) {
+      expect(rule, `${family} rule resolves to a raw value`).toMatch(/var\(--color-|rgba\(/);
+    }
   });
 });
 
