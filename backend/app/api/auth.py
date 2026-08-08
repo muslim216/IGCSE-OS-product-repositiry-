@@ -33,6 +33,7 @@ from app.security import (
 )
 from app.services.invites import check_usable, consume
 from app.services.rate_limit import login_limiter
+from app.services.timezones import normalize_timezone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -68,9 +69,17 @@ async def register_tutor(
     existing = await db.scalar(select(User).where(func.lower(User.email) == email))
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
+    # The browser reported this; treat it as untrusted and drop it if it is not
+    # a real zone. Signup is the wrong place to fail over a convenience field —
+    # an unusable value leaves the organization on the UTC fallback, which
+    # Settings can correct, rather than blocking the account.
+    try:
+        tz = normalize_timezone(body.timezone)
+    except ValueError:
+        tz = None
     # A personal organization per tutor — the multi-tenant backbone that keeps
     # the product experience single-tutor (see CLAUDE.md / manara-architecture.md).
-    org = Organization(name=f"{body.name}'s Organization")
+    org = Organization(name=f"{body.name}'s Organization", timezone=tz)
     db.add(org)
     await db.flush()
     user = User(

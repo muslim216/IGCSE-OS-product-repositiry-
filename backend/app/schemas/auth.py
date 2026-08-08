@@ -7,6 +7,12 @@ class TutorSignupRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+    # IANA zone from the browser, so "today" means the tutor's today from the
+    # first session. Optional: a browser that cannot report one still signs up,
+    # and the organization falls back to UTC until Settings sets it. Validated
+    # server-side against the real tz database before it is stored — length
+    # alone does not make a browser-supplied string safe to persist.
+    timezone: str | None = Field(default=None, max_length=64)
 
 
 class LoginRequest(BaseModel):
