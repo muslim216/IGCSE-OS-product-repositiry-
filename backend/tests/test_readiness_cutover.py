@@ -11,11 +11,13 @@ from app.models import (
     AiSynthesisStatus,
     FactorConfidence,
     FactorEvaluation,
+    GradeBoundary,
     Job,
     JobStatus,
     ReadinessFactor,
     ReadinessSnapshot,
     ReadinessWeights,
+    User,
 )
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -26,6 +28,7 @@ async def _write_snapshot(
     score: float = 72.0,
     status: AiSynthesisStatus = AiSynthesisStatus.ready,
     topic_score: float | None = 55.0,
+    predicted_grade: str = "6",
     created_at: datetime | None = None,
 ) -> str:
     """A completed v2 evaluation run: the deterministic factor rows plus the
@@ -54,7 +57,7 @@ async def _write_snapshot(
                 subject_id=world["subject_id"],
                 status=status,
                 score=score,
-                predicted_grade="6",
+                predicted_grade=predicted_grade,
                 weak_topics=[{"topic_id": world["topic1"], "reason": "Weak on bonding"}],
                 rationale="Homework performance is carrying the score.",
                 recommended_revision="Two past paper questions on bonding.",
@@ -320,3 +323,54 @@ async def test_a_student_sees_their_own_v2_readiness(client, tutor, world):  # n
     subject = resp.json()["subjects"][0]
     assert subject["engine"] == "v2"
     assert subject["score"] == 72.0
+
+
+async def test_band_uses_the_boundaries_that_produced_the_grade(client, tutor, world):  # noqa: F811
+    """The band is the grade's index, so it must be read from the same ordered
+    list the grade was mapped through — the org override when one exists, not
+    the global Subject default.
+
+    The fixture subject's list is [9, 7, 4, U], where "4" is index 2 and bands
+    on_track. This organization's own list is six grades deep, putting "4" at
+    index 5, where it bands at_risk. Reading the wrong list is a different
+    colour, not a rounding difference."""
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        for label, minimum in [
+            ("9", 85.0),
+            ("8", 75.0),
+            ("7", 65.0),
+            ("6", 55.0),
+            ("5", 45.0),
+            ("4", 0.0),
+        ]:
+            session.add(
+                GradeBoundary(
+                    organization_id=tutor_user.organization_id,
+                    subject_id=world["subject_id"],
+                    grade_label=label,
+                    min_percentage=minimum,
+                )
+            )
+        await session.commit()
+
+    # predicted_grade "4" is index 5 of the org's six-grade list -> at_risk.
+    await _write_snapshot(world, predicted_grade="4")
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subject = resp.json()["subjects"][0]
+    assert subject["predicted_grade"] == "4"
+    assert subject["status"] == "at_risk"
+
+
+async def test_band_falls_back_to_the_subject_list_without_an_org_override(client, tutor, world):  # noqa: F811
+    """No org rows: the same grade bands against the subject's own list, where
+    "4" is index 2 of [9, 7, 4, U] and is on_track."""
+    await _write_snapshot(world, predicted_grade="4")
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subject = resp.json()["subjects"][0]
+    assert subject["predicted_grade"] == "4"
+    assert subject["status"] == "on_track"

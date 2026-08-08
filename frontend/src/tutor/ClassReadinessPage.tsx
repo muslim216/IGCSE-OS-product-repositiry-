@@ -55,7 +55,7 @@ export default function ClassReadinessPage() {
                   >
                     {s.student_name}
                   </Link>
-                  <span className="font-medium text-slate-700">{Math.round(s.score)}%</span>
+                  <span className="font-medium text-ink-700">{Math.round(s.score)}%</span>
                 </li>
               ))}
               {analytics.data.weak_students.length === 0 && (
@@ -72,7 +72,7 @@ export default function ClassReadinessPage() {
                   <span className="text-slate-700">
                     {t.topic_code} {t.topic_title}
                   </span>
-                  <span className="font-medium text-slate-700">{Math.round(t.avg_score)}%</span>
+                  <span className="font-medium text-ink-700">{Math.round(t.avg_score)}%</span>
                 </li>
               ))}
               {analytics.data.weak_topics.length === 0 && (
