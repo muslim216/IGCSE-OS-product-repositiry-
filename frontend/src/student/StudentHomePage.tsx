@@ -16,10 +16,10 @@ function StatTile({
   tone?: "default" | "good" | "warn";
 }) {
   const color =
-    tone === "good" ? "text-green-700" : tone === "warn" ? "text-amber-700" : "text-slate-800";
+    tone === "good" ? "text-ok-700" : tone === "warn" ? "text-warn-700" : "text-ink-900";
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-500">{label}</p>
       <p className={`mt-1.5 text-2xl font-semibold ${color}`}>{value}</p>
     </div>
   );
@@ -55,10 +55,10 @@ export default function StudentHomePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-800">
+        <h2 className="text-2xl font-semibold tracking-tight text-ink-900">
           Welcome back, {firstName(user?.name)}
         </h2>
-        <p className="mt-1 text-sm text-slate-500">Here's where things stand across the board.</p>
+        <p className="mt-1 text-sm text-ink-500">Here's where things stand across the board.</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -85,10 +85,10 @@ export default function StudentHomePage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-lg border border-line bg-surface p-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-medium text-slate-800">Focus on these topics</h3>
-            <Link to="/student/readiness" className="text-sm text-blue-600 hover:underline">
+            <h3 className="font-medium text-ink-900">Focus on these topics</h3>
+            <Link to="/student/readiness" className="text-sm text-brand-600 hover:underline">
               Full readiness
             </Link>
           </div>
@@ -96,22 +96,22 @@ export default function StudentHomePage() {
             <ul className="mt-2 space-y-1.5">
               {weakTopics.map((t) => (
                 <li key={t.topic_id} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-700">
+                  <span className="text-ink-700">
                     {t.topic_code} {t.topic_title}
                   </span>
-                  <span className="text-slate-400">{t.subject_name}</span>
+                  <span className="text-ink-500">{t.subject_name}</span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-2 text-sm text-slate-500">No weak spots flagged yet — keep it up.</p>
+            <p className="mt-2 text-sm text-ink-500">No weak spots flagged yet — keep it up.</p>
           )}
         </div>
 
-        <div className="rounded-lg border bg-white p-4">
+        <div className="rounded-lg border border-line bg-surface p-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-medium text-slate-800">Homework to do</h3>
-            <Link to="/student/homework" className="text-sm text-blue-600 hover:underline">
+            <h3 className="font-medium text-ink-900">Homework to do</h3>
+            <Link to="/student/homework" className="text-sm text-brand-600 hover:underline">
               All homework
             </Link>
           </div>
@@ -122,8 +122,8 @@ export default function StudentHomePage() {
                   to={`/student/homework/${a.id}`}
                   className="flex items-center justify-between text-sm hover:underline"
                 >
-                  <span className="text-slate-700">{a.title}</span>
-                  <span className="text-slate-400">
+                  <span className="text-ink-700">{a.title}</span>
+                  <span className="text-ink-500">
                     {a.due_at
                       ? new Date(a.due_at).toLocaleDateString(undefined, {
                           day: "numeric",
@@ -134,29 +134,27 @@ export default function StudentHomePage() {
                 </Link>
               </li>
             ))}
-            {due.length === 0 && (
-              <li className="text-sm text-slate-500">You're all caught up 🎉</li>
-            )}
+            {due.length === 0 && <li className="text-sm text-ink-500">You're all caught up 🎉</li>}
           </ul>
         </div>
       </div>
 
-      <div className="rounded-lg border bg-white p-4">
+      <div className="rounded-lg border border-line bg-surface p-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-medium text-slate-800">Your AI tutor</h3>
-          <Link to="/student/tutor" className="text-sm text-blue-600 hover:underline">
+          <h3 className="font-medium text-ink-900">Your AI tutor</h3>
+          <Link to="/student/tutor" className="text-sm text-brand-600 hover:underline">
             Open chat
           </Link>
         </div>
         {latestChat ? (
           <Link
             to="/student/tutor"
-            className="mt-2 block truncate text-sm text-slate-500 hover:text-slate-700"
+            className="mt-2 block truncate text-sm text-ink-500 hover:text-ink-900"
           >
             Continue: “{latestChat.title}”
           </Link>
         ) : (
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-ink-500">
             Stuck on a concept or planning revision? Ask your AI tutor.
           </p>
         )}

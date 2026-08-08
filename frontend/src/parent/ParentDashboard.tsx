@@ -17,11 +17,9 @@ export default function ParentDashboard() {
     enabled: selected !== null,
   });
 
-  if (children.isLoading) return <p className="text-slate-500">Loading…</p>;
+  if (children.isLoading) return <p className="text-ink-500">Loading…</p>;
   if (children.data?.length === 0) {
-    return (
-      <p className="text-slate-500">No children linked yet. Ask the tutor for a parent link.</p>
-    );
+    return <p className="text-ink-500">No children linked yet. Ask the tutor for a parent link.</p>;
   }
 
   return (
@@ -34,8 +32,8 @@ export default function ParentDashboard() {
               onClick={() => setActiveChild(c.id)}
               className={`rounded-full px-4 py-1.5 text-sm ${
                 selected === c.id
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  ? "bg-brand-600 text-canvas"
+                  : "bg-surface text-ink-700 hover:bg-surface-muted"
               }`}
             >
               {c.name}
@@ -45,10 +43,10 @@ export default function ParentDashboard() {
       )}
 
       <div>
-        <h2 className="text-xl font-semibold text-slate-800">
+        <h2 className="text-xl font-semibold text-ink-900">
           {readiness.data?.student_name}'s progress
         </h2>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-500">
           A simple view of how your child is doing. Predicted grades are estimates based on their
           homework, mocks and their tutor's observations.
         </p>
@@ -59,7 +57,7 @@ export default function ParentDashboard() {
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-slate-500">
+          <p className="mt-3 text-ink-500">
             No progress data yet — it builds up as homework and mocks are marked.
           </p>
         )}
