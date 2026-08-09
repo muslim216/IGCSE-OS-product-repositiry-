@@ -40,7 +40,9 @@ from app.schemas.readiness import (
     TopicReadinessOut,
     WeakTopic,
 )
+from app.services.grades import grade_band
 from app.services.readiness_summary import build_summary
+from app.services.readiness_v2_ai import resolve_grade_boundaries
 
 # Job types whose presence means "a new score is on its way".
 _IN_FLIGHT = (JobStatus.pending, JobStatus.running)
@@ -87,7 +89,7 @@ async def in_flight_subjects(db: AsyncSession, student_id: int) -> tuple[bool, s
 
 
 async def _subject_from_snapshot(
-    db: AsyncSession, subject: Subject, snapshot: ReadinessSnapshot
+    db: AsyncSession, student: User, subject: Subject, snapshot: ReadinessSnapshot
 ) -> SubjectReadiness:
     """Per-topic bars come from the same evaluation run the snapshot was
     synthesized from, so the breakdown always matches the headline score."""
@@ -135,6 +137,16 @@ async def _subject_from_snapshot(
         if isinstance(w, dict) and w.get("topic_id") in topics
     ]
 
+    # Band against the same ordered list that produced the grade, not the global
+    # Subject default. The snapshot's predicted_grade was mapped through
+    # resolve_grade_boundaries at synthesis time, and nothing constrains an
+    # organization's grade_label set to match the subject's — so an org list of
+    # [9, 7, 4, U] puts "4" at index 2 where the subject's ten-grade list puts it
+    # at index 5. Reading the wrong list is a different band, not a rounding
+    # difference. (RISK-5 proper — the two sources disagreeing on cut-offs — is
+    # still open and out of scope here.)
+    boundaries = await resolve_grade_boundaries(db, student.organization_id, subject)
+
     return SubjectReadiness(
         subject_id=subject.id,
         subject_name=subject.name,
@@ -142,6 +154,7 @@ async def _subject_from_snapshot(
         grade_scale=subject.grade_scale,
         score=snapshot.score,
         predicted_grade=snapshot.predicted_grade,
+        status=grade_band(snapshot.predicted_grade, boundaries),
         topics=topic_out,
         weak_topics=weak[:5],
         rationale=snapshot.rationale,
@@ -164,7 +177,7 @@ async def build_summary_v2(
         if snapshot is None:
             fallback_needed.append(subject_id)
             continue
-        out = await _subject_from_snapshot(db, subject, snapshot)
+        out = await _subject_from_snapshot(db, student, subject, snapshot)
         out.is_updating = everything_updating or subject_id in updating
         out.computed_at = snapshot.created_at
         subjects_out.append(out)

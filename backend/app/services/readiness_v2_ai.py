@@ -132,11 +132,16 @@ async def _resolve_weight_dict(session: AsyncSession, organization_id: int) -> d
     return {attr: getattr(weights, attr) for attr in DEFAULT_WEIGHTS}
 
 
-async def _resolve_grade_boundaries(
+async def resolve_grade_boundaries(
     session: AsyncSession, organization_id: int, subject: Subject
 ) -> list[dict]:
     """Org-entered grade boundaries take priority over the shared Subject
-    default (see CLAUDE.md: manually entered by the tutor per subject)."""
+    default (see CLAUDE.md: manually entered by the tutor per subject).
+
+    Public because the read path shares it: readiness_summary_v2 must band a
+    snapshot's predicted grade against the same ordered list that produced it,
+    and nothing constrains an organization's grade_label set to match the
+    subject's."""
     org_boundaries = (
         await session.scalars(
             select(GradeBoundary).where(
@@ -248,7 +253,7 @@ async def _synthesize_subject(
             feature=AiFeature.readiness,
         )
     result: ReadinessSynthesis = response.parsed
-    boundaries = await _resolve_grade_boundaries(session, student.organization_id, subject)
+    boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
     grade = predict_grade(result.score, boundaries)
 
     valid_topic_ids = {

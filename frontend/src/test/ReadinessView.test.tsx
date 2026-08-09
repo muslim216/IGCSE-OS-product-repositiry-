@@ -10,6 +10,7 @@ const base: SubjectReadiness = {
   grade_scale: "9-1",
   score: 72,
   predicted_grade: "6",
+  status: "needs_attention",
   topics: [],
   weak_topics: [],
   engine: "v2",
@@ -48,6 +49,13 @@ test("surfaces the v2 rationale and revision plan when present", () => {
 });
 
 test("says so plainly when there is not enough evidence", () => {
-  render(<SubjectReadinessCard subject={{ ...base, score: null, predicted_grade: null }} />);
+  // status travels with the grade: no grade means grade_band() returned null,
+  // so a fixture carrying a band here would be a state the backend cannot
+  // produce.
+  render(
+    <SubjectReadinessCard
+      subject={{ ...base, score: null, predicted_grade: null, status: null }}
+    />,
+  );
   expect(screen.getByText("Not enough data yet")).toBeInTheDocument();
 });

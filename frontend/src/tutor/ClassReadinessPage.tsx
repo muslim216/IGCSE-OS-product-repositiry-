@@ -4,11 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import { listGroups } from "../api/groups";
 import { groupAnalytics } from "../api/readiness";
 
-function scoreColor(score: number): string {
-  if (score >= 70) return "text-green-700";
-  if (score >= 50) return "text-amber-700";
-  return "text-red-600";
-}
+// The old >= 70 / >= 50 percentage colouring lived here as a second copy of the
+// deleted statusOf(). A band is a grade's position in its boundary list, not a
+// percentage (UX-28); this page's analytics rows carry only a bare score, so the
+// score renders without a fabricated colour until a later stage converges this
+// page onto <ReadinessTable>, which colours from the backend's band.
 
 export default function ClassReadinessPage() {
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
@@ -55,7 +55,7 @@ export default function ClassReadinessPage() {
                   >
                     {s.student_name}
                   </Link>
-                  <span className={scoreColor(s.score)}>{Math.round(s.score)}%</span>
+                  <span className="font-medium text-ink-700">{Math.round(s.score)}%</span>
                 </li>
               ))}
               {analytics.data.weak_students.length === 0 && (
@@ -72,7 +72,7 @@ export default function ClassReadinessPage() {
                   <span className="text-slate-700">
                     {t.topic_code} {t.topic_title}
                   </span>
-                  <span className={scoreColor(t.avg_score)}>{Math.round(t.avg_score)}%</span>
+                  <span className="font-medium text-ink-700">{Math.round(t.avg_score)}%</span>
                 </li>
               ))}
               {analytics.data.weak_topics.length === 0 && (
