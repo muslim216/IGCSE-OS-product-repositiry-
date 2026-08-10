@@ -45,7 +45,7 @@ export default function LoginPage() {
             </label>
             <input
               id="identifier"
-              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               autoComplete="username"
@@ -59,7 +59,7 @@ export default function LoginPage() {
             <input
               id="password"
               type="password"
-              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-100"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"

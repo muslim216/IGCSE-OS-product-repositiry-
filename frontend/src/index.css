@@ -53,19 +53,24 @@
 
   /* Status colours — functional, state only, never decoration. Each hue is
      held clearly apart from the terracotta accent (terracotta ~15°) so the
-     brand colour never reads as a warning: green 146°, amber 35°, red 3°. */
-  --color-ok-700: #2a6b46;
+     brand colour never reads as a warning: green 146°, amber 36°, red 3°. The
+     -700/-600 foregrounds are dark enough to clear 4.5:1 not just on the raw
+     surfaces but over their own -100 tint composited on those surfaces — a
+     status badge renders `text-*-700` on `bg-*-100`, so the tint is the real
+     background, and contrast.test.ts checks that composite. */
+  --color-ok-700: #22593a;
   --color-ok-100: rgba(42, 107, 70, 0.14);
-  --color-warn-700: #8a5a16;
+  --color-warn-700: #744c0e;
   --color-warn-100: rgba(138, 90, 22, 0.14);
-  --color-risk-600: #b0342e;
+  --color-risk-600: #992d27;
   --color-risk-100: rgba(176, 52, 46, 0.14);
 
   /* Remark requests — a student asking their tutor to look at a mark again.
      Its own family rather than a reuse of warn, because a remark is a request,
      not a caution: it appears beside the amber "needs review" border in the
-     same card, and the two must not read as the same state. */
-  --color-remark-600: #6b4e9b;
+     same card, and the two must not read as the same state. Purple (261°) also
+     keeps it clear of the terracotta accent. */
+  --color-remark-600: #5c438c;
   --color-remark-100: rgba(107, 78, 155, 0.14);
 
   /* Hairlines. These two are decorative — dividers, card edges, table rules —
@@ -83,10 +88,10 @@
      the editorial display voice; Inter is the functional UI voice. Each keeps a
      system fallback stack in case a font asset fails to load. */
   --font-sans:
-    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", roboto, helvetica, arial,
     sans-serif;
   --font-display:
-    "Lora Variable", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
+    "Lora Variable", "Iowan Old Style", "Palatino Linotype", palatino, georgia, ui-serif, serif;
 }
 
 /* ---------------------------------------------------------------------
@@ -119,6 +124,17 @@ body {
 ::selection {
   background: var(--color-brand-100);
   color: var(--color-ink-900);
+}
+
+/* Visible keyboard focus for every interactive element (UX-10). This is an
+   outline, not a border colour, so it sidesteps the retarget cascade entirely
+   (the unlayered `.border` rule would otherwise outrank a layered
+   `focus:border-*` utility and swallow it). Terracotta clears 3:1 on parchment;
+   `:focus-visible` keeps it keyboard-only, and being unlayered it wins even
+   where a component set `focus:outline-none` expecting to supply its own. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
 }
 
 ::-webkit-scrollbar {
@@ -166,14 +182,17 @@ body {
 
 /* Dark surfaces. A handful of secondary buttons render as bg-slate-700 with
    text-white — a dark chip on the old navy theme. On parchment that white text
-   would vanish, so these map to espresso with cream text instead: the same
-   "dark, quiet, secondary" intent, inverted correctly. */
+   would vanish, so these map to a dark fill with cream text. They use bark
+   (ink-700), not espresso (ink-900), deliberately: a near-black secondary
+   button would out-shout the terracotta primary beside it, so the recessive
+   secondary stays a step lighter than the darkest ink and deepens to espresso
+   only on hover — giving the 700→900 step the accent ramp also has. */
 .bg-slate-700 {
-  background-color: var(--color-ink-900);
+  background-color: var(--color-ink-700);
   color: var(--color-surface);
 }
 .hover\:bg-slate-800:hover {
-  background-color: #3d2415;
+  background-color: var(--color-ink-900);
 }
 
 /* Form controls on parchment. Legacy inputs that don't carry .bg-white still
@@ -268,7 +287,10 @@ textarea::placeholder {
   background-color: var(--color-brand-100);
 }
 
-/* Status colours, on the Avora palette. */
+/* Status colours resolve to the ok/warn/risk tokens, kept a separate system
+   from the terracotta brand ramp above: a state must never be mistaken for
+   decoration, so green/amber/red stay hue-distinct from the accent and carry
+   their meaning on their own. */
 .bg-green-100,
 .bg-green-50 {
   background-color: var(--color-ok-100);
@@ -324,7 +346,11 @@ textarea::placeholder {
   background-color: var(--color-warn-700);
 }
 
-/* Remark requests. */
+/* Remark requests get their own purple family rather than reusing warn: a
+   remark is a student's request to re-check a mark, not a caution, and it can
+   sit beside the amber "needs review" border in the same card — the two must
+   not read as the same state. Purple had no token before and rendered a raw
+   palette colour with no measured contrast; this routes it through remark-*. */
 .bg-purple-50,
 .bg-purple-100 {
   background-color: var(--color-remark-100);

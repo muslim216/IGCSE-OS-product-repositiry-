@@ -14,7 +14,7 @@ export function InitialsAvatar({ name, size = "md" }: { name: string; size?: "sm
   return (
     <span
       aria-hidden
-      className={`grid ${sizing} shrink-0 place-items-center rounded-full bg-brand-100 font-semibold text-brand-500`}
+      className={`grid ${sizing} shrink-0 place-items-center rounded-full bg-brand-100 font-semibold text-brand-700`}
     >
       {initials(name)}
     </span>

@@ -123,8 +123,11 @@ The file has two halves, and they behave very differently:
 
 ### Colour tokens
 
-The **Avora** palette. Token *names* are semantic and unchanged from the previous (dark) theme
-— only their values moved — so the retarget layer and every component keep working.
+The **Avora** palette. The retained token *names* are semantic and unchanged from the previous
+(dark) theme — only their values moved — so the retarget layer and every component keep working.
+(The full name set is unchanged: `remark-*` and `line-control` already existed in the dark theme,
+and `ink-400` was already removed before this change; the rebrand re-valued names, it did not add
+or drop any.)
 
 | Group | Token | Value | Role |
 |---|---|---|---|
@@ -136,10 +139,10 @@ The **Avora** palette. Token *names* are semantic and unchanged from the previou
 | | `--color-ink-500` | `#786351` | "Driftwood" — labels, captions, nav (the dimmest token that may carry normal text) |
 | Accent | `--color-brand-700/600/500` | `#96452a` / `#a85033` / `#d4956a` | "Terracotta / Sienna" — the product's only accent. `600` is the functional fill/accent-text value; `500` (sienna) is soft/decorative only |
 | | `--color-brand-100/50` | terracotta at 14% / 7% | Accent tints |
-| Status | `--color-ok-700` / `ok-100` | `#2a6b46` | On track (green, 146°) |
-| | `--color-warn-700` / `warn-100` | `#8a5a16` | Needs attention (amber, 35°) |
-| | `--color-risk-600` / `risk-100` | `#b0342e` | At risk (red, 3°) |
-| | `--color-remark-600` / `remark-100` | `#6b4e9b` | Remark requests (purple, 263°) — its own family, not a reuse of warn |
+| Status | `--color-ok-700` / `ok-100` | `#22593a` / `rgba(42,107,70,.14)` | On track (green, 146°) |
+| | `--color-warn-700` / `warn-100` | `#744c0e` / `rgba(138,90,22,.14)` | Needs attention (amber, 36°) |
+| | `--color-risk-600` / `risk-100` | `#992d27` / `rgba(176,52,46,.14)` | At risk (red, 3°) |
+| | `--color-remark-600` / `remark-100` | `#5c438c` / `rgba(107,78,155,.14)` | Remark requests (purple, 261°) — semantic request colour, its own family, not a reuse of warn and not an accent |
 | Hairlines | `--color-line` | `#e2d9cc` | "Warm-stone" — decorative borders and dividers |
 | | `--color-line-strong` | `#cbbca8` | Emphasised dividers, scrollbar thumb |
 | | `--color-line-control` | `#8c7a66` | The boundary of an interactive control — inputs, selects, textareas. The only one of the three that meets WCAG 1.4.11 |
@@ -247,8 +250,15 @@ case, so the table below reports the lowest of the three.
 | `ink-500` (`#786351`) | 4.77 | Passes AA (the dimmest token that may carry text) |
 | `brand-600` (`#a85033`) | 4.58 | Passes AA — accent text and filled-button label |
 | `brand-700` (`#96452a`) | 5.56 | Passes AA — accent hover/pressed and strong borders |
-| `ok-700` / `warn-700` / `risk-600` | 5.37 / 4.97 / 5.23 | All pass AA |
-| `remark-600` (`#6b4e9b`) | 5.54 | Passes AA |
+| `ok-700` / `warn-700` / `risk-600` | 6.91 / 6.35 / 6.41 | All pass AA |
+| `remark-600` (`#5c438c`) | 6.70 | Passes AA |
+
+A status badge renders its foreground on its own `-100` tint, not on the bare surface, and a 14%
+tint darkens the background enough to pull an otherwise-passing token below 4.5:1 (`warn-700` on
+the `warn-100` tint over linen was ~4.14 before the foregrounds were deepened). The four status
+foregrounds are therefore set dark enough to clear 4.5:1 **over their tint on every surface**
+(worst case ~5.2), and `contrast.test.ts` composites the tint and checks that composite, not just
+the bare surface.
 
 > **A fourth text step used to sit here.** `--color-ink-400` measured below 4.5:1 on every
 > surface while all its uses were 11–14px copy. It could not be retuned: on a warm-paper palette
@@ -270,7 +280,7 @@ indicators):**
 | `surface` vs `canvas` | 1.02 | Card edges are carried by the border, not the fill |
 
 Filled buttons are fine: parchment (`canvas`) text on `brand-600` is 5.09, and on `risk-600`
-is 5.82.
+is 7.1.
 
 The hairlines are deliberately below 3:1 — a divider is not a control, and dimming is the
 correct behaviour for one. `line-control` is the token for a real control boundary.
@@ -311,13 +321,9 @@ Applied deliberately in a handful of files and largely absent elsewhere. Counted
   ignored by assistive technology.
 - **The streaming chat transcript has no `aria-live`**, so arriving AI text is silent.
 - **There is no skip link** to bypass navigation.
-- **Focus-ring styling is still sparse.** Most controls rely on the browser default against the
-  parchment canvas, and `Modal`'s panel carries `outline-none`; `LoginPage` now sets an explicit
-  terracotta focus ring, but this is not yet systematic.
 - **Loading and error states are unannounced plain `<div>`s** — `"Loading…"` in `App.tsx:65`
   and `ProtectedRoute.tsx:21`.
 - **There are zero `<fieldset>` elements**, so radio and checkbox groups have no group label.
-- **No reduced-motion handling** — `prefers-reduced-motion` appears nowhere.
 
 ---
 
@@ -343,9 +349,10 @@ Colours come from tokens. No hex literal appears in a component.
 *Rationale:* a literal cannot be re-themed and will not have been contrast-checked.
 
 **`UX-4` — MUST NOT · Important · Active**
-Do not introduce a second accent colour. Terracotta is the only accent; `ok`, `warn` and
-`risk` are semantic and used only for their meanings, and are held apart in hue from the accent
-so the brand colour is never mistaken for a status.
+Do not introduce a second accent colour. Terracotta is the only accent; `ok`, `warn`, `risk`
+and `remark` are semantic — `remark` being a student's request-to-re-check, not a caution — used
+only for their meanings, and are held apart in hue from the accent so the brand colour is never
+mistaken for a status.
 *Rationale:* an accent that means several things means nothing, and status colour is doing
 real work in this product.
 
@@ -391,9 +398,14 @@ low ratios read as a decision rather than an oversight.
 
 **`UX-10` — MUST · Critical · Active**
 Every interactive element has a visible focus indicator meeting 3:1 against adjacent colours.
-`outline-none` is used only where a compliant custom indicator replaces it.
-*Rationale:* keyboard operation is impossible without it, and the default ring is unreliable
-against the parchment canvas (`#faf7f2`).
+The mechanism is a single unlayered `:focus-visible` rule in `index.css` that draws a 2px
+terracotta (`brand-600`, ≥3:1 on parchment) outline on links, buttons, and form controls; it is
+an **outline**, not a border colour, so it sidesteps the retarget cascade, and being unlayered it
+wins even where a component set `focus:outline-none`. A component may still opt into a custom
+indicator, but the default is now compliant rather than absent.
+*Rationale:* keyboard operation is impossible without it, and the browser default ring is
+unreliable against the parchment canvas (`#faf7f2`). A per-page focus ring was the old approach
+and left most controls uncovered.
 
 **`UX-11` — MUST · Critical · Active**
 Every function is reachable and operable by keyboard alone, in a logical order. Dialogs trap
@@ -495,13 +507,12 @@ from — it corrupts the data, not just the ethics.
 | **Contrast is guarded at the token level, not at the point of use.** `contrast.test.ts` proves every token clears the ratio its role needs; nothing checks that a given token is used in the role it was measured for. | A `brand-500` (sienna) label used as body text (~2.4:1) would pass every test and still fail AA. The guard closes the systemic failure, not the individual mistake. | `before scale` |
 | **`--color-line` (1.33 on surface) is the default border for many legacy inputs.** | Breaks `UX-9`. Form fields styled with a bare `border` have no perceptible boundary for low-vision users; the bare `input` element and token-based fields correctly use `line-control`. | `blocking` |
 | **`role="assistant"` in `TutorChatPage.tsx`** is not a valid ARIA role. | Breaks `UX-16`. Silently does nothing; the author presumably believed it conveyed something. | `blocking` |
-| **Focus-ring styling is not yet systematic**, and `Modal`'s panel sets `outline-none`. | Breaks `UX-10`. The browser default is unreliable against the parchment canvas; `LoginPage` sets an explicit ring, but most controls do not. | `blocking` |
+| **`Modal`'s panel carries `outline-none`** without a custom indicator. | Narrows `UX-10` for that one container. A global unlayered `:focus-visible` outline (terracotta, ≥3:1) now covers every interactive element, so this is the remaining exception, not the rule. | `nice to have` |
 | **The streaming chat transcript has no `aria-live`.** | Breaks `UX-13`. Arriving AI text is silent to a screen reader — the primary content of that page. | `before scale` |
 | **No skip link.** | Every page begins by tabbing through the full navigation. | `before scale` |
 | **`Modal`'s `aria-labelledby` is a hardcoded id.** | Duplicate ids and an ambiguous accessible name if two modals are ever open. Latent, not yet triggered. | `nice to have` |
 | **Loading and error states are unannounced `<div>`s** (`App.tsx:65`, `ProtectedRoute.tsx:21`). | Breaks `UX-13` at the application's entry point. | `before scale` |
 | **Zero `<fieldset>` elements.** | Breaks `UX-12` for any grouped control. | `before scale` |
-| **No `prefers-reduced-motion` handling.** | Breaks `UX-17`. | `nice to have` |
 | **Two class vocabularies coexist** — semantic tokens and remapped stock Tailwind names. | `UX-2` stops it growing; converging the existing uses is unscheduled work, and until then the CSS cannot be simplified. | `before scale` |
 | **No automated accessibility testing.** No axe, no lint rule, nothing in the (nonexistent) CI. | Every rule in this section is enforced by review alone. See `RISK-2`. | `blocking` |
 

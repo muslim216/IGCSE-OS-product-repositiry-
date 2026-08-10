@@ -69,7 +69,7 @@ export default function DashboardHeader({
             placeholder="Filter by name…"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="w-44 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none"
+            className="w-44 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-700 focus:outline-none"
           />
         )}
         <button
@@ -115,7 +115,7 @@ export default function DashboardHeader({
                           ? `/tutor/submissions/${item.submission_id}`
                           : `/tutor/assignments/${item.assignment_id}`
                       }
-                      className="font-medium text-ink-900 hover:text-brand-500"
+                      className="font-medium text-ink-900 hover:text-brand-700"
                     >
                       {item.assignment_title}
                     </Link>
@@ -135,7 +135,7 @@ export default function DashboardHeader({
         <button
           type="button"
           onClick={onCreateLesson}
-          className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-500"
+          className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-700"
         >
           <Plus aria-hidden className="h-4 w-4" />
           Create lesson

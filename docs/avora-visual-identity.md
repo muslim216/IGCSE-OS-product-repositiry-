@@ -40,7 +40,7 @@ The palette is the Avora light identity. Full token values, roles, and measured 
   `#B86040` is reserved for large decorative use (the mark, the display wordmark) where WCAG sets
   no ratio. **Sienna** `#D4956A` is the soft/hover accent, decorative only.
 - **Status colours are functional, state only, never decoration** (`UX-4`, `UX-15`). Their hues
-  are held clearly apart from terracotta (green 146°, amber 35°, red 3°, purple 263° vs the
+  are held clearly apart from terracotta (green 146°, amber 36°, red 3°, purple 261° vs the
   accent's ≈15°) so the brand colour is never read as a warning. The status labels — **On track /
   Needs attention / At risk** — are a Tier-1 union and are **not** renamed here.
 

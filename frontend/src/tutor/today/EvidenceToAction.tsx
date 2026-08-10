@@ -62,7 +62,7 @@ export default function EvidenceToAction({
             title="Create your first class to see guidance here."
             hint="Guidance reads the marked homework and assessments of a class you teach."
             action={
-              <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-500">
+              <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-700">
                 Go to classes →
               </Link>
             }
@@ -77,7 +77,7 @@ export default function EvidenceToAction({
                   setChosen(e.target.value);
                   setError("");
                 }}
-                className="mt-1 w-full max-w-xs rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 focus:border-brand-500 focus:outline-none"
+                className="mt-1 w-full max-w-xs rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 focus:border-brand-700 focus:outline-none"
               >
                 {options.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -101,7 +101,7 @@ export default function EvidenceToAction({
                     type="button"
                     onClick={() => brief.mutate()}
                     disabled={brief.isPending}
-                    className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-500 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-700 disabled:opacity-50"
                   >
                     <Sparkles aria-hidden className="h-4 w-4" />
                     {brief.isPending
@@ -115,13 +115,13 @@ export default function EvidenceToAction({
                   <>
                     <Link
                       to="/tutor/homework"
-                      className="text-sm font-medium text-brand-600 hover:text-brand-500"
+                      className="text-sm font-medium text-brand-600 hover:text-brand-700"
                     >
                       Review marking queue →
                     </Link>
                     <Link
                       to="/tutor/readiness"
-                      className="text-sm font-medium text-brand-600 hover:text-brand-500"
+                      className="text-sm font-medium text-brand-600 hover:text-brand-700"
                     >
                       Open class readiness →
                     </Link>

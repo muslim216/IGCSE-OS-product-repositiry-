@@ -28,14 +28,14 @@ export default function LearningLoopStrip() {
             <span
               className={`grid h-9 w-9 place-items-center rounded-full border ${
                 step.emphasis
-                  ? "border-brand-600 bg-brand-100 text-brand-500"
+                  ? "border-brand-600 bg-brand-100 text-brand-700"
                   : "border-line bg-surface text-ink-500"
               }`}
             >
               <step.icon aria-hidden className="h-[18px] w-[18px]" />
             </span>
             <span
-              className={`text-xs ${step.emphasis ? "font-medium text-brand-500" : "text-ink-500"}`}
+              className={`text-xs ${step.emphasis ? "font-medium text-brand-700" : "text-ink-500"}`}
             >
               {step.label}
             </span>

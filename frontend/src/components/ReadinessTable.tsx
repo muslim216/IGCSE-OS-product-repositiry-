@@ -120,7 +120,7 @@ export default function ReadinessTable({
           title="No readiness evidence yet."
           hint="Marked homework, assessments and past papers build each learner's picture."
           action={
-            <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-500">
+            <Link to="/tutor/homework" className="font-medium text-brand-600 hover:text-brand-700">
               Go to homework →
             </Link>
           }
@@ -172,7 +172,7 @@ export default function ReadinessTable({
                   <td className="py-3">
                     <Link
                       to={`/tutor/students/${row.student_id}`}
-                      className="font-medium text-brand-600 hover:text-brand-500"
+                      className="font-medium text-brand-600 hover:text-brand-700"
                     >
                       Review evidence →
                     </Link>
