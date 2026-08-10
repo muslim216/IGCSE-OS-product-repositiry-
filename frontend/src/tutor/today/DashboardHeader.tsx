@@ -2,15 +2,8 @@ import { useEffect } from "react";
 import { Bell, Plus, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AssignmentAttention } from "../../api/homework";
+import { REASON_LABELS } from "../../lib/labels";
 import { greetingFor } from "../../lib/readiness";
-
-const REASON_LABELS: Record<string, string> = {
-  extraction_failed: "Question extraction failed",
-  ai_failed: "AI marking failed",
-  ai_marked: "AI-marked — awaiting your review",
-};
-
-export { REASON_LABELS };
 
 function firstName(name: string | undefined): string {
   return (name ?? "").split(" ")[0] || "there";

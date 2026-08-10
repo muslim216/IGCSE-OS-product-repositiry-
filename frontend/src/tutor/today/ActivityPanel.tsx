@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import type { AssignmentAttention } from "../../api/homework";
 import { EmptyState, SectionCard, SectionHeader } from "../../components/ui";
-import { REASON_LABELS } from "./DashboardHeader";
+import { REASON_LABELS } from "../../lib/labels";
 
 export default function ActivityPanel({
   items,
