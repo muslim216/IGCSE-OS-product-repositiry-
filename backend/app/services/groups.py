@@ -4,19 +4,23 @@ tutor's class cards."""
 from collections import defaultdict
 from datetime import datetime, time
 
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Assignment,
     AssignmentStatus,
+    Group,
     GroupMember,
     ScheduleSlot,
     Submission,
     SubmissionStatus,
+    Topic,
+    TopicReadiness,
 )
 from app.models.base import utcnow
 from app.schemas.groups import GroupSummary, NextLesson
+from app.services.readiness_summary import CONFIDENT
 
 #: Submission states that are waiting on the tutor's eyes, mirroring the
 #: attention endpoint: an AI draft to confirm, an AI failure to handle, or
@@ -100,6 +104,35 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
         ).all()
     )
 
+    # Coverage numerator: how many enrolled students the class's readiness
+    # picture actually speaks for. A status derived from 2 of 11 students is a
+    # statement about a class made from part of it, and must not look like one
+    # made from all of it (PROD-2) — so the count travels with member_count.
+    # DISTINCT because a student holds one readiness row per topic and would
+    # otherwise be counted once per topic they have evidence for.
+    # SEC-7: group_ids arrive already scoped to the authenticated tutor by the
+    # callers in api/groups.py, so this inherits that scoping rather than
+    # re-deriving it from a parameter.
+    covered = dict(
+        (
+            await session.execute(
+                select(GroupMember.group_id, func.count(distinct(GroupMember.student_id)))
+                .join(Group, Group.id == GroupMember.group_id)
+                .join(Topic, Topic.subject_id == Group.subject_id)
+                .join(
+                    TopicReadiness,
+                    (TopicReadiness.topic_id == Topic.id)
+                    & (TopicReadiness.student_id == GroupMember.student_id),
+                )
+                .where(
+                    GroupMember.group_id.in_(group_ids),
+                    TopicReadiness.confidence.in_(CONFIDENT),
+                )
+                .group_by(GroupMember.group_id)
+            )
+        ).all()
+    )
+
     by_group: dict[int, list[ScheduleSlot]] = defaultdict(list)
     for slot in (
         await session.scalars(select(ScheduleSlot).where(ScheduleSlot.group_id.in_(group_ids)))
@@ -110,6 +143,7 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
     return {
         gid: GroupSummary(
             member_count=members.get(gid, 0),
+            students_with_evidence=covered.get(gid, 0),
             published_assignment_count=published.get(gid, 0),
             awaiting_review_count=awaiting.get(gid, 0),
             next_lesson=soonest_slot(by_group.get(gid, []), now),

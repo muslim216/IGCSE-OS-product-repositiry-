@@ -28,7 +28,13 @@ from app.services.grades import grade_band, predict_grade
 
 # Topics at or below this score (with enough confidence) are surfaced as weak.
 WEAK_THRESHOLD = 60.0
-MIN_WEAK_CONFIDENCE = {ReadinessConfidence.medium, ReadinessConfidence.high}
+
+# Evidence at this confidence or better counts as real. One definition, because
+# the two things that ask the question must agree: whether a topic is weak
+# enough to surface, and whether a student counts as covered by their class's
+# readiness picture (services/groups.py imports this for the latter).
+CONFIDENT = frozenset({ReadinessConfidence.medium, ReadinessConfidence.high})
+MIN_WEAK_CONFIDENCE = CONFIDENT
 
 # A net change of this many points (or less) across the trend counts as no
 # movement. A readiness score is a noisy estimate, so without a dead-zone the
@@ -164,6 +170,10 @@ async def build_summary(
             if overall is not None
             else None
         )
+        # How much of the subject this score actually speaks for. A score drawn
+        # from 3 of 40 topics and one drawn from 40 of 40 are different claims
+        # and must not render alike (PROD-2), so the counts travel with it.
+        topics_with_evidence = sum(1 for t in topic_out if t.evidence_count > 0)
         topic_out.sort(key=lambda t: t.topic_code)
         weak.sort(key=lambda w: w.score)
         subjects_out.append(
@@ -179,6 +189,8 @@ async def build_summary(
                 averaging_grade=averaging_grade,
                 marked_piece_count=averaging.marked_piece_count,
                 direction=direction,
+                topics_with_evidence=topics_with_evidence,
+                topic_count=len(topics),
                 topics=topic_out,
                 weak_topics=weak[:5],
             )

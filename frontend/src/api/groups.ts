@@ -18,6 +18,11 @@ export interface NextLesson {
 /** The aggregates a class card shows at a glance. */
 export interface GroupSummary {
   member_count: number;
+  /** Coverage numerator over member_count: enrolled students with confident
+      evidence in this class's subject. `0` is a real answer, not a missing
+      one — a status drawn from part of a class must not look like one drawn
+      from all of it. */
+  students_with_evidence: number;
   published_assignment_count: number;
   awaiting_review_count: number;
   next_lesson: NextLesson | null;
