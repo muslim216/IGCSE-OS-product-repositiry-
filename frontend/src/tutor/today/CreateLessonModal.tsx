@@ -5,7 +5,7 @@ import { WEEKDAYS, createLesson, type Group } from "../../api/groups";
 import { Modal } from "../../components/ui";
 
 const FIELD =
-  "mt-1 w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 focus:border-brand-500 focus:outline-none";
+  "mt-1 w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 focus:border-brand-700 focus:outline-none";
 const LABEL = "block text-sm text-ink-700";
 
 export default function CreateLessonModal({
@@ -147,7 +147,7 @@ export default function CreateLessonModal({
           <button
             type="submit"
             disabled={mutation.isPending || options.length === 0}
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-500 disabled:opacity-50"
+            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas transition hover:bg-brand-700 disabled:opacity-50"
           >
             {mutation.isPending ? "Saving…" : "Schedule lesson"}
           </button>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { registerTutor } from "../api/auth";
 import { ApiError } from "../api/client";
 import { useAuth } from "./AuthContext";
+import { AvoraGrain, AvoraLockup } from "../components/brand";
 
 export default function TutorSignupPage() {
   const { signIn } = useAuth();
@@ -29,27 +30,29 @@ export default function TutorSignupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md rounded-xl bg-white p-8 shadow">
-        <h1 className="text-2xl font-semibold text-slate-800">Create a tutor account</h1>
-        <p className="mt-1 text-sm text-slate-500">
+    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+      <AvoraGrain />
+      <div className="w-full max-w-md rounded-xl bg-surface p-8 shadow-[0_1px_2px_rgba(44,26,14,0.06)]">
+        <AvoraLockup className="mb-6" />
+        <h1 className="text-2xl font-semibold text-ink-900">Create a tutor account</h1>
+        <p className="mt-1 text-sm text-ink-500">
           Manage your students, homework and results in one place.
         </p>
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700">Full name</label>
+            <label className="block text-sm font-medium text-ink-700">Full name</label>
             <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Email</label>
+            <label className="block text-sm font-medium text-ink-700">Email</label>
             <input
               type="email"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -57,12 +60,12 @@ export default function TutorSignupPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700">
-              Password <span className="text-slate-400">(at least 8 characters)</span>
+            <label className="block text-sm font-medium text-ink-700">
+              Password <span className="text-ink-500">(at least 8 characters)</span>
             </label>
             <input
               type="password"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
@@ -70,18 +73,18 @@ export default function TutorSignupPage() {
               required
             />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-risk-600">{error}</p>}
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-md bg-blue-600 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-md bg-brand-600 py-2 font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
           >
             {busy ? "Creating account…" : "Create account"}
           </button>
         </form>
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-ink-500">
           Already have an account?{" "}
-          <Link to="/login" className="text-blue-600 hover:underline">
+          <Link to="/login" className="text-brand-600 hover:text-brand-700 hover:underline">
             Sign in
           </Link>
         </p>

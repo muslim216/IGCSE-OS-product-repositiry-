@@ -41,6 +41,25 @@ function ratio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** Read an `rgba(r, g, b, a)` token — the status/accent tints are defined that
+ *  way, not as hex, so `token()` above cannot see them. */
+function rgbaToken(name: string): [number, number, number, number] {
+  const match = css.match(
+    new RegExp(`--color-${name}:\\s*rgba\\(\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([0-9.]+)\\s*\\)`),
+  );
+  if (!match) throw new Error(`--color-${name} is not an rgba() token in index.css`);
+  return [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4])];
+}
+
+/** Composite a translucent tint over an opaque hex background, returning the
+ *  resulting opaque hex. A badge's real background is its tint over the surface,
+ *  not the surface itself. */
+function composite([r, g, b, a]: [number, number, number, number], bgHex: string): string {
+  const bg = [1, 3, 5].map((i) => parseInt(bgHex.slice(i, i + 2), 16));
+  const mix = [r, g, b].map((c, i) => Math.round(a * c + (1 - a) * bg[i]));
+  return "#" + mix.map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+
 /** Every background a token can land on. The worst case is the real case. */
 const SURFACES = ["canvas", "surface", "surface-muted"] as const;
 
@@ -71,6 +90,22 @@ describe("UX-8 — text meets 4.5:1 on every surface it can land on", () => {
       expect(ratio(token(name), token(surface)), `${name} on ${surface}`).toBeGreaterThanOrEqual(
         4.5,
       );
+    }
+  });
+
+  // A status badge is `text-*-700` on `bg-*-100`, so the foreground's real
+  // background is the tint composited over the surface, which is darker than
+  // the bare surface and can pull an otherwise-passing token below 4.5:1. The
+  // token-vs-bare-surface check above misses that, so check the composite too.
+  test.each([
+    ["ok-700", "ok-100"],
+    ["warn-700", "warn-100"],
+    ["risk-600", "risk-100"],
+    ["remark-600", "remark-100"],
+  ])("%s stays legible over its own %s tint", (fg, tint) => {
+    for (const surface of SURFACES) {
+      const bg = composite(rgbaToken(tint), token(surface));
+      expect(ratio(token(fg), bg), `${fg} on ${tint} over ${surface}`).toBeGreaterThanOrEqual(4.5);
     }
   });
 

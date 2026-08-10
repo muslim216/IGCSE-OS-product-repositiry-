@@ -14,7 +14,7 @@ export function InitialsAvatar({ name, size = "md" }: { name: string; size?: "sm
   return (
     <span
       aria-hidden
-      className={`grid ${sizing} shrink-0 place-items-center rounded-full bg-brand-100 font-semibold text-brand-500`}
+      className={`grid ${sizing} shrink-0 place-items-center rounded-full bg-brand-100 font-semibold text-brand-700`}
     >
       {initials(name)}
     </span>
@@ -52,7 +52,7 @@ export function SectionCard({
 }) {
   return (
     <section
-      className={`rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.35)] ${className}`}
+      className={`rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)] ${className}`}
     >
       {children}
     </section>
@@ -144,7 +144,7 @@ export function Modal({
       <button
         type="button"
         aria-label="Close dialog"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-ink-900/45"
         onClick={onClose}
         tabIndex={-1}
       />

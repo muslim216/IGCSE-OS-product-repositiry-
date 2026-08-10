@@ -27,7 +27,7 @@ export default function TeachingRhythm({
         title="Teaching rhythm"
         description="Today's sessions, in order"
         action={
-          <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-500">
+          <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-700">
             Manage schedule →
           </Link>
         }
@@ -49,7 +49,7 @@ export default function TeachingRhythm({
           title="No sessions today."
           hint="Your schedule is clear — a good moment for marking or planning the next lesson."
           action={
-            <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-500">
+            <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-700">
               Add lessons to a class →
             </Link>
           }
@@ -76,7 +76,7 @@ export default function TeachingRhythm({
                     <span className="block font-medium text-ink-900">
                       {lesson.group_name}
                       {isNext && (
-                        <span className="ml-2 rounded bg-brand-100 px-1.5 py-0.5 text-[11px] font-medium text-brand-500">
+                        <span className="ml-2 rounded bg-brand-100 px-1.5 py-0.5 text-[11px] font-medium text-brand-700">
                           Up next
                         </span>
                       )}
@@ -88,7 +88,7 @@ export default function TeachingRhythm({
                   </span>
                   <Link
                     to={`/tutor/groups/${lesson.group_id}`}
-                    className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-500"
+                    className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-700"
                   >
                     Open class →
                   </Link>

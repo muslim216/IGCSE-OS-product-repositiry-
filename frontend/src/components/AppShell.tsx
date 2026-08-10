@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { LogOut, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InitialsAvatar } from "./ui";
+import { AvoraGrain, AvoraLockup } from "./brand";
 import ActivityMenu from "./ActivityMenu";
 
 export interface NavItem {
@@ -12,36 +13,8 @@ export interface NavItem {
   slot?: "main" | "bottom";
 }
 
-/** The beacon: MANARA's mark — a guiding light over a tapering tower. */
-function BeaconMark() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden className="h-8 w-8 shrink-0 text-brand-600">
-      <circle cx="12" cy="5" r="2.6" fill="currentColor" />
-      <path d="M8.5 10h7l2 9h-11z" fill="currentColor" />
-      <path
-        d="M9.6 14.5h4.8"
-        stroke="var(--color-canvas)"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function Brand() {
-  return (
-    <div className="flex items-center gap-2.5 px-1">
-      <BeaconMark />
-      <span className="leading-tight">
-        <span className="block font-display text-[16px] tracking-[0.18em] text-ink-900">
-          MANARA
-        </span>
-        <span className="block text-[9px] font-semibold uppercase tracking-[0.2em] text-brand-600">
-          by OASIS AI
-        </span>
-      </span>
-    </div>
-  );
+  return <AvoraLockup className="px-1" />;
 }
 
 function SidebarLink({ item }: { item: NavItem }) {
@@ -87,6 +60,7 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
 
   return (
     <div className="min-h-screen md:flex">
+      <AvoraGrain />
       {/* Desktop: fixed left sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex">
         <div className="flex flex-col gap-8">

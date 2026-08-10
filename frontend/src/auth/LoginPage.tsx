@@ -4,6 +4,7 @@ import { login } from "../api/auth";
 import { ApiError } from "../api/client";
 import { useAuth } from "./AuthContext";
 import { homePathFor } from "./ProtectedRoute";
+import { AvoraGrain, AvoraMark } from "../components/brand";
 
 export default function LoginPage() {
   const { signIn } = useAuth();
@@ -30,17 +31,21 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
-      <div className="w-full max-w-md rounded-xl border border-line bg-surface p-8 shadow">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-600">
-          by OASIS AI
-        </p>
-        <h1 className="mt-1 text-2xl tracking-[0.18em] text-slate-800">MANARA</h1>
-        <p className="mt-1 text-sm text-slate-500">Sign in with your email or username.</p>
+      <AvoraGrain />
+      <div className="w-full max-w-md rounded-xl border border-line bg-surface p-8 shadow-[0_1px_2px_rgba(44,26,14,0.06)]">
+        <div className="flex items-center gap-2.5">
+          <AvoraMark className="h-9 w-9 text-brand-600" />
+          <h1 className="font-display text-4xl lowercase tracking-[-0.02em] text-ink-900">avora</h1>
+        </div>
+        <p className="mt-3 text-sm text-ink-500">Sign in with your email or username.</p>
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700">Email or username</label>
+            <label htmlFor="identifier" className="block text-sm font-medium text-ink-700">
+              Email or username
+            </label>
             <input
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              id="identifier"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               autoComplete="username"
@@ -48,28 +53,31 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Password</label>
+            <label htmlFor="password" className="block text-sm font-medium text-ink-700">
+              Password
+            </label>
             <input
+              id="password"
               type="password"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-line-control px-3 py-2 focus:border-brand-600"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
               required
             />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-risk-600">{error}</p>}
           <button
             type="submit"
             disabled={busy}
-            className="w-full rounded-md bg-blue-600 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-md bg-brand-600 py-2 font-medium text-canvas transition hover:bg-brand-700 disabled:opacity-50"
           >
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-ink-500">
           Are you a tutor?{" "}
-          <Link to="/signup" className="text-blue-600 hover:underline">
+          <Link to="/signup" className="text-brand-600 hover:text-brand-700 hover:underline">
             Create a tutor account
           </Link>
         </p>

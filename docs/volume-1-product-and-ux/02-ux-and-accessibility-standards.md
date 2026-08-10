@@ -49,17 +49,25 @@ that feeds the interface (§05); the CSP that constrains font loading (§07, §0
 
 ### Non-goals
 
-- **No light mode.** `:root { color-scheme: dark }` and the palette is built for a dark
-  canvas. Supporting both would double every contrast decision for a product whose users have
-  not asked for it.
+- **A single theme, not both.** The palette is the **Avora** light identity —
+  `:root { color-scheme: light }`, a warm parchment canvas — and it is the only theme. There is
+  no dark mode and no theme toggle; supporting both would double every contrast decision. *(This
+  supersedes the earlier "No light mode" non-goal: the product was a dark midnight theme until
+  the Avora rebrand inverted it to light. See `docs/avora-visual-identity.md`.)*
 - **No component library.** No Radix, no shadcn, no Headless UI. Primitives are hand-rolled
   in `components/ui.tsx`. This is a deliberate cost: the project owns its accessibility
   behaviour rather than inheriting it, which is why the `Modal` gaps below are ours to fix.
-- **No webfonts.** The CSP blocks external font hosts, so `--font-display` is a system serif
-  stack. This is a security constraint expressed as a design constraint, not an oversight.
-- **No second accent colour.** Beacon amber is the product's only accent. Status colours are
-  semantic, not decorative.
-- **No animation library.** Motion is CSS transitions where it clarifies a state change.
+- **Webfonts are self-hosted, never fetched from a CDN.** The identity uses **Lora** (display)
+  and **Inter** (functional), shipped via `@fontsource-variable/*` and bundled by Vite as
+  same-origin assets, so the CSP's `font-src 'self'` is satisfied with no external host. The
+  security constraint is unchanged; the fonts live inside the origin rather than being given up.
+  *(This supersedes the earlier "No webfonts" non-goal, which assumed a CDN was the only way to
+  load one.)*
+- **No second accent colour.** Terracotta is the product's only accent. Status colours are
+  semantic, not decorative, and are held apart in hue from the accent so the brand colour never
+  reads as a warning.
+- **No animation library.** Motion is CSS transitions where it clarifies a state change, and it
+  respects `prefers-reduced-motion` (`UX-17`).
 
 ## Sources
 
@@ -115,25 +123,36 @@ The file has two halves, and they behave very differently:
 
 ### Colour tokens
 
+The **Avora** palette. The retained token *names* are semantic and unchanged from the previous
+(dark) theme — only their values moved — so the retarget layer and every component keep working.
+(The full name set is unchanged: `remark-*` and `line-control` already existed in the dark theme,
+and `ink-400` was already removed before this change; the rebrand re-valued names, it did not add
+or drop any.)
+
 | Group | Token | Value | Role |
 |---|---|---|---|
-| Surfaces | `--color-canvas` | `#0c1022` | "Midnight" — body, nav, hero |
-| | `--color-surface` | `#1c2543` | "Slate" — cards, panels, modals |
-| | `--color-surface-muted` | `#242e52` | Raised rows, hovers, skeletons |
-| Text | `--color-ink-900` | `#f1ebe0` | "Parchment" — headings, primary text |
-| | `--color-ink-700` | `#d7d3c8` | Body copy |
-| | `--color-ink-500` | `#8a9bbe` | "Horizon" — labels, captions, nav |
-| Accent | `--color-brand-700/600/500` | `#a98844` / `#c9a55a` / `#d4b476` | "Beacon" — the product's only accent |
-| | `--color-brand-100/50` | amber at 16% / 8% | Accent tints |
-| Status | `--color-ok-700` / `ok-100` | `#7fc79a` | On track |
-| | `--color-warn-700` / `warn-100` | `#dba14e` | Needs attention |
-| | `--color-risk-600` / `risk-100` | `#d98a80` | At risk |
-| Hairlines | `--color-line` | `#28325a` | Decorative borders and dividers |
-| | `--color-line-strong` | `#394472` | Emphasised dividers, scrollbar thumb |
-| | `--color-line-control` | `#6e79a3` | The boundary of an interactive control — inputs, selects, textareas. The only one of the three that meets WCAG 1.4.11 |
+| Surfaces | `--color-canvas` | `#faf7f2` | "Parchment" — body canvas |
+| | `--color-surface` | `#fdf9f4` | "Cream" — cards, panels, modals |
+| | `--color-surface-muted` | `#f0ebe1` | "Linen" — raised rows, hovers, skeletons |
+| Text | `--color-ink-900` | `#2c1a0e` | "Espresso" — headings, primary text |
+| | `--color-ink-700` | `#4a3527` | "Bark" — body copy |
+| | `--color-ink-500` | `#786351` | "Driftwood" — labels, captions, nav (the dimmest token that may carry normal text) |
+| Accent | `--color-brand-700/600/500` | `#96452a` / `#a85033` / `#d4956a` | "Terracotta / Sienna" — the product's only accent. `600` is the functional fill/accent-text value; `500` (sienna) is soft/decorative only |
+| | `--color-brand-100/50` | terracotta at 14% / 7% | Accent tints |
+| Status | `--color-ok-700` / `ok-100` | `#22593a` / `rgba(42,107,70,.14)` | On track (green, 146°) |
+| | `--color-warn-700` / `warn-100` | `#744c0e` / `rgba(138,90,22,.14)` | Needs attention (amber, 36°) |
+| | `--color-risk-600` / `risk-100` | `#992d27` / `rgba(176,52,46,.14)` | At risk (red, 3°) |
+| | `--color-remark-600` / `remark-100` | `#5c438c` / `rgba(107,78,155,.14)` | Remark requests (purple, 261°) — semantic request colour, its own family, not a reuse of warn and not an accent |
+| Hairlines | `--color-line` | `#e2d9cc` | "Warm-stone" — decorative borders and dividers |
+| | `--color-line-strong` | `#cbbca8` | Emphasised dividers, scrollbar thumb |
+| | `--color-line-control` | `#8c7a66` | The boundary of an interactive control — inputs, selects, textareas. The only one of the three that meets WCAG 1.4.11 |
 
-`--color-gold-600/500/100` are aliases of the brand ramp, kept so older class names stay
-valid. They are not a separate colour.
+`--color-gold-600/500/100` are aliases of the terracotta ramp, kept so older class names stay
+valid. They are not a separate colour. Status hues are deliberately separated from the
+terracotta accent (≈15°) so the brand colour never reads as a warning (`UX-4`); the identity's
+display terracotta `#B86040` is reserved for large decorative brand use (the mark, the display
+wordmark), because as a mid-tone it cannot carry normal text at 4.5:1 in either direction —
+which is why the functional `brand-600` is deepened to `#a85033`.
 
 ### The Tailwind retarget layer
 
@@ -146,6 +165,11 @@ utilities:
 .bg-blue-600    { background-color: var(--color-brand-600); color: var(--color-canvas); }
 .bg-green-100   { background-color: var(--color-ok-100); }
 ```
+
+Because the theme inverted from dark to light, one retarget case changed behaviour rather than
+just colour: the dark-chip buttons written as `.bg-slate-700` + `.text-white` would have gone
+white-on-white on parchment, so `.bg-slate-700/800` now map to **espresso** with cream text —
+the same "dark, quiet, secondary" intent, inverted correctly.
 
 The comment above that block explains why it works: **unlayered rules always win over
 Tailwind's own `@layer utilities` in the cascade**, so this re-themes every generated class
@@ -162,20 +186,34 @@ Three consequences a new engineer must know:
 - **The block must stay unlayered.** Wrapping it in `@layer` would lose the cascade fight and
   revert the entire application to stock Tailwind colours.
 
-The layer also styles bare elements, which is why legacy inputs render correctly on dark:
-`input, select, textarea` get `--color-canvas` background, `--color-ink-900` text, and
+The layer also styles bare elements, which is why legacy inputs render correctly: `input,
+select, textarea` get `--color-surface` (cream) background, `--color-ink-900` text, and
 `--color-line-control` borders; placeholders get `--color-ink-500`.
 
 ### Typography
 
-`--font-display` is `"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif,
-serif` — **system fonts only, because the CSP blocks external font hosts**
-(`frontend/vercel.json` sets `font-src 'self' data:`). The comment at `index.css:39–40` says
-so explicitly. This is a security decision surfacing as a typographic one.
+`--font-display` is `"Lora Variable", …, serif` and `--font-sans` is `"Inter Variable", …,
+sans-serif`. **Lora** carries the editorial/display voice and **Inter** the functional UI. Both
+are **self-hosted** — imported through `@fontsource-variable/*` in `main.tsx` and bundled by
+Vite as same-origin `dist/assets/*.woff2`, so `frontend/vercel.json`'s `font-src 'self'` is
+satisfied with no external host. Each token keeps a system fallback stack in case an asset fails
+to load. *(Earlier revisions used a system serif because a CDN was assumed to be the only source
+for a webfont; self-hosting removes that assumption without loosening the CSP.)*
 
-`h1` and `h2` use the display serif with `letter-spacing: -0.01em` and `--color-ink-900`.
-`h3` stays sans — the comment notes that dense interface areas keep their clarity that way.
-Everything below is the default sans stack.
+`h1` and `h2` use Lora with `letter-spacing: -0.01em` and `--color-ink-900`. `h3` stays sans —
+dense interface areas keep their clarity that way. Everything below is Inter. Inside an
+`.avora-espresso` section, headings flip to cream via a more-specific unlayered rule, since the
+global `h1, h2 { color: ink-900 }` would otherwise render espresso-on-espresso.
+
+### Brand motifs
+
+`frontend/src/components/brand.tsx` holds the reusable Avora graphics — the mark, the display
+wordmark, the compact lockup, a faint ghost mark, a section ornament, an espresso interlude, and
+a fixed paper-grain overlay. Every one is decorative: `aria-hidden`, non-interactive, and
+colour-set from a token via `currentColor`, so none of them touch the accessibility tree or the
+contrast budget. The grain and ghost mark reduce or disappear on small screens rather than
+compete with content. **The mark in `brand.tsx` and `public/favicon.svg` is a placeholder** until
+the approved artwork is supplied; both are isolated so the swap is one edit each.
 
 ### Component primitives
 
@@ -199,51 +237,53 @@ and it is defined once.
 
 ### Measured contrast
 
-Computed from the token values using the WCAG 2.x formula. **The palette is largely strong**;
-two things fail.
+Computed from the Avora token values using the WCAG 2.x formula. Every text and status token
+clears 4.5:1 on **all three** surfaces (parchment / cream / linen); the worst case is the real
+case, so the table below reports the lowest of the three.
 
-**Text on `--color-canvas` (`#0c1022`):**
+**Text — lowest ratio across `canvas` / `surface` / `surface-muted`:**
 
-| Token | Ratio | Verdict |
+| Token | Min ratio | Verdict |
 |---|---|---|
-| `ink-900` | 15.91 | Passes AA and AAA |
-| `ink-700` | 12.62 | Passes AA and AAA |
-| `ink-500` | 6.75 | Passes AA |
-| `brand-600` | 8.10 | Passes AA |
-| `ok-700` / `warn-700` / `risk-600` | 9.47 / 8.29 / 7.10 | All pass AA |
+| `ink-900` (`#2c1a0e`) | 14.02 | Passes AA and AAA |
+| `ink-700` (`#4a3527`) | 9.66 | Passes AA and AAA |
+| `ink-500` (`#786351`) | 4.77 | Passes AA (the dimmest token that may carry text) |
+| `brand-600` (`#a85033`) | 4.58 | Passes AA — accent text and filled-button label |
+| `brand-700` (`#96452a`) | 5.56 | Passes AA — accent hover/pressed and strong borders |
+| `ok-700` / `warn-700` / `risk-600` | 6.91 / 6.35 / 6.41 | All pass AA |
+| `remark-600` (`#5c438c`) | 6.70 | Passes AA |
 
-**Text on `--color-surface` (`#1c2543`):** `ink-900` 12.69, `ink-700` 10.06, `ink-500` 5.39,
-`brand-700` 4.51 — all pass.
+A status badge renders its foreground on its own `-100` tint, not on the bare surface, and a 14%
+tint darkens the background enough to pull an otherwise-passing token below 4.5:1 (`warn-700` on
+the `warn-100` tint over linen was ~4.14 before the foregrounds were deepened). The four status
+foregrounds are therefore set dark enough to clear 4.5:1 **over their tint on every surface**
+(worst case ~5.2), and `contrast.test.ts` composites the tint and checks that composite, not just
+the bare surface.
 
-**Text on `--color-surface-muted` (`#242e52`):** `ink-500` is 4.73 and passes.
-**`brand-700` is 3.96 and fails AA for normal text** — it is an accent, not a text token.
-
-> **A fourth text step used to sit here.** `--color-ink-400` (`#66739a`) measured 4.03 / 3.21
-> / 2.82 and so failed AA on every surface, while all 23 of its uses in the app were 11–14px
-> copy. It could not be retuned: on this palette the darkest value clearing 4.5:1 against
-> `surface-muted` is `#8a9bbe`, which is `ink-500` itself. The two muted steps were one step,
-> one of which was illegible, so the token was removed and its uses moved to `ink-500` rather
-> than left as a trap. `src/test/contrast.test.ts` fails if the name comes back.
+> **A fourth text step used to sit here.** `--color-ink-400` measured below 4.5:1 on every
+> surface while all its uses were 11–14px copy. It could not be retuned: on a warm-paper palette
+> the darkest value clearing 4.5:1 against `surface-muted` is `ink-500` itself, so a fourth muted
+> step can only exist by being illegible. The token was removed and its uses moved to `ink-500`.
+> `src/test/contrast.test.ts` fails if the name comes back.
 
 **Non-text contrast (WCAG 1.4.11 requires 3:1 for component boundaries and state
 indicators):**
 
 | Pair | Ratio | Verdict |
 |---|---|---|
-| `line-control` on `surface` | 3.53 | Passes — this is the input border |
-| `line-control` on `canvas` | 4.43 | Passes |
-| `line-control` on `surface-muted` | 3.10 | Passes |
-| `line` on `surface` | 1.21 | Decorative only — dividers and card edges, where WCAG sets no ratio |
-| `line` on `canvas` | 1.52 | Decorative only |
-| `line-strong` on `canvas` | 2.02 | Decorative only |
-| `surface` vs `canvas` | 1.25 | Card edges are carried by the border and shadow, not the fill |
+| `line-control` on `surface` | 3.94 | Passes — this is the input border |
+| `line-control` on `canvas` | 3.86 | Passes |
+| `line-control` on `surface-muted` | 3.47 | Passes |
+| `line` on `surface` | 1.33 | Decorative only — dividers and card edges, where WCAG sets no ratio |
+| `line` on `canvas` | 1.31 | Decorative only |
+| `line-strong` on `canvas` | 1.74 | Decorative only |
+| `surface` vs `canvas` | 1.02 | Card edges are carried by the border, not the fill |
 
-Filled buttons are fine: canvas text on `brand-600` is 8.10, and on `risk-600` is 7.10.
+Filled buttons are fine: parchment (`canvas`) text on `brand-600` is 5.09, and on `risk-600`
+is 7.1.
 
-The conclusion is specific rather than general: **the palette is well-built, and the two
-places it failed were a text step that could not carry text and a hairline standing in for a
-control boundary.** Both are fixed; the hairlines themselves are unchanged, because a divider
-is not a control and dimming is the correct behaviour for one.
+The hairlines are deliberately below 3:1 — a divider is not a control, and dimming is the
+correct behaviour for one. `line-control` is the token for a real control boundary.
 
 These numbers are not maintained by hand. `frontend/src/test/contrast.test.ts` parses the
 tokens out of `index.css` and recomputes every ratio on each run, so a palette change that
@@ -281,12 +321,9 @@ Applied deliberately in a handful of files and largely absent elsewhere. Counted
   ignored by assistive technology.
 - **The streaming chat transcript has no `aria-live`**, so arriving AI text is silent.
 - **There is no skip link** to bypass navigation.
-- **There is no focus-ring styling.** The application relies on the browser default against a
-  dark canvas, and `Modal`'s panel carries `outline-none`.
 - **Loading and error states are unannounced plain `<div>`s** — `"Loading…"` in `App.tsx:65`
   and `ProtectedRoute.tsx:21`.
 - **There are zero `<fieldset>` elements**, so radio and checkbox groups have no group label.
-- **No reduced-motion handling** — `prefers-reduced-motion` appears nowhere.
 
 ---
 
@@ -312,8 +349,10 @@ Colours come from tokens. No hex literal appears in a component.
 *Rationale:* a literal cannot be re-themed and will not have been contrast-checked.
 
 **`UX-4` — MUST NOT · Important · Active**
-Do not introduce a second accent colour. Beacon amber is the only accent; `ok`, `warn` and
-`risk` are semantic and used only for their meanings.
+Do not introduce a second accent colour. Terracotta is the only accent; `ok`, `warn`, `risk`
+and `remark` are semantic — `remark` being a student's request-to-re-check, not a caution — used
+only for their meanings, and are held apart in hue from the accent so the brand colour is never
+mistaken for a status.
 *Rationale:* an accent that means several things means nothing, and status colour is doing
 real work in this product.
 
@@ -338,17 +377,17 @@ a school. This is the baseline, stated once.
 
 **`UX-8` — MUST · Critical · Active**
 Text meets 4.5:1 against its actual background; large text (≥18.66px bold or ≥24px) meets
-3:1. **`ink-500` is the dimmest token that may carry normal text** — 6.75 / 5.39 / 4.73 across
-the three surfaces. `brand-700` is an accent and MUST NOT carry normal text on
-`surface-muted`, where it measures 3.96.
+3:1. **`ink-500` is the dimmest token that may carry normal text** — 5.31 / 5.41 / 4.77 across
+the three surfaces. `brand-500` (sienna) is a soft/decorative accent and MUST NOT carry normal
+text, where it measures ~2.4 on parchment.
 *Rationale:* measured; see [Measured contrast](#measured-contrast). The rule previously named
 `--color-ink-400` as forbidden for body text; that token no longer exists, which is the
 stronger form of the same rule. Enforced by `frontend/src/test/contrast.test.ts`.
 
 **`UX-9` — MUST · Critical · Active**
 Interactive component boundaries and state indicators meet 3:1 against their background.
-**`--color-line-control` is the token for that job** (3.53 on surface, 4.43 on canvas, 3.10 on
-surface-muted). `--color-line` (1.21) and `--color-line-strong` (2.02) are decorative
+**`--color-line-control` is the token for that job** (3.94 on surface, 3.86 on canvas, 3.47 on
+surface-muted). `--color-line` (1.33) and `--color-line-strong` (1.74) are decorative
 hairlines — dividers, card edges, table rules — and MUST NOT be the sole visual boundary of an
 interactive control.
 *Rationale:* WCAG 1.4.11. A field whose edge is invisible is a field a low-vision user cannot
@@ -359,9 +398,14 @@ low ratios read as a decision rather than an oversight.
 
 **`UX-10` — MUST · Critical · Active**
 Every interactive element has a visible focus indicator meeting 3:1 against adjacent colours.
-`outline-none` is used only where a compliant custom indicator replaces it.
-*Rationale:* keyboard operation is impossible without it, and the default ring is unreliable
-against `#0c1022`.
+The mechanism is a single unlayered `:focus-visible` rule in `index.css` that draws a 2px
+terracotta (`brand-600`, ≥3:1 on parchment) outline on links, buttons, and form controls; it is
+an **outline**, not a border colour, so it sidesteps the retarget cascade, and being unlayered it
+wins even where a component set `focus:outline-none`. A component may still opt into a custom
+indicator, but the default is now compliant rather than absent.
+*Rationale:* keyboard operation is impossible without it, and the browser default ring is
+unreliable against the parchment canvas (`#faf7f2`). A per-page focus ring was the old approach
+and left most controls uncovered.
 
 **`UX-11` — MUST · Critical · Active**
 Every function is reachable and operable by keyboard alone, in a logical order. Dialogs trap
@@ -460,16 +504,15 @@ from — it corrupts the data, not just the ethics.
 | Gap | Why it matters | Severity |
 |---|---|---|
 | **`Modal` has no focus trap and no focus restore** (`components/ui.tsx:120–157`). | Breaks `UX-11`. Keyboard and screen-reader users tab out of the dialog into the page behind it and lose their place on close. | `blocking` |
-| **Contrast is guarded at the token level, not at the point of use.** `contrast.test.ts` proves every token clears the ratio its role needs; nothing checks that a given token is used in the role it was measured for. | A `brand-700` label on `surface-muted` (3.96) would pass every test and still fail AA. The guard closes the systemic failure, not the individual mistake. | `before scale` |
-| **`--color-line` (1.21 on surface) is the default input border.** | Breaks `UX-9`. Form fields have no perceptible boundary for low-vision users. | `blocking` |
+| **Contrast is guarded at the token level, not at the point of use.** `contrast.test.ts` proves every token clears the ratio its role needs; nothing checks that a given token is used in the role it was measured for. | A `brand-500` (sienna) label used as body text (~2.4:1) would pass every test and still fail AA. The guard closes the systemic failure, not the individual mistake. | `before scale` |
+| **`--color-line` (1.33 on surface) is the default border for many legacy inputs.** | Breaks `UX-9`. Form fields styled with a bare `border` have no perceptible boundary for low-vision users; the bare `input` element and token-based fields correctly use `line-control`. | `blocking` |
 | **`role="assistant"` in `TutorChatPage.tsx`** is not a valid ARIA role. | Breaks `UX-16`. Silently does nothing; the author presumably believed it conveyed something. | `blocking` |
-| **No focus-ring styling anywhere**, and `Modal`'s panel sets `outline-none`. | Breaks `UX-10`. The browser default is unreliable against `#0c1022`. | `blocking` |
+| **`Modal`'s panel carries `outline-none`** without a custom indicator. | Narrows `UX-10` for that one container. A global unlayered `:focus-visible` outline (terracotta, ≥3:1) now covers every interactive element, so this is the remaining exception, not the rule. | `nice to have` |
 | **The streaming chat transcript has no `aria-live`.** | Breaks `UX-13`. Arriving AI text is silent to a screen reader — the primary content of that page. | `before scale` |
 | **No skip link.** | Every page begins by tabbing through the full navigation. | `before scale` |
 | **`Modal`'s `aria-labelledby` is a hardcoded id.** | Duplicate ids and an ambiguous accessible name if two modals are ever open. Latent, not yet triggered. | `nice to have` |
 | **Loading and error states are unannounced `<div>`s** (`App.tsx:65`, `ProtectedRoute.tsx:21`). | Breaks `UX-13` at the application's entry point. | `before scale` |
 | **Zero `<fieldset>` elements.** | Breaks `UX-12` for any grouped control. | `before scale` |
-| **No `prefers-reduced-motion` handling.** | Breaks `UX-17`. | `nice to have` |
 | **Two class vocabularies coexist** — semantic tokens and remapped stock Tailwind names. | `UX-2` stops it growing; converging the existing uses is unscheduled work, and until then the CSS cannot be simplified. | `before scale` |
 | **No automated accessibility testing.** No axe, no lint rule, nothing in the (nonexistent) CI. | Every rule in this section is enforced by review alone. See `RISK-2`. | `blocking` |
 
