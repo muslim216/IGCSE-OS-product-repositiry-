@@ -85,8 +85,8 @@
   --font-sans:
     "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
-  --font-display: "Lora Variable", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
-    ui-serif, serif;
+  --font-display:
+    "Lora Variable", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
 }
 
 /* ---------------------------------------------------------------------

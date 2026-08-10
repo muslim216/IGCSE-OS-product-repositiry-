@@ -1,6 +1,12 @@
 import { Link } from "react-router-dom";
 import { ClipboardCheck, Gauge, GraduationCap, Users } from "lucide-react";
-import { AvoraGrain, AvoraLockup, AvoraWordmark, GhostMark, SectionOrnament } from "../components/brand";
+import {
+  AvoraGrain,
+  AvoraLockup,
+  AvoraWordmark,
+  GhostMark,
+  SectionOrnament,
+} from "../components/brand";
 
 /* The work that isn't teaching — the pain Avora exists to remove. Each line is
    grounded in the actual product: the homework-marking pipeline, the readiness
