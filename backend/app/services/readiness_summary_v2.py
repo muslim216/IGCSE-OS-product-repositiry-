@@ -40,7 +40,8 @@ from app.schemas.readiness import (
     TopicReadinessOut,
     WeakTopic,
 )
-from app.services.grades import grade_band
+from app.services.averaging import subject_averaging
+from app.services.grades import grade_band, predict_grade
 from app.services.readiness_summary import build_summary
 from app.services.readiness_v2_ai import resolve_grade_boundaries
 
@@ -137,15 +138,20 @@ async def _subject_from_snapshot(
         if isinstance(w, dict) and w.get("topic_id") in topics
     ]
 
-    # Band against the same ordered list that produced the grade, not the global
-    # Subject default. The snapshot's predicted_grade was mapped through
-    # resolve_grade_boundaries at synthesis time, and nothing constrains an
-    # organization's grade_label set to match the subject's — so an org list of
-    # [9, 7, 4, U] puts "4" at index 2 where the subject's ten-grade list puts it
-    # at index 5. Reading the wrong list is a different band, not a rounding
-    # difference. (RISK-5 proper — the two sources disagreeing on cut-offs — is
-    # still open and out of scope here.)
+    # Band and averaging both map through the boundaries this organization's
+    # predicted grade was built from, not the global Subject default. The
+    # snapshot's predicted_grade was mapped through resolve_grade_boundaries at
+    # synthesis time, and nothing constrains an org's grade_label set to match
+    # the subject's — an org list of [9, 7, 4, U] puts "4" at index 2 where the
+    # subject's ten-grade list puts it at index 5. Reading the wrong list is a
+    # different band, not a rounding difference, and predicted-beside-averaging
+    # only means something if both used the same list. (RISK-5 proper — the two
+    # sources disagreeing on cut-offs — is still open and out of scope here.)
     boundaries = await resolve_grade_boundaries(db, student.organization_id, subject)
+    averaging = await subject_averaging(db, student.id, subject.id)
+    averaging_grade = (
+        predict_grade(averaging.score, boundaries) if averaging.score is not None else None
+    )
 
     return SubjectReadiness(
         subject_id=subject.id,
@@ -155,6 +161,9 @@ async def _subject_from_snapshot(
         score=snapshot.score,
         predicted_grade=snapshot.predicted_grade,
         status=grade_band(snapshot.predicted_grade, boundaries),
+        averaging_score=averaging.score,
+        averaging_grade=averaging_grade,
+        marked_piece_count=averaging.marked_piece_count,
         topics=topic_out,
         weak_topics=weak[:5],
         rationale=snapshot.rationale,

@@ -28,6 +28,14 @@ export interface SubjectReadiness {
       source of the colour surfaces show. null when there is no grade or no
       boundaries, and is then rendered as absent, never a defaulted colour. */
   status: ReadinessStatus | null;
+  /** The plain mean of marked work, mapped through the same boundaries as
+      predicted_grade — backward-looking where the prediction looks forward.
+      null when nothing is marked yet, never 0. */
+  averaging_score: number | null;
+  averaging_grade: string | null;
+  /** How many marked pieces the averaging value came from; 0 exactly when
+      averaging_score is null. */
+  marked_piece_count: number;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
   /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */
