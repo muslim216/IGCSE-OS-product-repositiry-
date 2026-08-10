@@ -1,84 +1,107 @@
 @import "tailwindcss";
 
 @theme {
-  /* Ground & elevated surfaces */
-  --color-canvas: #0c1022; /* Midnight — body, nav, hero */
-  --color-surface: #1c2543; /* Slate — cards, panels, modals */
-  --color-surface-muted: #242e52; /* raised rows, hovers, skeletons */
+  /* ---------------------------------------------------------------------
+     AVORA — warm parchment identity.
 
-  /* Text on dark, strongest first */
-  --color-ink-900: #f1ebe0; /* Parchment — headings, primary text */
-  --color-ink-700: #d7d3c8; /* body copy */
-  /* Horizon — labels, captions, nav, and every piece of muted copy. Measures
-     6.75 / 5.39 / 4.73 against canvas, surface and surface-muted, so it passes
-     4.5:1 everywhere.
+     A light, editorial theme: parchment canvas, espresso ink, a restrained
+     terracotta accent. Token *names* are semantic (canvas/surface/ink/brand/
+     line) and unchanged from the previous theme — only their values move — so
+     the retarget block below and every component keep working. Contrast is not
+     assumed: src/test/contrast.test.ts parses these hexes and recomputes every
+     WCAG ratio on each run, so a value that breaks UX-8/UX-9 fails the build.
+     --------------------------------------------------------------------- */
 
-     There was a fourth step here, --color-ink-400 (#66739a), and it is gone
-     deliberately rather than retuned. It measured 4.03 / 3.21 / 2.82 and so
-     failed AA on every surface, while all 23 of its uses in the app were
-     11-14px text that needs 4.5:1. Solving that by lightening it does not
-     work: on this palette the darkest value clearing 4.5:1 against
-     surface-muted is #8a9bbe itself. The two muted steps were therefore one
-     step, one of which was illegible — so the token is removed instead of
-     left as a trap for the next person who reaches for it. */
-  --color-ink-500: #8a9bbe;
+  /* Ground & elevated surfaces — warm paper, subtly stepped */
+  --color-canvas: #faf7f2; /* Parchment — body, canvas */
+  --color-surface: #fdf9f4; /* Cream — cards, panels, modals (paper on paper) */
+  --color-surface-muted: #f0ebe1; /* Linen — raised rows, hovers, skeletons */
 
-  /* Beacon — the signature amber, and the product's only accent */
-  --color-brand-700: #a98844;
-  --color-brand-600: #c9a55a;
-  --color-brand-500: #d4b476;
-  --color-brand-100: rgba(201, 165, 90, 0.16);
-  --color-brand-50: rgba(201, 165, 90, 0.08);
+  /* Text on parchment, strongest first — the espresso family */
+  --color-ink-900: #2c1a0e; /* Espresso — headings, primary text */
+  --color-ink-700: #4a3527; /* Bark — body copy */
+  /* Driftwood — labels, captions, nav, and every piece of muted copy. Measures
+     5.31 / 5.41 / 4.77 against canvas, surface and surface-muted, so it clears
+     4.5:1 everywhere. The identity's lighter "driftwood" (~#A89078) is a paper
+     tint that measures ~2.8 and cannot legibly carry text, so muted text uses
+     this darker member of the same family instead.
 
-  /* Gold aliases (same family — kept so existing class names stay valid) */
-  --color-gold-600: #c9a55a;
-  --color-gold-500: #d4b476;
-  --color-gold-100: rgba(201, 165, 90, 0.15);
+     There was once a fourth step here, --color-ink-400, and it is gone
+     deliberately: on any warm-paper palette the darkest value clearing 4.5:1
+     against surface-muted is ink-500 itself, so a fourth muted step can only
+     exist by being illegible. The token is removed rather than left as a trap
+     for the next person who reaches for it. */
+  --color-ink-500: #786351;
 
-  /* Calm status colors, tuned for legibility on navy */
-  --color-ok-700: #7fc79a;
-  --color-ok-100: rgba(84, 163, 120, 0.16);
-  --color-warn-700: #dba14e;
-  --color-warn-100: rgba(219, 161, 78, 0.14);
-  --color-risk-600: #d98a80;
-  --color-risk-100: rgba(199, 107, 98, 0.16);
+  /* Terracotta — the brand accent, and the product's only accent.
+     brand-600 is deepened from the identity's display terracotta (#B86040) so
+     that filled-button labels and accent text clear 4.5:1 on parchment; the
+     pure #B86040 is a mid-tone that cannot carry AA text in either direction,
+     so it is reserved for large decorative brand expression (the mark, the
+     display wordmark) where WCAG sets no ratio. */
+  --color-brand-700: #96452a; /* deep terracotta — hover/pressed, strong borders */
+  --color-brand-600: #a85033; /* terracotta — primary fill and accent text */
+  --color-brand-500: #d4956a; /* sienna — soft accent, hover-lighten, decoration */
+  --color-brand-100: rgba(184, 96, 64, 0.14);
+  --color-brand-50: rgba(184, 96, 64, 0.07);
+
+  /* Gold aliases (kept so existing class names stay valid — folded into the
+     terracotta ramp; not a separate colour). */
+  --color-gold-600: #a85033;
+  --color-gold-500: #d4956a;
+  --color-gold-100: rgba(184, 96, 64, 0.14);
+
+  /* Status colours — functional, state only, never decoration. Each hue is
+     held clearly apart from the terracotta accent (terracotta ~15°) so the
+     brand colour never reads as a warning: green 146°, amber 35°, red 3°. */
+  --color-ok-700: #2a6b46;
+  --color-ok-100: rgba(42, 107, 70, 0.14);
+  --color-warn-700: #8a5a16;
+  --color-warn-100: rgba(138, 90, 22, 0.14);
+  --color-risk-600: #b0342e;
+  --color-risk-100: rgba(176, 52, 46, 0.14);
 
   /* Remark requests — a student asking their tutor to look at a mark again.
      Its own family rather than a reuse of warn, because a remark is a request,
      not a caution: it appears beside the amber "needs review" border in the
-     same card, and the two must not read as the same state. Measured against
-     every surface in test/contrast.test.ts. */
-  --color-remark-600: #b9a2e3;
-  --color-remark-100: rgba(185, 162, 227, 0.16);
+     same card, and the two must not read as the same state. */
+  --color-remark-600: #6b4e9b;
+  --color-remark-100: rgba(107, 78, 155, 0.14);
 
   /* Hairlines. These two are decorative — dividers, card edges, table rules —
-     where WCAG sets no ratio, and they are deliberately quiet. */
-  --color-line: #28325a;
-  --color-line-strong: #394472;
+     where WCAG sets no ratio, and they are deliberately quiet warm neutrals. */
+  --color-line: #e2d9cc; /* warm-stone */
+  --color-line-strong: #cbbca8;
   /* The boundary of an interactive control, which WCAG 1.4.11 requires to
-     reach 3:1. Measured 4.43 / 3.53 / 3.10 against canvas, surface and
-     surface-muted. Inputs previously used --color-line at 1.21 on surface: a
-     field whose edge is invisible is a field a low-vision user cannot find. */
-  --color-line-control: #6e79a3;
+     reach 3:1. Measured 3.86 / 3.94 / 3.47 against canvas, surface and
+     surface-muted. A field whose edge is invisible is a field a low-vision
+     user cannot find. */
+  --color-line-control: #8c7a66;
 
-  /* Editorial serif for display headings. System-only: the CSP blocks
-     external font hosts, so no webfont can be loaded. */
-  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, ui-serif, serif;
+  /* Typography. Self-hosted webfonts (imported in main.tsx and bundled by Vite
+     as same-origin assets, so the CSP's font-src 'self' is satisfied). Lora is
+     the editorial display voice; Inter is the functional UI voice. Each keeps a
+     system fallback stack in case a font asset fails to load. */
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-display: "Lora Variable", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+    ui-serif, serif;
 }
 
 /* ---------------------------------------------------------------------
-   MANARA midnight theme.
+   AVORA parchment theme.
 
    Rather than hand-editing every page's Tailwind classes, the handful of
-   color utilities the app actually uses (white cards, slate text/borders,
-   blue accents, status tints) are retargeted here onto the MANARA palette.
+   colour utilities the app actually uses (white cards, slate text/borders,
+   blue accents, status tints) are retargeted here onto the Avora palette.
    Unlayered rules always win over Tailwind's own @layer utilities in the
    cascade, so this re-themes the generated classes app-wide without
    !important. Keep this block unlayered.
    --------------------------------------------------------------------- */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -90,6 +113,7 @@ body,
 body {
   background-color: var(--color-canvas);
   color: var(--color-ink-700);
+  font-family: var(--font-sans);
 }
 
 ::selection {
@@ -109,7 +133,7 @@ body {
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a5670;
+  background: #b8a68f;
 }
 
 /* Neutral surfaces */
@@ -125,38 +149,44 @@ body {
 }
 .hover\:bg-slate-50:hover,
 .hover\:bg-slate-100:hover {
-  background-color: #2a3457;
+  background-color: #eae1d4;
 }
 .bg-slate-100 {
-  background-color: #2a3457;
+  background-color: #eae1d4;
 }
 .bg-slate-200 {
-  background-color: #313c63;
+  background-color: #e2d7c6;
 }
 .hover\:bg-slate-200:hover {
-  background-color: #313c63;
+  background-color: #e2d7c6;
 }
 .hover\:bg-slate-300:hover {
-  background-color: #3a4670;
-}
-.bg-slate-700 {
-  background-color: var(--color-surface-muted);
-}
-.hover\:bg-slate-800:hover {
-  background-color: #2a3457;
+  background-color: #d8ccb8;
 }
 
-/* Form controls on dark. Legacy inputs that don't carry .bg-white still
-   need a dark field, or the browser renders them light-on-light. */
+/* Dark surfaces. A handful of secondary buttons render as bg-slate-700 with
+   text-white — a dark chip on the old navy theme. On parchment that white text
+   would vanish, so these map to espresso with cream text instead: the same
+   "dark, quiet, secondary" intent, inverted correctly. */
+.bg-slate-700 {
+  background-color: var(--color-ink-900);
+  color: var(--color-surface);
+}
+.hover\:bg-slate-800:hover {
+  background-color: #3d2415;
+}
+
+/* Form controls on parchment. Legacy inputs that don't carry .bg-white still
+   need a defined field, or they inherit the page and lose their edge. */
 input,
 select,
 textarea {
-  background-color: var(--color-canvas);
+  background-color: var(--color-surface);
   color: var(--color-ink-900);
   border-color: var(--color-line-control);
 }
-/* Placeholder text is normal-size copy and needs 4.5:1. This used the removed
-   ink-400, which managed 2.82 against surface-muted. */
+/* Placeholder text is normal-size copy and needs 4.5:1. ink-500 is the dimmest
+   token that may carry it. */
 input::placeholder,
 textarea::placeholder {
   color: var(--color-ink-500);
@@ -195,15 +225,14 @@ textarea::placeholder {
 .text-slate-500 {
   color: var(--color-ink-500);
 }
-/* Was the removed ink-400. This class carries normal-size muted copy across
-   the app — timestamps, counts, helper text — so it needs a token that clears
-   4.5:1, and .text-slate-500 above is now its twin. A hierarchy a low-vision
-   user cannot read is not a hierarchy. */
+/* Carries normal-size muted copy across the app — timestamps, counts, helper
+   text — so it needs a token that clears 4.5:1, and .text-slate-500 above is
+   its twin. A hierarchy a low-vision user cannot read is not a hierarchy. */
 .text-slate-400 {
   color: var(--color-ink-500);
 }
 
-/* Primary accent: Beacon gold. Filled gold carries Midnight text — the
+/* Primary accent: terracotta. Filled terracotta carries parchment text — the
    unlayered `color` here beats a co-located .text-white on the same button. */
 .bg-blue-600,
 .bg-blue-500,
@@ -213,7 +242,7 @@ textarea::placeholder {
 }
 .hover\:bg-blue-700:hover,
 .hover\:bg-brand-700:hover {
-  background-color: var(--color-brand-500);
+  background-color: var(--color-brand-700);
   color: var(--color-canvas);
 }
 .text-blue-600,
@@ -222,7 +251,7 @@ textarea::placeholder {
 }
 .hover\:text-blue-800:hover,
 .hover\:text-blue-700:hover {
-  color: var(--color-brand-500);
+  color: var(--color-brand-700);
 }
 .border-blue-600,
 .focus\:border-blue-500:focus,
@@ -239,7 +268,7 @@ textarea::placeholder {
   background-color: var(--color-brand-100);
 }
 
-/* Status colors, calmed onto the MANARA palette. */
+/* Status colours, on the Avora palette. */
 .bg-green-100,
 .bg-green-50 {
   background-color: var(--color-ok-100);
@@ -273,10 +302,10 @@ textarea::placeholder {
   color: var(--color-canvas);
 }
 .hover\:bg-red-700:hover {
-  background-color: #c4756b;
+  background-color: #97281f;
 }
 .border-red-200 {
-  border-color: rgba(199, 107, 98, 0.35);
+  border-color: rgba(176, 52, 46, 0.35);
 }
 .bg-amber-100,
 .bg-amber-50 {
@@ -289,14 +318,13 @@ textarea::placeholder {
 }
 .border-amber-200,
 .border-amber-300 {
-  border-color: rgba(219, 161, 78, 0.35);
+  border-color: rgba(138, 90, 22, 0.35);
 }
 .bg-amber-500 {
-  background-color: var(--color-gold-500);
+  background-color: var(--color-warn-700);
 }
 
-/* Remark requests. Purple reached five sites with no token behind it and no
-   measured contrast, rendering a raw palette colour straight onto the navy. */
+/* Remark requests. */
 .bg-purple-50,
 .bg-purple-100 {
   background-color: var(--color-remark-100);
@@ -308,14 +336,12 @@ textarea::placeholder {
 }
 .border-purple-200,
 .border-purple-300 {
-  border-color: rgba(185, 162, 227, 0.35);
+  border-color: rgba(107, 78, 155, 0.35);
 }
 
 /* Orange folds into warn rather than becoming a second caution family. Its one
    use is the "low confidence" mark badge, which is the same kind of statement
-   amber already makes — and on a palette this calm a third warm tint would sit
-   between warn (#dba14e) and risk (#d98a80) too closely to tell apart, which
-   is worse than sharing one. */
+   amber already makes. */
 .bg-orange-100,
 .bg-orange-50 {
   background-color: var(--color-warn-100);
@@ -325,13 +351,14 @@ textarea::placeholder {
   color: var(--color-warn-700);
 }
 
-/* Cards: depth comes from the surface lift, not a glow. */
+/* Cards: depth comes from the surface lift and a whisper of warm shadow, not a
+   glow. The identity is intentionally flat and editorial (no heavy elevation). */
 .rounded-lg.border.bg-white {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 1px 2px rgba(44, 26, 14, 0.06);
 }
 
-/* Editorial display type for the top of the hierarchy; h3 and below stay
-   sans so dense UI keeps its clarity. */
+/* Editorial display type for the top of the hierarchy; h3 and below stay sans
+   so dense UI keeps its clarity. */
 h1,
 h2 {
   font-family: var(--font-display);
@@ -341,4 +368,65 @@ h2 {
 h3 {
   color: var(--color-ink-900);
   letter-spacing: -0.01em;
+}
+
+/* ---------------------------------------------------------------------
+   Avora brand utilities — reusable, decorative, and non-interactive.
+   --------------------------------------------------------------------- */
+
+/* Paper grain: a fixed, barely-there overlay. If the reader notices the grain
+   before the content, it is too strong. Non-interactive, sits above content
+   only to tint it, never to catch a click. */
+.avora-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  z-index: 9999;
+  opacity: 0.03;
+  mix-blend-mode: multiply;
+}
+
+/* Editorial section label: "01 — TODAY". Small, tracked, quiet. */
+.avora-label {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ink-500);
+}
+
+/* Dark espresso interlude — a contrast-rhythm device, not a theme. Carries the
+   subtle dot-grid from the identity. Text on espresso must be cream/parchment/
+   sienna/warm-stone (all clear AA); muted copy here uses warm-stone, not
+   driftwood, which does not clear AA on espresso. */
+.avora-espresso {
+  background-color: var(--color-ink-900);
+  background-image: radial-gradient(rgba(253, 249, 244, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--color-surface);
+}
+/* On espresso, headings must flip to cream. The global `h1, h2 { color:
+   ink-900 }` rule is unlayered and so beats a utility text-colour class, which
+   would leave a heading espresso-on-espresso and invisible; this descendant
+   rule is more specific and unlayered too, so any heading inside an espresso
+   section is legible without per-site overrides. */
+.avora-espresso h1,
+.avora-espresso h2,
+.avora-espresso h3 {
+  color: var(--color-surface);
+}
+
+/* Respect prefers-reduced-motion: suppress non-essential transitions and any
+   animation that moves across the viewport (WCAG 2.3.3 / UX-17). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

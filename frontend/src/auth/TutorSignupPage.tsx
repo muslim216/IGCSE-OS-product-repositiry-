@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { registerTutor } from "../api/auth";
 import { ApiError } from "../api/client";
 import { useAuth } from "./AuthContext";
+import { AvoraGrain, AvoraLockup } from "../components/brand";
 
 export default function TutorSignupPage() {
   const { signIn } = useAuth();
@@ -30,7 +31,9 @@ export default function TutorSignupPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <AvoraGrain />
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow">
+        <AvoraLockup className="mb-6" />
         <h1 className="text-2xl font-semibold text-slate-800">Create a tutor account</h1>
         <p className="mt-1 text-sm text-slate-500">
           Manage your students, homework and results in one place.

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { joinWithInvite, previewInvite, registerStudent } from "../api/groups";
 import { ApiError } from "../api/client";
 import { useAuth } from "./AuthContext";
+import { AvoraGrain, AvoraLockup } from "../components/brand";
 
 export default function JoinPage() {
   const { code = "" } = useParams();
@@ -50,7 +51,9 @@ export default function JoinPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <AvoraGrain />
       <div className="w-full max-w-md rounded-xl bg-white p-8 shadow">
+        <AvoraLockup className="mb-6" />
         <h1 className="text-xl font-semibold text-slate-800">Join {preview.data.group_name}</h1>
         <p className="mt-1 text-sm text-slate-500">
           {preview.data.subject_name} with {preview.data.tutor_name}

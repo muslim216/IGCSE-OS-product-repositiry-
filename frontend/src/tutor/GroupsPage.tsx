@@ -10,7 +10,7 @@ function ClassCard({ group }: { group: Group }) {
   return (
     <Link
       to={`/tutor/groups/${group.id}`}
-      className="group flex flex-col gap-3 rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(0,0,0,0.35)] transition hover:border-brand-600"
+      className="group flex flex-col gap-3 rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)] transition hover:border-brand-600"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
