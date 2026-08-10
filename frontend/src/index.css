@@ -43,6 +43,14 @@
   --color-risk-600: #d98a80;
   --color-risk-100: rgba(199, 107, 98, 0.16);
 
+  /* Remark requests — a student asking their tutor to look at a mark again.
+     Its own family rather than a reuse of warn, because a remark is a request,
+     not a caution: it appears beside the amber "needs review" border in the
+     same card, and the two must not read as the same state. Measured against
+     every surface in test/contrast.test.ts. */
+  --color-remark-600: #b9a2e3;
+  --color-remark-100: rgba(185, 162, 227, 0.16);
+
   /* Hairlines. These two are decorative — dividers, card edges, table rules —
      where WCAG sets no ratio, and they are deliberately quiet. */
   --color-line: #28325a;
@@ -285,6 +293,36 @@ textarea::placeholder {
 }
 .bg-amber-500 {
   background-color: var(--color-gold-500);
+}
+
+/* Remark requests. Purple reached five sites with no token behind it and no
+   measured contrast, rendering a raw palette colour straight onto the navy. */
+.bg-purple-50,
+.bg-purple-100 {
+  background-color: var(--color-remark-100);
+}
+.text-purple-700,
+.text-purple-800,
+.text-purple-900 {
+  color: var(--color-remark-600);
+}
+.border-purple-200,
+.border-purple-300 {
+  border-color: rgba(185, 162, 227, 0.35);
+}
+
+/* Orange folds into warn rather than becoming a second caution family. Its one
+   use is the "low confidence" mark badge, which is the same kind of statement
+   amber already makes — and on a palette this calm a third warm tint would sit
+   between warn (#dba14e) and risk (#d98a80) too closely to tell apart, which
+   is worse than sharing one. */
+.bg-orange-100,
+.bg-orange-50 {
+  background-color: var(--color-warn-100);
+}
+.text-orange-700,
+.text-orange-800 {
+  color: var(--color-warn-700);
 }
 
 /* Cards: depth comes from the surface lift, not a glow. */
