@@ -1,5 +1,5 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { LogOut, Sparkles, type LucideIcon } from "lucide-react";
+import { NavLink, Outlet } from "react-router-dom";
+import { LogOut, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InitialsAvatar } from "./ui";
 import ActivityMenu from "./ActivityMenu";
@@ -84,7 +84,6 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
   const { user, signOut } = useAuth();
   const mainNav = nav.filter((item) => item.slot !== "bottom");
   const bottomNav = nav.filter((item) => item.slot === "bottom");
-  const isTutor = title === "Tutor";
 
   return (
     <div className="min-h-screen md:flex">
@@ -109,18 +108,11 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
             <SidebarLink key={item.to} item={item} />
           ))}
 
-          {isTutor && (
-            <Link
-              to="/tutor"
-              className="flex items-start gap-2.5 rounded-md px-3 py-2 text-ink-700 transition hover:bg-surface"
-            >
-              <Sparkles aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-              <span className="leading-tight">
-                <span className="block text-sm">AI Guidance</span>
-                <span className="block text-xs text-ink-500">Evidence-grounded</span>
-              </span>
-            </Link>
-          )}
+          {/* An "AI Guidance" link pointed at /tutor — the Today page whose
+              sidebar it sat in. A navigation item that goes nowhere teaches the
+              reader that the nav lies, and it was advertising a destination the
+              product does not have. Removed rather than repointed: the guidance
+              belongs on Today itself, which is where PRs 13-15 put it. */}
 
           <div className="mt-2 flex items-center gap-2.5 px-1">
             <InitialsAvatar name={user?.name ?? "?"} />

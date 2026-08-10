@@ -66,7 +66,7 @@ test("student sees all 8 student tabs", async () => {
   }
 });
 
-test("tutor sees all 9 tutor tabs plus AI Guidance", async () => {
+test("tutor sees all 9 tutor tabs", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   for (const label of [
@@ -79,8 +79,17 @@ test("tutor sees all 9 tutor tabs plus AI Guidance", async () => {
     "Syllabuses",
     "Preferences",
     "Settings",
-    "AI Guidance",
   ]) {
     await expectNavLabel(label);
   }
+});
+
+test("the sidebar has no self-link", async () => {
+  // "AI Guidance" pointed at /tutor from the sidebar of /tutor itself. A nav
+  // item that navigates nowhere is a broken promise, so it is gone — and the
+  // destination it advertised never existed to begin with.
+  mockAuthedFetch("tutor");
+  renderApp("/tutor");
+  await screen.findAllByText("Today");
+  expect(screen.queryByText("AI Guidance")).not.toBeInTheDocument();
 });

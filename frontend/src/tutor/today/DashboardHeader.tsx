@@ -65,8 +65,8 @@ export default function DashboardHeader({
           <input
             type="search"
             autoFocus
-            aria-label="Search learners"
-            placeholder="Search learners…"
+            aria-label="Filter the learner readiness table by name"
+            placeholder="Filter by name…"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-44 rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-500 focus:outline-none"
@@ -74,7 +74,11 @@ export default function DashboardHeader({
         )}
         <button
           type="button"
-          aria-label="Search learners"
+          /* Not "Search learners": this filters the readiness table's rows by
+             name and nothing else — not lessons, not the review queue. An
+             aria-label that overstates its control is worse than none, because
+             a screen-reader user cannot see the contradiction (§02). */
+          aria-label="Filter the learner readiness table by name"
           aria-expanded={searchOpen}
           onClick={onSearchToggle}
           className="rounded-md border border-line bg-surface p-2 text-ink-500 transition hover:border-line-strong hover:text-ink-900"
