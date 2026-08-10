@@ -13,3 +13,14 @@ class Organization(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # IANA zone name ("Africa/Cairo"), captured from the browser at tutor
+    # signup and editable in Settings. Nullable because every organization
+    # created before this column existed has none, and because the browser can
+    # fail to report one — callers fall back to UTC and say that they have.
+    #
+    # It lives on the organization, not the user: a tutor's whole roster shares
+    # one timetable, and ScheduleSlot carries a bare weekday and start_time
+    # with no zone of its own. This column is what those have always meant
+    # implicitly. 64 chars is generous — the longest IANA name is in the
+    # mid-thirties — without inviting junk.
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
