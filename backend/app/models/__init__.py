@@ -24,6 +24,7 @@ from app.models.homework import (
 )
 from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
 from app.models.lessons import Lesson, LessonObservation, LessonTopic
+from app.models.narrative import Narrative, NarrativeAudience
 from app.models.orgs import Organization
 from app.models.readiness import (
     Assessment,
@@ -95,6 +96,8 @@ __all__ = [
     "MarkConfidence",
     "Mistake",
     "MistakeCategory",
+    "Narrative",
+    "NarrativeAudience",
     "Organization",
     "ParentCommunication",
     "ParentLink",
