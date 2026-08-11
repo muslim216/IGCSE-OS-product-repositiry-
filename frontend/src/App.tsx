@@ -1,15 +1,13 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import {
   BookOpen,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   FolderOpen,
   Gauge,
   GraduationCap,
   Home as HomeIcon,
-  PenLine,
-  Settings as SettingsIcon,
-  SlidersHorizontal,
   Sparkles,
   Sunrise,
   Users,
@@ -38,9 +36,10 @@ import StudentDetailPage from "./tutor/StudentDetailPage";
 import GroupAnalyticsPage from "./tutor/GroupAnalyticsPage";
 import MockEntryPage from "./tutor/MockEntryPage";
 import ClassReadinessPage from "./tutor/ClassReadinessPage";
-import HomeworkOverviewPage from "./tutor/HomeworkOverviewPage";
 import PreferencesPage from "./tutor/PreferencesPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
+import ReviewQueuePage from "./tutor/ReviewQueuePage";
+import LibraryPage from "./tutor/LibraryPage";
 import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
 import ClassroomSettingsPage from "./tutor/ClassroomSettingsPage";
@@ -79,16 +78,15 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/tutor", label: "AI Tutor", icon: Sparkles, slot: "bottom" },
 ];
 
+// Four destinations, not nine. Today · Classes · Review · Library is the whole
+// daily loop; everything else (past papers, mocks, syllabuses, class readiness,
+// preferences, settings) moved onto the Library shelf, still one tap away and
+// still reachable by its old URL — no bookmark 404s (edge case 20).
 const TUTOR_NAV: NavItem[] = [
   { to: "/tutor", label: "Today", icon: Sunrise },
   { to: "/tutor/classes", label: "Classes", icon: Users },
-  { to: "/tutor/readiness", label: "Class readiness", icon: Gauge },
-  { to: "/tutor/homework", label: "Homework", icon: ClipboardList },
-  { to: "/tutor/past-papers", label: "Past papers", icon: FileText },
-  { to: "/tutor/mocks", label: "Mocks", icon: PenLine },
-  { to: "/tutor/syllabuses", label: "Syllabuses", icon: BookOpen },
-  { to: "/tutor/preferences", label: "Preferences", icon: SlidersHorizontal },
-  { to: "/tutor/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/tutor/review", label: "Review", icon: ClipboardCheck },
+  { to: "/tutor/library", label: "Library", icon: BookOpen },
 ];
 
 export default function App() {
@@ -104,12 +102,15 @@ export default function App() {
         <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} />}>
           <Route path="/tutor" element={<TodayDashboard />} />
           <Route path="/tutor/classes" element={<GroupsPage />} />
+          <Route path="/tutor/review" element={<ReviewQueuePage />} />
+          <Route path="/tutor/library" element={<LibraryPage />} />
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
-          <Route path="/tutor/homework" element={<HomeworkOverviewPage />} />
           <Route path="/tutor/syllabuses" element={<SyllabusUploadPage />} />
           <Route path="/tutor/preferences" element={<PreferencesPage />} />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
+          {/* Homework overview folded into Review; the old bookmark still lands. */}
+          <Route path="/tutor/homework" element={<Navigate to="/tutor/review" replace />} />
           {/* Everything belonging to a class renders inside its tabbed layout. */}
           <Route path="/tutor/groups/:groupId" element={<GroupLayout />}>
             <Route index element={<Navigate to="homework" replace />} />
