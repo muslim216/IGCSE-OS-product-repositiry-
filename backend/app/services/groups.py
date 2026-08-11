@@ -2,6 +2,7 @@
 tutor's class cards."""
 
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime, time
 
 from sqlalchemy import distinct, func, select
@@ -147,6 +148,69 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
             published_assignment_count=published.get(gid, 0),
             awaiting_review_count=awaiting.get(gid, 0),
             next_lesson=soonest_slot(by_group.get(gid, []), now),
+        )
+        for gid in group_ids
+    }
+
+
+async def class_health(
+    session: AsyncSession, groups: Sequence[Group]
+) -> dict[int, tuple[float | None, int]]:
+    """Per-class readiness: the mean of each class's confident learner scores,
+    and how many learners contributed.
+
+    One query for every class the tutor has, not one per class and certainly not
+    one per learner. api/analytics.py computes the same shape with a db.get(User)
+    plus a TopicReadiness select inside a Python loop over students, and the home
+    surface then fanned that out per group — eight classes meant eight round
+    trips, each internally looping (PERF-1). Here the whole roster is aggregated
+    in SQL and folded in Python, so the query count does not grow with the number
+    of classes or learners.
+
+    Returns {group_id: (mean_score_or_None, contributing_learner_count)}. A class
+    with no confident evidence maps to (None, 0) — never 0.0, which a surface
+    would render as a real score (PROD-2).
+    """
+    if not groups:
+        return {}
+    group_ids = [g.id for g in groups]
+
+    # Weighted per (group, learner): SUM(weight * score) / SUM(weight), matching
+    # the subject-weighted overall analytics computes one student at a time.
+    rows = (
+        await session.execute(
+            select(
+                GroupMember.group_id,
+                TopicReadiness.student_id,
+                func.sum(Topic.weight * TopicReadiness.score),
+                func.sum(Topic.weight),
+            )
+            .select_from(TopicReadiness)
+            .join(Topic, Topic.id == TopicReadiness.topic_id)
+            .join(GroupMember, GroupMember.student_id == TopicReadiness.student_id)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(
+                GroupMember.group_id.in_(group_ids),
+                # Topics are global, so the subject match is what stops another
+                # subject's readiness leaking into this class's number.
+                Topic.subject_id == Group.subject_id,
+                TopicReadiness.confidence.in_(CONFIDENT),
+            )
+            .group_by(GroupMember.group_id, TopicReadiness.student_id)
+        )
+    ).all()
+
+    per_group: dict[int, list[float]] = defaultdict(list)
+    for group_id, _student_id, weighted, weight_total in rows:
+        if not weight_total:
+            continue
+        per_group[group_id].append(weighted / weight_total)
+
+    return {
+        gid: (
+            (round(sum(scores) / len(scores), 1), len(scores))
+            if (scores := per_group.get(gid, []))
+            else (None, 0)
         )
         for gid in group_ids
     }

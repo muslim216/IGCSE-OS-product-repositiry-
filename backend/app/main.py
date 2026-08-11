@@ -34,6 +34,7 @@ from app.api import (
     subjects,
     submissions,
     syllabus_uploads,
+    today,
 )
 from app.config import get_settings
 from app.db import async_session
@@ -324,6 +325,7 @@ def create_app() -> FastAPI:
         subjects.router,
         submissions.router,
         syllabus_uploads.router,
+        today.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app
