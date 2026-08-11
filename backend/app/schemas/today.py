@@ -47,3 +47,52 @@ class TodayView(BaseModel):
     class_count: int
     joined_student_count: int
     classes_with_evidence: int
+
+
+class ClassLearnerRow(BaseModel):
+    """One learner on the class page.
+
+    `direction` is what NEEDS YOU selects on, not `status`: a learner sliding
+    from a grade 8 to a 6 is the one the tutor can still help, while a learner
+    who has been a stable grade 4 all year is why the class carries its status
+    but is not news. null means too little history to say — rendered as no
+    arrow at all, never "flat", which would be a claim (UX-31, PROD-2).
+    """
+
+    student_id: int
+    student_name: str
+    score: float | None = None
+    predicted_grade: str | None = None
+    status: str | None = None
+    direction: str | None = None
+
+
+class ClassOverview(BaseModel):
+    """The class page's headline: the same verdict inputs as the home's strip,
+    plus the per-learner rows and the topic weaknesses behind them."""
+
+    group_id: int
+    name: str
+    subject_name: str
+    score: float | None = None
+    predicted_grade: str | None = None
+    status: str | None = None
+    boundaries_missing: bool = False
+    member_count: int = 0
+    students_with_evidence: int = 0
+    #: Learners whose direction is "down" — selected on direction, not level.
+    needs_you: list[ClassLearnerRow]
+    #: Every enrolled learner with confident evidence, lowest score first.
+    learners: list[ClassLearnerRow]
+    #: The class's weakest topics, lowest average first.
+    weak_topics: list["ClassWeakTopic"]
+
+
+class ClassWeakTopic(BaseModel):
+    topic_code: str
+    topic_title: str
+    avg_score: float
+    student_count: int
+
+
+ClassOverview.model_rebuild()

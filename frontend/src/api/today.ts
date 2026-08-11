@@ -43,3 +43,40 @@ export interface TodayView {
 }
 
 export const todayView = () => api<TodayView>("/api/v1/today");
+
+/** One learner on the class page. `direction` is what NEEDS YOU selects on —
+    null means too little history to say, and renders as no arrow at all. */
+export interface ClassLearnerRow {
+  student_id: number;
+  student_name: string;
+  score: number | null;
+  predicted_grade: string | null;
+  status: ReadinessStatus | null;
+  direction: "up" | "flat" | "down" | null;
+}
+
+export interface ClassWeakTopic {
+  topic_code: string;
+  topic_title: string;
+  avg_score: number;
+  student_count: number;
+}
+
+export interface ClassOverview {
+  group_id: number;
+  name: string;
+  subject_name: string;
+  score: number | null;
+  predicted_grade: string | null;
+  status: ReadinessStatus | null;
+  boundaries_missing: boolean;
+  member_count: number;
+  students_with_evidence: number;
+  /** Selected on direction, not level: declining learners the tutor can help. */
+  needs_you: ClassLearnerRow[];
+  learners: ClassLearnerRow[];
+  weak_topics: ClassWeakTopic[];
+}
+
+export const classOverview = (groupId: number) =>
+  api<ClassOverview>(`/api/v1/today/classes/${groupId}`);

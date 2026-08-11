@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   finalizeSubmission,
   getSubmission,
   markHistory,
+  reviewQueue,
   saveMarks,
   submissionFilePath,
   type MarkRow,
@@ -37,11 +38,36 @@ export default function SubmissionReviewPage() {
   const { submissionId } = useParams();
   const id = Number(submissionId);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+
+  // Traversal is opt-in via ?queue=review, so arriving from an assignment page
+  // or a bookmark still behaves exactly as it did — the queue controls only
+  // appear when the tutor actually came from the queue.
+  const inQueue = params.get("queue") === "review";
 
   const submission = useQuery({
     queryKey: ["submission", id],
     queryFn: () => getSubmission(id),
   });
+
+  const queue = useQuery({
+    queryKey: ["review-queue"],
+    queryFn: reviewQueue,
+    enabled: inQueue,
+    // The queue is the traversal order for this sitting: refetching mid-review
+    // would renumber "1 of 6" under the tutor as items leave it.
+    staleTime: Infinity,
+  });
+
+  const queueItems = queue.data ?? [];
+  const position = queueItems.findIndex((item) => item.submission_id === id);
+  const next = position >= 0 ? queueItems[position + 1] : undefined;
+
+  const goNext = () => {
+    if (next) navigate(`/tutor/submissions/${next.submission_id}?queue=review`);
+    else navigate("/tutor/review");
+  };
 
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [error, setError] = useState<string | null>(null);
@@ -79,8 +105,13 @@ export default function SubmissionReviewPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
+  /* Finalizing always saves first, and that save is what writes the append-only
+     MarkOverrideAudit row for any mark the tutor changed (PROD-7, AI-12).
+     "Finalize & next" reuses this same mutation rather than taking a shortcut to
+     the finalize endpoint — a faster path that skipped the save would silently
+     drop both the tutor's edits and the audit trail of them. */
   const finalize = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (advance: boolean) => {
       await saveMarks(
         id,
         Object.entries(drafts).map(([qid, d]) => ({
@@ -89,9 +120,13 @@ export default function SubmissionReviewPage() {
           final_feedback: d.final_feedback || null,
         })),
       );
-      return finalizeSubmission(id);
+      await finalizeSubmission(id);
+      return advance;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["submission", id] }),
+    onSuccess: (advance) => {
+      queryClient.invalidateQueries({ queryKey: ["submission", id] });
+      if (advance) goNext();
+    },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
@@ -125,12 +160,28 @@ export default function SubmissionReviewPage() {
   return (
     <div className="space-y-5">
       <div>
-        <Link
-          to={s.assignment_id ? `/tutor/assignments/${s.assignment_id}` : "/tutor/past-papers"}
-          className="text-sm text-blue-600 hover:underline"
-        >
-          ← {s.assignment_title}
-        </Link>
+        {/* In a queue the breadcrumb returns to the queue, not the assignment:
+            six submissions used to cost six round trips back out through their
+            parent assignment to find the next one. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Link
+            to={
+              inQueue
+                ? "/tutor/review"
+                : s.assignment_id
+                  ? `/tutor/assignments/${s.assignment_id}`
+                  : "/tutor/past-papers"
+            }
+            className="text-sm text-blue-600 hover:underline"
+          >
+            ← {inQueue ? "Review queue" : s.assignment_title}
+          </Link>
+          {inQueue && position >= 0 && (
+            <span className="text-sm text-slate-500">
+              Reviewing {position + 1} of {queueItems.length}
+            </span>
+          )}
+        </div>
         <div className="mt-1 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-slate-800">{s.student_name}'s work</h2>
           <div className="flex items-center gap-3 text-sm">
@@ -148,9 +199,19 @@ export default function SubmissionReviewPage() {
               </span>
             )}
             {finalized ? (
-              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
-                Finalized
-              </span>
+              <>
+                <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+                  Finalized
+                </span>
+                {inQueue && (
+                  <button
+                    onClick={goNext}
+                    className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                  >
+                    {next ? "Next →" : "Back to queue"}
+                  </button>
+                )}
+              </>
             ) : (
               <>
                 <button
@@ -160,12 +221,22 @@ export default function SubmissionReviewPage() {
                 >
                   Save draft
                 </button>
+                {inQueue && (
+                  // Skip leaves the marks exactly as they are — it is "not now",
+                  // never a decision, so it must not write anything.
+                  <button
+                    onClick={goNext}
+                    className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                  >
+                    Skip
+                  </button>
+                )}
                 <button
-                  onClick={() => finalize.mutate()}
+                  onClick={() => finalize.mutate(inQueue)}
                   disabled={finalize.isPending}
                   className="rounded bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Finalize marks
+                  {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
                 </button>
               </>
             )}

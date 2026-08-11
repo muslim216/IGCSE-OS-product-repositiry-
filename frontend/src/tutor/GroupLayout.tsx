@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router
 import { useQuery } from "@tanstack/react-query";
 import { getGroup, type GroupDetail } from "../api/groups";
 import { formatSlot } from "../lib/schedule";
+import ClassOverviewPanel from "./ClassOverview";
 
 interface GroupContext {
   group: GroupDetail;
@@ -74,9 +75,16 @@ export default function GroupLayout() {
         </div>
       </div>
 
+      {/* The class's headline — verdict, WHY, NEEDS YOU — above the tabs, so the
+          first thing read answers "how is this class?" rather than "which tab?".
+          A class nobody has joined renders the empty room instead. */}
+      <div className="mt-5">
+        <ClassOverviewPanel groupId={id} />
+      </div>
+
       <nav
         aria-label="Class sections"
-        className="mt-5 flex gap-1 overflow-x-auto border-b border-line pb-3"
+        className="mt-6 flex gap-1 overflow-x-auto border-b border-line pb-3"
       >
         <Tab to={`${base}/homework`} label="Homework" badge={g.awaiting_review_count} />
         <Tab to={`${base}/students`} label="Students" />
