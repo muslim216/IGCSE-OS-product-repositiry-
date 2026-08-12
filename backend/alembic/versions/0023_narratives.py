@@ -54,6 +54,15 @@ def upgrade() -> None:
         sa.Column("prompt_version", sa.String(length=16), nullable=False),
         sa.Column("model", sa.String(length=64), nullable=False),
         sa.Column("generated_at", sa.DateTime(timezone=True), nullable=False),
+        # Exactly one target. The model's `target_id` accessor enforces the
+        # audience/FK pairing on read; this rejects a row with both FKs set or
+        # both null at the write, where the failure still points at its cause.
+        # Named explicitly so the downgrade and any future ALTER can address it
+        # (DB-17) — and audience-agnostic, so a third audience still needs no DDL.
+        sa.CheckConstraint(
+            "(group_id IS NULL) <> (student_id IS NULL)",
+            name="ck_narratives_exactly_one_target",
+        ),
     )
     op.create_index("ix_narratives_org", "narratives", ["organization_id"])
     op.create_index("ix_narratives_org_group", "narratives", ["organization_id", "group_id", "id"])

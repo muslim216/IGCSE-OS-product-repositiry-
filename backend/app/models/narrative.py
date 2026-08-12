@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utcnow
@@ -33,6 +33,21 @@ class Narrative(Base):
 
     __tablename__ = "narratives"
     __table_args__ = (
+        # Exactly one target, enforced by the database rather than by convention.
+        # `target_id` raises when the audience and the populated FK disagree, but
+        # that is a *read*-side guard: a row written with both FKs null, or both
+        # set, is accepted by the schema and then raises on every subsequent read
+        # — the paragraph is unreachable and the failure surfaces far from the
+        # write that caused it. This rejects it at the insert instead.
+        #
+        # Deliberately audience-agnostic. Naming the two enum values here would
+        # put them in DDL and cost a migration to add a third audience, which is
+        # exactly what native_enum=False on `audience` exists to avoid; the
+        # audience/FK *pairing* stays with `target_id`, where it is testable.
+        CheckConstraint(
+            "(group_id IS NULL) <> (student_id IS NULL)",
+            name="ck_narratives_exactly_one_target",
+        ),
         # Every FK gets the tenant-filter index.
         Index("ix_narratives_org", "organization_id"),
         # "latest tutor_class narrative for a group" and "...parent_student for a

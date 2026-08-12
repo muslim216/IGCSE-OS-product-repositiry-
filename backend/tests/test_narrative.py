@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.config import get_settings
 from app.db import async_session
@@ -210,6 +211,36 @@ async def test_audience_determines_which_fk_is_set(world, fake_narrative_ai):
         )
         with pytest.raises(ValueError):
             _ = broken.target_id
+
+
+@pytest.mark.parametrize(
+    "group_id_set,student_id_set",
+    [(True, True), (False, False)],
+    ids=["both_targets", "no_target"],
+)
+async def test_a_row_without_exactly_one_target_is_rejected_by_the_database(
+    world, group_id_set, student_id_set
+):
+    """`target_id` guards the *read*. Without the CHECK constraint the write
+    still succeeds, and a row with both FKs — or neither — then raises on every
+    subsequent read, far from the code that wrote it. The database rejects it at
+    the insert instead."""
+    async with async_session() as session:
+        group = await session.get(Group, world["group_id"])
+        session.add(
+            Narrative(
+                organization_id=group.organization_id,
+                audience=NarrativeAudience.tutor_class,
+                group_id=group.id if group_id_set else None,
+                student_id=world["student_id"] if student_id_set else None,
+                text="x",
+                prompt_version="v1",
+                model="m",
+                generated_at=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
 
 
 async def test_latest_read_orders_by_id_not_generated_at(world, fake_narrative_ai):

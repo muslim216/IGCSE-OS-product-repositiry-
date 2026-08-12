@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, TutorUser
@@ -9,7 +9,8 @@ from app.schemas.auth import UserOut
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
 from app.schemas.orgs import OrganizationOut, OrganizationTimezoneUpdate
 from app.services import activity
-from app.services.timezones import normalize_timezone, today_weekday
+from app.services.timezones import normalize_timezone
+from app.services.today import today_lessons
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -59,35 +60,10 @@ async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleS
 
 @router.get("/today-lessons", response_model=list[UpcomingScheduleSlot])
 async def my_today_lessons(db: DbSession, user: TutorUser) -> list[UpcomingScheduleSlot]:
-    # "Today" is the tutor's today, not the server's. A tutor in Cairo opening
-    # this at 01:00 local is on tomorrow's weekday while UTC is still on
-    # yesterday's, and this endpoint's whole answer is which day it is.
-    org = await db.get(Organization, user.organization_id)
-    weekday = today_weekday(org.timezone if org else None)
-    rows = (
-        await db.execute(
-            select(ScheduleSlot, Group, func.count(GroupMember.id))
-            .join(Group, Group.id == ScheduleSlot.group_id)
-            .outerjoin(GroupMember, GroupMember.group_id == Group.id)
-            .where(Group.tutor_id == user.id, ScheduleSlot.weekday == weekday)
-            .options(selectinload(Group.subject))
-            .group_by(ScheduleSlot.id, Group.id)
-            .order_by(ScheduleSlot.start_time)
-        )
-    ).all()
-    return [
-        UpcomingScheduleSlot(
-            id=slot.id,
-            group_id=group.id,
-            group_name=f"{group.name} ({count} student{'s' if count != 1 else ''})",
-            subject_name=group.subject.name,
-            weekday=slot.weekday,
-            start_time=slot.start_time,
-            duration_min=slot.duration_min,
-            title=slot.title,
-        )
-        for slot, group, count in rows
-    ]
+    # The home aggregate serves the same list, so the query and the organization's
+    # "today" rule live in services/today.py — one copy, and neither surface can
+    # drift from the other (BE-2).
+    return await today_lessons(db, user.id, user.organization_id)
 
 
 @router.get("/children", response_model=list[UserOut])

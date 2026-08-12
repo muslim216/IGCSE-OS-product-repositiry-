@@ -16,7 +16,6 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, TutorUser
-from app.api.me import my_today_lessons
 from app.models import Group, UserRole
 from app.schemas.today import ClassOverview, TodayView
 from app.services.today import build_class_overview, build_today
@@ -26,11 +25,7 @@ router = APIRouter(prefix="/today", tags=["today"])
 
 @router.get("", response_model=TodayView)
 async def today_view(db: DbSession, user: TutorUser) -> TodayView:
-    # Reuses the today-lessons handler rather than restating its timezone rule:
-    # "today" is the organization's today, and one copy of that logic is what
-    # keeps the aggregate and the standalone endpoint from drifting apart.
-    lessons = await my_today_lessons(db, user)
-    return await build_today(db, user, lessons)
+    return await build_today(db, user)
 
 
 @router.get("/classes/{group_id}", response_model=ClassOverview)

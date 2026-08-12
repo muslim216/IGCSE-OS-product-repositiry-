@@ -19,14 +19,17 @@ from app.models import (
     GradeBoundary,
     Group,
     GroupMember,
+    Organization,
     PastPaper,
     ReadinessHistory,
+    ScheduleSlot,
     Subject,
     Submission,
     Topic,
     TopicReadiness,
     User,
 )
+from app.schemas.groups import UpcomingScheduleSlot
 from app.schemas.today import (
     ClassLearnerRow,
     ClassOverview,
@@ -38,6 +41,7 @@ from app.services.grades import grade_band, predict_grade
 from app.services.groups import AWAITING_REVIEW, class_health
 from app.services.groups import summaries as group_summaries
 from app.services.readiness_summary import CONFIDENT, trend_direction
+from app.services.timezones import today_weekday
 
 #: Exceptions first. A tutor opening their home is looking for what needs them,
 #: so the strip is ordered by how much attention a class wants, and the healthy
@@ -114,9 +118,52 @@ async def pending_review_count(db: AsyncSession, tutor_id: int, organization_id:
     ) or 0
 
 
-async def build_today(db: AsyncSession, user: User, lessons: list) -> TodayView:
+async def today_lessons(
+    db: AsyncSession, tutor_id: int, organization_id: int
+) -> list[UpcomingScheduleSlot]:
+    """The tutor's lessons for *their* today.
+
+    This lives in the service layer because two routes need it — /me/today-lessons
+    and the home aggregate — and a router must never call another router (BE-2).
+    It previously did: api/today.py imported api/me.py's handler, so adding a
+    dependency or a Query parameter to that route would have silently changed the
+    aggregate, and the timezone rule below was a side effect of a route.
+    """
+    # "Today" is the tutor's today, not the server's. A tutor in Cairo opening
+    # this at 01:00 local is on tomorrow's weekday while UTC is still on
+    # yesterday's, and this answer is entirely *which day it is*.
+    org = await db.get(Organization, organization_id)
+    weekday = today_weekday(org.timezone if org else None)
+    rows = (
+        await db.execute(
+            select(ScheduleSlot, Group, func.count(GroupMember.id))
+            .join(Group, Group.id == ScheduleSlot.group_id)
+            .outerjoin(GroupMember, GroupMember.group_id == Group.id)
+            .where(Group.tutor_id == tutor_id, ScheduleSlot.weekday == weekday)
+            .options(selectinload(Group.subject))
+            .group_by(ScheduleSlot.id, Group.id)
+            .order_by(ScheduleSlot.start_time)
+        )
+    ).all()
+    return [
+        UpcomingScheduleSlot(
+            id=slot.id,
+            group_id=group.id,
+            group_name=f"{group.name} ({count} student{'s' if count != 1 else ''})",
+            subject_name=group.subject.name,
+            weekday=slot.weekday,
+            start_time=slot.start_time,
+            duration_min=slot.duration_min,
+            title=slot.title,
+        )
+        for slot, group, count in rows
+    ]
+
+
+async def build_today(db: AsyncSession, user: User) -> TodayView:
     """The tutor's home. Scoped by the authenticated user's own classes — never
     by a path or body parameter (SEC-7)."""
+    lessons = await today_lessons(db, user.id, user.organization_id)
     groups = await tutor_groups(db, user.id)
     summaries = await group_summaries(db, [g.id for g in groups])
     health = await class_health(db, groups)
