@@ -79,14 +79,19 @@ async def group_narrative(group_id: int, db: DbSession, user: TutorUser) -> Narr
     )
 
 
-@router.get("/students/{student_id}/narrative", response_model=NarrativeOut)
-async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -> NarrativeOut:
-    """The stored parent narrative about one child.
+async def _readable_student(db: AsyncSession, user: User, student_id: int) -> User:
+    """The child this caller may read a narrative about, or 404.
 
-    Readable by that child's linked parent, by a tutor who actually teaches them,
-    and by an admin. Everyone else gets 404 — including a parent asking about a
-    child who is not theirs, and anyone in another organization, because a 403
-    would confirm the row exists.
+    Multi-role authorization lives in one named function rather than spread
+    through the handler, mirroring `visible_subject_ids` in api/readiness.py —
+    the repo's existing shape for "several roles, different rules per role".
+
+    The route's own gate is still a signature dependency (`CurrentUser`), which
+    is what SEC-11/BE-17 require: a dependency cannot be forgotten. What cannot
+    be a static dependency is *this* decision — whether this particular parent is
+    linked to this particular child — because it depends on the row, not the
+    role. Keeping it here makes it one testable unit instead of four branches
+    inside a response builder.
     """
     student = await db.get(User, student_id)
     # The organization gate binds before any role branch, so no role — admin
@@ -106,7 +111,9 @@ async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -
         )
         if link is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-    elif user.role == UserRole.tutor:
+        return student
+
+    if user.role == UserRole.tutor:
         # Scoped by the groups this tutor owns, so a tutor in another
         # organization cannot read it even though subjects are global (SEC-8).
         teaches = await db.scalar(
@@ -117,12 +124,26 @@ async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -
         )
         if teaches is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-    elif user.role == UserRole.student:
-        # A student does not read the paragraph written for their parent.
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-    elif user.role != UserRole.admin:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+        return student
 
+    if user.role == UserRole.admin:
+        return student
+
+    # Everyone else — including the student themselves, who does not read the
+    # paragraph written for their parent.
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+
+
+@router.get("/students/{student_id}/narrative", response_model=NarrativeOut)
+async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -> NarrativeOut:
+    """The stored parent narrative about one child.
+
+    Readable by that child's linked parent, by a tutor who actually teaches them,
+    and by an admin in the same organization. Everyone else gets 404 — including
+    a parent asking about a child who is not theirs, because a 403 would confirm
+    the row exists (API-7 / SEC-9).
+    """
+    student = await _readable_student(db, user, student_id)
     return _out(
         await latest_narrative(
             db,

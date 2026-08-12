@@ -1,42 +1,60 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listGroups } from "../api/groups";
-import { groupAnalytics } from "../api/readiness";
-import { deriveLearnerRows } from "../lib/readiness";
+import { classOverview } from "../api/today";
+import type { LearnerRow } from "../lib/readiness";
 import ReadinessTable, { type ReadinessFilter } from "../components/ReadinessTable";
 import { EmptyState } from "../components/ui";
+import { ABSENT } from "../lib/labels";
 
-/** The server returns at most this many weak learners per class; at the cap the
-    list is the lowest-scoring subset and the table says so. Kept named so the
-    number is not a bare literal in a condition. */
-const WEAK_STUDENTS_PER_CLASS_CAP = 10;
-
-// This page used to hand-roll its own two-card markup and a second copy of the
-// >= 70 / >= 50 percentage colouring. Both are gone: a band is a grade's position
-// in its boundary list, not a percentage (UX-28), and the learner table now
-// renders through the shared <ReadinessTable>, exactly as the Today dashboard
-// does — one component, one status source, one set of semantic tokens (UX-2).
-
+/**
+ * Class readiness, rendered through the shared <ReadinessTable>.
+ *
+ * The rows come from /today/classes/{id}, NOT from groupAnalytics via
+ * deriveLearnerRows(). That distinction is the whole point of this page: the
+ * analytics feed carries only a bare score, so deriving a status from it means
+ * falling back to the legacy 70/50 percentage cutoffs — and a band is a grade's
+ * position in its boundary list, never a percentage (UX-28). The class-overview
+ * endpoint bands each learner from the organization's own grade boundaries, so
+ * the colour here is the same claim the rest of the product makes.
+ *
+ * A subject with no boundaries therefore has no band, and this page says so
+ * rather than colouring learners against a threshold it does not have (PROD-2).
+ */
 export default function ClassReadinessPage() {
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
   const [groupId, setGroupId] = useState<number | null>(null);
   const [filter, setFilter] = useState<ReadinessFilter>("all");
   const activeId = groupId ?? groups.data?.[0]?.id ?? null;
-  const activeGroup = groups.data?.find((g) => g.id === activeId) ?? null;
 
-  const analytics = useQuery({
-    queryKey: ["analytics", activeId],
-    queryFn: () => groupAnalytics(activeId as number),
+  const overview = useQuery({
+    queryKey: ["class-overview", activeId],
+    queryFn: () => classOverview(activeId as number),
     enabled: activeId !== null,
   });
 
-  const rows = useMemo(
-    () => (activeGroup ? deriveLearnerRows([activeGroup], [analytics.data]) : []),
-    [activeGroup, analytics.data],
-  );
-  // The backend caps each class's weak-student list; a full class shows the
-  // lowest-readiness subset, and the table says so rather than implying it is all.
-  const capped = (analytics.data?.weak_students?.length ?? 0) >= WEAK_STUDENTS_PER_CLASS_CAP;
+  const rows = useMemo<LearnerRow[]>(() => {
+    const data = overview.data;
+    if (!data) return [];
+    return data.learners.flatMap((l) =>
+      // A learner with no score or no band is absent rather than fabricated:
+      // the table colours by band, and there is no honest colour without one.
+      l.score === null || l.status === null
+        ? []
+        : [
+            {
+              student_id: l.student_id,
+              student_name: l.student_name,
+              subject_name: data.subject_name,
+              score: l.score,
+              status: l.status,
+              group_id: data.group_id,
+              group_name: data.name,
+            },
+          ],
+    );
+  }, [overview.data]);
 
   return (
     <div className="space-y-4">
@@ -71,14 +89,28 @@ export default function ClassReadinessPage() {
             </label>
           )}
 
-          <ReadinessTable
-            rows={rows}
-            filter={filter}
-            onFilter={setFilter}
-            loading={groups.isLoading || analytics.isLoading}
-            error={analytics.isError}
-            capped={capped}
-          />
+          {overview.data?.boundaries_missing ? (
+            <EmptyState
+              title={ABSENT.noBoundaries}
+              hint="Readiness needs this subject's grade boundaries before it can band a learner."
+              action={
+                <Link
+                  to="/tutor/library"
+                  className="font-medium text-brand-600 hover:text-brand-700"
+                >
+                  {ABSENT.noBoundariesAction}
+                </Link>
+              }
+            />
+          ) : (
+            <ReadinessTable
+              rows={rows}
+              filter={filter}
+              onFilter={setFilter}
+              loading={groups.isLoading || overview.isLoading}
+              error={overview.isError}
+            />
+          )}
         </>
       )}
     </div>
