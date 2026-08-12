@@ -123,6 +123,33 @@ async def test_confident_scheme_backed_marks_auto_finalize_with_no_tutor_action(
     assert queue.json() == []
 
 
+async def test_auto_finalizing_enqueues_a_class_narrative_refresh(
+    client,
+    tutor,
+    student,
+    group,  # noqa: F811
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """Evidence landing (services/marking.record_marks_as_evidence) is the event
+    that makes the stored class narrative stale — enqueued from the tail of the
+    same evidence build that schedules the readiness recompute, not from a
+    router (services/narrative.enqueue_class_narratives_for_student_subject)."""
+    from app.models import Job
+
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
+    await _submit(client, assignment_all_scheme, student)
+
+    async with async_session() as session:
+        payloads = (
+            await session.scalars(select(Job.payload).where(Job.type == "generate_narrative"))
+        ).all()
+    assert any(
+        p.get("audience") == "tutor_class" and p.get("group_id") == group["id"] for p in payloads
+    )
+
+
 async def test_auto_finalized_marks_become_readiness_evidence(
     client,
     tutor,

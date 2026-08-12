@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import func, select
 
+from app.config import get_settings
 from app.db import async_session
 from app.models import (
     Evidence,
@@ -27,6 +28,8 @@ from app.models import (
 )
 from app.services.ai import AiProvider, AiResponse, AIUnavailableError
 from app.services.narrative import (
+    _aware,
+    enqueue_narratives_for_group,
     ensure_narrative_sweep_scheduled,
     generate_narrative,
     latest_narrative,
@@ -459,6 +462,119 @@ async def test_a_failing_sweep_still_leaves_the_next_one_scheduled(
         with pytest.raises(RuntimeError):
             await sweep_parent_narratives(session, {})
 
+
+# --------------------------------------------------------------------------- #
+# `_aware` — the naive/aware SQLite-vs-Postgres shim.
+# --------------------------------------------------------------------------- #
+
+
+def test_aware_passes_none_through():
+    assert _aware(None) is None
+
+
+def test_aware_stamps_a_naive_datetime_as_utc():
+    naive = datetime(2026, 1, 1, 12, 0, 0)
+    result = _aware(naive)
+    assert result.tzinfo is timezone.utc
+    assert result.replace(tzinfo=None) == naive
+
+
+def test_aware_leaves_an_already_aware_datetime_unchanged():
+    aware = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    assert _aware(aware) is aware
+
+
+# --------------------------------------------------------------------------- #
+# enqueue_narratives_for_group — "Prepare again", D2's correction mechanism.
+# --------------------------------------------------------------------------- #
+
+
+async def test_enqueue_narratives_for_group_forces_the_class_and_every_member(world):
+    async with async_session() as session:
+        await enqueue_narratives_for_group(session, world["group_id"])
+        await session.commit()
+
+    async with async_session() as session:
+        payloads = (
+            await session.scalars(select(Job.payload).where(Job.type == "generate_narrative"))
+        ).all()
+
+    class_jobs = [p for p in payloads if p.get("audience") == "tutor_class"]
+    assert len(class_jobs) == 1
+    assert class_jobs[0]["group_id"] == world["group_id"]
+    assert class_jobs[0]["force"] is True
+
+    parent_jobs = [p for p in payloads if p.get("audience") == "parent_student"]
+    assert len(parent_jobs) == 1
+    assert parent_jobs[0]["student_id"] == world["student_id"]
+    assert parent_jobs[0]["force"] is True
+
+
+async def test_enqueue_narratives_for_group_is_a_noop_when_the_kill_switch_is_off(
+    world, monkeypatch
+):
+    monkeypatch.setattr(get_settings(), "narrative_enabled", False)
+    async with async_session() as session:
+        await enqueue_narratives_for_group(session, world["group_id"])
+        await session.commit()
+
+    async with async_session() as session:
+        count = await session.scalar(
+            select(func.count(Job.id)).where(Job.type == "generate_narrative")
+        )
+    assert count == 0
+
+
+async def test_enqueue_narratives_for_group_with_no_members_enqueues_only_the_class_job(
+    client, tutor, world
+):
+    """A class with nobody enrolled yet still gets a class narrative refresh —
+    the loop over students degrades to zero parent jobs, not an error."""
+    empty_group = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Empty class", "subject_id": world["subject_id"]},
+            headers=tutor["headers"],
+        )
+    ).json()
+
+    async with async_session() as session:
+        await enqueue_narratives_for_group(session, empty_group["id"])
+        await session.commit()
+
+    async with async_session() as session:
+        payloads = (
+            await session.scalars(select(Job.payload).where(Job.type == "generate_narrative"))
+        ).all()
+    assert len(payloads) == 1
+    assert payloads[0]["audience"] == "tutor_class"
+    assert payloads[0]["group_id"] == empty_group["id"]
+
+
+# --------------------------------------------------------------------------- #
+# Config defaults and the sweep interval setting.
+# --------------------------------------------------------------------------- #
+
+
+def test_narrative_settings_have_the_documented_defaults():
+    settings = get_settings()
+    assert settings.narrative_enabled is True
+    assert settings.narrative_parent_max_age_days == 7
+    assert settings.narrative_sweep_interval_hours == 24
+    assert settings.ai_narrative_provider == "anthropic"
+    assert settings.ai_narrative_model == ""
+
+
+async def test_sweep_reenqueue_honours_the_configured_interval(monkeypatch):
+    """The sweep re-arms itself the configured number of hours out, not a
+    hardcoded 24 — narrative_sweep_interval_hours actually drives run_after."""
+    monkeypatch.setattr(get_settings(), "narrative_sweep_interval_hours", 5)
+    before = datetime.now(timezone.utc)
+
+    async with async_session() as session:
+        await sweep_parent_narratives(session, {})
+        await session.commit()
+
     async with async_session() as session:
         sweep = await session.scalar(
             select(Job).where(
@@ -466,3 +582,7 @@ async def test_a_failing_sweep_still_leaves_the_next_one_scheduled(
             )
         )
     assert sweep is not None, "a failing sweep must not take the schedule with it"
+    assert sweep is not None
+    run_after = _aware(sweep.run_after)
+    delta = run_after - before
+    assert timedelta(hours=4, minutes=59) < delta <= timedelta(hours=5, minutes=1)
