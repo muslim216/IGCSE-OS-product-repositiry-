@@ -1,5 +1,7 @@
 import pytest
 
+from app.services.groups import class_health
+
 
 @pytest.fixture
 async def subject_id(client, tutor):
@@ -231,3 +233,238 @@ async def test_next_lesson_picks_the_soonest_slot(client, tutor, group):
     expected = min((0, 3, 6), key=lambda d: (d - today) % 7 or 7)
     # A slot earlier today has passed, so "0 days away" only counts before 09:00.
     assert listing["next_lesson"]["weekday"] in (expected, today)
+
+
+# --- class_health() ---------------------------------------------------------
+#
+# PR 17/19 — the per-class readiness aggregate behind the tutor home's strip
+# and the class page's headline. Exercised through the API in
+# test_today_endpoint.py and test_class_overview.py; these are the direct
+# service-level unit tests for the aggregation itself (PERF-1, PROD-2).
+
+
+async def _add_student(client, tutor, group_id, name, username):
+    resp = await client.post(
+        f"/api/v1/groups/{group_id}/students",
+        json={"name": name, "username": username, "password": "password123"},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_class_health_of_no_groups_is_empty_without_a_query():
+    from app.db import async_session
+
+    async with async_session() as session:
+        assert await class_health(session, []) == {}
+
+
+async def test_a_group_with_no_readiness_maps_to_none_not_zero(client, tutor, group, subject_id):
+    """PROD-2: absent evidence must never be folded into a fabricated 0.0."""
+    from app.db import async_session
+    from app.models import Group
+
+    await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        g = await session.get(Group, group["id"])
+        result = await class_health(session, [g])
+    assert result[group["id"]] == (None, 0)
+
+
+async def test_weighted_mean_across_topics_for_one_student(client, tutor, group, subject_id):
+    """Two topics of different weight for the same learner: the class score is
+    that learner's SUM(weight*score)/SUM(weight), matching the subject-weighted
+    overall analytics computed one student at a time."""
+    from app.db import async_session
+    from app.models import Group, ReadinessConfidence, Topic, TopicReadiness
+
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        heavy = Topic(subject_id=subject_id, code="1.1", title="Heavy", weight=3.0)
+        light = Topic(subject_id=subject_id, code="1.2", title="Light", weight=1.0)
+        session.add_all([heavy, light])
+        await session.flush()
+        session.add_all(
+            [
+                TopicReadiness(
+                    student_id=student["id"],
+                    topic_id=heavy.id,
+                    score=90.0,
+                    confidence=ReadinessConfidence.high,
+                    evidence_count=3,
+                ),
+                TopicReadiness(
+                    student_id=student["id"],
+                    topic_id=light.id,
+                    score=50.0,
+                    confidence=ReadinessConfidence.high,
+                    evidence_count=3,
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        g = await session.get(Group, group["id"])
+        score, contributing = (await class_health(session, [g]))[group["id"]]
+    # (3*90 + 1*50) / (3 + 1) = 320 / 4 = 80.0
+    assert score == 80.0
+    assert contributing == 1
+
+
+async def test_mean_is_taken_across_multiple_learners(client, tutor, group, subject_id):
+    from app.db import async_session
+    from app.models import Group, ReadinessConfidence, Topic, TopicReadiness
+
+    a = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    b = await _add_student(client, tutor, group["id"], "Omar", "omar01")
+    async with async_session() as session:
+        topic = Topic(subject_id=subject_id, code="1.1", title="T", weight=1.0)
+        session.add(topic)
+        await session.flush()
+        session.add_all(
+            [
+                TopicReadiness(
+                    student_id=a["id"],
+                    topic_id=topic.id,
+                    score=80.0,
+                    confidence=ReadinessConfidence.high,
+                    evidence_count=3,
+                ),
+                TopicReadiness(
+                    student_id=b["id"],
+                    topic_id=topic.id,
+                    score=60.0,
+                    confidence=ReadinessConfidence.high,
+                    evidence_count=3,
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        g = await session.get(Group, group["id"])
+        score, contributing = (await class_health(session, [g]))[group["id"]]
+    assert score == 70.0
+    assert contributing == 2
+
+
+async def test_low_confidence_readiness_is_excluded(client, tutor, group, subject_id):
+    from app.db import async_session
+    from app.models import Group, ReadinessConfidence, Topic, TopicReadiness
+
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        topic = Topic(subject_id=subject_id, code="1.1", title="T", weight=1.0)
+        session.add(topic)
+        await session.flush()
+        session.add(
+            TopicReadiness(
+                student_id=student["id"],
+                topic_id=topic.id,
+                score=20.0,
+                confidence=ReadinessConfidence.low,
+                evidence_count=1,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        g = await session.get(Group, group["id"])
+        result = (await class_health(session, [g]))[group["id"]]
+    assert result == (None, 0)
+
+
+async def test_readiness_in_a_different_subject_does_not_leak_in(client, tutor, group, subject_id):
+    """Topics are global, so the subject match is what stops another subject's
+    readiness from being counted as this class's number."""
+    from app.db import async_session
+    from app.models import Group, ReadinessConfidence, Subject, Topic, TopicReadiness
+
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        other_subject = Subject(
+            exam_board="Edexcel IGCSE",
+            code="4MA1",
+            name="Maths",
+            grade_scale="9-1",
+            grade_boundaries=[],
+        )
+        session.add(other_subject)
+        await session.flush()
+        other_topic = Topic(subject_id=other_subject.id, code="2.1", title="Algebra", weight=1.0)
+        session.add(other_topic)
+        await session.flush()
+        session.add(
+            TopicReadiness(
+                student_id=student["id"],
+                topic_id=other_topic.id,
+                score=99.0,
+                confidence=ReadinessConfidence.high,
+                evidence_count=3,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        g = await session.get(Group, group["id"])
+        result = (await class_health(session, [g]))[group["id"]]
+    # Chemistry (this class's subject) has no readiness of its own; the Maths
+    # readiness must not be folded in even though the learner is a member.
+    assert result == (None, 0)
+
+
+async def test_two_groups_do_not_contaminate_each_others_score(client, tutor, subject_id):
+    from app.db import async_session
+    from app.models import Group, ReadinessConfidence, Topic, TopicReadiness
+
+    healthy = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Healthy", "subject_id": subject_id},
+            headers=tutor["headers"],
+        )
+    ).json()
+    struggling = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Struggling", "subject_id": subject_id},
+            headers=tutor["headers"],
+        )
+    ).json()
+    good = await _add_student(client, tutor, healthy["id"], "Good", "good01")
+    weak = await _add_student(client, tutor, struggling["id"], "Weak", "weak01")
+
+    async with async_session() as session:
+        topic = Topic(subject_id=subject_id, code="1.1", title="T", weight=1.0)
+        session.add(topic)
+        await session.flush()
+        session.add_all(
+            [
+                TopicReadiness(
+                    student_id=good["id"],
+                    topic_id=topic.id,
+                    score=95.0,
+                    confidence=ReadinessConfidence.high,
+                    evidence_count=3,
+                ),
+                TopicReadiness(
+                    student_id=weak["id"],
+                    topic_id=topic.id,
+                    score=15.0,
+                    confidence=ReadinessConfidence.high,
+                    evidence_count=3,
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        groups = [
+            await session.get(Group, healthy["id"]),
+            await session.get(Group, struggling["id"]),
+        ]
+        result = await class_health(session, groups)
+    assert result[healthy["id"]] == (95.0, 1)
+    assert result[struggling["id"]] == (15.0, 1)
