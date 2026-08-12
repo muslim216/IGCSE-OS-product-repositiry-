@@ -30,6 +30,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db import async_session
 from app.models import (
     AiFeature,
     Evidence,
@@ -312,16 +313,54 @@ async def _pending_payloads(session: AsyncSession, job_type: str) -> list[dict]:
     )
 
 
+async def _enqueue_one(
+    session: AsyncSession, job_type: str, payload: dict, run_after: datetime | None = None
+) -> None:
+    """One job, flushed — for the single-row cases."""
+    from app.workers.jobs import enqueue
+
+    await enqueue(session, job_type, payload, run_after=run_after)
+
+
+def _add_jobs(session: AsyncSession, job_type: str, payloads: list[dict]) -> None:
+    """Queue several jobs with **one** flush, not one per row.
+
+    workers/jobs.enqueue() flushes on every call, which is right for a single
+    job and wrong for a loop: "Prepare again" on a class of thirty would pay
+    thirty sequential round trips inside the tutor's request — the same N+1
+    shape services/today.py exists to remove (PERF-1). The rows are added here
+    and flushed once by the caller's commit.
+    """
+    session.add_all([Job(type=job_type, payload=payload) for payload in payloads])
+
+
 async def enqueue_class_narratives_for_student_subject(
     session: AsyncSession, student_id: int, subject_id: int
 ) -> None:
     """Called at the tail of the evidence build. Enqueues a class narrative for
     each class the student belongs to in this subject, deduping against pending
-    jobs so a burst of auto-finalized marks costs one narrative per class."""
+    jobs so a burst of auto-finalized marks costs one narrative per class.
+
+    **Scheduled behind the readiness recompute, not alongside it.** The grounding
+    reads build_summary_v2, which prefers the latest *ready* snapshot, while the
+    v2 run that would refresh that snapshot is itself debounced
+    (readiness_v2_coalesce_seconds). Enqueued immediately, the narrative would be
+    written from pre-marking readiness — and because its generated_at is then
+    newer than the evidence, the staleness check below would treat that stale
+    text as current until the *next* piece of evidence arrived. Waiting out the
+    coalesce window costs nothing (this surface is read, never awaited) and makes
+    the paragraph describe the readiness the tutor is looking at.
+    """
     from app.workers.jobs import enqueue
 
-    if not get_settings().narrative_enabled:
+    settings = get_settings()
+    if not settings.narrative_enabled:
         return
+    # A margin past the coalesce window so the v2 run has been claimed and
+    # finished, not merely become due.
+    run_after = datetime.now(timezone.utc) + timedelta(
+        seconds=settings.readiness_v2_coalesce_seconds + settings.narrative_readiness_margin_seconds
+    )
     group_ids = (
         await session.scalars(
             select(Group.id)
@@ -342,6 +381,7 @@ async def enqueue_class_narratives_for_student_subject(
             session,
             CLASS_NARRATIVE_JOB,
             {"audience": NarrativeAudience.tutor_class.value, "group_id": gid},
+            run_after=run_after,
         )
 
 
@@ -355,34 +395,34 @@ async def enqueue_narratives_for_group(session: AsyncSession, group_id: int) -> 
     regenerate must produce new text even when no new evidence has landed —
     that is the entire point of the control.
     """
-    from app.workers.jobs import enqueue
-
     if not get_settings().narrative_enabled:
         return
-    await enqueue(
-        session,
-        CLASS_NARRATIVE_JOB,
-        {
-            "audience": NarrativeAudience.tutor_class.value,
-            "group_id": group_id,
-            "force": True,
-        },
-    )
     student_ids = (
         await session.scalars(
             select(GroupMember.student_id).where(GroupMember.group_id == group_id)
         )
     ).all()
-    for sid in student_ids:
-        await enqueue(
-            session,
-            CLASS_NARRATIVE_JOB,
+    # One flush for the whole class, not one per learner — this runs inside the
+    # tutor's own request.
+    _add_jobs(
+        session,
+        CLASS_NARRATIVE_JOB,
+        [
             {
-                "audience": NarrativeAudience.parent_student.value,
-                "student_id": sid,
+                "audience": NarrativeAudience.tutor_class.value,
+                "group_id": group_id,
                 "force": True,
             },
-        )
+            *(
+                {
+                    "audience": NarrativeAudience.parent_student.value,
+                    "student_id": sid,
+                    "force": True,
+                }
+                for sid in student_ids
+            ),
+        ],
+    )
 
 
 async def _reenqueue_sweep(session: AsyncSession) -> None:
@@ -412,16 +452,46 @@ async def ensure_narrative_sweep_scheduled(session: AsyncSession) -> None:
     await enqueue(session, SWEEP_JOB, {})
 
 
+async def _commit_successor_sweep() -> None:
+    """Queue the next sweep in its **own committed transaction**.
+
+    This is the whole reliability story, so it does not share the handler's
+    session. workers/jobs.py runs a handler inside one session and commits only
+    on success: if the sweep body raises, that session is rolled back, and a
+    successor enqueued on it disappears with everything else. After MAX_ATTEMPTS
+    the job is marked failed, nothing watches that (jobs.py says so explicitly),
+    and every parent narrative stops until the process restarts — the exact
+    silent-death failure the sweep design exists to avoid, reintroduced one
+    level up. Committing the successor separately, before the work, means the
+    schedule survives any outcome of that work.
+    """
+    async with async_session() as session:
+        if await _pending_payloads(session, SWEEP_JOB):
+            return
+        interval = get_settings().narrative_sweep_interval_hours
+        await _enqueue_one(
+            session,
+            SWEEP_JOB,
+            {},
+            run_after=datetime.now(timezone.utc) + timedelta(hours=interval),
+        )
+        await session.commit()
+
+
 async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
     """Weekly-ish sweep. Re-derives which students are due from the narratives
-    table, enqueues one generate_narrative each, then re-enqueues itself. The
-    self re-enqueue happens regardless of any individual narrative's outcome, so
-    one failed narrative never breaks the next cycle."""
+    table and enqueues one generate_narrative each.
+
+    The successor sweep is committed FIRST, in its own transaction, so the
+    schedule survives this run failing — see _commit_successor_sweep(). An
+    individual narrative failing was always safe (each is its own job); a
+    failing *sweep* was not, and that is what this ordering fixes.
+    """
     settings = get_settings()
-    # Always re-arm the schedule, even when disabled, so flipping the kill switch
-    # back on resumes the sweep without waiting for a restart.
+    await _commit_successor_sweep()
+    # Nothing further to do when the kill switch is off, but the schedule above
+    # is already re-armed, so flipping it back on resumes without a restart.
     if not settings.narrative_enabled:
-        await _reenqueue_sweep(session)
         return
 
     from app.workers.jobs import enqueue
@@ -463,5 +533,3 @@ async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
             CLASS_NARRATIVE_JOB,
             {"audience": NarrativeAudience.parent_student.value, "student_id": sid},
         )
-
-    await _reenqueue_sweep(session)

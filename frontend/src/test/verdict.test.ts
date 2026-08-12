@@ -77,7 +77,8 @@ test("every verdict ends in a full stop, so it reads as a sentence not a label",
 
 test("a zero clause is omitted, never rendered as 0", () => {
   expect(verdictLine2(view({ lessons: [lesson], review_count: 0 }))).toBe("One lesson today");
-  expect(verdictLine2(view({ lessons: [], review_count: 1 }))).toBe("one piece to mark");
+  // With no lessons the marking clause leads the sentence, so it capitalises.
+  expect(verdictLine2(view({ lessons: [], review_count: 1 }))).toBe("One piece to mark");
   expect(verdictLine2(view({ lessons: [lesson, { ...lesson, id: 2 }], review_count: 2 }))).toBe(
     "Two lessons today · two pieces to mark when you have a moment",
   );

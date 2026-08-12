@@ -21,8 +21,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PromptTemplate:
-    """One surface's system prompt. `system` is empty for surfaces that send
-    everything in the user turn (class_brief)."""
+    """One surface's system prompt.
+
+    `system` may be empty for a surface that sends everything in the user turn;
+    none currently does — class_brief was the last, and its instructions moved
+    here in v2 so the handler contributes only grounding data (AI-6)."""
 
     version: str
     system: str

@@ -45,6 +45,10 @@ export default function ClassNarrative({ classes }: { classes: ClassStripRow[] }
             </span>
           )}
         </p>
+      ) : narrative.isError ? (
+        // A failed fetch is not an absence: claiming "nothing new" when the
+        // request failed asserts something the surface does not know (PROD-2).
+        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
       ) : (
         <p className="text-sm text-ink-500">Nothing new since yesterday.</p>
       )}

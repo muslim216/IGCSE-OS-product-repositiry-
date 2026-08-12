@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { classOverview, type ClassLearnerRow } from "../api/today";
 import { generateClassBrief } from "../api/groups";
@@ -57,6 +58,13 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
 
 export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   const queryClient = useQueryClient();
+  // The regenerated text is written by a background job, so the POST returning
+  // is not the text being ready. Invalidating once would refetch the *old* row
+  // and look like the button did nothing. This holds the generated_at that was
+  // on screen when "Prepare again" was pressed; the narrative query polls until
+  // the stored row moves past it.
+  const [awaitedSince, setAwaitedSince] = useState<string | null>(null);
+
   const overview = useQuery({
     queryKey: ["class-overview", groupId],
     queryFn: () => classOverview(groupId),
@@ -64,14 +72,31 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   const narrative = useQuery({
     queryKey: ["narrative", "group", groupId],
     queryFn: () => groupNarrative(groupId),
+    // While a regenerate is in flight the stored row has not changed yet; keep
+    // asking until it does, then stop. The previous text stays on screen
+    // throughout, marked "Updating…" (UX-21).
+    refetchInterval: (query) =>
+      awaitedSince !== null && (query.state.data?.generated_at ?? "") === awaitedSince
+        ? 4000
+        : false,
   });
+
+  // Stop polling once the new row lands.
+  useEffect(() => {
+    if (awaitedSince !== null && (narrative.data?.generated_at ?? "") !== awaitedSince) {
+      setAwaitedSince(null);
+    }
+  }, [awaitedSince, narrative.data?.generated_at]);
 
   // "Prepare again" is D2's correction, not an approval step: a tutor who reads
   // something wrong regenerates it. No review state, no badge, no queue, and
   // nothing here implies anything is expected of them.
   const prepare = useMutation({
     mutationFn: () => generateClassBrief(groupId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["narrative", "group", groupId] }),
+    onSuccess: () => {
+      setAwaitedSince(narrative.data?.generated_at ?? "");
+      queryClient.invalidateQueries({ queryKey: ["narrative", "group", groupId] });
+    },
   });
 
   if (overview.isLoading) {
@@ -174,18 +199,29 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
 
       {/* Read-only, below the fold, and only where the tutor already chose to
           look. Never pushed at them: a paragraph waiting to be read is a task,
-          and this deliberately is not one (D2). */}
+          and this deliberately is not one (D2).
+
+          This is the CLASS narrative (audience tutor_class) — the tutor's own
+          paragraph. It was briefly labelled "What the parents see", which was
+          simply untrue: the parent paragraph is a different audience with
+          different rules (aggregates only, no gendered pronoun) and is stored
+          per student, not per class. Surfacing the real per-child parent text
+          to the tutor belongs with the parent screen (PR 25); mislabelling this
+          one as parent-facing told the tutor they had checked something they
+          had not. */}
       <section className="border-t border-line pt-4">
-        <h3 className="avora-label mb-2">What the parents see</h3>
+        <h3 className="avora-label mb-2">Class summary</h3>
         {narrative.data?.text ? (
           <p className="max-w-prose text-sm leading-relaxed text-ink-700">
             {narrative.data.text}
-            {narrative.isFetching && (
+            {(narrative.isFetching || awaitedSince !== null) && (
               <span className="ml-2 text-xs text-ink-500" aria-live="polite">
                 {ABSENT.updating}
               </span>
             )}
           </p>
+        ) : narrative.isError ? (
+          <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
         ) : (
           <p className="text-sm text-ink-500">
             Nothing written yet — a summary appears once work is marked.
@@ -199,6 +235,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
         >
           {prepare.isPending ? "Preparing…" : "Prepare again"}
         </button>
+        {prepare.isError && <p className="mt-1 text-sm text-ink-500">{ABSENT.aiUnavailable}</p>}
       </section>
     </div>
   );

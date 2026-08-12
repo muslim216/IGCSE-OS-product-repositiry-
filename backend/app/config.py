@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -81,10 +81,18 @@ class Settings(BaseSettings):
     # deploy. Default on.
     narrative_enabled: bool = True
     # How stale a parent narrative may get before the weekly sweep refreshes it.
-    narrative_parent_max_age_days: int = 7
+    narrative_parent_max_age_days: int = Field(default=7, ge=1)
     # The sweep re-enqueues itself this far out; a failed sweep costs one cycle
     # and self-corrects on the next.
-    narrative_sweep_interval_hours: int = 24
+    # ge=1: at zero or negative the successor is already due on arrival and the
+    # sweep re-arms itself continuously, spinning the worker.
+    narrative_sweep_interval_hours: int = Field(default=24, ge=1)
+    # Extra delay on an evidence-triggered class narrative, on top of
+    # readiness_v2_coalesce_seconds. The narrative is grounded in the v2
+    # snapshot, so it must run *after* the debounced recompute has written one —
+    # otherwise it describes pre-marking readiness and then looks fresh. This is
+    # the margin for the run itself, not just for it becoming due.
+    narrative_readiness_margin_seconds: int = 300
     # Google Classroom integration (see services/google_classroom.py). Both
     # unset -> the feature reports "not configured" everywhere and the app
     # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful

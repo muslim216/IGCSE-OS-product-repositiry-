@@ -14,6 +14,7 @@ from app.db import async_session, engine
 from app.models import (
     Evidence,
     EvidenceSource,
+    Group,
     ReadinessConfidence,
     Subject,
     Topic,
@@ -263,3 +264,60 @@ async def test_lessons_use_the_org_timezone(client, tutor, subject_id):
     body = (await client.get("/api/v1/today", headers=tutor["headers"])).json()
     assert len(body["lessons"]) == 1
     assert body["lessons"][0]["weekday"] == weekday
+
+
+async def test_past_paper_review_counts_toward_the_workload(client, tutor, subject_id):
+    """The count drives the Mark link and NEEDS YOU. Submission is polymorphic,
+    so counting only through Assignment silently drops every past paper and the
+    home can report a clear day while past-paper work waits (API-20)."""
+    from app.models import PastPaper, Submission, SubmissionStatus
+
+    group = await _make_class(client, tutor, subject_id)
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+
+    async with async_session() as session:
+        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
+        paper = PastPaper(
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2025",
+            paper_number="1",
+        )
+        session.add(paper)
+        await session.flush()
+        session.add(
+            Submission(
+                past_paper_id=paper.id,
+                student_id=student["id"],
+                status=SubmissionStatus.needs_review,
+            )
+        )
+        await session.commit()
+
+    body = (await client.get("/api/v1/today", headers=tutor["headers"])).json()
+    assert body["review_count"] == 1, "a past paper awaiting review must count as work"
+
+
+async def test_an_admin_cannot_read_another_organizations_class(client, tutor, subject_id):
+    """SEC-7: the organization comes from the authenticated user. An admin is a
+    tutor with wider reach inside their own organization, not across them."""
+    from app.models import User, UserRole
+
+    group = await _make_class(client, tutor, subject_id)
+    other = (
+        await client.post(
+            "/api/v1/auth/register/tutor",
+            json={"name": "Admin", "email": "admin@example.com", "password": "password123"},
+        )
+    ).json()
+    async with async_session() as session:
+        admin = await session.get(User, other["user"]["id"])
+        admin.role = UserRole.admin
+        await session.commit()
+    login = await client.post(
+        "/api/v1/auth/login", json={"identifier": "admin@example.com", "password": "password123"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+
+    resp = await client.get(f"/api/v1/today/classes/{group['id']}", headers=headers)
+    assert resp.status_code == 404

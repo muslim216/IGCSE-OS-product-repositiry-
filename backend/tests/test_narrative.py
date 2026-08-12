@@ -431,3 +431,38 @@ async def test_group_member_scoping_holds(world, fake_narrative_ai):
             )
         ).all()
     assert list(members) == [world["student_id"]]
+
+
+async def test_a_failing_sweep_still_leaves_the_next_one_scheduled(
+    world, fake_narrative_ai, monkeypatch
+):
+    """The reliability property the sweep exists for, at the sweep's own level.
+
+    test_failed_narrative_does_not_break_next_weeks_sweep covers an individual
+    narrative failing, which was always safe — each is its own job. This covers
+    the *sweep* failing, which was not: the successor used to be enqueued on the
+    handler's own session at the end of the body, so a raise anywhere in that
+    body rolled the session back and took the schedule with it. After
+    MAX_ATTEMPTS the job is failed, nothing watches that, and every parent
+    narrative stops until the process restarts. The successor is now committed
+    up front in its own transaction, so it survives whatever the body does.
+    """
+    fake_narrative_ai()
+
+    async def explode(*args, **kwargs):
+        raise RuntimeError("sweep body failed")
+
+    # Fail inside the per-student work, which runs after the successor is armed.
+    monkeypatch.setattr("app.services.narrative.latest_narrative", explode)
+
+    async with async_session() as session:
+        with pytest.raises(RuntimeError):
+            await sweep_parent_narratives(session, {})
+
+    async with async_session() as session:
+        sweep = await session.scalar(
+            select(Job).where(
+                Job.type == "sweep_parent_narratives", Job.status == JobStatus.pending
+            )
+        )
+    assert sweep is not None, "a failing sweep must not take the schedule with it"

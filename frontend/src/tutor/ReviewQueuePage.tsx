@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { assignmentsNeedingAttention, reviewQueue } from "../api/homework";
-import { REASON_LABELS } from "../lib/labels";
+import { ABSENT, REASON_LABELS } from "../lib/labels";
 import { EmptyState } from "../components/ui";
 
 /**
@@ -42,6 +42,10 @@ export default function ReviewQueuePage() {
         </div>
         {queue.isLoading ? (
           <p className="mt-2 text-sm text-ink-500">Loading…</p>
+        ) : queue.isError ? (
+          // "Nothing to review" would be a claim; the request failed, so the
+          // surface does not know what is in the queue.
+          <p className="mt-2 text-sm text-ink-500">{ABSENT.loadFailed}</p>
         ) : queueItems.length === 0 ? (
           <p className="mt-2 text-sm text-ink-500">
             Nothing to review — everything was marked confidently.
@@ -112,6 +116,7 @@ export default function ReviewQueuePage() {
       )}
 
       {!queue.isLoading &&
+        !queue.isError &&
         queueItems.length === 0 &&
         attentionItems.length === 0 &&
         !attention.isLoading && (

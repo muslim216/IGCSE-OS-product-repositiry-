@@ -194,19 +194,19 @@ export default function SubmissionReviewPage() {
               )}
             </span>
             {autoFinalized && (
-              <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+              <span className="rounded-full bg-ok-100 px-3 py-1 text-xs font-medium text-ok-700">
                 Marked automatically
               </span>
             )}
             {finalized ? (
               <>
-                <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
+                <span className="rounded-full bg-ok-100 px-3 py-1 text-xs font-medium text-ok-700">
                   Finalized
                 </span>
                 {inQueue && (
                   <button
                     onClick={goNext}
-                    className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                    className="rounded border border-line-control px-3 py-1.5 hover:bg-surface-muted"
                   >
                     {next ? "Next →" : "Back to queue"}
                   </button>
@@ -217,7 +217,7 @@ export default function SubmissionReviewPage() {
                 <button
                   onClick={() => save.mutate()}
                   disabled={save.isPending}
-                  className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded border border-line-control px-3 py-1.5 hover:bg-surface-muted disabled:opacity-50"
                 >
                   Save draft
                 </button>
@@ -226,7 +226,7 @@ export default function SubmissionReviewPage() {
                   // never a decision, so it must not write anything.
                   <button
                     onClick={goNext}
-                    className="rounded border border-slate-300 px-3 py-1.5 hover:bg-slate-50"
+                    className="rounded border border-line-control px-3 py-1.5 hover:bg-surface-muted"
                   >
                     Skip
                   </button>
@@ -234,7 +234,7 @@ export default function SubmissionReviewPage() {
                 <button
                   onClick={() => finalize.mutate(inQueue)}
                   disabled={finalize.isPending}
-                  className="rounded bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded bg-brand-600 px-3 py-1.5 text-canvas hover:bg-brand-700 disabled:opacity-50"
                 >
                   {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
                 </button>

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.models import (
     Group,
+    GroupMember,
     NarrativeAudience,
     ParentLink,
     User,
@@ -47,8 +48,19 @@ def _out(narrative) -> NarrativeOut:
 
 
 async def _owned_group(db: AsyncSession, user: User, group_id: int) -> Group:
+    """The caller's own class, or 404.
+
+    The organization check binds first and applies to admins too. Every read
+    below is then scoped with `user.organization_id` rather than the fetched
+    row's, because taking the organization from the row is how a cross-tenant
+    read disguises itself as an ownership check (SEC-7).
+    """
     group = await db.get(Group, group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     return group
 
@@ -61,7 +73,7 @@ async def group_narrative(group_id: int, db: DbSession, user: TutorUser) -> Narr
         await latest_narrative(
             db,
             audience=NarrativeAudience.tutor_class,
-            organization_id=group.organization_id,
+            organization_id=user.organization_id,
             group_id=group.id,
         )
     )
@@ -77,7 +89,13 @@ async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -
     would confirm the row exists.
     """
     student = await db.get(User, student_id)
-    if student is None or student.role != UserRole.student:
+    # The organization gate binds before any role branch, so no role — admin
+    # included — can read across organizations (SEC-7).
+    if (
+        student is None
+        or student.role != UserRole.student
+        or student.organization_id != user.organization_id
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
 
     if user.role == UserRole.parent:
@@ -91,8 +109,6 @@ async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -
     elif user.role == UserRole.tutor:
         # Scoped by the groups this tutor owns, so a tutor in another
         # organization cannot read it even though subjects are global (SEC-8).
-        from app.models import GroupMember
-
         teaches = await db.scalar(
             select(Group.id)
             .join(GroupMember, GroupMember.group_id == Group.id)
@@ -111,7 +127,7 @@ async def student_narrative(student_id: int, db: DbSession, user: CurrentUser) -
         await latest_narrative(
             db,
             audience=NarrativeAudience.parent_student,
-            organization_id=student.organization_id,
+            organization_id=user.organization_id,
             student_id=student.id,
         )
     )

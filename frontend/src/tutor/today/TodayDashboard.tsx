@@ -98,7 +98,13 @@ export default function TodayDashboard() {
   const view = today.data;
   const line1 = verdictLine1(view);
   const line2 = verdictLine2(view);
-  const clear = isClearDay(view);
+  const attentionItems = (attention.data ?? []).slice(0, 5);
+  // The aggregate's review_count and the attention list are different measures
+  // from different endpoints — attention also carries extraction failures, which
+  // are not submissions awaiting review. So the day is only "clear" when neither
+  // has anything, or the surface could print "That's everything" directly above
+  // a NEEDS YOU section listing work.
+  const clear = isClearDay(view) && attentionItems.length === 0;
 
   // Before any class exists the only useful thing on this surface is the way to
   // make one — every other section would be an honest but useless absence.
@@ -157,38 +163,44 @@ export default function TodayDashboard() {
         </ul>
       </Section>
 
-      <Section title="Today">
-        {view.lessons.length === 0 ? (
-          <p className="text-sm text-ink-500">No lessons scheduled.</p>
-        ) : (
-          <ul className="text-sm">
-            {view.lessons.map((lesson) => (
-              <li key={lesson.id} className="flex items-center gap-3 border-t border-line py-2.5">
-                <span className="font-display tabular-nums text-ink-900">
-                  {lesson.start_time.slice(0, 5)}
-                </span>
-                <Link
-                  to={`/tutor/groups/${lesson.group_id}/students`}
-                  className="font-medium text-ink-900 hover:text-brand-600"
-                >
-                  {lesson.group_name}
-                </Link>
-                <span className="text-ink-500">{lesson.subject_name}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
+      {!clear && (
+        <Section title="Today">
+          {view.lessons.length === 0 ? (
+            <p className="text-sm text-ink-500">No lessons scheduled.</p>
+          ) : (
+            <ul className="text-sm">
+              {view.lessons.map((lesson) => (
+                <li key={lesson.id} className="flex items-center gap-3 border-t border-line py-2.5">
+                  <span className="font-display tabular-nums text-ink-900">
+                    {lesson.start_time.slice(0, 5)}
+                  </span>
+                  <Link
+                    to={`/tutor/groups/${lesson.group_id}/students`}
+                    className="font-medium text-ink-900 hover:text-brand-600"
+                  >
+                    {lesson.group_name}
+                  </Link>
+                  <span className="text-ink-500">{lesson.subject_name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+      )}
 
       {/* WHAT CHANGED reads the stored narrative — present on open, never a
-          surface waiting on a model call (spec §8). */}
-      <ClassNarrative classes={view.classes} />
+          surface waiting on a model call (spec §8). Suppressed on a clear day,
+          where the terminal sentence below is the whole message. */}
+      {!clear && <ClassNarrative classes={view.classes} />}
 
-      {/* NEEDS YOU is absent entirely when nothing needs them (UX-29). */}
-      {view.review_count > 0 && (
+      {/* Gated on the rows it renders, not on review_count: the count comes from
+          the aggregate and the rows from a separate query, so while that query
+          loads (or if it resolves empty) the old condition rendered a heading
+          over an empty list — the empty panel UX-29 forbids. */}
+      {attentionItems.length > 0 && (
         <Section title="Needs you">
           <ul className="text-sm">
-            {(attention.data ?? []).slice(0, 5).map((item, i) => (
+            {attentionItems.map((item, i) => (
               <li
                 key={i}
                 className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-2.5"

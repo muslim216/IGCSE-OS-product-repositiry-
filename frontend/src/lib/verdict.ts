@@ -71,7 +71,12 @@ export function verdictLine2(view: TodayView): string | null {
   if (review === 1) clauses.push("one piece to mark");
   else if (review > 1) clauses.push(`${countWord(review)} pieces to mark when you have a moment`);
 
-  return clauses.length > 0 ? clauses.join(" · ") : null;
+  if (clauses.length === 0) return null;
+  // Whichever clause lands first starts the sentence, so it carries the capital
+  // — with no lessons the marking clause leads and would otherwise read
+  // "one piece to mark".
+  clauses[0] = capitalize(clauses[0]);
+  return clauses.join(" · ");
 }
 
 /** True when the whole surface is clear, so the day can end with a sentence

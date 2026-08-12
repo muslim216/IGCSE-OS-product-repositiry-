@@ -43,6 +43,8 @@ from app.services.extraction import extract_assignment, extract_past_paper
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.narrative import (
+    CLASS_NARRATIVE_JOB,
+    SWEEP_JOB,
     ensure_narrative_sweep_scheduled,
     generate_narrative,
     sweep_parent_narratives,
@@ -80,8 +82,8 @@ register_handler("sync_classroom", sync_classroom)
 # from the tail of the evidence build; the parent paragraph by a weekly sweep
 # that re-derives who is due and re-enqueues itself — never a self-perpetuating
 # per-student chain, whose schedule would die with one failed job row.
-register_handler("generate_narrative", generate_narrative)
-register_handler("sweep_parent_narratives", sweep_parent_narratives)
+register_handler(CLASS_NARRATIVE_JOB, generate_narrative)
+register_handler(SWEEP_JOB, sweep_parent_narratives)
 
 
 #: Pause before restarting a worker that died, so a failure that recurs

@@ -39,7 +39,7 @@ const EMPTY_VIEW: TodayView = {
   classes_with_evidence: 0,
 };
 
-function stubFetch(view: TodayView, narrative: string | null = null) {
+function stubFetch(view: TodayView, narrative: string | null = null, attention?: unknown[]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -51,6 +51,7 @@ function stubFetch(view: TodayView, narrative: string | null = null) {
       }
       if (url.includes("/api/v1/today")) return json(view);
       if (url.includes("/assignments/attention")) {
+        if (attention !== undefined) return json(attention);
         return json([
           {
             assignment_id: 3,
@@ -94,14 +95,20 @@ afterEach(() => {
 });
 
 test("a clear day ends with a sentence and renders no empty panels", async () => {
-  stubFetch({
-    classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
-    lessons: [],
-    review_count: 0,
-    class_count: 1,
-    joined_student_count: 11,
-    classes_with_evidence: 1,
-  });
+  // Nothing awaiting review means nothing in the attention list either — a
+  // fixture with one but not the other is a state the backend cannot produce.
+  stubFetch(
+    {
+      classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
+      lessons: [],
+      review_count: 0,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+    },
+    null,
+    [],
+  );
   renderDashboard();
 
   expect(await screen.findByText("Your classes are running well.")).toBeInTheDocument();

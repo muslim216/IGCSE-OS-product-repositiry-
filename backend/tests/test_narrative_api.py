@@ -19,6 +19,7 @@ from app.models import (
     Subject,
     Topic,
     User,
+    UserRole,
 )
 
 
@@ -62,7 +63,15 @@ async def world(client, tutor):
     ).json()
     async with async_session() as session:
         parent_user = await session.get(User, parent["user"]["id"])
-        parent_user.role = "parent"
+        # UserRole.parent, not the raw string: the column stores enum members, so
+        # a literal would silently rot if a member were ever renamed.
+        parent_user.role = UserRole.parent
+        # Real parents inherit the organization of the child they link to
+        # (api/auth.py register_parent). Registering via the tutor endpoint mints
+        # a fresh organization, so without this the fixture builds a parent that
+        # cannot exist — and would mask the cross-tenant check below.
+        student_row = await session.get(User, student["id"])
+        parent_user.organization_id = student_row.organization_id
         session.add(ParentLink(parent_id=parent_user.id, student_id=student["id"]))
         await session.commit()
     parent_login = await client.post(

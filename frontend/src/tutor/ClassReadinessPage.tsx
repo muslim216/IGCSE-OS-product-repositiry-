@@ -6,6 +6,11 @@ import { deriveLearnerRows } from "../lib/readiness";
 import ReadinessTable, { type ReadinessFilter } from "../components/ReadinessTable";
 import { EmptyState } from "../components/ui";
 
+/** The server returns at most this many weak learners per class; at the cap the
+    list is the lowest-scoring subset and the table says so. Kept named so the
+    number is not a bare literal in a condition. */
+const WEAK_STUDENTS_PER_CLASS_CAP = 10;
+
 // This page used to hand-roll its own two-card markup and a second copy of the
 // >= 70 / >= 50 percentage colouring. Both are gone: a band is a grade's position
 // in its boundary list, not a percentage (UX-28), and the learner table now
@@ -31,7 +36,7 @@ export default function ClassReadinessPage() {
   );
   // The backend caps each class's weak-student list; a full class shows the
   // lowest-readiness subset, and the table says so rather than implying it is all.
-  const capped = (analytics.data?.weak_students.length ?? 0) >= 10;
+  const capped = (analytics.data?.weak_students?.length ?? 0) >= WEAK_STUDENTS_PER_CLASS_CAP;
 
   return (
     <div className="space-y-4">
