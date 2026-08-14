@@ -36,9 +36,16 @@ def migration():
 
 @pytest.fixture
 def conn():
-    """A bare sync connection with only the three parent tables the migration's
-    foreign keys point at — organizations, groups, users — so create_table
-    exercises real FK targets rather than dangling references."""
+    """A bare sync connection carrying only the three parent tables the
+    migration's foreign keys point at — organizations, groups, users — so
+    create_table resolves against real targets rather than dangling names.
+
+    That is a claim about the **DDL**, not about inserts: SQLite leaves
+    foreign-key enforcement off unless PRAGMA foreign_keys is set, so nothing
+    below proves an FK is enforced at write time. The CHECK constraint is
+    different — SQLite does enforce that, which is what makes the
+    exactly-one-target test meaningful here.
+    """
     engine = sa.create_engine("sqlite://")
     with engine.connect() as connection:
         for table in ("organizations", "groups", "users"):
