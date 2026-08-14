@@ -38,7 +38,7 @@ from app.schemas.today import (
     TodayView,
 )
 from app.services.grades import grade_band, predict_grade
-from app.services.groups import class_health, review_queue_predicate
+from app.services.groups import class_health, review_queue_predicate, weighted_learner_scores
 from app.services.groups import summaries as group_summaries
 from app.services.readiness_summary import CONFIDENT, trend_direction
 from app.services.timezones import today_weekday
@@ -231,21 +231,20 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
     member_ids = [mid for mid, _ in members]
     names = dict(members)
 
-    # Per-learner weighted readiness, for every learner at once.
-    per_student: dict[int, tuple[float, float]] = {}
+    # Per-learner weighted readiness, from the same helper class_health folds
+    # into the class score above. Restating the formula here is what let the
+    # header and the rows under it drift apart (see weighted_learner_scores).
+    learner_scores = (await weighted_learner_scores(db, [group])).get(group.id, {})
+
+    # Topic detail is what the class page needs *on top of* that — the WHY under
+    # the verdict. It is its own read because it aggregates by topic, not by
+    # learner; both are bounded, so the pair does not grow with the roster.
     topic_scores: dict[int, list[float]] = defaultdict(list)
     topic_meta: dict[int, tuple[str, str]] = {}
     if member_ids:
-        for student_id, topic_id, code, title, weight, score in (
+        for topic_id, code, title, score in (
             await db.execute(
-                select(
-                    TopicReadiness.student_id,
-                    Topic.id,
-                    Topic.code,
-                    Topic.title,
-                    Topic.weight,
-                    TopicReadiness.score,
-                )
+                select(Topic.id, Topic.code, Topic.title, TopicReadiness.score)
                 .join(Topic, Topic.id == TopicReadiness.topic_id)
                 .where(
                     TopicReadiness.student_id.in_(member_ids),
@@ -254,8 +253,6 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
                 )
             )
         ).all():
-            weighted, total = per_student.get(student_id, (0.0, 0.0))
-            per_student[student_id] = (weighted + weight * score, total + weight)
             topic_scores[topic_id].append(score)
             topic_meta[topic_id] = (code, title)
 
@@ -276,10 +273,10 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
 
     learners: list[ClassLearnerRow] = []
     for student_id in member_ids:
-        weighted, total = per_student.get(student_id, (0.0, 0.0))
-        if not total:
+        raw = learner_scores.get(student_id)
+        if raw is None:
             continue  # no confident evidence — absent, never a fabricated zero
-        score = round(weighted / total, 1)
+        score = round(raw, 1)
         grade = predict_grade(score, boundaries) if boundaries else None
         learners.append(
             ClassLearnerRow(

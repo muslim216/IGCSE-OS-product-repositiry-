@@ -68,7 +68,10 @@ function stubSubmission(marks: MarkRow[], queue: number[] = [], status = "needs_
       const url = String(input);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       if (url.includes("/submissions/review-queue")) return json(queue.map(queueItem));
-      if (url.includes("/submissions/1")) return json(submissionBody(marks, 1, status));
+      // Any id, not just 1: a traversal test has to be able to land on the next
+      // submission and see it, otherwise it can only ever assert a button label.
+      const match = /\/submissions\/(\d+)/.exec(url);
+      if (match) return json(submissionBody(marks, Number(match[1]), status));
       return json([]);
     }),
   );
@@ -165,7 +168,11 @@ test("Skip moves on without writing anything", async () => {
   renderPage("/tutor/submissions/1?queue=review");
   fireEvent.click(await screen.findByRole("button", { name: "Skip" }));
 
-  // Nothing was saved or finalized — Skip is "not now", never a decision.
+  // Skip actually advances. Asserting only that nothing was written would pass
+  // against a button that does nothing at all.
+  expect(await screen.findByText("Reviewing 2 of 2")).toBeInTheDocument();
+
+  // And it moved on without deciding anything — Skip is "not now".
   const wrote = fetchMock.mock.calls.some(
     ([, init]) => init && init.method && init.method !== "GET",
   );
@@ -176,17 +183,21 @@ test("the last item finalizes to a terminal state, not a blank page", async () =
   stubSubmission([mark({ question_id: 1, final_marks: 8 })], [1]);
   renderPage("/tutor/submissions/1?queue=review");
   // Last in the queue: the button says so rather than promising a next item.
-  expect(await screen.findByRole("button", { name: "Finalize & finish" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "Finalize & finish" }));
+  // The end of the queue lands on the queue itself, never on an empty page.
+  expect(await screen.findByText("Review queue page")).toBeInTheDocument();
 });
 
-test("a mid-queue item offers Finalize & next", async () => {
+test("a mid-queue item offers Finalize & next and advances to it", async () => {
   stubSubmission([mark({ question_id: 1, final_marks: 8 })], [1, 2]);
   renderPage("/tutor/submissions/1?queue=review");
-  expect(await screen.findByRole("button", { name: "Finalize & next" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "Finalize & next" }));
+  expect(await screen.findByText("Reviewing 2 of 2")).toBeInTheDocument();
 });
 
 test("an already-finalized item still lets the tutor move on", async () => {
   stubSubmission([mark({ question_id: 1, final_marks: 8 })], [1, 2], "finalized");
   renderPage("/tutor/submissions/1?queue=review");
-  expect(await screen.findByRole("button", { name: "Next →" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "Next →" }));
+  expect(await screen.findByText("Reviewing 2 of 2")).toBeInTheDocument();
 });

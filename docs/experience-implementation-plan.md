@@ -1575,9 +1575,12 @@ is written are the job-scheduling question (PR 14) and the two security question
 
 ## 22. Delivery record — where the build differed from the plan
 
-**PRs 0–20 are shipped.** Each heading above carries **Shipped**. This section records only
-where the implementation *diverged* from what the plan specified, so the next reader finds the
-reasoning rather than a silent discrepancy (`GOV-1`, `GOV-3`).
+**PRs 0–20 are built, and PRs 0–10 are shipped.** "Shipped" on a heading means the work is
+complete and verified against its own tests, not that it is serving traffic: `main` is the only
+branch anything deploys from, and PR 12 additionally carries a merge gate CI cannot satisfy —
+see the two open items below. This section records only where the implementation *diverged*
+from what the plan specified, so the next reader finds the reasoning rather than a silent
+discrepancy (`GOV-1`, `GOV-3`).
 
 | # | Plan said | Built | Why |
 |---|---|---|---|

@@ -19,11 +19,11 @@ interface Draft {
 }
 
 const CONFIDENCE_STYLE: Record<string, string> = {
-  high: "bg-green-100 text-green-700",
-  medium: "bg-green-100 text-green-700",
-  low: "bg-orange-100 text-orange-700",
-  unsure: "bg-slate-200 text-slate-600",
-  tutor_only: "bg-slate-200 text-slate-600",
+  high: "bg-ok-100 text-ok-700",
+  medium: "bg-ok-100 text-ok-700",
+  low: "bg-warn-100 text-warn-700",
+  unsure: "bg-surface-muted text-ink-500",
+  tutor_only: "bg-surface-muted text-ink-500",
 };
 
 const CONFIDENCE_LABEL: Record<string, string> = {
@@ -152,9 +152,9 @@ export default function SubmissionReviewPage() {
     return { got, max, unmarked };
   }, [submission.data, drafts]);
 
-  if (submission.isLoading) return <p className="text-slate-500">Loading…</p>;
+  if (submission.isLoading) return <p className="text-ink-500">Loading…</p>;
   if (submission.isError || !submission.data)
-    return <p className="text-red-600">Submission not found.</p>;
+    return <p className="text-risk-600">Submission not found.</p>;
   const s = submission.data;
 
   return (
@@ -172,23 +172,23 @@ export default function SubmissionReviewPage() {
                   ? `/tutor/assignments/${s.assignment_id}`
                   : "/tutor/past-papers"
             }
-            className="text-sm text-blue-600 hover:underline"
+            className="text-sm text-brand-600 hover:underline"
           >
             ← {inQueue ? "Review queue" : s.assignment_title}
           </Link>
           {inQueue && position >= 0 && (
-            <span className="text-sm text-slate-500">
+            <span className="text-sm text-ink-500">
               Reviewing {position + 1} of {queueItems.length}
             </span>
           )}
         </div>
         <div className="mt-1 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-slate-800">{s.student_name}'s work</h2>
+          <h2 className="text-xl font-semibold text-ink-900">{s.student_name}'s work</h2>
           <div className="flex items-center gap-3 text-sm">
-            <span className="font-medium text-slate-700">
+            <span className="font-medium text-ink-700">
               {totals.got} / {totals.max}
               {totals.unmarked > 0 && (
-                <span className="ml-1.5 font-normal text-slate-500">
+                <span className="ml-1.5 font-normal text-ink-500">
                   ({totals.unmarked} not marked yet)
                 </span>
               )}
@@ -245,19 +245,19 @@ export default function SubmissionReviewPage() {
       </div>
 
       {s.ai_error && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <div className="rounded-lg border border-line bg-warn-100 p-3 text-sm text-warn-700">
           AI marking did not run ({s.ai_error}). Mark each question yourself below.
         </div>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-risk-600">{error}</p>}
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* Left: the student's uploaded pages */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium text-slate-600">Uploaded pages</h3>
+          <h3 className="text-sm font-medium text-ink-700">Uploaded pages</h3>
           {s.files.map((f) =>
             f.mime === "application/pdf" ? (
-              <div key={f.id} className="rounded border bg-white p-3 text-sm">
+              <div key={f.id} className="rounded border border-line bg-surface p-3 text-sm">
                 <AuthFileLink path={submissionFilePath(s.id, f.id)} label={`Open ${f.name}`} />
               </div>
             ) : (
@@ -268,7 +268,7 @@ export default function SubmissionReviewPage() {
 
         {/* Right: AI reading + tutor's editable marks, question by question */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium text-slate-600">
+          <h3 className="text-sm font-medium text-ink-700">
             {reviewCount > 0
               ? `${reviewCount} of ${s.marks.length} marks need your decision`
               : "Every mark was made confidently — nothing needs your decision"}
@@ -318,22 +318,20 @@ function QuestionCard({
 
   return (
     <div
-      className={`rounded-lg border bg-white p-4 ${
-        mark.remark_requested ? "border-purple-300" : mark.needs_review ? "border-amber-300" : ""
+      className={`rounded-lg border border-line bg-surface p-4 ${
+        mark.remark_requested ? "border-brand-600" : mark.needs_review ? "border-warn-700" : ""
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium text-slate-800">
+        <span className="font-medium text-ink-900">
           Q{mark.number}{" "}
-          <span className="font-normal text-slate-500">
+          <span className="font-normal text-ink-500">
             — {mark.text_summary} ({mark.max_marks} marks)
           </span>
         </span>
         <div className="flex gap-1">
           {mark.auto_finalized && (
-            <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs text-green-700">
-              Counted
-            </span>
+            <span className="rounded-full bg-ok-100 px-2 py-0.5 text-xs text-ok-700">Counted</span>
           )}
           <span className={`rounded-full px-2 py-0.5 text-xs ${CONFIDENCE_STYLE[confidence]}`}>
             {CONFIDENCE_LABEL[confidence]}
@@ -342,26 +340,26 @@ function QuestionCard({
       </div>
 
       {mark.remark_requested && (
-        <div className="mt-2 rounded border border-purple-200 bg-purple-50 p-2 text-sm text-purple-900">
+        <div className="mt-2 rounded border border-brand-500 bg-brand-50 p-2 text-sm text-ink-900">
           <span className="font-medium">The student asked you to look again.</span>
           {mark.remark_reason && <span> “{mark.remark_reason}”</span>}
         </div>
       )}
 
       {mark.ai_transcription && (
-        <div className="mt-2 rounded bg-slate-50 p-2 text-sm text-slate-600">
-          <span className="font-medium text-slate-500">AI read:</span> {mark.ai_transcription}
+        <div className="mt-2 rounded bg-surface-muted p-2 text-sm text-ink-700">
+          <span className="font-medium text-ink-500">AI read:</span> {mark.ai_transcription}
         </div>
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="text-sm text-slate-600">Marks</label>
+        <label className="text-sm text-ink-700">Marks</label>
         <input
           type="number"
           min={0}
           max={mark.max_marks}
           disabled={readOnly}
-          className="w-20 rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-50"
+          className="w-20 rounded border border-line-control px-2 py-1 text-sm disabled:bg-surface-muted"
           value={draft?.final_marks ?? ""}
           onChange={(e) =>
             onChange({
@@ -369,14 +367,12 @@ function QuestionCard({
             })
           }
         />
-        <span className="text-sm text-slate-400">/ {mark.max_marks}</span>
+        <span className="text-sm text-ink-500">/ {mark.max_marks}</span>
         {mark.ai_marks !== null && !readOnly && (
           <button
             onClick={() => onChange({ final_marks: mark.ai_marks })}
             className={`rounded px-2 py-1 text-xs ${
-              matchesAi
-                ? "bg-green-100 text-green-700"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              matchesAi ? "bg-ok-100 text-ok-700" : "bg-surface-muted text-ink-700 hover:bg-line"
             }`}
           >
             {matchesAi ? "✓ matches AI" : `Accept AI (${mark.ai_marks})`}
@@ -386,7 +382,7 @@ function QuestionCard({
 
       <textarea
         disabled={readOnly}
-        className="mt-2 w-full rounded border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-50"
+        className="mt-2 w-full rounded border border-line-control px-2 py-1 text-sm disabled:bg-surface-muted"
         rows={2}
         placeholder="Feedback for the student"
         value={draft?.final_feedback ?? ""}
@@ -395,12 +391,12 @@ function QuestionCard({
 
       <button
         onClick={() => setShowHistory((v) => !v)}
-        className="mt-2 text-xs text-slate-500 hover:underline"
+        className="mt-2 text-xs text-ink-500 hover:underline"
       >
         {showHistory ? "Hide" : "Show"} mark history
       </button>
       {showHistory && (
-        <ul className="mt-1 space-y-1 text-xs text-slate-600">
+        <ul className="mt-1 space-y-1 text-xs text-ink-700">
           {history.data?.map((h, i) => (
             <li key={i}>
               {h.old_marks} → {h.new_marks} by {h.changed_by_name} on{" "}
@@ -409,7 +405,7 @@ function QuestionCard({
             </li>
           ))}
           {history.data?.length === 0 && (
-            <li className="text-slate-400">This mark has never been changed.</li>
+            <li className="text-ink-500">This mark has never been changed.</li>
           )}
         </ul>
       )}

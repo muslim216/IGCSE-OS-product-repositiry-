@@ -178,30 +178,31 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
     }
 
 
-async def class_health(
+async def weighted_learner_scores(
     session: AsyncSession, groups: Sequence[Group]
-) -> dict[int, tuple[float | None, int]]:
-    """Per-class readiness: the mean of each class's confident learner scores,
-    and how many learners contributed.
+) -> dict[int, dict[int, float]]:
+    """Each learner's subject-weighted readiness, for every given class, in one
+    query: SUM(weight * score) / SUM(weight) over confident TopicReadiness rows
+    in that class's own subject.
 
-    One query for every class the tutor has, not one per class and certainly not
-    one per learner. api/analytics.py computes the same shape with a db.get(User)
-    plus a TopicReadiness select inside a Python loop over students, and the home
-    surface then fanned that out per group — eight classes meant eight round
-    trips, each internally looping (PERF-1). Here the whole roster is aggregated
-    in SQL and folded in Python, so the query count does not grow with the number
-    of classes or learners.
+    This is *the* definition of a learner's readiness on the tutor's surfaces,
+    shared rather than restated. The class page used to carry its own copy, so
+    the class score in the header and the learner rows printed directly beneath
+    it were two independent implementations of one formula — free to drift on
+    the weighting, on which confidences count, or on which subject counts, and
+    then to disagree on screen with nothing to catch it.
 
-    Returns {group_id: (mean_score_or_None, contributing_learner_count)}. A class
-    with no confident evidence maps to (None, 0) — never 0.0, which a surface
-    would render as a real score (PROD-2).
+    Returned **unrounded**: class_health means these values and rounds once at
+    the end, while the class page rounds each learner's own row. Rounding here
+    would silently change both.
+
+    Returns {group_id: {student_id: score}}. A learner with no confident
+    evidence is absent from the inner dict rather than present with 0.0, which a
+    surface would render as a real score (PROD-2).
     """
     if not groups:
         return {}
     group_ids = [g.id for g in groups]
-
-    # Weighted per (group, learner): SUM(weight * score) / SUM(weight), matching
-    # the subject-weighted overall analytics computes one student at a time.
     rows = (
         await session.execute(
             select(
@@ -225,17 +226,40 @@ async def class_health(
         )
     ).all()
 
-    per_group: dict[int, list[float]] = defaultdict(list)
-    for group_id, _student_id, weighted, weight_total in rows:
+    scores: dict[int, dict[int, float]] = {gid: {} for gid in group_ids}
+    for group_id, student_id, weighted, weight_total in rows:
         if not weight_total:
             continue
-        per_group[group_id].append(weighted / weight_total)
+        scores[group_id][student_id] = weighted / weight_total
+    return scores
 
+
+async def class_health(
+    session: AsyncSession, groups: Sequence[Group]
+) -> dict[int, tuple[float | None, int]]:
+    """Per-class readiness: the mean of each class's confident learner scores,
+    and how many learners contributed.
+
+    One query for every class the tutor has, not one per class and certainly not
+    one per learner. api/analytics.py computes the same shape with a db.get(User)
+    plus a TopicReadiness select inside a Python loop over students, and the home
+    surface then fanned that out per group — eight classes meant eight round
+    trips, each internally looping (PERF-1). Here the whole roster is aggregated
+    in SQL by weighted_learner_scores() and folded in Python, so the query count
+    does not grow with the number of classes or learners.
+
+    Returns {group_id: (mean_score_or_None, contributing_learner_count)}. A class
+    with no confident evidence maps to (None, 0) — never 0.0, which a surface
+    would render as a real score (PROD-2).
+    """
+    if not groups:
+        return {}
+    per_learner = await weighted_learner_scores(session, groups)
     return {
         gid: (
-            (round(sum(scores) / len(scores), 1), len(scores))
-            if (scores := per_group.get(gid, []))
+            (round(sum(scores.values()) / len(scores), 1), len(scores))
+            if (scores := per_learner.get(gid, {}))
             else (None, 0)
         )
-        for gid in group_ids
+        for gid in (g.id for g in groups)
     }

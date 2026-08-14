@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # ge=1: at zero or negative the successor is already due on arrival and the
     # sweep re-arms itself continuously, spinning the worker.
     narrative_sweep_interval_hours: int = Field(default=24, ge=1)
+    # Most learners one sweep will enqueue. ge=1: at zero the sweep runs
+    # forever and writes nothing. The cap exists so a first run against an
+    # established installation drains over several cycles rather than spending
+    # one AI call per learner in a single burst.
+    narrative_sweep_max_students: int = Field(default=250, ge=1)
     # Extra delay on an evidence-triggered class narrative, on top of
     # readiness_v2_coalesce_seconds. The narrative is grounded in the v2
     # snapshot, so it must run *after* the debounced recompute has written one —

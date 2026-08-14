@@ -494,8 +494,6 @@ async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
     if not settings.narrative_enabled:
         return
 
-    from app.workers.jobs import enqueue
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.narrative_parent_max_age_days)
     # Students who have some evidence — enrolled learners with a marked-work row.
     student_ids = (
@@ -514,22 +512,54 @@ async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
         if p.get("audience") == NarrativeAudience.parent_student.value
     }
 
-    for sid in student_ids:
-        if sid in pending_students:
-            continue
-        student = await session.get(User, sid)
-        if student is None:
-            continue
-        existing = await latest_narrative(
-            session,
-            audience=NarrativeAudience.parent_student,
-            organization_id=student.organization_id,
-            student_id=sid,
+    # When each narrative's freshness was read one student at a time, the sweep
+    # cost two round trips per learner and its duration grew with the whole
+    # installed base — the same fan-out class_health() exists to remove
+    # (PERF-1). Both facts now arrive in one grouped query each.
+    #
+    # The freshness lookup keys on (student, organization) rather than student
+    # alone, which is what latest_narrative() scoped by: a learner who moved
+    # organizations must not be held back by the paragraph written about them
+    # under their old one.
+    freshest: dict[int, datetime | None] = {}
+    if student_ids:
+        newest_per_student = (
+            select(func.max(Narrative.id))
+            .join(User, User.id == Narrative.student_id)
+            .where(
+                Narrative.audience == NarrativeAudience.parent_student,
+                Narrative.student_id.in_(student_ids),
+                Narrative.organization_id == User.organization_id,
+            )
+            .group_by(Narrative.student_id)
         )
-        if existing is not None and _aware(existing.generated_at) >= cutoff:
-            continue  # fresh enough — not due
-        await enqueue(
-            session,
-            CLASS_NARRATIVE_JOB,
-            {"audience": NarrativeAudience.parent_student.value, "student_id": sid},
-        )
+        for sid, generated_at in (
+            await session.execute(
+                select(Narrative.student_id, Narrative.generated_at).where(
+                    Narrative.id.in_(newest_per_student)
+                )
+            )
+        ).all():
+            freshest[sid] = _aware(generated_at)
+
+    # One cycle's work is capped. Without it a first run against an established
+    # installation enqueues one AI job per learner at once — real money, spent
+    # in a burst, for paragraphs nobody has asked for yet. The set is re-derived
+    # every sweep and an enqueued learner stops being due, so a backlog drains
+    # over consecutive runs instead of arriving as one spike.
+    due = [
+        sid
+        for sid in student_ids
+        if sid not in pending_students
+        and not ((generated := freshest.get(sid)) is not None and generated >= cutoff)
+    ]
+    # One flush for the batch, not one per learner: enqueue() flushes on every
+    # call, which is right for a single job and wrong for a loop this long.
+    _add_jobs(
+        session,
+        CLASS_NARRATIVE_JOB,
+        [
+            {"audience": NarrativeAudience.parent_student.value, "student_id": sid}
+            for sid in due[: settings.narrative_sweep_max_students]
+        ],
+    )

@@ -318,6 +318,63 @@ async def test_sweep_enqueues_only_students_due(world, fake_narrative_ai):
     assert payloads == []  # nobody was due
 
 
+async def test_sweep_caps_how_many_students_one_run_enqueues(
+    client, tutor, world, fake_narrative_ai, monkeypatch
+):
+    """A first run against an established installation must not enqueue one AI
+    call per learner at once. The cap bounds a single cycle; the set is
+    re-derived every sweep, so the backlog drains over consecutive runs instead
+    of arriving as one burst of spend."""
+    fake_narrative_ai()
+    # A second due learner, so there is more work than the cap allows.
+    second = (
+        await client.post(
+            f"/api/v1/groups/{world['group_id']}/students",
+            json={"name": "Omar", "username": "omar01", "password": "password123"},
+            headers=tutor["headers"],
+        )
+    ).json()
+    async with async_session() as session:
+        session.add(
+            Evidence(
+                student_id=second["id"],
+                topic_id=world["topic_id"],
+                source_type=EvidenceSource.homework,
+                score_pct=61.0,
+                max_marks=20,
+                occurred_at=datetime.now(timezone.utc),
+                source_ref="submission:2",
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(get_settings(), "narrative_sweep_max_students", 1)
+    async with async_session() as session:
+        await sweep_parent_narratives(session, {})
+        await session.commit()
+
+    async with async_session() as session:
+        payloads = (
+            await session.scalars(select(Job.payload).where(Job.type == "generate_narrative"))
+        ).all()
+    assert len(payloads) == 1, "one run must not exceed the cap"
+
+    # The one it skipped is still due, so the next run picks it up — capped, not
+    # dropped.
+    async with async_session() as session:
+        await sweep_parent_narratives(session, {})
+        await session.commit()
+
+    async with async_session() as session:
+        students = {
+            p["student_id"]
+            for p in (
+                await session.scalars(select(Job.payload).where(Job.type == "generate_narrative"))
+            ).all()
+        }
+    assert students == {world["student_id"], second["id"]}
+
+
 async def test_sweep_enqueues_a_stale_student(world, fake_narrative_ai):
     fake_narrative_ai()
     async with async_session() as session:
@@ -408,13 +465,31 @@ async def test_startup_reenqueue_is_idempotent(world):
 async def test_kill_switch_stops_new_narratives_but_leaves_reads(
     world, fake_narrative_ai, monkeypatch
 ):
+    """Both halves of the name. The switch stops *generation*; it must not make
+    the paragraphs already written disappear from the surfaces reading them —
+    that is the difference between an instant rollback and an outage."""
     fake_narrative_ai()
     from app.config import get_settings
 
     settings = get_settings()
+    # A narrative that already exists before the switch is flipped.
+    await _run_class_narrative(world)
+    assert await _count_narratives() == 1
+
     monkeypatch.setattr(settings, "narrative_enabled", False)
     await _run_class_narrative(world)
-    assert await _count_narratives() == 0
+    assert await _count_narratives() == 1, "the switch must stop new generation"
+
+    async with async_session() as session:
+        group = await session.get(Group, world["group_id"])
+        stored = await latest_narrative(
+            session,
+            audience=NarrativeAudience.tutor_class,
+            organization_id=group.organization_id,
+            group_id=group.id,
+        )
+    assert stored is not None, "stored narratives must stay readable with the switch off"
+    assert stored.text
 
 
 async def test_evidence_build_enqueues_a_class_narrative(world, fake_narrative_ai):
@@ -483,11 +558,15 @@ async def test_a_failing_sweep_still_leaves_the_next_one_scheduled(
     """
     fake_narrative_ai()
 
-    async def explode(*args, **kwargs):
+    def explode(*args, **kwargs):
         raise RuntimeError("sweep body failed")
 
     # Fail inside the per-student work, which runs after the successor is armed.
-    monkeypatch.setattr("app.services.narrative.latest_narrative", explode)
+    # _add_jobs is the right seam because it is reached only by that half:
+    # _commit_successor_sweep writes through _enqueue_one, so patching anything
+    # shared would stop the schedule being armed at all and the assertion below
+    # would pass or fail for a reason the test is not about.
+    monkeypatch.setattr("app.services.narrative._add_jobs", explode)
 
     async with async_session() as session:
         with pytest.raises(RuntimeError):

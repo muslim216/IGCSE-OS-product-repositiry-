@@ -319,9 +319,21 @@ async def test_class_health_weights_by_topic_weight(client, tutor, group, subjec
     assert score == round((3.0 * 80.0 + 1.0 * 40.0) / 4.0, 1)  # 70.0
 
 
-async def test_class_health_excludes_low_confidence_readiness(client, tutor, group, subject_id):
+@pytest.mark.parametrize(
+    "confidence,expected",
+    [("high", (90.0, 1)), ("medium", (90.0, 1)), ("low", (None, 0))],
+)
+async def test_class_health_counts_only_confident_readiness(
+    client, tutor, group, subject_id, confidence, expected
+):
     """Only medium/high confidence counts as confident evidence — a low-
-    confidence row must not silently produce a class score."""
+    confidence row must not silently produce a class score.
+
+    `medium` is here because it is the *inclusive* boundary: with only `high`
+    and `low` asserted, a filter that had narrowed to `high` alone would still
+    have passed both, and half the class's evidence would have vanished from
+    every class score with nothing to catch it.
+    """
     from app.db import async_session
     from app.models import Group
 
@@ -333,12 +345,12 @@ async def test_class_health_excludes_low_confidence_readiness(client, tutor, gro
         )
     ).json()
     topic = await _add_topic(subject_id, "1.1")
-    await _give_topic_readiness(student["id"], topic, 90.0, "low")
+    await _give_topic_readiness(student["id"], topic, 90.0, confidence)
 
     async with async_session() as session:
         g = await session.get(Group, group["id"])
         score, count = (await class_health(session, [g]))[group["id"]]
-    assert (score, count) == (None, 0)
+    assert (score, count) == expected
 
 
 async def test_class_health_means_across_contributing_learners(client, tutor, group, subject_id):
