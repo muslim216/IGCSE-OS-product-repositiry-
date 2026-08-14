@@ -56,6 +56,11 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
   );
 }
 
+/** How often to re-ask whether the regenerated narrative has landed. */
+const NARRATIVE_POLL_MS = 4000;
+/** And how long to keep asking before accepting that it is not coming. */
+const NARRATIVE_POLL_TIMEOUT_MS = 60_000;
+
 export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   const queryClient = useQueryClient();
   // The regenerated text is written by a background job, so the POST returning
@@ -77,7 +82,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
     // throughout, marked "Updating…" (UX-21).
     refetchInterval: (query) =>
       awaitedSince !== null && (query.state.data?.generated_at ?? "") === awaitedSince
-        ? 4000
+        ? NARRATIVE_POLL_MS
         : false,
   });
 
@@ -87,6 +92,17 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
       setAwaitedSince(null);
     }
   }, [awaitedSince, narrative.data?.generated_at]);
+
+  // And stop regardless once the wait is up. The row only moves if the job runs
+  // and succeeds; if it failed, or the worker never picked it up, nothing will
+  // ever change the condition above — so an unbounded poll would keep asking
+  // every few seconds for as long as the tutor leaves the page open, with
+  // "Updating…" pinned on screen claiming work is in progress that has stopped.
+  useEffect(() => {
+    if (awaitedSince === null) return;
+    const timer = setTimeout(() => setAwaitedSince(null), NARRATIVE_POLL_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [awaitedSince]);
 
   // "Prepare again" is D2's correction, not an approval step: a tutor who reads
   // something wrong regenerates it. No review state, no badge, no queue, and
@@ -104,7 +120,16 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
       <span aria-hidden className="block h-20 w-full animate-pulse rounded bg-surface-muted" />
     );
   }
-  if (overview.isError || !overview.data) return null;
+  // A failed load is stated, not rendered as nothing: an empty region here reads
+  // as a class with no data, which is a different and wrong claim (PROD-2).
+  // Same treatment ClassNarrative and TodayDashboard give the same condition.
+  if (overview.isError || !overview.data) {
+    return (
+      <section className="rounded-lg border border-line bg-surface p-4">
+        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
+      </section>
+    );
+  }
 
   const c = overview.data;
   const coverage = coverageLabel(c);

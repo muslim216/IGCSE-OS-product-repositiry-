@@ -493,6 +493,17 @@ async def test_a_failing_sweep_still_leaves_the_next_one_scheduled(
         with pytest.raises(RuntimeError):
             await sweep_parent_narratives(session, {})
 
+    # The assertion the test is named for. Without it this only proved that the
+    # body raises — which the monkeypatch guarantees — and would have passed
+    # just as happily against the old ordering that lost the schedule.
+    async with async_session() as session:
+        successor = await session.scalar(
+            select(Job).where(
+                Job.type == "sweep_parent_narratives", Job.status == JobStatus.pending
+            )
+        )
+    assert successor is not None, "a failing sweep must not take the schedule with it"
+
 
 # --------------------------------------------------------------------------- #
 # `_aware` — the naive/aware SQLite-vs-Postgres shim.
@@ -612,8 +623,7 @@ async def test_sweep_reenqueue_honours_the_configured_interval(monkeypatch):
                 Job.type == "sweep_parent_narratives", Job.status == JobStatus.pending
             )
         )
-    assert sweep is not None, "a failing sweep must not take the schedule with it"
-    assert sweep is not None
+    assert sweep is not None, "the sweep must re-arm itself"
     run_after = _aware(sweep.run_after)
     delta = run_after - before
     assert timedelta(hours=4, minutes=59) < delta <= timedelta(hours=5, minutes=1)

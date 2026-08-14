@@ -10,7 +10,7 @@ class, each of which looped `db.get(User)` plus a readiness select per learner
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -38,7 +38,7 @@ from app.schemas.today import (
     TodayView,
 )
 from app.services.grades import grade_band, predict_grade
-from app.services.groups import AWAITING_REVIEW, class_health
+from app.services.groups import class_health, review_queue_predicate
 from app.services.groups import summaries as group_summaries
 from app.services.readiness_summary import CONFIDENT, trend_direction
 from app.services.timezones import today_weekday
@@ -87,8 +87,8 @@ def boundaries_for(overrides: dict[int, list[dict]], subject: Subject | None) ->
     return overrides.get(subject.id) or subject.grade_boundaries or []
 
 
-async def pending_review_count(db: AsyncSession, tutor_id: int, organization_id: int) -> int:
-    """Submissions waiting on this tutor, across **both** kinds of work.
+async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
+    """How many submissions the review queue would list for this tutor.
 
     Submission is polymorphic: a homework submission has `assignment_id` set and
     a past-paper submission has `past_paper_id` set instead (API-20). Counting
@@ -97,9 +97,9 @@ async def pending_review_count(db: AsyncSession, tutor_id: int, organization_id:
     silently drops every past paper, so the home could report a clear day while
     past-paper work sat in the review queue.
 
-    Scoped the same way api/submissions.review_queue scopes its rows, so this
-    count and the page it links to describe the same work: homework through the
-    tutor's own groups, past papers through the organization.
+    The predicate itself is review_queue's, shared rather than restated: this
+    count is the headline the tutor clicks to reach that page, so any difference
+    between them is visible as a wrong number (see review_queue_predicate).
     """
     return (
         await db.scalar(
@@ -107,13 +107,7 @@ async def pending_review_count(db: AsyncSession, tutor_id: int, organization_id:
             .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
             .outerjoin(Group, Group.id == Assignment.group_id)
             .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
-            .where(
-                Submission.status.in_(AWAITING_REVIEW),
-                or_(
-                    Group.tutor_id == tutor_id,
-                    PastPaper.organization_id == organization_id,
-                ),
-            )
+            .where(*review_queue_predicate(organization_id))
         )
     ) or 0
 
@@ -150,7 +144,10 @@ async def today_lessons(
             id=slot.id,
             group_id=group.id,
             group_name=f"{group.name} ({count} student{'s' if count != 1 else ''})",
-            subject_name=group.subject.name,
+            # Guarded like every other read of this relationship in the module
+            # (boundaries_for, the class strip): one unguarded access here would
+            # fail /me/today-lessons and the whole home aggregate together.
+            subject_name=group.subject.name if group.subject else "",
             weekday=slot.weekday,
             start_time=slot.start_time,
             duration_min=slot.duration_min,
@@ -195,7 +192,7 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
     return TodayView(
         classes=rows,
         lessons=lessons,
-        review_count=await pending_review_count(db, user.id, user.organization_id),
+        review_count=await pending_review_count(db, user.organization_id),
         class_count=len(rows),
         joined_student_count=sum(r.member_count for r in rows),
         classes_with_evidence=sum(1 for r in rows if r.score is not None),

@@ -298,6 +298,52 @@ async def test_past_paper_review_counts_toward_the_workload(client, tutor, subje
     assert body["review_count"] == 1, "a past paper awaiting review must count as work"
 
 
+async def test_review_count_equals_what_the_review_queue_lists(client, tutor, subject_id):
+    """The home's headline links straight to /submissions/review-queue, so the
+    number and the page must describe the same work.
+
+    They did not. The count used AWAITING_REVIEW scoped by `Group.tutor_id`,
+    while the queue lists only `needs_review` scoped by organization — so the
+    home counted AI drafts the queue never shows, and dropped a colleague's
+    homework the queue does show. Asserting equality rather than either number
+    alone is what keeps them together.
+    """
+    from app.models import Assignment, AssignmentStatus, Submission, SubmissionStatus
+
+    group = await _make_class(client, tutor, subject_id)
+    waiting = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    drafted = await _add_student(client, tutor, group["id"], "Omar", "omar01")
+
+    async with async_session() as session:
+        assignment = Assignment(
+            group_id=group["id"], title="Forces", status=AssignmentStatus.published
+        )
+        session.add(assignment)
+        await session.flush()
+        # Waiting on the tutor, and listed by the queue.
+        session.add(
+            Submission(
+                assignment_id=assignment.id,
+                student_id=waiting["id"],
+                status=SubmissionStatus.needs_review,
+            )
+        )
+        # An AI draft is *not* in the queue — confidently marked work never is.
+        session.add(
+            Submission(
+                assignment_id=assignment.id,
+                student_id=drafted["id"],
+                status=SubmissionStatus.ai_marked,
+            )
+        )
+        await session.commit()
+
+    body = (await client.get("/api/v1/today", headers=tutor["headers"])).json()
+    queue = (await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json()
+    assert body["review_count"] == len(queue)
+    assert body["review_count"] == 1, "the ai_marked draft must not inflate the headline"
+
+
 async def test_an_admin_cannot_read_another_organizations_class(client, tutor, subject_id):
     """SEC-7: the organization comes from the authenticated user. An admin is a
     tutor with wider reach inside their own organization, not across them."""

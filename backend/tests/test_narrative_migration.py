@@ -122,6 +122,42 @@ def test_upgrade_writes_and_reads_a_row(bound_migration, conn):
     assert row.text == "stored text"
 
 
+@pytest.mark.parametrize(
+    "group_id,student_id",
+    [("1", "1"), ("NULL", "NULL")],
+    ids=["both_targets", "no_target"],
+)
+def test_upgrade_rejects_a_row_without_exactly_one_target(
+    bound_migration, conn, group_id, student_id
+):
+    """ck_narratives_exactly_one_target must live in the **migration's** DDL.
+
+    tests/test_narrative.py asserts the same rejection, but that suite builds its
+    schema from Base.metadata — so it passes whether or not the migration carries
+    the constraint. Production runs the migration, not the model metadata, and
+    that gap is exactly RISK-3. This asserts against the table the migration
+    itself creates.
+    """
+    bound_migration.upgrade()
+    conn.commit()
+    conn.execute(sa.text("INSERT INTO organizations (id) VALUES (1)"))
+    conn.execute(sa.text("INSERT INTO groups (id) VALUES (1)"))
+    conn.execute(sa.text("INSERT INTO users (id) VALUES (1)"))
+    conn.commit()
+
+    with pytest.raises(sa.exc.IntegrityError):
+        conn.execute(
+            sa.text(
+                "INSERT INTO narratives "
+                "(organization_id, audience, group_id, student_id, text, prompt_version, "
+                "model, generated_at) "
+                f"VALUES (1, 'tutor_class', {group_id}, {student_id}, 'x', 'v1', 'm', "
+                "'2026-01-01 00:00:00+00:00')"
+            )
+        )
+    conn.rollback()
+
+
 def test_downgrade_drops_the_indexes_and_the_table(bound_migration, conn):
     bound_migration.upgrade()
     conn.commit()

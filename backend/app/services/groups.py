@@ -13,6 +13,7 @@ from app.models import (
     AssignmentStatus,
     Group,
     GroupMember,
+    PastPaper,
     ScheduleSlot,
     Submission,
     SubmissionStatus,
@@ -32,6 +33,30 @@ AWAITING_REVIEW = (
     SubmissionStatus.ai_failed,
     SubmissionStatus.needs_review,
 )
+
+
+def review_queue_predicate(organization_id: int):
+    """The one definition of "waiting on a tutor **in the review queue**".
+
+    Distinct from AWAITING_REVIEW above, and deliberately so: that tuple is the
+    per-class workload on a class card, which counts an AI draft still to be
+    confirmed. The review queue is narrower — only `needs_review` — and is
+    scoped by organization rather than by who owns the class, because past
+    papers have no group and a tutor covering for a colleague still has to mark
+    the work.
+
+    Shared because the home's headline count links straight to the page this
+    predicate selects. When the two drifted, the home said "3 pieces to mark"
+    and the queue it linked to listed a different set — the count was built
+    from AWAITING_REVIEW scoped by `Group.tutor_id`, so it counted AI drafts the
+    queue never shows and dropped a colleague's homework the queue does show.
+    Both call sites already outer-join Assignment -> Group and PastPaper, so
+    this WHERE clause is the whole of the difference.
+    """
+    return (
+        Submission.status == SubmissionStatus.needs_review,
+        (Group.organization_id == organization_id) | (PastPaper.organization_id == organization_id),
+    )
 
 
 def soonest_slot(slots: list[ScheduleSlot], now: datetime) -> NextLesson | None:
