@@ -49,6 +49,7 @@ SURFACES = (
     "readiness",
     "chat",
     "class_brief",
+    "narrative",
 )
 
 # Which ai_usage_events.feature bucket each surface meters into. Several
@@ -63,6 +64,8 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "readiness": AiFeature.readiness,
     "chat": AiFeature.chat,
     "class_brief": AiFeature.report,
+    # The stored narrative is a report-shaped paragraph, so it shares that bucket.
+    "narrative": AiFeature.report,
 }
 
 

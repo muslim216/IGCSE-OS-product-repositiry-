@@ -444,6 +444,30 @@ h3 {
   color: var(--color-surface);
 }
 
+/* ---------------------------------------------------------------------
+   Safe-area insets for fixed mobile chrome.
+
+   The bottom tab bar (AppShell) is position:fixed and would otherwise sit
+   under the iOS home indicator. `viewport-fit=cover` in index.html is what
+   makes env(safe-area-inset-*) resolve to a real value on notched devices;
+   without it these insets are 0 and this padding is a harmless no-op on every
+   other device. Kept unlayered alongside the retarget block (UX-1).
+   --------------------------------------------------------------------- */
+.pb-safe {
+  padding-bottom: calc(0.375rem + env(safe-area-inset-bottom));
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+/* Reserve room at the foot of scrollable content so the fixed bar never covers
+   the last row. The tab bar is ~3.5rem tall plus the home-indicator inset. */
+.pb-tabbar {
+  padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
+}
+
 /* Respect prefers-reduced-motion: suppress non-essential transitions and any
    animation that moves across the viewport (WCAG 2.3.3 / UX-17). */
 @media (prefers-reduced-motion: reduce) {

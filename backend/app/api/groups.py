@@ -32,6 +32,7 @@ from app.security import hash_password
 from app.services.ai import AIUnavailableError, record_usage, text_complete
 from app.services.groups import summaries as group_summaries
 from app.services.invites import build_invite
+from app.services.narrative import enqueue_narratives_for_group
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -248,6 +249,10 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
             "once homework or mocks are marked, a summary will appear here."
         )
 
+    # The handler contributes only grounding data. Every instruction — including
+    # the D3 rule on naming a learner and the data-not-instructions posture —
+    # lives in the class_brief system prompt (services/prompts.py), so a wording
+    # change is one versioned edit there, not a scatter across call sites (AI-6).
     weak_topics_text = "\n".join(
         f"- {t.topic_title} ({t.topic_code}): avg {t.avg_score}% across {t.student_count} students"
         for t in analytics.weak_topics[:5]
@@ -257,11 +262,9 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
     )
 
     prompt = (
-        f"Group: {group.name} ({group.subject.name if group.subject else ''})\n\n"
+        f"Class: {group.name} ({group.subject.name if group.subject else ''})\n\n"
         f"Weakest topics across the class:\n{weak_topics_text or '(none yet)'}\n\n"
-        f"Students with the lowest overall readiness:\n{weak_students_text or '(none yet)'}\n\n"
-        "Write a short (3-5 sentence) pre-lesson brief for the tutor: what to focus on today "
-        "and who might need extra attention. Plain prose, no headings."
+        f"Learners with the lowest overall readiness:\n{weak_students_text or '(none yet)'}"
     )
     try:
         response = await text_complete(surface="class_brief", prompt=prompt, max_tokens=400)
@@ -275,6 +278,12 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
         student_id=None,
         feature=AiFeature.report,
     )
+    # "Prepare again" also refreshes the stored narratives for this class — the
+    # tutor's own paragraph and the parent paragraph for each learner in it. Per
+    # D2 there is no approval step, so a tutor who reads something wrong
+    # regenerates it rather than approving it: a correction after the fact, not a
+    # gate. It adds no state to the row and no obligation on the tutor.
+    await enqueue_narratives_for_group(db, group.id)
     await db.commit()
     return ClassBrief(brief=response.text.strip())
 

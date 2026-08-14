@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import { AuthProvider } from "../auth/AuthContext";
+import type { TodayView } from "../api/today";
 
 const TUTOR = {
   id: 1,
@@ -13,56 +14,54 @@ const TUTOR = {
   name: "Amina Rahman",
 };
 
-const SUBJECT = { id: 1, exam_board: "CIE", code: "0625", name: "Physics", grade_scale: "9-1" };
+function classRow(over: Partial<TodayView["classes"][number]> = {}) {
+  return {
+    group_id: 5,
+    name: "Physics A",
+    subject_name: "Physics",
+    score: 48,
+    predicted_grade: "4",
+    status: "at_risk" as const,
+    boundaries_missing: false,
+    member_count: 11,
+    students_with_evidence: 9,
+    awaiting_review_count: 1,
+    ...over,
+  };
+}
 
-function stubFetch(empty = false) {
+const EMPTY_VIEW: TodayView = {
+  classes: [],
+  lessons: [],
+  review_count: 0,
+  class_count: 0,
+  joined_student_count: 0,
+  classes_with_evidence: 0,
+};
+
+function stubFetch(view: TodayView, narrative: string | null = null, attention?: unknown[]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
-
       if (url.includes("/auth/me")) return json(TUTOR);
-      if (empty) return json([]);
-
-      if (url.includes("/me/today-lessons")) {
-        return json([
-          {
-            id: 1,
-            group_id: 5,
-            group_name: "Physics A",
-            subject_name: "Physics",
-            weekday: 2,
-            start_time: "16:00:00",
-            duration_min: 60,
-            title: null,
-          },
-        ]);
+      if (url.includes("/narrative")) {
+        return json({ text: narrative, generated_at: null, prompt_version: null });
       }
-      if (url.includes("/analytics/groups/5")) {
-        return json({
-          weak_students: [
-            { student_id: 9, student_name: "Aya Hassan", subject_name: "Physics", score: 42.5 },
-            { student_id: 10, student_name: "Omar Ali", subject_name: "Physics", score: 81 },
-          ],
-          weak_topics: [],
-          agreement: { total_marked_questions: 0, ai_agreed: 0, agreement_rate: null },
-        });
-      }
+      if (url.includes("/api/v1/today")) return json(view);
       if (url.includes("/assignments/attention")) {
+        if (attention !== undefined) return json(attention);
         return json([
           {
             assignment_id: 3,
             assignment_title: "Forces worksheet",
-            reason: "ai_marked",
+            reason: "needs_review",
             detail: null,
             submission_id: 7,
             student_name: "Aya Hassan",
           },
         ]);
-      }
-      if (url.includes("/groups")) {
-        return json([{ id: 5, name: "Physics A", subject: SUBJECT, member_count: 2 }]);
       }
       return json([]);
     }),
@@ -95,53 +94,188 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("shows today's sessions and learner readiness from real evidence", async () => {
-  stubFetch();
-  renderDashboard();
-
-  expect(await screen.findByText(/Amina\./)).toBeInTheDocument();
-  expect(await screen.findByText("16:00")).toBeInTheDocument();
-  expect((await screen.findAllByText("Physics A")).length).toBeGreaterThan(0);
-
-  expect(await screen.findByText("Aya Hassan")).toBeInTheDocument();
-  expect(await screen.findByText("At risk")).toBeInTheDocument();
-  expect(await screen.findByText("1 learner")).toBeInTheDocument();
-
-  // "On track" labels both the filter tab and Omar's status badge.
-  const omarRow = (await screen.findByText("Omar Ali")).closest("tr")!;
-  expect(within(omarRow).getByText("On track")).toBeInTheDocument();
-
-  const row = (await screen.findByText("Aya Hassan")).closest("tr")!;
-  expect(within(row).getByRole("link", { name: /Review evidence/ })).toHaveAttribute(
-    "href",
-    "/tutor/students/9",
+test("a clear day ends with a sentence and renders no empty panels", async () => {
+  // Nothing awaiting review means nothing in the attention list either — a
+  // fixture with one but not the other is a state the backend cannot produce.
+  stubFetch(
+    {
+      classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
+      lessons: [],
+      review_count: 0,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+    },
+    null,
+    [],
   );
-});
-
-test("the on-track filter narrows the table to learners who are on track", async () => {
-  stubFetch();
-  renderDashboard();
-  await screen.findByText("Aya Hassan");
-
-  fireEvent.click(screen.getByRole("button", { name: /On track/ }));
-
-  await waitFor(() => expect(screen.queryByText("Aya Hassan")).not.toBeInTheDocument());
-  expect(screen.getByText("Omar Ali")).toBeInTheDocument();
-});
-
-test("create lesson opens a dialog", async () => {
-  stubFetch();
   renderDashboard();
 
-  fireEvent.click(await screen.findByRole("button", { name: "Create lesson" }));
-  expect(await screen.findByRole("dialog")).toHaveAccessibleName("Schedule a weekly lesson");
+  expect(await screen.findByText("Your classes are running well.")).toBeInTheDocument();
+  expect(await screen.findByText("That's everything. Enjoy your day.")).toBeInTheDocument();
+  // NEEDS YOU is not rendered at all when nothing needs them (UX-29).
+  expect(screen.queryByText("Needs you")).not.toBeInTheDocument();
+  // No fabricated zero anywhere.
+  expect(screen.queryByText("0%")).not.toBeInTheDocument();
 });
 
-test("with no data it explains the empty state and invents no scores", async () => {
-  stubFetch(true);
+test("eight healthy classes collapse to one line", async () => {
+  const classes = Array.from({ length: 8 }, (_, i) =>
+    classRow({
+      group_id: i + 1,
+      name: `Class ${i + 1}`,
+      status: "on_track",
+      predicted_grade: "8",
+      awaiting_review_count: 0,
+    }),
+  );
+  stubFetch({
+    classes,
+    lessons: [],
+    review_count: 0,
+    class_count: 8,
+    joined_student_count: 80,
+    classes_with_evidence: 8,
+  });
   renderDashboard();
 
-  expect(await screen.findByText("No sessions today.")).toBeInTheDocument();
-  expect(await screen.findByText("No readiness evidence yet.")).toBeInTheDocument();
-  expect(screen.queryByText(/%$/)).not.toBeInTheDocument();
+  // One summarising line, not eight rows — and nothing is hidden: every class
+  // name still appears on that line.
+  expect(await screen.findByText(/8 classes on track/)).toBeInTheDocument();
+  expect(screen.getByText(/Class 1 8/)).toBeInTheDocument();
+});
+
+test("the verdict counts classes needing attention, in words", async () => {
+  stubFetch({
+    classes: [
+      classRow({ group_id: 1, name: "A", status: "at_risk" }),
+      classRow({ group_id: 2, name: "B", status: "at_risk" }),
+      classRow({ group_id: 3, name: "C", status: "on_track" }),
+    ],
+    lessons: [],
+    review_count: 0,
+    class_count: 3,
+    joined_student_count: 30,
+    classes_with_evidence: 3,
+  });
+  renderDashboard();
+  expect(await screen.findByText("Two classes need attention.")).toBeInTheDocument();
+});
+
+test("a zero-count clause is omitted rather than rendered as 0", async () => {
+  stubFetch({
+    classes: [classRow({ status: "on_track", awaiting_review_count: 0 })],
+    lessons: [
+      {
+        id: 1,
+        group_id: 5,
+        group_name: "Physics A",
+        subject_name: "Physics",
+        weekday: 2,
+        start_time: "16:00:00",
+        duration_min: 60,
+        title: null,
+      },
+    ],
+    review_count: 0,
+    class_count: 1,
+    joined_student_count: 11,
+    classes_with_evidence: 1,
+  });
+  renderDashboard();
+
+  // The lessons clause renders; the marking clause is absent, not "0 pieces".
+  expect(await screen.findByText("One lesson today")).toBeInTheDocument();
+  expect(screen.queryByText(/0 pieces/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/zero/i)).not.toBeInTheDocument();
+});
+
+test("a class without evidence says so in words, never a zero or an empty bar", async () => {
+  stubFetch({
+    classes: [
+      classRow({ score: null, predicted_grade: null, status: null, students_with_evidence: 0 }),
+    ],
+    lessons: [],
+    review_count: 0,
+    class_count: 1,
+    joined_student_count: 11,
+    classes_with_evidence: 0,
+  });
+  renderDashboard();
+
+  expect(await screen.findByText("Nothing marked yet.")).toBeInTheDocument();
+  expect(await screen.findByText("not enough data yet")).toBeInTheDocument();
+  expect(screen.queryByText("0%")).not.toBeInTheDocument();
+});
+
+test("a subject with no boundaries offers the action that fixes it", async () => {
+  stubFetch({
+    classes: [
+      classRow({ status: null, predicted_grade: null, boundaries_missing: true, score: 70 }),
+    ],
+    lessons: [],
+    review_count: 0,
+    class_count: 1,
+    joined_student_count: 11,
+    classes_with_evidence: 1,
+  });
+  renderDashboard();
+
+  expect(await screen.findByText("no grade boundaries set")).toBeInTheDocument();
+  expect(screen.getByText("Set them →")).toBeInTheDocument();
+});
+
+test("WHAT CHANGED reads the stored narrative, present on open", async () => {
+  stubFetch(
+    {
+      classes: [classRow()],
+      lessons: [],
+      review_count: 1,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+    },
+    "Bonding is the sticking point this week.",
+  );
+  renderDashboard();
+  expect(await screen.findByText("Bonding is the sticking point this week.")).toBeInTheDocument();
+});
+
+test("no narrative yet states the absence rather than rendering an empty panel", async () => {
+  stubFetch({
+    classes: [classRow()],
+    lessons: [],
+    review_count: 1,
+    class_count: 1,
+    joined_student_count: 11,
+    classes_with_evidence: 1,
+  });
+  renderDashboard();
+  expect(await screen.findByText("Nothing new since yesterday.")).toBeInTheDocument();
+});
+
+test("with no classes the surface offers the one useful action", async () => {
+  stubFetch(EMPTY_VIEW);
+  renderDashboard();
+  expect(await screen.findByText("You haven't set up a class yet.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Create a class/ })).toBeInTheDocument();
+});
+
+test("no student is named outside the review list", async () => {
+  // D3, as narrowed: the home never renders an enumerated list of named learners.
+  // The class strip names classes; only NEEDS YOU names work, by its title.
+  stubFetch({
+    classes: [classRow(), classRow({ group_id: 6, name: "Chem B" })],
+    lessons: [],
+    review_count: 2,
+    class_count: 2,
+    joined_student_count: 22,
+    classes_with_evidence: 2,
+  });
+  renderDashboard();
+
+  // Wait for the strip itself (a class name only the aggregate supplies).
+  await screen.findByText("Chem B");
+  // The class strip carries class names, never a roster of learners.
+  expect(screen.queryByText("Aya Hassan")).not.toBeInTheDocument();
 });

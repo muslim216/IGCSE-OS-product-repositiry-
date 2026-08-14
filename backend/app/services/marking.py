@@ -41,6 +41,7 @@ from app.services import storage
 from app.services.ai import file_block, record_usage, structured_complete
 from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
+from app.services.narrative import enqueue_class_narratives_for_student_subject
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.workers.jobs import enqueue
 
@@ -355,6 +356,10 @@ async def record_marks_as_evidence(
         {"student_id": submission.student_id, "subject_id": subject_id},
     )
     await enqueue_readiness_v2_debounced(session, submission.student_id, subject_id)
+    # The class narrative is refreshed from the tail of the evidence build, not
+    # from a router: evidence landing is the event that makes the stored
+    # paragraph stale. Deduped against pending jobs and gated on the kill switch.
+    await enqueue_class_narratives_for_student_subject(session, submission.student_id, subject_id)
 
 
 async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) -> None:

@@ -48,6 +48,27 @@ def test_default_routing_splits_providers_by_surface():
     assert chat_model == "claude-haiku-4-5"
 
 
+def test_narrative_surface_is_registered_and_routes_like_a_report():
+    """The stored narrative (services/narrative.py) is a report-shaped
+    paragraph, so it routes to Anthropic by default like class_brief/reports,
+    and meters into the same ai_usage_events feature bucket."""
+    assert "narrative" in SURFACES
+    assert SURFACE_FEATURE["narrative"] is AiFeature.report
+    assert resolve_surface("narrative")[0] is AiProvider.anthropic
+
+
+def test_narrative_surface_model_falls_back_to_the_anthropic_default(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_narrative_model", "")
+    monkeypatch.setattr(settings, "anthropic_model", "claude-test")
+    assert resolve_surface("narrative") == (AiProvider.anthropic, "claude-test")
+
+
+def test_narrative_surface_model_can_be_pinned(monkeypatch):
+    monkeypatch.setattr(get_settings(), "ai_narrative_model", "claude-narrative-pinned")
+    assert resolve_surface("narrative")[1] == "claude-narrative-pinned"
+
+
 def test_surface_model_falls_back_to_the_providers_default(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "ai_reports_model", "")

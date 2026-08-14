@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     ai_readiness_model: str = ""
     ai_class_brief_provider: str = "anthropic"
     ai_class_brief_model: str = ""
+    # The stored narrative (services/narrative.py) — a report-shaped paragraph,
+    # so it routes to Opus by default like reports.
+    ai_narrative_provider: str = "anthropic"
+    ai_narrative_model: str = ""
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
@@ -70,6 +74,30 @@ class Settings(BaseSettings):
     # after the first trigger in the burst — see
     # readiness_v2_ai.enqueue_readiness_v2_debounced().
     readiness_v2_coalesce_seconds: int = 600
+    # The precomputed narrative (services/narrative.py) adds a recurring model
+    # call proportional to evidence volume. This is its kill switch: off stops
+    # new narratives being enqueued (class triggers and the weekly parent sweep)
+    # while leaving every stored narrative readable — instant rollback, no
+    # deploy. Default on.
+    narrative_enabled: bool = True
+    # How stale a parent narrative may get before the weekly sweep refreshes it.
+    narrative_parent_max_age_days: int = Field(default=7, ge=1)
+    # The sweep re-enqueues itself this far out; a failed sweep costs one cycle
+    # and self-corrects on the next.
+    # ge=1: at zero or negative the successor is already due on arrival and the
+    # sweep re-arms itself continuously, spinning the worker.
+    narrative_sweep_interval_hours: int = Field(default=24, ge=1)
+    # Most learners one sweep will enqueue. ge=1: at zero the sweep runs
+    # forever and writes nothing. The cap exists so a first run against an
+    # established installation drains over several cycles rather than spending
+    # one AI call per learner in a single burst.
+    narrative_sweep_max_students: int = Field(default=250, ge=1)
+    # Extra delay on an evidence-triggered class narrative, on top of
+    # readiness_v2_coalesce_seconds. The narrative is grounded in the v2
+    # snapshot, so it must run *after* the debounced recompute has written one —
+    # otherwise it describes pre-marking readiness and then looks fresh. This is
+    # the margin for the run itself, not just for it becoming due.
+    narrative_readiness_margin_seconds: int = 300
     # Google Classroom integration (see services/google_classroom.py). Both
     # unset -> the feature reports "not configured" everywhere and the app
     # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful

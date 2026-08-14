@@ -22,6 +22,7 @@ from app.api import (
     knowledge,
     lessons,
     me,
+    narrative,
     past_papers,
     preferences,
     readiness,
@@ -33,6 +34,7 @@ from app.api import (
     subjects,
     submissions,
     syllabus_uploads,
+    today,
 )
 from app.config import get_settings
 from app.db import async_session
@@ -40,6 +42,13 @@ from app.models import Job, JobStatus
 from app.services.extraction import extract_assignment, extract_past_paper
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
+from app.services.narrative import (
+    CLASS_NARRATIVE_JOB,
+    SWEEP_JOB,
+    ensure_narrative_sweep_scheduled,
+    generate_narrative,
+    sweep_parent_narratives,
+)
 from app.services.readiness import recompute_student
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
@@ -69,6 +78,12 @@ register_handler("extract_syllabus", extract_syllabus)
 # linked (api/classroom.py). Enqueued on demand today; a future scheduler
 # can call the same job type periodically with no handler changes.
 register_handler("sync_classroom", sync_classroom)
+# The stored narrative (services/narrative.py). The class paragraph is enqueued
+# from the tail of the evidence build; the parent paragraph by a weekly sweep
+# that re-derives who is due and re-enqueues itself — never a self-perpetuating
+# per-student chain, whose schedule would die with one failed job row.
+register_handler(CLASS_NARRATIVE_JOB, generate_narrative)
+register_handler(SWEEP_JOB, sweep_parent_narratives)
 
 
 #: Pause before restarting a worker that died, so a failure that recurs
@@ -107,6 +122,19 @@ async def _supervised_worker() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Floor under the parent-narrative schedule: the sweep re-enqueues itself,
+    # but if that row is ever lost (a failure past MAX_ATTEMPTS, a manual purge)
+    # every parent narrative stops silently. Re-scheduling it here is idempotent
+    # — it does nothing when a sweep is already pending — so a restart heals the
+    # schedule without accumulating rows. Best-effort: a database that is not
+    # ready must not stop the API from booting.
+    try:
+        async with async_session() as session:
+            await ensure_narrative_sweep_scheduled(session)
+            await session.commit()
+    except Exception:  # noqa: BLE001 — startup must survive a cold database
+        log.exception("could not schedule the narrative sweep at startup")
+
     worker = asyncio.create_task(_supervised_worker())
     yield
     worker.cancel()
@@ -287,6 +315,7 @@ def create_app() -> FastAPI:
         knowledge.router,
         lessons.router,
         me.router,
+        narrative.router,
         past_papers.router,
         preferences.router,
         readiness.router,
@@ -298,6 +327,7 @@ def create_app() -> FastAPI:
         subjects.router,
         submissions.router,
         syllabus_uploads.router,
+        today.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

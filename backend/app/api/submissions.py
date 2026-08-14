@@ -40,6 +40,7 @@ from app.schemas.homework import (
     SubmissionSummary,
 )
 from app.services import storage
+from app.services.groups import review_queue_predicate
 from app.services.marking import record_marks_as_evidence
 from app.workers.jobs import enqueue
 
@@ -412,11 +413,9 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
             .outerjoin(Group, Group.id == Assignment.group_id)
             .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
             .join(User, User.id == Submission.student_id)
-            .where(
-                Submission.status == SubmissionStatus.needs_review,
-                (Group.organization_id == user.organization_id)
-                | (PastPaper.organization_id == user.organization_id),
-            )
+            # Shared with the home's headline count, which links here — see
+            # services/groups.review_queue_predicate.
+            .where(*review_queue_predicate(user.organization_id))
             .order_by(Submission.submitted_at.desc())
         )
     ).all()

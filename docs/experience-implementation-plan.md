@@ -42,6 +42,7 @@
 - [19. Risk register](#19-risk-register)
 - [20. Definition of done](#20-definition-of-done)
 - [21. Review record](#21-review-record)
+- [22. Delivery record — where the build differed from the plan](#22-delivery-record--where-the-build-differed-from-the-plan)
 
 ---
 
@@ -764,7 +765,7 @@ a token.
 presentational.
 **Rollback:** Revert — one commit, which is why this is its own PR.
 
-### PR 11 — `ClassReadinessPage` converges onto `ReadinessTable` · S
+### PR 11 — `ClassReadinessPage` converges onto `ReadinessTable` · S  ·  **Shipped**
 
 **Does:** The page carries its own legacy markup and a second copy of the readiness thresholds.
 PR 1 deleted the thresholds; this deletes the markup and renders `components/ReadinessTable`.
@@ -773,7 +774,7 @@ PR 1 deleted the thresholds; this deletes the markup and renders `components/Rea
 **Tests:** `ReadinessView.test.tsx` extended to the page.
 **Rollback:** Revert.
 
-### PR 12 — Mobile chrome: safe areas and a real tab bar · M
+### PR 12 — Mobile chrome: safe areas and a real tab bar · M  ·  **Shipped**
 
 **Does:** Three things that ship together because each is unsafe without the others.
 (a) `frontend/index.html:5` gains `viewport-fit=cover`. (b) Safe-area padding tokens are added to
@@ -802,7 +803,7 @@ primary surface waits on a model to render its primary content*. Today
 inline (`:258-265`) while `services/prompts.py:153` registers `class_brief` with an **empty
 system string**.
 
-### PR 13 — The class-brief prompt moves to `services/prompts.py` · S
+### PR 13 — The class-brief prompt moves to `services/prompts.py` · S  ·  **Shipped**
 
 **Does:** Moves the instruction text into the registered template with a real version, leaving the
 handler passing only grounding data. Encodes **D3**: the prompt states whether and how a student
@@ -820,7 +821,7 @@ their own namespace, so patching the source does nothing (`QA-7`). Never call a 
 (`QA-8`).
 **Rollback:** Revert. The brief is regenerated on demand and stored nowhere, so nothing migrates.
 
-### PR 14 — Narrative storage and job · L (migration)
+### PR 14 — Narrative storage and job · L (migration)  ·  **Shipped**
 
 **Does:**
 
@@ -953,7 +954,7 @@ evidence volume, and its migration runs on deploy — `alembic upgrade head` fai
 leaves the previous revision serving while `main` has already moved (runbooks R2, R4). Merge it
 alone, on a day someone is watching, and watch `ai_usage_events` for a day before PR 15.
 
-### PR 15 — Surfaces read the stored narrative · M
+### PR 15 — Surfaces read the stored narrative · M  ·  **Shipped**
 
 **Does:** `GET /groups/{group_id}/narrative` and `GET /students/{student_id}/narrative` return the
 latest stored text with its `generated_at`, or a stated absence. `POST /groups/{group_id}/brief`
@@ -984,7 +985,7 @@ call fails **open**. `PROD-7` — the tutor's veto writes its append-only audit 
 
 ## 12. Stage 5 — Tutor surfaces
 
-### PR 16 — Navigation down to four · M
+### PR 16 — Navigation down to four · M  ·  **Shipped**
 
 **Does:** Nine tutor nav items (`App.tsx:82-92`) become **Today · Classes · Review · Library**.
 Library absorbs past papers, mocks and syllabuses; Preferences and Settings leave the primary
@@ -1002,7 +1003,7 @@ redirects.
 **Watch:** Low mechanically, high in perception. This is the change a tutor will call "the
 redesign" — tell them before it ships.
 
-### PR 17 — One aggregate endpoint for the tutor's home · M
+### PR 17 — One aggregate endpoint for the tutor's home · M  ·  **Shipped**
 
 **Does:** `api/analytics.py:49-58` performs a `db.get(User, …)` plus a `TopicReadiness` select
 **per student in a Python loop**, and `TodayDashboard.tsx:37-43` fans that out **per group** via
@@ -1019,7 +1020,7 @@ home's path.
 from regressing. Plus `test_today_lessons_use_org_timezone` at the aggregate level.
 **Rollback:** Revert. Additive; nothing reads it yet.
 
-### PR 18 — Today, rebuilt · L
+### PR 18 — Today, rebuilt · L  ·  **Shipped**
 
 **Does:** Replaces the four stacked sections with spec §4.1 (desktop) and §4.2 (phone), in the
 states of §3.1 and the copy of §4.2–4.4: verdict block as a single primary target, class strip
@@ -1039,7 +1040,7 @@ stays in TanStack Query, not copied into `useState`.
 - `test_narrative_refreshing_shows_previous_text`
 **Rollback:** Revert. Reversible in code, not in perception.
 
-### PR 19 — Class page · M
+### PR 19 — Class page · M  ·  **Shipped**
 
 **Does:** Spec §4.3 and the states of §3.2 — verdict with grade, band and coverage; `WHY`; and
 `NEEDS YOU` **selected on direction, not level**, so a student sliding from 8 to 6 appears and a
@@ -1056,7 +1057,7 @@ badge, no unread state, no indication that anything is expected of them.
 - `test_class_with_zero_students_renders_empty_room`
 **Rollback:** Revert.
 
-### PR 20 — Review queue traversal · M
+### PR 20 — Review queue traversal · M  ·  **Shipped**
 
 **Does:** Adds *Reviewing 1 of 6*, *Skip*, *Finalize & next*, with the breadcrumb returning to the
 queue instead of the assignment (`SubmissionReviewPage.tsx:117`).
@@ -1569,3 +1570,39 @@ section for a reviewed one.
 
 **Nothing in the unreviewed rows blocks Stages 0–3.** The two that must be closed before their PR
 is written are the job-scheduling question (PR 14) and the two security questions (PRs 23, 26).
+
+---
+
+## 22. Delivery record — where the build differed from the plan
+
+**PRs 0–20 are built, and PRs 0–10 are shipped.** "Shipped" on a heading means the work is
+complete and verified against its own tests, not that it is serving traffic: `main` is the only
+branch anything deploys from, and PR 12 additionally carries a merge gate CI cannot satisfy —
+see the two open items below. This section records only where the implementation *diverged*
+from what the plan specified, so the next reader finds the reasoning rather than a silent
+discrepancy (`GOV-1`, `GOV-3`).
+
+| # | Plan said | Built | Why |
+|---|---|---|---|
+| 12 | A bottom tab bar honouring `slot` | As specified, plus a **More overflow sheet** | The student role carries eight destinations. Without an overflow the bar would either drop destinations or shrink below the 44px floor. `slot: "bottom"` items are never primary tabs — they fold into More, which preserves the split the sidebar already honoured. |
+| 16 | Retire nine nav items to four | As specified; `/tutor/homework` **redirects to `/tutor/review`** rather than to a Library entry | The homework overview's two panels *were* the review queue; a redirect to a page that repeats them is what a bookmark holder actually wants. `HomeworkOverviewPage.tsx` is deleted rather than left orphaned. |
+| 14 | `generate_narrative` re-runs are no-ops | As specified, plus a **`force` flag on the payload** | "Prepare again" (D2's correction) must produce new text even with no new evidence — that is the entire point of the control. Without the flag the explicit regenerate would silently no-op against its own staleness check. Ordinary re-runs are unaffected, so `BE-6` still holds. |
+| 17 | Aggregate the home in bounded queries | As specified; grade-boundary overrides are **fetched once per organization** rather than via `resolve_grade_boundaries()` per class | Calling the shared resolver inside the class loop would have reintroduced exactly the per-class round trip the endpoint exists to remove. The precedence it implements (org override, else global default) is preserved verbatim. |
+| 17 | Return a review count | Summed from the per-class counts, **not queried directly** | `Submission` is polymorphic and carries no `group_id`; a past-paper submission has `assignment_id` `None`. A direct join would drop past papers or raise (`API-20`). `services/groups.summaries()` already joins through `Assignment.group_id` correctly, so reusing it keeps one definition of "awaiting review". |
+| 18 | Rebuild `tutor/today/*` | As specified; **four panels deleted** (`ActivityPanel`, `TeachingRhythm`, `DashboardHeader`, `EvidenceToAction`) | Their content is now inline in the rebuilt surface or superseded by the stored narrative. `DashboardHeader` carried PR 8's `aria-label` comment; the search control it documented no longer exists on this surface, so the reasoning no longer holds (`CODE-12`/`CODE-13` considered before removal, not after). |
+| 18 | Verdict composed on the surface | Composition extracted to **`frontend/src/lib/verdict.ts`** | The copy rules (counts as words, zero clauses omitted, every verdict a full sentence) are §4.1–4.4 rules, not view code. Pure and unit-tested, they cannot drift as the surface evolves. |
+| 20 | Queue traversal on the review page | As specified, **opt-in via `?queue=review`** | Arriving from an assignment page or a bookmark is a different task from working a queue. Gating the controls on the query parameter leaves that path exactly as it was and keeps "Reviewing 1 of 6" honest — it only ever counts a queue the tutor actually entered. |
+
+**Two things the plan asked for that are deliberately still open:**
+
+- **PR 12's device check.** ≥44×44 targets and `viewport-fit=cover` are implemented and the
+  overflow is tested, but a **safe-area error cannot be caught by CI** — the plan's own
+  instruction to verify on a physical iOS device and an Android before merging still stands.
+- **PR 14's spend watch.** The narrative job adds recurring model spend proportional to evidence
+  volume. `NARRATIVE_ENABLED` is the kill switch (instant, no deploy), and `ai_usage_events`
+  should be watched for a day before the surfaces are relied on, exactly as §18 specifies.
+
+**The accessibility row above is still unreviewed and now has more surface to cover:** the
+`Updating…` live region ships in PR 18's narrative section and PR 19's, and the 🟢/🟡/🔴 banding
+now appears on the class strip. Non-colour redundancy and route-change announcement remain
+unspecified.

@@ -2,6 +2,7 @@
 tutor's class cards."""
 
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime, time
 
 from sqlalchemy import distinct, func, select
@@ -12,6 +13,7 @@ from app.models import (
     AssignmentStatus,
     Group,
     GroupMember,
+    PastPaper,
     ScheduleSlot,
     Submission,
     SubmissionStatus,
@@ -31,6 +33,30 @@ AWAITING_REVIEW = (
     SubmissionStatus.ai_failed,
     SubmissionStatus.needs_review,
 )
+
+
+def review_queue_predicate(organization_id: int):
+    """The one definition of "waiting on a tutor **in the review queue**".
+
+    Distinct from AWAITING_REVIEW above, and deliberately so: that tuple is the
+    per-class workload on a class card, which counts an AI draft still to be
+    confirmed. The review queue is narrower — only `needs_review` — and is
+    scoped by organization rather than by who owns the class, because past
+    papers have no group and a tutor covering for a colleague still has to mark
+    the work.
+
+    Shared because the home's headline count links straight to the page this
+    predicate selects. When the two drifted, the home said "3 pieces to mark"
+    and the queue it linked to listed a different set — the count was built
+    from AWAITING_REVIEW scoped by `Group.tutor_id`, so it counted AI drafts the
+    queue never shows and dropped a colleague's homework the queue does show.
+    Both call sites already outer-join Assignment -> Group and PastPaper, so
+    this WHERE clause is the whole of the difference.
+    """
+    return (
+        Submission.status == SubmissionStatus.needs_review,
+        (Group.organization_id == organization_id) | (PastPaper.organization_id == organization_id),
+    )
 
 
 def soonest_slot(slots: list[ScheduleSlot], now: datetime) -> NextLesson | None:
@@ -149,4 +175,91 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
             next_lesson=soonest_slot(by_group.get(gid, []), now),
         )
         for gid in group_ids
+    }
+
+
+async def weighted_learner_scores(
+    session: AsyncSession, groups: Sequence[Group]
+) -> dict[int, dict[int, float]]:
+    """Each learner's subject-weighted readiness, for every given class, in one
+    query: SUM(weight * score) / SUM(weight) over confident TopicReadiness rows
+    in that class's own subject.
+
+    This is *the* definition of a learner's readiness on the tutor's surfaces,
+    shared rather than restated. The class page used to carry its own copy, so
+    the class score in the header and the learner rows printed directly beneath
+    it were two independent implementations of one formula — free to drift on
+    the weighting, on which confidences count, or on which subject counts, and
+    then to disagree on screen with nothing to catch it.
+
+    Returned **unrounded**: class_health means these values and rounds once at
+    the end, while the class page rounds each learner's own row. Rounding here
+    would silently change both.
+
+    Returns {group_id: {student_id: score}}. A learner with no confident
+    evidence is absent from the inner dict rather than present with 0.0, which a
+    surface would render as a real score (PROD-2).
+    """
+    if not groups:
+        return {}
+    group_ids = [g.id for g in groups]
+    rows = (
+        await session.execute(
+            select(
+                GroupMember.group_id,
+                TopicReadiness.student_id,
+                func.sum(Topic.weight * TopicReadiness.score),
+                func.sum(Topic.weight),
+            )
+            .select_from(TopicReadiness)
+            .join(Topic, Topic.id == TopicReadiness.topic_id)
+            .join(GroupMember, GroupMember.student_id == TopicReadiness.student_id)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(
+                GroupMember.group_id.in_(group_ids),
+                # Topics are global, so the subject match is what stops another
+                # subject's readiness leaking into this class's number.
+                Topic.subject_id == Group.subject_id,
+                TopicReadiness.confidence.in_(CONFIDENT),
+            )
+            .group_by(GroupMember.group_id, TopicReadiness.student_id)
+        )
+    ).all()
+
+    scores: dict[int, dict[int, float]] = {gid: {} for gid in group_ids}
+    for group_id, student_id, weighted, weight_total in rows:
+        if not weight_total:
+            continue
+        scores[group_id][student_id] = weighted / weight_total
+    return scores
+
+
+async def class_health(
+    session: AsyncSession, groups: Sequence[Group]
+) -> dict[int, tuple[float | None, int]]:
+    """Per-class readiness: the mean of each class's confident learner scores,
+    and how many learners contributed.
+
+    One query for every class the tutor has, not one per class and certainly not
+    one per learner. api/analytics.py computes the same shape with a db.get(User)
+    plus a TopicReadiness select inside a Python loop over students, and the home
+    surface then fanned that out per group — eight classes meant eight round
+    trips, each internally looping (PERF-1). Here the whole roster is aggregated
+    in SQL by weighted_learner_scores() and folded in Python, so the query count
+    does not grow with the number of classes or learners.
+
+    Returns {group_id: (mean_score_or_None, contributing_learner_count)}. A class
+    with no confident evidence maps to (None, 0) — never 0.0, which a surface
+    would render as a real score (PROD-2).
+    """
+    if not groups:
+        return {}
+    per_learner = await weighted_learner_scores(session, groups)
+    return {
+        gid: (
+            (round(sum(scores.values()) / len(scores), 1), len(scores))
+            if (scores := per_learner.get(gid, {}))
+            else (None, 0)
+        )
+        for gid in (g.id for g in groups)
     }

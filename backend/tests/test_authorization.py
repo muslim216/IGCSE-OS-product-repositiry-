@@ -218,3 +218,20 @@ async def test_the_analytics_a_helper_gated_handler_calls_is_gated_too(client, s
     resp = await client.get(f"/api/v1/analytics/groups/{group['id']}", headers=student["headers"])
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Tutor account required"
+
+
+async def test_the_class_narrative_is_tutor_gated(client, student, group):  # noqa: F811
+    """The stored class narrative carries its gate in the signature (SEC-11), so
+    a student is refused before the handler runs."""
+    resp = await client.get(f"/api/v1/groups/{group['id']}/narrative", headers=student["headers"])
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Tutor account required"
+
+
+async def test_the_parent_narrative_route_needs_a_token(client, student):  # noqa: F811
+    """401 before any role check; and a student asking for the paragraph written
+    for their own parent gets 404, never the text."""
+    student_id = student["user"]["id"]
+    assert (await client.get(f"/api/v1/students/{student_id}/narrative")).status_code == 401
+    resp = await client.get(f"/api/v1/students/{student_id}/narrative", headers=student["headers"])
+    assert resp.status_code == 404
