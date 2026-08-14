@@ -61,18 +61,43 @@ function queueItem(submission_id: number) {
   };
 }
 
+/** The real endpoints, matched exactly and by method.
+ *
+ * A stub that answers `200` to anything containing `/submissions/<id>` cannot
+ * fail: a finalize sent as the wrong verb, or to a path that does not exist,
+ * still gets a submission body back and the test passes on a request the API
+ * would have rejected. Each route below is pinned to its own path and method,
+ * and anything else 404s so it surfaces as a failure rather than as silence.
+ *
+ * The id is a capture, not a constant — a traversal test has to be able to land
+ * on the next submission and see it, or it can only assert a button label.
+ */
 function stubSubmission(marks: MarkRow[], queue: number[] = [], status = "needs_review") {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      const method = (init?.method ?? "GET").toUpperCase();
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
-      if (url.includes("/submissions/review-queue")) return json(queue.map(queueItem));
-      // Any id, not just 1: a traversal test has to be able to land on the next
-      // submission and see it, otherwise it can only ever assert a button label.
-      const match = /\/submissions\/(\d+)/.exec(url);
-      if (match) return json(submissionBody(marks, Number(match[1]), status));
-      return json([]);
+      const route = (pattern: RegExp, verb: string) =>
+        method === verb ? pattern.exec(path) : null;
+
+      if (route(/^\/api\/v1\/submissions\/review-queue$/, "GET")) return json(queue.map(queueItem));
+
+      const detail = route(/^\/api\/v1\/submissions\/(\d+)$/, "GET");
+      if (detail) return json(submissionBody(marks, Number(detail[1]), status));
+
+      const saved = route(/^\/api\/v1\/submissions\/(\d+)\/marks$/, "PUT");
+      if (saved) return json(submissionBody(marks, Number(saved[1]), status));
+
+      const finalized = route(/^\/api\/v1\/submissions\/(\d+)\/finalize$/, "POST");
+      if (finalized) return json(submissionBody(marks, Number(finalized[1]), "finalized"));
+
+      if (route(/^\/api\/v1\/submissions\/\d+\/marks\/\d+\/history$/, "GET")) return json([]);
+
+      return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
+        status: 404,
+      });
     }),
   );
 }
