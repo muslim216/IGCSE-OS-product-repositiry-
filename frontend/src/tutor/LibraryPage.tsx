@@ -4,6 +4,7 @@ import {
   FileText,
   Gauge,
   PenLine,
+  Ruler,
   Settings as SettingsIcon,
   SlidersHorizontal,
   type LucideIcon,
@@ -50,6 +51,12 @@ const CONTENT: Shelf[] = [
 ];
 
 const SETTINGS: Shelf[] = [
+  {
+    to: "/tutor/boundaries",
+    label: "Grade boundaries",
+    hint: "What percentage earns each grade. Every predicted grade is read through these.",
+    icon: Ruler,
+  },
   {
     to: "/tutor/preferences",
     label: "Preferences",

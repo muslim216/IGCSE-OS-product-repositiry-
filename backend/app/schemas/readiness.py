@@ -44,6 +44,11 @@ class SubjectReadiness(BaseModel):
     # None when there is too little history to say (UX-31). None renders as no
     # arrow — a "→" would claim a movement that was never measured (PROD-2).
     direction: str | None = None
+    # How far the score has moved over the last 30 days, from the *same* series
+    # as `direction` above — so a surface can never print "up" beside "-4".
+    # None when the series does not span the window (a student in their first
+    # month has no month to report), which is a stated absence, not a 0.
+    month_delta: float | None = None
     # Coverage: how much of the subject the score above is drawn from — topics
     # carrying evidence, over topics that exist. A value from part of a subject
     # is a different claim from one drawn from all of it, and the pair is what
@@ -99,6 +104,18 @@ class StudentReadinessSummary(BaseModel):
 
 
 # ---- Observations ----
+
+
+class SeedTopicScore(BaseModel):
+    topic_id: int
+    # The tutor's own estimate of where this student stands, 0-100 on the same
+    # scale every other evidence source uses — so it needs no special handling
+    # downstream and no parallel code path.
+    score_pct: float = Field(ge=0, le=100)
+
+
+class SeedReadinessIn(BaseModel):
+    topics: list[SeedTopicScore] = Field(min_length=1)
 
 
 class ObservationCreate(BaseModel):

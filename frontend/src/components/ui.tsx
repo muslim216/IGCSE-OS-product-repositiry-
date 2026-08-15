@@ -97,6 +97,27 @@ export function ReadinessBar({ score, status }: { score: number; status: Readine
   );
 }
 
+/**
+ * Direction of travel, or nothing at all.
+ *
+ * `null` renders no arrow: one readiness point is not a trend, and "→" would
+ * claim a movement that was never measured (UX-31, PROD-2). Shared because
+ * three surfaces now pair a value with its direction — the class page, the
+ * student's home and the parent screen — and a fourth copy of this rule is a
+ * fourth chance for one of them to default `null` to "flat".
+ */
+export function DirectionMark({ direction }: { direction: "up" | "flat" | "down" | null }) {
+  if (direction === null) return null;
+  const glyph = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
+  const tone =
+    direction === "up" ? "text-ok-700" : direction === "down" ? "text-risk-600" : "text-ink-500";
+  return (
+    <span className={tone} aria-label={`Trending ${direction}`}>
+      {glyph}
+    </span>
+  );
+}
+
 export function EmptyState({
   title,
   hint,

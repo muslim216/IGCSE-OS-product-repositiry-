@@ -2,9 +2,9 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { classOverview, type ClassLearnerRow } from "../api/today";
-import { generateClassBrief } from "../api/groups";
+import { createInvite, generateClassBrief } from "../api/groups";
 import { groupNarrative } from "../api/narrative";
-import { StatusBadge } from "../components/ui";
+import { DirectionMark, StatusBadge } from "../components/ui";
 import { ABSENT } from "../lib/labels";
 import { coverageLabel } from "../lib/verdict";
 
@@ -17,20 +17,6 @@ import { coverageLabel } from "../lib/verdict";
  * there under Learners. Nothing is hidden, it is ordered by what the tutor can
  * act on.
  */
-
-/** No arrow at all when direction is null: one readiness point is not a trend,
-    and "→" would be a claim the data does not support (UX-31, PROD-2). */
-function DirectionMark({ direction }: { direction: ClassLearnerRow["direction"] }) {
-  if (direction === null) return null;
-  const glyph = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
-  const tone =
-    direction === "up" ? "text-ok-700" : direction === "down" ? "text-risk-600" : "text-ink-500";
-  return (
-    <span className={tone} aria-label={`Trending ${direction}`}>
-      {glyph}
-    </span>
-  );
-}
 
 function LearnerRow({ row }: { row: ClassLearnerRow }) {
   return (
@@ -53,6 +39,56 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
         <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
       )}
     </li>
+  );
+}
+
+/**
+ * The empty room: a configured class with nobody in it yet.
+ *
+ * **A dashboard is the wrong surface here.** Readiness is computed from marked
+ * evidence, there is none, so every panel would honestly and correctly render
+ * "not enough data yet" — and a screen of empty circles reads as a broken
+ * product rather than a new one (spec §7.2).
+ *
+ * Tutors create classes; students attach themselves with an invite code, so
+ * this window is not an edge case — it is every class's first hours or days,
+ * and the tutor can do nothing to shorten it except share the code again. That
+ * is therefore the only control here.
+ *
+ * The state **changes between visits**, which is the whole requirement: it
+ * gives a new tutor a reason to open MANARA tomorrow, in the exact window when
+ * the product can otherwise show them nothing.
+ */
+function EmptyRoom({ groupId, name }: { groupId: number; name: string }) {
+  const [link, setLink] = useState<string | null>(null);
+  const invite = useMutation({
+    mutationFn: () => createInvite(groupId),
+    onSuccess: (created) => setLink(`${window.location.origin}/join/${created.code}`),
+  });
+
+  return (
+    <section className="space-y-3 rounded-lg border border-line bg-surface p-4">
+      <h3 className="font-display text-lg font-semibold text-ink-900">{name}</h3>
+      <p className="text-sm text-ink-700">No one has joined yet.</p>
+      <p className="text-sm text-ink-500">
+        Readiness appears once you've marked their first work — there is nothing to set up in the
+        meantime.
+      </p>
+      <button
+        type="button"
+        onClick={() => invite.mutate()}
+        disabled={invite.isPending}
+        className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-60"
+      >
+        {invite.isPending ? "Preparing…" : "Share again →"}
+      </button>
+      {link && (
+        <p className="break-all rounded-md bg-surface-muted px-3 py-2 font-mono text-xs text-ink-700">
+          {link}
+        </p>
+      )}
+      {invite.isError && <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>}
+    </section>
   );
 }
 
@@ -134,18 +170,8 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   const c = overview.data;
   const coverage = coverageLabel(c);
 
-  // A class nobody has joined gets the empty-room treatment rather than a
-  // dashboard of honest absences, which reads as broken rather than new.
-  if (c.member_count === 0) {
-    return (
-      <section className="rounded-lg border border-line bg-surface p-4">
-        <p className="text-sm text-ink-700">
-          No learners have joined {c.name} yet. Share the class code — readiness appears once they
-          join and their work is marked.
-        </p>
-      </section>
-    );
-  }
+  // A class nobody has joined gets the empty room rather than a dashboard.
+  if (c.member_count === 0) return <EmptyRoom groupId={groupId} name={c.name} />;
 
   return (
     <div className="space-y-6">
@@ -160,7 +186,10 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
         ) : c.boundaries_missing ? (
           <span className="text-sm text-ink-500">
             {ABSENT.noBoundaries}{" "}
-            <Link to="/tutor/library" className="font-medium text-brand-600 hover:text-brand-700">
+            <Link
+              to="/tutor/boundaries"
+              className="font-medium text-brand-600 hover:text-brand-700"
+            >
               {ABSENT.noBoundariesAction}
             </Link>
           </span>

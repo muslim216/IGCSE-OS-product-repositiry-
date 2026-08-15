@@ -29,7 +29,6 @@ from app.models import (
     AiFeature,
     AiSynthesisStatus,
     FactorEvaluation,
-    GradeBoundary,
     Group,
     GroupMember,
     Job,
@@ -42,6 +41,7 @@ from app.models import (
     User,
 )
 from app.services.ai import record_usage, structured_complete
+from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.readiness_v2 import evaluate_subject_factors
@@ -132,30 +132,10 @@ async def _resolve_weight_dict(session: AsyncSession, organization_id: int) -> d
     return {attr: getattr(weights, attr) for attr in DEFAULT_WEIGHTS}
 
 
-async def resolve_grade_boundaries(
-    session: AsyncSession, organization_id: int, subject: Subject
-) -> list[dict]:
-    """Org-entered grade boundaries take priority over the shared Subject
-    default (see CLAUDE.md: manually entered by the tutor per subject).
-
-    Public because the read path shares it: readiness_summary_v2 bands a
-    snapshot's predicted grade, and maps the averaging grade, through the same
-    ordered list that produced the predicted grade — nothing constrains an
-    organization's grade_label set to match the subject's, so both the band and
-    the predicted-beside-averaging comparison only hold if they read this list
-    rather than Subject.grade_boundaries."""
-    org_boundaries = (
-        await session.scalars(
-            select(GradeBoundary).where(
-                GradeBoundary.organization_id == organization_id,
-                GradeBoundary.subject_id == subject.id,
-            )
-        )
-    ).all()
-    if org_boundaries:
-        ordered = sorted(org_boundaries, key=lambda b: b.min_percentage, reverse=True)
-        return [{"grade": b.grade_label, "min": b.min_percentage} for b in ordered]
-    return subject.grade_boundaries
+# resolve_grade_boundaries used to live here, which put the precedence rule for
+# every surface in the module that talks to a model. It now lives in
+# services/grade_boundaries.py beside the writer that makes it reachable, and is
+# re-exported so the existing readers keep their import.
 
 
 def _factor_prompt_line(

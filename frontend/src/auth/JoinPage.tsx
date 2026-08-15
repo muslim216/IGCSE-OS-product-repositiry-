@@ -26,7 +26,11 @@ export default function JoinPage() {
     mutationFn: () => registerStudent({ invite_code: code, ...form }),
     onSuccess: (auth) => {
       signIn(auth);
-      navigate("/student", { replace: true });
+      // A brand-new account goes through the orientation screen first: it is the
+      // one moment a student can be told what the assistant will and will not do
+      // before they meet the boundary as a refusal (UX-26, §5.4). Joining a
+      // second class from an existing account skips it — they have read it.
+      navigate("/student/welcome", { replace: true });
     },
     onError: (err) =>
       setError(err instanceof ApiError ? err.message : "Could not sign up — try again."),

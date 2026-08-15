@@ -52,7 +52,7 @@ function ClassRow({ row }: { row: ClassStripRow }) {
       ) : row.boundaries_missing ? (
         <span className="text-sm text-ink-500">
           {ABSENT.noBoundaries}{" "}
-          <Link to="/tutor/library" className="font-medium text-brand-600 hover:text-brand-700">
+          <Link to="/tutor/boundaries" className="font-medium text-brand-600 hover:text-brand-700">
             {ABSENT.noBoundariesAction}
           </Link>
         </span>

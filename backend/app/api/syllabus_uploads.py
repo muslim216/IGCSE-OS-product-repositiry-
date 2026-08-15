@@ -7,6 +7,7 @@ from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import Subject, SyllabusUpload, SyllabusUploadStatus, Topic, User, UserRole
 from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
 from app.services import storage
+from app.services.grade_boundaries import defaults_for_scale
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
@@ -133,7 +134,16 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         db.add(subject)
     subject.name = draft.name
     subject.grade_scale = draft.grade_scale
-    subject.grade_boundaries = [b.model_dump() for b in draft.grade_boundaries]
+    # A syllabus document usually does not print its grade boundaries — they are
+    # published per series, not per specification — so the extraction commonly
+    # returns none. Falling back to the standard split for the scale means a
+    # tutor who uploads a syllabus gets working predicted grades on day one
+    # rather than "no grade boundaries set" on every surface (spec §7.1). It is
+    # a starting point, labelled as unconfirmed and editable; where the document
+    # did state boundaries, those win.
+    subject.grade_boundaries = [
+        b.model_dump() for b in draft.grade_boundaries
+    ] or defaults_for_scale(draft.grade_scale)
     await db.flush()
 
     existing = {

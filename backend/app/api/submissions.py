@@ -50,6 +50,25 @@ router = APIRouter(tags=["submissions"])
 # resubmission. auto_finalized got there without a tutor; finalized had one.
 SETTLED_STATUSES = (SubmissionStatus.auto_finalized, SubmissionStatus.finalized)
 
+# What a student is told about a submission's state. Lifecycle only: they never
+# see the AI's drafts or its uncertainty, so `needs_review` — which is a queue
+# position for the tutor, not a fact about the work — reads as "being marked"
+# like every other in-flight state.
+#
+# Module level because two endpoints now map it. It was inline in _student_view
+# while that was the only reader; the student home reads the whole list at once
+# and cannot afford _student_view's per-assignment queries, so it derives the
+# same values in bulk — from this one table rather than a second copy of it.
+PUBLIC_STATUS: dict[SubmissionStatus, str] = {
+    SubmissionStatus.submitted: "submitted",
+    SubmissionStatus.marking: "being_marked",
+    SubmissionStatus.ai_marked: "being_marked",
+    SubmissionStatus.ai_failed: "being_marked",
+    SubmissionStatus.needs_review: "being_marked",
+    SubmissionStatus.auto_finalized: "marked",
+    SubmissionStatus.finalized: "marked",
+}
+
 
 async def _tutor_owns(db, user: User, submission: Submission) -> bool:
     """Whether this tutor may act on a submission.
@@ -196,21 +215,9 @@ async def _student_view(
             for m, q in rows
         ]
         total = sum(m.final_marks or 0 for m, _ in rows)
-    # Students see only lifecycle status, never AI drafts.
-    public_status = {
-        SubmissionStatus.submitted: "submitted",
-        SubmissionStatus.marking: "being_marked",
-        SubmissionStatus.ai_marked: "being_marked",
-        SubmissionStatus.ai_failed: "being_marked",
-        # A submission waiting on the tutor still reads as "being marked" to
-        # the student — they never see the AI's uncertainty.
-        SubmissionStatus.needs_review: "being_marked",
-        SubmissionStatus.auto_finalized: "marked",
-        SubmissionStatus.finalized: "marked",
-    }[submission.status]
     return StudentSubmissionView(
         submission_id=submission.id,
-        status=public_status,
+        status=PUBLIC_STATUS[submission.status],
         submitted_at=submission.submitted_at,
         finalized_at=submission.finalized_at,
         total=total,
@@ -234,22 +241,68 @@ async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssign
             .order_by(Assignment.due_at.is_(None), Assignment.due_at)
         )
     ).all()
-    out: list[StudentAssignment] = []
-    for assignment, group in rows:
-        stats = (
+    # Three grouped reads, not four per assignment.
+    #
+    # This list is the student's home surface — every learner opens it daily, and
+    # it is the one place where the per-row cost is multiplied by a number that
+    # grows all year. It used to call _student_view() per assignment, which is
+    # four more round trips each: question totals, the submission, its marks, and
+    # its remark requests. That helper is still exactly right for one assignment
+    # (it returns the per-question detail this list has no use for); it is simply
+    # the wrong shape for a list, so the list stops using it (PERF-1).
+    assignment_ids = [a.id for a, _ in rows]
+    stats = {
+        aid: (count, total)
+        for aid, count, total in (
             await db.execute(
                 select(
+                    AssignmentQuestion.assignment_id,
                     func.count(AssignmentQuestion.id),
                     func.coalesce(func.sum(AssignmentQuestion.max_marks), 0),
-                ).where(AssignmentQuestion.assignment_id == assignment.id)
+                )
+                .where(AssignmentQuestion.assignment_id.in_(assignment_ids))
+                .group_by(AssignmentQuestion.assignment_id)
             )
-        ).one()
-        submission = await db.scalar(
-            select(Submission).where(
-                Submission.assignment_id == assignment.id, Submission.student_id == user.id
+        ).all()
+    }
+    submissions = {
+        s.assignment_id: s
+        for s in (
+            await db.scalars(
+                select(Submission).where(
+                    Submission.assignment_id.in_(assignment_ids),
+                    Submission.student_id == user.id,
+                )
             )
+        ).all()
+    }
+    # Only settled submissions have a total to show; asking for the rest would
+    # return sums over draft marks the student must never see.
+    settled_ids = [s.id for s in submissions.values() if s.status in SETTLED_STATUSES]
+    totals = dict(
+        (
+            await db.execute(
+                select(
+                    QuestionMark.submission_id,
+                    func.coalesce(func.sum(QuestionMark.final_marks), 0),
+                )
+                .where(QuestionMark.submission_id.in_(settled_ids))
+                .group_by(QuestionMark.submission_id)
+            )
+        ).all()
+    )
+    best_in_class = await _best_settled_totals(db, assignment_ids)
+
+    out: list[StudentAssignment] = []
+    for assignment, group in rows:
+        question_count, total_marks = stats.get(assignment.id, (0, 0))
+        submission = submissions.get(assignment.id)
+        my_total = (
+            totals.get(submission.id, 0)
+            if submission is not None and submission.status in SETTLED_STATUSES
+            else None
         )
-        view = await _student_view(db, assignment, submission)
+        best, marked_count = best_in_class.get(assignment.id, (None, 0))
         out.append(
             StudentAssignment(
                 id=assignment.id,
@@ -258,13 +311,68 @@ async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssign
                 due_at=assignment.due_at,
                 subject_name=group.subject.name,
                 group_name=group.name,
-                question_count=stats[0],
-                total_marks=stats[1],
-                submission_status=view.status,
-                my_total=view.total,
+                question_count=question_count,
+                total_marks=total_marks,
+                submission_status=(
+                    PUBLIC_STATUS[submission.status] if submission else "not_submitted"
+                ),
+                my_total=my_total,
+                # When the mark landed, which is what lets the student's home say
+                # "marked this week" rather than listing every piece ever marked.
+                # None for anything not yet settled — never a placeholder date.
+                finalized_at=submission.finalized_at if submission is not None else None,
+                # The one sanctioned form of peer comparison on a student
+                # surface: an achievement event, told only to the student it
+                # happened to (experience-design §5.1). Never a standing, never
+                # broadcast, and false rather than true when they are the only
+                # marked submission — "highest" among one person tells them
+                # nothing about themselves and something about everyone else.
+                highest_in_class=(
+                    my_total is not None
+                    and marked_count > 1
+                    and best is not None
+                    and my_total >= best
+                ),
             )
         )
     return out
+
+
+async def _best_settled_totals(db, assignment_ids: list[int]) -> dict[int, tuple[int | None, int]]:
+    """Per assignment: the best settled total anyone scored, and how many settled
+    submissions there were.
+
+    Two values from one query because the count is what stops a class of one
+    from being told they came top. Nothing here reaches a response — only the
+    reader's own boolean does — so no classmate's mark leaves the server.
+    """
+    if not assignment_ids:
+        return {}
+    per_submission = (
+        select(
+            Submission.assignment_id.label("assignment_id"),
+            func.coalesce(func.sum(QuestionMark.final_marks), 0).label("total"),
+        )
+        .join(QuestionMark, QuestionMark.submission_id == Submission.id)
+        .where(
+            Submission.assignment_id.in_(assignment_ids),
+            Submission.status.in_(SETTLED_STATUSES),
+        )
+        .group_by(Submission.id, Submission.assignment_id)
+        .subquery()
+    )
+    return {
+        aid: (best, count)
+        for aid, best, count in (
+            await db.execute(
+                select(
+                    per_submission.c.assignment_id,
+                    func.max(per_submission.c.total),
+                    func.count(),
+                ).group_by(per_submission.c.assignment_id)
+            )
+        ).all()
+    }
 
 
 @router.get("/assignments/{assignment_id}/my-submission", response_model=StudentSubmissionView)

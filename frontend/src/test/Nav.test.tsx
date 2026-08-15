@@ -49,12 +49,16 @@ async function expectNavLabel(label: string) {
   expect((await screen.findAllByText(label)).length).toBeGreaterThan(0);
 }
 
-test("student sees all 8 student tabs", async () => {
+test("every student destination is reachable from the nav", async () => {
   mockAuthedFetch("student");
   renderApp("/student");
   for (const label of [
     "Home",
-    "Readiness",
+    // "Progress", not "Readiness" — the destination is named for what the
+    // reader gets, not for the engine behind one of its numbers. Improvement is
+    // its own destination and appears on no home surface.
+    "Progress",
+    "Improvement",
     "Files",
     "Recordings",
     "Homework",
@@ -64,6 +68,29 @@ test("student sees all 8 student tabs", async () => {
   ]) {
     await expectNavLabel(label);
   }
+});
+
+test("the old Readiness URL still lands, on Progress", async () => {
+  const user = { id: 1, email: "d@e.com", username: null, role: "student", name: "Demo" };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/auth/me"))
+        return new Response(JSON.stringify(user), { status: 200 });
+      if (url.includes("/api/v1/readiness/me")) {
+        return new Response(JSON.stringify({ student_id: 1, student_name: "Demo", subjects: [] }), {
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+  renderApp("/student/readiness");
+  // A renamed destination must not 404 a bookmark: the route redirects rather
+  // than disappearing (edge case 20). Landing on Progress's own empty state is
+  // the proof — the old URL rendered a page, not the marketing site.
+  expect(await screen.findByText("No progress to show yet.")).toBeInTheDocument();
 });
 
 test("the tutor primary nav has exactly four items", async () => {

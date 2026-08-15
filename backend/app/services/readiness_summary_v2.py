@@ -42,7 +42,13 @@ from app.schemas.readiness import (
 )
 from app.services.averaging import subject_averaging
 from app.services.grades import grade_band, predict_grade
-from app.services.readiness_summary import build_summary, trend_direction, v2_score_series
+from app.services.readiness_summary import (
+    build_summary,
+    month_delta,
+    scores_of,
+    trend_direction,
+    v2_score_points,
+)
 from app.services.readiness_v2_ai import resolve_grade_boundaries
 
 # Job types whose presence means "a new score is on its way".
@@ -152,6 +158,8 @@ async def _subject_from_snapshot(
     averaging_grade = (
         predict_grade(averaging.score, boundaries) if averaging.score is not None else None
     )
+    # One read of the series, feeding both the arrow and the month's movement.
+    points = await v2_score_points(db, student.id, subject.id) if snapshot.score is not None else []
 
     return SubjectReadiness(
         subject_id=subject.id,
@@ -168,11 +176,9 @@ async def _subject_from_snapshot(
         # trend line are the same claim. A snapshot with no score is a
         # no-evidence run: it renders "not enough data yet" and must carry no
         # arrow, even when older scored snapshots exist (PROD-2).
-        direction=(
-            trend_direction(await v2_score_series(db, student.id, subject.id))
-            if snapshot.score is not None
-            else None
-        ),
+        direction=trend_direction(scores_of(points)) if snapshot.score is not None else None,
+        # And the month's movement from those same points, for the same reason.
+        month_delta=month_delta(points) if snapshot.score is not None else None,
         # topic_out is already filtered to factors that had evidence, so its
         # length is the covered count; the denominator is every topic in the
         # subject, evidence or not.
