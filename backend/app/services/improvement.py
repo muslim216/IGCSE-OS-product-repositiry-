@@ -136,7 +136,14 @@ def rank_of(reader_delta: float, deltas: list[float]) -> tuple[int, bool]:
     whole tie group is banded. This is the off-by-one the design calls out by
     name, and it is why the check below tests the *last* position the tie
     occupies rather than its rank.
+
+    `deltas` must contain `reader_delta` exactly once — every count below
+    (`better`, `tie_size`, `n`) is only correct with the reader counted in.
+    `placing()`, the sole caller, always includes them. Enforced rather than
+    only documented, so a future caller that passes a peers-only list fails
+    loudly instead of silently returning an off-by-one rank (Qodo).
     """
+    assert deltas.count(reader_delta) >= 1, "deltas must include the reader's own value"
     n = len(deltas)
     better = sum(1 for d in deltas if d > reader_delta)
     rank = better + 1
