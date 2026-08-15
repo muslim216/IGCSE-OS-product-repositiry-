@@ -22,6 +22,7 @@ from app.schemas.readiness import (
     MyAssessmentScore,
     ObservationCreate,
     ObservationOut,
+    SeedReadinessIn,
 )
 from app.services.readiness_v2_ai import enqueue_v2_shadow
 from app.workers.jobs import enqueue
@@ -256,6 +257,73 @@ async def create_observation(
         rating=observation.rating,
         created_at=observation.created_at,
     )
+
+
+@router.post("/students/{student_id}/seed-readiness", status_code=status.HTTP_201_CREATED)
+async def seed_readiness(
+    student_id: int, body: SeedReadinessIn, db: DbSession, user: TutorUser
+) -> dict:
+    """A tutor's own starting assessment of a student, per topic.
+
+    This is step 5 of the cold start (spec §7.1), and it deliberately cannot
+    happen earlier: students attach themselves by invite code, so a tutor
+    finishing setup has no students to rate. It is also optional, because for
+    many classes it never happens — the product has to work when it does not.
+
+    What is written is `Evidence` with `source_type=tutor_estimate`, which means
+    it goes through exactly the same pipeline as every other source and needs no
+    parallel code path (PROD-9's shape, applied to a new source). It is
+    self-declared and labelled as such wherever it is shown (PROD-8), and it
+    loses weight against real marked work as that arrives (§7.3).
+
+    Re-seeding the same topic replaces the previous estimate rather than adding
+    a second one: this is the tutor's current opinion, not a history of their
+    opinions, and stacking them would let one topic be seeded into a score.
+    """
+    shares = await db.scalar(
+        select(GroupMember.id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
+        .limit(1)
+    )
+    if shares is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in your groups")
+
+    subject_ids: set[int] = set()
+    now = datetime.now(timezone.utc)
+    for entry in body.topics:
+        topic = await db.get(Topic, entry.topic_id)
+        if topic is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
+        subject_ids.add(topic.subject_id)
+        source_ref = f"tutor_estimate:{student_id}:{topic.id}"
+        existing = await db.scalar(
+            select(Evidence).where(
+                Evidence.student_id == student_id,
+                Evidence.topic_id == topic.id,
+                Evidence.source_ref == source_ref,
+            )
+        )
+        if existing is None:
+            existing = Evidence(
+                student_id=student_id,
+                topic_id=topic.id,
+                source_type=EvidenceSource.tutor_estimate,
+                source_ref=source_ref,
+            )
+            db.add(existing)
+        existing.score_pct = float(entry.score_pct)
+        existing.max_marks = 0
+        existing.occurred_at = now
+        existing.label = "Tutor's starting estimate (self-declared)"
+
+    for subject_id in subject_ids:
+        await enqueue(
+            db, "recompute_readiness", {"student_id": student_id, "subject_id": subject_id}
+        )
+        await enqueue_v2_shadow(db, student_id, subject_id)
+    await db.commit()
+    return {"seeded": len(body.topics)}
 
 
 @router.get("/students/{student_id}/observations", response_model=list[ObservationOut])
