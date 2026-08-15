@@ -15,6 +15,7 @@ const base: SubjectReadiness = {
   averaging_grade: null,
   marked_piece_count: 0,
   direction: null,
+  month_delta: null,
   topics_with_evidence: 0,
   topic_count: 0,
   topics: [],

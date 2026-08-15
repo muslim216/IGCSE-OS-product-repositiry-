@@ -109,9 +109,13 @@ test("a class with nobody in it renders the empty room, not a dashboard of absen
   });
   renderPanel();
 
-  expect(await screen.findByText(/No learners have joined/)).toBeInTheDocument();
+  expect(await screen.findByText(/No one has joined yet/)).toBeInTheDocument();
   expect(screen.queryByText("Learners")).not.toBeInTheDocument();
   expect(screen.queryByText("Why")).not.toBeInTheDocument();
+  // The state changes between visits, and the one thing the tutor can do to
+  // change it is share the code again — so that is the only control here.
+  expect(screen.getByRole("button", { name: /Share again/ })).toBeInTheDocument();
+  expect(await screen.findByText(/Readiness appears once you've marked/)).toBeInTheDocument();
 });
 
 test("the parent narrative is read-only with a regenerate, and no review state", async () => {

@@ -25,6 +25,14 @@ class EvidenceSource(str, enum.Enum):
     # Per-question marks from a full past paper. Feeds Topic Mastery as well as
     # the Past Paper Performance factor, which reads the attempt total.
     past_paper = "past_paper"
+    # A tutor's own starting assessment of a student, entered once the class has
+    # filled but before any work has been marked. **Self-declared** — it is not
+    # a mark on a piece of work, and PROD-8 requires it to be labelled as such
+    # wherever it is shown. It is also the only source that loses weight as
+    # rival evidence arrives (SEEDED_SOURCES in services/readiness.py), so a
+    # first impression corrects itself within weeks instead of being carried all
+    # year.
+    tutor_estimate = "tutor_estimate"
 
 
 class Evidence(Base):

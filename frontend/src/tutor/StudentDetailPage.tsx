@@ -1,10 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createObservation, studentReadiness, topicEvidence } from "../api/readiness";
+import {
+  createObservation,
+  seedStudentReadiness,
+  studentReadiness,
+  topicEvidence,
+} from "../api/readiness";
 import { listTopics } from "../api/syllabus";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
+import { sourceLabel } from "../lib/labels";
 
 export default function StudentDetailPage() {
   const { studentId } = useParams();
@@ -55,6 +61,23 @@ export default function StudentDetailPage() {
     if (obs.comment) addObservation.mutate();
   }
 
+  const [seed, setSeed] = useState({ topic_id: "", score_pct: "" });
+  const seedReadiness = useMutation({
+    mutationFn: () =>
+      seedStudentReadiness(sid, [
+        { topic_id: Number(seed.topic_id), score_pct: Number(seed.score_pct) },
+      ]),
+    onSuccess: () => {
+      setSeed({ topic_id: "", score_pct: "" });
+      queryClient.invalidateQueries({ queryKey: ["student-readiness", sid] });
+    },
+  });
+
+  function onSeed(e: FormEvent) {
+    e.preventDefault();
+    if (seed.topic_id && seed.score_pct !== "") seedReadiness.mutate();
+  }
+
   if (readiness.isLoading) return <p className="text-slate-500">Loading…</p>;
 
   return (
@@ -88,33 +111,98 @@ export default function StudentDetailPage() {
               Close
             </button>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-ink-500">
             Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence} confidence) —
             every score is explainable by the evidence below.
           </p>
-          <ul className="mt-2 divide-y text-sm">
+          <ul className="mt-2 divide-y divide-line text-sm">
             {evidence.data.evidence.map((e, i) => (
               <li key={i} className="flex items-center justify-between py-1.5">
-                <span className="text-slate-600">
-                  {e.label ?? e.source_type}{" "}
-                  <span className="text-xs text-slate-400">({e.source_type})</span>
+                <span className="text-ink-700">
+                  {e.label ?? sourceLabel(e.source_type)}{" "}
+                  <span className="text-xs text-ink-500">({sourceLabel(e.source_type)})</span>
                 </span>
-                <span className="flex items-center gap-3 text-slate-500">
+                <span className="flex items-center gap-3 text-ink-500">
                   <span>{Math.round(e.score_pct)}%</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-ink-500">
                     {new Date(e.occurred_at).toLocaleDateString()}
                   </span>
                 </span>
               </li>
             ))}
             {evidence.data.evidence.length === 0 && (
-              <li className="py-1.5 text-slate-500">No evidence yet.</li>
+              <li className="py-1.5 text-ink-500">No evidence yet.</li>
             )}
           </ul>
         </div>
       )}
 
       <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
+
+      {/* Seeding (spec §7.3). Optional, and deliberately late: students attach
+          themselves by invite code, so a tutor finishing setup has no students
+          to rate. It exists so a class that has just filled shows something on
+          day one instead of "not enough data yet" everywhere for three weeks —
+          and it is labelled self-declared wherever it lands (PROD-8), and gives
+          way as marked work arrives, so a first impression corrects itself. */}
+      <div className="rounded-lg border border-line bg-surface p-4">
+        <h3 className="font-medium text-ink-900">Starting estimate</h3>
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          Where you think this student stands, before their work has been marked. Recorded as
+          self-declared, and it loses weight as real marked work arrives.
+        </p>
+        <form onSubmit={onSeed} className="mt-3 flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Topic to estimate"
+            className="rounded border border-line-control px-3 py-2 text-sm"
+            value={seed.topic_id}
+            onChange={(e) => setSeed({ ...seed, topic_id: e.target.value })}
+            required
+          >
+            <option value="">Choose a topic</option>
+            {topics.data?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.code} {t.title}
+              </option>
+            ))}
+          </select>
+          {topics.data?.length === 0 && (
+            // The select is empty when the student has no subject yet — say so,
+            // rather than leaving a control that cannot be completed (CodeRabbit).
+            <p className="w-full text-sm text-ink-500">
+              No topics to estimate yet — they appear once this student has a subject.
+            </p>
+          )}
+          <input
+            type="number"
+            min={0}
+            max={100}
+            aria-label="Estimated percentage"
+            placeholder="0–100"
+            className="w-28 rounded border border-line-control px-3 py-2 text-sm"
+            value={seed.score_pct}
+            onChange={(e) => setSeed({ ...seed, score_pct: e.target.value })}
+            required
+          />
+          <button
+            type="submit"
+            disabled={seedReadiness.isPending}
+            className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
+          >
+            Save estimate
+          </button>
+          {/* A live region so assistive technology announces the outcome — the
+              form otherwise signals success only by resetting its fields, which
+              a screen reader does not surface (CodeRabbit). */}
+          <p className="w-full text-sm" aria-live="polite">
+            {seedReadiness.isError ? (
+              <span className="text-risk-600">Could not save the estimate.</span>
+            ) : seedReadiness.isSuccess ? (
+              <span className="text-ink-500">Estimate saved.</span>
+            ) : null}
+          </p>
+        </form>
+      </div>
 
       <div className="rounded-lg border bg-white p-4">
         <h3 className="font-medium text-slate-800">Add an observation</h3>

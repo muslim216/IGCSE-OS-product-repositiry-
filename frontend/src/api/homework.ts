@@ -60,7 +60,20 @@ export interface StudentAssignment {
   question_count: number;
   total_marks: number;
   submission_status: string | null;
+  /** Whether the assignment still accepts a submission. The list includes closed
+      assignments (their marks stay in history), so a "Start" action must gate on
+      this, not on submission status alone. */
+  is_open: boolean;
   my_total: number | null;
+  /** When the marks were settled. null until then — the home uses it to tell
+      recent results from everything ever marked, and cannot guess a date. */
+  finalized_at: string | null;
+  /** Whether this student's mark was the best in their class on this piece. A
+      boolean about the reader and nothing else — no classmate's mark, count or
+      identity is sent — and shown only to the student it is about. False
+      whenever there is nothing to compare against, so an absent comparison
+      never reads as a bad result. */
+  highest_in_class: boolean;
 }
 
 export interface MarkRow {

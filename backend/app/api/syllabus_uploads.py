@@ -7,6 +7,7 @@ from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import Subject, SyllabusUpload, SyllabusUploadStatus, Topic, User, UserRole
 from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
 from app.services import storage
+from app.services.grade_boundaries import defaults_for_scale
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
@@ -133,7 +134,21 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         db.add(subject)
     subject.name = draft.name
     subject.grade_scale = draft.grade_scale
-    subject.grade_boundaries = [b.model_dump() for b in draft.grade_boundaries]
+    # A syllabus document usually does not print its grade boundaries — they are
+    # published per series, not per specification — so the extraction commonly
+    # returns none. Where the document did state boundaries, those win.
+    #
+    # When it did not, fall back to the standard split for the scale ONLY to seed
+    # a subject that has none. Subjects are global and keyed on (exam_board,
+    # code), so a second organization re-uploading the same syllabus reuses the
+    # existing row — and overwriting its boundaries with generic defaults would
+    # change fallback predicted grades for every other tenant (Qodo, SEC-8). An
+    # existing subject's boundaries are therefore left untouched; a tutor who
+    # wants their own values sets them through the org-scoped editor.
+    extracted = [b.model_dump() for b in draft.grade_boundaries]
+    subject.grade_boundaries = (
+        extracted or subject.grade_boundaries or defaults_for_scale(draft.grade_scale)
+    )
     await db.flush()
 
     existing = {

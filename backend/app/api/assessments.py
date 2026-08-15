@@ -22,6 +22,7 @@ from app.schemas.readiness import (
     MyAssessmentScore,
     ObservationCreate,
     ObservationOut,
+    SeedReadinessIn,
 )
 from app.services.readiness_v2_ai import enqueue_v2_shadow
 from app.workers.jobs import enqueue
@@ -256,6 +257,105 @@ async def create_observation(
         rating=observation.rating,
         created_at=observation.created_at,
     )
+
+
+@router.post("/students/{student_id}/seed-readiness", status_code=status.HTTP_201_CREATED)
+async def seed_readiness(
+    student_id: int, body: SeedReadinessIn, db: DbSession, user: TutorUser
+) -> dict:
+    """A tutor's own starting assessment of a student, per topic.
+
+    This is step 5 of the cold start (spec §7.1), and it deliberately cannot
+    happen earlier: students attach themselves by invite code, so a tutor
+    finishing setup has no students to rate. It is also optional, because for
+    many classes it never happens — the product has to work when it does not.
+
+    What is written is `Evidence` with `source_type=tutor_estimate`, which means
+    it goes through exactly the same pipeline as every other source and needs no
+    parallel code path (PROD-9's shape, applied to a new source). It is
+    self-declared and labelled as such wherever it is shown (PROD-8), and it
+    loses weight against real marked work as that arrives (§7.3).
+
+    Re-seeding the same topic replaces the previous estimate rather than adding
+    a second one: this is the tutor's current opinion, not a history of their
+    opinions, and stacking them would let one topic be seeded into a score.
+
+    **Known gap (RISK-5).** The estimate's numeric value drives the v1 engine.
+    Readiness Engine v2 — the default served engine — computes topic mastery from
+    marked questions and reads Evidence only as a "practised" flag, so it does
+    not consume the estimate's percentage. This is not unique to seeding: every
+    Evidence-only source (tutor observations, entered mocks) has the same limit
+    under v2, and closing it means teaching v2 to score from Evidence, which is
+    the RISK-5 convergence work, not a cold-start change. Until then the seed's
+    number is fully honoured only where v1 answers.
+    """
+    # Which subjects this tutor actually teaches *this* student. Authorizing the
+    # student once is not enough: topics are global, so a tutor who teaches Sara
+    # Chemistry could otherwise seed a Physics topic onto her record for a
+    # subject they have nothing to do with (Qodo). Every submitted topic's
+    # subject must be in this set — checked in one query, not one per topic.
+    taught_subjects = set(
+        (
+            await db.scalars(
+                select(Group.subject_id)
+                .join(GroupMember, GroupMember.group_id == Group.id)
+                .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
+            )
+        ).all()
+    )
+    if not taught_subjects:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in your groups")
+
+    # The tutor's current opinion, so a repeated topic in one payload is the last
+    # value, not two rows. Deduping here also bounds the work to the distinct
+    # topics regardless of payload shape.
+    scored: dict[int, float] = {e.topic_id: float(e.score_pct) for e in body.topics}
+    topic_ids = list(scored)
+
+    topics = {
+        t.id: t for t in (await db.scalars(select(Topic).where(Topic.id.in_(topic_ids)))).all()
+    }
+    for topic_id in topic_ids:
+        topic = topics.get(topic_id)
+        # A topic for a subject the tutor does not teach this student is treated
+        # as not found rather than 403 — a global integer key must not confirm
+        # what it points at across an authorization boundary (API-7 / SEC-9).
+        if topic is None or topic.subject_id not in taught_subjects:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not available for this student")
+
+    # Existing seed rows for these topics, in one read, so re-seeding replaces in
+    # place without a per-topic SELECT.
+    refs = {topic_id: f"tutor_estimate:{student_id}:{topic_id}" for topic_id in topic_ids}
+    existing = {
+        e.source_ref: e
+        for e in (
+            await db.scalars(select(Evidence).where(Evidence.source_ref.in_(list(refs.values()))))
+        ).all()
+    }
+
+    now = datetime.now(timezone.utc)
+    for topic_id, score_pct in scored.items():
+        row = existing.get(refs[topic_id])
+        if row is None:
+            row = Evidence(
+                student_id=student_id,
+                topic_id=topic_id,
+                source_type=EvidenceSource.tutor_estimate,
+                source_ref=refs[topic_id],
+            )
+            db.add(row)
+        row.score_pct = score_pct
+        row.max_marks = 0
+        row.occurred_at = now
+        row.label = "Tutor's starting estimate (self-declared)"
+
+    for subject_id in {topics[topic_id].subject_id for topic_id in topic_ids}:
+        await enqueue(
+            db, "recompute_readiness", {"student_id": student_id, "subject_id": subject_id}
+        )
+        await enqueue_v2_shadow(db, student_id, subject_id)
+    await db.commit()
+    return {"seeded": len(topic_ids)}
 
 
 @router.get("/students/{student_id}/observations", response_model=list[ObservationOut])

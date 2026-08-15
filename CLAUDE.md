@@ -182,7 +182,7 @@ Keep these loaded. Each cites the document holding its full reasoning.
   `_tutor_owns()` in `api/submissions.py` is the one place that branch lives. (`API-20`)
 
 - **A role gate goes in the signature, never in the handler body.** `user: TutorUser` or
-  `user: StudentUser` from `api/deps.py` — 38 routes are tutor-gated and 13 student-gated
+  `user: StudentUser` from `api/deps.py` — 45 routes are tutor-gated and 14 student-gated
   this way. A dependency cannot be forgotten; an imperative call can, and omitting it fails
   **open** with nothing to detect it. That was the real state of this codebase until
   recently: eleven hand-copied `_require_tutor`/`_require_student` helpers called in 35
@@ -336,8 +336,8 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 Full detail in §01 and §04; this is orientation only.
 
-- **Backend** (`backend/app/`): `api/` (23 routers, all mounted under `/api/v1` in `main.py`;
-  shared dependencies in `api/deps.py`), `services/` (24 modules — the real work), `models/`
+- **Backend** (`backend/app/`): `api/` (27 routers, all mounted under `/api/v1` in `main.py`;
+  shared dependencies in `api/deps.py`), `services/` (31 modules — the real work), `models/`
   (52 tables, SQLAlchemy 2.0 async), `schemas/` (Pydantic contracts), `workers/jobs.py`
   (DB-backed job queue, in-process worker started in `main.py`'s `lifespan`). Roles are
   `student`, `tutor`, `parent`, `admin`.

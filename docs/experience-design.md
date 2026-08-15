@@ -774,47 +774,63 @@ that is a finding to raise — not a licence to redesign around it.
 
 ## 12. Appendix: rules this design would add
 
-Written in the form defined in `governance/documentation-authority.md`, opened as **Draft**
-because each requires code that has not landed. They are filed into
-[§02](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) **in a later change**, so
-this document remains a single documentation-only commit. `UX-26` is the highest allocated ID
-at the time of writing; these begin at `UX-27`.
+> **Filed.** `UX-27` … `UX-33` are now **Active** in
+> [§02](volume-1-product-and-ux/02-ux-and-accessibility-standards.md), which is where they are
+> read from. Two changed on the way in, and the §02 text is the one that governs:
+>
+> - **`UX-30`** carries D3's narrowing — the tutor's home may name a student *where naming one
+>   is necessary to communicate something actionable*, never in a ranked or enumerated list.
+> - **`UX-32`** was superseded rather than broken (`GOV-3`). A monthly rank is a rank, and the
+>   original wording forbade the Improvement tab outright; the revision permits a student to
+>   see **their own** position on a surface dedicated to it, and still forbids ever showing
+>   them another student's score, grade, delta or identity.
+>
+> The text below is kept as historical proposal context — what was drafted here, and why —
+> from before the code landed. It is not the current status of these rules; §02 is (`GOV-1`).
 
-> **`UX-27` — MUST · Important · Draft**
+Written in the form defined in `governance/documentation-authority.md`. At the time this
+appendix was drafted, each rule below was opened as **Draft** because it required code that
+had not yet landed, with the intent to file it into
+[§02](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) once that code shipped.
+That filing has since happened — see the note above — so the `Draft` markings below describe
+that earlier moment, not the rules' status now. `UX-26` was the highest allocated ID at the
+time of writing; these begin at `UX-27`.
+
+> **`UX-27` — MUST · Important · Draft** *(as proposed; now Active — see above)*
 > A primary surface opens with a single sentence, in plain language, that answers the question
 > the surface exists to answer.
 > *Rationale:* a reader who stops after one line must still have a true answer, or the surface
 > is asking them to do the analysis themselves.
 
-> **`UX-28` — MUST NOT · Important · Draft**
+> **`UX-28` — MUST NOT · Important · Draft** *(as proposed; now Active — see above)*
 > No surface, style or constant may contain a literal grade or percentage threshold; a
 > readiness band is the position of the grade within the subject's ordered grade boundaries.
 > *Rationale:* subjects use different scales — `Subject.grade_scale` already carries which —
 > and a hardcoded `70` or `B` is wrong for every subject that does not share it.
 
-> **`UX-29` — MUST · Important · Draft**
+> **`UX-29` — MUST · Important · Draft** *(as proposed; now Active — see above)*
 > A section with nothing to report is not rendered; the surface's terminal state is a sentence.
 > *Rationale:* `UX-19` forbids a fabricated zero in a value; the same reasoning applies to a
 > panel, and an empty panel is indistinguishable from a failed load.
 
-> **`UX-30` — MUST NOT · Recommended · Draft**
+> **`UX-30` — MUST NOT · Recommended · Draft** *(as proposed; now Active — see above)*
 > The tutor's home surface does not name an individual student; individuals appear only within
 > a class the tutor has opened.
 > *Rationale:* a surface designed to be opened many times a day must not be able to ambush its
 > reader with a named child they did not ask about.
 
-> **`UX-31` — MUST · Recommended · Draft**
+> **`UX-31` — MUST · Recommended · Draft** *(as proposed; now Active — see above)*
 > A readiness value shown to a student is shown with its direction of travel.
 > *Rationale:* a score with direction describes a situation that can be acted on; a score alone
 > reads as a standing judgement of the person.
 
-> **`UX-32` — MUST NOT · Important · Draft**
+> **`UX-32` — MUST NOT · Important · Draft** *(as proposed; now Active — see above)*
 > Peer comparison is shown to a student only as an achievement event, never as a persistent
 > standing or rank.
 > *Rationale:* once a standing is displayed, its absence becomes the message, and it is the
 > students the product most needs to retain who receive it.
 
-> **`UX-33` — MUST · Important · Draft**
+> **`UX-33` — MUST · Important · Draft** *(as proposed; now Active — see above)*
 > Generated narrative is present when the surface opens; no primary surface waits on a model
 > call to render its primary content.
 > *Rationale:* a surface whose value is that opening it is cheap cannot contain a model call in

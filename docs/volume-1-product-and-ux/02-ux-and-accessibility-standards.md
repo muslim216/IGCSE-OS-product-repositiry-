@@ -497,6 +497,72 @@ guides, it does not supply answers to assigned work.
 *Rationale:* a study aid that completes homework destroys the evidence readiness is computed
 from — it corrupts the data, not just the ethics.
 
+**`UX-27` — MUST · Important · Active**
+A primary surface opens with a single sentence, in plain language, that answers the question
+the surface exists to answer.
+*Rationale:* a reader who stops after one line must still have a true answer, or the surface
+is asking them to do the analysis themselves.
+*Realised by:* `verdictLine1` (tutor home), `dueVerdict` (student home), `parentVerdict`
+(parent screen).
+
+**`UX-28` — MUST NOT · Important · Active**
+No surface, style or constant may contain a literal grade or percentage threshold; a
+readiness band is the position of the grade within the subject's ordered grade boundaries.
+*Rationale:* subjects use different scales — `Subject.grade_scale` already carries which —
+and a hardcoded `70` or `B` is wrong for every subject that does not share it.
+*Realised by:* `services/grades.py:grade_band`, whose cut-offs are indices.
+*Bounded exception:* `statusOf` in `frontend/src/lib/readiness.ts` keeps a literal `70`/`50`
+score threshold. It is `private` to that module, feeds only the legacy `deriveLearnerRows`
+table over bare analytics scores (no grade or boundaries reach that path at all), and is
+documented in place as scheduled for deletion once that table is replaced. New code may not
+add a second instance of this exception; if the legacy table's replacement is deferred, the
+threshold's continued existence is a Known Gap to record below, not a silent extension of the
+carve-out.
+
+**`UX-29` — MUST · Important · Active**
+A section with nothing to report is not rendered; the surface's terminal state is a sentence.
+*Rationale:* `UX-19` forbids a fabricated zero in a value; the same reasoning applies to a
+panel, and an empty panel is indistinguishable from a failed load.
+
+**`UX-30` — MUST NOT · Recommended · Active**
+The tutor's home surface does not name an individual student **except where naming one is
+necessary to communicate something actionable**, and never in a ranked or enumerated list.
+*Rationale:* a surface designed to be opened many times a day must not be able to ambush its
+reader with a named child they did not ask about. The narrowing is D3: a class narrative that
+may never name anyone cannot say the one thing a tutor most needs to read — that a particular
+learner has moved — so naming is permitted where it carries an action, and forbidden where it
+would produce a league table. Encoded in the `class_brief` prompt
+(`services/prompts.py`), not only in review.
+
+**`UX-31` — MUST · Recommended · Active**
+A readiness value shown to a student is shown with its direction of travel.
+*Rationale:* a score with direction describes a situation that can be acted on; a score alone
+reads as a standing judgement of the person.
+*Realised by:* `DirectionMark` in `components/ui.tsx`, which renders nothing at all when the
+direction is `null` — one point is not a trend, and `→` would claim a movement nothing
+measured.
+
+**`UX-32` (revised) — MUST NOT · Important · Active**
+A student is never shown another student's score, grade, delta or identity. A student may be
+shown **their own position** within an improvement ranking, on a surface dedicated to it,
+never on a home surface, and never as a bare bottom placing.
+*Rationale unchanged in substance:* the harm the original rule was written against is a
+standing whose disappearance becomes the message, and a board that publishes classmates to
+each other. Neither survives in the shipped design — the ranking exists and the ranked do not
+appear. The original wording ("peer comparison … never as a persistent standing or rank")
+would have forbidden the Improvement tab outright; `GOV-3` allows three responses to a rule a
+change breaks, and this takes the second: the rule is superseded rather than quietly broken.
+The de-anonymisation analysis this rests on, and the three residual risks accepted rather than
+solved, are in `backend/app/services/improvement.py`.
+
+**`UX-33` — MUST · Important · Active**
+Generated narrative is present when the surface opens; no primary surface waits on a model
+call to render its primary content.
+*Rationale:* a surface whose value is that opening it is cheap cannot contain a model call in
+its render path.
+*Realised by:* `services/narrative.py` writing the paragraph from a background job, and
+`api/narrative.py` serving a seek rather than a generation.
+
 ---
 
 ## Known Gaps

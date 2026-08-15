@@ -48,8 +48,8 @@ testing (§12); Python style (§13).
 ## Sources
 
 Written from: `backend/app/main.py`; `backend/app/api/deps.py`; `backend/app/db.py`;
-`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 24 modules in
-`backend/app/services/`; the 23 routers in `backend/app/api/`.
+`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 31 modules in
+`backend/app/services/`; the 27 routers in `backend/app/api/`.
 
 ---
 
@@ -83,9 +83,9 @@ backend/app/
   config.py     pydantic-settings Settings, accessed via lru_cache'd get_settings()
   db.py         async engine + get_db
   security.py   bcrypt + PyJWT (access, refresh, OAuth state)
-  api/          23 routers + deps.py
+  api/          27 routers + deps.py
   schemas/      Pydantic request/response contracts, one module per domain
-  services/     24 modules — the actual work
+  services/     31 modules — the actual work
   models/       SQLAlchemy 2.0 async ORM, 52 tables
   workers/      jobs.py
 ```
@@ -104,8 +104,8 @@ remark surface — which is where `BE-2` is under most pressure.
 |---|---|---|
 | `DbSession` | `Annotated[AsyncSession, Depends(get_db)]` | Yes, everywhere |
 | `get_current_user` / `CurrentUser` | Decodes the access token, loads the `User`, rejects when the token's `token_version` ≠ the user's | Yes, everywhere |
-| `TutorUser` | `CurrentUser` plus a tutor-or-admin gate | Yes — 38 routes |
-| `StudentUser` | `CurrentUser` plus a student gate | Yes — 13 routes |
+| `TutorUser` | `CurrentUser` plus a tutor-or-admin gate | Yes — 45 routes |
+| `StudentUser` | `CurrentUser` plus a student gate | Yes — 14 routes |
 | `require_role(*roles, detail=...)` | Builds a gate dependency with a custom 403 message | Once, `reports.generate` |
 | `assert_tutor` / `assert_student` | The same condition in imperative form | The 7 ownership helpers |
 | `get_current_org_id` / `CurrentOrg` | Returns `user.organization_id` for scoping | **Never called** |
@@ -122,7 +122,7 @@ async def get_preferences(db: DbSession, user: TutorUser) -> PreferencesOut:
     ...
 ```
 
-Of 125 routes, 38 are tutor-gated, 13 student-gated, 66 authenticated without a role gate
+Of 135 routes, 45 are tutor-gated, 14 student-gated, 68 authenticated without a role gate
 (they branch on role internally, or serve every role), and 8 are public — the six auth
 endpoints plus the two health ones.
 
@@ -143,7 +143,7 @@ Organization scoping is still applied ad hoc, per query, using `user.organizatio
 
 ### Services
 
-24 modules, each owning one area. The shape that recurs and is worth copying: **a pure core
+31 modules, each owning one area. The shape that recurs and is worth copying: **a pure core
 plus a database-facing shell**. `services/readiness_factors.py` (284 lines) is pure scoring
 math over dataclasses; `services/readiness_v2.py` (356 lines) gathers rows and calls it. The
 same split exists in v1 between `readiness.py`'s pure functions and `recompute_student()`.

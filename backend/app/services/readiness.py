@@ -43,7 +43,23 @@ SOURCE_WEIGHTS: dict[EvidenceSource, float] = {
     EvidenceSource.homework: 1.0,
     EvidenceSource.quiz: 0.8,
     EvidenceSource.observation: 0.5,
+    # A tutor's starting estimate, entered before any work has been marked. It
+    # is worth having — a class with nothing in it shows a new tutor nothing —
+    # and it is worth the least of any source, because it is the only one that
+    # is not a mark on a piece of work (PROD-8).
+    EvidenceSource.tutor_estimate: 0.4,
 }
+
+# Sources that are a person's judgement rather than a marked piece of work, and
+# that therefore give way as marked evidence arrives.
+#
+# Time decay alone does not do this: the half-life discounts a seed and a real
+# mark equally, so a topic with no new work keeps the seed at full relative
+# weight forever, and a first impression entered in September is still shaping
+# the score in May. What §7.3 requires is that the seed loses weight *against
+# rival evidence*, which is a different mechanism and is applied in
+# compute_topic below.
+SEEDED_SOURCES = frozenset({EvidenceSource.tutor_estimate})
 
 
 @dataclass(frozen=True)
@@ -101,6 +117,14 @@ def compute_topic(
     now = now or datetime.now(timezone.utc)
     if not points:
         return TopicResult(score=0.0, confidence=ReadinessConfidence.none, evidence_count=0)
+    # How much real marked work now exists on this topic. A tutor's starting
+    # estimate is divided by one more than this, so it carries its full 0.4 while
+    # it is the only thing there, half of that after one marked piece, a quarter
+    # after three — and by the time a topic has a term's work behind it the seed
+    # is arithmetically irrelevant without ever having been deleted. Deleting it
+    # would be the other option and is worse: the row is the record of what the
+    # score was built from, and PROD-1 needs it to stay readable.
+    marked_count = sum(1 for p in points if p.source not in SEEDED_SOURCES)
     total_weight = 0.0
     weighted_sum = 0.0
     for p in points:
@@ -109,6 +133,8 @@ def compute_topic(
         w = weights.get(p.source, SOURCE_WEIGHTS[p.source]) * _decay(
             _age_days(p.occurred_at, now), half_life
         )
+        if p.source in SEEDED_SOURCES:
+            w /= 1 + marked_count
         total_weight += w
         weighted_sum += w * p.score_pct
     score = weighted_sum / total_weight if total_weight > 0 else 0.0

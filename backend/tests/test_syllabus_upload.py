@@ -121,6 +121,97 @@ async def test_apply_upserts_existing_subject_by_exam_board_and_code(
     assert updated["title"] == "Section one (revised)"
 
 
+async def test_reapply_with_no_boundaries_keeps_the_existing_global_ones(
+    client, tutor, uploaded, monkeypatch
+):
+    """A re-upload whose extraction found no boundaries must not overwrite the
+    subject's existing boundaries.
+
+    Subjects are global and keyed on (exam_board, code), so a second upload —
+    including one from another organization — reuses the same row. Blanking it,
+    or replacing it with generic defaults, would change fallback predicted grades
+    for every tenant that relies on it (Qodo, SEC-8).
+    """
+    from app.db import async_session
+    from app.models import Subject
+
+    first = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first.json()["subject_id"]
+
+    async def fake_no_boundaries(session, upload):
+        upload.draft = {
+            "exam_board": "Edexcel IGCSE",
+            "code": "4XX1",
+            "name": "Test Subject",
+            "grade_scale": "9-1",
+            "grade_boundaries": [],  # the document did not state them
+            "topics": [{"code": "1", "title": "Section one", "weight": 1.0, "children": []}],
+        }
+
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_no_boundaries)
+    resp = await client.post(
+        "/api/v1/syllabus-uploads",
+        data={"title": "Same syllabus, no boundaries"},
+        files={"file": ("syllabus3.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    second_id = resp.json()["id"]
+    assert await process_one_job() is True
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+    assert apply2.json()["subject_id"] == subject_id
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+    # Untouched — still the first apply's boundaries, neither blanked nor
+    # replaced with the scale's generic defaults.
+    assert subject.grade_boundaries == [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}]
+
+
+async def test_apply_seeds_default_boundaries_when_a_new_subject_has_none(
+    client, tutor, monkeypatch
+):
+    """A brand-new subject whose document stated no boundaries still gets working
+    predicted grades from the scale's standard split — the cold-start value the
+    fallback exists for (spec §7.1)."""
+    from app.db import async_session
+    from app.models import Subject
+    from app.services.grade_boundaries import defaults_for_scale
+
+    async def fake_new_no_boundaries(session, upload):
+        upload.draft = {
+            "exam_board": "Cambridge",
+            "code": "0620",
+            "name": "IGCSE Chemistry",
+            "grade_scale": "9-1",
+            "grade_boundaries": [],
+            "topics": [{"code": "1", "title": "States of matter", "weight": 1.0, "children": []}],
+        }
+
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_new_no_boundaries)
+    resp = await client.post(
+        "/api/v1/syllabus-uploads",
+        data={"title": "New subject, no boundaries"},
+        files={"file": ("new.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    upload_id = resp.json()["id"]
+    assert await process_one_job() is True
+    applied = await client.post(
+        f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
+    )
+    subject_id = applied.json()["subject_id"]
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+    assert subject.grade_boundaries == defaults_for_scale("9-1")
+    assert subject.grade_boundaries  # not empty
+
+
 async def test_edit_draft_before_apply(client, tutor, uploaded):
     detail = await client.get(f"/api/v1/syllabus-uploads/{uploaded}", headers=tutor["headers"])
     draft = detail.json()["draft"]

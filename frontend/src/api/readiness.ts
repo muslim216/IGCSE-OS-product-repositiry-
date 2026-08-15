@@ -39,6 +39,10 @@ export interface SubjectReadiness {
   /** Direction of travel over the trend series. null means too little history
       to say — render no arrow at all, never "→", which would be a claim. */
   direction: "up" | "flat" | "down" | null;
+  /** Net movement over the last 30 days, from the same series as `direction` —
+      so a surface can never print an up arrow beside a negative number. null
+      when the series does not span the window; never 0 standing in for that. */
+  month_delta: number | null;
   /** Coverage: topics carrying evidence over topics that exist. The pair is
       what lets a surface show `9/11` rather than implying the score speaks
       for the whole subject. */
@@ -198,6 +202,18 @@ export const updateReadinessWeights = (payload: ReadinessWeights) =>
   });
 export const updatePreferences = (payload: Preferences) =>
   api<Preferences>("/api/v1/me/preferences", { method: "PUT", body: JSON.stringify(payload) });
+
+/** A tutor's own starting estimate for a student, per topic. Self-declared: it
+    is stored as `tutor_estimate` evidence, labelled as such wherever it is
+    shown, and loses weight as marked work arrives (PROD-8, spec §7.3). */
+export const seedStudentReadiness = (
+  studentId: number,
+  topics: { topic_id: number; score_pct: number }[],
+) =>
+  api<{ seeded: number }>(`/api/v1/students/${studentId}/seed-readiness`, {
+    method: "POST",
+    body: JSON.stringify({ topics }),
+  });
 
 export const createObservation = (payload: {
   student_id: number;

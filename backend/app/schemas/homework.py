@@ -89,7 +89,22 @@ class StudentAssignment(BaseModel):
     question_count: int
     total_marks: int
     submission_status: str | None
+    # Whether the assignment is still open for submission (published, not closed).
+    # The list includes closed assignments so their marks remain in history, so a
+    # surface offering a "start" action must gate on this, not on submission
+    # status alone.
+    is_open: bool = True
     my_total: int | None = None
+    # When this piece was marked. The student's home groups recent results under
+    # YOU DID, and without a date the only honest wording is "at some point" —
+    # which is not a thing worth saying. None until the marks are settled.
+    finalized_at: datetime | None = None
+    # Whether this student's mark was the best in their class on this piece.
+    # A boolean about the reader and nothing else: no classmate's mark, count or
+    # identity is transmitted, and it is shown only to the student it is about
+    # (experience-design §5.1). False whenever there is nothing to compare
+    # against, so the absence of a comparison never reads as a bad result.
+    highest_in_class: bool = False
 
 
 class MarkRow(BaseModel):
