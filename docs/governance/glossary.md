@@ -38,8 +38,10 @@ at one time. Table `evidence`. **Only finalized outcomes become evidence** — n
 provisional. Written exclusively by `services/evidence.py`. The atomic input to readiness.
 
 **Evidence source** — What produced a piece of evidence: `past_paper`, `mock`, `homework`,
-`quiz`, or `observation` (`EvidenceSource`). Each carries a weight in
-`readiness.SOURCE_WEIGHTS`.
+`quiz`, `observation`, or `tutor_estimate` (`EvidenceSource`). Each carries a weight in
+`readiness.SOURCE_WEIGHTS`. `tutor_estimate` is the only one that is not a mark on a piece
+of work: it is self-declared, labelled as such wherever shown (`PROD-8`), and loses weight
+as marked evidence arrives.
 
 **Factor** — One of the seven dimensions Readiness v2 scores independently: Topic Mastery,
 Past Paper Performance, Homework Performance, Assessment Performance, Syllabus Coverage,

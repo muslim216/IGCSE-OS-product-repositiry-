@@ -202,7 +202,7 @@ request — a convention, not a check.
 **Likelihood:** Low · **Impact:** Severe · **Priority:** P3 (residual) · **Owner:** Founder
 
 **Closed for role checks.** Every route now takes `user: TutorUser` or `user: StudentUser`
-from `api/deps.py` — 38 tutor-gated routes and 13 student-gated, out of 125. All eleven
+from `api/deps.py` — 45 tutor-gated routes and 14 student-gated, out of 135. All eleven
 private helpers are deleted, and the seven ownership helpers below the routing layer call the
 shared `assert_tutor()` rather than re-writing the condition.
 

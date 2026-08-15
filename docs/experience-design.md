@@ -774,6 +774,19 @@ that is a finding to raise — not a licence to redesign around it.
 
 ## 12. Appendix: rules this design would add
 
+> **Filed.** `UX-27` … `UX-33` are now **Active** in
+> [§02](volume-1-product-and-ux/02-ux-and-accessibility-standards.md), which is where they are
+> read from. Two changed on the way in, and the §02 text is the one that governs:
+>
+> - **`UX-30`** carries D3's narrowing — the tutor's home may name a student *where naming one
+>   is necessary to communicate something actionable*, never in a ranked or enumerated list.
+> - **`UX-32`** was superseded rather than broken (`GOV-3`). A monthly rank is a rank, and the
+>   original wording forbade the Improvement tab outright; the revision permits a student to
+>   see **their own** position on a surface dedicated to it, and still forbids ever showing
+>   them another student's score, grade, delta or identity.
+>
+> The drafts below are kept as the record of what was proposed and why.
+
 Written in the form defined in `governance/documentation-authority.md`, opened as **Draft**
 because each requires code that has not landed. They are filed into
 [§02](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) **in a later change**, so

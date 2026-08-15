@@ -1575,10 +1575,10 @@ is written are the job-scheduling question (PR 14) and the two security question
 
 ## 22. Delivery record — where the build differed from the plan
 
-**PRs 0–20 are built, and PRs 0–10 are shipped.** "Shipped" on a heading means the work is
+**PRs 0–29 are built, and PRs 0–20 are shipped.** "Shipped" on a heading means the work is
 complete and verified against its own tests, not that it is serving traffic: `main` is the only
 branch anything deploys from, and PR 12 additionally carries a merge gate CI cannot satisfy —
-see the two open items below. This section records only where the implementation *diverged*
+see the open items below. This section records only where the implementation *diverged*
 from what the plan specified, so the next reader finds the reasoning rather than a silent
 discrepancy (`GOV-1`, `GOV-3`).
 
@@ -1592,8 +1592,18 @@ discrepancy (`GOV-1`, `GOV-3`).
 | 18 | Rebuild `tutor/today/*` | As specified; **four panels deleted** (`ActivityPanel`, `TeachingRhythm`, `DashboardHeader`, `EvidenceToAction`) | Their content is now inline in the rebuilt surface or superseded by the stored narrative. `DashboardHeader` carried PR 8's `aria-label` comment; the search control it documented no longer exists on this surface, so the reasoning no longer holds (`CODE-12`/`CODE-13` considered before removal, not after). |
 | 18 | Verdict composed on the surface | Composition extracted to **`frontend/src/lib/verdict.ts`** | The copy rules (counts as words, zero clauses omitted, every verdict a full sentence) are §4.1–4.4 rules, not view code. Pure and unit-tested, they cannot drift as the surface evolves. |
 | 20 | Queue traversal on the review page | As specified, **opt-in via `?queue=review`** | Arriving from an assignment page or a bookmark is a different task from working a queue. Gating the controls on the query parameter leaves that path exactly as it was and keeps "Reviewing 1 of 6" honest — it only ever counts a queue the tutor actually entered. |
+| 21 | `DO` and `YOU DID` in spec §5.1's order | **`DO` first**, `YOU DID` second | §5.1 asserts both *"`DO` … is never below the fold on any supported viewport"* and *"`YOU DID` precedes any request for work"*. On a phone those cannot both hold. Its own mock puts `DO` first and this plan's test for the PR is named for that order, so `DO` leads. The reward-before-request intent is kept in the shape instead of the sequence: `DO` carries only what is due, so `YOU DID` is still above the fold on an ordinary day. |
+| 21 | *"Chemistry mock in 12 days"* on the home | **Not built** | There is no student-visible source of *upcoming* assessments. `/me/assessments` returns scored ones only, and `/assessments` is tutor-gated. Building the line would have meant inventing a countdown from data that does not exist, which §2.3 and `PROD-1` both forbid. It needs an endpoint, and that endpoint is not in this plan. |
+| 21 | *"Chemistry up 6 this month"* in `YOU DID` | As specified, from a new **`SubjectReadiness.month_delta`** | The obvious implementation reads a monthly delta from wherever a delta is cheapest, which is how a home surface ends up printing "up 6" beside a down arrow drawn from a different engine's series (`RISK-5`, `PROD-1`). `month_delta` is computed from the *same* points as `direction`, in the same function, so the two cannot disagree. |
+| 22 | Progress compares predicted with averaging | As specified; the comparison is made on the **grades**, with the scores only deciding direction | Two scores four points apart inside one grade display as the same grade. A sentence claiming the student is "tracking above" beside two identical grades contradicts what the reader can see, so equal grades read as a match. |
+| 23 | Rank computed from one score series | Each student is measured on **their own engine of record** — v2 where a scored snapshot exists, v1 otherwise | Ranking is on a *change*, not a score, so mixing engines across a class is not the hazard it first looks like: a student who gained a v2 series mid-window has no v2 point at the window's start, `period_delta` returns `None`, and they drop out of the ranking — which is exactly what the "full period" gate requires anyway. The payoff is that the reader's delta here is byte-identical to the one on their Progress page rather than a second number with the same label. |
+| 23 | Months labelled `March`, `Feb`, `Jan` | **Rolling 30-day windows**, labelled *This month* / *Last month* / *Two months ago* | Calendar months are 28–31 days long, so the same progress scores differently in February than in March. The window is anchored to midnight UTC, which also satisfies the plan's "no timestamp precise enough to correlate a rank change to a single submission". |
+| 25 | *"{name} hasn't submitted work in {subject} for {n} weeks."* | **Not built**; `WHAT YOU CAN DO` ships its two other states | The sentence needs a per-subject date of last marked work, which no parent-visible response carries. Adding it means a `max(Evidence.occurred_at)` per subject on the readiness read path — a query on the hottest surface in the product for one row of a copy table. The binding requirement (`WHAT YOU CAN DO` present in **every** state) is met without it and is tested. |
+| 26 | Seed published boundaries into the global default | As specified for the five seeded subjects (already shipped with boundaries) and for **uploaded syllabuses**, which now fall back to the scale's standard split | Existing subjects are **not** backfilled: a tutor who deliberately left boundaries empty must not find them filled in. The editor offers the default pre-filled and labelled unconfirmed instead (`PROD-8`). |
+| 26 | Precedence stated in `services/grades.py` | Moved to a new **`services/grade_boundaries.py`**, beside the writer | `grades.py` is pure decision math with no session (`BE-4`); resolving precedence needs a query. The resolver moved out of `readiness_v2_ai.py` — where it had put the rule governing every surface inside the module that talks to a model — and now sits next to `set_org_boundaries`, which is what makes the rule reachable rather than merely documented. |
+| 28 | The seed "loses weight as marked evidence arrives" | A **relative** attenuation (`w / (1 + marked_count)`), not the existing time decay | The half-life discounts a seed and a real mark equally, so a topic that goes quiet keeps the tutor's first impression at full *relative* weight indefinitely. The seed row is never deleted — it is the record of what the score was built from (`PROD-1`) — only outweighed. |
 
-**Two things the plan asked for that are deliberately still open:**
+**The open items:**
 
 - **PR 12's device check.** ≥44×44 targets and `viewport-fit=cover` are implemented and the
   overflow is tested, but a **safe-area error cannot be caught by CI** — the plan's own
@@ -1601,6 +1611,17 @@ discrepancy (`GOV-1`, `GOV-3`).
 - **PR 14's spend watch.** The narrative job adds recurring model spend proportional to evidence
   volume. `NARRATIVE_ENABLED` is the kill switch (instant, no deploy), and `ai_usage_events`
   should be watched for a day before the surfaces are relied on, exactly as §18 specifies.
+- **PR 23's single-class rollout.** The plan calls the Improvement tab the highest product risk
+  in the batch — a ranking shown to children — and asks for it to reach one class first, with
+  that tutor asked what their students said about it before it goes wider. Nothing in the code
+  enforces that; it is a rollout decision. The one cheap mitigation is a sentence to the tutor
+  when the tab is introduced: **do not ask students to share this screen.** A tutor soliciting
+  rank screenshots turns the voluntary leak documented as residual risk 1 into a compelled one,
+  with the power asymmetry that implies.
+- **PR 25's copy review.** The parent screen is read by people who cannot ask a follow-up
+  question and who read ambiguity as bad news that then lands on the child. The plan asks for
+  the copy to be reviewed with the tutor before it ships. The strings are in
+  `frontend/src/lib/parent.ts`, in one place, for exactly that reason.
 
 **The accessibility row above is still unreviewed and now has more surface to cover:** the
 `Updating…` live region ships in PR 18's narrative section and PR 19's, and the 🟢/🟡/🔴 banding

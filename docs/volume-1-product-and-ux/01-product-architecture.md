@@ -206,9 +206,16 @@ Evidence is weighted by source. From `readiness.SOURCE_WEIGHTS`:
 | `homework` | 1.0 | The baseline |
 | `quiz` | 0.8 | Narrow and short |
 | `observation` | 0.5 | A tutor's judgement — valuable, but subjective |
+| `tutor_estimate` | 0.4 | A tutor's starting estimate at cold start. Self-declared (`PROD-8`), and the only source that also loses weight *against rival evidence* — see below |
 
 On top of source weight, every point decays exponentially with a **45-day half-life**
-(`HALF_LIFE_DAYS`). Confidence is a separate axis, growing with the amount of recent
+(`HALF_LIFE_DAYS`). `tutor_estimate` carries a second, independent attenuation: its weight
+is divided by one more than the number of *marked* points on the same topic, so a tutor's
+cold-start estimate is the whole answer while it is the only thing there and is
+arithmetically irrelevant by the time a term's work sits behind it. Time decay alone would
+not achieve this — the half-life discounts a seed and a real mark equally, so a quiet topic
+would carry a first impression at full relative weight indefinitely (spec §7.3). The seed
+row is never deleted: it is the record of what the score was built from (`PROD-1`). Confidence is a separate axis, growing with the amount of recent
 decay-weighted evidence: `high` requires at least 3 recent points and an effective weight of
 2.5. A topic with no points is `ReadinessConfidence.none` and displays as "not enough data
 yet" — **P3** enforced in the engine, not the interface.
