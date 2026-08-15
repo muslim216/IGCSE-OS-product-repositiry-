@@ -165,7 +165,7 @@ test.each([
   [[subject(), subject({ subject_id: 2 })], "Sara is on track in all two subjects."],
   [
     [subject(), subject({ subject_id: 2, status: "at_risk" })],
-    "Sara is on track in 1 of 2 subjects.",
+    "Sara is on track in one of two subjects.",
   ],
   [
     [subject({ status: "at_risk" }), subject({ subject_id: 2, status: "needs_attention" })],

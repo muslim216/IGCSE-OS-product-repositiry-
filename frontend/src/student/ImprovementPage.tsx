@@ -29,13 +29,18 @@ function ordinal(n: number): string {
   return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
-/** The reader's own movement, in words. Never rendered as a bare signed number
-    with no subject — "+6" alone does not say what moved or over what. */
-function deltaLabel(delta: number | null): string | null {
+/** The reader's own movement — the visible `text` (glyph + number) and the
+ * `label` a screen reader announces. `▲`/`▼` are the only carriers of direction
+ * in the visible string, and assistive technology reads them as symbol names or
+ * skips them, so "-2" is easy to miss; the label spells the direction out
+ * (CodeRabbit). null when there is nothing to report. */
+function deltaLabel(delta: number | null): { text: string; label: string } | null {
   if (delta === null) return null;
   const rounded = Math.round(delta);
-  if (rounded === 0) return "no change";
-  return rounded > 0 ? `▲ +${rounded}` : `▼ ${rounded}`;
+  if (rounded === 0) return { text: "no change", label: "no change" };
+  return rounded > 0
+    ? { text: `▲ +${rounded}`, label: `up ${rounded} points` }
+    : { text: `▼ ${rounded}`, label: `down ${Math.abs(rounded)} points` };
 }
 
 /**
@@ -75,7 +80,10 @@ function SubjectPanel({ subject }: { subject: SubjectImprovement }) {
 
       {movement ? (
         <p className="text-sm text-ink-700">
-          <span className="tabular-nums">{movement}</span> over the last {subject.window_days} days.
+          <span className="tabular-nums" aria-label={movement.label}>
+            {movement.text}
+          </span>{" "}
+          over the last {subject.window_days} days.
         </p>
       ) : (
         <p className="text-sm text-ink-500">{ABSENT.noEvidence}</p>
@@ -97,7 +105,15 @@ function SubjectPanel({ subject }: { subject: SubjectImprovement }) {
                     : period.banded
                       ? "second half"
                       : ordinal(period.rank)}
-                  {deltaLabel(period.delta) && <> · {deltaLabel(period.delta)}</>}
+                  {(() => {
+                    const move = deltaLabel(period.delta);
+                    return move ? (
+                      <>
+                        {" · "}
+                        <span aria-label={move.label}>{move.text}</span>
+                      </>
+                    ) : null;
+                  })()}
                 </span>
               </li>
             ))}

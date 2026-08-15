@@ -62,6 +62,11 @@ export default function GradeBoundariesPage() {
   // awards the wrong grade to everyone. Caught here as well as server-side so
   // the tutor sees it beside the field rather than as a rejected save.
   const outOfOrder = draft.some((band, i) => i > 0 && Number(band.min) >= Number(draft[i - 1].min));
+  // The backend's _unique_grades validator rejects duplicate labels, but without
+  // a matching client check the tutor sees only the generic save-failed message.
+  // Mirror it so the reason shows inline beside the fields (Qodo).
+  const labels = draft.map((b) => b.grade.trim()).filter(Boolean);
+  const duplicateLabels = new Set(labels).size !== labels.length;
 
   if (subjects.isLoading) {
     return (
@@ -90,6 +95,7 @@ export default function GradeBoundariesPage() {
       </div>
 
       <select
+        aria-label="Subject"
         value={selected ?? ""}
         onChange={(e) => setSubjectId(Number(e.target.value))}
         className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
@@ -163,7 +169,7 @@ export default function GradeBoundariesPage() {
             <button
               type="button"
               onClick={() => save.mutate()}
-              disabled={save.isPending || outOfOrder || draft.length < 2}
+              disabled={save.isPending || outOfOrder || duplicateLabels || draft.length < 2}
               className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
             >
               {save.isPending ? "Saving…" : "Save boundaries"}
@@ -174,6 +180,9 @@ export default function GradeBoundariesPage() {
             <p className="text-sm text-risk-600">
               List the highest grade first, with each minimum below the one above it.
             </p>
+          )}
+          {duplicateLabels && (
+            <p className="text-sm text-risk-600">Each grade can appear only once.</p>
           )}
           {draft.length < 2 && (
             <p className="text-sm text-ink-500">Add at least two grades before saving.</p>

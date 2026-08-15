@@ -49,6 +49,7 @@ function assignment(over: Partial<StudentAssignment> = {}): StudentAssignment {
     question_count: 4,
     total_marks: 18,
     submission_status: "not_submitted",
+    is_open: true,
     my_total: null,
     finalized_at: null,
     highest_in_class: false,
@@ -166,6 +167,16 @@ test("the cleared state offers exactly one action, and it is past papers", async
   expect(links).toContain("/student/past-papers");
   expect(screen.queryByText(/practi[cs]e/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/quiz/i)).not.toBeInTheDocument();
+});
+
+test("a closed, unsubmitted assignment is not offered as work to start", async () => {
+  // The list carries closed assignments so their marks stay in history, but a
+  // closed piece cannot be started — it must not get a Start link or count
+  // toward the day's verdict (Qodo).
+  stubFetch([subject()], [assignment({ is_open: false, submission_status: "not_submitted" })]);
+  renderHome();
+  expect(await screen.findByText("You're clear. Nothing due.")).toBeInTheDocument();
+  expect(screen.queryByText("Start →")).not.toBeInTheDocument();
 });
 
 test("work due suppresses the cleared-state offer", async () => {

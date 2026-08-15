@@ -147,12 +147,17 @@ export function gradeGap(subject: SubjectReadiness): Gap | null {
   return score > averaging_score ? "above" : score < averaging_score ? "below" : "equal";
 }
 
-/** The sentence for each gap (copy §4.5). One string per row of that table, so
-    a change to the wording happens once. */
+/** The sentence for each gap (copy §4.5).
+ *
+ * The wording states only what the two numbers on the screen actually show: how
+ * the predicted grade sits against the average of marked work. It deliberately
+ * does *not* claim "the last three pieces have been stronger" — no last-three
+ * comparison is computed anywhere, the average covers every settled piece, and
+ * the predicted grade combines several factors, so that sentence could
+ * contradict the student's real record (Qodo, PROD-1). One string per row of
+ * §4.5, so a change to the wording happens once. */
 export const GAP_SENTENCE: Record<Gap, string> = {
-  above:
-    "You're tracking above your recent average — the last three pieces have been stronger than the ones before.",
-  below:
-    "Your recent work has been weaker than your record — the last three pieces pulled the estimate down.",
-  equal: "Your recent work matches your record.",
+  above: "Your predicted grade is above the average of your marked work so far.",
+  below: "Your predicted grade is below the average of your marked work so far.",
+  equal: "Your predicted grade matches the average of your marked work so far.",
 };

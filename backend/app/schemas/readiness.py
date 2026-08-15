@@ -115,7 +115,10 @@ class SeedTopicScore(BaseModel):
 
 
 class SeedReadinessIn(BaseModel):
-    topics: list[SeedTopicScore] = Field(min_length=1)
+    # Bounded at the boundary: one estimate covers a class's worth of topics,
+    # not thousands. The cap stops a single request driving unbounded per-topic
+    # work regardless of what the handler does downstream.
+    topics: list[SeedTopicScore] = Field(min_length=1, max_length=200)
 
 
 class ObservationCreate(BaseModel):

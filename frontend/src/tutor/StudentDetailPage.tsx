@@ -111,27 +111,27 @@ export default function StudentDetailPage() {
               Close
             </button>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-ink-500">
             Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence} confidence) —
             every score is explainable by the evidence below.
           </p>
-          <ul className="mt-2 divide-y text-sm">
+          <ul className="mt-2 divide-y divide-line text-sm">
             {evidence.data.evidence.map((e, i) => (
               <li key={i} className="flex items-center justify-between py-1.5">
-                <span className="text-slate-600">
+                <span className="text-ink-700">
                   {e.label ?? sourceLabel(e.source_type)}{" "}
-                  <span className="text-xs text-slate-400">({sourceLabel(e.source_type)})</span>
+                  <span className="text-xs text-ink-500">({sourceLabel(e.source_type)})</span>
                 </span>
-                <span className="flex items-center gap-3 text-slate-500">
+                <span className="flex items-center gap-3 text-ink-500">
                   <span>{Math.round(e.score_pct)}%</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-ink-500">
                     {new Date(e.occurred_at).toLocaleDateString()}
                   </span>
                 </span>
               </li>
             ))}
             {evidence.data.evidence.length === 0 && (
-              <li className="py-1.5 text-slate-500">No evidence yet.</li>
+              <li className="py-1.5 text-ink-500">No evidence yet.</li>
             )}
           </ul>
         </div>
@@ -166,6 +166,13 @@ export default function StudentDetailPage() {
               </option>
             ))}
           </select>
+          {topics.data?.length === 0 && (
+            // The select is empty when the student has no subject yet — say so,
+            // rather than leaving a control that cannot be completed (CodeRabbit).
+            <p className="w-full text-sm text-ink-500">
+              No topics to estimate yet — they appear once this student has a subject.
+            </p>
+          )}
           <input
             type="number"
             min={0}
@@ -184,9 +191,16 @@ export default function StudentDetailPage() {
           >
             Save estimate
           </button>
-          {seedReadiness.isError && (
-            <p className="w-full text-sm text-risk-600">Could not save the estimate.</p>
-          )}
+          {/* A live region so assistive technology announces the outcome — the
+              form otherwise signals success only by resetting its fields, which
+              a screen reader does not surface (CodeRabbit). */}
+          <p className="w-full text-sm" aria-live="polite">
+            {seedReadiness.isError ? (
+              <span className="text-risk-600">Could not save the estimate.</span>
+            ) : seedReadiness.isSuccess ? (
+              <span className="text-ink-500">Estimate saved.</span>
+            ) : null}
+          </p>
         </form>
       </div>
 

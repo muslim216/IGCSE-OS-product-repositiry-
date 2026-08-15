@@ -164,6 +164,61 @@ async def test_a_tutor_cannot_seed_a_student_they_do_not_teach(client, student, 
     assert denied.status_code == 404
 
 
+async def test_a_tutor_cannot_seed_a_topic_from_a_subject_they_do_not_teach(
+    client, tutor, student, subject
+):
+    """The authorization that matters. Topics are global, so verifying the tutor
+    teaches the student *somewhere* is not enough — a tutor teaching Sara
+    Chemistry must not be able to inject evidence onto her Physics record (Qodo).
+    Every topic's subject is checked against what this tutor teaches this
+    student; a foreign one is 404 (not 403 — a global key must not confirm what
+    it points at across the boundary), and nothing is written.
+    """
+    from sqlalchemy import select
+
+    from app.db import async_session
+    from app.models import Evidence, Subject, Topic
+
+    async with async_session() as session:
+        other = Subject(
+            exam_board="Cambridge",
+            code="5054",
+            name="Physics",
+            grade_scale="A*-E",
+            grade_boundaries=[{"grade": "A*", "min": 90}, {"grade": "U", "min": 0}],
+        )
+        session.add(other)
+        await session.flush()
+        foreign = Topic(subject_id=other.id, code="P1", title="Forces")
+        session.add(foreign)
+        await session.commit()
+        foreign_topic_id = foreign.id
+
+    resp = await client.post(
+        f"/api/v1/students/{student['user']['id']}/seed-readiness",
+        json={"topics": [{"topic_id": foreign_topic_id, "score_pct": 80}]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 404
+
+    # A payload mixing a taught topic with a foreign one is rejected whole — the
+    # taught one must not slip through.
+    mixed = await client.post(
+        f"/api/v1/students/{student['user']['id']}/seed-readiness",
+        json={
+            "topics": [
+                {"topic_id": subject["topic1"], "score_pct": 55},
+                {"topic_id": foreign_topic_id, "score_pct": 80},
+            ]
+        },
+        headers=tutor["headers"],
+    )
+    assert mixed.status_code == 404
+
+    async with async_session() as session:
+        assert (await session.scalars(select(Evidence))).all() == []
+
+
 async def test_a_student_cannot_seed_themselves(client, student, subject):
     """The whole point is that this is the tutor's judgement. A student writing
     it would be self-reported attainment feeding their own predicted grade."""

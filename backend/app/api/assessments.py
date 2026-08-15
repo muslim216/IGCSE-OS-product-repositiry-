@@ -279,51 +279,83 @@ async def seed_readiness(
     Re-seeding the same topic replaces the previous estimate rather than adding
     a second one: this is the tutor's current opinion, not a history of their
     opinions, and stacking them would let one topic be seeded into a score.
+
+    **Known gap (RISK-5).** The estimate's numeric value drives the v1 engine.
+    Readiness Engine v2 — the default served engine — computes topic mastery from
+    marked questions and reads Evidence only as a "practised" flag, so it does
+    not consume the estimate's percentage. This is not unique to seeding: every
+    Evidence-only source (tutor observations, entered mocks) has the same limit
+    under v2, and closing it means teaching v2 to score from Evidence, which is
+    the RISK-5 convergence work, not a cold-start change. Until then the seed's
+    number is fully honoured only where v1 answers.
     """
-    shares = await db.scalar(
-        select(GroupMember.id)
-        .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
-        .limit(1)
+    # Which subjects this tutor actually teaches *this* student. Authorizing the
+    # student once is not enough: topics are global, so a tutor who teaches Sara
+    # Chemistry could otherwise seed a Physics topic onto her record for a
+    # subject they have nothing to do with (Qodo). Every submitted topic's
+    # subject must be in this set — checked in one query, not one per topic.
+    taught_subjects = set(
+        (
+            await db.scalars(
+                select(Group.subject_id)
+                .join(GroupMember, GroupMember.group_id == Group.id)
+                .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
+            )
+        ).all()
     )
-    if shares is None:
+    if not taught_subjects:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in your groups")
 
-    subject_ids: set[int] = set()
-    now = datetime.now(timezone.utc)
-    for entry in body.topics:
-        topic = await db.get(Topic, entry.topic_id)
-        if topic is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
-        subject_ids.add(topic.subject_id)
-        source_ref = f"tutor_estimate:{student_id}:{topic.id}"
-        existing = await db.scalar(
-            select(Evidence).where(
-                Evidence.student_id == student_id,
-                Evidence.topic_id == topic.id,
-                Evidence.source_ref == source_ref,
-            )
-        )
-        if existing is None:
-            existing = Evidence(
-                student_id=student_id,
-                topic_id=topic.id,
-                source_type=EvidenceSource.tutor_estimate,
-                source_ref=source_ref,
-            )
-            db.add(existing)
-        existing.score_pct = float(entry.score_pct)
-        existing.max_marks = 0
-        existing.occurred_at = now
-        existing.label = "Tutor's starting estimate (self-declared)"
+    # The tutor's current opinion, so a repeated topic in one payload is the last
+    # value, not two rows. Deduping here also bounds the work to the distinct
+    # topics regardless of payload shape.
+    scored: dict[int, float] = {e.topic_id: float(e.score_pct) for e in body.topics}
+    topic_ids = list(scored)
 
-    for subject_id in subject_ids:
+    topics = {
+        t.id: t for t in (await db.scalars(select(Topic).where(Topic.id.in_(topic_ids)))).all()
+    }
+    for topic_id in topic_ids:
+        topic = topics.get(topic_id)
+        # A topic for a subject the tutor does not teach this student is treated
+        # as not found rather than 403 — a global integer key must not confirm
+        # what it points at across an authorization boundary (API-7 / SEC-9).
+        if topic is None or topic.subject_id not in taught_subjects:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not available for this student")
+
+    # Existing seed rows for these topics, in one read, so re-seeding replaces in
+    # place without a per-topic SELECT.
+    refs = {topic_id: f"tutor_estimate:{student_id}:{topic_id}" for topic_id in topic_ids}
+    existing = {
+        e.source_ref: e
+        for e in (
+            await db.scalars(select(Evidence).where(Evidence.source_ref.in_(list(refs.values()))))
+        ).all()
+    }
+
+    now = datetime.now(timezone.utc)
+    for topic_id, score_pct in scored.items():
+        row = existing.get(refs[topic_id])
+        if row is None:
+            row = Evidence(
+                student_id=student_id,
+                topic_id=topic_id,
+                source_type=EvidenceSource.tutor_estimate,
+                source_ref=refs[topic_id],
+            )
+            db.add(row)
+        row.score_pct = score_pct
+        row.max_marks = 0
+        row.occurred_at = now
+        row.label = "Tutor's starting estimate (self-declared)"
+
+    for subject_id in {topics[topic_id].subject_id for topic_id in topic_ids}:
         await enqueue(
             db, "recompute_readiness", {"student_id": student_id, "subject_id": subject_id}
         )
         await enqueue_v2_shadow(db, student_id, subject_id)
     await db.commit()
-    return {"seeded": len(body.topics)}
+    return {"seeded": len(topic_ids)}
 
 
 @router.get("/students/{student_id}/observations", response_model=list[ObservationOut])

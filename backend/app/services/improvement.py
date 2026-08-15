@@ -257,19 +257,25 @@ async def _focus_topics(
     None so the surface says "not enough data yet" rather than printing a number
     the engine did not stand behind (PROD-2).
     """
+    # Filter to confident rows *before* ordering and limiting. Otherwise the
+    # three lowest-score rows are taken first and a low-confidence topic can fill
+    # a slot a confident, actionable topic should have held — leaving the reader
+    # three "not enough data yet" lines under a heading that promises the
+    # opposite (CodeRabbit).
     rows = (
         await db.execute(
-            select(Topic.code, Topic.title, TopicReadiness.score, TopicReadiness.confidence)
+            select(Topic.code, Topic.title, TopicReadiness.score)
             .join(TopicReadiness, TopicReadiness.topic_id == Topic.id)
-            .where(TopicReadiness.student_id == student_id, Topic.subject_id == subject_id)
+            .where(
+                TopicReadiness.student_id == student_id,
+                Topic.subject_id == subject_id,
+                TopicReadiness.confidence.in_(CONFIDENT),
+            )
             .order_by(TopicReadiness.score)
             .limit(limit)
         )
     ).all()
-    return [
-        (code, title, score if confidence in CONFIDENT else None)
-        for code, title, score, confidence in rows
-    ]
+    return [(code, title, score) for code, title, score in rows]
 
 
 async def build_improvement(
@@ -279,8 +285,13 @@ async def build_improvement(
     now = now or datetime.now(timezone.utc)
     out: list[SubjectImprovement] = []
 
+    # One read for every subject, not one db.get per subject in the loop below.
+    subjects = {
+        s.id: s
+        for s in (await db.scalars(select(Subject).where(Subject.id.in_(subject_ids)))).all()
+    }
     for subject_id in subject_ids:
-        subject = await db.get(Subject, subject_id)
+        subject = subjects.get(subject_id)
         if subject is None:
             continue
         peers = await _classmates(db, student, subject_id)

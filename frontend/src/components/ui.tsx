@@ -111,9 +111,12 @@ export function DirectionMark({ direction }: { direction: "up" | "flat" | "down"
   const glyph = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
   const tone =
     direction === "up" ? "text-ok-700" : direction === "down" ? "text-risk-600" : "text-ink-500";
+  // role="img" with an aria-label makes assistive technology announce the label
+  // and ignore the glyph, which a screen reader would otherwise read as a symbol
+  // name or skip entirely (CodeRabbit). The glyph is hidden as decorative.
   return (
-    <span className={tone} aria-label={`Trending ${direction}`}>
-      {glyph}
+    <span role="img" className={tone} aria-label={`Trending ${direction}`}>
+      <span aria-hidden>{glyph}</span>
     </span>
   );
 }

@@ -20,6 +20,7 @@ from app.models import Subject
 from app.schemas.grade_boundaries import GradeBoundariesIn, GradeBoundariesOut
 from app.services.grade_boundaries import (
     defaults_for_scale,
+    has_org_boundaries,
     resolve_grade_boundaries,
     set_org_boundaries,
 )
@@ -49,10 +50,14 @@ async def read_grade_boundaries(
     subject = await _subject(db, subject_id)
     boundaries = await resolve_grade_boundaries(db, user.organization_id, subject)
     if boundaries:
-        # resolve_grade_boundaries returns the org list when one exists, so the
-        # only way to tell the two apart is to ask whether it differs from the
-        # subject's — cheaper than a second query and exactly as accurate.
-        source = "organization" if boundaries is not subject.grade_boundaries else "subject"
+        # Ask directly whether the org set its own values rather than inferring
+        # it from the resolved list's object identity, which would break the
+        # moment resolve_grade_boundaries copied the subject's list (Qodo).
+        source = (
+            "organization"
+            if await has_org_boundaries(db, user.organization_id, subject.id)
+            else "subject"
+        )
         return GradeBoundariesOut(
             subject_id=subject.id,
             subject_name=subject.name,

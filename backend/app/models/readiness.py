@@ -29,8 +29,9 @@ class EvidenceSource(str, enum.Enum):
     # filled but before any work has been marked. **Self-declared** — it is not
     # a mark on a piece of work, and PROD-8 requires it to be labelled as such
     # wherever it is shown. It is also the only source that loses weight as
-    # rival evidence arrives (SEEDED_DECAY in services/readiness.py), so a first
-    # impression corrects itself within weeks instead of being carried all year.
+    # rival evidence arrives (SEEDED_SOURCES in services/readiness.py), so a
+    # first impression corrects itself within weeks instead of being carried all
+    # year.
     tutor_estimate = "tutor_estimate"
 
 

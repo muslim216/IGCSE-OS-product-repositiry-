@@ -27,6 +27,7 @@ function marked(id: number, daysAgo: number | null, total: number | null = 12): 
     question_count: 1,
     total_marks: 18,
     submission_status: "marked",
+    is_open: false,
     my_total: total,
     finalized_at: daysAgo === null ? null : new Date(NOW - daysAgo * 86_400_000).toISOString(),
     highest_in_class: false,

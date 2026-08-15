@@ -59,14 +59,25 @@ function SubjectChip({
   );
 }
 
+/** Whole calendar days between two dates, by local midnight — so "due today"
+    and "due tomorrow" turn over at midnight rather than 24 hours after the
+    deadline. Math.round on elapsed milliseconds mislabels an evening deadline
+    the next morning (~14h reads as "today", not "tomorrow"). */
+function calendarDaysUntil(dueAt: string): number {
+  const due = new Date(dueAt);
+  const dueMidnight = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((dueMidnight.getTime() - todayMidnight.getTime()) / 86_400_000);
+}
+
 function dueLabel(dueAt: string | null): string {
   if (!dueAt) return "no due date";
-  const due = new Date(dueAt);
-  const days = Math.round((due.getTime() - Date.now()) / 86_400_000);
+  const days = calendarDaysUntil(dueAt);
   if (days < 0) return "overdue";
   if (days === 0) return "due today";
   if (days === 1) return "due tomorrow";
-  return `due ${due.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  return `due ${new Date(dueAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
 }
 
 export default function StudentHomePage() {
@@ -79,7 +90,11 @@ export default function StudentHomePage() {
   const gains = monthlyGains(subjects);
 
   const all = assignments.data ?? [];
-  const due = all.filter((a) => a.submission_status === "not_submitted");
+  // Only open, unsubmitted work is "to do". A closed assignment with no
+  // submission is not something the student can start — the submit endpoint
+  // rejects it — so it must not get a Start link or inflate the day's count
+  // (Qodo). Its marks still live in YOU DID via recentlyMarked below.
+  const due = all.filter((a) => a.is_open && a.submission_status === "not_submitted");
   const marked = recentlyMarked(all).slice(0, 3);
   const nextLesson = lessons.data?.[0];
 

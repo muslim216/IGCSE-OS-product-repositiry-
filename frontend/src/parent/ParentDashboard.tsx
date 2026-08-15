@@ -35,7 +35,12 @@ function SubjectRow({ subject }: { subject: SubjectReadiness }) {
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2.5">
       <span className="min-w-32 font-medium text-ink-900">{subject.subject_name}</span>
       {subject.status === null ? (
-        <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
+        // No band. Distinguish "nothing marked yet" from "marked work exists but
+        // the subject has no grade boundaries to map it through" — the two are
+        // different facts and only the first is "not enough data yet" (CodeRabbit).
+        <span className="text-sm text-ink-500">
+          {subject.marked_piece_count > 0 ? ABSENT.noBoundaries : ABSENT.noEvidence}
+        </span>
       ) : (
         <>
           <StatusBadge status={subject.status} />
@@ -101,6 +106,9 @@ export default function ParentDashboard() {
             <button
               key={c.id}
               type="button"
+              // The selected child is otherwise carried only by colour; aria-pressed
+              // lets assistive technology announce which child is active (CodeRabbit).
+              aria-pressed={selected === c.id}
               onClick={() => setActiveChild(c.id)}
               className={`rounded-full px-4 py-1.5 text-sm ${
                 selected === c.id

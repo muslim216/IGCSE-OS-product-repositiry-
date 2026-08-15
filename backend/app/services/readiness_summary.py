@@ -95,7 +95,12 @@ def window_start(now: datetime, periods_ago: int = 0) -> datetime:
     before it. Rolling 30-day windows rather than calendar months, so the same
     amount of progress is scored the same way in February as in March.
     """
-    midnight = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # A naive `now` is treated as UTC, the same rule `_aware` applies to every
+    # point timestamp — otherwise astimezone() would read it as host-local time
+    # and shift the whole window by the machine's offset.
+    midnight = (
+        _aware(now).astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    )
     return midnight - timedelta(days=MONTH_WINDOW_DAYS * (periods_ago + 1))
 
 
@@ -125,7 +130,13 @@ def period_delta(
     """
     now = now or datetime.now(timezone.utc)
     start = window_start(now, periods_ago)
-    end = window_start(now, periods_ago - 1) if periods_ago > 0 else now
+    # Every window — the current one included — ends on a midnight boundary, not
+    # at the request time. The current window closes at *today's* midnight, so a
+    # snapshot written during the day does not move the delta (or, for the whole
+    # class, the rank) until the next day. Ending the current window at `now`
+    # instead would let a rank shift minutes after a submission, which is exactly
+    # the correlation the midnight anchor exists to prevent (Qodo, CodeRabbit).
+    end = window_start(now, periods_ago - 1)
     baseline = [score for at, score in points if _aware(at) <= start]
     if not baseline:
         return None

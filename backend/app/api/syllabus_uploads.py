@@ -136,14 +136,19 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     subject.grade_scale = draft.grade_scale
     # A syllabus document usually does not print its grade boundaries — they are
     # published per series, not per specification — so the extraction commonly
-    # returns none. Falling back to the standard split for the scale means a
-    # tutor who uploads a syllabus gets working predicted grades on day one
-    # rather than "no grade boundaries set" on every surface (spec §7.1). It is
-    # a starting point, labelled as unconfirmed and editable; where the document
-    # did state boundaries, those win.
-    subject.grade_boundaries = [
-        b.model_dump() for b in draft.grade_boundaries
-    ] or defaults_for_scale(draft.grade_scale)
+    # returns none. Where the document did state boundaries, those win.
+    #
+    # When it did not, fall back to the standard split for the scale ONLY to seed
+    # a subject that has none. Subjects are global and keyed on (exam_board,
+    # code), so a second organization re-uploading the same syllabus reuses the
+    # existing row — and overwriting its boundaries with generic defaults would
+    # change fallback predicted grades for every other tenant (Qodo, SEC-8). An
+    # existing subject's boundaries are therefore left untouched; a tutor who
+    # wants their own values sets them through the org-scoped editor.
+    extracted = [b.model_dump() for b in draft.grade_boundaries]
+    subject.grade_boundaries = (
+        extracted or subject.grade_boundaries or defaults_for_scale(draft.grade_scale)
+    )
     await db.flush()
 
     existing = {

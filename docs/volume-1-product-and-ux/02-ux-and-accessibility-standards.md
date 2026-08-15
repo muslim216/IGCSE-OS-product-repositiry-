@@ -510,9 +510,14 @@ No surface, style or constant may contain a literal grade or percentage threshol
 readiness band is the position of the grade within the subject's ordered grade boundaries.
 *Rationale:* subjects use different scales — `Subject.grade_scale` already carries which —
 and a hardcoded `70` or `B` is wrong for every subject that does not share it.
-*Realised by:* `services/grades.py:grade_band`, whose cut-offs are indices. The one surviving
-score threshold is `statusOf` in `frontend/src/lib/readiness.ts`, private to the legacy
-analytics table and marked as such.
+*Realised by:* `services/grades.py:grade_band`, whose cut-offs are indices.
+*Bounded exception:* `statusOf` in `frontend/src/lib/readiness.ts` keeps a literal `70`/`50`
+score threshold. It is `private` to that module, feeds only the legacy `deriveLearnerRows`
+table over bare analytics scores (no grade or boundaries reach that path at all), and is
+documented in place as scheduled for deletion once that table is replaced. New code may not
+add a second instance of this exception; if the legacy table's replacement is deferred, the
+threshold's continued existence is a Known Gap to record below, not a silent extension of the
+carve-out.
 
 **`UX-29` — MUST · Important · Active**
 A section with nothing to report is not rendered; the surface's terminal state is a sentence.

@@ -47,6 +47,13 @@ from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.workers.jobs import enqueue
 
+# resolve_grade_boundaries lives in services/grade_boundaries.py; it is imported
+# here and re-exported so the existing readers that import it from this module
+# keep working. Declared in __all__ so the re-export is intentional and a lint
+# pass that strips "unused" imports cannot silently break those readers
+# (CodeRabbit) — even though line 238 also uses it directly today.
+__all__ = ["resolve_grade_boundaries"]
+
 
 async def enqueue_readiness_v2_debounced(
     db: AsyncSession,

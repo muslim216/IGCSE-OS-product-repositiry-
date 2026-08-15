@@ -316,6 +316,12 @@ async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssign
                 submission_status=(
                     PUBLIC_STATUS[submission.status] if submission else "not_submitted"
                 ),
+                # Whether the assignment still accepts a submission. This list
+                # includes closed assignments so their marks stay in the
+                # student's history, but a closed piece is not something to
+                # "start" — the submit endpoint rejects it — and the home must
+                # not offer a Start link on work that cannot be started (Qodo).
+                is_open=assignment.status == AssignmentStatus.published,
                 my_total=my_total,
                 # When the mark landed, which is what lets the student's home say
                 # "marked this week" rather than listing every piece ever marked.

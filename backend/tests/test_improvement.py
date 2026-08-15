@@ -31,7 +31,7 @@ def _deltas(*values: float) -> dict[int, float]:
 # ---- the shape of the payload ----
 
 
-async def test_no_classmate_value_appears_in_any_response(client, tutor):
+def test_no_classmate_value_appears_in_any_response():
     """The design in one assertion.
 
     Every key the endpoint can return is enumerated here. A field carrying a
@@ -59,14 +59,96 @@ async def test_no_classmate_value_appears_in_any_response(client, tutor):
     assert set(FocusTopic.model_fields) == {"topic_code", "topic_title", "score"}
 
 
-async def test_student_cannot_see_another_orgs_ranking(client, tutor):
-    """A student reads their own improvement and nobody else's, and the endpoint
-    is gated to students in the signature (QA-12)."""
+async def test_improvement_endpoint_is_student_gated(client, tutor):
+    """The role gate: a tutor gets 403, an anonymous caller 401. This is the
+    signature gate (QA-12); the cross-organization scope is exercised
+    separately below, where it is the SEC-8 control that actually matters."""
     resp = await client.get("/api/v1/improvement/me", headers=tutor["headers"])
     assert resp.status_code == 403
 
     anonymous = await client.get("/api/v1/improvement/me")
     assert anonymous.status_code == 401
+
+
+async def _register_tutor(client, email: str) -> dict:
+    resp = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": email, "email": email, "password": "password123"},
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    return {
+        "user": data["user"],
+        "headers": {"Authorization": f"Bearer {data['tokens']['access_token']}"},
+    }
+
+
+async def _join_student(client, tutor_headers: dict, group_id: int, name: str) -> int:
+    invite = await client.post(f"/api/v1/groups/{group_id}/invites", headers=tutor_headers)
+    resp = await client.post(
+        "/api/v1/auth/register/student",
+        json={
+            "invite_code": invite.json()["code"],
+            "name": name,
+            "email": f"{name}@example.com",
+            "password": "password123",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["user"]["id"]
+
+
+async def test_classmates_excludes_another_orgs_students_for_the_same_subject(client, tutor):
+    """SEC-8, the control this whole feature turns on. Subjects are global, so a
+    student in another organization's class for the *same* subject must never
+    enter the reader's cohort — otherwise the ranking would compare children
+    across tenants and leak the size of a stranger's class.
+
+    Two organizations, each with a class in one shared subject, one student
+    each. The reader's classmate set, and therefore member_count, is exactly
+    their own org's roster.
+    """
+    from app.db import async_session
+    from app.models import Subject, User
+    from app.services.improvement import _classmates
+
+    async with async_session() as session:
+        subject = Subject(
+            exam_board="Edexcel IGCSE",
+            code="4CH1",
+            name="Chemistry",
+            grade_scale="9-1",
+            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
+        )
+        session.add(subject)
+        await session.commit()
+        subject_id = subject.id
+
+    # Org A (the shared `tutor` fixture) teaches this subject.
+    group_a = await client.post(
+        "/api/v1/groups",
+        json={"name": "A-Chem", "subject_id": subject_id},
+        headers=tutor["headers"],
+    )
+    reader_id = await _join_student(client, tutor["headers"], group_a.json()["id"], "reader")
+
+    # Org B is a different tutor (different organization) teaching the same
+    # global subject to their own student.
+    tutor_b = await _register_tutor(client, "tutorB@example.com")
+    group_b = await client.post(
+        "/api/v1/groups",
+        json={"name": "B-Chem", "subject_id": subject_id},
+        headers=tutor_b["headers"],
+    )
+    stranger_id = await _join_student(client, tutor_b["headers"], group_b.json()["id"], "stranger")
+
+    async with async_session() as session:
+        reader = await session.get(User, reader_id)
+        peers = await _classmates(session, reader, subject_id)
+
+    assert reader_id in peers
+    assert stranger_id not in peers
+    assert len(peers) == 1  # member_count sees only the reader's own org
 
 
 # ---- the gates ----
@@ -189,6 +271,36 @@ def test_the_window_is_anchored_to_midnight_so_a_rank_cannot_be_correlated():
     morning = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)
     evening = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
     assert period_delta(points, morning) == period_delta(points, evening) == 10.0
+
+
+def test_a_snapshot_created_today_does_not_move_the_current_delta():
+    """The teeth of the privacy control. A point written *today* — a classmate's
+    fresh submission recomputed at midday — must not change the current delta
+    between a morning and an evening read. The current window closes at today's
+    midnight, so today's point is excluded until tomorrow. If the window ended at
+    the request time instead, the evening read would jump to it and the rank
+    would move minutes after the submission (Qodo, CodeRabbit)."""
+    baseline = (NOW - timedelta(days=MONTH_WINDOW_DAYS + 1), 60.0)
+    yesterday = (NOW - timedelta(days=1), 70.0)
+    today_noon = (datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc), 95.0)
+
+    morning = datetime(2026, 6, 15, 8, 0, tzinfo=timezone.utc)
+    evening = datetime(2026, 6, 15, 22, 0, tzinfo=timezone.utc)
+
+    before = period_delta([baseline, yesterday], morning)
+    after = period_delta([baseline, yesterday, today_noon], evening)
+    assert before == after == 10.0  # today's 95 is not in the window yet
+
+
+def test_window_start_treats_a_naive_now_as_utc():
+    """A naive datetime is read as UTC, the same rule every point timestamp gets
+    through _aware — otherwise astimezone() would read it as host-local time and
+    shift the whole window by the machine's offset (CodeRabbit)."""
+    from app.services.readiness_summary import window_start
+
+    naive = datetime(2026, 6, 15, 12, 0)
+    aware = datetime(2026, 6, 15, 12, 0, tzinfo=timezone.utc)
+    assert window_start(naive) == window_start(aware)
 
 
 def test_earlier_periods_read_their_own_window():

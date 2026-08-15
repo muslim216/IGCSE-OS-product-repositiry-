@@ -41,7 +41,9 @@ export function parentVerdict(name: string, subjects: SubjectReadiness[]): strin
   if (onTrack === 0) {
     return `${name} needs support in ${countWord(banded.length)} of ${countWord(banded.length)} subjects.`;
   }
-  return `${name} is on track in ${onTrack} of ${banded.length} subjects.`;
+  // Counts up to ten are words in prose (§4.1), so both numbers spell out:
+  // "one of two", not "1 of 2".
+  return `${name} is on track in ${countWord(onTrack)} of ${countWord(banded.length)} subjects.`;
 }
 
 /** Where the verdict came from. Every number on this screen is traceable to the

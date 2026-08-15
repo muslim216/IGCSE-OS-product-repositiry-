@@ -99,6 +99,26 @@ async def resolve_grade_boundaries(
     return subject.grade_boundaries
 
 
+async def has_org_boundaries(session: AsyncSession, organization_id: int, subject_id: int) -> bool:
+    """Whether this organization has set its own boundaries for the subject.
+
+    The read endpoint labels the source with this rather than comparing the
+    resolved list's object identity to `subject.grade_boundaries`. That identity
+    trick only worked because resolve_grade_boundaries happened to return the
+    subject's own list object unchanged in the no-override case; any future
+    change that copied or re-serialized it would silently mislabel a global
+    default as the organization's own confirmed values (Qodo). This asks the
+    question directly.
+    """
+    row = await session.scalar(
+        select(GradeBoundary.id).where(
+            GradeBoundary.organization_id == organization_id,
+            GradeBoundary.subject_id == subject_id,
+        )
+    )
+    return row is not None
+
+
 async def set_org_boundaries(
     session: AsyncSession, organization_id: int, subject_id: int, bands: list[dict]
 ) -> None:

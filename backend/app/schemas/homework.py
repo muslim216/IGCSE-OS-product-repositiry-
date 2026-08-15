@@ -89,6 +89,11 @@ class StudentAssignment(BaseModel):
     question_count: int
     total_marks: int
     submission_status: str | None
+    # Whether the assignment is still open for submission (published, not closed).
+    # The list includes closed assignments so their marks remain in history, so a
+    # surface offering a "start" action must gate on this, not on submission
+    # status alone.
+    is_open: bool = True
     my_total: int | None = None
     # When this piece was marked. The student's home groups recent results under
     # YOU DID, and without a date the only honest wording is "at some point" —
