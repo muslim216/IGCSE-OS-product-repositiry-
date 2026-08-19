@@ -36,6 +36,39 @@ product. Written to be executed by AI agents (single-task and parallel) and huma
 
 ---
 
+## 0. Start here
+
+**This document is 1,600 lines. Nobody reads it front to back.** Read the part that matches why
+you opened it.
+
+| If you are… | Read | Roughly |
+|---|---|---|
+| **Deciding whether this is the right product** | §3, the decision register | 20 min |
+| **An engineer about to build something** | `CLAUDE.md` first, then §1, the decision index, then your one task in §7 | 40 min, once |
+| **Reviewing a pull request** | The task it names in §7, and any decision it cites | 5 min |
+| **Wondering what already exists** | Task 0.0's audit table — every task marked BUILT, PARTIAL or ABSENT | 10 min |
+| **Deciding what to cut** | §2's effort note, and §10, the risks carried | 10 min |
+
+**Two numbering systems, and they are not the same.** `AV-1` … `AV-122` are **product
+decisions** — the product manager's, listed in §3, **not open to reinterpretation**. `E1` … `E26`
+are **engineering decisions** — mine, listed in §4, and any of them can be argued with. Every
+task header cites both, like `*(AV-29, E2, E3)*`. The **decision index** just before §7 expands
+all 122 in one line each, so a citation is a glance rather than a hunt.
+
+**Codes like `SEC-3`, `PROD-1`, `BE-6`, `DB-17`, `UX-2` are not from this document.** They are the
+repository's own engineering rules, defined in `docs/` and summarised in `CLAUDE.md`. **Read
+`CLAUDE.md` before your first task** — the tasks assume it, and a task that says "reuse
+`_enrolled_scope`" or "monkeypatch the *calling* module" will not make sense without it.
+
+**A `D`-number without the `AV-` prefix belongs to `docs/experience-implementation-plan.md`**, a
+different and now-delivered document. The two registers mean entirely different things by the same
+numbers, which is exactly why this one is prefixed.
+
+**Vocabulary** — *classified*, *evidence*, *settled*, *auto-finalized*, *gatherer*, *plan slot*
+all have specific meanings here. They are defined just before §7, alongside the decision index.
+
+---
+
 ## 1. Context
 
 Avora is an academic operating system for tutors and their students. Its promise is a
@@ -485,6 +518,97 @@ Phase 12 The mobile app        ← last, against a settled product
 
 Phases 3 → 4 → 5 are **serial by decision** (AV-81): marking produces the evidence and mistake
 rows both later phases consume, so their contracts settle first. Phase 6 runs alongside them.
+
+---
+
+### Decision index
+
+Every decision, one line each, so a citation in a task is a glance at this page rather than a
+hunt through §3. **§3 is the authority** — these are shortened for scanning and drop the
+reasoning. Two are superseded and shown struck through in §3: `AV-28` by `AV-78`, `AV-52` by
+`AV-98`. `AV-41` is superseded by `AV-121`.
+
+| # | Decision | # | Decision |
+| -- |---| -- |---|
+| `AV-1` | Solo tutor is the customer | `AV-62` | The weekly send goes out automatically to all three roles |
+| `AV-2` | Usage tracking, no payment | `AV-63` | The parent's report is their weekly send — one artifact, not two |
+| `AV-3` | The product owner sees every account's usage without asking the tutor; the tutor sees… | `AV-64` | The parent's report differs from the tutor's: readiness and predicted grade |
+| `AV-4` | Rename everything to Avora — user-facing text, docs, internal code, and the GitHub… | `AV-65` | Parent reports send automatically |
+| `AV-5` | No fixed deadline | `AV-66` | English UI |
+| `AV-6` | Subjects are owned by each tutor, private to their account | `AV-67` | The tutor sets the account's time zone; students and parents may change their own |
+| `AV-7` | Levels covered: IGCSE, O Level, A Level | `AV-68` | A syllabus edit reflows the plan automatically |
+| `AV-8` | Delete the five built-in seeded syllabuses | `AV-69` | Mistake severity stays AI-assigned on the existing 1–3 scale |
+| `AV-9` | Syllabus tree is Subject → Chapter → Topic | `AV-70` | Account deletion and data export are in scope |
+| `AV-10` | Setup materials collected per subject: the syllabus document and teaching guidance /… | `AV-71` | The owner's cross-account usage view is a separate internal tool, outside the… |
+| `AV-11` | Grade boundaries are entered by the tutor | `AV-72` | One subject per class |
+| `AV-12` | The tutor sets exam dates for their class | `AV-73` | Students submit files or typed answers |
+| `AV-13` | The plan is per class, AI-drafted, and the tutor must accept it before it is live | `AV-74` | The tutor sets the weak-topic threshold, as part of onboarding |
+| `AV-14` | It is a full schedule to exam day, scheduling each week and every lesson, derived from… | `AV-75` | Per-subject marking rules |
+| `AV-15` | Plan inputs at onboarding: exam date | `AV-76` | Marking-context precedence |
+| `AV-16` | Teaching and past-paper phases may overlap | `AV-77` | Hand-edited plan slots are preserved through a reflow |
+| `AV-17` | The plan suggests, the tutor confirms each lesson | `AV-78` | Delete readiness v1 outright |
+| `AV-18` | When a class falls behind: flag it and offer a one-click re-plan the tutor accepts | `AV-79` | Add both a Python type checker at service boundaries and TypeScript API types generated… |
+| `AV-19` | The plan and the exam countdown are tutor-only | `AV-80` | The AI agreement rate stays as it is calculated today |
+| `AV-20` | Classifieds are chapter-scoped, uploaded when the tutor starts that chapter | `AV-81` | Sequencing: marking and evidence → mistakes → readiness, in that order |
+| `AV-21` | Those notes are marking context for the AI | `AV-82` | Scalability: object storage and the worker split come before the product phases |
+| `AV-22` | The system prompts the tutor to upload the classified when the plan reaches a new… | `AV-83` | Redis is the shared store for rate limiting |
+| `AV-23` | Homework continues to be created from classifieds | `AV-84` | Correctness first: prove two API instances and two workers behave together |
+| `AV-24` | Pass the exam board and level into the marking prompt | `AV-85` | Build multi-instance capability in Phase 1, but keep running a single instance until… |
+| `AV-25` | The auto-finalize rule is unchanged: an official mark scheme covered the question AND… | `AV-86` | The load test runs at the very end, against the finished product |
+| `AV-26` | Assessments stay, and mocks may be uploaded and AI-marked through the normal pipeline | `AV-87` | Per-subject marking rules are offered during onboarding but skippable |
+| `AV-27` | Past papers are a phase after the syllabus is taught (overlapping allowed) | `AV-88` | The tutor chooses which day their account's weekly send goes out |
+| `AV-28` | Repoint readers to v2; v1 keeps being written | `AV-89` | That day is set in onboarding step 1, pre-filled with a default — a glance, not a… |
+| `AV-29` | Fix the auto_finalized exclusion and fully recompute every snapshot | `AV-90` | The send follows the tutor's clock; every recipient gets it at the same moment,… |
+| `AV-30` | Drop consistency from the factor set | `AV-91` | Typed answers auto-finalize like photographed work |
+| `AV-31` | Past-paper performance counts only once the past-paper phase has started for that class | `AV-92` | No feedback is shown while a student is still working |
+| `AV-32` | Homework performance is accuracy only | `AV-93` | A deterministic text scan runs before the marking call |
+| `AV-33` | Readiness stays purely evidence-based | `AV-94` | The official mark scheme always wins |
+| `AV-34` | The tutor can re-weight factors, switch them off, and add their own criteria | `AV-95` | Student work is permission-checked on every view |
+| `AV-35` | That configuration applies per account, with subject overrides | `AV-96` | The tutor confirms a parent's email address before the first send |
+| `AV-36` | Cold start: show a score from the first marked work, labelled with the evidence behind… | `AV-97` | If Redis is unavailable, each API instance falls back to its own in-process counter and… |
+| `AV-37` | The AI records why each wrong answer was wrong, at marking time | `AV-98` | The narrative is kept |
+| `AV-38` | The tutor may revise any of them but is never prompted to | `AV-99` | One writer produces both |
+| `AV-39` | Mistake categories are defined by the tutor | `AV-100` | Peer improvement ranking and student AI chat are still deleted (AV-57 stands, with the… |
+| `AV-40` | Mistakes are stored and shown per topic and per chapter on the student's profile… | `AV-101` | The tutor home shows the marking count and a time estimate, explicitly labelled as an… |
+| `AV-41` | The student sees their own mistake pattern in the homework tab, not on their general… | `AV-102` | Every screen is redesigned — existing ones as well as new |
+| `AV-42` | Detect, store, and show | `AV-103` | The Avora visual identity is kept exactly as built — parchment/espresso/terracotta,… |
+| `AV-43` | Shown to the student as information, and to the tutor in their class view | `AV-104` | Design comes first as its own pass, then each phase builds its own screens against that… |
+| `AV-44` | Attendance is tracked per lesson and visible to tutor, parent, student, and in reports | `AV-105` | Tutor navigation is flat, ordered by how often each is used: Overview |
+| `AV-45` | The student sees: readiness score, predicted grade, weak topics, their own attendance —… | `AV-106` | Student navigation: Home |
+| `AV-46` | The parent sees: the weekly send, readiness and predicted grade, and attendance | `AV-107` | Parent navigation: Overview |
+| `AV-47` | The tutor's home shows a compact overview of: work awaiting review | `AV-108` | The Homework tab holds the detail — questions, marking, management |
+| `AV-48` | The tutor's home always carries one piece of good news: the marking the AI handled for… | `AV-109` | The teaching plan, lessons and in-person attendance all live on the class's Schedule tab |
+| `AV-49` | A weekly send for tutors, students and parents | `AV-110` | Library holds every choice made during onboarding, the uploaded material (syllabus… |
+| `AV-50` | Composed as fixed facts plus one AI paragraph | `AV-111` | The "AI marking agreement" is the per-subject marking rules, read and edited in Library |
+| `AV-51` | It appears on each role's home page and is emailed | `AV-112` | Readiness gets its own tab, holding both the class readiness view and the readiness… |
+| `AV-52` | It replaces the existing narrative system, which is removed | `AV-113` | Usage lives in its own small settings area, separate from Library |
+| `AV-53` | Tutor reports: on demand and weekly | `AV-114` | The Students tab is grouped by class |
+| `AV-54` | Email triggers: weekly send | `AV-115` | The Mocks tab covers small tests, big tests and mocks |
+| `AV-55` | WhatsApp is future scope, not in this plan | `AV-116` | An assigned mock is timed from when the student first opens it |
+| `AV-56` | Onboarding is a step-by-step flow the tutor must finish | `AV-117` | Past papers upload as a single paper or a booklet |
+| `AV-57` | Delete completely: student AI chat, peer improvement ranking | `AV-118` | A lesson is either in person or online |
+| `AV-58` | Hide from the product, keep the code: Google Classroom sync, knowledge base | `AV-119` | A lesson is pre-filled from the plan, and a reminder 15 minutes before prompts the… |
+| `AV-59` | Keep: files and recordings shared with a class (GroupResource) | `AV-120` | That reminder goes by email, phone notification and in-app |
+| `AV-60` | Onboarding must reach an accepted teaching plan | `AV-121` | The student's mistake pattern lives on their Progress tab, alongside readiness,… |
+| `AV-61` | Students and parents join by invite link; the tutor supplies their email addresses | `AV-122` | A mobile app for notifications and quick actions only — not a second copy of the product |
+
+### Vocabulary
+
+Terms this plan leans on. `docs/governance/glossary.md` holds the rest and is the authority
+where the two overlap.
+
+| Term | Meaning |
+|---|---|
+| **Classified** | A booklet of past-paper questions compiled by topic, uploaded by a tutor. Homework is created from it. May carry its own mark scheme, which is what makes a mark from it eligible to auto-finalize. |
+| **Booklet** (past papers) | Different thing: one file holding many *whole* papers across sessions. The AI extracts the list; the tutor picks one when assigning. |
+| **Evidence** | A finalized mark that counts toward readiness. Only settled outcomes become evidence. |
+| **Auto-finalized** | An AI mark that counted without any tutor looking at it — scheme-backed and confident. The normal path, not an exception. |
+| **Settled** | Finalized *or* auto-finalized. The distinction matters: filtering on `finalized` alone silently discards most marks, which is the defect task 0.1 fixes. |
+| **Factor** | One of the inputs averaged into a readiness score. Six after this plan, seven today. |
+| **Gatherer** | The database-facing functions in `services/readiness_v2.py` that assemble what each factor scores. |
+| **Snapshot** | One stored readiness result for a student in a subject, with the factor scores that produced it. |
+| **Plan slot** | One planned lesson occurrence in a teaching plan. A `Lesson` is the confirmed actual occurrence — they are not the same row. |
+| **Weak topic** | A topic below the tutor's own threshold. Detected and shown, never turned into work automatically. |
 
 ---
 
