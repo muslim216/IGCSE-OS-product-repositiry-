@@ -494,7 +494,7 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
-| **0.0** | **Audit what already exists** — run before anything | S | → **first** |
+| **0.0** | **Audit what already exists** — ✅ done 19 Aug | S | ✅ |
 | **0.1** | Shared `SETTLED_STATUSES` + fix the v2 gatherers | S | → |
 | **0.2** | Recompute runner and full backfill | S | after 0.1 |
 | **0.3** | Delete student AI chat | S | ∥ |
@@ -506,33 +506,92 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 | **0.9** | Token-revocation regression test | S | ∥ |
 | **0.10** | Fill in the AI price table | S | ∥ |
 
-**0.0 — Audit what already exists** *(E23)* — **Nothing else in this plan runs until this is
-done.**
+**0.0 — Audit what already exists** *(E23)* — ✅ **DONE, 19 Aug.** Results below.
 
-Revision 3 specified building four things that are already built and shipped. An agent handed a
-task in isolation cannot know that, and will happily build a second one.
+Revision 3 specified building four things that were already built and shipped. An agent handed a
+task in isolation cannot know that, and would happily build a second one. **Read your task's row
+below before writing anything.**
 
-Walk every task in this document against the codebase and annotate it with **what already
-exists**, in the task itself — not in a separate report nobody reads. Known already-shipped, and
-these are only the ones found so far:
+Legend: **BUILT** — exists and works; your task is a rework or an extension, not a build ·
+**PARTIAL** — the hard part exists; only the named piece is new · **ABSENT** — genuinely nothing.
 
-| Plan says | Reality |
-|---|---|
-| `0.7` add time zones | **Built.** `services/timezones.py`, `PUT /organization/timezone`, `TimezoneSetting.tsx`. Organization-level. Only the student/parent override (AV-67) is new. |
-| `2.4` add a grade-boundary writer | **Built.** `api/grade_boundaries.py`, 107 lines. Check the frontend editor separately. |
-| `5.5` cold start | **Built and tested** on the parent and student screens. |
-| `9.2` tutor home aggregate | **Built.** `services/today.py` (322 lines) + `api/today.py`. `9.2` is a rework, not a build. |
-| `7.x` attendance · `9.1` onboarding | **Genuinely absent.** Confirmed. |
+| Task | State | What is actually there |
+|---|---|---|
+| 0.1 settled statuses | PARTIAL | Four **correct** copies already: `activity.py:32`, `averaging.py:34`, `api/past_papers.py:49`, `api/submissions.py:51`. Three sites restate it wrongly. |
+| 0.2 recompute runner | ABSENT | `seed/` holds only `demo.py` and `load_syllabus.py`. |
+| 0.3 student chat | BUILT → delete | `api/chat.py` 198, `models/chat.py` 44, `TutorChatPage.tsx`. Student-gated on every route, so removal is clean. |
+| 0.4 peer ranking | BUILT → delete | `services/improvement.py` 349, `api/improvement.py` 34, `ImprovementPage.tsx`, `api/improvement.ts`, `lib/student.ts`, a nav entry, three test files. |
+| 0.5 Classroom + KB | BUILT → hide | `api/classroom.py`, `services/google_classroom.py`, `api/knowledge.py` all live. |
+| 0.6 rename | — | MANARA / IGCSE-OS naming throughout code, docs and the repo name. |
+| **0.7 time zones** | **BUILT** | `services/timezones.py` with `normalize_timezone`, `PUT /organization/timezone`, `TimezoneSetting.tsx` — at **organization** level. **Only the per-user override (AV-67) is new.** |
+| 0.8 type safety | ABSENT | No `mypy` or `pyright` anywhere in `pyproject.toml`. TypeScript interfaces are hand-mirrored. |
+| 0.9 revocation test | ABSENT | No test references `token_version`. **The behaviour is already correct** (`api/deps.py:29`); only the test is missing. |
+| **0.10 price table** | ABSENT | `MODEL_PRICING = {}` at `services/ai.py:387`, populated only through the `AI_MODEL_PRICING` env var. **This is a configuration change, not a code change.** |
+| **Phase D** | PARTIAL | `experience-design.md`, `avora-visual-identity.md` and the token set in `frontend/src/index.css` all exist. **Five of the tutor's ten tabs already exist as pages** — `LibraryPage`, `MocksPage`, `PastPapersPage`, `GroupsPage`, `TodayDashboard` — and `GradeBoundariesPage`, `SyllabusUploadPage`, `PreferencesPage`, `ClassReadinessPage` exist as routes outside the nav. |
+| 1.2 object storage | ABSENT | Local disk — but paths are stored **relative to `UPLOAD_DIR` specifically so the folder can move**, which is most of the design work already done. |
+| **1.3 worker split** | **PARTIAL** | The DB-backed queue and the **atomic claim already work** — `jobs.py:184` uses `FOR UPDATE SKIP LOCKED`. **Do not rewrite them.** New: the process split, and moving liveness state out of `jobs.py:62-69`. |
+| 1.4 Redis limiter | ABSENT | `services/rate_limit.py` is in-process; its own docstring already names Postgres or Redis as the fix and says when to do it. |
+| 1.5 two-instance suite | ABSENT | — |
+| 2.1 Chapter | ABSENT | `Topic.parent_id` exists but is read only for display, never for rollup. |
+| 2.2 tutor-owned subjects | ABSENT | `Subject` has **no `organization_id`**; unique on `(exam_board, code)`; five seeded syllabus JSONs. |
+| 2.3 syllabus extraction | BUILT → extend | `SyllabusUpload` + the `SYLLABUS` prompt already do upload → AI draft → tutor review → apply. It produces a **flat** topic list; chapters are the extension. **Reuse this pattern; do not invent a second one.** |
+| **2.4 grade boundaries** | **BUILT** | `api/grade_boundaries.py` 107 lines **and** `GradeBoundariesPage.tsx`. The writer and the editor both exist. Only collapsing the two conflicting sources is new. |
+| 2.5 teaching guidance | ABSENT | — |
+| 2.6 marking rules | ABSENT | — |
+| 3.1 Classified | BUILT → extend | `models/homework.py:22`. **Already carries an optional mark scheme.** New: `chapter_id` and `notes`. |
+| 3.2 marking context | PARTIAL | `MARKING` prompt v3 exists **with the untrusted-input clause already written well**. Board, level and tutor rules are not passed. |
+| 3.3 typed answers | ABSENT | Submissions are files only. |
+| 3.4 AI-marked mocks | PARTIAL | `Assessment` / `AssessmentType` / `AssessmentScore` exist in `models/readiness.py` as hand-entered scores. The marking pipeline exists. **Nothing connects them.** |
+| 3.5 booklets | ABSENT | `PastPaper` is a single paper. |
+| 3.6 timed mocks | ABSENT | `PastPaperAttempt.timed` exists but is **self-declared**, not measured. |
+| 4.1 mistake categories | PARTIAL | `MistakeCategory` is a fixed five-member enum. Making it tutor-owned is the change. |
+| **4.2 AI mistake tagging** | **ABSENT — the defect** | `Mistake`, the query, and `mistake_analysis()` all exist. **Nothing anywhere creates a row.** The only constructor in the repo is `tests/test_readiness_v2.py:115`. |
+| 4.3–4.5 mistakes | ABSENT | — |
+| 5.1 factor changes | BUILT → change | `consistency` is live; the homework blend is `accuracy * 0.7 + completion * 0.3` in `readiness_factors.py`. |
+| 5.2 chapter rollup | ABSENT | — |
+| 5.3 delete v1 | BUILT → delete | v1 tables live and read by `api/analytics.py`, `services/reports.py`, `services/student_crm.py`. |
+| 5.4 configurable factors | PARTIAL | `ReadinessWeights` exists. Switching factors off and custom criteria are new. |
+| **5.5 cold start** | **BUILT** | Already implemented **and tested** on the parent and student screens. |
+| 5.6 weak threshold | ABSENT | `MASTERY_THRESHOLD = 75.0` is hardcoded — and is a **different line** from the weak threshold. Do not conflate them. |
+| 5.7 past-paper gating | ABSENT | — |
+| **Phase 6 teaching plan** | ABSENT | Entirely. A per-class `ScheduleTab.tsx` exists as a shell to build into. |
+| Phase 7 attendance | ABSENT | `Lesson` and `LessonTopic` exist. No mode, no register, no Zoom or Meet. |
+| 8.1 email | ABSENT | **No email of any kind** — no provider, no templates, nothing. |
+| 8.2 weekly send | ABSENT | — |
+| **8.3 narrative** | **BUILT** | `services/narrative.py` 565, `models/narrative.py` 95, `api/narrative.py` 154, plus `ClassNarrative.tsx`, `TodayDashboard.tsx`, `ClassOverview.tsx`, `ParentDashboard.tsx`. **Keep it** (AV-98) — merge, don't rebuild. |
+| 8.5 invites | BUILT → change | `services/invites.py` with `build_invite` / `check_usable`, **code-based**. Email links are the change. |
+| 8.6 reports | BUILT → rework | `services/reports.py` 217 + `api/reports.py` 126. |
+| 8.7 web push | ABSENT | — |
+| **9.1 onboarding** | ABSENT | Entirely. Confirmed. |
+| **9.2 tutor home** | **BUILT** | `services/today.py` 322 + `api/today.py` 48, with exceptions-first ordering in `_STATUS_ORDER`. **A rework, not a build.** |
+| 10.1 usage rollups | PARTIAL | `ai_usage_events` already meters **every** call; `api/ai_usage.py` 110. Per-account rollups are new. |
+| 10.3 owner tool | ABSENT | — |
+| 10.4 delete + export | ABSENT | — |
+| **11.4 observability** | PARTIAL | `WorkerStatus` already distinguishes `running` / `stale` / `stalled` / `crash_looping` — **better than most production systems**. Metrics and structured request logging are new. |
+| 11.5 dead-letter | PARTIAL | The terminal `failed` state exists. **Nothing watches it** — `jobs.py:229` says so itself. |
+| Phase 12 app | ABSENT | — |
 
-Also reconcile against `docs/experience-implementation-plan.md`, whose PRs 1–29 have landed.
-**Where this plan supersedes a decision made there, say so in both documents** — the repo
-currently holds two delivery plans that contradict each other and nothing states which wins.
+**Reconciliation with `docs/experience-implementation-plan.md`: done.** Its PRs 1–29 have landed;
+it now carries a header marking it delivered, naming the disagreements, and stating that its
+decisions still bind except where this plan supersedes them. Its `D1`–`D6` and this document's
+`AV-1`–`AV-122` can no longer be confused.
+
+> **The headline for anyone starting work:** more exists than the plan implies. The queue, the
+> atomic claim, the retry and dead-letter states, the narrative, the tutor home, cold start, the
+> grade-boundary editor, timezones and the syllabus upload→review→apply pattern are all built and
+> working. **The genuinely empty areas are the teaching plan, attendance, email, onboarding and
+> the mobile app.**
 
 **0.10 — Fill in the AI price table** *(engineering audit #10)*
 
-`AI_MODEL_PRICING` is empty by default, so every call records `cost_usd = NULL` and reports as
-`unpriced_call_count` — never `$0`, which is correct behaviour (`AI-17`) and completely useless
-for pricing. Populate it with the real per-token prices for every model actually routed to.
+**This is a configuration change, not a code change** — confirmed by 0.0. `MODEL_PRICING = {}` at
+`services/ai.py:387` is deliberately empty and is merged with the `AI_MODEL_PRICING` environment
+variable, which wins. **Set the env var; do not edit the dict.** Malformed JSON is ignored rather
+than breaking every AI call, so a typo fails silently — verify the endpoint reports money
+afterwards rather than assuming.
+
+Every call currently records `cost_usd = NULL` and reports as `unpriced_call_count` — never `$0`,
+which is correct behaviour (`AI-17`) and completely useless for pricing.
 
 This plan adds a weekly paragraph per person, mistake tagging on every wrong answer, plan
 drafting and reflows, and a materially larger marking prompt. **Without this task, AV-2's usage
