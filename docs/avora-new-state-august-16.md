@@ -5,31 +5,31 @@ product. Written to be executed by AI agents (single-task and parallel) and huma
 
 > **Revision 2** — incorporates the SWE audit of revision 1. Changes: a new **Phase 1 (Scale
 > foundation)** before any product work · phases **reordered** so marking and evidence settle
-> before mistakes and readiness · **v1 readiness is now deleted outright** (supersedes D28) ·
+> before mistakes and readiness · **v1 readiness is now deleted outright** (supersedes AV-28) ·
 > **per-subject marking rules** and a **marking-context precedence rule** added · **type
 > checking and generated API types** added · a new **Phase 11 (Scale hardening)** at the end.
 >
 > **Revision 3** — incorporates the security threat review of revision 2. All ten findings are
-> resolved: seven by **decisions `D91`–`D97`**, and each one written as **security acceptance
+> resolved: seven by **decisions `AV-91`–`AV-97`**, and each one written as **security acceptance
 > criteria inside the task that owns it** rather than left in a review document. One new task
 > (**0.9**, the token-revocation regression test). §5b is the map proving none was dropped.
 > Nothing else about the plan's shape changed — the pre-work turned out to be decisions and
 > acceptance criteria, not a phase of code.
 >
 > **Revision 5** — incorporates the product manager's navigation spec. Changes: **the tutor's ten
-> tabs, the student's six and the parent's four are now settled** (`D105`–`D122`) and Phase D
+> tabs, the student's six and the parent's four are now settled** (`AV-105`–`AV-122`) and Phase D
 > designs to them · homework is **un-folded from Review** · Mocks and Past papers are promoted
 > into the nav · a **Students tab** is added · **past-paper booklets** with AI extraction of the
 > papers inside · **timed mocks** on a server-side clock · **lesson mode**, with Zoom and Google
 > Meet integrations for online attendance · **web push** · and a final **Phase 12: a mobile app**
 > for notifications and quick actions only. The student's mistake pattern moves to Progress
-> (supersedes `D41`).
+> (supersedes `AV-41`).
 >
 > **Revision 4** — incorporates an engineering audit of revision 3, which found the plan was
 > **specifying work that already exists** and **deleting work merged weeks ago** without saying
 > so. Changes: a new **task 0.0** auditing what is already built, before anything else · a new
 > **Phase D**, a full design pass running parallel to Phase 1 · **the narrative is kept**
-> (supersedes `D52`) and merged with the weekly send into one writer · six tasks corrected for
+> (supersedes `AV-52`) and merged with the weekly send into one writer · six tasks corrected for
 > code that already exists · explicit obligations for the demo seed, the existing test suite,
 > database backups before destructive steps, constitution updates and ADRs · a task to fill in
 > the AI price table · `Classified` finally defined.
@@ -98,7 +98,7 @@ within their phase. Tasks marked `→` are serial. Never run two tasks that list
 **Effort sizes:** `S` ≈ one focused session · `M` ≈ one to two days · `L` ≈ multi-day.
 
 **Roughly 76 tasks across 14 phases, of which 15 are `L`.** That is the honest shape: this is a
-programme, not a sprint. **No completion date is claimed** (D5) — sequencing is by dependency and
+programme, not a sprint. **No completion date is claimed** (AV-5) — sequencing is by dependency and
 risk. The longest chain is Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 8 →
 Phase 9 → Phase 10 → Phase 11 → Phase 12, with Phase D and Phase 6 running alongside. Anyone
 needing a date should estimate that chain rather than the total.
@@ -138,199 +138,207 @@ Every decision below was made by the product manager. **They are the source of t
 re-derive, re-litigate, or "improve" any of them.** If a task appears to conflict with one,
 stop and raise it rather than choosing.
 
+> **On the `AV-` prefix.** `docs/experience-implementation-plan.md` has its own decision register
+> numbered `D1`–`D6`, cited in merged PRs and shipped code comments. This document's decisions
+> were originally numbered the same way, which meant `D4` meant *"store the organization's
+> timezone"* in one document and *"rename everything to Avora"* in the other — and an agent
+> following a citation into the wrong document would have got a different decision with nothing
+> to flag it. **Every decision here is `AV-n`. Nothing else in the repository uses that prefix.**
+> A bare `D`-number always belongs to the older document.
+
 ### Customer and commercial
 
 | # | Decision |
 |---|---|
-| D1 | **Solo tutor** is the customer. One tutor per account. No multi-tutor centre, no owner role. |
-| D2 | **Usage tracking, no payment.** Measure AI spend, students/classes, storage, and activity per account. No payment provider, no plan limits. |
-| D3 | The **product owner sees every account's usage** without asking the tutor; the tutor sees their own. |
-| D4 | **Rename everything to Avora** — user-facing text, docs, internal code, and the GitHub repository. |
-| D5 | **No fixed deadline.** Sequence by dependency and risk, not by date. |
+| AV-1 | **Solo tutor** is the customer. One tutor per account. No multi-tutor centre, no owner role. |
+| AV-2 | **Usage tracking, no payment.** Measure AI spend, students/classes, storage, and activity per account. No payment provider, no plan limits. |
+| AV-3 | The **product owner sees every account's usage** without asking the tutor; the tutor sees their own. |
+| AV-4 | **Rename everything to Avora** — user-facing text, docs, internal code, and the GitHub repository. |
+| AV-5 | **No fixed deadline.** Sequence by dependency and risk, not by date. |
 
 ### Subjects and syllabus
 
 | # | Decision |
 |---|---|
-| D6 | **Subjects are owned by each tutor**, private to their account. Any exam board. |
-| D7 | Levels covered: **IGCSE, O Level, A Level**. Nothing may assume an IGCSE-shaped world. |
-| D8 | **Delete the five built-in seeded syllabuses.** Every tutor creates their own. |
-| D9 | Syllabus tree is **Subject → Chapter → Topic**. Chapters contain topics. Marks, mistakes and readiness attach at **topic** level; a chapter's score is rolled up from its topics. |
-| D10 | Setup materials collected per subject: **the syllabus document** and **teaching guidance / scheme of work**. |
-| D11 | **Grade boundaries are entered by the tutor.** No AI drafting, no defaults. |
+| AV-6 | **Subjects are owned by each tutor**, private to their account. Any exam board. |
+| AV-7 | Levels covered: **IGCSE, O Level, A Level**. Nothing may assume an IGCSE-shaped world. |
+| AV-8 | **Delete the five built-in seeded syllabuses.** Every tutor creates their own. |
+| AV-9 | Syllabus tree is **Subject → Chapter → Topic**. Chapters contain topics. Marks, mistakes and readiness attach at **topic** level; a chapter's score is rolled up from its topics. |
+| AV-10 | Setup materials collected per subject: **the syllabus document** and **teaching guidance / scheme of work**. |
+| AV-11 | **Grade boundaries are entered by the tutor.** No AI drafting, no defaults. |
 
 ### Teaching plan
 
 | # | Decision |
 |---|---|
-| D12 | **The tutor sets exam dates for their class.** |
-| D13 | The plan is **per class**, **AI-drafted**, and **the tutor must accept it** before it is live. The tutor can edit anything at any point in the year. |
-| D14 | It is a **full schedule to exam day**, scheduling **each week and every lesson**, derived from lessons per week. The AI uses the uploaded teaching guidance to judge which chapters are harder or slower and weights time accordingly. |
-| D15 | Plan inputs at onboarding: **exam date · lessons per week and lesson length · when to start past papers · holidays and term breaks**. |
-| D16 | Teaching and past-paper phases **may overlap**. |
-| D17 | **The plan suggests, the tutor confirms each lesson.** Lessons are not auto-created. |
-| D18 | When a class falls behind: **flag it and offer a one-click re-plan** the tutor accepts. Nothing reschedules itself. |
-| D19 | **The plan and the exam countdown are tutor-only.** Students and parents see neither. |
+| AV-12 | **The tutor sets exam dates for their class.** |
+| AV-13 | The plan is **per class**, **AI-drafted**, and **the tutor must accept it** before it is live. The tutor can edit anything at any point in the year. |
+| AV-14 | It is a **full schedule to exam day**, scheduling **each week and every lesson**, derived from lessons per week. The AI uses the uploaded teaching guidance to judge which chapters are harder or slower and weights time accordingly. |
+| AV-15 | Plan inputs at onboarding: **exam date · lessons per week and lesson length · when to start past papers · holidays and term breaks**. |
+| AV-16 | Teaching and past-paper phases **may overlap**. |
+| AV-17 | **The plan suggests, the tutor confirms each lesson.** Lessons are not auto-created. |
+| AV-18 | When a class falls behind: **flag it and offer a one-click re-plan** the tutor accepts. Nothing reschedules itself. |
+| AV-19 | **The plan and the exam countdown are tutor-only.** Students and parents see neither. |
 
 ### Marking and materials
 
 | # | Decision |
 |---|---|
-| D20 | **Classifieds are chapter-scoped**, uploaded when the tutor starts that chapter. Each carries its **mark scheme** and **chapter-specific notes**. |
-| D21 | Those notes are **marking context for the AI**. |
-| D22 | The system **prompts the tutor to upload the classified when the plan reaches a new chapter**. Non-blocking. |
-| D23 | Homework continues to be created from classifieds. No change to the creation flow beyond chapter scoping. |
-| D24 | Pass the **exam board and level into the marking prompt**. |
-| D25 | **The auto-finalize rule is unchanged**: an official mark scheme covered the question AND the AI was confident. No new variables. |
-| D26 | **Assessments stay**, and **mocks may be uploaded and AI-marked** through the normal pipeline. |
-| D27 | Past papers are **a phase after the syllabus is taught** (overlapping allowed). The existing past-paper module is retained. |
-| **D75** | **Per-subject marking rules.** The tutor writes marking rules once for a subject and they apply to every chapter, classified and piece of work in it. **In addition to** board, level and chapter notes — none of those are removed. No account-wide layer. |
-| **D76** | **Marking-context precedence.** The official mark scheme is **absolute and never overridden**. Below it, the tutor's rules beat exam-board convention, and more specific tutor rules beat broader ones. Resolution order: mark scheme → chapter notes → subject rules → exam board and level. |
-| **D80** | **The AI agreement rate stays as it is calculated today.** No change. |
+| AV-20 | **Classifieds are chapter-scoped**, uploaded when the tutor starts that chapter. Each carries its **mark scheme** and **chapter-specific notes**. |
+| AV-21 | Those notes are **marking context for the AI**. |
+| AV-22 | The system **prompts the tutor to upload the classified when the plan reaches a new chapter**. Non-blocking. |
+| AV-23 | Homework continues to be created from classifieds. No change to the creation flow beyond chapter scoping. |
+| AV-24 | Pass the **exam board and level into the marking prompt**. |
+| AV-25 | **The auto-finalize rule is unchanged**: an official mark scheme covered the question AND the AI was confident. No new variables. |
+| AV-26 | **Assessments stay**, and **mocks may be uploaded and AI-marked** through the normal pipeline. |
+| AV-27 | Past papers are **a phase after the syllabus is taught** (overlapping allowed). The existing past-paper module is retained. |
+| **AV-75** | **Per-subject marking rules.** The tutor writes marking rules once for a subject and they apply to every chapter, classified and piece of work in it. **In addition to** board, level and chapter notes — none of those are removed. No account-wide layer. |
+| **AV-76** | **Marking-context precedence.** The official mark scheme is **absolute and never overridden**. Below it, the tutor's rules beat exam-board convention, and more specific tutor rules beat broader ones. Resolution order: mark scheme → chapter notes → subject rules → exam board and level. |
+| **AV-80** | **The AI agreement rate stays as it is calculated today.** No change. |
 
 ### Readiness
 
 | # | Decision |
 |---|---|
-| ~~D28~~ | ~~Repoint readers to v2; v1 keeps being written.~~ **Superseded by D78.** |
-| **D78** | **Delete readiness v1 outright.** Repoint `analytics.py`, `reports.py` and `student_crm.py` to v2, stop the v1 writes, and drop `topic_readiness`, `readiness_history` and `tutor_preferences` in the same change. v2 is the single source of truth. |
-| D29 | **Fix the `auto_finalized` exclusion and fully recompute every snapshot.** No users, so no announcement or phased rollout. |
-| D30 | **Drop `consistency`** from the factor set. |
-| D31 | **Past-paper performance counts only once the past-paper phase has started** for that class. |
-| D32 | **Homework performance is accuracy only.** Completion is shown separately as a fact, never inside the score. |
-| D33 | **Readiness stays purely evidence-based.** Exam proximity and being behind schedule do not move it. |
-| D34 | **The tutor can re-weight factors, switch them off, and add their own criteria.** A custom criterion is **invented and hand-scored by the tutor** per student. |
-| D35 | That configuration applies **per account, with subject overrides**. |
-| D36 | **Cold start: show a score from the first marked work**, labelled with the evidence behind it. |
+| ~~AV-28~~ | ~~Repoint readers to v2; v1 keeps being written.~~ **Superseded by AV-78.** |
+| **AV-78** | **Delete readiness v1 outright.** Repoint `analytics.py`, `reports.py` and `student_crm.py` to v2, stop the v1 writes, and drop `topic_readiness`, `readiness_history` and `tutor_preferences` in the same change. v2 is the single source of truth. |
+| AV-29 | **Fix the `auto_finalized` exclusion and fully recompute every snapshot.** No users, so no announcement or phased rollout. |
+| AV-30 | **Drop `consistency`** from the factor set. |
+| AV-31 | **Past-paper performance counts only once the past-paper phase has started** for that class. |
+| AV-32 | **Homework performance is accuracy only.** Completion is shown separately as a fact, never inside the score. |
+| AV-33 | **Readiness stays purely evidence-based.** Exam proximity and being behind schedule do not move it. |
+| AV-34 | **The tutor can re-weight factors, switch them off, and add their own criteria.** A custom criterion is **invented and hand-scored by the tutor** per student. |
+| AV-35 | That configuration applies **per account, with subject overrides**. |
+| AV-36 | **Cold start: show a score from the first marked work**, labelled with the evidence behind it. |
 
 ### Mistakes
 
 | # | Decision |
 |---|---|
-| D37 | **The AI records why each wrong answer was wrong**, at marking time. It counts immediately. |
-| D38 | **The tutor may revise any of them but is never prompted to.** No review queue, no blocking step. |
-| D39 | **Mistake categories are defined by the tutor.** At subject setup they are shown a suggested list they can accept, edit, or replace entirely. |
-| D40 | Mistakes are stored and shown **per topic and per chapter** on the student's profile (tutor-facing). |
-| D41 | The student sees their own mistake pattern **in the homework tab**, not on their general profile. |
-| D69 | **Mistake severity stays AI-assigned on the existing 1–3 scale.** Tutors define categories, not severity. |
+| AV-37 | **The AI records why each wrong answer was wrong**, at marking time. It counts immediately. |
+| AV-38 | **The tutor may revise any of them but is never prompted to.** No review queue, no blocking step. |
+| AV-39 | **Mistake categories are defined by the tutor.** At subject setup they are shown a suggested list they can accept, edit, or replace entirely. |
+| AV-40 | Mistakes are stored and shown **per topic and per chapter** on the student's profile (tutor-facing). |
+| AV-41 | The student sees their own mistake pattern **in the homework tab**, not on their general profile. |
+| AV-69 | **Mistake severity stays AI-assigned on the existing 1–3 scale.** Tutors define categories, not severity. |
 
 ### Weak topics
 
 | # | Decision |
 |---|---|
-| D42 | **Detect, store, and show. Never auto-assign.** No generated practice, no "do this now". |
-| D43 | Shown to the **student as information**, and to the **tutor in their class view**. |
-| D74 | **The tutor sets the weak-topic threshold**, as part of onboarding. |
+| AV-42 | **Detect, store, and show. Never auto-assign.** No generated practice, no "do this now". |
+| AV-43 | Shown to the **student as information**, and to the **tutor in their class view**. |
+| AV-74 | **The tutor sets the weak-topic threshold**, as part of onboarding. |
 
 ### People and surfaces
 
 | # | Decision |
 |---|---|
-| D44 | **Attendance is tracked per lesson** and visible to tutor, parent, student, and in reports. |
-| D45 | **The student sees**: readiness score, predicted grade, weak topics, their own attendance — and their mistake pattern in the homework tab. |
-| D46 | **The parent sees**: the weekly send, readiness and predicted grade, and attendance. Not the tutor's report. |
-| D47 | **The tutor's home** shows a compact overview of: work awaiting review · plan progress per class · upload prompts · weak topics across classes. |
-| D48 | **The tutor's home always carries one piece of good news: the marking the AI handled for them.** Other positives live in the class and module screens. |
-| D72 | **One subject per class.** |
-| D73 | Students submit **files or typed answers**. |
+| AV-44 | **Attendance is tracked per lesson** and visible to tutor, parent, student, and in reports. |
+| AV-45 | **The student sees**: readiness score, predicted grade, weak topics, their own attendance — and their mistake pattern in the homework tab. |
+| AV-46 | **The parent sees**: the weekly send, readiness and predicted grade, and attendance. Not the tutor's report. |
+| AV-47 | **The tutor's home** shows a compact overview of: work awaiting review · plan progress per class · upload prompts · weak topics across classes. |
+| AV-48 | **The tutor's home always carries one piece of good news: the marking the AI handled for them.** Other positives live in the class and module screens. |
+| AV-72 | **One subject per class.** |
+| AV-73 | Students submit **files or typed answers**. |
 
 ### Intelligence and communication
 
 | # | Decision |
 |---|---|
-| D49 | **A weekly send for tutors, students and parents.** |
-| D50 | Composed as **fixed facts plus one AI paragraph**. Every figure verifiable. |
-| D51 | It appears on **each role's home page** and is emailed. |
-| ~~D52~~ | ~~It replaces the existing narrative system, which is removed.~~ **Superseded by D98.** |
-| D53 | **Tutor reports: on demand and weekly.** Content: chapter and topic breakdown · mistake patterns · plan progress and countdown · attendance. |
-| D54 | **Email triggers**: weekly send · homework set · homework due · marked work ready · account and invite emails. |
-| D55 | **WhatsApp is future scope**, not in this plan. |
-| D62 | The weekly send goes out **automatically to all three roles**. The tutor can read it but does not gate or edit it. |
-| D63 | **The parent's report is their weekly send** — one artifact, not two. |
-| D64 | **The parent's report differs from the tutor's**: readiness and predicted grade · attendance and homework record. **Not** the chapter/topic breakdown, **not** mistake patterns. |
-| D65 | Parent reports send **automatically**. No tutor release step. |
-| D66 | **English UI. The AI writes in the tutor's chosen language.** |
+| AV-49 | **A weekly send for tutors, students and parents.** |
+| AV-50 | Composed as **fixed facts plus one AI paragraph**. Every figure verifiable. |
+| AV-51 | It appears on **each role's home page** and is emailed. |
+| ~~AV-52~~ | ~~It replaces the existing narrative system, which is removed.~~ **Superseded by AV-98.** |
+| AV-53 | **Tutor reports: on demand and weekly.** Content: chapter and topic breakdown · mistake patterns · plan progress and countdown · attendance. |
+| AV-54 | **Email triggers**: weekly send · homework set · homework due · marked work ready · account and invite emails. |
+| AV-55 | **WhatsApp is future scope**, not in this plan. |
+| AV-62 | The weekly send goes out **automatically to all three roles**. The tutor can read it but does not gate or edit it. |
+| AV-63 | **The parent's report is their weekly send** — one artifact, not two. |
+| AV-64 | **The parent's report differs from the tutor's**: readiness and predicted grade · attendance and homework record. **Not** the chapter/topic breakdown, **not** mistake patterns. |
+| AV-65 | Parent reports send **automatically**. No tutor release step. |
+| AV-66 | **English UI. The AI writes in the tutor's chosen language.** |
 
 ### Onboarding, removals, platform
 
 | # | Decision |
 |---|---|
-| D56 | **Onboarding is a step-by-step flow the tutor must finish.** |
-| D57 | **Delete completely**: student AI chat, peer improvement ranking. |
-| D58 | **Hide from the product, keep the code**: Google Classroom sync, knowledge base. |
-| D59 | **Keep**: files and recordings shared with a class (`GroupResource`). |
-| D60 | Onboarding **must reach an accepted teaching plan**. Adding students is **optional**. |
-| D61 | Students and parents join by **invite link**; the tutor supplies their email addresses. |
-| D67 | **The tutor sets the account's time zone; students and parents may change their own.** |
-| D68 | A **syllabus edit reflows the plan automatically**. |
-| D77 | **Hand-edited plan slots are preserved through a reflow.** Only untouched generated future slots are eligible. |
-| D70 | **Account deletion and data export are in scope.** |
-| D71 | **The owner's cross-account usage view is a separate internal tool**, outside the tutor-facing product. |
-| **D79** | **Add both** a Python type checker at service boundaries **and** TypeScript API types generated from the backend schema. |
-| **D81** | **Sequencing**: marking and evidence → mistakes → readiness, in that order. The teaching plan runs in parallel. |
-| **D82** | **Scalability**: object storage and the worker split come **before** the product phases. The rest comes after. |
-| **D83** | **Redis** is the shared store for rate limiting. |
-| **D84** | **Correctness first**: prove two API instances and two workers behave together. **One load test at 1,000 students** to find the first bottleneck. Defer the full 5,000/10,000 ladder. |
-| **D85** | **Build multi-instance capability in Phase 1, but keep running a single instance** until the Phase 11 concurrency audit (11.2) is complete. 11.2 is the gate on scaling out. |
-| **D86** | **The load test runs at the very end**, against the finished product. |
-| **D87** | **Per-subject marking rules are offered during onboarding but skippable.** |
-| **D88** | **The tutor chooses which day their account's weekly send goes out.** |
-| **D89** | That day is **set in onboarding step 1, pre-filled with a default** — a glance, not a decision. |
-| **D90** | The send follows **the tutor's clock**; every recipient gets it at the same moment, whatever time zone they set for themselves. |
+| AV-56 | **Onboarding is a step-by-step flow the tutor must finish.** |
+| AV-57 | **Delete completely**: student AI chat, peer improvement ranking. |
+| AV-58 | **Hide from the product, keep the code**: Google Classroom sync, knowledge base. |
+| AV-59 | **Keep**: files and recordings shared with a class (`GroupResource`). |
+| AV-60 | Onboarding **must reach an accepted teaching plan**. Adding students is **optional**. |
+| AV-61 | Students and parents join by **invite link**; the tutor supplies their email addresses. |
+| AV-67 | **The tutor sets the account's time zone; students and parents may change their own.** |
+| AV-68 | A **syllabus edit reflows the plan automatically**. |
+| AV-77 | **Hand-edited plan slots are preserved through a reflow.** Only untouched generated future slots are eligible. |
+| AV-70 | **Account deletion and data export are in scope.** |
+| AV-71 | **The owner's cross-account usage view is a separate internal tool**, outside the tutor-facing product. |
+| **AV-79** | **Add both** a Python type checker at service boundaries **and** TypeScript API types generated from the backend schema. |
+| **AV-81** | **Sequencing**: marking and evidence → mistakes → readiness, in that order. The teaching plan runs in parallel. |
+| **AV-82** | **Scalability**: object storage and the worker split come **before** the product phases. The rest comes after. |
+| **AV-83** | **Redis** is the shared store for rate limiting. |
+| **AV-84** | **Correctness first**: prove two API instances and two workers behave together. **One load test at 1,000 students** to find the first bottleneck. Defer the full 5,000/10,000 ladder. |
+| **AV-85** | **Build multi-instance capability in Phase 1, but keep running a single instance** until the Phase 11 concurrency audit (11.2) is complete. 11.2 is the gate on scaling out. |
+| **AV-86** | **The load test runs at the very end**, against the finished product. |
+| **AV-87** | **Per-subject marking rules are offered during onboarding but skippable.** |
+| **AV-88** | **The tutor chooses which day their account's weekly send goes out.** |
+| **AV-89** | That day is **set in onboarding step 1, pre-filled with a default** — a glance, not a decision. |
+| **AV-90** | The send follows **the tutor's clock**; every recipient gets it at the same moment, whatever time zone they set for themselves. |
 
 ### Security (settled from the threat review, 19 Aug)
 
 | # | Decision |
 |---|---|
-| **D91** | **Typed answers auto-finalize like photographed work.** The trust rule does not change by submission channel. |
-| **D92** | **No feedback is shown while a student is still working.** Marks and feedback appear only once they have submitted. |
-| **D93** | **A deterministic text scan runs before the marking call.** A hit routes that one submission to the tutor. No second AI call, no mark-value cap, no calibration metrics — those were considered and declined. |
-| **D94** | **The official mark scheme always wins.** Tutor-authored chapter notes and subject rules are context the AI considers; they can never override a scheme. |
-| **D95** | **Student work is permission-checked on every view.** It is served through the API. Tutor material — mark schemes, classifieds, syllabus, teaching guidance — uses direct signed links. |
-| **D96** | **The tutor confirms a parent's email address before the first send.** |
-| **D97** | **If Redis is unavailable, each API instance falls back to its own in-process counter and alarms.** Logins are never blocked wholesale, and never left uncounted. |
+| **AV-91** | **Typed answers auto-finalize like photographed work.** The trust rule does not change by submission channel. |
+| **AV-92** | **No feedback is shown while a student is still working.** Marks and feedback appear only once they have submitted. |
+| **AV-93** | **A deterministic text scan runs before the marking call.** A hit routes that one submission to the tutor. No second AI call, no mark-value cap, no calibration metrics — those were considered and declined. |
+| **AV-94** | **The official mark scheme always wins.** Tutor-authored chapter notes and subject rules are context the AI considers; they can never override a scheme. |
+| **AV-95** | **Student work is permission-checked on every view.** It is served through the API. Tutor material — mark schemes, classifieds, syllabus, teaching guidance — uses direct signed links. |
+| **AV-96** | **The tutor confirms a parent's email address before the first send.** |
+| **AV-97** | **If Redis is unavailable, each API instance falls back to its own in-process counter and alarms.** Logins are never blocked wholesale, and never left uncounted. |
 
 ### Reversals and design (settled 19 Aug, after the engineering audit)
 
 | # | Decision |
 |---|---|
-| **D98** | **The narrative is kept.** It is not deleted. Supersedes `D52`. It is the always-on-screen paragraph that updates as marks land; the weekly send is a scheduled artifact. They are different things. |
-| **D99** | **One writer produces both.** A single generator writes the text that appears on screen *and* the text in the weekly send. One voice, one AI cost, and the two can never contradict each other about the same student. |
-| **D100** | **Peer improvement ranking and student AI chat are still deleted** (`D57` stands, with the cost seen and accepted). |
-| **D101** | The tutor home shows the marking count **and** a time estimate, **explicitly labelled as an estimate** — "47 questions marked — roughly 3 hours of marking". |
-| **D102** | **Every screen is redesigned — existing ones as well as new.** The product should read as one thing after this plan, not as new screens bolted onto old. |
-| **D103** | **The Avora visual identity is kept exactly as built** — parchment/espresso/terracotta, Lora and Inter, the motifs. The redesign is **layout and structure only, never style.** |
-| **D104** | **Design comes first as its own pass**, then each phase builds its own screens against that spec. No phase waits on design; nothing is built without it. |
+| **AV-98** | **The narrative is kept.** It is not deleted. Supersedes `AV-52`. It is the always-on-screen paragraph that updates as marks land; the weekly send is a scheduled artifact. They are different things. |
+| **AV-99** | **One writer produces both.** A single generator writes the text that appears on screen *and* the text in the weekly send. One voice, one AI cost, and the two can never contradict each other about the same student. |
+| **AV-100** | **Peer improvement ranking and student AI chat are still deleted** (`AV-57` stands, with the cost seen and accepted). |
+| **AV-101** | The tutor home shows the marking count **and** a time estimate, **explicitly labelled as an estimate** — "47 questions marked — roughly 3 hours of marking". |
+| **AV-102** | **Every screen is redesigned — existing ones as well as new.** The product should read as one thing after this plan, not as new screens bolted onto old. |
+| **AV-103** | **The Avora visual identity is kept exactly as built** — parchment/espresso/terracotta, Lora and Inter, the motifs. The redesign is **layout and structure only, never style.** |
+| **AV-104** | **Design comes first as its own pass**, then each phase builds its own screens against that spec. No phase waits on design; nothing is built without it. |
 
 ### Navigation and placement (settled 19 Aug)
 
 | # | Decision |
 |---|---|
-| **D105** | **Tutor navigation is flat, ordered by how often each is used**: Overview · Review · Homework · Classes · Students · Mocks · Past papers · Readiness · Reports · Library. No grouping, no sub-menus. |
-| **D106** | **Student navigation**: Home · Homework · Mocks · Past papers · Progress · Materials. |
-| **D107** | **Parent navigation**: Overview · Progress · Attendance · Reports. |
-| **D108** | **The Homework tab holds the detail** — questions, marking, management. The per-class Homework tab shows **name and metadata only** and links through to it. |
-| **D109** | **The teaching plan, lessons and in-person attendance all live on the class's Schedule tab.** |
-| **D110** | **Library holds every choice made during onboarding**, the uploaded material (syllabus document, teaching guidance), and the classifieds. |
-| **D111** | **The "AI marking agreement" is the per-subject marking rules**, read and edited in Library. It describes **how the AI marks, never when a mark counts** — `D25` is unchanged. |
-| **D112** | **Readiness gets its own tab**, holding both the class readiness view and the readiness setup (weights, switching factors off, custom criteria). **Reports gets its own tab.** |
-| **D113** | **Usage lives in its own small settings area**, separate from Library. |
-| **D114** | **The Students tab is grouped by class.** From it the tutor can invite and remove students, open a student's full record, move a student between classes, and link a parent. |
-| **D115** | **The Mocks tab covers small tests, big tests and mocks.** The tutor can type scores in, upload work for AI marking, and **assign mocks to students like homework**. |
-| **D116** | **An assigned mock is timed from when the student first opens it.** Late submissions are **accepted and flagged, never blocked**. |
-| **D117** | **Past papers upload as a single paper or a booklet.** On a booklet, **the AI extracts the list of papers inside** — session, paper number, code, page range — and the tutor checks it. When assigning, the tutor picks one paper from that list. |
-| **D118** | **A lesson is either in person or online.** In person, the tutor logs attendance. Online, attendance comes from a **Zoom or Google Meet integration**. |
-| **D119** | **A lesson is pre-filled from the plan, and a reminder 15 minutes before prompts the tutor to revise it.** Afterwards nothing is required — it counts as taught unless the tutor says otherwise. |
-| **D120** | **That reminder goes by email, phone notification and in-app.** |
-| ~~D41~~ | ~~The student sees their mistake pattern in the homework tab.~~ **Superseded by D121.** |
-| **D121** | **The student's mistake pattern lives on their Progress tab**, alongside readiness, predicted grade, weak topics and attendance. |
-| **D122** | **A mobile app for notifications and quick actions only** — not a second copy of the product. For tutors, students and parents. **iOS and Android from one shared codebase.** Built as the **final phase** of this plan. |
+| **AV-105** | **Tutor navigation is flat, ordered by how often each is used**: Overview · Review · Homework · Classes · Students · Mocks · Past papers · Readiness · Reports · Library. No grouping, no sub-menus. |
+| **AV-106** | **Student navigation**: Home · Homework · Mocks · Past papers · Progress · Materials. |
+| **AV-107** | **Parent navigation**: Overview · Progress · Attendance · Reports. |
+| **AV-108** | **The Homework tab holds the detail** — questions, marking, management. The per-class Homework tab shows **name and metadata only** and links through to it. |
+| **AV-109** | **The teaching plan, lessons and in-person attendance all live on the class's Schedule tab.** |
+| **AV-110** | **Library holds every choice made during onboarding**, the uploaded material (syllabus document, teaching guidance), and the classifieds. |
+| **AV-111** | **The "AI marking agreement" is the per-subject marking rules**, read and edited in Library. It describes **how the AI marks, never when a mark counts** — `AV-25` is unchanged. |
+| **AV-112** | **Readiness gets its own tab**, holding both the class readiness view and the readiness setup (weights, switching factors off, custom criteria). **Reports gets its own tab.** |
+| **AV-113** | **Usage lives in its own small settings area**, separate from Library. |
+| **AV-114** | **The Students tab is grouped by class.** From it the tutor can invite and remove students, open a student's full record, move a student between classes, and link a parent. |
+| **AV-115** | **The Mocks tab covers small tests, big tests and mocks.** The tutor can type scores in, upload work for AI marking, and **assign mocks to students like homework**. |
+| **AV-116** | **An assigned mock is timed from when the student first opens it.** Late submissions are **accepted and flagged, never blocked**. |
+| **AV-117** | **Past papers upload as a single paper or a booklet.** On a booklet, **the AI extracts the list of papers inside** — session, paper number, code, page range — and the tutor checks it. When assigning, the tutor picks one paper from that list. |
+| **AV-118** | **A lesson is either in person or online.** In person, the tutor logs attendance. Online, attendance comes from a **Zoom or Google Meet integration**. |
+| **AV-119** | **A lesson is pre-filled from the plan, and a reminder 15 minutes before prompts the tutor to revise it.** Afterwards nothing is required — it counts as taught unless the tutor says otherwise. |
+| **AV-120** | **That reminder goes by email, phone notification and in-app.** |
+| ~~AV-41~~ | ~~The student sees their mistake pattern in the homework tab.~~ **Superseded by AV-121.** |
+| **AV-121** | **The student's mistake pattern lives on their Progress tab**, alongside readiness, predicted grade, weak topics and attendance. |
+| **AV-122** | **A mobile app for notifications and quick actions only** — not a second copy of the product. For tutors, students and parents. **iOS and Android from one shared codebase.** Built as the **final phase** of this plan. |
 
-> **Deliberate asymmetry — do not "fix" it.** D18: a *behind-schedule* re-plan waits for tutor
-> acceptance. D68: a *syllabus edit* reflows automatically. Both stand as written.
+> **Deliberate asymmetry — do not "fix" it.** AV-18: a *behind-schedule* re-plan waits for tutor
+> acceptance. AV-68: a *syllabus edit* reflows automatically. Both stand as written.
 
-> **Deliberate difference — do not harmonise.** D46 keeps homework completion detail out of the
-> parent's day-to-day view; D64 puts an attendance and homework record in the parent's report.
+> **Deliberate difference — do not harmonise.** AV-46 keeps homework completion detail out of the
+> parent's day-to-day view; AV-64 puts an attendance and homework record in the parent's report.
 
 ---
 
@@ -342,28 +350,28 @@ Mine, not the product manager's. Flagged so they can be vetoed.
 |---|---|---|
 | E1 | Introduce a **`Chapter` table**, not `Topic.parent_id`. | A chapter is scheduled by the plan, owns a classified, and carries its own rollup. `Topic.parent_id` stays for genuine sub-topics. |
 | E2 | Add `SETTLED_STATUSES` to `models/homework.py`, export from the barrel, repoint the four modules that each declare a copy. | Four correct copies exist (`activity.py:32`, `averaging.py:34`, `api/past_papers.py:49`, `api/submissions.py:51`); three sites restate it wrongly. One definition ends the bug class. |
-| E3 | **Leave `api/analytics.py:101` entirely unchanged** except for a comment explaining why it is deliberately `finalized`-only. | Per D80. Auto-finalized marks have `final_marks = ai_marks` by construction (`marking.py:303`), which is why the filter is there. The comment prevents the next engineer "fixing" it. |
+| E3 | **Leave `api/analytics.py:101` entirely unchanged** except for a comment explaining why it is deliberately `finalized`-only. | Per AV-80. Auto-finalized marks have `final_marks = ai_marks` by construction (`marking.py:303`), which is why the filter is there. The comment prevents the next engineer "fixing" it. |
 | E4 | The recompute runner is `python -m seed.recompute_readiness`, reusing `enqueue_readiness_v2_debounced` with staggered `run_after`. | Mirrors `python -m seed.load_syllabus`. No new endpoint to secure; the existing debounce prevents duplicates. |
 | E5 | The plan's schedule is **generated deterministically from AI-supplied chapter weights**, never emitted wholesale by the model. | The AI is good at "Chapter 7 is dense, give it 1.6× time"; bad at arithmetic over a calendar with holidays. Keeps it explainable (`PROD-1`). |
 | E6 | Mocks reuse the polymorphic `Submission` path. | `PROD-9` / `ADR-0004` — no parallel code path. |
 | E7 | Chapter readiness is **stored**, not computed on read. | Reports, weekly sends and the tutor home all need it; per-request computation puts N queries in a request path (`PERF-1`). |
 | E8 | Custom criteria are **a distinct model**, not `ReadinessFactor` members. | `ReadinessFactor` is a non-native enum matched in `if`/`match` chains (`DB-5`, `DB-6`). Tutor-created values cannot be enum members. |
 | E9 | Email goes through **one provider module in `services/`**, all templates in one place. | Mirrors `services/ai.py` as sole vendor entry point (`AI-1`). |
-| E10 | The repository rename (D4) is a **manual GitHub action for the owner**. | An agent cannot rename a repo it does not own. |
+| E10 | The repository rename (AV-4) is a **manual GitHub action for the owner**. | An agent cannot rename a repo it does not own. |
 | E11 | Store `time_zone` on the user, defaulted from the tutor. **Every stored timestamp stays UTC**; convert at the edges. | Storing local times is how "due Friday" becomes two different days. Columns are already `DateTime(timezone=True)`. |
-| E12 | The owner's usage tool (D71) is a **separate deployable**, not a route in the API. | It is the one deliberate cross-account read. Keeping it outside means `PROD-4`/`SEC-7` stays true without exception inside the product. |
-| E13 | The plan's automatic reflow (D68) runs as a **job**, not inline in the edit request. | Rescheduling a year of slots is not request-path work (`BE-13`, `PERF-1`). |
-| **E14** | **Invariant: one Avora account = one organization = one tenant = (today) exactly one tutor.** Use `organization_id` as the tenant column everywhere; do not introduce a second "account" concept. | The audit flagged the terminology clash between D1 and the existing org-scoped model. This resolves it without a migration — solo-tutor is a *policy* on top of the tenant model, not a different model. |
-| **E15** | **Invariant: a `PlanSlot` is a planned occurrence; a `Lesson` is the confirmed actual occurrence.** Slots carry provenance — `generated` · `manually_modified` · `confirmed` · `completed`. | Makes D77 enforceable: only `generated` future slots are eligible for automatic reflow. Without provenance there is no way to tell a tutor's edit from the generator's output. |
-| **E16** | **Marking context is assembled in exactly one function**, which applies D76's precedence and is the only place that knows the order. | Precedence spread across call sites is precedence that drifts. One function, one test per conflict pair. |
+| E12 | The owner's usage tool (AV-71) is a **separate deployable**, not a route in the API. | It is the one deliberate cross-account read. Keeping it outside means `PROD-4`/`SEC-7` stays true without exception inside the product. |
+| E13 | The plan's automatic reflow (AV-68) runs as a **job**, not inline in the edit request. | Rescheduling a year of slots is not request-path work (`BE-13`, `PERF-1`). |
+| **E14** | **Invariant: one Avora account = one organization = one tenant = (today) exactly one tutor.** Use `organization_id` as the tenant column everywhere; do not introduce a second "account" concept. | The audit flagged the terminology clash between AV-1 and the existing org-scoped model. This resolves it without a migration — solo-tutor is a *policy* on top of the tenant model, not a different model. |
+| **E15** | **Invariant: a `PlanSlot` is a planned occurrence; a `Lesson` is the confirmed actual occurrence.** Slots carry provenance — `generated` · `manually_modified` · `confirmed` · `completed`. | Makes AV-77 enforceable: only `generated` future slots are eligible for automatic reflow. Without provenance there is no way to tell a tutor's edit from the generator's output. |
+| **E16** | **Marking context is assembled in exactly one function**, which applies AV-76's precedence and is the only place that knows the order. | Precedence spread across call sites is precedence that drifts. One function, one test per conflict pair. |
 | **E17** | **Invariant: AI-generated mistakes are replaceable on re-run; a tutor-revised mistake is never overwritten.** | Same contract `mark_submission` already honours for marks (`marking.py:272`). Extends `BE-6` to the new job. |
-| **E18** | Redis (D83) is used **only** for rate-limit counters. **Postgres remains the source of truth for all application state.** | Prevents Redis quietly becoming a second database. If a second use appears, it gets its own decision. |
+| **E18** | Redis (AV-83) is used **only** for rate-limit counters. **Postgres remains the source of truth for all application state.** | Prevents Redis quietly becoming a second database. If a second use appears, it gets its own decision. |
 | **E19** | Worker liveness state moves **into the database** as part of the worker split. | `jobs.py:62-69` keeps `_started_at`, `_last_loop_at`, `_job_started_at`, `_restart_times` as module state read by the health endpoint. The code comment already says this must move. Split the worker without it and the health check silently lies. |
-| **E20** | The pre-marking scan (D93) is a **pure function taking submission text and returning a boolean plus the matched reason**, called before the AI request is built. | `BE-4`/`CODE-3` — decision math is pure and unit-testable without a session or a model. It is also the only control in the marking path that does not depend on model judgement, so it must be trivially auditable. |
-| **E21** | File serving splits by sensitivity (D95): student submissions proxy through the API after the existing ownership check; tutor material mints a short-lived signed URL. | The volumes point opposite ways — tutor PDFs are the megabytes and carry no personal data; student photos are small and are a named minor's work. Route by what is actually at risk, not by one uniform rule. |
+| **E20** | The pre-marking scan (AV-93) is a **pure function taking submission text and returning a boolean plus the matched reason**, called before the AI request is built. | `BE-4`/`CODE-3` — decision math is pure and unit-testable without a session or a model. It is also the only control in the marking path that does not depend on model judgement, so it must be trivially auditable. |
+| **E21** | File serving splits by sensitivity (AV-95): student submissions proxy through the API after the existing ownership check; tutor material mints a short-lived signed URL. | The volumes point opposite ways — tutor PDFs are the megabytes and carry no personal data; student photos are small and are a named minor's work. Route by what is actually at risk, not by one uniform rule. |
 | **E22** | Export and account deletion (10.4) require **re-authentication immediately before the action**, write an audit row, are rate limited, and deliver out of band to the account's verified address. | Both are whole-tenant primitives reachable from a single stolen session. Standard practice for a bulk-egress endpoint; no product decision needed. |
 | **E23** | **Task 0.0 audits what already exists** and annotates every downstream task before any of them runs. | Revision 3 specified building timezones, a grade-boundary writer, cold-start handling and a tutor-home aggregate — **all of which already exist and shipped**. An agent reading a task in isolation has no way to know. This is the cheapest possible fix and it must run first. |
-| **E24** | The single narrative writer (D99) keeps the **existing precomputed-and-stored shape**: a background job writes the text, surfaces read the stored row. The weekly send reads the same rows. | `services/narrative.py` already implements exactly this, for exactly the stated reason — *no primary surface waits on a model to render its primary content*. Merging the weekly send into it is far less work than building a second generator, and the sweep-not-a-chain reasoning in that file must survive (`CODE-13`). |
+| **E24** | The single narrative writer (AV-99) keeps the **existing precomputed-and-stored shape**: a background job writes the text, surfaces read the stored row. The weekly send reads the same rows. | `services/narrative.py` already implements exactly this, for exactly the stated reason — *no primary surface waits on a model to render its primary content*. Merging the weekly send into it is far less work than building a second generator, and the sweep-not-a-chain reasoning in that file must survive (`CODE-13`). |
 | **E25** | **A database snapshot is taken immediately before every destructive step**, named in the task, and the task states how to restore it. | "No users yet" makes destruction safe, not reversible. `5.3` drops tables and `2.1`/`2.2` rebuild them; reverting a commit does not bring a dropped table back. |
 | **E26** | Every phase that changes the data model **updates `seed/demo.py` in the same phase**, and every task that breaks existing tests **fixes them rather than deleting the assertion**. | The verification table asks every phase to prove itself against a seeded demo account; the seed only knows the old shape. And an agent facing forty red tests will otherwise "fix" one by removing the check, which silently retires a control. |
 
@@ -384,9 +392,9 @@ The audit of revision 1 raised 17 items. Recorded here so no agent re-raises the
 | "AI must not own the calendar" | Already E5. |
 | "Mistake lifecycle invariants" | Already in Phase 4; now formalised as E17. |
 
-**Resolved by decision:** marking-context layers (D75) · precedence (D76) · v1 retirement (D78) ·
-reflow protection (D77) · type safety (D79) · sequencing (D81) · scale timing (D82) · Redis
-(D83) · load testing (D84) · account/organization terminology (E14) · PlanSlot vs Lesson (E15).
+**Resolved by decision:** marking-context layers (AV-75) · precedence (AV-76) · v1 retirement (AV-78) ·
+reflow protection (AV-77) · type safety (AV-79) · sequencing (AV-81) · scale timing (AV-82) · Redis
+(AV-83) · load testing (AV-84) · account/organization terminology (E14) · PlanSlot vs Lesson (E15).
 
 **Rejected:** the `idempotency_key` column, and adding Redis for anything beyond rate limiting
 (the audit's own §8 forbids a second application datastore; E18 holds the line).
@@ -398,7 +406,7 @@ reflow protection (D77) · type safety (D79) · sequencing (D81) · scale timing
 - **`fetchFileUrl()` is a sanctioned bypass of the single API client** (`FE-1`); signed URLs
   change that contract and the frontend must move with it.
 - **The single-origin deployment constraint comes from Google Classroom's OAuth redirect** —
-  and Classroom is being hidden (D58), which lifts it.
+  and Classroom is being hidden (AV-58), which lifts it.
 - **The test suite never runs a migration** (SQLite in-memory, schema from `Base.metadata`), so
   every new database constraint is only exercised by CI's Postgres job. `RISK-3` is the failure
   that has already happened here.
@@ -413,11 +421,11 @@ to prove none was dropped.**
 
 | ID | Finding | Severity | Resolved by | Lives in |
 |---|---|---|---|---|
-| F1 | The auto-finalize gate is self-referential; typed answers remove its friction | Critical | `D91`, `D92`, `D93`, `E20` | Task 3.3 |
-| F2 | Precedence in a prompt is not an access control | High | `D94` | Task 3.2 |
-| F3 | Signed URLs move authorization from request time to mint time | High | `D95`, `E21` | Task 1.2 |
-| F4 | Redis failure mode for the login throttle undecided | High | `D97` | Task 1.4 |
-| F5 | A minor's record emailed automatically to an unverified address | High | `D96` | Task 8.5 |
+| F1 | The auto-finalize gate is self-referential; typed answers remove its friction | Critical | `AV-91`, `AV-92`, `AV-93`, `E20` | Task 3.3 |
+| F2 | Precedence in a prompt is not an access control | High | `AV-94` | Task 3.2 |
+| F3 | Signed URLs move authorization from request time to mint time | High | `AV-95`, `E21` | Task 1.2 |
+| F4 | Redis failure mode for the login throttle undecided | High | `AV-97` | Task 1.4 |
+| F5 | A minor's record emailed automatically to an unverified address | High | `AV-96` | Task 8.5 |
 | F6 | Export is a one-request full-tenant exfiltration primitive | Medium | `E22` | Task 10.4 |
 | F7 | The worker becomes a high-privilege principal with no user context | Medium | Acceptance criteria | Task 1.3 |
 | F8 | Token revocation is one cache away from breaking | Medium | Regression test | **Task 0.9** |
@@ -475,7 +483,7 @@ Phase 11 Scale hardening
 Phase 12 The mobile app        ← last, against a settled product
 ```
 
-Phases 3 → 4 → 5 are **serial by decision** (D81): marking produces the evidence and mistake
+Phases 3 → 4 → 5 are **serial by decision** (AV-81): marking produces the evidence and mistake
 rows both later phases consume, so their contracts settle first. Phase 6 runs alongside them.
 
 ---
@@ -510,7 +518,7 @@ these are only the ones found so far:
 
 | Plan says | Reality |
 |---|---|
-| `0.7` add time zones | **Built.** `services/timezones.py`, `PUT /organization/timezone`, `TimezoneSetting.tsx`. Organization-level. Only the student/parent override (D67) is new. |
+| `0.7` add time zones | **Built.** `services/timezones.py`, `PUT /organization/timezone`, `TimezoneSetting.tsx`. Organization-level. Only the student/parent override (AV-67) is new. |
 | `2.4` add a grade-boundary writer | **Built.** `api/grade_boundaries.py`, 107 lines. Check the frontend editor separately. |
 | `5.5` cold start | **Built and tested** on the parent and student screens. |
 | `9.2` tutor home aggregate | **Built.** `services/today.py` (322 lines) + `api/today.py`. `9.2` is a rework, not a build. |
@@ -527,11 +535,11 @@ currently holds two delivery plans that contradict each other and nothing states
 for pricing. Populate it with the real per-token prices for every model actually routed to.
 
 This plan adds a weekly paragraph per person, mistake tagging on every wrong answer, plan
-drafting and reflows, and a materially larger marking prompt. **Without this task, D2's usage
+drafting and reflows, and a materially larger marking prompt. **Without this task, AV-2's usage
 tracking reports call counts and no money**, and there is no way to know whether a tutor costs
 more to serve than they pay.
 
-**0.1 — Shared `SETTLED_STATUSES` + fix the v2 gatherers** *(D29, E2, E3)*
+**0.1 — Shared `SETTLED_STATUSES` + fix the v2 gatherers** *(AV-29, E2, E3)*
 
 - Define `SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)` in
   `backend/app/models/homework.py`; export from `models/__init__.py`.
@@ -539,16 +547,16 @@ more to serve than they pay.
   `api/past_papers.py`, `api/submissions.py`). Behaviour unchanged.
 - Fix the three wrong sites in `services/readiness_v2.py` — `_marked_questions_for_topic`,
   `_homework_points`, `_mistake_points_and_total` — and `services/student_crm.py:129`.
-- **Leave `api/analytics.py:101` alone** (D80, E3); add only the comment explaining why.
+- **Leave `api/analytics.py:101` alone** (AV-80, E3); add only the comment explaining why.
 - Tests (`tests/test_readiness_v2.py`): auto-finalized homework contributes to Topic Mastery ·
   counts as submitted in Homework Performance · counts toward Mistake Analysis'
   `total_questions`. Mirror `test_averaging.py::test_auto_finalized_work_counts`.
 
-**0.2 — Recompute runner** *(D29, E4)* — `backend/seed/recompute_readiness.py`, run as
+**0.2 — Recompute runner** *(AV-29, E4)* — `backend/seed/recompute_readiness.py`, run as
 `python -m seed.recompute_readiness`. Walks every (student, subject) with evidence and calls
 `enqueue_readiness_v2_debounced` with increasing `run_after`. Document in runbook §14.
 
-**0.3 / 0.4 — Deletions** *(D57, D100)* — **Student AI chat** (`api/chat.py` 198 + `models/chat.py`
+**0.3 / 0.4 — Deletions** *(AV-57, AV-100)* — **Student AI chat** (`api/chat.py` 198 + `models/chat.py`
 44 + `TutorChatPage.tsx`) is student-gated on every route, so removal is clean. **Peer improvement
 ranking** (`services/improvement.py` 349 + `api/improvement.py` 34 + `ImprovementPage.tsx`,
 `api/improvement.ts`, `lib/student.ts`, a nav entry and three test files).
@@ -556,32 +564,32 @@ ranking** (`services/improvement.py` 349 + `api/improvement.py` 34 + `Improvemen
 Remove routes, services, models, frontend screens, API wrappers, tests, and a migration dropping
 the tables. Check `App.tsx` for orphaned routes and `main.py` for orphaned mounts and handlers.
 
-**The narrative is NOT deleted** (D98). Revision 2 had it removed; that is reversed. See 8.2/8.3.
+**The narrative is NOT deleted** (AV-98). Revision 2 had it removed; that is reversed. See 8.2/8.3.
 
 Both deletions were confirmed with their line counts in front of the product manager, including
 that the last code commit before this plan was a fix to `rank_of`. They are deliberate.
 
-**0.5 — Hide Classroom and knowledge base** *(D58)* — Remove routes and frontend surfaces;
+**0.5 — Hide Classroom and knowledge base** *(AV-58)* — Remove routes and frontend surfaces;
 leave services, models and tables. Comment each entry point so it is not read as dead code.
 **Removing the Classroom surface lifts the single-origin deployment constraint** — record that
 in §08, and Phase 1 depends on it.
 
-**0.6 — Rename to Avora** *(D4, E10)* — User-facing strings, `docs/`, docstrings, `README.md`,
+**0.6 — Rename to Avora** *(AV-4, E10)* — User-facing strings, `docs/`, docstrings, `README.md`,
 `CLAUDE.md`, package names, demo seed. One PR. **The GitHub repo rename is manual** — flag it.
 
-**0.7 — Time zones** *(D67, E11)* — **Mostly already built.** `services/timezones.py` with
+**0.7 — Time zones** *(AV-67, E11)* — **Mostly already built.** `services/timezones.py` with
 `normalize_timezone`, `PUT /organization/timezone`, and `TimezoneSetting.tsx` all exist and ship
 today, at organization level.
 
-**What is actually new:** a per-user override so students and parents can set their own (D67),
+**What is actually new:** a per-user override so students and parents can set their own (AV-67),
 defaulting to the organization's. Timestamps stay UTC; convert at render and at the scheduling
 boundary. **Read `services/timezones.py` before writing anything** — the normalisation and
 validation are done.
 
 Lands early because Phase 6 (plan weeks), Phase 7 (lesson dates) and Phase 8 (the weekly send)
-all need it. Note that the weekly send deliberately ignores the per-user value (D90).
+all need it. Note that the weekly send deliberately ignores the per-user value (AV-90).
 
-**0.8 — Type safety** *(D79)* — Add a Python type checker (mypy or pyright) wired into CI,
+**0.8 — Type safety** *(AV-79)* — Add a Python type checker (mypy or pyright) wired into CI,
 enforced at service boundaries first rather than repo-wide on day one; there is **no Python type
 checking at all** today, so expect a backlog. Add TypeScript API types generated from FastAPI's
 OpenAPI schema, replacing the hand-mirrored interfaces in `frontend/src/api/*.ts`. This lands in
@@ -601,7 +609,7 @@ stops locking them out — the case `SEC-1` and `ADR-0008` exist for.
 
 ---
 
-### Phase D — The design pass *(D102, D103, D104)*
+### Phase D — The design pass *(AV-102, AV-103, AV-104)*
 
 **Runs parallel to Phase 1 and must complete before Phase 2 builds anything with a screen.**
 Phase 1 is entirely backend, so the two do not collide.
@@ -617,39 +625,39 @@ closes that, and every subsequent phase builds its own screens against what this
 | **D.3** | Design the new screens | L | after D.1 |
 | **D.4** | States, empty states and copy | M | after D.2, D.3 |
 
-**Scope, precisely.** **Every screen is redesigned — existing as well as new** (D102). The
+**Scope, precisely.** **Every screen is redesigned — existing as well as new** (AV-102). The
 product must read as one thing afterwards, not as new screens bolted onto old ones.
 
-**The visual identity does not change** (D103). Parchment, espresso and terracotta; Lora for
+**The visual identity does not change** (AV-103). Parchment, espresso and terracotta; Lora for
 display and Inter for UI; the motifs; the semantic token classes. `docs/avora-visual-identity.md`
 is binding and `frontend/src/index.css` holds the tokens. **This pass changes layout, structure,
 hierarchy and what appears on each screen — never palette, type or style.** Use the semantic
 token classes (`bg-surface`, `text-ink-700`, `border-line`), never stock Tailwind names
 (`UX-2`), and never wrap the retarget block in an `@layer` (`UX-1`).
 
-**The navigation is settled** (D105–D122) and is the frame every screen hangs off. Design to it.
+**The navigation is settled** (AV-105–AV-122) and is the frame every screen hangs off. Design to it.
 
 | Role | Tabs, in order |
 |---|---|
-| **Tutor** | Overview · Review · Homework · Classes · Students · Mocks · Past papers · Readiness · Reports · Library — **flat, ordered by frequency of use** (D105). Plus a small settings area for usage (D113). |
-| **Student** | Home · Homework · Mocks · Past papers · Progress · Materials (D106) |
-| **Parent** | Overview · Progress · Attendance · Reports (D107) |
+| **Tutor** | Overview · Review · Homework · Classes · Students · Mocks · Past papers · Readiness · Reports · Library — **flat, ordered by frequency of use** (AV-105). Plus a small settings area for usage (AV-113). |
+| **Student** | Home · Homework · Mocks · Past papers · Progress · Materials (AV-106) |
+| **Parent** | Overview · Progress · Attendance · Reports (AV-107) |
 
 **Where things live, decided:**
 
 - **Homework** holds the detail; the per-class Homework tab shows name and metadata and links
-  through (D108). `/tutor/homework` currently redirects to Review with a comment saying homework
+  through (AV-108). `/tutor/homework` currently redirects to Review with a comment saying homework
   was folded into it — **that fold is reversed.**
-- **The class's Schedule tab** holds the teaching plan, lessons, and in-person attendance (D109).
+- **The class's Schedule tab** holds the teaching plan, lessons, and in-person attendance (AV-109).
 - **Library** holds every onboarding choice, the syllabus document, the teaching guidance, the
   classifieds, and the per-subject marking rules — which are what the tutor calls the **AI
-  marking agreement** (D110, D111).
+  marking agreement** (AV-110, AV-111).
 - **Readiness** is one tab for both the class view and the setup behind it; **Reports** is its
-  own tab (D112).
+  own tab (AV-112).
 - **Students** is grouped by class: invite, remove, open a record, move between classes, link a
-  parent (D114).
-- **The student's mistake pattern** sits on their Progress tab, not in Homework (D121,
-  superseding D41).
+  parent (AV-114).
+- **The student's mistake pattern** sits on their Progress tab, not in Homework (AV-121,
+  superseding AV-41).
 
 **D.1 — Inventory** — Every screen that exists today, and every screen the decision register
 implies. Five of the tutor's tabs already exist as pages — `LibraryPage`, `MocksPage`,
@@ -672,18 +680,18 @@ connects to the screens either side.
 standard: every state a surface can be in, and the exact words it says in each. Match it.
 **Absent data is shown as absent** — "not enough data yet", never `0` or an empty bar
 (`PROD-2`, `UX-19`). **Self-declared data is labelled as self-declared** (`PROD-8`, `UX-20`), and
-so is anything a tutor hand-scored (D34).
+so is anything a tutor hand-scored (AV-34).
 
 ---
 
-### Phase 1 — Scale foundation *(D82)*
+### Phase 1 — Scale foundation *(AV-82)*
 
 **Runs after Phase 0, not alongside it** — 0.6's rename and 1.2's object storage both rewrite
 `services/storage.py`. These are the two pieces that get materially harder to retrofit, plus the
 prerequisites for a second API instance. Everything built after this is written for a
 multi-instance world.
 
-> **Deployment stays single-instance until Phase 11 (D85).** Phase 1 makes scaling out
+> **Deployment stays single-instance until Phase 11 (AV-85).** Phase 1 makes scaling out
 > *possible* and proves it in tests; the systematic concurrency audit (11.2) is what makes it
 > *safe*. **Do not deploy a second instance before 11.2 is complete** — the two-instance
 > correctness suite covers known cases, not every read-modify-write in the codebase.
@@ -718,7 +726,7 @@ points: `services/storage.py`, `services/rate_limit.py`, `workers/jobs.py:62-69`
   client (`FE-1`). Update both sides together.
 - Do not hardcode a vendor; the interface is the contract.
 
-**Security acceptance criteria — threat review F3** *(D95, E21)*
+**Security acceptance criteria — threat review F3** *(AV-95, E21)*
 
 **Serving splits by sensitivity. This is not an optimisation to simplify away.**
 
@@ -756,14 +764,14 @@ a handler is implicit.
 - **Enqueue is the trust boundary** — validate there that the enqueuing user may act on the
   identifiers being queued.
 
-**1.4 — Shared rate limiting on Redis** *(D83, E18)*
+**1.4 — Shared rate limiting on Redis** *(AV-83, E18)*
 
 Move `FixedWindowLimiter`'s counters from process memory into Redis. **Redis is for rate-limit
 counters only** — Postgres stays the source of truth for all application state (E18). Failed
 logins stay throttled **per identifier, not per IP** — the API sits behind a proxy where one
 shared address means a global lockout (`SEC-14`).
 
-**Security acceptance criteria — threat review F4** *(D97)*
+**Security acceptance criteria — threat review F4** *(AV-97)*
 
 Redis availability must not become an authentication dependency in either direction.
 
@@ -776,7 +784,7 @@ Redis availability must not become an authentication dependency in either direct
 - Namespace keys by purpose and tenant so one caller cannot consume or collide with another's
   counter.
 
-**1.5 — Two-instance correctness suite** *(D84, §14)*
+**1.5 — Two-instance correctness suite** *(AV-84, §14)*
 
 A hard acceptance requirement. With API #1, API #2, Worker #1, Worker #2 running:
 
@@ -799,13 +807,13 @@ A hard acceptance requirement. With API #1, API #2, Worker #1, Worker #2 running
 | **2.5** | Teaching guidance upload | S | ∥ after 2.2 |
 | **2.6** | Per-subject marking rules | S | ∥ after 2.2 |
 
-**2.1 — `Chapter`** *(D9, E1)* — `Chapter` in `models/syllabus.py`: `id`, `subject_id`, `code`,
+**2.1 — `Chapter`** *(AV-9, E1)* — `Chapter` in `models/syllabus.py`: `id`, `subject_id`, `code`,
 `title`, `position`, `weight`. Add `chapter_id` to `Topic`. Migration uses
 `batch_alter_table(..., naming_convention=NAMING)` and names the FK explicitly (`DB-17`);
 declare the index in the model as well as the migration (`DB-12`). Re-export (`BE-3`). No
 production data, so the migration may be destructive.
 
-**2.2 — Tutor-owned subjects** *(D6, D7, D8, E14)* — Add `organization_id` (`PROD-3`, `DB-2`)
+**2.2 — Tutor-owned subjects** *(AV-6, AV-7, AV-8, E14)* — Add `organization_id` (`PROD-3`, `DB-2`)
 and a `level` enum (`igcse` / `o_level` / `a_level`, `native_enum=False`). Unique constraint
 becomes `(organization_id, exam_board, code)`. **Every subject query filters by the
 authenticated user's organization** (`PROD-4`, `SEC-7`); student-visible material stays scoped by
@@ -813,12 +821,12 @@ authenticated user's organization** (`PROD-4`, `SEC-7`); student-visible materia
 Delete `seed/syllabus/*.json`; `seed/demo.py` creates its own subject. Tests: another
 organization's subject returns **`404`, not `403`** (`API-7`, `SEC-9`, `QA-12`).
 
-**2.3 — Syllabus extraction produces chapters** *(D9, D10)* — `SyllabusUpload.draft` becomes
+**2.3 — Syllabus extraction produces chapters** *(AV-9, AV-10)* — `SyllabusUpload.draft` becomes
 chapter-first: `{..., chapters: [{code, title, topics: [...]}]}`. Update `SYLLABUS` in
 `services/prompts.py` and **bump its version** (`AI-6`, `AI-7`). Update the review UI to edit
 two levels. Drop `grade_boundaries` from the draft — 2.4 makes them tutor-entered.
 
-**2.4 — Grade boundaries** *(D11)* — **The writer already exists**: `api/grade_boundaries.py`,
+**2.4 — Grade boundaries** *(AV-11)* — **The writer already exists**: `api/grade_boundaries.py`,
 107 lines, shipped as PR 26. Check whether a frontend editor exists before building one (0.0).
 
 Make the org-scoped `grade_boundaries` table the **only** source; remove the read of
@@ -826,16 +834,16 @@ Make the org-scoped `grade_boundaries` table the **only** source; remove the rea
 `predict_grade()` maps through tutor-entered boundaries — **no model ever produces a grade**
 (`PROD-6`). No boundaries means no predicted grade, never a fabricated one (`PROD-2`).
 
-**2.5 — Teaching guidance upload** *(D10)* — A second document per subject, stored through the
+**2.5 — Teaching guidance upload** *(AV-10)* — A second document per subject, stored through the
 Phase 1 `StorageService`. Phase 6 reads it to weight the plan.
 
-**2.6 — Per-subject marking rules** *(D75)* — Free-text marking rules on `Subject`, edited by the
-tutor. Applies to every chapter and classified in that subject. **No account-wide layer** (D75).
+**2.6 — Per-subject marking rules** *(AV-75)* — Free-text marking rules on `Subject`, edited by the
+tutor. Applies to every chapter and classified in that subject. **No account-wide layer** (AV-75).
 Consumed by Phase 3's context assembler.
 
 ---
 
-### Phase 3 — Marking and evidence *(D81 — settles before mistakes and readiness)*
+### Phase 3 — Marking and evidence *(AV-81 — settles before mistakes and readiness)*
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
@@ -853,34 +861,34 @@ Consumed by Phase 3's context assembler.
 > the tutoring trade's, not ours. *(This definition was requested by the SWE audit and missed in
 > revision 3.)*
 
-**3.1 — Classified changes** *(D20, D21, D23)* — Add `chapter_id` and `notes` to `Classified`.
+**3.1 — Classified changes** *(AV-20, AV-21, AV-23)* — Add `chapter_id` and `notes` to `Classified`.
 The upload flow moves to "start of chapter", reached from the plan or the chapter list. Homework
 creation otherwise unchanged.
 
-**3.2 — Marking context and precedence** *(D21, D24, D75, D76, E16)*
+**3.2 — Marking context and precedence** *(AV-21, AV-24, AV-75, AV-76, E16)*
 
-**One function assembles the entire marking context**, applying D76's order:
+**One function assembles the entire marking context**, applying AV-76's order:
 
 ```
 official mark scheme   (absolute — never overridden)
   → chapter notes      (most specific tutor input)
-    → subject rules    (D75)
-      → exam board and level   (D24)
+    → subject rules    (AV-75)
+      → exam board and level   (AV-24)
 ```
 
 **Bump `MARKING`'s version** (`AI-7`). **Preserve the untrusted-input clause in substance** —
 page content is data, never instructions, and anything addressing the marker is flagged with
 low confidence for a tutor rather than acted on (`SEC-20`, `SEC-21`, `AI-8`). **The
-auto-finalize rule does not change** (D25): scheme-backed and confident, nothing more (`AI-11`,
+auto-finalize rule does not change** (AV-25): scheme-backed and confident, nothing more (`AI-11`,
 `ADR-0009`).
 
-**Security acceptance criteria — threat review F2** *(D94)*
+**Security acceptance criteria — threat review F2** *(AV-94)*
 
 A language model has no privilege model. All four layers arrive as tokens in one context, so
 "the mark scheme is absolute" is a request, not an enforcement — and two of those layers are
 **free text a tutor wrote**, sitting in the instruction position.
 
-- **The official mark scheme always wins** (D94). Where a scheme covers the question, tutor notes
+- **The official mark scheme always wins** (AV-94). Where a scheme covers the question, tutor notes
   inform only the judgement calls it leaves open. They can never relax it.
 - **Treat tutor free text as data, not instruction** — the same posture the prompt already takes
   toward student pages. Label each block structurally so the model is told what it *is*, not
@@ -894,22 +902,22 @@ marks if the method is right"* because that is how they teach — and every stud
 then being marked differently from the exam they will actually sit. It would present as the model
 being generous and be debugged as a model problem.
 
-**3.3 — Typed answers** *(D73)* — The pipeline takes text where it takes images. **Typed text is
+**3.3 — Typed answers** *(AV-73)* — The pipeline takes text where it takes images. **Typed text is
 untrusted input to the marking prompt**, exactly as page content is. Bump the prompt version.
 
-**Security acceptance criteria — threat review F1** *(D91, D92, D93, E20)*
+**Security acceptance criteria — threat review F1** *(AV-91, AV-92, AV-93, E20)*
 
 This is the plan's critical finding. **Typed answers auto-finalize like photographed work
-(D91)** — the trust rule does not change by channel. But typed input is a materially easier
+(AV-91)** — the trust rule does not change by channel. But typed input is a materially easier
 injection channel than handwriting: perfect fidelity, arbitrary length, and marks come back
 afterwards, so a student can refine an attempt across submissions.
 
-- **A deterministic scan runs before the marking call** (D93). A pure function over the submitted
+- **A deterministic scan runs before the marking call** (AV-93). A pure function over the submitted
   text (E20) returning a boolean and the matched reason; a hit sets `needs_review` for that one
   submission and the AI's confidence is not consulted. It is crude and bypassable — and it is
   **the only control in this path that does not depend on the model's own judgement about the
   attacker's text.** Do not replace it with a model call.
-- **No feedback while a student is still working** (D92). Marks and feedback appear only after
+- **No feedback while a student is still working** (AV-92). Marks and feedback appear only after
   submission. Do not build an in-progress feedback surface.
 - **Preserve the untrusted-input clause in substance** when bumping the prompt (`SEC-20`,
   `SEC-21`, `AI-8`).
@@ -919,7 +927,7 @@ and calibration metrics were all offered and **declined**. Declining calibration
 no way to detect this being exploited. That is a deliberate position, not an oversight — **do not
 add these back without asking.**
 
-**3.5 — Past-paper booklets** *(D117)* — Today `PastPaper` is one paper. Add a **booklet**: one
+**3.5 — Past-paper booklets** *(AV-117)* — Today `PastPaper` is one paper. Add a **booklet**: one
 uploaded file holding many papers.
 
 On upload, an AI job extracts the list — session label, paper number, code, page range — and the
@@ -931,9 +939,9 @@ re-run on the same payload, replacing the draft rather than appending (`BE-6`).
 When assigning, the tutor picks one paper from the extracted list. A single-paper upload skips
 extraction entirely and behaves as today.
 
-**3.6 — Timed mocks** *(D115, D116)* — A mock is assigned like homework and **timed from when
+**3.6 — Timed mocks** *(AV-115, AV-116)* — A mock is assigned like homework and **timed from when
 the student first opens it**. The clock is **server-side** — a client-side timer is a suggestion,
-not a limit. Late submissions are **accepted and flagged, never blocked** (D116), so nobody loses
+not a limit. Late submissions are **accepted and flagged, never blocked** (AV-116), so nobody loses
 work; the flag is recorded and shown to the tutor.
 
 This replaces a self-declared `timed` flag with a measured one. Past-paper attempts currently
@@ -941,7 +949,7 @@ carry `timed` and `time_taken_minutes` as **self-declared** data that must be la
 wherever shown (`PROD-8`, `UX-20`). **A measured mock is not self-declared and must not carry
 that label** — the two are different and the UI has to tell them apart.
 
-**3.4 — AI-marked mocks** *(D26, E6)* — Through the existing pipeline. **No parallel code path**
+**3.4 — AI-marked mocks** *(AV-26, E6)* — Through the existing pipeline. **No parallel code path**
 (`PROD-9`, `ADR-0004`). `Submission` is polymorphic — never read `assignment_id` unconditionally
 (`API-20`). Only finalized outcomes become `Evidence` (`PROD-5`). A new evidence source is added
 to `EvidenceSource` **and** given a weight in `SOURCE_WEIGHTS` in the same change (`PROD-10`).
@@ -958,11 +966,11 @@ to `EvidenceSource` **and** given a weight in `SOURCE_WEIGHTS` in the same chang
 | **4.4** | Rollup per topic and chapter | M | after 4.2 |
 | **4.5** | Student view in the homework tab | S | after 4.4 |
 
-**4.1 — Categories** *(D39)* — `MistakeCategory` becomes a tutor-owned, org-scoped table, seeded
+**4.1 — Categories** *(AV-39)* — `MistakeCategory` becomes a tutor-owned, org-scoped table, seeded
 at subject setup from a suggested list the tutor accepts, edits or replaces. `Mistake.category`
 becomes an FK. **Nothing may branch on a category's value** — no `if category == "careless"`.
 
-**4.2 — AI tagging** *(D37, D38, D69, E17)* — For each question where marks were lost, the AI
+**4.2 — AI tagging** *(AV-37, AV-38, AV-69, E17)* — For each question where marks were lost, the AI
 returns a category **from this tutor's list** (passed into the prompt) and a severity on the
 existing 1–3 scale. Prompt lives only in `services/prompts.py` with a **bumped version**.
 Untrusted-input clause preserved (`SEC-20`, `SEC-21`, `AI-8`). **Invariant (E17): AI mistakes are
@@ -971,11 +979,11 @@ contract `mark_submission` honours for marks (`BE-6`, `BE-7`). Tests: drive with
 `process_one_job()`, never `worker_loop()` (`QA-6`); monkeypatch the **calling module's**
 `structured_complete` with `fake_ai` (`QA-7`); never call a real provider (`QA-8`).
 
-**4.3 — Tutor revision** *(D38)* — Editable from the marked-work view. **No prompt, no queue, no
+**4.3 — Tutor revision** *(AV-38)* — Editable from the marked-work view. **No prompt, no queue, no
 blocking step.** A revision is a tutor override of AI output, so it writes an append-only audit
 row with no API to edit or delete it (`PROD-7`, `AI-12`) — `MarkOverrideAudit` is the pattern.
 
-**4.4 / 4.5 — Rollups and student view** *(D40, D41)* — Aggregate per topic and per chapter on
+**4.4 / 4.5 — Rollups and student view** *(AV-40, AV-41)* — Aggregate per topic and per chapter on
 the tutor-facing profile. The student sees their own pattern **in the homework tab only**.
 
 ---
@@ -992,34 +1000,34 @@ the tutor-facing profile. The student sees their own pattern **in the homework t
 | **5.6** | Tutor-set weak threshold and weak-topic surfaces | M | after 5.2 |
 | **5.7** | Gate past-paper performance on the past-paper phase | S | after 6.1 |
 
-**5.1 — Factor set changes** *(D30, D32)* — Remove `consistency` from `ReadinessFactor` handling,
+**5.1 — Factor set changes** *(AV-30, AV-32)* — Remove `consistency` from `ReadinessFactor` handling,
 `FACTOR_WEIGHT_ATTR`, the weights model and `readiness_factors.py`. Enum members are non-native
 so no migration is forced — which is exactly why the `if`/`match` chains must be audited by hand
 (`DB-6`). `homework_performance()` becomes accuracy only: delete the
 `accuracy * 0.7 + completion_rate * 100 * 0.3` blend, but **keep `completion_rate` in `detail`**
 so it can be shown as a fact. Surface completion separately on the profile and class view.
-Punctuality appears **only in the weekly send** (D32).
+Punctuality appears **only in the weekly send** (AV-32).
 
-**5.2 — Chapter rollup** *(D9, E7)* — One stored row per chapter per run, rolled from its topics'
+**5.2 — Chapter rollup** *(AV-9, E7)* — One stored row per chapter per run, rolled from its topics'
 scores weighted by evidence count, in `evaluate_subject_factors`. Chapter score is `None` when no
 topic beneath it has evidence (`PROD-2`).
 
-**5.3 — Delete v1** *(D78)* — Repoint `api/analytics.py`, `services/reports.py` and
+**5.3 — Delete v1** *(AV-78)* — Repoint `api/analytics.py`, `services/reports.py` and
 `services/student_crm.py` to v2 snapshots; **stop the v1 writes; drop `topic_readiness`,
 `readiness_history` and `tutor_preferences`** in the same change. Remove the per-subject v1
 fallback and the `engine: "v1"` reporting from `/readiness/*`. **Closes `RISK-5`.** Update
 `docs/governance/risk-register.md`, §01's Known Gaps table, and §06.
 
-**5.4 — Configurable factors and custom criteria** *(D34, D35, E8)* — Three capabilities:
+**5.4 — Configurable factors and custom criteria** *(AV-34, AV-35, E8)* — Three capabilities:
 **re-weight** (extend `ReadinessWeights`) · **switch off** (a disabled factor is *omitted* from
 the weighted set, never zero-weighted) · **add a custom criterion** — `CustomCriterion` (name,
 description, weight, scope) plus `CustomCriterionScore` (student, criterion, score, updated_at,
 updated_by), **hand-scored by the tutor**, no AI, no derivation. Configuration resolves **per
-account with subject overrides** (D35) — one precedence rule, one place, tested both ways. Every
+account with subject overrides** (AV-35) — one precedence rule, one place, tested both ways. Every
 custom score is manual data and is **labelled as tutor-entered wherever shown** (`PROD-1`,
 `PROD-8`, `UX-20`), reports and the parent view included.
 
-**5.5 — Cold start** *(D36)* — **Already built and tested** on the parent and student screens
+**5.5 — Cold start** *(AV-36)* — **Already built and tested** on the parent and student screens
 (PRs 21–27). Confirm what exists in 0.0 before writing anything.
 
 What remains is making sure the reworked factor set and chapter rollup keep the same behaviour: a
@@ -1027,14 +1035,14 @@ score appears from the first marked piece, carrying evidence count and confidenc
 computed by `_confidence_from_count`), and "not enough data yet" still applies to a factor with
 *no* evidence (`PROD-2`, `UX-19`).
 
-**5.6 — Weak threshold and surfaces** *(D42, D43, D74)* — Tutor-set, captured at onboarding,
+**5.6 — Weak threshold and surfaces** *(AV-42, AV-43, AV-74)* — Tutor-set, captured at onboarding,
 stored per account with the same subject-override precedence as 5.4. **`MASTERY_THRESHOLD = 75.0`
 in `services/readiness_v2.py` is a different line** — it decides what counts as mastered for
 Syllabus Coverage. Do not conflate them; comment the distinction. Student sees their weak topics
 as information; tutor sees them in the class view and aggregated on home. **Nothing is generated,
-assigned or suggested as work** (D42).
+assigned or suggested as work** (AV-42).
 
-**5.7 — Past-paper gating** *(D31)* — `past_paper_performance` returns `NO_DATA` until the class's
+**5.7 — Past-paper gating** *(AV-31)* — `past_paper_performance` returns `NO_DATA` until the class's
 past-paper phase has started. A factor without evidence is **omitted, never fabricated**
 (`PROD-2`) — no zero, no confident empty score.
 
@@ -1053,18 +1061,18 @@ past-paper phase has started. A factor without evidence is **omitted, never fabr
 | **6.7** | Chapter-start classified prompt | S | after 6.5 |
 | **6.8** | Automatic reflow on syllabus edits | M | after 6.6 |
 
-**6.1 — Data model** *(D13–D16, D72, E15)* — Per class: `TeachingPlan` (group_id, exam_date,
+**6.1 — Data model** *(AV-13–AV-16, AV-72, E15)* — Per class: `TeachingPlan` (group_id, exam_date,
 lessons_per_week, lesson_minutes, past_paper_start_date, status `draft`/`accepted`, accepted_at,
 accepted_by_id) · `PlanSlot` (plan_id, chapter_id, scheduled_date, sequence, **provenance:
 `generated` / `manually_modified` / `confirmed` / `completed`**) · `PlanBreak` (plan_id,
 start_date, end_date, label). **Invariant E15: a `PlanSlot` is a planned occurrence; a `Lesson`
-is the confirmed actual one.** Teaching and past-paper phases **overlap by design** (D16) — the
+is the confirmed actual one.** Teaching and past-paper phases **overlap by design** (AV-16) — the
 model must not assume disjoint intervals.
 
-**6.2 — Inputs** *(D15)* — Exam date, lessons per week, lesson length, past-paper start,
+**6.2 — Inputs** *(AV-15)* — Exam date, lessons per week, lesson length, past-paper start,
 holidays and breaks. Collected in onboarding (Phase 9), editable afterwards from class settings.
 
-**6.3 — Drafting** *(D14, E5)* — Two deliberately separated steps:
+**6.3 — Drafting** *(AV-14, E5)* — Two deliberately separated steps:
 
 1. **AI** — given the chapter list and the uploaded teaching guidance, return a relative weight
    per chapter. New surface in `services/prompts.py` with a `version`; call sites name a
@@ -1078,25 +1086,25 @@ holidays and breaks. Collected in onboarding (Phase 9), editable afterwards from
 Runs as a job, never in a request path (`BE-13`, `PERF-1`). Payloads carry identifiers, not
 objects (`BE-9`).
 
-**6.4 — Accept and edit** *(D13)* — Draft until accepted. **Nothing reads a draft plan** — not
+**6.4 — Accept and edit** *(AV-13)* — Draft until accepted. **Nothing reads a draft plan** — not
 lesson suggestions, not the classified prompt, not the tutor home. Tutor edits any slot at any
 time; an edit sets provenance `manually_modified` and does not require re-acceptance.
 
-**6.5 — Plan → lesson** *(D17, E15)* — Creating a lesson pre-selects topics from the next
+**6.5 — Plan → lesson** *(AV-17, E15)* — Creating a lesson pre-selects topics from the next
 unstarted slot; the tutor can change them freely. **Lessons are never auto-created.** Confirming
 a lesson sets that slot `confirmed`. `lesson_topics` remains the sole source of syllabus coverage
 (`PROD-14`).
 
-**6.6 — Behind schedule** *(D18)* — Compare confirmed lessons to scheduled slots; show the gap on
+**6.6 — Behind schedule** *(AV-18)* — Compare confirmed lessons to scheduled slots; show the gap on
 home and the class view; offer a re-plan that **recalculates and waits for acceptance**.
 
-**6.7 — Chapter-start prompt** *(D20, D22)* — When the plan enters a chapter with no classified,
+**6.7 — Chapter-start prompt** *(AV-20, AV-22)* — When the plan enters a chapter with no classified,
 prompt on the tutor's home. **Non-blocking.**
 
-**6.8 — Automatic reflow on syllabus edits** *(D68, D77, E13, E15)* — Adding, splitting,
+**6.8 — Automatic reflow on syllabus edits** *(AV-68, AV-77, E13, E15)* — Adding, splitting,
 reordering or removing a chapter **reflows automatically, with no acceptance step**. Runs as a
 job. **Only `generated` future slots are eligible** — `manually_modified`, `confirmed` and
-`completed` slots are never moved (D77). **This is intentionally different from 6.6**; comment
+`completed` slots are never moved (AV-77). **This is intentionally different from 6.6**; comment
 the branch point (`CODE-12`) so it is not read as a bug.
 
 ---
@@ -1110,32 +1118,32 @@ the branch point (`CODE-12`) so it is not read as a bug.
 | **7.3** | Zoom and Google Meet attendance integration | L | after 7.1 |
 | **7.4** | Lesson pre-fill and the 15-minute reminder | M | after 7.1 |
 
-**7.1 — Attendance and lesson mode** *(D44, D109, D118)* — `LessonAttendance` (lesson_id,
+**7.1 — Attendance and lesson mode** *(AV-44, AV-109, AV-118)* — `LessonAttendance` (lesson_id,
 student_id, state, source, recorded_by_id, recorded_at) and a **mode on `Lesson`: in person or
-online** (D118). In person, the tutor logs it **on the lesson, in the class's Schedule tab**
-(D109). `source` records whether a human or an integration set it — a tutor needs to know which.
+online** (AV-118). In person, the tutor logs it **on the lesson, in the class's Schedule tab**
+(AV-109). `source` records whether a human or an integration set it — a tutor needs to know which.
 
-Attendance is **not** a readiness factor (D33). It explains gaps; it does not score them.
+Attendance is **not** a readiness factor (AV-33). It explains gaps; it does not score them.
 
-**7.3 — Zoom and Google Meet** *(D118)* — For online lessons, pull the attendance list from the
+**7.3 — Zoom and Google Meet** *(AV-118)* — For online lessons, pull the attendance list from the
 call. **Two separate integrations**, each with its own sign-in flow and its own approval from
 that company.
 
 - **Google Meet attendance reports are a paid Workspace feature.** A tutor on a free Google
   account gets nothing, silently. Say so at the point they connect it, not after.
 - Both add OAuth redirect URIs, which is the constraint that pinned the deployment to one origin
-  for Google Classroom (§08). Hiding Classroom (D58) lifts that; **this puts it back.** Plan the
+  for Google Classroom (§08). Hiding Classroom (AV-58) lifts that; **this puts it back.** Plan the
   redirect URIs deliberately rather than discovering the constraint again.
 - OAuth `state` is verified server-side and bound to the tutor who started the flow
   (`security.create_state_token`); the browser comparison is a second check, never the check.
 - Matching a call participant to a student is fuzzy — people join as "iPad" or a nickname.
   **Unmatched participants are surfaced for the tutor, never guessed at.**
 
-**7.4 — Lesson pre-fill and reminder** *(D119, D120)* — The plan pre-fills what the lesson covers.
+**7.4 — Lesson pre-fill and reminder** *(AV-119, AV-120)* — The plan pre-fills what the lesson covers.
 **15 minutes before it starts, remind the tutor** so they can revise it — by email, phone
-notification and in-app (D120; push comes from 8.7).
+notification and in-app (AV-120; push comes from 8.7).
 
-**After the lesson nothing is required** (D119): it counts as taught with the topics that stood,
+**After the lesson nothing is required** (AV-119): it counts as taught with the topics that stood,
 unless the tutor says otherwise. That keeps admin near zero — and it means **a cancelled lesson
 nobody flags is recorded as taught**, quietly inflating syllabus coverage, which feeds readiness.
 Make cancelling one action from the reminder and from the Schedule tab.
@@ -1154,32 +1162,32 @@ Make cancelling one action from the reminder and from the Schedule tab.
 | **8.6** | Tutor reports | M | ∥ |
 | **8.7** | Web push notifications | M | after 8.1 |
 
-**8.1 — Email** *(D54, E9)* — One provider module in `services/`, all templates in one place,
+**8.1 — Email** *(AV-54, E9)* — One provider module in `services/`, all templates in one place,
 unsubscribe and bounce handling. Configuration through `get_settings()`, never `os.environ`
 (`BE-15`). A missing key degrades email with a clear message and never blocks startup (`INF-9`).
 
-**8.2 — Weekly send** *(D49, D50, D62–D66)* — **Fixed facts plus one AI paragraph.** Facts are
+**8.2 — Weekly send** *(AV-49, AV-50, AV-62–AV-66)* — **Fixed facts plus one AI paragraph.** Facts are
 computed deterministically; the AI writes a short steer and **must never restate a number the
 facts do not contain** (`PROD-1`). Generated by a **sweep**, not a self-perpetuating chain — the
 comment in `services/narrative.py` explains exactly why, and **that reasoning must be carried
 into the replacement, not deleted with it** (`CODE-13`).
 
 Three variants:
-- **Tutor** — across their classes. Punctuality appears here and nowhere else (D32).
+- **Tutor** — across their classes. Punctuality appears here and nowhere else (AV-32).
 - **Student** — their own week.
-- **Parent** — *is the parent report* (D63): readiness and predicted grade · attendance and
+- **Parent** — *is the parent report* (AV-63): readiness and predicted grade · attendance and
   homework record, plus the AI paragraph. **Not** the chapter/topic breakdown, **not** mistake
-  patterns (D64). One weekly artifact for a parent, never two.
+  patterns (AV-64). One weekly artifact for a parent, never two.
 
-**Sends automatically to all three roles** (D62, D65); the tutor reads but does not gate it. The
-AI paragraph is written **in the tutor's chosen language** (D66).
+**Sends automatically to all three roles** (AV-62, AV-65); the tutor reads but does not gate it. The
+AI paragraph is written **in the tutor's chosen language** (AV-66).
 
-**The AI paragraph comes from the merged narrative writer, not a second generator** (D99, 8.3).
+**The AI paragraph comes from the merged narrative writer, not a second generator** (AV-99, 8.3).
 Build the fact computation here; take the prose from there. Do not build a parallel writer —
 that is precisely the duplication 8.3 exists to prevent.
 
-**Timing:** on the account's chosen day (D88, D89), fired on **the tutor's clock** — one batch,
-one moment, regardless of what time zone a student or parent has set for themselves (D90). This
+**Timing:** on the account's chosen day (AV-88, AV-89), fired on **the tutor's clock** — one batch,
+one moment, regardless of what time zone a student or parent has set for themselves (AV-90). This
 is the one place a recipient's own time zone is deliberately ignored; say so in a comment
 (`CODE-12`) beside the scheduling code, which otherwise converts per viewer (E11).
 
@@ -1194,7 +1202,7 @@ parent, with the marking-path defences applying only at the first hop. This is n
 live path — `services/reports.py` does not consume feedback text — and this criterion exists to
 keep it that way.
 
-**8.3 — Merge the narrative and the weekly send into one writer** *(D98, D99, E24)*
+**8.3 — Merge the narrative and the weekly send into one writer** *(AV-98, AV-99, E24)*
 
 **The narrative is kept.** Revision 2 deleted it; that is reversed. It is 814 backend lines plus
 four screens, built three weeks ago as PRs 13–15, and it does something the weekly send does not:
@@ -1205,7 +1213,7 @@ Left alone they overlap badly. The parent narrative already refreshes weekly on 
 parent's weekly report is also weekly — so a parent would receive two AI-written texts about
 their child on the same schedule, from two systems that can disagree, and you would pay for both.
 
-**One writer produces both** (D99). Keep `services/narrative.py`'s existing shape (E24): a
+**One writer produces both** (AV-99). Keep `services/narrative.py`'s existing shape (E24): a
 background job writes the text, surfaces read the stored row. The weekly send reads those same
 rows rather than generating its own.
 
@@ -1221,17 +1229,17 @@ rows rather than generating its own.
 - One voice, one AI cost per student per cycle, and no way for the screen and the email to
   contradict each other about the same child.
 
-**8.4 — Home surfaces** *(D51)* — Each role's home shows their latest weekly send.
+**8.4 — Home surfaces** *(AV-51)* — Each role's home shows their latest weekly send.
 
-**8.5 — Transactional triggers** *(D54, D61)* — Homework set · homework due · marked work ready ·
+**8.5 — Transactional triggers** *(AV-54, AV-61)* — Homework set · homework due · marked work ready ·
 account and invite emails. **Students and parents join by invite link sent to an address the
-tutor supplies** (D61). Invites stay bounded — 14-day expiry, parent-link codes single-use
+tutor supplies** (AV-61). Invites stay bounded — 14-day expiry, parent-link codes single-use
 because one exposes a named child's entire record; mint with `build_invite()`, validate with
 `check_usable()` (`SEC-12`, `SEC-13`). **Anything invalidating a credential bumps
 `users.token_version`** (`SEC-1`, `ADR-0008`) — a password-reset flow must, or an old refresh
 token keeps minting access tokens for 30 days. Scheduling reads the recipient's time zone (0.7).
 
-**Security acceptance criteria — threat review F5** *(D96)*
+**Security acceptance criteria — threat review F5** *(AV-96)*
 
 **The tutor confirms a parent's address before the first send.** The address is typed by hand,
 and every weekly send afterwards carries a named child's readiness, predicted grade and
@@ -1244,12 +1252,12 @@ valid-but-wrong address never bounces.
 - No PII in the invite URL itself; keep `SEC-12`'s bounds — 14-day expiry, parent-link codes
   single-use, because **one exposes a named child's entire record** (`SEC-13`).
 
-**8.6 — Tutor reports** *(D53, D112)* — Chapter and topic breakdown · mistake patterns · plan
+**8.6 — Tutor reports** *(AV-53, AV-112)* — Chapter and topic breakdown · mistake patterns · plan
 progress and countdown · attendance. On demand **and** weekly. **This is the tutor's report**;
 the parent's is a different document produced by 8.2 — neither is built by filtering the other.
-Reports get their own top-level tab (D112).
+Reports get their own top-level tab (AV-112).
 
-**8.7 — Web push notifications** *(D120)* — Notification infrastructure does not exist today.
+**8.7 — Web push notifications** *(AV-120)* — Notification infrastructure does not exist today.
 Build it: service worker, subscription storage per user, and the send path, wired to the same
 provider module as email (E9).
 
@@ -1270,24 +1278,24 @@ phone but the weekly summary by email must be able to say so.
 | **9.1** | Blocking onboarding flow | L | → |
 | **9.2** | Tutor home rework | M | ∥ |
 
-**9.1 — Onboarding** *(D56, D60, D66, D67, D74)* — Step-by-step, in this order:
+**9.1 — Onboarding** *(AV-56, AV-60, AV-66, AV-67, AV-74)* — Step-by-step, in this order:
 
-1. Language, time zone, and weekly send day — the last pre-filled with a default (D66, D67, D89)
-2. Subject — exam board and level (D6, D7)
-3. Syllabus upload, then review the chapter/topic tree (D9, D10)
-4. Teaching guidance upload (D10)
-5. Grade boundaries (D11)
-6. Per-subject marking rules — **offered, skippable** (D75, D87)
-7. Mistake categories — accept, edit or replace the suggested list (D39)
-8. Weak-topic threshold (D74)
-9. Class — one subject (D72)
-10. Exam date, lessons per week and length, past-paper start, holidays (D15)
-11. **Accept the teaching plan** — the finish line (D60)
+1. Language, time zone, and weekly send day — the last pre-filled with a default (AV-66, AV-67, AV-89)
+2. Subject — exam board and level (AV-6, AV-7)
+3. Syllabus upload, then review the chapter/topic tree (AV-9, AV-10)
+4. Teaching guidance upload (AV-10)
+5. Grade boundaries (AV-11)
+6. Per-subject marking rules — **offered, skippable** (AV-75, AV-87)
+7. Mistake categories — accept, edit or replace the suggested list (AV-39)
+8. Weak-topic threshold (AV-74)
+9. Class — one subject (AV-72)
+10. Exam date, lessons per week and length, past-paper start, holidays (AV-15)
+11. **Accept the teaching plan** — the finish line (AV-60)
 
-**Adding students is optional and sits outside the flow** (D60). Server-side state, resumable,
+**Adding students is optional and sits outside the flow** (AV-60). Server-side state, resumable,
 **not skippable** up to step 11. A frontend gate is never an authorization control (`SEC-10`).
 
-**9.2 — Tutor home** *(D47, D48, D101)* — **This is a rework, not a build.** The aggregate already
+**9.2 — Tutor home** *(AV-47, AV-48, AV-101)* — **This is a rework, not a build.** The aggregate already
 exists: `services/today.py` (322 lines) and `api/today.py`, shipped as PRs 17–18, with
 exceptions-first ordering in `_STATUS_ORDER`. Extend it; do not replace it.
 
@@ -1295,7 +1303,7 @@ Compact overview: work awaiting review · plan progress per class · upload prom
 across classes. Plus **one piece of good news: the marking the AI handled for them.** Nothing
 else is framed as good news — the rest lives in the class and module screens.
 
-**The good-news figure, precisely** (D101): the **count is real** and traceable to the rows that
+**The good-news figure, precisely** (AV-101): the **count is real** and traceable to the rows that
 produced it — auto-finalized marks in the period. The **time is an estimate and is labelled as
 one**: *"47 questions marked — roughly 3 hours of marking."* `PROD-1` requires every number to
 trace to what produced it, and an unlabelled time saving does not. This is the most-viewed screen
@@ -1313,17 +1321,17 @@ estimate as a measurement.**
 | **10.3** | Owner internal usage tool | M | after 10.1 |
 | **10.4** | Account deletion and data export | L | ∥ |
 
-**10.1 / 10.2** *(D2)* — Roll up per account: AI spend (`ai_usage_events` already meters every
+**10.1 / 10.2** *(AV-2)* — Roll up per account: AI spend (`ai_usage_events` already meters every
 call), students and classes, storage used, activity. **Never invent a price** —
 `AI_MODEL_PRICING` is empty by default, and a model with no entry records `cost_usd = NULL` and
 reports as `unpriced_call_count`, never `$0` (`AI-17`).
 
-**10.3 — Owner tool** *(D3, D71, E12)* — **A separate internal tool, not a route in the API.**
+**10.3 — Owner tool** *(AV-3, AV-71, E12)* — **A separate internal tool, not a route in the API.**
 Keeping it outside the FastAPI app is the point: `PROD-4`/`SEC-7` stays true without exception
 inside the product. **Do not build it by relaxing an existing scoping helper.** Record the
 boundary in an ADR.
 
-**10.4 — Deletion and export** *(D70)* — Deletion covers every table plus object storage, in
+**10.4 — Deletion and export** *(AV-70)* — Deletion covers every table plus object storage, in
 FK-safe order, **verified by a test asserting nothing survives** — not by inspection. Export
 produces a readable archive of students, marks, reports and readiness history.
 
@@ -1342,7 +1350,7 @@ from a single stolen session — and refresh tokens live 30 days.
 
 ---
 
-### Phase 11 — Scale hardening *(D82 — "the rest")*
+### Phase 11 — Scale hardening *(AV-82 — "the rest")*
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
@@ -1372,7 +1380,7 @@ or full AI prompts and responses. Metrics: API latency and error rate, queue dep
 processing time and failure rate, worker utilisation, AI call latency and failures, storage
 failures, connection-pool saturation, rate-limit events. **Nothing currently watches permanently
 failed jobs** — `jobs.py:229` is the only record that a student's work stopped moving. That gets
-an alert. The Redis fallback path from 1.4 alarms here too (D97).
+an alert. The Redis fallback path from 1.4 alarms here too (AV-97).
 
 **Security acceptance criteria — threat review F10**
 
@@ -1386,7 +1394,7 @@ personal-data store once aggregated, even with content correctly excluded.
   trade-off that cannot be made sensibly before there is traffic. **Raise it; do not pick a
   number.**
 
-**11.6 — Load test at 1,000 students** *(D84, D86)* — **The last task in the plan**, run against
+**11.6 — Load test at 1,000 students** *(AV-84, AV-86)* — **The last task in the plan**, run against
 the finished product so the numbers reflect what you will actually operate. One realistic run.
 
 **Sized `L`, not `M`.** Most of the work is not the run — it is generating 1,000 students with a
@@ -1397,12 +1405,12 @@ Measure p50/p95/p99 latency, error rate, database utilisation, queue latency, wo
 **Identify the first bottleneck and fix that** — do not pre-optimise everything. The 5,000 and
 10,000 tiers are deferred until real traffic justifies them.
 
-> **11.2 is the gate on scaling out (D85).** Until the concurrency audit is complete, the
+> **11.2 is the gate on scaling out (AV-85).** Until the concurrency audit is complete, the
 > deployment stays on one instance regardless of what Phase 1 made possible.
 
 ---
 
-### Phase 12 — The mobile app *(D122)*
+### Phase 12 — The mobile app *(AV-122)*
 
 **The last phase, after everything else is finished.** It is built against a settled product, not
 a moving one.
@@ -1415,7 +1423,7 @@ a moving one.
 | **12.4** | Parent view | S | after 12.1 |
 | **12.5** | Store submission and release process | M | last |
 
-**Scope is deliberately narrow** (D122): **notifications and quick actions only — not a second
+**Scope is deliberately narrow** (AV-122): **notifications and quick actions only — not a second
 copy of the product.** Anything not on the list below opens the web app in a browser. Hold this
 line: the moment the app grows a screen the web app also has, every future change has to be made
 twice, forever, and this phase stops being a phase.
@@ -1426,7 +1434,7 @@ twice, forever, and this phase stops being a phase.
   where that happens · see what is due.
 - **Parent**: the weekly send, delivered to their phone rather than their inbox.
 
-**iOS and Android from one shared codebase** (D122). Reuse the existing API — the app is another
+**iOS and Android from one shared codebase** (AV-122). Reuse the existing API — the app is another
 client of the same endpoints, and `api/client.ts`'s contract (bearer token, one transparent
 refresh on `401`) is the model to follow. **The refresh token still never goes anywhere
 script-readable** (`SEC-2`); on a phone that means the platform keychain, not local storage.
@@ -1483,26 +1491,26 @@ generates a report — on a two-instance deployment, without an engineer touchin
 
 ## 9. Out of scope
 
-- **WhatsApp integration** (D55) — future scope.
-- **Payment and plan limits** (D2) — usage tracking only.
-- **Multi-tutor accounts** (D1) — solo tutor; the tenant model supports more later (E14).
-- **Generated or auto-assigned practice** (D42) — weak topics are shown, never acted on.
+- **WhatsApp integration** (AV-55) — future scope.
+- **Payment and plan limits** (AV-2) — usage tracking only.
+- **Multi-tutor accounts** (AV-1) — solo tutor; the tenant model supports more later (E14).
+- **Generated or auto-assigned practice** (AV-42) — weak topics are shown, never acted on.
 - **The GitHub repository rename** (E10) — manual, for the owner.
-- **A translated UI** (D66) — only AI-written prose follows the tutor's language.
-- **Monthly intelligence** — weekly only (D49).
-- **Multi-subject classes** (D72).
-- **Load testing at 5,000 and 10,000 students** (D84) — deferred until traffic justifies it.
+- **A translated UI** (AV-66) — only AI-written prose follows the tutor's language.
+- **Monthly intelligence** — weekly only (AV-49).
+- **Multi-subject classes** (AV-72).
+- **Load testing at 5,000 and 10,000 students** (AV-84) — deferred until traffic justifies it.
 - **Redis for anything but rate limiting** (E18).
 
 ## 10. Known risks carried
 
 | Risk | State after this plan |
 |---|---|
-| `RISK-1` — API pinned to one instance | **Capability delivered in Phase 1; risk closed at 11.2.** Phase 1 removes the three named causes — the uploads disk, the in-process worker, the in-process rate limiter — but the deployment deliberately stays single-instance until the concurrency audit completes (D85). Until then the risk is *unrealised*, not gone. |
-| `RISK-5` — two readiness engines disagree | **Closed.** D78 deletes v1 outright rather than keeping it written. |
+| `RISK-1` — API pinned to one instance | **Capability delivered in Phase 1; risk closed at 11.2.** Phase 1 removes the three named causes — the uploads disk, the in-process worker, the in-process rate limiter — but the deployment deliberately stays single-instance until the concurrency audit completes (AV-85). Until then the risk is *unrealised*, not gone. |
+| `RISK-5` — two readiness engines disagree | **Closed.** AV-78 deletes v1 outright rather than keeping it written. |
 | `RISK-6` — frontend/backend contract drift | **Closed.** Task 0.8 generates TypeScript types from the backend's own schema. |
 | No Python type checker | **Closed.** Task 0.8 introduces one at service boundaries. |
 | `RISK-3` — a migration correct on SQLite, wrong on Postgres | **Unchanged and more exposed.** This plan adds many migrations and, in 11.3, many constraints. The suite still never runs a migration; CI's Postgres job remains the only check. |
-| **Prompt injection reaching an auto-finalized mark** (threat review F1) | **Mitigated, not closed, by decision.** D93's deterministic scan is the only control that does not depend on model judgement. A second AI check, a mark-value cap and calibration metrics were offered and declined — so there is **no detection layer**. Accepted position; revisit if remark volume or tutor overrides ever suggest it is being exploited. |
+| **Prompt injection reaching an auto-finalized mark** (threat review F1) | **Mitigated, not closed, by decision.** AV-93's deterministic scan is the only control that does not depend on model judgement. A second AI check, a mark-value cap and calibration metrics were offered and declined — so there is **no detection layer**. Accepted position; revisit if remark volume or tutor overrides ever suggest it is being exploited. |
 | **No AI evaluation harness** | **Open and growing.** This plan bumps five prompt versions — `SYLLABUS`, `MARKING` twice, mistake tagging, plan weighting, weekly paragraph — with nothing measuring whether output got better or worse. §09 already records the absence of calibration on the trust rule as a known gap; this plan widens the surface without addressing it. |
-| **Children's-data regulatory posture** | **Not addressed anywhere.** The data subjects are minors. Task 10.4 (deletion and export) and D96 (confirmed recipient) are the start of that work, not the end. Lawful basis, retention and consent have no owner in this plan. |
+| **Children's-data regulatory posture** | **Not addressed anywhere.** The data subjects are minors. Task 10.4 (deletion and export) and AV-96 (confirmed recipient) are the start of that work, not the end. Lawful basis, retention and consent have no owner in this plan. |

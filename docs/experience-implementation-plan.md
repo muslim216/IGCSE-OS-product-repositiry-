@@ -1,5 +1,27 @@
 # MANARA — Experience Design Implementation Plan
 
+> ## ⚠️ Delivered. Do not execute from this document.
+>
+> **PRs 1–29 of the 30 in this plan have shipped.** It is kept as the record of *why the current
+> code looks the way it does* — which is genuinely useful when you are reading a surface and
+> wondering what decision produced it. It is no longer a to-do list, and nobody should pick a PR
+> out of it and build it.
+>
+> **`docs/avora-new-state-august-16.md` supersedes this document wherever the two disagree.**
+> Known disagreements: the tutor navigation (four items here, ten there) · homework folded into
+> Review here, un-folded there · **`D6` gives Improvement its own destination in the student nav;
+> the new plan deletes Improvement entirely** · `D2`'s narrative behaviour, which the new plan
+> merges with a weekly send.
+>
+> **The decisions in this document still bind except where the new plan supersedes them.** `D3`
+> in particular — *a student's name may appear on the tutor's home only in an improvement, never
+> in a decline* — is a live constraint the new plan is silent on, which means it still holds.
+>
+> **Decision numbers are not shared between the two documents.** `D1`–`D6` here mean entirely
+> different things from `D1`–`D6` as they were originally written in the new plan; that plan's
+> decisions have since been renumbered `AV-1`–`AV-122` precisely so a citation can never be
+> followed into the wrong document. **A bare `D`-number always means this document.**
+
 > **This is the delivery plan for `docs/experience-design.md`.** That document says what the
 > tutor, student and parent should see. This one says how the code gets there: every state each
 > surface can be in, the exact words it says in each, the pull request that builds it, the test
