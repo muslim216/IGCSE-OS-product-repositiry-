@@ -15,6 +15,15 @@ product. Written to be executed by AI agents (single-task and parallel) and huma
 > (**0.9**, the token-revocation regression test). §5b is the map proving none was dropped.
 > Nothing else about the plan's shape changed — the pre-work turned out to be decisions and
 > acceptance criteria, not a phase of code.
+>
+> **Revision 4** — incorporates an engineering audit of revision 3, which found the plan was
+> **specifying work that already exists** and **deleting work merged weeks ago** without saying
+> so. Changes: a new **task 0.0** auditing what is already built, before anything else · a new
+> **Phase D**, a full design pass running parallel to Phase 1 · **the narrative is kept**
+> (supersedes `D52`) and merged with the weekly send into one writer · six tasks corrected for
+> code that already exists · explicit obligations for the demo seed, the existing test suite,
+> database backups before destructive steps, constitution updates and ADRs · a task to fill in
+> the AI price table · `Classified` finally defined.
 
 ---
 
@@ -78,6 +87,34 @@ within their phase. Tasks marked `→` are serial. Never run two tasks that list
   (`BE-3`).
 
 **Effort sizes:** `S` ≈ one focused session · `M` ≈ one to two days · `L` ≈ multi-day.
+
+**Roughly 65 tasks across 13 phases, of which 11 are `L`.** That is the honest shape: this is a
+programme, not a sprint. **No completion date is claimed** (D5) — sequencing is by dependency and
+risk. The longest chain is Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 8 →
+Phase 9 → Phase 10 → Phase 11, with Phase D and Phase 6 running alongside. Anyone needing a date
+should estimate that chain rather than the total.
+
+### Obligations that apply to every task
+
+These are not optional and they are not owned by a single phase. An earlier revision left them
+implicit, which meant nobody owned them.
+
+- **Take a database snapshot before any destructive step** (E25) — `2.1`, `2.2` and `5.3` at
+  minimum. "No users yet" makes destruction safe, not reversible; reverting a commit does not
+  restore a dropped table. The task states how to restore it.
+- **Update `seed/demo.py` in the same phase that changes the data model** (E26). Every phase's
+  verification runs against a seeded demo account, and the seed only knows the old shape.
+- **Fix the tests you break — never delete the assertion** (E26). Deleting routes breaks
+  `test_authorization.py`; dropping `consistency` breaks the readiness tests; deleting v1 makes
+  `test_readiness_v2_shadow.py` and `test_readiness_cutover.py` meaningless. A failing test is
+  either a real regression or an out-of-date check, and **removing the check to get green
+  silently retires a control**.
+- **Update the constitution document your change describes, in the same PR** (`GOV-1`,
+  `CODE-21`). This plan touches §01, §04, §05, §06, §07, §08, §09, §11, §12 and §14. Budget for
+  it — it is roughly a third again on top of the code.
+- **Write an ADR for a structural decision.** At minimum this plan owes: deleting readiness v1 ·
+  the `Chapter` model · the teaching plan's AI-advises/scheduler-decides split · object storage
+  and signed-URL policy · Redis · the separate owner tool · marking-context precedence.
 
 ---
 
@@ -190,7 +227,7 @@ stop and raise it rather than choosing.
 | D49 | **A weekly send for tutors, students and parents.** |
 | D50 | Composed as **fixed facts plus one AI paragraph**. Every figure verifiable. |
 | D51 | It appears on **each role's home page** and is emailed. |
-| D52 | **It replaces the existing narrative system**, which is removed. |
+| ~~D52~~ | ~~It replaces the existing narrative system, which is removed.~~ **Superseded by D98.** |
 | D53 | **Tutor reports: on demand and weekly.** Content: chapter and topic breakdown · mistake patterns · plan progress and countdown · attendance. |
 | D54 | **Email triggers**: weekly send · homework set · homework due · marked work ready · account and invite emails. |
 | D55 | **WhatsApp is future scope**, not in this plan. |
@@ -239,6 +276,18 @@ stop and raise it rather than choosing.
 | **D96** | **The tutor confirms a parent's email address before the first send.** |
 | **D97** | **If Redis is unavailable, each API instance falls back to its own in-process counter and alarms.** Logins are never blocked wholesale, and never left uncounted. |
 
+### Reversals and design (settled 19 Aug, after the engineering audit)
+
+| # | Decision |
+|---|---|
+| **D98** | **The narrative is kept.** It is not deleted. Supersedes `D52`. It is the always-on-screen paragraph that updates as marks land; the weekly send is a scheduled artifact. They are different things. |
+| **D99** | **One writer produces both.** A single generator writes the text that appears on screen *and* the text in the weekly send. One voice, one AI cost, and the two can never contradict each other about the same student. |
+| **D100** | **Peer improvement ranking and student AI chat are still deleted** (`D57` stands, with the cost seen and accepted). |
+| **D101** | The tutor home shows the marking count **and** a time estimate, **explicitly labelled as an estimate** — "47 questions marked — roughly 3 hours of marking". |
+| **D102** | **Every screen is redesigned — existing ones as well as new.** The product should read as one thing after this plan, not as new screens bolted onto old. |
+| **D103** | **The Avora visual identity is kept exactly as built** — parchment/espresso/terracotta, Lora and Inter, the motifs. The redesign is **layout and structure only, never style.** |
+| **D104** | **Design comes first as its own pass**, then each phase builds its own screens against that spec. No phase waits on design; nothing is built without it. |
+
 > **Deliberate asymmetry — do not "fix" it.** D18: a *behind-schedule* re-plan waits for tutor
 > acceptance. D68: a *syllabus edit* reflows automatically. Both stand as written.
 
@@ -275,6 +324,10 @@ Mine, not the product manager's. Flagged so they can be vetoed.
 | **E20** | The pre-marking scan (D93) is a **pure function taking submission text and returning a boolean plus the matched reason**, called before the AI request is built. | `BE-4`/`CODE-3` — decision math is pure and unit-testable without a session or a model. It is also the only control in the marking path that does not depend on model judgement, so it must be trivially auditable. |
 | **E21** | File serving splits by sensitivity (D95): student submissions proxy through the API after the existing ownership check; tutor material mints a short-lived signed URL. | The volumes point opposite ways — tutor PDFs are the megabytes and carry no personal data; student photos are small and are a named minor's work. Route by what is actually at risk, not by one uniform rule. |
 | **E22** | Export and account deletion (10.4) require **re-authentication immediately before the action**, write an audit row, are rate limited, and deliver out of band to the account's verified address. | Both are whole-tenant primitives reachable from a single stolen session. Standard practice for a bulk-egress endpoint; no product decision needed. |
+| **E23** | **Task 0.0 audits what already exists** and annotates every downstream task before any of them runs. | Revision 3 specified building timezones, a grade-boundary writer, cold-start handling and a tutor-home aggregate — **all of which already exist and shipped**. An agent reading a task in isolation has no way to know. This is the cheapest possible fix and it must run first. |
+| **E24** | The single narrative writer (D99) keeps the **existing precomputed-and-stored shape**: a background job writes the text, surfaces read the stored row. The weekly send reads the same rows. | `services/narrative.py` already implements exactly this, for exactly the stated reason — *no primary surface waits on a model to render its primary content*. Merging the weekly send into it is far less work than building a second generator, and the sweep-not-a-chain reasoning in that file must survive (`CODE-13`). |
+| **E25** | **A database snapshot is taken immediately before every destructive step**, named in the task, and the task states how to restore it. | "No users yet" makes destruction safe, not reversible. `5.3` drops tables and `2.1`/`2.2` rebuild them; reverting a commit does not bring a dropped table back. |
+| **E26** | Every phase that changes the data model **updates `seed/demo.py` in the same phase**, and every task that breaks existing tests **fixes them rather than deleting the assertion**. | The verification table asks every phase to prove itself against a seeded demo account; the seed only knows the old shape. And an agent facing forty red tests will otherwise "fix" one by removing the check, which silently retires a control. |
 
 ---
 
@@ -347,12 +400,14 @@ raise it rather than pick a number.**
 ## 6. Dependency map
 
 ```
-Phase 0   Truth and hygiene
+Phase 0   Truth and hygiene          ← 0.0 (audit what exists) runs FIRST
                     │   (serial — 0.6's rename and 1.2's object storage
                     │    both rewrite services/storage.py)
-                    ▼
-Phase 1   Scale foundation
-                    │
+        ┌───────────┴───────────┐
+        ▼                       ▼
+Phase 1  Scale foundation   Phase D  The design pass
+        │    (backend only)      │   (screens only — no collision)
+        └───────────┬───────────┘
                     ▼
 Phase 2   Subjects, chapters, syllabus
                     │
@@ -390,6 +445,7 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
+| **0.0** | **Audit what already exists** — run before anything | S | → **first** |
 | **0.1** | Shared `SETTLED_STATUSES` + fix the v2 gatherers | S | → |
 | **0.2** | Recompute runner and full backfill | S | after 0.1 |
 | **0.3** | Delete student AI chat | S | ∥ |
@@ -399,6 +455,40 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 | **0.7** | Time zones | S | ∥ |
 | **0.8** | Python type checker + generated API types | M | ∥ |
 | **0.9** | Token-revocation regression test | S | ∥ |
+| **0.10** | Fill in the AI price table | S | ∥ |
+
+**0.0 — Audit what already exists** *(E23)* — **Nothing else in this plan runs until this is
+done.**
+
+Revision 3 specified building four things that are already built and shipped. An agent handed a
+task in isolation cannot know that, and will happily build a second one.
+
+Walk every task in this document against the codebase and annotate it with **what already
+exists**, in the task itself — not in a separate report nobody reads. Known already-shipped, and
+these are only the ones found so far:
+
+| Plan says | Reality |
+|---|---|
+| `0.7` add time zones | **Built.** `services/timezones.py`, `PUT /organization/timezone`, `TimezoneSetting.tsx`. Organization-level. Only the student/parent override (D67) is new. |
+| `2.4` add a grade-boundary writer | **Built.** `api/grade_boundaries.py`, 107 lines. Check the frontend editor separately. |
+| `5.5` cold start | **Built and tested** on the parent and student screens. |
+| `9.2` tutor home aggregate | **Built.** `services/today.py` (322 lines) + `api/today.py`. `9.2` is a rework, not a build. |
+| `7.x` attendance · `9.1` onboarding | **Genuinely absent.** Confirmed. |
+
+Also reconcile against `docs/experience-implementation-plan.md`, whose PRs 1–29 have landed.
+**Where this plan supersedes a decision made there, say so in both documents** — the repo
+currently holds two delivery plans that contradict each other and nothing states which wins.
+
+**0.10 — Fill in the AI price table** *(engineering audit #10)*
+
+`AI_MODEL_PRICING` is empty by default, so every call records `cost_usd = NULL` and reports as
+`unpriced_call_count` — never `$0`, which is correct behaviour (`AI-17`) and completely useless
+for pricing. Populate it with the real per-token prices for every model actually routed to.
+
+This plan adds a weekly paragraph per person, mistake tagging on every wrong answer, plan
+drafting and reflows, and a materially larger marking prompt. **Without this task, D2's usage
+tracking reports call counts and no money**, and there is no way to know whether a tutor costs
+more to serve than they pay.
 
 **0.1 — Shared `SETTLED_STATUSES` + fix the v2 gatherers** *(D29, E2, E3)*
 
@@ -417,10 +507,18 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 `python -m seed.recompute_readiness`. Walks every (student, subject) with evidence and calls
 `enqueue_readiness_v2_debounced` with increasing `run_after`. Document in runbook §14.
 
-**0.3 / 0.4 — Deletions** *(D57)* — Chat is student-gated on every route (`api/chat.py`), so
-removal is clean. Remove routes, services, models, frontend screens, API wrappers, tests, and a
-migration dropping the tables. Same for `api/improvement.py` / `services/improvement.py`. Check
-`App.tsx` for orphaned routes and `main.py` for orphaned mounts and handlers.
+**0.3 / 0.4 — Deletions** *(D57, D100)* — **Student AI chat** (`api/chat.py` 198 + `models/chat.py`
+44 + `TutorChatPage.tsx`) is student-gated on every route, so removal is clean. **Peer improvement
+ranking** (`services/improvement.py` 349 + `api/improvement.py` 34 + `ImprovementPage.tsx`,
+`api/improvement.ts`, `lib/student.ts`, a nav entry and three test files).
+
+Remove routes, services, models, frontend screens, API wrappers, tests, and a migration dropping
+the tables. Check `App.tsx` for orphaned routes and `main.py` for orphaned mounts and handlers.
+
+**The narrative is NOT deleted** (D98). Revision 2 had it removed; that is reversed. See 8.2/8.3.
+
+Both deletions were confirmed with their line counts in front of the product manager, including
+that the last code commit before this plan was a fix to `rank_of`. They are deliberate.
 
 **0.5 — Hide Classroom and knowledge base** *(D58)* — Remove routes and frontend surfaces;
 leave services, models and tables. Comment each entry point so it is not read as dead code.
@@ -430,9 +528,17 @@ in §08, and Phase 1 depends on it.
 **0.6 — Rename to Avora** *(D4, E10)* — User-facing strings, `docs/`, docstrings, `README.md`,
 `CLAUDE.md`, package names, demo seed. One PR. **The GitHub repo rename is manual** — flag it.
 
-**0.7 — Time zones** *(D67, E11)* — `time_zone` on `User`, defaulted from the tutor. Timestamps
-stay UTC; convert at render and at the scheduling boundary. Lands early because Phase 6 (plan
-weeks), Phase 7 (lesson dates) and Phase 8 (the weekly send) all need it.
+**0.7 — Time zones** *(D67, E11)* — **Mostly already built.** `services/timezones.py` with
+`normalize_timezone`, `PUT /organization/timezone`, and `TimezoneSetting.tsx` all exist and ship
+today, at organization level.
+
+**What is actually new:** a per-user override so students and parents can set their own (D67),
+defaulting to the organization's. Timestamps stay UTC; convert at render and at the scheduling
+boundary. **Read `services/timezones.py` before writing anything** — the normalisation and
+validation are done.
+
+Lands early because Phase 6 (plan weeks), Phase 7 (lesson dates) and Phase 8 (the weekly send)
+all need it. Note that the weekly send deliberately ignores the per-user value (D90).
 
 **0.8 — Type safety** *(D79)* — Add a Python type checker (mypy or pyright) wired into CI,
 enforced at service boundaries first rather than repo-wide on day one; there is **no Python type
@@ -451,6 +557,52 @@ exactly where nobody is thinking about authentication.
 Add a comment at any user-row cache boundary stating the constraint (`CODE-12`). If revocation
 silently stops working, logout stops logging out and a tutor resetting a student's password
 stops locking them out — the case `SEC-1` and `ADR-0008` exist for.
+
+---
+
+### Phase D — The design pass *(D102, D103, D104)*
+
+**Runs parallel to Phase 1 and must complete before Phase 2 builds anything with a screen.**
+Phase 1 is entirely backend, so the two do not collide.
+
+Revision 3 was roughly 80% backend. It described databases and jobs in detail and gave the
+screens a clause each — for a product whose entire value is what the tutor sees. This phase
+closes that, and every subsequent phase builds its own screens against what this produces.
+
+| ID | Task | Size | Mode |
+|---|---|---|---|
+| **D.1** | Screen inventory and current-state capture | S | → |
+| **D.2** | Redesign the existing screens | L | after D.1 |
+| **D.3** | Design the new screens | L | after D.1 |
+| **D.4** | States, empty states and copy | M | after D.2, D.3 |
+
+**Scope, precisely.** **Every screen is redesigned — existing as well as new** (D102). The
+product must read as one thing afterwards, not as new screens bolted onto old ones.
+
+**The visual identity does not change** (D103). Parchment, espresso and terracotta; Lora for
+display and Inter for UI; the motifs; the semantic token classes. `docs/avora-visual-identity.md`
+is binding and `frontend/src/index.css` holds the tokens. **This pass changes layout, structure,
+hierarchy and what appears on each screen — never palette, type or style.** Use the semantic
+token classes (`bg-surface`, `text-ink-700`, `border-line`), never stock Tailwind names
+(`UX-2`), and never wrap the retarget block in an `@layer` (`UX-1`).
+
+**D.1 — Inventory** — Every screen that exists today, and every screen the decision register
+implies. The new ones, at minimum: onboarding (11 steps) · the teaching-plan schedule with
+editing, acceptance and re-plan · chapter tree editing · the mistake-categories editor · the
+mistake revision surface · the custom-criteria builder · the weak-threshold setting · attendance
+capture · three weekly-send surfaces · the marking-rules editor · typed-answer input · the parent
+report · the tutor usage view.
+
+**D.2 / D.3 — Design** — Output goes into `docs/experience-design.md`, extending the document
+that already governs this product rather than starting a competing one. For each screen: what it
+shows, what it does when there is no data, what a tutor/student/parent can do from it, and how it
+connects to the screens either side.
+
+**D.4 — States and copy** — `docs/experience-implementation-plan.md` already demonstrates the
+standard: every state a surface can be in, and the exact words it says in each. Match it.
+**Absent data is shown as absent** — "not enough data yet", never `0` or an empty bar
+(`PROD-2`, `UX-19`). **Self-declared data is labelled as self-declared** (`PROD-8`, `UX-20`), and
+so is anything a tutor hand-scored (D34).
 
 ---
 
@@ -596,8 +748,11 @@ chapter-first: `{..., chapters: [{code, title, topics: [...]}]}`. Update `SYLLAB
 `services/prompts.py` and **bump its version** (`AI-6`, `AI-7`). Update the review UI to edit
 two levels. Drop `grade_boundaries` from the draft — 2.4 makes them tutor-entered.
 
-**2.4 — Grade boundaries** *(D11)* — Make the org-scoped `grade_boundaries` table the **only**
-source, written by a tutor-facing editor; remove the read of `Subject.grade_boundaries`.
+**2.4 — Grade boundaries** *(D11)* — **The writer already exists**: `api/grade_boundaries.py`,
+107 lines, shipped as PR 26. Check whether a frontend editor exists before building one (0.0).
+
+Make the org-scoped `grade_boundaries` table the **only** source; remove the read of
+`Subject.grade_boundaries`.
 `predict_grade()` maps through tutor-entered boundaries — **no model ever produces a grade**
 (`PROD-6`). No boundaries means no predicted grade, never a fabricated one (`PROD-2`).
 
@@ -618,6 +773,13 @@ Consumed by Phase 3's context assembler.
 | **3.2** | Marking-context assembly and precedence | M | after 3.1 |
 | **3.3** | Typed answers as a submission type | M | ∥ |
 | **3.4** | AI-marked mocks | M | ∥ |
+
+> **What a `Classified` is.** A booklet of past-paper questions compiled by topic, uploaded by a
+> tutor and reused. It is the source homework is created from: the tutor uploads it, the AI
+> extracts the question list, the tutor publishes it as an assignment. Optionally it carries its
+> own mark scheme — which is what makes a mark from it eligible to auto-finalize. The word is
+> the tutoring trade's, not ours. *(This definition was requested by the SWE audit and missed in
+> revision 3.)*
 
 **3.1 — Classified changes** *(D20, D21, D23)* — Add `chapter_id` and `notes` to `Classified`.
 The upload flow moves to "start of chapter", reached from the plan or the chapter list. Homework
@@ -763,9 +925,13 @@ account with subject overrides** (D35) — one precedence rule, one place, teste
 custom score is manual data and is **labelled as tutor-entered wherever shown** (`PROD-1`,
 `PROD-8`, `UX-20`), reports and the parent view included.
 
-**5.5 — Cold start** *(D36)* — A score appears from the first marked piece, carrying evidence
-count and confidence (already computed by `_confidence_from_count`). "Not enough data yet" still
-applies to a factor with *no* evidence (`PROD-2`, `UX-19`).
+**5.5 — Cold start** *(D36)* — **Already built and tested** on the parent and student screens
+(PRs 21–27). Confirm what exists in 0.0 before writing anything.
+
+What remains is making sure the reworked factor set and chapter rollup keep the same behaviour: a
+score appears from the first marked piece, carrying evidence count and confidence (already
+computed by `_confidence_from_count`), and "not enough data yet" still applies to a factor with
+*no* evidence (`PROD-2`, `UX-19`).
 
 **5.6 — Weak threshold and surfaces** *(D42, D43, D74)* — Tutor-set, captured at onboarding,
 stored per account with the same subject-override precedence as 5.4. **`MASTERY_THRESHOLD = 75.0`
@@ -860,7 +1026,7 @@ Attendance is **not** a readiness factor (D33) — it explains gaps, it does not
 |---|---|---|---|
 | **8.1** | Email infrastructure | M | → |
 | **8.2** | Weekly send generator (three variants) | L | ∥ |
-| **8.3** | Remove the narrative system | S | after 8.2 |
+| **8.3** | Merge the narrative into one writer with the weekly send | M | after 8.2 |
 | **8.4** | Weekly send on each role's home | M | after 8.2 |
 | **8.5** | Transactional email triggers | M | after 8.1 |
 | **8.6** | Tutor reports | M | ∥ |
@@ -885,6 +1051,10 @@ Three variants:
 **Sends automatically to all three roles** (D62, D65); the tutor reads but does not gate it. The
 AI paragraph is written **in the tutor's chosen language** (D66).
 
+**The AI paragraph comes from the merged narrative writer, not a second generator** (D99, 8.3).
+Build the fact computation here; take the prose from there. Do not build a parallel writer —
+that is precisely the duplication 8.3 exists to prevent.
+
 **Timing:** on the account's chosen day (D88, D89), fired on **the tutor's clock** — one batch,
 one moment, regardless of what time zone a student or parent has set for themselves (D90). This
 is the one place a recipient's own time zone is deliberately ignored; say so in a comment
@@ -901,10 +1071,32 @@ parent, with the marking-path defences applying only at the first hop. This is n
 live path — `services/reports.py` does not consume feedback text — and this criterion exists to
 keep it that way.
 
-**8.3 — Remove the narrative system** *(D52)* — Delete `services/narrative.py`,
-`models/narrative.py`, `api/narrative.py`, the sweep registration in `main.py`,
-`narrative_sweep_interval_hours` in `config.py`, and the surfaces reading it. **Only after 8.2
-ships**, so no screen is left blank.
+**8.3 — Merge the narrative and the weekly send into one writer** *(D98, D99, E24)*
+
+**The narrative is kept.** Revision 2 deleted it; that is reversed. It is 814 backend lines plus
+four screens, built three weeks ago as PRs 13–15, and it does something the weekly send does not:
+it is **always on screen and updates whenever new marks land**, where the weekly send is a
+scheduled artifact.
+
+Left alone they overlap badly. The parent narrative already refreshes weekly on a sweep, and the
+parent's weekly report is also weekly — so a parent would receive two AI-written texts about
+their child on the same schedule, from two systems that can disagree, and you would pay for both.
+
+**One writer produces both** (D99). Keep `services/narrative.py`'s existing shape (E24): a
+background job writes the text, surfaces read the stored row. The weekly send reads those same
+rows rather than generating its own.
+
+- **Do not delete** `services/narrative.py`, `models/narrative.py`, `api/narrative.py`, or the
+  surfaces reading them — `ClassNarrative.tsx`, `TodayDashboard.tsx`, `ClassOverview.tsx`,
+  `ParentDashboard.tsx`, `api/narrative.ts`.
+- **The sweep-not-a-chain reasoning in `services/narrative.py` must survive the merge**
+  (`CODE-13`). It explains why the parent refresh re-derives who is due from the table every run
+  rather than each job scheduling the next: the worker marks a job failed at `MAX_ATTEMPTS` with
+  nothing watching it, so a chain would end a parent's updates permanently and silently after one
+  transient outage. That is a hard-won comment — do not delete it with the code around it.
+- `narrative_sweep_interval_hours` in `config.py` stays and governs the merged writer.
+- One voice, one AI cost per student per cycle, and no way for the screen and the email to
+  contradict each other about the same child.
 
 **8.4 — Home surfaces** *(D51)* — Each role's home shows their latest weekly send.
 
@@ -959,11 +1151,20 @@ parent's is a different document produced by 8.2 — neither is built by filteri
 **Adding students is optional and sits outside the flow** (D60). Server-side state, resumable,
 **not skippable** up to step 11. A frontend gate is never an authorization control (`SEC-10`).
 
-**9.2 — Tutor home** *(D47, D48)* — Compact overview: work awaiting review · plan progress per
-class · upload prompts · weak topics across classes. Plus **one piece of good news: the marking
-the AI handled for them** — volume and time saved. Nothing else framed as good news.
-`services/today.py` holds the existing aggregation; `_STATUS_ORDER`'s exceptions-first ordering
-is the pattern to extend.
+**9.2 — Tutor home** *(D47, D48, D101)* — **This is a rework, not a build.** The aggregate already
+exists: `services/today.py` (322 lines) and `api/today.py`, shipped as PRs 17–18, with
+exceptions-first ordering in `_STATUS_ORDER`. Extend it; do not replace it.
+
+Compact overview: work awaiting review · plan progress per class · upload prompts · weak topics
+across classes. Plus **one piece of good news: the marking the AI handled for them.** Nothing
+else is framed as good news — the rest lives in the class and module screens.
+
+**The good-news figure, precisely** (D101): the **count is real** and traceable to the rows that
+produced it — auto-finalized marks in the period. The **time is an estimate and is labelled as
+one**: *"47 questions marked — roughly 3 hours of marking."* `PROD-1` requires every number to
+trace to what produced it, and an unlabelled time saving does not. This is the most-viewed screen
+in the product. **The word "roughly" is load-bearing — do not drop it, and never present the
+estimate as a measurement.**
 
 ---
 
@@ -1014,7 +1215,7 @@ from a single stolen session — and refresh tokens live 30 days.
 | **11.3** | Database constraints for enforceable invariants | M | after 11.2 |
 | **11.4** | Structured logging and metrics | M | ∥ |
 | **11.5** | Dead-letter visibility and alerting | S | ∥ |
-| **11.6** | Load test at 1,000 students | M | last |
+| **11.6** | Load test at 1,000 students | L | last |
 
 **11.2 — Concurrency audit** *(§9)* — With two workers running, every read-modify-write is a
 bug waiting to happen. Use transactions, row locks, unique constraints, atomic updates or
@@ -1051,6 +1252,11 @@ personal-data store once aggregated, even with content correctly excluded.
 
 **11.6 — Load test at 1,000 students** *(D84, D86)* — **The last task in the plan**, run against
 the finished product so the numbers reflect what you will actually operate. One realistic run.
+
+**Sized `L`, not `M`.** Most of the work is not the run — it is generating 1,000 students with a
+year of realistic classes, homework, marks, evidence and readiness. Testing an empty database
+teaches you nothing. Expect the fixture generator to be the bulk of this task, and build it on
+top of `seed/demo.py` rather than beside it.
 Measure p50/p95/p99 latency, error rate, database utilisation, queue latency, worker throughput.
 **Identify the first bottleneck and fix that** — do not pre-optimise everything. The 5,000 and
 10,000 tiers are deferred until real traffic justifies them.
@@ -1082,7 +1288,8 @@ Postgres 16, and the suite never runs a migration. Run the cycle locally against
 
 | Phase | Prove |
 |---|---|
-| 0 | Auto-finalized homework moves Topic Mastery and counts as submitted; the recompute runner regenerates every snapshot; the type checker and generated API types run in CI |
+| 0 | Every task is annotated with what already exists (0.0); auto-finalized homework moves Topic Mastery and counts as submitted; the recompute runner regenerates every snapshot; the type checker and generated API types run in CI; the AI price table returns money, not `unpriced_call_count` |
+| D | Every screen in the product — new and existing — has a spec covering what it shows, its empty state and its copy, in `docs/experience-design.md`. Palette and type unchanged |
 | 1 | Two APIs and two workers run together: upload via #1 and read via #2, one shared rate limit, one marking operation per submission, one email per send, safe worker restart |
 | 2 | A tutor creates a subject from their own syllabus upload and sees chapters containing topics; another tutor gets `404` |
 | 3 | Marking receives mark scheme, chapter notes, subject rules, board and level in that precedence; a typed answer marks as safely as a photographed one; a mock becomes evidence |
@@ -1090,7 +1297,7 @@ Postgres 16, and the suite never runs a migration. Run the cycle locally against
 | 5 | No consistency factor; homework score is accuracy-only; chapters carry scores; **no v1 table exists and every surface agrees** |
 | 6 | Onboarding inputs produce a draft plan; accepting it makes lesson suggestions live; skipped lessons flag behind-schedule; a syllabus edit reflows generated slots and leaves hand-edited ones untouched |
 | 7 | Attendance recorded at lesson confirmation appears for tutor, student, parent and in reports |
-| 8 | Three different weekly artifacts generate and send, on home and by email, in the tutor's language; no narrative rows are read |
+| 8 | Three different weekly artifacts generate and send, on home and by email, in the tutor's language — **all from one writer**, with the on-screen paragraph and the emailed text unable to disagree |
 | 9 | A brand-new tutor completes onboarding in one pass, with no students, and lands on a home page with a plan, prompts and the marking figure |
 | 10 | Usage rolls up per account; the owner tool reads across accounts and **no API route does**; an account deletes completely and exports readably |
 | 11 | Concurrency hotspots hold under racing workers; failed jobs raise an alert; the load test names the first bottleneck |
