@@ -8,6 +8,13 @@ product. Written to be executed by AI agents (single-task and parallel) and huma
 > before mistakes and readiness · **v1 readiness is now deleted outright** (supersedes D28) ·
 > **per-subject marking rules** and a **marking-context precedence rule** added · **type
 > checking and generated API types** added · a new **Phase 11 (Scale hardening)** at the end.
+>
+> **Revision 3** — incorporates the security threat review of revision 2. All ten findings are
+> resolved: seven by **decisions `D91`–`D97`**, and each one written as **security acceptance
+> criteria inside the task that owns it** rather than left in a review document. One new task
+> (**0.9**, the token-revocation regression test). §5b is the map proving none was dropped.
+> Nothing else about the plan's shape changed — the pre-work turned out to be decisions and
+> acceptance criteria, not a phase of code.
 
 ---
 
@@ -220,6 +227,18 @@ stop and raise it rather than choosing.
 | **D89** | That day is **set in onboarding step 1, pre-filled with a default** — a glance, not a decision. |
 | **D90** | The send follows **the tutor's clock**; every recipient gets it at the same moment, whatever time zone they set for themselves. |
 
+### Security (settled from the threat review, 19 Aug)
+
+| # | Decision |
+|---|---|
+| **D91** | **Typed answers auto-finalize like photographed work.** The trust rule does not change by submission channel. |
+| **D92** | **No feedback is shown while a student is still working.** Marks and feedback appear only once they have submitted. |
+| **D93** | **A deterministic text scan runs before the marking call.** A hit routes that one submission to the tutor. No second AI call, no mark-value cap, no calibration metrics — those were considered and declined. |
+| **D94** | **The official mark scheme always wins.** Tutor-authored chapter notes and subject rules are context the AI considers; they can never override a scheme. |
+| **D95** | **Student work is permission-checked on every view.** It is served through the API. Tutor material — mark schemes, classifieds, syllabus, teaching guidance — uses direct signed links. |
+| **D96** | **The tutor confirms a parent's email address before the first send.** |
+| **D97** | **If Redis is unavailable, each API instance falls back to its own in-process counter and alarms.** Logins are never blocked wholesale, and never left uncounted. |
+
 > **Deliberate asymmetry — do not "fix" it.** D18: a *behind-schedule* re-plan waits for tutor
 > acceptance. D68: a *syllabus edit* reflows automatically. Both stand as written.
 
@@ -253,6 +272,9 @@ Mine, not the product manager's. Flagged so they can be vetoed.
 | **E17** | **Invariant: AI-generated mistakes are replaceable on re-run; a tutor-revised mistake is never overwritten.** | Same contract `mark_submission` already honours for marks (`marking.py:272`). Extends `BE-6` to the new job. |
 | **E18** | Redis (D83) is used **only** for rate-limit counters. **Postgres remains the source of truth for all application state.** | Prevents Redis quietly becoming a second database. If a second use appears, it gets its own decision. |
 | **E19** | Worker liveness state moves **into the database** as part of the worker split. | `jobs.py:62-69` keeps `_started_at`, `_last_loop_at`, `_job_started_at`, `_restart_times` as module state read by the health endpoint. The code comment already says this must move. Split the worker without it and the health check silently lies. |
+| **E20** | The pre-marking scan (D93) is a **pure function taking submission text and returning a boolean plus the matched reason**, called before the AI request is built. | `BE-4`/`CODE-3` — decision math is pure and unit-testable without a session or a model. It is also the only control in the marking path that does not depend on model judgement, so it must be trivially auditable. |
+| **E21** | File serving splits by sensitivity (D95): student submissions proxy through the API after the existing ownership check; tutor material mints a short-lived signed URL. | The volumes point opposite ways — tutor PDFs are the megabytes and carry no personal data; student photos are small and are a named minor's work. Route by what is actually at risk, not by one uniform rule. |
+| **E22** | Export and account deletion (10.4) require **re-authentication immediately before the action**, write an audit row, are rate limited, and deliver out of band to the account's verified address. | Both are whole-tenant primitives reachable from a single stolen session. Standard practice for a bulk-egress endpoint; no product decision needed. |
 
 ---
 
@@ -289,6 +311,36 @@ reflow protection (D77) · type safety (D79) · sequencing (D81) · scale timing
 - **The test suite never runs a migration** (SQLite in-memory, schema from `Base.metadata`), so
   every new database constraint is only exercised by CI's Postgres job. `RISK-3` is the failure
   that has already happened here.
+
+### 5b. The threat review, resolved
+
+A security review of revision 2 (19 Aug) raised ten findings. **Every one is resolved by a
+decision above or by acceptance criteria inside the task that owns it.** The table below is the
+map. **A finding that lives only in a review document gets missed by the agent executing the
+task six weeks later — so each remediation is written into its task, and this table exists only
+to prove none was dropped.**
+
+| ID | Finding | Severity | Resolved by | Lives in |
+|---|---|---|---|---|
+| F1 | The auto-finalize gate is self-referential; typed answers remove its friction | Critical | `D91`, `D92`, `D93`, `E20` | Task 3.3 |
+| F2 | Precedence in a prompt is not an access control | High | `D94` | Task 3.2 |
+| F3 | Signed URLs move authorization from request time to mint time | High | `D95`, `E21` | Task 1.2 |
+| F4 | Redis failure mode for the login throttle undecided | High | `D97` | Task 1.4 |
+| F5 | A minor's record emailed automatically to an unverified address | High | `D96` | Task 8.5 |
+| F6 | Export is a one-request full-tenant exfiltration primitive | Medium | `E22` | Task 10.4 |
+| F7 | The worker becomes a high-privilege principal with no user context | Medium | Acceptance criteria | Task 1.3 |
+| F8 | Token revocation is one cache away from breaking | Medium | Regression test | **Task 0.9** |
+| F9 | Second-order injection if the weekly send carries free text | Medium | Acceptance criteria | Task 8.2 |
+| F10 | Structured logs become a re-identifiable store of minors' data | Low | Deferred decision | Task 11.4 |
+
+**Declined, deliberately:** a second AI call to detect injection, a mark-value cap on
+auto-finalize, and calibration metrics (override rate, remark rate). All three were offered and
+not taken. **Do not add them back without asking** — and note that declining calibration means
+there is currently no way to detect F1 being exploited. That is a known, accepted position.
+
+**One decision deferred on purpose:** log retention period, at task 11.4. It is a cost and
+forensics trade-off that cannot be sensibly made before there is any traffic. **Task 11.4 must
+raise it rather than pick a number.**
 
 ---
 
@@ -346,6 +398,7 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 | **0.6** | Rename MANARA / IGCSE-OS → Avora | M | ∥ |
 | **0.7** | Time zones | S | ∥ |
 | **0.8** | Python type checker + generated API types | M | ∥ |
+| **0.9** | Token-revocation regression test | S | ∥ |
 
 **0.1 — Shared `SETTLED_STATUSES` + fix the v2 gatherers** *(D29, E2, E3)*
 
@@ -386,6 +439,18 @@ enforced at service boundaries first rather than repo-wide on day one; there is 
 checking at all** today, so expect a backlog. Add TypeScript API types generated from FastAPI's
 OpenAPI schema, replacing the hand-mirrored interfaces in `frontend/src/api/*.ts`. This lands in
 Phase 0 so everything built afterwards is checked. **Closes `RISK-6`.**
+
+**0.9 — Token-revocation regression test** *(threat review F8)*
+
+A test asserting that bumping `users.token_version` invalidates an already-issued access token on
+the very next request. **It passes today** — `api/deps.py:29` compares the token's `tv` claim
+against the database on every request. It exists to fail the day someone caches the user row
+during Phase 11's performance work, which is exactly where that optimisation gets made and
+exactly where nobody is thinking about authentication.
+
+Add a comment at any user-row cache boundary stating the constraint (`CODE-12`). If revocation
+silently stops working, logout stops logging out and a tutor resetting a student's password
+stops locking them out — the case `SEC-1` and `ADR-0008` exist for.
 
 ---
 
@@ -431,6 +496,20 @@ points: `services/storage.py`, `services/rate_limit.py`, `workers/jobs.py:62-69`
   client (`FE-1`). Update both sides together.
 - Do not hardcode a vendor; the interface is the contract.
 
+**Security acceptance criteria — threat review F3** *(D95, E21)*
+
+**Serving splits by sensitivity. This is not an optimisation to simplify away.**
+
+- **Student submissions proxy through the API**, running the same ownership check they run today
+  (`_tutor_owns()` / `_enrolled_scope`) on **every view**. Revocation stays instant. These files
+  are photographs of a named minor's marked work; a signed URL is a bearer credential that can be
+  forwarded, screenshotted or logged, and cannot be revoked before it expires.
+- **Tutor material** — mark schemes, classifieds, syllabus documents, teaching guidance — mints a
+  short-lived signed URL. These are the megabytes and they carry no personal data.
+- Signed URLs are minted **per request, after** the authorization check, never cached or reused.
+- **Never log a signed URL.** They land in request logs by default.
+- Object keys are tenant-scoped and unguessable — assert this in a test, not by convention.
+
 **1.3 — Worker as a separate process** *(§6)*
 
 - Split the worker out of the API's `lifespan` into its own entry point, so API and worker
@@ -441,12 +520,39 @@ points: `services/storage.py`, `services/rate_limit.py`, `workers/jobs.py:62-69`
   Do not rewrite it. Add the multi-worker race test instead.
 - Deployment: API service and worker service, separately scalable.
 
+**Security acceptance criteria — threat review F7**
+
+The worker becomes a principal with database write, AI keys, storage write and outbound email —
+a broader credential set than the API, on a process with no authenticated user behind any of its
+decisions. Job payloads already carry identifiers rather than objects (`BE-9`) and handlers
+re-read live state, which is the right shape; the gap is that every authorization decision inside
+a handler is implicit.
+
+- **Separate credentials per service.** The worker's storage credential is write-scoped to the
+  prefixes it writes; the API's cannot write where it only reads.
+- **Handlers derive tenant scope from the entity they load**, never from the payload.
+- **Enqueue is the trust boundary** — validate there that the enqueuing user may act on the
+  identifiers being queued.
+
 **1.4 — Shared rate limiting on Redis** *(D83, E18)*
 
 Move `FixedWindowLimiter`'s counters from process memory into Redis. **Redis is for rate-limit
 counters only** — Postgres stays the source of truth for all application state (E18). Failed
 logins stay throttled **per identifier, not per IP** — the API sits behind a proxy where one
 shared address means a global lockout (`SEC-14`).
+
+**Security acceptance criteria — threat review F4** *(D97)*
+
+Redis availability must not become an authentication dependency in either direction.
+
+- **On Redis failure, fall back to the existing in-process counter and raise an alarm.** Logins
+  are never blocked wholesale (a self-inflicted outage an attacker could trigger by degrading
+  Redis) and never left uncounted (a free credential-stuffing window). Throttling degrades from
+  global to per-instance, which is exactly today's behaviour.
+- The fallback path needs its own test and its own alert. A silent fallback is the same as no
+  fallback.
+- Namespace keys by purpose and tenant so one caller cannot consume or collide with another's
+  counter.
 
 **1.5 — Two-instance correctness suite** *(D84, §14)*
 
@@ -532,12 +638,52 @@ official mark scheme   (absolute — never overridden)
 page content is data, never instructions, and anything addressing the marker is flagged with
 low confidence for a tutor rather than acted on (`SEC-20`, `SEC-21`, `AI-8`). **The
 auto-finalize rule does not change** (D25): scheme-backed and confident, nothing more (`AI-11`,
-`ADR-0009`). One test per conflict pair in the precedence order.
+`ADR-0009`).
+
+**Security acceptance criteria — threat review F2** *(D94)*
+
+A language model has no privilege model. All four layers arrive as tokens in one context, so
+"the mark scheme is absolute" is a request, not an enforcement — and two of those layers are
+**free text a tutor wrote**, sitting in the instruction position.
+
+- **The official mark scheme always wins** (D94). Where a scheme covers the question, tutor notes
+  inform only the judgement calls it leaves open. They can never relax it.
+- **Treat tutor free text as data, not instruction** — the same posture the prompt already takes
+  toward student pages. Label each block structurally so the model is told what it *is*, not
+  merely handed them in order.
+- **One test per conflict pair** in the precedence order, asserting the higher layer wins.
+- **Cap the length of tutor-authored context.** An unbounded field in an instruction position is
+  an unbounded attack surface, and it silently raises cost per mark.
+
+The realistic failure is not a malicious tutor. It is an ordinary one writing *"always give full
+marks if the method is right"* because that is how they teach — and every student in that subject
+then being marked differently from the exam they will actually sit. It would present as the model
+being generous and be debugged as a model problem.
 
 **3.3 — Typed answers** *(D73)* — The pipeline takes text where it takes images. **Typed text is
-untrusted input to the marking prompt**, exactly as page content is — and typed input makes
-prompt injection easier than a photograph does, so this is the task where `SEC-20`/`SEC-21` earn
-their keep. Bump the prompt version.
+untrusted input to the marking prompt**, exactly as page content is. Bump the prompt version.
+
+**Security acceptance criteria — threat review F1** *(D91, D92, D93, E20)*
+
+This is the plan's critical finding. **Typed answers auto-finalize like photographed work
+(D91)** — the trust rule does not change by channel. But typed input is a materially easier
+injection channel than handwriting: perfect fidelity, arbitrary length, and marks come back
+afterwards, so a student can refine an attempt across submissions.
+
+- **A deterministic scan runs before the marking call** (D93). A pure function over the submitted
+  text (E20) returning a boolean and the matched reason; a hit sets `needs_review` for that one
+  submission and the AI's confidence is not consulted. It is crude and bypassable — and it is
+  **the only control in this path that does not depend on the model's own judgement about the
+  attacker's text.** Do not replace it with a model call.
+- **No feedback while a student is still working** (D92). Marks and feedback appear only after
+  submission. Do not build an in-progress feedback surface.
+- **Preserve the untrusted-input clause in substance** when bumping the prompt (`SEC-20`,
+  `SEC-21`, `AI-8`).
+
+**Known and accepted:** a second AI call to detect injection, a mark-value cap on auto-finalize,
+and calibration metrics were all offered and **declined**. Declining calibration means there is
+no way to detect this being exploited. That is a deliberate position, not an oversight — **do not
+add these back without asking.**
 
 **3.4 — AI-marked mocks** *(D26, E6)* — Through the existing pipeline. **No parallel code path**
 (`PROD-9`, `ADR-0004`). `Submission` is polymorphic — never read `assignment_id` unconditionally
@@ -744,6 +890,17 @@ one moment, regardless of what time zone a student or parent has set for themsel
 is the one place a recipient's own time zone is deliberately ignored; say so in a comment
 (`CODE-12`) beside the scheduling code, which otherwise converts per viewer (E11).
 
+**Security acceptance criteria — threat review F9**
+
+**The fact set is numeric and enumerable values only** — scores, counts, dates, category names,
+states. **Never free text derived from a student's submission**, which means no feedback text and
+no mistake notes, however natural they look as inputs.
+
+Including them would put student-controlled text inside a prompt whose output is emailed to a
+parent, with the marking-path defences applying only at the first hop. This is not currently a
+live path — `services/reports.py` does not consume feedback text — and this criterion exists to
+keep it that way.
+
 **8.3 — Remove the narrative system** *(D52)* — Delete `services/narrative.py`,
 `models/narrative.py`, `api/narrative.py`, the sweep registration in `main.py`,
 `narrative_sweep_interval_hours` in `config.py`, and the surfaces reading it. **Only after 8.2
@@ -758,6 +915,19 @@ because one exposes a named child's entire record; mint with `build_invite()`, v
 `check_usable()` (`SEC-12`, `SEC-13`). **Anything invalidating a credential bumps
 `users.token_version`** (`SEC-1`, `ADR-0008`) — a password-reset flow must, or an old refresh
 token keeps minting access tokens for 30 days. Scheduling reads the recipient's time zone (0.7).
+
+**Security acceptance criteria — threat review F5** *(D96)*
+
+**The tutor confirms a parent's address before the first send.** The address is typed by hand,
+and every weekly send afterwards carries a named child's readiness, predicted grade and
+attendance. A typo delivers that record to a stranger, every week, until someone notices — and a
+valid-but-wrong address never bounces.
+
+- Show the address back and require explicit confirmation before anything is sent to it.
+- Hard-suppress on bounce or complaint, and surface it to the tutor.
+- Changing a parent's address re-triggers confirmation.
+- No PII in the invite URL itself; keep `SEC-12`'s bounds — 14-day expiry, parent-link codes
+  single-use, because **one exposes a named child's entire record** (`SEC-13`).
 
 **8.6 — Tutor reports** *(D53)* — Chapter and topic breakdown · mistake patterns · plan progress
 and countdown · attendance. On demand **and** weekly. **This is the tutor's report**; the
@@ -820,6 +990,19 @@ boundary in an ADR.
 FK-safe order, **verified by a test asserting nothing survives** — not by inspection. Export
 produces a readable archive of students, marks, reports and readiness history.
 
+**Security acceptance criteria — threat review F6** *(E22)*
+
+Export returns the entire tenant in one call, which makes it an exfiltration primitive reachable
+from a single stolen session — and refresh tokens live 30 days.
+
+- **Re-authenticate immediately before the action**, independent of session age. Applies to
+  deletion too, which is the destructive twin of the same primitive.
+- **Deliver out of band** — a link to the account's verified address — rather than in the
+  response body, so the account holder learns it happened.
+- Write an audit row, notify the account, and rate limit hard.
+- Deletion must clear **object storage**, not only database rows, and should reach the log
+  aggregator (see 11.4).
+
 ---
 
 ### Phase 11 — Scale hardening *(D82 — "the rest")*
@@ -852,7 +1035,19 @@ or full AI prompts and responses. Metrics: API latency and error rate, queue dep
 processing time and failure rate, worker utilisation, AI call latency and failures, storage
 failures, connection-pool saturation, rate-limit events. **Nothing currently watches permanently
 failed jobs** — `jobs.py:229` is the only record that a student's work stopped moving. That gets
-an alert.
+an alert. The Redis fallback path from 1.4 alarms here too (D97).
+
+**Security acceptance criteria — threat review F10**
+
+Organization, user, student and submission IDs across a distributed system are a re-identifiable
+personal-data store once aggregated, even with content correctly excluded.
+
+- Access-control the aggregator as production data, because it is.
+- Include it in the Phase 10 deletion path — an account that exercises deletion should not remain
+  fully reconstructable from logs.
+- **Retention period is a deliberately deferred decision.** It is a cost, forensics and privacy
+  trade-off that cannot be made sensibly before there is traffic. **Raise it; do not pick a
+  number.**
 
 **11.6 — Load test at 1,000 students** *(D84, D86)* — **The last task in the plan**, run against
 the finished product so the numbers reflect what you will actually operate. One realistic run.
@@ -929,3 +1124,6 @@ generates a report — on a two-instance deployment, without an engineer touchin
 | `RISK-6` — frontend/backend contract drift | **Closed.** Task 0.8 generates TypeScript types from the backend's own schema. |
 | No Python type checker | **Closed.** Task 0.8 introduces one at service boundaries. |
 | `RISK-3` — a migration correct on SQLite, wrong on Postgres | **Unchanged and more exposed.** This plan adds many migrations and, in 11.3, many constraints. The suite still never runs a migration; CI's Postgres job remains the only check. |
+| **Prompt injection reaching an auto-finalized mark** (threat review F1) | **Mitigated, not closed, by decision.** D93's deterministic scan is the only control that does not depend on model judgement. A second AI check, a mark-value cap and calibration metrics were offered and declined — so there is **no detection layer**. Accepted position; revisit if remark volume or tutor overrides ever suggest it is being exploited. |
+| **No AI evaluation harness** | **Open and growing.** This plan bumps five prompt versions — `SYLLABUS`, `MARKING` twice, mistake tagging, plan weighting, weekly paragraph — with nothing measuring whether output got better or worse. §09 already records the absence of calibration on the trust rule as a known gap; this plan widens the surface without addressing it. |
+| **Children's-data regulatory posture** | **Not addressed anywhere.** The data subjects are minors. Task 10.4 (deletion and export) and D96 (confirmed recipient) are the start of that work, not the end. Lawful basis, retention and consent have no owner in this plan. |
