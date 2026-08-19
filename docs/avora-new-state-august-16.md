@@ -16,6 +16,15 @@ product. Written to be executed by AI agents (single-task and parallel) and huma
 > Nothing else about the plan's shape changed — the pre-work turned out to be decisions and
 > acceptance criteria, not a phase of code.
 >
+> **Revision 5** — incorporates the product manager's navigation spec. Changes: **the tutor's ten
+> tabs, the student's six and the parent's four are now settled** (`D105`–`D122`) and Phase D
+> designs to them · homework is **un-folded from Review** · Mocks and Past papers are promoted
+> into the nav · a **Students tab** is added · **past-paper booklets** with AI extraction of the
+> papers inside · **timed mocks** on a server-side clock · **lesson mode**, with Zoom and Google
+> Meet integrations for online attendance · **web push** · and a final **Phase 12: a mobile app**
+> for notifications and quick actions only. The student's mistake pattern moves to Progress
+> (supersedes `D41`).
+>
 > **Revision 4** — incorporates an engineering audit of revision 3, which found the plan was
 > **specifying work that already exists** and **deleting work merged weeks ago** without saying
 > so. Changes: a new **task 0.0** auditing what is already built, before anything else · a new
@@ -88,11 +97,16 @@ within their phase. Tasks marked `→` are serial. Never run two tasks that list
 
 **Effort sizes:** `S` ≈ one focused session · `M` ≈ one to two days · `L` ≈ multi-day.
 
-**Roughly 65 tasks across 13 phases, of which 11 are `L`.** That is the honest shape: this is a
+**Roughly 76 tasks across 14 phases, of which 15 are `L`.** That is the honest shape: this is a
 programme, not a sprint. **No completion date is claimed** (D5) — sequencing is by dependency and
 risk. The longest chain is Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 8 →
-Phase 9 → Phase 10 → Phase 11, with Phase D and Phase 6 running alongside. Anyone needing a date
-should estimate that chain rather than the total.
+Phase 9 → Phase 10 → Phase 11 → Phase 12, with Phase D and Phase 6 running alongside. Anyone
+needing a date should estimate that chain rather than the total.
+
+**Three workstreams could be cut without breaking anything else**, if the programme needs to
+shrink: the Zoom and Google Meet integrations (7.3), web push (8.7), and the mobile app
+(Phase 12). Each is self-contained, each has a working fallback — manual registers, email and
+in-app notifications — and together they are a large share of the remaining effort.
 
 ### Obligations that apply to every task
 
@@ -288,6 +302,30 @@ stop and raise it rather than choosing.
 | **D103** | **The Avora visual identity is kept exactly as built** — parchment/espresso/terracotta, Lora and Inter, the motifs. The redesign is **layout and structure only, never style.** |
 | **D104** | **Design comes first as its own pass**, then each phase builds its own screens against that spec. No phase waits on design; nothing is built without it. |
 
+### Navigation and placement (settled 19 Aug)
+
+| # | Decision |
+|---|---|
+| **D105** | **Tutor navigation is flat, ordered by how often each is used**: Overview · Review · Homework · Classes · Students · Mocks · Past papers · Readiness · Reports · Library. No grouping, no sub-menus. |
+| **D106** | **Student navigation**: Home · Homework · Mocks · Past papers · Progress · Materials. |
+| **D107** | **Parent navigation**: Overview · Progress · Attendance · Reports. |
+| **D108** | **The Homework tab holds the detail** — questions, marking, management. The per-class Homework tab shows **name and metadata only** and links through to it. |
+| **D109** | **The teaching plan, lessons and in-person attendance all live on the class's Schedule tab.** |
+| **D110** | **Library holds every choice made during onboarding**, the uploaded material (syllabus document, teaching guidance), and the classifieds. |
+| **D111** | **The "AI marking agreement" is the per-subject marking rules**, read and edited in Library. It describes **how the AI marks, never when a mark counts** — `D25` is unchanged. |
+| **D112** | **Readiness gets its own tab**, holding both the class readiness view and the readiness setup (weights, switching factors off, custom criteria). **Reports gets its own tab.** |
+| **D113** | **Usage lives in its own small settings area**, separate from Library. |
+| **D114** | **The Students tab is grouped by class.** From it the tutor can invite and remove students, open a student's full record, move a student between classes, and link a parent. |
+| **D115** | **The Mocks tab covers small tests, big tests and mocks.** The tutor can type scores in, upload work for AI marking, and **assign mocks to students like homework**. |
+| **D116** | **An assigned mock is timed from when the student first opens it.** Late submissions are **accepted and flagged, never blocked**. |
+| **D117** | **Past papers upload as a single paper or a booklet.** On a booklet, **the AI extracts the list of papers inside** — session, paper number, code, page range — and the tutor checks it. When assigning, the tutor picks one paper from that list. |
+| **D118** | **A lesson is either in person or online.** In person, the tutor logs attendance. Online, attendance comes from a **Zoom or Google Meet integration**. |
+| **D119** | **A lesson is pre-filled from the plan, and a reminder 15 minutes before prompts the tutor to revise it.** Afterwards nothing is required — it counts as taught unless the tutor says otherwise. |
+| **D120** | **That reminder goes by email, phone notification and in-app.** |
+| ~~D41~~ | ~~The student sees their mistake pattern in the homework tab.~~ **Superseded by D121.** |
+| **D121** | **The student's mistake pattern lives on their Progress tab**, alongside readiness, predicted grade, weak topics and attendance. |
+| **D122** | **A mobile app for notifications and quick actions only** — not a second copy of the product. For tutors, students and parents. **iOS and Android from one shared codebase.** Built as the **final phase** of this plan. |
+
 > **Deliberate asymmetry — do not "fix" it.** D18: a *behind-schedule* re-plan waits for tutor
 > acceptance. D68: a *syllabus edit* reflows automatically. Both stand as written.
 
@@ -432,6 +470,9 @@ Phase 10 Usage and sell-readiness
                     │
                     ▼
 Phase 11 Scale hardening
+                    │
+                    ▼
+Phase 12 The mobile app        ← last, against a settled product
 ```
 
 Phases 3 → 4 → 5 are **serial by decision** (D81): marking produces the evidence and mistake
@@ -586,12 +627,41 @@ hierarchy and what appears on each screen — never palette, type or style.** Us
 token classes (`bg-surface`, `text-ink-700`, `border-line`), never stock Tailwind names
 (`UX-2`), and never wrap the retarget block in an `@layer` (`UX-1`).
 
+**The navigation is settled** (D105–D122) and is the frame every screen hangs off. Design to it.
+
+| Role | Tabs, in order |
+|---|---|
+| **Tutor** | Overview · Review · Homework · Classes · Students · Mocks · Past papers · Readiness · Reports · Library — **flat, ordered by frequency of use** (D105). Plus a small settings area for usage (D113). |
+| **Student** | Home · Homework · Mocks · Past papers · Progress · Materials (D106) |
+| **Parent** | Overview · Progress · Attendance · Reports (D107) |
+
+**Where things live, decided:**
+
+- **Homework** holds the detail; the per-class Homework tab shows name and metadata and links
+  through (D108). `/tutor/homework` currently redirects to Review with a comment saying homework
+  was folded into it — **that fold is reversed.**
+- **The class's Schedule tab** holds the teaching plan, lessons, and in-person attendance (D109).
+- **Library** holds every onboarding choice, the syllabus document, the teaching guidance, the
+  classifieds, and the per-subject marking rules — which are what the tutor calls the **AI
+  marking agreement** (D110, D111).
+- **Readiness** is one tab for both the class view and the setup behind it; **Reports** is its
+  own tab (D112).
+- **Students** is grouped by class: invite, remove, open a record, move between classes, link a
+  parent (D114).
+- **The student's mistake pattern** sits on their Progress tab, not in Homework (D121,
+  superseding D41).
+
 **D.1 — Inventory** — Every screen that exists today, and every screen the decision register
-implies. The new ones, at minimum: onboarding (11 steps) · the teaching-plan schedule with
-editing, acceptance and re-plan · chapter tree editing · the mistake-categories editor · the
-mistake revision surface · the custom-criteria builder · the weak-threshold setting · attendance
-capture · three weekly-send surfaces · the marking-rules editor · typed-answer input · the parent
-report · the tutor usage view.
+implies. Five of the tutor's tabs already exist as pages — `LibraryPage`, `MocksPage`,
+`PastPapersPage`, `GroupsPage`, `TodayDashboard` — and `GradeBoundariesPage`,
+`SyllabusUploadPage`, `PreferencesPage`, `ClassReadinessPage` exist as routes outside the nav.
+**Confirm each against 0.0 before designing it as new.**
+
+Genuinely new, at minimum: onboarding (11 steps) · the teaching-plan schedule with editing,
+acceptance and re-plan · chapter tree editing · the mistake-categories editor · the mistake
+revision surface · the custom-criteria builder · the weak-threshold setting · attendance capture ·
+three weekly-send surfaces · typed-answer input · the timed-mock sitting screen · booklet upload
+and paper-picking · the Students tab · the parent's four tabs · the tutor usage view.
 
 **D.2 / D.3 — Design** — Output goes into `docs/experience-design.md`, extending the document
 that already governs this product rather than starting a competing one. For each screen: what it
@@ -773,6 +843,8 @@ Consumed by Phase 3's context assembler.
 | **3.2** | Marking-context assembly and precedence | M | after 3.1 |
 | **3.3** | Typed answers as a submission type | M | ∥ |
 | **3.4** | AI-marked mocks | M | ∥ |
+| **3.5** | Past-paper booklets + AI extraction of the paper list | M | ∥ |
+| **3.6** | Timed mocks, server-side clock | M | after 3.4 |
 
 > **What a `Classified` is.** A booklet of past-paper questions compiled by topic, uploaded by a
 > tutor and reused. It is the source homework is created from: the tutor uploads it, the AI
@@ -846,6 +918,28 @@ afterwards, so a student can refine an attempt across submissions.
 and calibration metrics were all offered and **declined**. Declining calibration means there is
 no way to detect this being exploited. That is a deliberate position, not an oversight — **do not
 add these back without asking.**
+
+**3.5 — Past-paper booklets** *(D117)* — Today `PastPaper` is one paper. Add a **booklet**: one
+uploaded file holding many papers.
+
+On upload, an AI job extracts the list — session label, paper number, code, page range — and the
+tutor reviews and corrects it before it is applied, exactly as `SyllabusUpload` already works for
+syllabuses. **Reuse that draft-then-review pattern**; do not invent a second one. New prompt
+surface in `services/prompts.py` with a `version` (`AI-6`, `AI-7`); handler must be safe to
+re-run on the same payload, replacing the draft rather than appending (`BE-6`).
+
+When assigning, the tutor picks one paper from the extracted list. A single-paper upload skips
+extraction entirely and behaves as today.
+
+**3.6 — Timed mocks** *(D115, D116)* — A mock is assigned like homework and **timed from when
+the student first opens it**. The clock is **server-side** — a client-side timer is a suggestion,
+not a limit. Late submissions are **accepted and flagged, never blocked** (D116), so nobody loses
+work; the flag is recorded and shown to the tutor.
+
+This replaces a self-declared `timed` flag with a measured one. Past-paper attempts currently
+carry `timed` and `time_taken_minutes` as **self-declared** data that must be labelled as such
+wherever shown (`PROD-8`, `UX-20`). **A measured mock is not self-declared and must not carry
+that label** — the two are different and the UI has to tell them apart.
 
 **3.4 — AI-marked mocks** *(D26, E6)* — Through the existing pipeline. **No parallel code path**
 (`PROD-9`, `ADR-0004`). `Submission` is polymorphic — never read `assignment_id` unconditionally
@@ -1011,12 +1105,40 @@ the branch point (`CODE-12`) so it is not read as a bug.
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
-| **7.1** | Attendance model and lesson flow | S | → |
+| **7.1** | Attendance model, lesson mode, in-person register | M | → |
 | **7.2** | Attendance surfaces | S | after 7.1 |
+| **7.3** | Zoom and Google Meet attendance integration | L | after 7.1 |
+| **7.4** | Lesson pre-fill and the 15-minute reminder | M | after 7.1 |
 
-*(D44)* — `LessonAttendance` (lesson_id, student_id, state, recorded_by_id, recorded_at),
-recorded when the tutor confirms a lesson. Shown to tutor, student, parent, and in reports.
-Attendance is **not** a readiness factor (D33) — it explains gaps, it does not score them.
+**7.1 — Attendance and lesson mode** *(D44, D109, D118)* — `LessonAttendance` (lesson_id,
+student_id, state, source, recorded_by_id, recorded_at) and a **mode on `Lesson`: in person or
+online** (D118). In person, the tutor logs it **on the lesson, in the class's Schedule tab**
+(D109). `source` records whether a human or an integration set it — a tutor needs to know which.
+
+Attendance is **not** a readiness factor (D33). It explains gaps; it does not score them.
+
+**7.3 — Zoom and Google Meet** *(D118)* — For online lessons, pull the attendance list from the
+call. **Two separate integrations**, each with its own sign-in flow and its own approval from
+that company.
+
+- **Google Meet attendance reports are a paid Workspace feature.** A tutor on a free Google
+  account gets nothing, silently. Say so at the point they connect it, not after.
+- Both add OAuth redirect URIs, which is the constraint that pinned the deployment to one origin
+  for Google Classroom (§08). Hiding Classroom (D58) lifts that; **this puts it back.** Plan the
+  redirect URIs deliberately rather than discovering the constraint again.
+- OAuth `state` is verified server-side and bound to the tutor who started the flow
+  (`security.create_state_token`); the browser comparison is a second check, never the check.
+- Matching a call participant to a student is fuzzy — people join as "iPad" or a nickname.
+  **Unmatched participants are surfaced for the tutor, never guessed at.**
+
+**7.4 — Lesson pre-fill and reminder** *(D119, D120)* — The plan pre-fills what the lesson covers.
+**15 minutes before it starts, remind the tutor** so they can revise it — by email, phone
+notification and in-app (D120; push comes from 8.7).
+
+**After the lesson nothing is required** (D119): it counts as taught with the topics that stood,
+unless the tutor says otherwise. That keeps admin near zero — and it means **a cancelled lesson
+nobody flags is recorded as taught**, quietly inflating syllabus coverage, which feeds readiness.
+Make cancelling one action from the reminder and from the Schedule tab.
 
 ---
 
@@ -1030,6 +1152,7 @@ Attendance is **not** a readiness factor (D33) — it explains gaps, it does not
 | **8.4** | Weekly send on each role's home | M | after 8.2 |
 | **8.5** | Transactional email triggers | M | after 8.1 |
 | **8.6** | Tutor reports | M | ∥ |
+| **8.7** | Web push notifications | M | after 8.1 |
 
 **8.1 — Email** *(D54, E9)* — One provider module in `services/`, all templates in one place,
 unsubscribe and bounce handling. Configuration through `get_settings()`, never `os.environ`
@@ -1121,9 +1244,22 @@ valid-but-wrong address never bounces.
 - No PII in the invite URL itself; keep `SEC-12`'s bounds — 14-day expiry, parent-link codes
   single-use, because **one exposes a named child's entire record** (`SEC-13`).
 
-**8.6 — Tutor reports** *(D53)* — Chapter and topic breakdown · mistake patterns · plan progress
-and countdown · attendance. On demand **and** weekly. **This is the tutor's report**; the
-parent's is a different document produced by 8.2 — neither is built by filtering the other.
+**8.6 — Tutor reports** *(D53, D112)* — Chapter and topic breakdown · mistake patterns · plan
+progress and countdown · attendance. On demand **and** weekly. **This is the tutor's report**;
+the parent's is a different document produced by 8.2 — neither is built by filtering the other.
+Reports get their own top-level tab (D112).
+
+**8.7 — Web push notifications** *(D120)* — Notification infrastructure does not exist today.
+Build it: service worker, subscription storage per user, and the send path, wired to the same
+provider module as email (E9).
+
+Delivers the 15-minute lesson reminder (7.4) and any other trigger the tutor opts into. **Web
+push does not work on iPhone unless the user has added Avora to their home screen** — that is
+the constraint the mobile app in Phase 12 exists to solve. Until then, iPhone users get email and
+in-app.
+
+**Per-channel opt-out is required**, not optional: a tutor who wants the lesson reminder on their
+phone but the weekly summary by email must be able to say so.
 
 ---
 
@@ -1266,6 +1402,41 @@ Measure p50/p95/p99 latency, error rate, database utilisation, queue latency, wo
 
 ---
 
+### Phase 12 — The mobile app *(D122)*
+
+**The last phase, after everything else is finished.** It is built against a settled product, not
+a moving one.
+
+| ID | Task | Size | Mode |
+|---|---|---|---|
+| **12.1** | App shell, auth and push registration | L | → |
+| **12.2** | Tutor quick actions | M | after 12.1 |
+| **12.3** | Student quick actions | M | after 12.1 |
+| **12.4** | Parent view | S | after 12.1 |
+| **12.5** | Store submission and release process | M | last |
+
+**Scope is deliberately narrow** (D122): **notifications and quick actions only — not a second
+copy of the product.** Anything not on the list below opens the web app in a browser. Hold this
+line: the moment the app grows a screen the web app also has, every future change has to be made
+twice, forever, and this phase stops being a phase.
+
+- **Tutor**: receive notifications · the 15-minute lesson reminder with one-tap revise or cancel ·
+  glance at the review queue · confirm a lesson and take the register.
+- **Student**: homework and mock reminders · photograph and submit work — the phone is already
+  where that happens · see what is due.
+- **Parent**: the weekly send, delivered to their phone rather than their inbox.
+
+**iOS and Android from one shared codebase** (D122). Reuse the existing API — the app is another
+client of the same endpoints, and `api/client.ts`'s contract (bearer token, one transparent
+refresh on `401`) is the model to follow. **The refresh token still never goes anywhere
+script-readable** (`SEC-2`); on a phone that means the platform keychain, not local storage.
+
+**12.5 — Store submission.** Two review processes, two release cycles that do not match your web
+deploys, and a rejection is a schedule risk you do not control. Budget for it. **The web app must
+never depend on an app release** — anything the app can do, the web can do too.
+
+---
+
 ## 8. Verification
 
 **Per task**, before opening a PR:
@@ -1301,6 +1472,7 @@ Postgres 16, and the suite never runs a migration. Run the cycle locally against
 | 9 | A brand-new tutor completes onboarding in one pass, with no students, and lands on a home page with a plan, prompts and the marking figure |
 | 10 | Usage rolls up per account; the owner tool reads across accounts and **no API route does**; an account deletes completely and exports readably |
 | 11 | Concurrency hotspots hold under racing workers; failed jobs raise an alert; the load test names the first bottleneck |
+| 12 | The app receives a lesson reminder and a student submits a photograph from it; every other route opens the web app; the web product works fully with the app uninstalled |
 
 **Whole-plan acceptance:** a new tutor signs up, completes onboarding, accepts a teaching plan,
 teaches a lesson from it, uploads a chapter classified, sets homework, has it auto-marked with
