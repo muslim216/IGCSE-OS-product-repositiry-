@@ -373,6 +373,18 @@ stop and raise it rather than choosing.
 > **Deliberate difference — do not harmonise.** AV-46 keeps homework completion detail out of the
 > parent's day-to-day view; AV-64 puts an attendance and homework record in the parent's report.
 
+### AI routing (settled 20 Aug)
+
+| # | Decision |
+|---|---|
+| **AV-123** | **Marking routes to Claude Opus 4.8, not Gemini.** Extraction and syllabus stay on Gemini. No AI is live in production yet, so this changes a default before anyone is served by it, not a running surface. |
+
+> **Cost note, not a re-litigation.** Marking is the highest-volume AI surface in the product —
+> every homework submission calls it, where extraction and syllabus fire once per upload. Opus is
+> priced well above Gemini per token. Flagging this once so it's a fully-informed default; `AV-80`'s
+> pattern applies — decided, not reopened. If per-token cost ever needs revisiting, that's a new
+> decision, not an implicit drift back to Gemini.
+
 ---
 
 ## 4. Engineering decisions
@@ -591,6 +603,7 @@ reasoning. Two are superseded and shown struck through in §3: `AV-28` by `AV-78
 | `AV-59` | Keep: files and recordings shared with a class (GroupResource) | `AV-120` | That reminder goes by email, phone notification and in-app |
 | `AV-60` | Onboarding must reach an accepted teaching plan | `AV-121` | The student's mistake pattern lives on their Progress tab, alongside readiness,… |
 | `AV-61` | Students and parents join by invite link; the tutor supplies their email addresses | `AV-122` | A mobile app for notifications and quick actions only — not a second copy of the product |
+| `AV-123` | Marking routes to Claude Opus 4.8, not Gemini | | |
 
 ### Vocabulary
 
@@ -721,6 +734,22 @@ This plan adds a weekly paragraph per person, mistake tagging on every wrong ans
 drafting and reflows, and a materially larger marking prompt. **Without this task, AV-2's usage
 tracking reports call counts and no money**, and there is no way to know whether a tutor costs
 more to serve than they pay.
+
+**Price every model a surface actually resolves to** (AV-123) — checking the blank-model
+defaults against the provider default, not the surface name:
+
+| Surface(s) | Resolves to |
+|---|---|
+| reports, readiness, class_brief, narrative, **marking** (AV-123) | `anthropic_model` — confirm the live value; `claude-opus-4-8` at time of writing |
+| extraction, syllabus | `GEMINI_MODEL` — a placeholder in code (`config.py:36`); **read the deployed env var, don't price the code default** |
+
+Confirm both Anthropic and Gemini rates against each provider's own current pricing page, not a
+figure carried over from an earlier task — rates move and differ per account. **This task has no
+backfill.** `record_usage` prices a call inline at write time; every `AiUsageEvent` row already
+written keeps `cost_usd = NULL` permanently once the env var is set — it only prices calls made
+afterward. Recovering historical spend from stored model + token counts is a separate task if
+it's wanted. Note also `model_pricing()` is `@lru_cache`d, so a changed env var needs a process
+restart to take effect — true today in local dev, true again after every future price update.
 
 **0.1 — Shared `SETTLED_STATUSES` + fix the v2 gatherers** *(AV-29, E2, E3)*
 
@@ -1048,7 +1077,13 @@ Consumed by Phase 3's context assembler.
 The upload flow moves to "start of chapter", reached from the plan or the chapter list. Homework
 creation otherwise unchanged.
 
-**3.2 — Marking context and precedence** *(AV-21, AV-24, AV-75, AV-76, E16)*
+**3.2 — Marking context and precedence** *(AV-21, AV-24, AV-75, AV-76, AV-123, E16)*
+
+**Route marking to Anthropic, not Gemini** (AV-123): `ai_marking_provider` defaults to
+`"anthropic"`; leave `ai_marking_model` blank so it resolves to `anthropic_model`
+(`claude-opus-4-8`). `ai_extraction_provider` and `ai_syllabus_provider` are untouched — both
+stay `"gemini"`. Update `.env.example` and `config.py` in the same PR, and reprice
+`AI_MODEL_PRICING` for the added Opus volume in task 0.10.
 
 **One function assembles the entire marking context**, applying AV-76's order:
 
