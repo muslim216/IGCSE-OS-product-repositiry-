@@ -8,7 +8,6 @@ import {
   Gauge,
   GraduationCap,
   Home as HomeIcon,
-  Sparkles,
   Sunrise,
   TrendingUp,
   Users,
@@ -54,7 +53,6 @@ import ImprovementPage from "./student/ImprovementPage";
 import WelcomePage from "./student/WelcomePage";
 import HomeworkPage from "./student/HomeworkPage";
 import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
-import TutorChatPage from "./student/TutorChatPage";
 import FilesPage from "./student/FilesPage";
 import RecordingsPage from "./student/RecordingsPage";
 import ExamsPage from "./student/ExamsPage";
@@ -84,7 +82,6 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/exams", label: "Exams", icon: GraduationCap },
   { to: "/student/files", label: "Files", icon: FolderOpen },
   { to: "/student/recordings", label: "Recordings", icon: Video },
-  { to: "/student/tutor", label: "AI Tutor", icon: Sparkles, slot: "bottom" },
 ];
 
 // Four destinations, not nine. Today · Classes · Review · Library is the whole
@@ -154,7 +151,6 @@ export default function App() {
           <Route path="/student/recordings" element={<RecordingsPage />} />
           <Route path="/student/homework" element={<HomeworkPage />} />
           <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
-          <Route path="/student/tutor" element={<TutorChatPage />} />
           <Route path="/student/past-papers" element={<StudentPastPapersPage />} />
           <Route path="/student/past-papers/:pastPaperId" element={<SitPastPaperPage />} />
           <Route path="/student/exams" element={<ExamsPage />} />
