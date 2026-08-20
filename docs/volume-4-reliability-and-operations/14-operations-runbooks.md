@@ -473,6 +473,21 @@ For staleness:
 
 - Failed run: re-enqueue (R6). It is append-only, so a re-run is a new audited evaluation.
 - Provider problem: R7.
+- **Every student is stale, not just one** — after a change to how factors are gathered or
+  weighted, the stored snapshots were computed by the old rules and nothing re-runs them on
+  its own. Backfill from the API host:
+  ```bash
+  python -m seed.recompute_readiness
+  ```
+  It queues one debounced run per (student, subject) that has any evidence, staggered 30s
+  apart so a few hundred students do not hit the AI provider as one burst, and prints how
+  long the queue will take to drain. Existing snapshots are left alone — `compute_readiness_v2`
+  is append-only, so each re-run adds a new audited evaluation beside the old one.
+
+  It is safe to re-run if interrupted: the debounce is per (student, subject), so a pair with
+  a run already pending is skipped rather than queued twice. **If `READINESS_V2_SHADOW_ENABLED`
+  is off it exits non-zero without queuing anything** rather than reporting success having
+  done nothing.
 - **Emergency:** set `READINESS_V2_SHADOW_ENABLED=false` and restart. Despite the name this is
   a **kill switch**: v2 runs stop being enqueued and the whole product falls back to v1. Use it
   only if v2 is producing actively harmful numbers, and record that you did — it is easy to
