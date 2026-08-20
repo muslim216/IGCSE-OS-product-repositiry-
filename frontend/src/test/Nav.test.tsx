@@ -59,7 +59,6 @@ test("every student destination is reachable from the nav", async () => {
     "Files",
     "Recordings",
     "Homework",
-    "AI Tutor",
     "Past papers",
     "Exams",
   ]) {
@@ -129,15 +128,17 @@ test("a bookmarked retired route lands on its successor, never a 404", async () 
   ).toBeInTheDocument();
 });
 
-test("the mobile tab bar shows main-slot destinations, not the bottom-slot one", async () => {
-  // The bottom-slot "AI Tutor" sits apart from the workflow nav, so it must not
-  // become a primary thumb tab — it folds into More instead. The always-visible
-  // bar carries the main-workflow items.
+test("the mobile tab bar carries the main-workflow destinations and overflows", async () => {
+  // Was also the guard that a bottom-slot item never becomes a primary thumb
+  // tab. "AI Tutor" was the only bottom-slot destination and is deleted
+  // (AV-57), so that half has no subject left; the slot mechanism itself is
+  // untouched and Phase D settles the nav. What remains asserted is the part
+  // still true: the always-visible bar carries main-workflow items, and the
+  // rest fold into More.
   mockAuthedFetch("student");
   renderApp("/student");
   const tabBar = await screen.findByRole("navigation", { name: "Student tabs" });
   expect(within(tabBar).getByText("Home")).toBeInTheDocument();
-  expect(within(tabBar).queryByText("AI Tutor")).not.toBeInTheDocument();
   // Overflow exists because the student has more destinations than the bar holds.
   expect(within(tabBar).getByRole("button", { name: /More/ })).toBeInTheDocument();
 });
@@ -148,9 +149,8 @@ test("every nav destination remains reachable on mobile via More", async () => {
   const tabBar = await screen.findByRole("navigation", { name: "Student tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
   const menu = await screen.findByRole("menu");
-  // The destinations that don't fit the bar — including the bottom-slot item —
-  // are all present in the overflow sheet.
-  for (const label of ["Exams", "Files", "Recordings", "AI Tutor"]) {
+  // The destinations that don't fit the bar are all present in the overflow sheet.
+  for (const label of ["Exams", "Files", "Recordings"]) {
     expect(within(menu).getByText(label)).toBeInTheDocument();
   }
 });
