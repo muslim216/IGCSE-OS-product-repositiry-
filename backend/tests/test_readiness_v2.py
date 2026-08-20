@@ -270,3 +270,98 @@ async def test_an_unmarked_past_paper_attempt_is_omitted_not_scored_zero(client,
     assert paper.evidence_count == 1
     assert paper.detail["attempt_count"] == 1
     assert paper.score == 90.0
+
+
+async def test_auto_finalized_homework_reaches_every_gatherer(client, tutor, world):
+    """The marking pipeline's own default outcome must be visible to v2.
+
+    `mark_submission` settles confident, scheme-backed work as `auto_finalized`
+    — terminal, with no tutor step, by design (ADR-0009). Three v2 gatherers
+    used to filter `status == finalized`, so that work was invisible to Topic
+    Mastery and Homework Performance counted it as *not submitted* (AV-29).
+    Mirrors tests/test_averaging.py::test_auto_finalized_work_counts.
+    """
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+    group_id = world["group"]["id"]
+    topic1 = world["topic1"]
+
+    async with async_session() as session:
+        assignment = Assignment(
+            group_id=group_id,
+            title="Auto-marked HW",
+            status=AssignmentStatus.published,
+            due_at=NOW - timedelta(days=2),
+        )
+        session.add(assignment)
+        await session.flush()
+        question = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=0,
+            number="1",
+            text_summary="Q1",
+            max_marks=10,
+            has_mark_scheme=True,
+            difficulty=QuestionDifficulty.hard,
+        )
+        session.add(question)
+        await session.flush()
+        session.add(QuestionTopic(question_id=question.id, topic_id=topic1))
+
+        # No tutor ever touched this one — exactly what marking.py:336 writes.
+        submission = Submission(
+            assignment_id=assignment.id,
+            student_id=student_id,
+            status=SubmissionStatus.auto_finalized,
+            submitted_at=NOW - timedelta(days=3),
+            finalized_at=NOW - timedelta(days=1),
+        )
+        session.add(submission)
+        await session.flush()
+        mark = QuestionMark(
+            submission_id=submission.id,
+            question_id=question.id,
+            final_marks=8,
+            auto_finalized=True,
+        )
+        session.add(mark)
+        await session.flush()
+        session.add(
+            Mistake(
+                student_id=student_id,
+                question_mark_id=mark.id,
+                topic_id=topic1,
+                category=MistakeCategory.careless,
+                severity=1,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, student_id, subject_id, "auto-finalized-run", now=NOW
+        )
+        await session.commit()
+
+    by_factor = {(r.factor, r.topic_id): r for r in rows}
+
+    # 1. Topic Mastery sees the marked question.
+    mastery = by_factor[(ReadinessFactor.topic_mastery, topic1)]
+    assert mastery.score == 80.0  # 8/10
+    assert mastery.evidence_count == 1
+
+    # 2. Homework Performance counts it as submitted, not missing.
+    hw = by_factor[(ReadinessFactor.homework_performance, None)]
+    assert hw.evidence_count == 1
+    assert hw.detail["completion_rate"] == 1.0
+    # 80% accuracy on the one submitted piece. The score is today's
+    # accuracy * 0.7 + completion * 0.3 blend; task 5.1 makes it accuracy-only,
+    # at which point this becomes 80.0. The point of this assertion is that the
+    # piece is counted as *submitted* at all.
+    assert hw.detail["accuracy"] == 80.0
+    assert hw.score == 86.0
+
+    # 3. Mistake Analysis counts it in the denominator.
+    mistakes = by_factor[(ReadinessFactor.mistake_analysis, None)]
+    assert mistakes.detail["total_questions"] == 1
+    assert mistakes.detail["by_category"] == {"careless": 1}

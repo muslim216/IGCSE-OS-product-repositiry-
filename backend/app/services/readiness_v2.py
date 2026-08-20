@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    SETTLED_STATUSES,
     Assessment,
     AssessmentScore,
     Assignment,
@@ -34,7 +35,6 @@ from app.models import (
     QuestionTopic,
     ReadinessFactor,
     Submission,
-    SubmissionStatus,
     Topic,
 )
 from app.services.readiness_factors import (
@@ -93,7 +93,7 @@ async def _marked_questions_for_topic(
             .where(
                 QuestionTopic.topic_id == topic_id,
                 Submission.student_id == student_id,
-                Submission.status == SubmissionStatus.finalized,
+                Submission.status.in_(SETTLED_STATUSES),
                 QuestionMark.final_marks.is_not(None),
             )
         )
@@ -170,7 +170,7 @@ async def _homework_points(
     rows = await _homework_assignment_rows(session, student_id, subject_id)
     points: list[HomeworkPoint] = []
     for assignment, submission in rows:
-        if submission is None or submission.status != SubmissionStatus.finalized:
+        if submission is None or submission.status not in SETTLED_STATUSES:
             points.append(HomeworkPoint(pct=None, on_time=None))
             continue
         marks = (
@@ -284,7 +284,7 @@ async def _mistake_points_and_total(
             .where(
                 Submission.student_id == student_id,
                 Group.subject_id == subject_id,
-                Submission.status == SubmissionStatus.finalized,
+                Submission.status.in_(SETTLED_STATUSES),
             )
         )
     ) or 0

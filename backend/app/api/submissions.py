@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, assert_tutor
 from app.models import (
+    SETTLED_STATUSES,
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
@@ -45,10 +46,6 @@ from app.services.marking import record_marks_as_evidence
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
-
-# Once a submission reaches one of these, its marks count and it is closed to
-# resubmission. auto_finalized got there without a tutor; finalized had one.
-SETTLED_STATUSES = (SubmissionStatus.auto_finalized, SubmissionStatus.finalized)
 
 # What a student is told about a submission's state. Lifecycle only: they never
 # see the AI's drafts or its uncertainty, so `needs_review` — which is a queue

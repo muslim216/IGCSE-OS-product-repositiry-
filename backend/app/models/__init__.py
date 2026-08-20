@@ -5,6 +5,7 @@ from app.models.classroom import ClassroomCourseLink, ClassroomWorkLink, GoogleA
 from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
 from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
 from app.models.homework import (
+    SETTLED_STATUSES,
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
@@ -126,6 +127,7 @@ __all__ = [
     "Subject",
     "Submission",
     "SubmissionFile",
+    "SETTLED_STATUSES",
     "SubmissionStatus",
     "SyllabusUpload",
     "SyllabusUploadStatus",

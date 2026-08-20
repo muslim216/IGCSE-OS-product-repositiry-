@@ -132,6 +132,19 @@ class SubmissionStatus(str, enum.Enum):
     finalized = "finalized"
 
 
+#: The statuses at which a submission's marks count and it is closed to
+#: resubmission. `auto_finalized` got there without a tutor; `finalized` had
+#: one. An AI draft still awaiting a tutor is not an outcome and must never
+#: move a number shown to a student or a parent (PROD-5).
+#:
+#: This is the single definition. Four correct copies of it used to live in
+#: services/activity.py, services/averaging.py, api/past_papers.py and
+#: api/submissions.py, while three other sites restated it as `finalized`
+#: alone and so could not see the marking pipeline's own default outcome
+#: (E2). Filter on this tuple rather than writing the pair out again.
+SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
+
+
 class Submission(TimestampMixin, Base):
     """A student's uploaded answers to *either* a homework assignment or a past
     paper — exactly one of assignment_id / past_paper_id is set.
