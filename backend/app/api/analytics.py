@@ -91,6 +91,13 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
     weak_topics.sort(key=lambda t: t.avg_score)
 
     # AI agreement rate on finalized submissions in this group.
+    #
+    # Deliberately `finalized` only, and deliberately NOT SETTLED_STATUSES
+    # (AV-80, E3). This measures how often a tutor changed the AI's mark, so it
+    # is only meaningful where a tutor actually looked. An auto_finalized mark
+    # has final_marks == ai_marks by construction (marking.py), so including
+    # those rows would inflate agreement towards 100% by counting the AI
+    # agreeing with itself. Do not "fix" this to match the other gatherers.
     marks = (
         await db.scalars(
             select(QuestionMark)

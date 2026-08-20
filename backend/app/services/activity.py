@@ -10,6 +10,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    SETTLED_STATUSES,
     Assignment,
     Group,
     ParentLink,
@@ -18,7 +19,6 @@ from app.models import (
     ReportAudience,
     ReportStatus,
     Submission,
-    SubmissionStatus,
     User,
     UserRole,
 )
@@ -27,9 +27,6 @@ from app.services.groups import AWAITING_REVIEW
 
 #: Most recent items returned; the summary's `count` is the true total.
 ACTIVITY_LIMIT = 12
-
-#: A mark the student can already see, whether or not a tutor had to touch it.
-SETTLED = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
 
 
 def _work_title(assignment: Assignment | None, past_paper: PastPaper | None) -> str:
@@ -106,7 +103,7 @@ async def _tutor_activity(session: AsyncSession, user: User) -> ActivitySummary:
 async def _student_activity(session: AsyncSession, user: User) -> ActivitySummary:
     """A student's own marked work — homework and past papers alike."""
     scope = _polymorphic_submissions().where(
-        Submission.student_id == user.id, Submission.status.in_(SETTLED)
+        Submission.student_id == user.id, Submission.status.in_(SETTLED_STATUSES)
     )
     rows = (
         await session.execute(

@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    SETTLED_STATUSES,
     Assignment,
     AssignmentQuestion,
     Group,
@@ -26,12 +27,7 @@ from app.models import (
     PastPaperQuestion,
     QuestionMark,
     Submission,
-    SubmissionStatus,
 )
-
-# A submission's marks count only once it has settled. An AI draft awaiting a
-# tutor is not an outcome, and must not move a grade shown to a parent (PROD-5).
-SETTLED = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
 
 
 @dataclass(frozen=True)
@@ -113,7 +109,7 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
             .join(Group, Group.id == Assignment.group_id)
             .where(
                 Submission.student_id == student_id,
-                Submission.status.in_(SETTLED),
+                Submission.status.in_(SETTLED_STATUSES),
                 Group.subject_id == subject_id,
             )
         )
@@ -134,7 +130,7 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
             .join(PastPaper, PastPaper.id == Submission.past_paper_id)
             .where(
                 Submission.student_id == student_id,
-                Submission.status.in_(SETTLED),
+                Submission.status.in_(SETTLED_STATUSES),
                 PastPaper.subject_id == subject_id,
             )
         )

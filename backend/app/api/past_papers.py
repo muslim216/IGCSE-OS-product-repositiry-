@@ -23,6 +23,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser
 from app.models import (
+    SETTLED_STATUSES,
     Group,
     GroupMember,
     PastPaper,
@@ -45,8 +46,6 @@ from app.services import storage
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
-
-SETTLED = (SubmissionStatus.auto_finalized, SubmissionStatus.finalized)
 
 
 async def _enrolled_scope(db, student_id: int) -> set[tuple[int, int]]:
@@ -265,7 +264,7 @@ async def _attempt_out(db, submission: Submission) -> PastPaperAttemptOut:
         session_label=paper.session_label,
         paper_number=paper.paper_number,
         subject_name=subject.name if subject else "",
-        status="marked" if submission.status in SETTLED else "being_marked",
+        status="marked" if submission.status in SETTLED_STATUSES else "being_marked",
         timed=submission.timed,
         time_taken_minutes=submission.time_taken_minutes,
         attempted_at=submission.attempted_at,
@@ -300,7 +299,7 @@ async def log_attempt(
         .where(Submission.past_paper_id == paper.id, Submission.student_id == user.id)
         .options(selectinload(Submission.files), selectinload(Submission.marks))
     )
-    if submission is not None and submission.status in SETTLED:
+    if submission is not None and submission.status in SETTLED_STATUSES:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "You've already logged this paper and it's been marked"
         )
