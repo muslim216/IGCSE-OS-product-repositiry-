@@ -3,7 +3,7 @@
 Two things live here that nothing else may duplicate:
 
 1. **Provider routing.** Each AI *surface* (marking, extraction, syllabus,
-   reports, readiness, chat, class_brief) resolves independently to a provider
+   reports, readiness, class_brief) resolves independently to a provider
    (Anthropic or Gemini) and a model via settings, so the expensive surfaces
    and the bulk document-processing surfaces can sit on different vendors
    without touching call sites. Callers name a surface; they never name a
@@ -20,7 +20,6 @@ what the call sites already build; the Gemini branch translates them.
 import base64
 import enum
 import json
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Generic, TypedDict, TypeVar
@@ -50,7 +49,6 @@ SURFACES = (
     "syllabus",
     "reports",
     "readiness",
-    "chat",
     "class_brief",
     "narrative",
 )
@@ -65,14 +63,13 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "syllabus": AiFeature.extraction,
     "reports": AiFeature.report,
     "readiness": AiFeature.readiness,
-    "chat": AiFeature.chat,
     "class_brief": AiFeature.report,
     # The stored narrative is a report-shaped paragraph, so it shares that bucket.
     "narrative": AiFeature.report,
 }
 
-# Streaming is Anthropic-only (see stream_complete). Naming the surfaces that
-# need it here, rather than only checking inside stream_complete, means
+# Streaming was Anthropic-only; the student-chat surface that used it is gone
+# (AV-57). Naming streaming surfaces here, rather than checking at call time, means
 # resolve_surface() itself rejects a misconfigured route — the check runs
 # wherever a surface is resolved, not only at the moment a stream is opened.
 SURFACES_REQUIRING_STREAMING = frozenset({"chat"})
@@ -397,56 +394,7 @@ async def text_complete(
     )
 
 
-async def stream_complete(
-    *,
-    surface: str,
-    messages: list[dict],
-    max_tokens: int,
-    extra_system: list[str] | None = None,
-    cache_extra_system: bool = False,
-    usage: dict | None = None,
-) -> AsyncIterator[str]:
-    """Stream a reply chunk by chunk. Anthropic-only: streaming is used by the
-    student chat surface alone, and adding a second streaming implementation
-    for it isn't worth the surface area. When `usage` is passed it is filled in
-    with model/provider/prompt_version/token counts once the stream ends, so
-    the caller can meter the call on its own session."""
-    provider, model = resolve_surface(surface, require_streaming=True)
-    template = get_prompt(surface)
-    client = get_client()
-    async with client.messages.stream(
-        model=model,
-        max_tokens=max_tokens,
-        system=_anthropic_system(template.system, extra_system or [], cache_extra_system),
-        # Same `list[dict]` contract as structured_complete's `content`, for the
-        # same reason — the chat history arrives from api/chat.py as role/content
-        # dicts (CODE-26).
-        messages=messages,  # type: ignore[arg-type]
-    ) as stream:
-        async for text in stream.text_stream:
-            yield text
-        if usage is not None:
-            final = await stream.get_final_message()
-            usage["provider"] = provider.value
-            usage["model"] = final.model
-            usage["prompt_version"] = template.version
-            usage["input_tokens"] = final.usage.input_tokens
-            usage["output_tokens"] = final.usage.output_tokens
-
-
-class _GeminiUsage(TypedDict):
-    """The exact keys _gemini_usage yields.
-
-    A plain `dict[str, int]` would type-check only where the caller happens to
-    pass `text=` itself: unpacking it into AiResponse otherwise offers an int to
-    `text: str`. Naming the two keys lets mypy match them to the two int fields
-    and leaves the `**` unpacking checked rather than suppressed."""
-
-    input_tokens: int
-    output_tokens: int
-
-
-def _gemini_usage(response: object) -> _GeminiUsage:
+def _gemini_usage(response: object) -> dict[str, int]:
     meta = getattr(response, "usage_metadata", None)
     if meta is None:
         return {"input_tokens": 0, "output_tokens": 0}

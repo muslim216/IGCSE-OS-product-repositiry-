@@ -56,7 +56,7 @@ failure (§14); performance budgets (§10); test coverage (§12).
 
 Written from: `backend/app/main.py`; `backend/app/workers/jobs.py`; `backend/app/db.py`;
 `backend/app/services/storage.py`; `backend/app/services/ai.py`;
-`backend/app/services/readiness_v2_ai.py`; `backend/app/api/chat.py`; `render.yaml`;
+`backend/app/services/readiness_v2_ai.py`; `render.yaml`;
 `docker-compose.yml`; `backend/app/models/`.
 
 ---
@@ -90,7 +90,7 @@ that has no measurement attached is recorded as a gap.
 | **Postgres** | Everything | None. No graceful path exists | Request failures |
 | **Uploads disk** | New uploads, file downloads, extraction and marking of unread files | None | Request failures |
 | **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
-| **Anthropic** | Chat, reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
+| **Anthropic** | Reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
 | **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; chat and reports unaffected | Error persisted to a domain column |
 | **Google Classroom** | Import only | Direct upload unaffected by design | `sync_classroom` job failure |
 | **Readiness v2 Layer 2** | Readiness freshness | Falls back per-subject to v1, response says `engine: "v1"` | Snapshot `status="failed"` |

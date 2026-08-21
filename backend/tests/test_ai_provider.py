@@ -18,7 +18,6 @@ from app.services.ai import (
     file_block,
     record_usage,
     resolve_surface,
-    stream_complete,
 )
 from app.services.prompts import PROMPTS, get_prompt
 
@@ -37,15 +36,30 @@ def test_get_prompt_rejects_an_unknown_surface():
 
 def test_default_routing_splits_providers_by_surface():
     """The shipped defaults: bulk document work on Gemini, everything else on
-    Anthropic, with chat on the cheap model."""
+    Anthropic."""
     assert resolve_surface("marking")[0] is AiProvider.gemini
     assert resolve_surface("extraction")[0] is AiProvider.gemini
     assert resolve_surface("syllabus")[0] is AiProvider.gemini
     assert resolve_surface("reports")[0] is AiProvider.anthropic
     assert resolve_surface("readiness")[0] is AiProvider.anthropic
-    chat_provider, chat_model = resolve_surface("chat")
-    assert chat_provider is AiProvider.anthropic
-    assert chat_model == "claude-haiku-4-5"
+
+
+def test_a_surface_can_pin_its_own_model_independent_of_the_provider_default(monkeypatch):
+    """ADR-0006: a surface resolves to a provider *and* a model of its own, so
+    one surface can be moved to a cheaper or newer model without touching any
+    call site or any other surface.
+
+    The chat surface used to carry this assertion — it was the one surface
+    shipping an explicit model (claude-haiku-4-5) rather than falling back to
+    the provider default. Chat is deleted (AV-57); the claim it evidenced is
+    not, so it is repointed rather than dropped.
+    """
+    monkeypatch.setattr(get_settings(), "ai_reports_model", "claude-haiku-4-5")
+    provider, model = resolve_surface("reports")
+    assert provider is AiProvider.anthropic
+    assert model == "claude-haiku-4-5"
+    # The pin is per surface: its neighbour still takes the provider default.
+    assert resolve_surface("readiness")[1] == get_settings().anthropic_model
 
 
 def test_narrative_surface_is_registered_and_routes_like_a_report():
@@ -141,13 +155,6 @@ def test_anthropic_system_caches_only_the_last_extra_block():
     assert [b["text"] for b in blocks] == ["base", "student context", "kb"]
     assert "cache_control" not in blocks[1]
     assert blocks[2]["cache_control"] == {"type": "ephemeral"}
-
-
-async def test_streaming_rejects_a_non_anthropic_surface(monkeypatch):
-    monkeypatch.setattr(get_settings(), "ai_chat_provider", "gemini")
-    with pytest.raises(AIUnavailableError, match="Streaming"):
-        async for _ in stream_complete(surface="chat", messages=[], max_tokens=10):
-            pass
 
 
 def test_cost_is_none_for_a_model_with_no_configured_price(monkeypatch):

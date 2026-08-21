@@ -70,3 +70,22 @@ homework pipeline fails while everything else works.
 A third provider is added — the surface indirection scales, but the environment-variable
 count is already the least pleasant part of this design and a structured configuration value
 may become clearer.
+
+## Amendment — 2026-08-21 (`AV-57`)
+
+Not a reversal: per-surface routing stands exactly as decided. Two facts recorded above have
+changed with the deletion of the student AI chat.
+
+- **Streaming is gone.** "Streaming is Anthropic-only and raises otherwise" described
+  `stream_complete()`, which existed for the chat surface alone and is deleted with it. The
+  capability difference it documented is no longer a live constraint — but the reasoning
+  behind it should survive: streaming was implemented for one vendor deliberately, because a
+  second implementation was not worth the surface area for a single consumer. A future
+  streaming surface must re-make that trade-off rather than inherit it.
+- **Seven surfaces are now six**, so the environment-variable count in *Consequences* is
+  twelve rather than fourteen. This makes the "Revisit when" trigger slightly less pressing,
+  not differently shaped.
+
+The decision itself is unchanged and remains Accepted. `tests/test_ai_provider.py` still
+proves the core claim — a surface resolves to a provider *and* a model of its own — on a
+surviving surface, since chat was only the example that happened to carry it.

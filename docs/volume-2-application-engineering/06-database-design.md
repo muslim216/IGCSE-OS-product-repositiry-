@@ -90,7 +90,6 @@ tests stop being evidence.
 | `readiness.py` | `evidence`, `topic_readiness`, `readiness_history`, `tutor_observations`, `assessments`, `assessment_scores`, `tutor_preferences` |
 | `readiness_v2.py` | `mistakes`, `past_papers`, `past_paper_questions`, `past_paper_question_topics`, `past_paper_attempts`, `grade_boundaries`, `readiness_weights`, `factor_evaluations`, `readiness_snapshots` |
 | `knowledge.py` | `knowledge_entries` |
-| `chat.py` | `chat_conversations`, `chat_messages` |
 | `reports.py` | `reports` |
 | `resources.py` | `group_resources` |
 | `ai_usage.py` | `ai_usage_events` |
@@ -153,7 +152,7 @@ order is `class Foo(TimestampMixin, Base)`.
 2. Append-only tables declaring `created_at` explicitly instead of using the mixin:
    `Evidence`, `ReadinessHistory` (as `recorded_at`), `MarkOverrideAudit`, `RemarkRequest`,
    `FactorEvaluation`, `ReadinessSnapshot`, `AiUsageEvent`.
-3. `updated_at` on exactly **four** models — `StudentProfile`, `Job`, `ChatConversation`,
+3. `updated_at` on exactly **three** models — `StudentProfile`, `Job`,
    `TopicReadiness` — always `default=utcnow, onupdate=utcnow`.
 
 All datetimes are `DateTime(timezone=True)`. `Date` is used for calendar-only fields
@@ -239,9 +238,9 @@ Column-level `unique=True`: `users.email`, `users.username`, `invites.code`,
 `student_profiles.student_id`, `google_accounts.tutor_id`, `classroom_course_links.group_id`,
 `classroom_work_links.assignment_id`.
 
-**Cascades are ORM-level only.** Ten relationships declare `cascade="all, delete-orphan"`
+**Cascades are ORM-level only.** Nine relationships declare `cascade="all, delete-orphan"`
 (`Assignment.questions`, `AssignmentQuestion.topics`, `Submission.files`, `Submission.marks`,
-`Subject.topics`, `Group.members`, `Group.schedule_slots`, `ChatConversation.messages`,
+`Subject.topics`, `Group.members`, `Group.schedule_slots`,
 `GoogleAccount.course_links`, `ClassroomCourseLink.work_links`).
 
 **No ForeignKey anywhere declares `ondelete=`** — verified by search across both `models/` and
@@ -256,10 +255,11 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain from `0001` to `0025_user_time_zone`, the current head, with string revision
-ids matching the filename prefix and `down_revision` chained. One number is deliberately
-absent: `0024` is reserved for task 0.3's `drop_chat` on a parallel branch, so `0025` chains
-straight to `0023` (see the note under the list).
+A linear chain from `0001` to `0024_drop_chat`, the current head, with string revision ids
+matching the filename prefix and `down_revision` chained. One number sits out of order:
+`0024_drop_chat` was written on a parallel branch while `0025_user_time_zone` deployed
+first, so per the rule below it chains onto `0025` rather than rebasing history — the
+*graph* is linear even though the filenames are not.
 
 ```
 0001_users                        0012_organizations           (184 lines — largest)
@@ -275,23 +275,15 @@ straight to `0023` (see the note under the list).
 0011_syllabus_uploads             0022_org_timezone
                                   0023_narratives
                                   0025_user_time_zone
+                                  0024_drop_chat               (drops 0005's tables; AV-57)
 ```
 
-**0024 is deliberately absent.** It is reserved for task 0.3's `drop_chat`, which was written
-on a parallel branch; `0025_user_time_zone` chains to `0023`. Sequential numbering (`DB-15`)
-is about a single readable chain, not a gapless one — two revisions sharing a
-`down_revision` would give Alembic two heads, which is the failure worth avoiding.
+**Why 0024 follows 0025.** The drop-chat migration was written against `0023`; while it sat
+on its branch, `0025_user_time_zone` merged and deployed first. Reordering then would have
+made production's recorded `alembic_version` skip a migration silently, so `0024_drop_chat`
+chains to `0025` instead — Alembic walks the graph, not the numbers (`DB-15`). Two heads
+would be the real failure; an out-of-order filename is only cosmetics.
 
-**Which way 0024 is landed depends on whether 0025 has deployed**, and getting this backwards
-skips a migration silently rather than loudly:
-
-- **0025 not yet deployed** — chain 0024 to `0023` and rebase 0025's `down_revision` onto
-  `0024`. Nothing has recorded 0025 yet, so the reordered chain runs in full.
-- **0025 already deployed** — chain 0024 to `0025` and leave 0025 alone, numbering be damned.
-  Production's `alembic_version` already reads `0025`, so `upgrade head` starts from there:
-  re-pointing 0025's parent would make Alembic step straight past 0024, and the chat tables it
-  drops would stay in the database with nothing reporting a problem. An applied revision is
-  history — the rule against editing one is the same rule as `DB-15` itself.
 
 `alembic/env.py` reads the URL from `get_settings().database_url` rather than from
 `alembic.ini`, and sets `target_metadata = Base.metadata`. Migrations run at container start:

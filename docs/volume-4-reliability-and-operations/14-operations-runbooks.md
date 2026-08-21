@@ -381,9 +381,10 @@ AI_EXTRACTION_PROVIDER=anthropic
 AI_SYLLABUS_PROVIDER=anthropic
 ```
 
-or the reverse for an Anthropic outage — **except `chat`**. Chat is the only streaming surface
-and `stream_complete()` is Anthropic-only; setting `AI_CHAT_PROVIDER=gemini` makes chat raise.
-Leave chat down rather than mis-route it.
+or the reverse for an Anthropic outage. Every surviving surface can be re-routed to either
+provider. The one exception used to be `chat`, which was streaming-only and Anthropic-only;
+chat and `stream_complete()` are both deleted (`AV-57`), so there is no longer a surface that
+must be left down rather than re-routed.
 
 Restart the service after changing the variables. Re-enqueue the jobs that failed (R6).
 

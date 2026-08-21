@@ -126,7 +126,7 @@ Status-code usage across `api/*.py`:
 | 204 | 13 | Deletion |
 | 401 | 9 | Authentication (all from `deps.py`) |
 | 503 | 4 | AI or Classroom not configured |
-| 429 | 2 | Login throttle, daily chat cap |
+| 429 | 1 | Login throttle |
 | 400 | 1 | — |
 | 202 | 1 | — |
 
@@ -200,10 +200,13 @@ imperative `_require_tutor(user)` call this replaced is gone from all 23 routers
 - **Uploads** use `File(...)` / `Form(...)` multipart in `assignments.py`, `classifieds.py`,
   `past_papers.py`, `resources.py`, `syllabus_uploads.py`, `submissions.py`.
 - **Downloads** return `FileResponse` with the stored MIME type.
-- **One streaming endpoint**: `POST /api/v1/chat/conversations/{id}/messages` returns
-  `StreamingResponse(media_type="text/event-stream")` with
-  `Cache-Control: no-cache` and `X-Accel-Buffering: no`, emitting hand-written SSE frames
-  (`data:`, `event: error`, `event: done`) parsed by `frontend/src/api/chat.ts`.
+- **No streaming endpoints.** There was one — `POST /api/v1/chat/conversations/{id}/messages`
+  returned `StreamingResponse(media_type="text/event-stream")` with `Cache-Control: no-cache`
+  and `X-Accel-Buffering: no`, emitting hand-written SSE frames (`data:`, `event: error`,
+  `event: done`). It was deleted with the student AI chat (`AV-57`). The frame vocabulary and
+  the two headers are recorded here because they were hand-written rather than framework-
+  provided, and a future streaming endpoint should match them rather than invent a third
+  shape.
 
 ### Response headers
 
@@ -416,7 +419,7 @@ today, and the declarative one fails less quietly.
 | **No correlation id on any response.** | A user-reported error cannot be tied to a log line. See §11. | `before scale` |
 | **`/readiness` is owned by three routers** (`readiness.py`, `readiness_weights.py`, `readiness_v2.py`), two sharing a tag. | Violates `API-3`. No functional collision, but the OpenAPI grouping is misleading and "where is this endpoint" needs a search. | `nice to have` |
 | **Response construction is inconsistent** — 8 classes use `from_attributes`, the rest hand-build via `_out(row)`. | A new model field is silently absent from hand-built responses. `API-25` binds new code only. | `nice to have` |
-| **No rate limiting except on login and chat.** | Every other endpoint, including AI-triggering ones, is unbounded per user. See §07 and §10. | `before scale` |
+| **Rate limiting exists only for login.** | Every other endpoint, including AI-triggering ones, is unbounded per user — and was before the student chat's 50/day cap was deleted with it (`AV-57`). Severity unchanged; Phase 10 owns it. See §07 and §10. | `before scale` |
 | **The two health endpoints are not in a router.** `GET /api/v1/health` and `GET /api/v1/health/ready` are declared directly on the app in `main.py`. | Noted here because they are the only endpoints outside every convention in this document — no router, no tag, no `response_model`. That is deliberate for liveness (§11 explains why it must do no I/O), incidental for readiness. | `nice to have` |
 
 ---

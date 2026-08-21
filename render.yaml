@@ -55,7 +55,7 @@ services:
         value: /data/uploads
 
       # --- AI providers -------------------------------------------------
-      # Anthropic serves chat, reports, readiness synthesis and class briefs.
+      # Anthropic serves reports, readiness synthesis and class briefs.
       - key: ANTHROPIC_API_KEY
         sync: false
       # Gemini serves the bulk document work: marking, question extraction and

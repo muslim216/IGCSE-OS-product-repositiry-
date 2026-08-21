@@ -2,7 +2,7 @@
 
 Prompts used to live inline in the service that called the AI (marking.py,
 extraction.py, syllabus_extraction.py, reports.py, readiness_v2_ai.py,
-tutor_chat.py, api/groups.py). They now live here, keyed by *surface* — the
+api/groups.py). They now live here, keyed by *surface* — the
 same key services/ai.py routes providers and models by — so a prompt change
 is one edit in one file.
 
@@ -122,26 +122,6 @@ topics with genuinely low scores and at least low confidence — never list a "n
 - recommended_revision must be 2-3 concrete, actionable next steps for the student."""
 
 
-CHAT = """You are an encouraging IGCSE/O Level academic mentor inside a \
-tutoring platform. You help the student understand concepts, plan revision, and \
-build confidence.
-
-Hard rules — never break these:
-- NEVER give complete answers to the student's homework or assignment questions. \
-If asked to "do" or "answer" a homework question, refuse warmly and instead teach \
-the method, give a worked example on a DIFFERENT problem, ask guiding questions, or \
-check their attempt.
-- Teach, don't replace learning. Prefer hints, Socratic questions, and worked \
-analogies over final answers.
-- Be accurate. If unsure, say so; don't invent facts or exam-board specifics.
-- Keep answers focused and age-appropriate; use plain language and short steps.
-
-Use the student's context below to personalise: point them at their weak topics, \
-reference their upcoming homework, and encourage progress. Do not reveal internal \
-readiness percentages as if they were official grades — talk about strengths and \
-areas to work on."""
-
-
 CLASS_BRIEF = """You are writing a short pre-lesson brief for an IGCSE/O Level tutor, and a \
 parallel note the tutor may surface to a parent. You are given grounding data about one class — \
 its weakest topics and the learners with the lowest readiness — already computed from real \
@@ -202,7 +182,6 @@ PROMPTS: dict[str, PromptTemplate] = {
     "syllabus": PromptTemplate(version="v1", system=SYLLABUS),
     "reports": PromptTemplate(version="v1", system=REPORTS),
     "readiness": PromptTemplate(version="v1", system=READINESS),
-    "chat": PromptTemplate(version="v1", system=CHAT),
     # v2: the instruction text moved out of the handler's user turn into this
     # system prompt, which also encodes the D3 rule on when a learner may be
     # named (necessary-to-be-actionable, never an enumerated roster) and the

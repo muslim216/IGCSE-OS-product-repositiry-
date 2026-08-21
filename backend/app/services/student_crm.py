@@ -1,7 +1,13 @@
 """The Student CRM aggregation — the student's continuously-updating academic
-record. This is the single source of truth for both the CRM UI and the AI's
-grounding context (services/student_context.py reads from it too), so the two
-surfaces can never drift apart."""
+record.
+
+Shaped as one aggregation because it was the single source of truth for both
+the CRM UI and the AI's grounding context: services/student_context.py read
+from it, so the two surfaces could never drift apart. That second reader was
+deleted with the student AI chat (AV-57) and the shape is now carried by the
+CRM UI alone — but the reason it is one aggregation rather than several
+per-screen queries is recorded here, because the next AI surface that needs a
+student's record should read this rather than grow its own."""
 
 from dataclasses import dataclass
 from datetime import datetime

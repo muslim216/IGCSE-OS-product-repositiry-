@@ -302,8 +302,10 @@ Keep these loaded. Each cites the document holding its full reasoning.
 ### Frontend
 
 - **`api/client.ts` is the one HTTP entry point.** It attaches the bearer token and on a `401`
-  transparently calls `/auth/refresh` once and retries. The only sanctioned bypasses are
-  `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE. (`FE-1`)
+  transparently calls `/auth/refresh` once and retries. The only sanctioned bypass is
+  `fetchFileUrl()` for blob downloads. (`FE-1`) — `streamMessage()` was the second until the
+  student AI chat, the only SSE consumer, was deleted (`AV-57`). There is now no streaming
+  path in the product; a new one re-opens this rule rather than assuming the old exemption.
 - **A backend response-schema change is regenerated into the frontend types in the same PR** —
   from `backend/`, `python -c "import json;from app.main import
   app;print(json.dumps(app.openapi(),indent=2))" > ../frontend/openapi.json`, then

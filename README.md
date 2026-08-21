@@ -7,7 +7,7 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
 - **Tutors** create groups, assign homework from classified PDFs, review AI-drafted marking
   (the tutor always has final authority), record mock results, and track analytics.
 - **Students** submit photos/PDFs of handwritten work, see their readiness (% + predicted
-  grade), weak topics, upcoming lessons, and chat with an AI academic mentor.
+  grade), and weak topics.
 - **Parents** get plain-language progress views and reports.
 
 ## Documentation
@@ -26,7 +26,7 @@ New engineers should read `docs/README.md` first; it carries a reading order.
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for chat/reports/readiness |
+| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for reports/readiness |
 | Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development
@@ -84,7 +84,7 @@ merged into it does not deploy, however green its tests are.
 
    | Variable | Needed for |
    | --- | --- |
-   | `ANTHROPIC_API_KEY` | chat, reports, readiness synthesis, class briefs |
+   | `ANTHROPIC_API_KEY` | reports, readiness synthesis, class briefs |
    | `GEMINI_API_KEY` | marking, question extraction, syllabus extraction |
    | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
    | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
@@ -137,7 +137,7 @@ All backend settings come from environment variables (see `backend/.env.example`
 |---|---|
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
-| `ANTHROPIC_API_KEY` | Chat, reports, readiness synthesis, class briefs |
+| `ANTHROPIC_API_KEY` | Reports, readiness synthesis, class briefs |
 | `GEMINI_API_KEY` | Marking, question extraction, syllabus extraction — the homework pipeline |
 | `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
@@ -188,8 +188,7 @@ runnable end-to-end:
 - [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
 - [x] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
 - [x] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock/observation entry, student & tutor dashboards, analytics, agreement rate
-- [x] **E — AI tutor chat:** streaming mentor grounded in the student's readiness/workload, anti-cheating guardrails, daily message cap
-- [x] **F — Parents & reports:** parent dashboard with per-child readiness; audience-specific AI reports (student / tutor / parent) generated strictly from the student's data
+- [x] **E — Parents & reports:** parent dashboard with per-child readiness; audience-specific AI reports (student / tutor / parent) generated strictly from the student's data
 
 ### Planned next (designed for, not yet built)
 

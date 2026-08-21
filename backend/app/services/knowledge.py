@@ -1,8 +1,9 @@
 """The Tutor Knowledge Base: teaching methods, preferred solving approaches,
 resources, marking preferences, direct AI instructions, and notes. Compiled
-into a single prompt block and injected into every AI surface — marking,
-tutor chat, report generation, and extraction — so the AI behaves like that
-specific tutor."""
+into a single prompt block and injected into every AI surface that calls
+build_tutor_context() — marking, extraction, report generation and readiness
+synthesis — so the AI behaves like that specific tutor. (Student chat was a
+fifth consumer until it was deleted, AV-57.)"""
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
