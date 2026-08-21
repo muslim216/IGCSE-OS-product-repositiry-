@@ -548,12 +548,53 @@ shown **their own position** within an improvement ranking, on a surface dedicat
 never on a home surface, and never as a bare bottom placing.
 *Rationale unchanged in substance:* the harm the original rule was written against is a
 standing whose disappearance becomes the message, and a board that publishes classmates to
-each other. Neither survives in the shipped design — the ranking exists and the ranked do not
-appear. The original wording ("peer comparison … never as a persistent standing or rank")
+each other. The original wording ("peer comparison … never as a persistent standing or rank")
 would have forbidden the Improvement tab outright; `GOV-3` allows three responses to a rule a
-change breaks, and this takes the second: the rule is superseded rather than quietly broken.
-The de-anonymisation analysis this rests on, and the three residual risks accepted rather than
-solved, are in `backend/app/services/improvement.py`.
+change breaks, and this took the second: the rule was superseded rather than quietly broken.
+
+> **The permission in the second sentence now has no subject.** The peer improvement ranking
+> was deleted in full (`AV-57`), so nothing in the product shows a student any ranking. The
+> permission is left standing rather than reverted because reverting it is a rule change and
+> belongs to whoever decides whether a ranking ever returns — but **it must not be read as
+> pre-approval.** Anything that reintroduces a ranking re-opens the analysis below and must
+> re-run it against its own design, not inherit this clause.
+
+**The de-anonymisation analysis, preserved.** It lived in
+`backend/app/services/improvement.py`, which is deleted; it is recorded here because it was
+the only copy, and it was written specifically so that a later change reintroducing
+per-classmate values knows what it is reopening (`CODE-13`).
+
+A security review of the drawn design — anonymous rows each carrying an exact delta, the
+reader marked "you", gated at five students — returned **do not ship**, on four decisive
+vectors. Every one needs a per-classmate value to exist somewhere in the response:
+
+1. **Screenshot collusion.** One shared board where only the "you" marker moves; two students
+   comparing screens label two rows, four label the class. It works at any class size, so no
+   headcount gate closes it.
+2. **Exact-delta fingerprinting.** Integer deltas rarely collide at n=5–15, so a reader who
+   roughly knows one classmate's performance matches them to a row by arithmetic.
+3. **Join/leave landmarks.** A "joined this month" tag or a vanished row *is* a name when
+   exactly one student joined or left.
+4. **Achievement-event correlation.** The top scorer announces it themselves and is then
+   attributable to the board's largest delta.
+
+The shipped design closed all four by transmitting no per-classmate value at all: the reader's
+own movement, own placing, a count of how many were ranked, and their own earlier placings.
+The ranking existed; the ranked did not appear.
+
+**Three residual risks were accepted rather than solved:**
+
+1. *The whole class comparing ranks reconstructs the order.* A "post your rank" group chat in
+   a class of eight is one message and yields the complete ordinal ranking with real names.
+   Nothing in the product can prevent this — any ranking a student can see is one they can
+   retype. Stripping everything except the ordinal makes the reconstructed artefact an
+   ordering rather than a record. **A headcount floor raises the coordination cost; it does
+   not close this.**
+2. *Your own rank moving tells you about someone else.* A student who submitted nothing and
+   still fell has learned that a classmate improved. Irreducible in any ranking — relative
+   position is by definition information about other people.
+3. *Low rank is still a message.* Mitigated by never rendering a bare bottom placing: exact
+   rank in the top half, a band below it.
 
 **`UX-33` — MUST · Important · Active**
 Generated narrative is present when the surface opens; no primary surface waits on a model
