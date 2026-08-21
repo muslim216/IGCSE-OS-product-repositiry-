@@ -377,13 +377,31 @@ stop and raise it rather than choosing.
 
 | # | Decision |
 |---|---|
-| **AV-123** | **Marking routes to Claude Opus 4.8, not Gemini.** Extraction and syllabus stay on Gemini. No AI is live in production yet, so this changes a default before anyone is served by it, not a running surface. |
+| ~~AV-123~~ | ~~Marking routes to Claude Opus 4.8, not Gemini. Extraction and syllabus stay on Gemini.~~ **Superseded by AV-124.** |
+| **AV-124** | **Gemini is retired from every surface.** All eight route to Anthropic, on Claude 5. **Opus 5** — extraction, syllabus, marking, readiness: the surfaces that extract structure from a document or make a judgement call. **Sonnet 5** — reports, class brief, narrative: surfaces that compose already-known facts into prose. `chat` is moot — deleted by `AV-57`/task `0.3` before this ships. No AI is live in production yet, so this changes defaults before anyone is served by them, not a running surface. |
 
-> **Cost note, not a re-litigation.** Marking is the highest-volume AI surface in the product —
-> every homework submission calls it, where extraction and syllabus fire once per upload. Opus is
-> priced well above Gemini per token. Flagging this once so it's a fully-informed default; `AV-80`'s
-> pattern applies — decided, not reopened. If per-token cost ever needs revisiting, that's a new
-> decision, not an implicit drift back to Gemini.
+| Surface | Model | Called from |
+|---|---|---|
+| marking | `claude-opus-5` | `services/marking.py` |
+| extraction | `claude-opus-5` | `services/extraction.py:118,217` |
+| syllabus | `claude-opus-5` | `services/syllabus_extraction.py` (`SyllabusUpload` flow) |
+| readiness | `claude-opus-5` | `services/readiness_v2_ai.py:212` |
+| reports | `claude-sonnet-5` | `services/reports.py` |
+| class_brief | `claude-sonnet-5` | `api/groups.py:270` |
+| narrative | `claude-sonnet-5` | `services/narrative.py:204` |
+| ~~chat~~ | — | deleted, `0.3` |
+
+> **Cost note, not a re-litigation.** Marking and extraction are the highest-volume surfaces —
+> marking fires on every submission, extraction on every upload — and both now sit on Opus, the
+> most expensive tier, where extraction at least used to run on Gemini. Flagging this once so it's
+> a fully-informed default; `AV-80`'s pattern applies — decided, not reopened. If per-token cost
+> ever needs revisiting, that's a new decision, not an implicit drift back to Gemini.
+
+> **What this doesn't touch.** `gemini_api_key` and `gemini_model` stay in `config.py` rather than
+> being deleted — `AI-20`/`INF-9` requires a missing key degrade a surface, not block startup, and
+> removing the settings entirely is a separate cleanup from repointing every surface away from
+> them. `GEMINI_MODEL`'s placeholder-vs-deployed-value distinction from task `0.10` no longer
+> matters once nothing resolves to it.
 
 ---
 
@@ -537,8 +555,8 @@ rows both later phases consume, so their contracts settle first. Phase 6 runs al
 
 Every decision, one line each, so a citation in a task is a glance at this page rather than a
 hunt through §3. **§3 is the authority** — these are shortened for scanning and drop the
-reasoning. Two are superseded and shown struck through in §3: `AV-28` by `AV-78`, `AV-52` by
-`AV-98`. `AV-41` is superseded by `AV-121`.
+reasoning. Three are superseded and shown struck through in §3: `AV-28` by `AV-78`, `AV-52` by
+`AV-98`, `AV-123` by `AV-124`. `AV-41` is superseded by `AV-121`.
 
 | # | Decision | # | Decision |
 | -- |---| -- |---|
@@ -603,7 +621,7 @@ reasoning. Two are superseded and shown struck through in §3: `AV-28` by `AV-78
 | `AV-59` | Keep: files and recordings shared with a class (GroupResource) | `AV-120` | That reminder goes by email, phone notification and in-app |
 | `AV-60` | Onboarding must reach an accepted teaching plan | `AV-121` | The student's mistake pattern lives on their Progress tab, alongside readiness,… |
 | `AV-61` | Students and parents join by invite link; the tutor supplies their email addresses | `AV-122` | A mobile app for notifications and quick actions only — not a second copy of the product |
-| `AV-123` | Marking routes to Claude Opus 4.8, not Gemini | | |
+| `AV-123` | Marking routes to Claude Opus 4.8, not Gemini | `AV-124` | Gemini is retired from every surface; Opus 5 for extraction/syllabus/marking/readiness,… |
 
 ### Vocabulary
 
@@ -735,16 +753,17 @@ drafting and reflows, and a materially larger marking prompt. **Without this tas
 tracking reports call counts and no money**, and there is no way to know whether a tutor costs
 more to serve than they pay.
 
-**Price every model a surface actually resolves to** (AV-123) — checking the blank-model
-defaults against the provider default, not the surface name:
+**Price every model a surface actually resolves to** (AV-124) — checking the blank-model
+defaults against the provider default, not the surface name. Once `3.2` and `2.3` land, Gemini
+prices no rows at all:
 
 | Surface(s) | Resolves to |
 |---|---|
-| reports, readiness, class_brief, narrative, **marking** (AV-123) | `anthropic_model` — confirm the live value; `claude-opus-4-8` at time of writing |
-| extraction, syllabus | `GEMINI_MODEL` — a placeholder in code (`config.py:36`); **read the deployed env var, don't price the code default** |
+| marking, extraction, syllabus, readiness | `anthropic_model` (blank per-surface model) — `claude-opus-5` |
+| reports, class_brief, narrative | explicit per-surface model — `claude-sonnet-5` |
 
-Confirm both Anthropic and Gemini rates against each provider's own current pricing page, not a
-figure carried over from an earlier task — rates move and differ per account. **This task has no
+Price both `claude-opus-5` and `claude-sonnet-5` against Anthropic's own current pricing page, not
+a figure carried over from an earlier task — rates move. **This task has no
 backfill.** `record_usage` prices a call inline at write time; every `AiUsageEvent` row already
 written keeps `cost_usd = NULL` permanently once the env var is set — it only prices calls made
 afterward. Recovering historical spend from stored model + token counts is a separate task if
@@ -1033,10 +1052,15 @@ authenticated user's organization** (`PROD-4`, `SEC-7`); student-visible materia
 Delete `seed/syllabus/*.json`; `seed/demo.py` creates its own subject. Tests: another
 organization's subject returns **`404`, not `403`** (`API-7`, `SEC-9`, `QA-12`).
 
-**2.3 — Syllabus extraction produces chapters** *(AV-9, AV-10)* — `SyllabusUpload.draft` becomes
-chapter-first: `{..., chapters: [{code, title, topics: [...]}]}`. Update `SYLLABUS` in
+**2.3 — Syllabus extraction produces chapters** *(AV-9, AV-10, AV-124)* — `SyllabusUpload.draft`
+becomes chapter-first: `{..., chapters: [{code, title, topics: [...]}]}`. Update `SYLLABUS` in
 `services/prompts.py` and **bump its version** (`AI-6`, `AI-7`). Update the review UI to edit
 two levels. Drop `grade_boundaries` from the draft — 2.4 makes them tutor-entered.
+
+**Flip `ai_syllabus_provider` from `"gemini"` to `"anthropic"`, model left blank** — it inherits
+Opus 5 through `anthropic_model` (AV-124, set in task `3.2`). Land this alongside the chapter-tree
+prompt change so the syllabus prompt is tested against the model it will actually run on, not
+Gemini.
 
 **2.4 — Grade boundaries** *(AV-11)* — **The writer already exists**: `api/grade_boundaries.py`,
 107 lines, shipped as PR 26. Check whether a frontend editor exists before building one (0.0).
@@ -1077,13 +1101,28 @@ Consumed by Phase 3's context assembler.
 The upload flow moves to "start of chapter", reached from the plan or the chapter list. Homework
 creation otherwise unchanged.
 
-**3.2 — Marking context and precedence** *(AV-21, AV-24, AV-75, AV-76, AV-123, E16)*
+**3.2 — Marking context and precedence** *(AV-21, AV-24, AV-75, AV-76, AV-124, E16)*
 
-**Route marking to Anthropic, not Gemini** (AV-123): `ai_marking_provider` defaults to
-`"anthropic"`; leave `ai_marking_model` blank so it resolves to `anthropic_model`
-(`claude-opus-4-8`). `ai_extraction_provider` and `ai_syllabus_provider` are untouched — both
-stay `"gemini"`. Update `.env.example` and `config.py` in the same PR, and reprice
-`AI_MODEL_PRICING` for the added Opus volume in task 0.10.
+**Retire Gemini from every surface in one PR** (AV-124), not scattered across the tasks that
+happen to touch each surface — a half-migrated `config.py` is worse than the Gemini routing it
+replaces, because nothing signals which surfaces already moved.
+
+- Bump `anthropic_model` itself from `"claude-opus-4-8"` to `"claude-opus-5"`. Four surfaces —
+  **marking, extraction, syllabus, readiness** — keep `ai_<surface>_provider = "anthropic"` and
+  `ai_<surface>_model = ""` (blank), so they inherit Opus 5 through that one default with no
+  per-surface edit.
+- Flip `ai_marking_provider` and `ai_extraction_provider` from `"gemini"` to `"anthropic"`.
+  `ai_readiness_provider` is already `"anthropic"` — no change there beyond the shared default
+  moving. **`ai_syllabus_provider`'s flip is task `2.3`'s to make**, not this task's; this task
+  only names it in the routing table so `2.3` doesn't have to re-derive it.
+- The three surfaces that diverge from the shared default get an **explicit** model, not a blank
+  one: `ai_reports_model = "claude-sonnet-5"`, `ai_class_brief_model = "claude-sonnet-5"`,
+  `ai_narrative_model = "claude-sonnet-5"`. Their providers are already `"anthropic"`.
+- `gemini_api_key` / `gemini_model` stay in `config.py`, unused once this lands — see the note
+  under `AV-124`.
+
+Reprice `AI_MODEL_PRICING` for both `claude-opus-5` and `claude-sonnet-5` in task `0.10`; its
+per-surface table there already reflects this split.
 
 **One function assembles the entire marking context**, applying AV-76's order:
 
