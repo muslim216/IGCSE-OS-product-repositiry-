@@ -52,10 +52,8 @@ test("every student destination is reachable from the nav", async () => {
   for (const label of [
     "Home",
     // "Progress", not "Readiness" — the destination is named for what the
-    // reader gets, not for the engine behind one of its numbers. Improvement is
-    // its own destination and appears on no home surface.
+    // reader gets, not for the engine behind one of its numbers.
     "Progress",
-    "Improvement",
     "Files",
     "Recordings",
     "Homework",

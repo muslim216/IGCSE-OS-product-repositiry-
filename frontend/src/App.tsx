@@ -9,7 +9,6 @@ import {
   GraduationCap,
   Home as HomeIcon,
   Sunrise,
-  TrendingUp,
   Users,
   Video,
 } from "lucide-react";
@@ -49,7 +48,6 @@ import TutorPastPapersPage from "./tutor/PastPapersPage";
 
 import StudentHomePage from "./student/StudentHomePage";
 import ProgressPage from "./student/ProgressPage";
-import ImprovementPage from "./student/ImprovementPage";
 import WelcomePage from "./student/WelcomePage";
 import HomeworkPage from "./student/HomeworkPage";
 import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
@@ -76,7 +74,6 @@ const STUDENT_NAV: NavItem[] = [
   // it after the engine that computes one of those numbers described the
   // machinery rather than what the reader gets (UX-25).
   { to: "/student/progress", label: "Progress", icon: Gauge },
-  { to: "/student/improvement", label: "Improvement", icon: TrendingUp },
   { to: "/student/homework", label: "Homework", icon: ClipboardList },
   { to: "/student/past-papers", label: "Past papers", icon: FileText },
   { to: "/student/exams", label: "Exams", icon: GraduationCap },
@@ -144,7 +141,6 @@ export default function App() {
           <Route path="/student" element={<StudentHomePage />} />
           <Route path="/student/welcome" element={<WelcomePage />} />
           <Route path="/student/progress" element={<ProgressPage />} />
-          <Route path="/student/improvement" element={<ImprovementPage />} />
           {/* The old Readiness page's URL still lands — no bookmark 404s. */}
           <Route path="/student/readiness" element={<Navigate to="/student/progress" replace />} />
           <Route path="/student/files" element={<FilesPage />} />

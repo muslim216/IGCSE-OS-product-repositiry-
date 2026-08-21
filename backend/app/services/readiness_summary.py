@@ -115,18 +115,27 @@ def period_delta(
     ever computation as "this month" would credit them with a month of progress
     they have not had. It is also None when nothing was recorded inside the
     window — there is no movement to report, which is not the same as no
-    movement, and it is the difference the improvement ranking's first gate
-    turns on (a class of eight including one joiner has seven real deltas).
+    movement. The peer improvement ranking's first gate turned on exactly that
+    distinction (a class of eight including one joiner has seven real deltas);
+    that ranking is deleted (AV-57), but the distinction is not an artefact of
+    it — any caller counting "students who moved" must still not count a
+    joiner as having stood still.
 
     The baseline is the newest point at or before the window's start, so the
     comparison is against where the student actually stood then rather than
     against their oldest record.
 
     The window is anchored to midnight UTC, not to the moment of the request.
-    Two reasons, and both matter: the number is stable through the day rather
-    than drifting between two page loads, and the improvement ranking — this
-    same function applied to a whole class — cannot then be used to correlate a
-    rank change with a single submission a few minutes earlier.
+    The reason that still binds: the number is stable through the day rather
+    than drifting between two page loads.
+
+    It had a second reason, now historical. Applied to a whole class this
+    function produced the peer improvement ranking, and a live window would
+    have let a rank change be correlated with a single submission a few
+    minutes earlier — deanonymising it. That ranking is deleted (AV-57).
+    **Do not treat the anchoring as free to remove**: the stability reason
+    stands on its own, and the correlation reason returns the moment any
+    future feature computes this across more than one student.
     """
     now = now or datetime.now(timezone.utc)
     start = window_start(now, periods_ago)
