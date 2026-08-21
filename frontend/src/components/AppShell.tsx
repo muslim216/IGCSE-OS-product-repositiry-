@@ -10,7 +10,13 @@ export interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  /** "bottom" items sit apart from the main workflow nav. */
+  /** "bottom" items sit apart from the main workflow nav.
+   *
+   * Currently unused: "AI Tutor" was the only bottom-slot destination and was
+   * deleted with the student AI chat (AV-57), so `bottomNav` is always empty
+   * and every branch below that reads it is inert. Left in place rather than
+   * torn out because Phase D settles the navigation for all three roles — if
+   * that design has no second tier, this goes then. */
   slot?: "main" | "bottom";
 }
 

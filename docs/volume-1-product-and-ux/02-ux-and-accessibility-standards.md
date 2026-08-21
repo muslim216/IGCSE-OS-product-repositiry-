@@ -317,9 +317,6 @@ Applied deliberately in a handful of files and largely absent elsewhere. Counted
 - **`Modal` does not restore focus** to the trigger on close.
 - **`Modal`'s `aria-labelledby` is the hardcoded id `avora-modal-title`.** Two simultaneous
   modals produce duplicate ids and an ambiguous accessible name.
-- **`TutorChatPage.tsx` uses `role="assistant"`**, which is not a valid ARIA role and is
-  ignored by assistive technology.
-- **The streaming chat transcript has no `aria-live`**, so arriving AI text is silent.
 - **There is no skip link** to bypass navigation.
 - **Loading and error states are unannounced plain `<div>`s** — `"Loading…"` in `App.tsx:65`
   and `ProtectedRoute.tsx:21`.
@@ -420,10 +417,10 @@ and announced.
 invisible to a screen reader.
 
 **`UX-13` — MUST · Important · Active**
-Content that changes without a navigation — streaming AI output, async status transitions,
-toasts, validation summaries — is announced through a live region. Use `aria-live="polite"`;
+Content that changes without a navigation — async status transitions, toasts, validation
+summaries — is announced through a live region. Use `aria-live="polite"`;
 reserve `assertive` for errors that block progress.
-*Rationale:* the chat transcript and the readiness "updating" state are currently silent.
+*Rationale:* screen-reader users must be told when the state they see has changed without a page load. Transitions like "updating" are currently unannounced.
 
 **`UX-14` — MUST · Important · Active**
 Decorative graphics are `aria-hidden`; meaningful graphics carry a text alternative. A
@@ -439,7 +436,7 @@ Colour is never the sole carrier of meaning. Status is accompanied by text or an
 Use the semantic element for the job — `<button>` for actions, `<a>` for navigation,
 `<table>` with `<th>` for tabular data, landmarks for layout. An ARIA role is a last resort,
 and must be a real ARIA role.
-*Rationale:* `role="assistant"` in `TutorChatPage.tsx` is not one, and does nothing.
+*Rationale:* a non-existent role silently does nothing and leaves assistive-technology users without the information the author thought they were providing. Semantic HTML is more reliable and always has clearer intent.
 
 **`UX-17` — SHOULD · Important · Active**
 Respect `prefers-reduced-motion`: suppress non-essential transitions and any animation that
@@ -572,9 +569,7 @@ its render path.
 | **`Modal` has no focus trap and no focus restore** (`components/ui.tsx:120–157`). | Breaks `UX-11`. Keyboard and screen-reader users tab out of the dialog into the page behind it and lose their place on close. | `blocking` |
 | **Contrast is guarded at the token level, not at the point of use.** `contrast.test.ts` proves every token clears the ratio its role needs; nothing checks that a given token is used in the role it was measured for. | A `brand-500` (sienna) label used as body text (~2.4:1) would pass every test and still fail AA. The guard closes the systemic failure, not the individual mistake. | `before scale` |
 | **`--color-line` (1.33 on surface) is the default border for many legacy inputs.** | Breaks `UX-9`. Form fields styled with a bare `border` have no perceptible boundary for low-vision users; the bare `input` element and token-based fields correctly use `line-control`. | `blocking` |
-| **`role="assistant"` in `TutorChatPage.tsx`** is not a valid ARIA role. | Breaks `UX-16`. Silently does nothing; the author presumably believed it conveyed something. | `blocking` |
 | **`Modal`'s panel carries `outline-none`** without a custom indicator. | Narrows `UX-10` for that one container. A global unlayered `:focus-visible` outline (terracotta, ≥3:1) now covers every interactive element, so this is the remaining exception, not the rule. | `nice to have` |
-| **The streaming chat transcript has no `aria-live`.** | Breaks `UX-13`. Arriving AI text is silent to a screen reader — the primary content of that page. | `before scale` |
 | **No skip link.** | Every page begins by tabbing through the full navigation. | `before scale` |
 | **`Modal`'s `aria-labelledby` is a hardcoded id.** | Duplicate ids and an ambiguous accessible name if two modals are ever open. Latent, not yet triggered. | `nice to have` |
 | **Loading and error states are unannounced `<div>`s** (`App.tsx:65`, `ProtectedRoute.tsx:21`). | Breaks `UX-13` at the application's entry point. | `before scale` |

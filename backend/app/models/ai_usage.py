@@ -9,6 +9,12 @@ from app.models.base import Base, utcnow
 
 class AiFeature(str, enum.Enum):
     marking = "marking"
+    # Frozen, but NOT empty. The student AI chat that wrote these rows is
+    # deleted (AV-57) and no surface meters into this bucket any more, so the
+    # member cannot be removed: existing ai_usage_events rows still carry it
+    # and dropping it would make historical metering unreadable. Task 10.1's
+    # per-account rollups must count it as real spend that has stopped, not as
+    # a dead value to skip.
     chat = "chat"
     report = "report"
     extraction = "extraction"

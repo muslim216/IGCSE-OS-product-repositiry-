@@ -158,11 +158,14 @@ expiry.
 throwing, with a comment explaining why: every request reads it, so a throw here would take
 down the app including the login that would fix it.
 
-**Two deliberate bypasses** of `api<T>()` exist and are the only sanctioned ones:
+**One deliberate bypass** of `api<T>()` exists and is the only sanctioned one:
 
 - `homework.ts:fetchFileUrl()` — fetches a file as a blob for `URL.createObjectURL`, because
   an authenticated file cannot be an `<img src>`.
-- `chat.ts:streamMessage()` — Server-Sent Events, with its own 401-refresh-and-retry.
+
+There were two until `chat.ts:streamMessage()` — Server-Sent Events, with its own
+401-refresh-and-retry — was deleted with the student AI chat (`AV-57`). Nothing in the
+product streams now.
 
 ### Error handling reality
 
@@ -257,8 +260,10 @@ of `RISK-6`; convert a domain to schema aliases when you next touch it.
 
 **`FE-1` — MUST · Critical · Active**
 Every HTTP call goes through `api<T>()` in `frontend/src/api/client.ts`. The only sanctioned
-exceptions are `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE, both of
-which implement their own auth and refresh.
+exception is `fetchFileUrl()` for blob downloads, which implements its own auth and refresh.
+`streamMessage()` for SSE was a second exception until the student AI chat was deleted
+(`AV-57`); a future streaming surface must be granted the exemption again explicitly, not
+inherit a lapsed one.
 *Rationale:* bearer attachment, transparent refresh, and error normalization live there; a
 raw `fetch` silently opts out of all three, and its 401s will log the user out.
 

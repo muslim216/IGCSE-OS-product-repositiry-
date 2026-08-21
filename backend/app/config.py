@@ -37,15 +37,13 @@ class Settings(BaseSettings):
     # Per-surface model routing (see services/ai.py resolve_surface). Provider
     # is "anthropic" or "gemini"; leaving the model blank uses that provider's
     # default model above. Marking/extraction default to Gemini (bulk document
-    # work), chat to a cheap Anthropic model, reports/readiness to Opus.
+    # work), reports/readiness to Opus.
     ai_marking_provider: str = "gemini"
     ai_marking_model: str = ""
     ai_extraction_provider: str = "gemini"
     ai_extraction_model: str = ""
     ai_syllabus_provider: str = "gemini"
     ai_syllabus_model: str = ""
-    ai_chat_provider: str = "anthropic"
-    ai_chat_model: str = "claude-haiku-4-5"
     ai_reports_provider: str = "anthropic"
     ai_reports_model: str = ""
     ai_readiness_provider: str = "anthropic"

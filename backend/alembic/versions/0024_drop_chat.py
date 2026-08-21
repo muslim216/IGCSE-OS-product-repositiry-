@@ -15,7 +15,9 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0024"
-down_revision = "0023"
+down_revision = "0025"
+# Reparented onto 0025: 0025_user_time_zone deployed first while
+# this migration awaited review; chaining here keeps a single head (see §06).
 branch_labels = None
 depends_on = None
 

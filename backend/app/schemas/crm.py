@@ -73,8 +73,11 @@ class CrmHomeworkItem(BaseModel):
 
 
 class StudentCrmOut(BaseModel):
-    """The student's full academic record — the one aggregation that feeds
-    both the CRM UI and the AI's grounding context (services/student_context.py)."""
+    """The student's full academic record — the one aggregation behind the CRM
+    UI. It also fed the AI's grounding context via services/student_context.py
+    until the student AI chat was deleted (AV-57); it stays a single complete
+    record so the next AI surface needing one reads this rather than
+    reassembling it."""
 
     student_id: int
     student_name: str
