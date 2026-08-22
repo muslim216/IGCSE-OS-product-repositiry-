@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.models import Group, GroupMember, Invite, InviteKind, Organization, ParentLink
 from app.models.users import User, UserRole
 from app.schemas.auth import (
+    AccessToken,
     AuthResponse,
     LoginRequest,
     RefreshRequest,
@@ -46,6 +47,12 @@ def _token_pair(user: User) -> TokenPair:
         access_token=create_access_token(user.id, user.token_version),
         refresh_token=create_refresh_token(user.id, user.token_version),
     )
+
+
+def _access_only(tokens: TokenPair) -> AccessToken:
+    """What actually goes in a JSON response body — never the refresh token.
+    See AccessToken's docstring (SEC-2)."""
+    return AccessToken(access_token=tokens.access_token, token_type=tokens.token_type)
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -94,7 +101,7 @@ async def register_tutor(
     await db.refresh(user)
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
 
 
 @lru_cache
@@ -132,13 +139,13 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
     login_limiter.reset(identifier)
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
 
 
-@router.post("/refresh", response_model=TokenPair)
+@router.post("/refresh", response_model=AccessToken)
 async def refresh(
     request: Request, response: Response, db: DbSession, body: RefreshRequest | None = None
-) -> TokenPair:
+) -> AccessToken:
     raw_token = (body.refresh_token if body else None) or request.cookies.get(REFRESH_COOKIE)
     if raw_token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No refresh token provided")
@@ -153,7 +160,7 @@ async def refresh(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
-    return tokens
+    return _access_only(tokens)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -241,7 +248,7 @@ async def register_student(
     await db.refresh(user)
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
 
 
 @router.post("/register/parent", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -273,7 +280,7 @@ async def register_parent(
     await db.refresh(user)
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
 
 
 @router.post("/join", status_code=status.HTTP_204_NO_CONTENT)

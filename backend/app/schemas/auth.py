@@ -26,8 +26,22 @@ class RefreshRequest(BaseModel):
 
 
 class TokenPair(BaseModel):
+    """Both tokens, minted together server-side. Never sent to a client as
+    JSON — see AccessToken. `_set_refresh_cookie` reads `refresh_token` off
+    this to set the httpOnly cookie; nothing else should."""
+
     access_token: str
     refresh_token: str
+    token_type: str = "bearer"
+
+
+class AccessToken(BaseModel):
+    """What a client actually receives in a response body. The refresh token
+    travels only in the httpOnly, SameSite=Lax cookie scoped to
+    /api/v1/auth — putting it in JSON as well would let a same-origin XSS
+    read it, which defeats the point of the cookie (SEC-2)."""
+
+    access_token: str
     token_type: str = "bearer"
 
 
@@ -43,4 +57,4 @@ class UserOut(BaseModel):
 
 class AuthResponse(BaseModel):
     user: UserOut
-    tokens: TokenPair
+    tokens: AccessToken

@@ -68,10 +68,22 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "narrative": AiFeature.report,
 }
 
+# Streaming is Anthropic-only (see stream_complete). Naming the surfaces that
+# need it here, rather than only checking inside stream_complete, means
+# resolve_surface() itself rejects a misconfigured route — the check runs
+# wherever a surface is resolved, not only at the moment a stream is opened.
+SURFACES_REQUIRING_STREAMING = frozenset({"chat"})
 
-def resolve_surface(surface: str) -> tuple[AiProvider, str]:
+
+def resolve_surface(surface: str, *, require_streaming: bool = False) -> tuple[AiProvider, str]:
     """(provider, model) for one AI surface, from settings. A blank per-surface
-    model falls back to that provider's default model."""
+    model falls back to that provider's default model.
+
+    `require_streaming=True` rejects a provider that cannot stream immediately,
+    instead of resolving successfully and only failing once a caller actually
+    tries to open a stream (AI-20: this is a configuration error, not a missing
+    key, so it raises rather than degrading — the caller decides whether that
+    surfaces at startup or at first request)."""
     if surface not in SURFACES:
         raise ValueError(f"Unknown AI surface '{surface}'")
     settings = get_settings()
@@ -83,6 +95,10 @@ def resolve_surface(surface: str) -> tuple[AiProvider, str]:
             f"AI_{surface.upper()}_PROVIDER is '{raw_provider}'; expected one of "
             + ", ".join(p.value for p in AiProvider)
         ) from None
+    if require_streaming and provider is not AiProvider.anthropic:
+        raise AIUnavailableError(
+            f"Streaming is only supported on Anthropic; set AI_{surface.upper()}_PROVIDER=anthropic"
+        )
     model = getattr(settings, f"ai_{surface}_model", "") or (
         settings.gemini_model if provider is AiProvider.gemini else settings.anthropic_model
     )
@@ -341,11 +357,7 @@ async def stream_complete(
     for it isn't worth the surface area. When `usage` is passed it is filled in
     with model/provider/prompt_version/token counts once the stream ends, so
     the caller can meter the call on its own session."""
-    provider, model = resolve_surface(surface)
-    if provider is not AiProvider.anthropic:
-        raise AIUnavailableError(
-            f"Streaming is only supported on Anthropic; set AI_{surface.upper()}_PROVIDER=anthropic"
-        )
+    provider, model = resolve_surface(surface, require_streaming=True)
     template = get_prompt(surface)
     client = get_client()
     async with client.messages.stream(

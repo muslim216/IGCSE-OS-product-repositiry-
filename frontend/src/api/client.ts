@@ -1,6 +1,5 @@
 export interface TokenPair {
   access_token: string;
-  refresh_token: string;
   token_type: string;
 }
 
@@ -69,9 +68,10 @@ export function getStoredTokens(): StoredTokens | null {
 
 export function storeTokens(tokens: TokenPair | StoredTokens | null) {
   if (tokens) {
-    // Persist the access token only — never `refresh_token`, even though the
-    // server hands us one. Callers pass the whole pair straight from a login
-    // response, so the narrowing happens here rather than at every call site.
+    // Narrows to just what we persist. The server never sends a refresh
+    // token in a response body at all now — TokenPair itself carries only
+    // the access token — so this is belt-and-braces against a caller that
+    // widens the type later, not a defense against the current contract.
     const stored: StoredTokens = {
       access_token: tokens.access_token,
       token_type: tokens.token_type,

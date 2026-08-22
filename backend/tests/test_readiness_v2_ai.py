@@ -10,17 +10,70 @@ from app.models import (
     Assessment,
     AssessmentScore,
     AssessmentType,
+    FactorConfidence,
     FactorEvaluation,
+    ReadinessFactor,
     ReadinessSnapshot,
     Subject,
     User,
 )
 from app.services.readiness_v2_ai import (
+    DEFAULT_WEIGHTS,
     ReadinessSynthesis,
     WeakTopicSuggestion,
+    _weighted_reference_score,
     compute_readiness_v2,
 )
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
+
+
+def _row(factor, score, confidence=FactorConfidence.high):
+    """An in-memory FactorEvaluation — never added to a session. The function
+    under test only reads .factor/.score/.confidence, so this is enough to
+    unit-test it without touching the database."""
+    return FactorEvaluation(
+        evaluation_run_id="test",
+        student_id=1,
+        subject_id=1,
+        factor=factor,
+        score=score,
+        confidence=confidence,
+    )
+
+
+def test_weighted_reference_score_averages_per_factor_not_per_row():
+    """Regression for the bug Qodo caught: Topic Mastery is persisted as one
+    row per topic while every other factor gets exactly one row, so an
+    unweighted average over rows let Topic Mastery outvote the other six by
+    however many topics the subject has. Five strong topic-mastery rows must
+    not drown out one weak homework-performance row."""
+    rows = [_row(ReadinessFactor.topic_mastery, 90.0) for _ in range(5)] + [
+        _row(ReadinessFactor.homework_performance, 20.0)
+    ]
+    reference = _weighted_reference_score(rows, DEFAULT_WEIGHTS)
+    # Per-factor: mean(topic_mastery)=90, homework_performance=20 -> (90+20)/2 = 55.
+    # Per-row (the bug): (90*5 + 20) / 6 ≈ 78.3 — far higher, and it would grow
+    # with topic count rather than staying anchored to two equal factors.
+    assert reference == 55.0
+
+
+def test_weighted_reference_score_damps_low_confidence_factors():
+    """A factor backed by only one or two marks (low confidence) must not
+    veto the AI's score as forcefully as a well-evidenced one at the same
+    tutor weight."""
+    high_confidence_low_score = _row(
+        ReadinessFactor.assessment_performance, 0.0, FactorConfidence.high
+    )
+    low_confidence_high_score = _row(
+        ReadinessFactor.homework_performance, 100.0, FactorConfidence.low
+    )
+    reference = _weighted_reference_score(
+        [high_confidence_low_score, low_confidence_high_score], DEFAULT_WEIGHTS
+    )
+    # An unweighted average would land at 50. Damping the low-confidence row
+    # (0.4x) against the high-confidence one (1.0x) must pull it below that,
+    # toward the number backed by more evidence.
+    assert reference < 50.0
 
 
 async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, world):
@@ -173,13 +226,16 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
         )
         await session.commit()
 
+    # Close to the weighted factor reference (50.0 here — see the dedicated
+    # score-enforcement tests below) so this test exercises only what it's
+    # named for: weak-topic filtering, not the score-contradiction clamp.
     fake_result = ReadinessSynthesis(
-        score=62.5,
+        score=45.0,
         weak_topics=[
             WeakTopicSuggestion(topic_id=world["topic1"], reason="Low assessment score"),
             WeakTopicSuggestion(topic_id=999999, reason="Hallucinated topic that doesn't exist"),
         ],
-        rationale="Assessment performance is the only signal so far and it's middling.",
+        rationale="Assessment performance is the only signal so far and it's weak.",
         recommended_revision="Do another topic quiz and a past paper attempt.",
     )
     monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result))
@@ -196,7 +252,7 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
             )
         ).one()
         assert snapshot.status == AiSynthesisStatus.ready
-        assert snapshot.score == 62.5
+        assert snapshot.score == 45.0
         assert snapshot.predicted_grade is not None
         # The hallucinated topic_id (999999) must be filtered out.
         assert len(snapshot.weak_topics) == 1
@@ -214,3 +270,69 @@ async def test_compute_all_subjects_when_subject_id_omitted(client, tutor, world
             )
         ).all()
         assert {s.subject_id for s in snapshots} == {world["subject_id"]}
+
+
+async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    """The prompt tells the model the seven factor scores are "not permitted
+    to contradict" — this proves that's enforced in code, not just requested
+    of the model. A wildly implausible score must not reach the tutor as-is."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        assessment = Assessment(
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            title="Mock",
+            type=AssessmentType.mock,
+            date=date.today(),
+        )
+        session.add(assessment)
+        await session.flush()
+        session.add(
+            AssessmentScore(
+                assessment_id=assessment.id,
+                student_id=world["student_id"],
+                topic_id=world["topic1"],
+                marks=18,
+                max_marks=20,
+            )
+        )
+        await session.commit()
+
+    # A student doing well by every measured factor; the AI proposes a score
+    # that flatly contradicts them.
+    fake_result = ReadinessSynthesis(
+        score=5.0,
+        weak_topics=[],
+        rationale="Deliberately implausible for this test.",
+        recommended_revision="N/A",
+    )
+    monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result))
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+
+    async with async_session() as session:
+        snapshot = (
+            await session.scalars(
+                select(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
+            )
+        ).one()
+        factor_rows = (
+            await session.scalars(
+                select(FactorEvaluation).where(
+                    FactorEvaluation.evaluation_run_id == snapshot.evaluation_run_id
+                )
+            )
+        ).all()
+        # Computed the same way the persisted score was — one vote per factor,
+        # confidence-damped — rather than re-deriving the formula by hand and
+        # risking the test drifting out of sync with it.
+        reference = _weighted_reference_score(factor_rows, DEFAULT_WEIGHTS)
+
+        assert snapshot.status == AiSynthesisStatus.ready
+        assert snapshot.score != 5.0  # the contradicting score was not persisted as-is
+        assert abs(snapshot.score - (reference - 10.0)) < 1e-6  # pulled to the tolerance edge

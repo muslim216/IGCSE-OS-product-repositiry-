@@ -84,4 +84,6 @@ async def tutor(client):
         "user": data["user"],
         "headers": {"Authorization": f"Bearer {data['tokens']['access_token']}"},
         "tokens": data["tokens"],
+        # Not in the JSON body (SEC-2) — only ever available from the cookie.
+        "refresh_token": resp.cookies.get("igcse_refresh"),
     }

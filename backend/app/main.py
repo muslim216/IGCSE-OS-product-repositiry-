@@ -41,6 +41,7 @@ from app.api import (
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
+from app.services.ai import AIUnavailableError, resolve_surface
 from app.services.extraction import extract_assignment, extract_past_paper
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
@@ -124,6 +125,18 @@ async def _supervised_worker() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Chat is the only streaming surface, and streaming is Anthropic-only.
+    # Routing it to Gemini used to be a config mistake nobody saw until a
+    # student opened chat and the stream failed at request time. Checked here
+    # too, not just inside stream_complete(), so it shows up in the boot log
+    # instead of the first support ticket. Logged, not raised: AI-20 says a
+    # misconfigured surface degrades with a clear message, and must never
+    # block the API from starting.
+    try:
+        resolve_surface("chat", require_streaming=True)
+    except AIUnavailableError as exc:
+        log.error("chat is misconfigured at startup: %s", exc)
+
     # Floor under the parent-narrative schedule: the sweep re-enqueues itself,
     # but if that row is ever lost (a failure past MAX_ATTEMPTS, a manual purge)
     # every parent narrative stops silently. Re-scheduling it here is idempotent
