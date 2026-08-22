@@ -34,7 +34,7 @@ function renderApp(entry: string) {
 beforeEach(() => {
   localStorage.setItem(
     "igcse-os-tokens",
-    JSON.stringify({ access_token: "t", refresh_token: "r", token_type: "bearer" }),
+    JSON.stringify({ access_token: "t", token_type: "bearer" }),
   );
 });
 

@@ -38,11 +38,11 @@ async def test_login_wrong_password(client, tutor):
 
 
 async def test_refresh_token_flow(client, tutor):
-    resp = await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": tutor["tokens"]["refresh_token"]}
-    )
+    resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": tutor["refresh_token"]})
     assert resp.status_code == 200
-    new_access = resp.json()["access_token"]
+    body = resp.json()
+    assert "refresh_token" not in body  # SEC-2: never in a response body
+    new_access = body["access_token"]
     me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
     assert me.status_code == 200
 
@@ -65,6 +65,30 @@ async def test_login_sets_refresh_cookie(client):
         json={"name": "Cookie Tutor", "email": "cookie@example.com", "password": "password123"},
     )
     assert resp.status_code == 201
+    assert "igcse_refresh" in resp.cookies
+
+
+async def test_register_response_never_carries_refresh_token_in_json(client):
+    """SEC-2: the refresh token must live only in the httpOnly cookie. A
+    regression here would mean same-origin XSS could read a 30-day
+    credential straight out of the register response body."""
+    resp = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "No Leak", "email": "noleak@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert "refresh_token" not in resp.json()["tokens"]
+    assert "igcse_refresh" in resp.cookies
+
+
+async def test_login_response_never_carries_refresh_token_in_json(client, tutor):
+    """Same guarantee as above, for the login response specifically."""
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "tutor@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "refresh_token" not in resp.json()["tokens"]
     assert "igcse_refresh" in resp.cookies
 
 
@@ -108,7 +132,7 @@ async def test_logout_revokes_existing_refresh_token(client, tutor):
     resp = await client.post("/api/v1/auth/logout", headers=tutor["headers"])
     assert resp.status_code == 204
     refresh_resp = await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": tutor["tokens"]["refresh_token"]}
+        "/api/v1/auth/refresh", json={"refresh_token": tutor["refresh_token"]}
     )
     assert refresh_resp.status_code == 401
 

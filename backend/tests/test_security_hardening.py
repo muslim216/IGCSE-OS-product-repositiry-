@@ -59,6 +59,8 @@ async def test_password_reset_revokes_existing_tokens(client, tutor, group):  # 
     )
     stolen = login.json()["tokens"]
     stolen_headers = {"Authorization": f"Bearer {stolen['access_token']}"}
+    # Not in the JSON body (SEC-2) — only ever available from the cookie.
+    stolen_refresh_token = login.cookies.get("igcse_refresh")
 
     assert (await client.get("/api/v1/auth/me", headers=stolen_headers)).status_code == 200
 
@@ -71,7 +73,7 @@ async def test_password_reset_revokes_existing_tokens(client, tutor, group):  # 
 
     assert (await client.get("/api/v1/auth/me", headers=stolen_headers)).status_code == 401
     replayed = await client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": stolen["refresh_token"]}
+        "/api/v1/auth/refresh", json={"refresh_token": stolen_refresh_token}
     )
     assert replayed.status_code == 401
 
