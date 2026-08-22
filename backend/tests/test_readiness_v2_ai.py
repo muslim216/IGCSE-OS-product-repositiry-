@@ -173,13 +173,16 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
         )
         await session.commit()
 
+    # Close to the weighted factor reference (25.0 here — see the dedicated
+    # score-enforcement test below) so this test exercises only what it's
+    # named for: weak-topic filtering, not the score-contradiction clamp.
     fake_result = ReadinessSynthesis(
-        score=62.5,
+        score=30.0,
         weak_topics=[
             WeakTopicSuggestion(topic_id=world["topic1"], reason="Low assessment score"),
             WeakTopicSuggestion(topic_id=999999, reason="Hallucinated topic that doesn't exist"),
         ],
-        rationale="Assessment performance is the only signal so far and it's middling.",
+        rationale="Assessment performance is the only signal so far and it's weak.",
         recommended_revision="Do another topic quiz and a past paper attempt.",
     )
     monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result))
@@ -196,7 +199,7 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
             )
         ).one()
         assert snapshot.status == AiSynthesisStatus.ready
-        assert snapshot.score == 62.5
+        assert snapshot.score == 30.0
         assert snapshot.predicted_grade is not None
         # The hallucinated topic_id (999999) must be filtered out.
         assert len(snapshot.weak_topics) == 1
@@ -214,3 +217,67 @@ async def test_compute_all_subjects_when_subject_id_omitted(client, tutor, world
             )
         ).all()
         assert {s.subject_id for s in snapshots} == {world["subject_id"]}
+
+
+async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    """The prompt tells the model the seven factor scores are "not permitted
+    to contradict" — this proves that's enforced in code, not just requested
+    of the model. A wildly implausible score must not reach the tutor as-is."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        assessment = Assessment(
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            title="Mock",
+            type=AssessmentType.mock,
+            date=date.today(),
+        )
+        session.add(assessment)
+        await session.flush()
+        session.add(
+            AssessmentScore(
+                assessment_id=assessment.id,
+                student_id=world["student_id"],
+                topic_id=world["topic1"],
+                marks=18,
+                max_marks=20,
+            )
+        )
+        await session.commit()
+
+    # A student doing well by every measured factor; the AI proposes a score
+    # that flatly contradicts them.
+    fake_result = ReadinessSynthesis(
+        score=5.0,
+        weak_topics=[],
+        rationale="Deliberately implausible for this test.",
+        recommended_revision="N/A",
+    )
+    monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", fake_ai(fake_result))
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+
+    async with async_session() as session:
+        snapshot = (
+            await session.scalars(
+                select(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
+            )
+        ).one()
+        factor_rows = (
+            await session.scalars(
+                select(FactorEvaluation).where(
+                    FactorEvaluation.evaluation_run_id == snapshot.evaluation_run_id
+                )
+            )
+        ).all()
+        scored = [r.score for r in factor_rows if r.score is not None]
+        reference = sum(scored) / len(scored)  # weights are all 1.0 by default
+
+        assert snapshot.status == AiSynthesisStatus.ready
+        assert snapshot.score != 5.0  # the contradicting score was not persisted as-is
+        assert abs(snapshot.score - (reference - 10.0)) < 1e-6  # pulled to the tolerance edge

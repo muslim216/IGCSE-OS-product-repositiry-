@@ -17,6 +17,7 @@ on, so v2 accumulates snapshots in the background for comparison without
 affecting what any existing endpoint serves (see api/readiness_v2.py for the
 read-only endpoints that expose them)."""
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -46,6 +47,8 @@ from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.workers.jobs import enqueue
+
+log = logging.getLogger("readiness_v2_ai")
 
 # resolve_grade_boundaries lives in services/grade_boundaries.py; it is imported
 # here and re-exported so the existing readers that import it from this module
@@ -116,6 +119,53 @@ FACTOR_WEIGHT_ATTR = {
     ReadinessFactor.consistency: "weight_consistency",
 }
 DEFAULT_WEIGHTS = dict.fromkeys(FACTOR_WEIGHT_ATTR.values(), 1.0)
+
+# Max points the AI's synthesized score may diverge from the weighted average
+# of the deterministic factor scores before it is pulled back in line. The
+# prompt tells the model the seven factor scores are "not permitted to
+# contradict" — this is what makes that a constraint the code enforces,
+# rather than only a request the model can ignore.
+SCORE_CONTRADICTION_TOLERANCE = 10.0
+
+
+def _weighted_reference_score(
+    factor_rows: list[FactorEvaluation], weights: dict[str, float]
+) -> float | None:
+    """The deterministic answer, computed the same way the prompt describes
+    it, before the AI is involved. None when no factor has a score — that
+    case never reaches synthesis (see the "no evidence" branch above), but
+    this stays defensive rather than assuming that."""
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for row in factor_rows:
+        if row.score is None:
+            continue
+        weight = weights[FACTOR_WEIGHT_ATTR[row.factor]]
+        weighted_sum += row.score * weight
+        total_weight += weight
+    return weighted_sum / total_weight if total_weight else None
+
+
+def _enforce_factor_score_constraint(score: float, reference: float | None) -> float:
+    """Pull the AI's score back to within SCORE_CONTRADICTION_TOLERANCE of the
+    weighted factor reference. Correcting rather than rejecting: a tutor
+    still gets a number today, just one Layer 1 can defend, instead of the
+    run failing outright over a synthesis step that mostly got it right."""
+    if reference is None:
+        return score
+    lower = reference - SCORE_CONTRADICTION_TOLERANCE
+    upper = reference + SCORE_CONTRADICTION_TOLERANCE
+    clamped = min(max(score, lower), upper)
+    if clamped != score:
+        log.warning(
+            "readiness synthesis score %.1f contradicted the weighted factor "
+            "reference %.1f by more than %.1f points; clamped to %.1f",
+            score,
+            reference,
+            SCORE_CONTRADICTION_TOLERANCE,
+            clamped,
+        )
+    return clamped
 
 
 class WeakTopicSuggestion(BaseModel):
@@ -242,8 +292,10 @@ async def _synthesize_subject(
             feature=AiFeature.readiness,
         )
     result: ReadinessSynthesis = response.parsed
+    reference_score = _weighted_reference_score(factor_rows, weights)
+    score = _enforce_factor_score_constraint(result.score, reference_score)
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
-    grade = predict_grade(result.score, boundaries)
+    grade = predict_grade(score, boundaries)
 
     valid_topic_ids = {
         row.topic_id for row in factor_rows if row.factor == ReadinessFactor.topic_mastery
@@ -264,7 +316,7 @@ async def _synthesize_subject(
             student_id=student.id,
             subject_id=subject_id,
             status=AiSynthesisStatus.ready,
-            score=result.score,
+            score=score,
             predicted_grade=grade,
             weak_topics=weak_topics,
             rationale=result.rationale,
