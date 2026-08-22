@@ -1,0 +1,158 @@
+# 01 — How It All Fits Together
+
+*The map. Everything else assumes you've read this.*
+
+---
+
+## The system in three pieces
+
+Almost every web product is three things, and Avora is no exception:
+
+**1. The app you see (the "frontend")**
+Everything visual — pages, buttons, dashboards, the upload screen. It runs inside the user's web browser. Written in React and TypeScript, about 9,800 lines, roughly 60 screens.
+
+**2. The engine you don't see (the "backend")**
+Where the actual work happens: checking passwords, running the readiness calculations, talking to AI providers, deciding who's allowed to see what. Written in Python, about 12,400 lines. Users never see it directly — the app talks to it on their behalf.
+
+**3. The memory (the "database")**
+Where everything is permanently kept: users, groups, homework, marks, evidence, scores. A PostgreSQL database with 52 tables.
+
+Plus one thing that sits slightly outside those three:
+
+**4. The file store**
+Actual files — uploaded PDFs, mark schemes, photographs of handwritten work. These aren't kept in the database. They sit on a disk, and the database stores only the *address* of each file, like a library catalogue that tells you the shelf but doesn't contain the book. *(This split has a real consequence — see the weaknesses document.)*
+
+## What happens when someone clicks something
+
+Take a concrete example: **a student opens their readiness page.**
+
+1. The student taps "Readiness" in the app.
+2. The app sends a request to the engine: *"give me the readiness for whoever this is."*
+3. Attached to that request is a **token** — a signed digital pass proving who they are, issued when they logged in.
+4. The engine checks the token. Is it valid? Not expired? Not revoked? If any check fails, the request is rejected immediately.
+5. The engine works out which student this is, and confirms they're only asking for their own data.
+6. It reads the latest readiness scores from the database.
+7. It sends back the numbers.
+8. The app draws the page.
+
+The whole round trip takes a fraction of a second. The important part is **step 4 and 5**: identity is verified on every single request. The app being open on your phone is not what makes you authorised — the token attached to each request is.
+
+## The one rule that shapes the entire backend
+
+The engine is arranged in three layers, and the rule is that **information flows in one direction only:**
+
+```
+   api/          "the front desk"  — receives requests, checks permissions, replies
+     ↓
+   services/     "the workshop"    — does the actual thinking
+     ↓
+   models/       "the filing system" — defines what's stored and how
+```
+
+The front desk can call the workshop. The workshop can call the filing system. **Nothing ever goes back up.** The filing system knows nothing about the front desk.
+
+Why this matters commercially: the workshop is used by two completely different callers — live requests from users, *and* background work happening on a schedule. Because the thinking lives in the workshop rather than the front desk, both get the same behaviour for free. If the marking logic lived at the front desk, the background pipeline couldn't use it and it would have to be written twice — two copies that drift apart, and a fix applied to one silently doesn't apply to the other.
+
+By the numbers: 23 front-desk modules covering 125 different requests the app can make, 24 workshop modules, 16 filing-system modules covering 52 tables.
+
+## Work that happens in the background
+
+Some things are too slow to make a user wait for. Reading a 40-page PDF and extracting every question takes a minute or more. Marking a submission means sending images to an AI provider. Nobody should stare at a spinner for that.
+
+So Avora has a **job queue.** When something slow needs doing:
+
+1. A row is written to a `jobs` table saying what needs to happen.
+2. The user gets an immediate response — *"we're working on it."*
+3. A background **worker** picks the job up moments later and does it.
+4. When it's finished, the result appears in the app.
+
+There are exactly **eight kinds of background job:**
+
+| Job | What it does |
+|---|---|
+| `extract_assignment` | Read a homework booklet, pull out the question list |
+| `extract_past_paper` | The same, for a full past paper |
+| `mark_submission` | Mark a student's submitted work |
+| `recompute_readiness` | Recalculate readiness scores (old engine) |
+| `compute_readiness_v2` | Recalculate readiness scores (new engine) |
+| `generate_report` | Write a progress report |
+| `extract_syllabus` | Read a syllabus PDF, draft a topic tree |
+| `sync_classroom` | Import work from Google Classroom |
+
+**Three design details worth knowing, because they're the difference between this working and not:**
+
+**Nothing is lost if the system restarts.** The job is written down *before* it runs. A server restart mid-job means the work is picked up again, not forgotten. If jobs lived only in memory, a routine deployment would silently drop every piece of homework being marked at that moment.
+
+**Every job is safe to run twice.** This sounds like a technicality; it's the most important correctness property in the system. Because a job can be retried, every job must produce the same result whether it runs once or three times. So marking *updates* existing marks rather than adding new ones, and question extraction *replaces* the question list rather than appending to it. Without this rule, a single retry would double a student's marks.
+
+**A job never overwrites a human decision.** If a tutor has finalised a mark, re-running the marking job leaves it alone. The tutor's authority isn't a policy statement — it's built into how the pipeline behaves.
+
+If a job fails, it's tried once more after a 60-second wait. If it fails again it's recorded as failed, with the reason stored somewhere the tutor can see it. *(Nothing alerts anyone when this happens — see the weaknesses document.)*
+
+## Where it all runs
+
+Two hosting providers, one job each:
+
+**Vercel** serves the app — the thing users actually open. It's the only address users ever type.
+
+**Render** runs the engine, the database, and the file disk. Users never touch it directly.
+
+The clever bit that makes this work: when the app needs the engine, it doesn't call Render directly. It calls **its own address**, and Vercel quietly forwards the request to Render behind the scenes.
+
+This isn't a technical curiosity — it's a security decision. Because the browser only ever sees one address, the app can use a **cookie** to keep users logged in. Cookies are the most secure way to hold a login credential, because code running on the page cannot read them, so a malicious script injected into the page can't steal the session. That protection only works when everything appears to come from one address. Call Render directly and the browser treats it as a different site, refuses to send the cookie, and users get logged out whenever their session needs renewing.
+
+## How login works
+
+Two credentials, deliberately different:
+
+**The access token** — a short-lived pass, sent with every request. Held in the browser's storage, where page code can read it. That's an accepted trade-off: it expires quickly.
+
+**The refresh token** — used only to get a new access token when the old one expires. Kept in a cookie that page code *cannot* read, and which is only sent to the specific address that renews sessions. The browser stores the only copy; the app deliberately never keeps its own.
+
+The result: if someone injected malicious code into the page, they could steal a short-lived pass. They could not steal the thing that renews it indefinitely.
+
+**Logging out actually logs you out.** Every user has a version number stamped inside their tokens. Logging out bumps that number, which instantly invalidates every token ever issued to that account — including ones an attacker might be holding. Most systems just delete the token on your device and let stolen copies keep working until they expire.
+
+The same thing happens when a tutor resets a student's password. That's not incidental: resetting a password is how a tutor kicks out whoever else has been sharing an account, so it has to end the sessions that account already has, not just change what a future login requires.
+
+Other limits: failed logins are throttled to 10 per 15 minutes per account, invite codes expire after 14 days, and parent invite links work exactly once.
+
+## The four kinds of user
+
+| Role | Sees | Cannot |
+|---|---|---|
+| **Student** | Own readiness, own homework and past papers, own exam results, class files, AI chat | See other students; generate reports; download a mark scheme |
+| **Tutor** | Everything belonging to their own practice | Reach another tutor's data |
+| **Parent** | Plain-language progress for their linked children only | See anything not explicitly linked to them |
+| **Admin** | Everything a tutor sees, plus report generation | — |
+
+The permission check happens in a specific and deliberate way. Rather than each page *remembering* to check permissions — which fails silently the day someone forgets — the requirement is declared as part of the request's definition. A request that requires a tutor **cannot be processed at all** without one.
+
+The distinction is between a lock you have to remember to use, and a door that can't open without a key. This codebase used to work the first way, in eleven duplicated copies, and was deliberately rebuilt the second way. There's now an automated test that fails if anyone reintroduces the old pattern.
+
+## The operating loop
+
+Everything in the product exists to move a student around one cycle:
+
+```
+   Teach  →  Assign  →  Submit  →  AI marks  →  Readiness updates
+     ↑                                                    ↓
+     └───────  Plan next lesson  ←  Tutor reviews  ←──────┘
+```
+
+This is the actual design principle, not a marketing diagram. Every arrow is a real event stored in the database. A lesson records what was taught. Homework hangs off the lesson that set it. A submission is the student's work. Marks become evidence. Evidence drives readiness. Readiness tells the tutor what to teach next — which starts the loop again.
+
+The internal test for whether a new feature belongs in Avora is whether it sits somewhere on this loop. A feature that fits nowhere on it needs a deliberate decision rather than drifting in.
+
+## The size of the thing
+
+| | |
+|---|---|
+| Backend | ~12,400 lines of Python |
+| Frontend | ~9,800 lines of TypeScript, ~60 screens |
+| Database | 52 tables, 21 schema updates to date |
+| Requests the app can make | 125 |
+| Background job types | 8 |
+| Automated tests | ~7,300 lines |
+
+This is a real application. Not a prototype, not a demo — a substantial system that a small team could work on for years.
