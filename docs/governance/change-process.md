@@ -28,7 +28,7 @@ A standard that anyone can change silently is not a standard. A standard that no
 change becomes a lie the moment the code moves. This process is the narrowest thing that
 prevents both.
 
-It is deliberately lightweight. MANARA is a small team. The process scales down to "the
+It is deliberately lightweight. Avora is a small team. The process scales down to "the
 owner decides in a pull request" and up to a review board without changing shape.
 
 ## Roles

@@ -10,7 +10,7 @@
 **Standards say what to do. ADRs say why, and what was given up.**
 
 A rule's rationale is one line, and rules get edited. An architectural decision needs more
-than a line and must not be edited — the next engineer needs to know not just that MANARA
+than a line and must not be edited — the next engineer needs to know not just that Avora
 uses a Postgres job table, but that Redis and Celery were considered, what they would have
 bought, and what condition would justify revisiting.
 

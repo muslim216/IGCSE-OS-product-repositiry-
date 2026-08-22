@@ -98,7 +98,7 @@ describe("studentNarrative — the parent_student audience", () => {
 describe("auth wiring — inherited from api(), not reimplemented here", () => {
   test("an access token in storage is sent as a bearer header", async () => {
     localStorage.setItem(
-      "igcse-os-tokens",
+      "avora-tokens",
       JSON.stringify({ access_token: "test-token", token_type: "bearer" }),
     );
     const fetchMock = stubFetchOnce({ text: null, generated_at: null, prompt_version: null });

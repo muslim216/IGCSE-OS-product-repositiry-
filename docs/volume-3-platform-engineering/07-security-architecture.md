@@ -32,7 +32,7 @@
 
 ## Purpose
 
-MANARA holds named children's academic records, their parents' contact details, and
+Avora holds named children's academic records, their parents' contact details, and
 photographs of their handwriting, and it lets an AI put marks on those records without a
 human in the loop. This document defines what protects that, states the invariants that are
 load-bearing rather than stylistic, and records honestly where the controls are good and
@@ -145,7 +145,7 @@ Tokens are HS256 JWTs with the payload `{sub, tv, type, iat, exp}`:
 
 | Token | Lifetime | Transport | Storage |
 |---|---|---|---|
-| Access | 30 minutes (`access_token_expire_minutes`) | `Authorization: Bearer` | `localStorage["igcse-os-tokens"]` |
+| Access | 30 minutes (`access_token_expire_minutes`) | `Authorization: Bearer` | `localStorage["avora-tokens"]` |
 | Refresh | 30 days (`refresh_token_expire_days`) | httpOnly `SameSite=Lax` cookie scoped to `/api/v1/auth` | The cookie only — never script-readable |
 | OAuth state | 10 minutes (`STATE_TOKEN_TTL`) | Query parameter | Not stored server-side |
 
@@ -516,7 +516,7 @@ already forbids leaking internals to clients.
 
 **`SEC-26` — MUST · Important · Active**
 A stored third-party credential is encrypted at rest with a dedicated key.
-*Rationale:* a Google refresh token is a live credential for a system MANARA does not control;
+*Rationale:* a Google refresh token is a live credential for a system Avora does not control;
 the `JWT_SECRET`-derived fallback exists so it is never plaintext, not as the intended
 configuration.
 

@@ -151,7 +151,7 @@ describe("every palette family the app uses is retargeted", () => {
   // repeats it.
   const USED = ["purple", "orange"] as const;
 
-  test.each(USED)("%s resolves to a MANARA token", (family) => {
+  test.each(USED)("%s resolves to a Avora token", (family) => {
     const rules = css.match(new RegExp(`\\.[a-z-]*${family}-\\d+[^{]*\\{[^}]*\\}`, "g"));
     expect(rules, `no retarget rule for ${family}-*`).not.toBeNull();
     for (const rule of rules!) {

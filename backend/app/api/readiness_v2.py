@@ -5,7 +5,7 @@ ever runs from the compute_readiness_v2 background job.
 
 Kept separate from api/readiness.py (v1, still what the product actually
 serves) so this stays a pure validation/comparison surface until the v2
-cutover is decided — see docs/manara-architecture.md."""
+cutover is decided — see docs/avora-architecture.md."""
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select

@@ -41,7 +41,7 @@ function renderPage(node: React.ReactNode) {
 
 beforeEach(() => {
   localStorage.setItem(
-    "igcse-os-tokens",
+    "avora-tokens",
     JSON.stringify({ access_token: "t", token_type: "bearer" }),
   );
 });

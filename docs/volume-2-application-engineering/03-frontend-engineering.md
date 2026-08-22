@@ -132,7 +132,7 @@ enforces authorization. Never treat a role gate as a security boundary — see `
 `frontend/src/api/client.ts` is the only place `fetch` is configured. `api<T>(path, options,
 retry = true)`:
 
-1. Reads the access token from `localStorage["igcse-os-tokens"]` and sets
+1. Reads the access token from `localStorage["avora-tokens"]` and sets
    `Authorization: Bearer`.
 2. Sets `Content-Type: application/json` unless the body is `FormData` — so multipart uploads
    get the browser's own boundary header.

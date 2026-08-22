@@ -1,4 +1,4 @@
-# IGCSE Student Operating System
+# Avora
 
 An Aacademic intelligence platform for IGCSE students, tutors, and parents. Its core is the
 **Readiness Engine**: every piece of academic evidence (homework, mocks, tutor observations)
@@ -13,7 +13,7 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
 ## Documentation
 
 This file covers what the product is, how to run it, and how to deploy it. **Everything about
-how it is built lives in [`docs/README.md`](docs/README.md) — the MANARA Engineering
+how it is built lives in [`docs/README.md`](docs/README.md) — the Avora Engineering
 Constitution**: four volumes of fourteen documents describing the system as built, the
 standards that govern new work, and the gaps between them, on a governance layer of
 principles, decision records, a glossary, and a risk register.
@@ -61,7 +61,7 @@ cd frontend && npm test                          # frontend
 ## Deployment
 
 The live setup is **the API on Render and the frontend on Vercel**
-(`igcse-os-product-repositiry.vercel.app`) — one host each, no overlap. Vercel serves the
+(`avora-product-repositiry.vercel.app`) — one host each, no overlap. Vercel serves the
 only copy of the app users visit, so `GOOGLE_REDIRECT_URI` is the full callback URL on
 that origin (`https://…vercel.app/settings/classroom/callback`, path included) and must be
 registered verbatim on the Google OAuth client. Render runs the API, the database and the

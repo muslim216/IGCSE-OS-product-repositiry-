@@ -33,7 +33,7 @@ export interface StoredTokens {
   token_type: string;
 }
 
-const STORAGE_KEY = "igcse-os-tokens";
+const STORAGE_KEY = "avora-tokens";
 
 // Optional escape hatch for deployments without a same-origin API proxy
 // (e.g. a Vercel preview without vercel.json applied yet).

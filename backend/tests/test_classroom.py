@@ -341,7 +341,7 @@ async def test_sync_skips_submission_with_no_matching_student(client, tutor, gro
         return [{"userId": "google-user-unknown", "state": "TURNED_IN", "assignmentSubmission": {}}]
 
     async def fake_student_profile(access_token, course_id, user_id):
-        return {"profile": {"emailAddress": "not-a-manara-student@example.com"}}
+        return {"profile": {"emailAddress": "not-a-avora-student@example.com"}}
 
     monkeypatch.setattr("app.services.google_classroom.list_coursework", fake_list_coursework)
     monkeypatch.setattr(

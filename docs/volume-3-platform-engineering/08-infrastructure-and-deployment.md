@@ -3,7 +3,7 @@
 > **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
-> Governs how MANARA is built, configured, and deployed, and the constraints production
+> Governs how Avora is built, configured, and deployed, and the constraints production
 > imposes on the code.
 
 ## Contents
@@ -88,8 +88,8 @@ surface with a clear message. The app still starts.
 ```mermaid
 flowchart TD
   U[Browser] -->|HTTPS| V[Vercel<br/><i>static SPA + /api/* rewrite</i>]
-  V -->|server-side proxy| R[Render web service<br/><i>igcse-os-api, Docker</i>]
-  R --> DB[(Render Postgres<br/><i>igcse-os-db, basic-256mb</i>)]
+  V -->|server-side proxy| R[Render web service<br/><i>avora-api, Docker</i>]
+  R --> DB[(Render Postgres<br/><i>avora-db, basic-256mb</i>)]
   R --> D[(Persistent disk<br/><i>10 GB at /data</i>)]
   R --> AN[Anthropic]
   R --> GE[Gemini]
@@ -104,10 +104,10 @@ work.
 
 ### The API service
 
-`render.yaml` provisions one Postgres database (`igcse-os-db`, `plan: basic-256mb`) and one
-Docker web service (`igcse-os-api`, `rootDir: backend`, `plan: starter`).
+`render.yaml` provisions one Postgres database (`avora-db`, `plan: basic-256mb`) and one
+Docker web service (`avora-api`, `rootDir: backend`, `plan: starter`).
 
-**The persistent disk** is `igcse-os-uploads`, 10 GB, mounted at `/data`, with
+**The persistent disk** is `avora-uploads`, 10 GB, mounted at `/data`, with
 `UPLOAD_DIR=/data/uploads`. It exists because `services/storage.py` writes to the local
 filesystem and the database stores only relative paths — without it, every deploy replaces the
 container and silently orphans every file row. **A Render service with a disk runs a single

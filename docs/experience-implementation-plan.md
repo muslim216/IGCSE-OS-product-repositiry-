@@ -1,4 +1,4 @@
-# MANARA — Experience Design Implementation Plan
+# Avora — Experience Design Implementation Plan
 
 > **This is the delivery plan for `docs/experience-design.md`.** That document says what the
 > tutor, student and parent should see. This one says how the code gets there: every state each
@@ -160,7 +160,7 @@ Where this binds:
 **No timezone is stored anywhere** — not on `Organization`, not on `User`; `ScheduleSlot` carries
 a bare `weekday` and `start_time` with no zone.
 
-A tutor in Cairo (UTC+3) opening MANARA at 01:00 local sees **yesterday's** lessons, because in
+A tutor in Cairo (UTC+3) opening Avora at 01:00 local sees **yesterday's** lessons, because in
 UTC it is still 22:00 the previous day. This is tolerable on today's dashboard, where lessons are
 one panel among four. It is not tolerable on a surface whose headline sentence is
 *"Two lessons today"*.
@@ -738,7 +738,7 @@ markup; rebuilding its information architecture on top would mean touching every
 
 ### PR 9 — Retarget purple and orange · M
 
-**Does:** `frontend/src/index.css` retargets Tailwind's palette onto MANARA's tokens, but purple
+**Does:** `frontend/src/index.css` retargets Tailwind's palette onto Avora's tokens, but purple
 and orange are absent, so five sites render raw palette colours on the navy surface with no token
 and no contrast measurement. Adds the retargets and the contrast cases.
 **Does not:** Add new palette families beyond what those five sites need.
@@ -1351,14 +1351,14 @@ joined count, names so far, code with *Share again*, and the sentence saying whe
 appears.
 **Files:** `frontend/src/tutor/GroupLayout.tsx`, class-overview component.
 **Rules:** Spec §7.2, `PROD-2`. This state **changes between visits**, which is the whole
-requirement — it gives a new tutor a reason to open MANARA tomorrow, in the exact window when the
+requirement — it gives a new tutor a reason to open Avora tomorrow, in the exact window when the
 product can otherwise show them nothing.
 **Tests:** `test_class_with_zero_students_renders_empty_room_not_the_overview`.
 **Rollback:** Revert.
 
 ### PR 28 — Seeding from tutor-supplied assessment · M
 
-**Does:** Lets a tutor give MANARA a starting point once students have joined — recent mock
+**Does:** Lets a tutor give Avora a starting point once students have joined — recent mock
 results, or their own assessment — rather than waiting weeks for evidence. Because students attach
 themselves by invite code (`api/auth.py:181-184`, `:230`) a tutor **cannot create a student
 record**, so this belongs after the room has filled and must be optional, because it may never

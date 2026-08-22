@@ -27,7 +27,7 @@
 
 ## Purpose
 
-MANARA degrades unusually well in some places and fails invisibly in others, and the
+Avora degrades unusually well in some places and fails invisibly in others, and the
 difference is not obvious from the code. This document maps what breaks, what it takes with
 it, what the system already does correctly when a dependency fails, and the substantial gap
 where the system cannot tell anyone that something has gone wrong.
@@ -405,7 +405,7 @@ knowing the complete list.
 | **Single instance, single region, single database.** | Any deploy is downtime; any instance loss is an outage. Deliberate today; §08 has the unwind order. `RISK-1`. | `before scale` |
 
 This document still has more `blocking` gaps than any other in the constitution, and that is
-an accurate picture: MANARA is built to explain its own numbers and is only beginning to be
+an accurate picture: Avora is built to explain its own numbers and is only beginning to be
 built to explain its own failures.
 
 What changed is worth naming precisely, because it is one step and not the journey. The

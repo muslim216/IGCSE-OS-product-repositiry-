@@ -1,6 +1,6 @@
 # Architectural Non-Goals
 
-> **Governance layer.** What MANARA deliberately does not do, and what it is deliberately
+> **Governance layer.** What Avora deliberately does not do, and what it is deliberately
 > not built with.
 >
 > **Status:** Active · Part of Engineering Constitution v1.2
@@ -8,7 +8,7 @@
 ## Purpose
 
 Architectural drift rarely arrives as a decision. It arrives as a series of individually
-reasonable additions, each of which seemed small. This document names the things MANARA has
+reasonable additions, each of which seemed small. This document names the things Avora has
 decided against, so that proposing one is a conversation rather than a commit.
 
 **A non-goal is not a permanent ban.** It is a statement that the default answer is no, and
@@ -24,7 +24,7 @@ document holds the ones that span the whole system.
 
 ### No microservices
 
-MANARA is one FastAPI application and one React application. There is no service mesh, no
+Avora is one FastAPI application and one React application. There is no service mesh, no
 inter-service RPC, no per-domain deployable.
 
 *Why:* the entire system is ~12,400 lines of Python serving a single-tutor product. Service
@@ -66,7 +66,7 @@ obvious answer for at least the limiter. This is a named trigger, not a hypothet
 
 ### No event sourcing, no CQRS
 
-State is current-value rows. Where history matters, MANARA uses explicit append-only tables
+State is current-value rows. Where history matters, Avora uses explicit append-only tables
 — `evidence`, `factor_evaluations`, `readiness_history`, `mark_override_audit` — rather than
 deriving state from a log.
 
@@ -109,7 +109,7 @@ it is paid explicitly.
 Deletion is deletion. There is no `deleted_at` column anywhere in `backend/app/models/`.
 
 *Why:* soft deletes leak into every query in the system, and every query that forgets the
-filter is a data-leak bug. Where history genuinely matters, MANARA keeps an append-only
+filter is a data-leak bug. Where history genuinely matters, Avora keeps an append-only
 table instead.
 
 *Revisit when:* a product requirement needs undo or retention for a specific entity. Add it
@@ -138,10 +138,10 @@ hand-written migration; its output is not the migration.
 
 ## AI
 
-### MANARA is not an AI tutor and not a homework marker
+### Avora is not an AI tutor and not a homework marker
 
 The platform is the product; AI enhances every layer. A feature that is impressive AI but
-strengthens none of the six surfaces is not a MANARA feature.
+strengthens none of the six surfaces is not a Avora feature.
 
 *Why:* §01 P1. This is a product boundary with architectural consequences — it is why AI
 output is a proposal, why the tutor's authority is structural rather than a setting, and why
@@ -171,7 +171,7 @@ It is never re-adjudicated by a model.
 
 ### No training on user data, no fine-tuning
 
-MANARA calls hosted models with prompts. It does not train, fine-tune, or contribute student
+Avora calls hosted models with prompts. It does not train, fine-tune, or contribute student
 work to any model.
 
 *Why:* the data is minors' academic records. See the data-classification section of §07.
@@ -210,7 +210,7 @@ The catch-all, and the one that decides the cases the entries above do not name.
 
 Every dependency, abstraction layer, and configuration option is a permanent tax paid by
 everyone who touches the system afterwards. The default answer to "should we add X" is no,
-until X solves a problem MANARA actually has, demonstrated with a specific instance.
+until X solves a problem Avora actually has, demonstrated with a specific instance.
 
 *Why:* `governance/engineering-philosophy.md` principles 5, 6, and 8.
 

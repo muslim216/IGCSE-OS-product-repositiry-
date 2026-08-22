@@ -4,7 +4,7 @@ import { Markdown } from "./Markdown";
 
 /*
  * Reusable surface for evidence-grounded guidance. The structure is fixed so
- * every recommendation in MANARA reads the same way:
+ * every recommendation in Avora reads the same way:
  *
  *   Evidence  ->  Reasoning + Recommendation  ->  Next action
  *

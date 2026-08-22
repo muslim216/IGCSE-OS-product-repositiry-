@@ -39,7 +39,7 @@ token semantics and the threat model (§07); the frontend consuming it (§03).
 ### Non-goals
 
 - **No GraphQL.** One versioned REST surface.
-- **No API for third parties.** Every endpoint exists to serve MANARA's own clients; there is
+- **No API for third parties.** Every endpoint exists to serve Avora's own clients; there is
   no public contract, no API keys, and no rate plan.
 - **No HATEOAS.** Responses carry data, not link relations.
 - **No `PATCH` semantics via JSON Patch.** Partial updates use a `XUpdate` schema with

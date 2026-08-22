@@ -7,7 +7,7 @@
 > **Binding:** `GOV-6` — terminology defined here is used with this meaning throughout the
 > constitution. A document needing a different meaning defines a different term.
 
-Several of these words have a loose everyday meaning and a precise MANARA meaning, and the
+Several of these words have a loose everyday meaning and a precise Avora meaning, and the
 two are not the same. *Assessment* is a table, not "any evaluation". *Snapshot* is a
 readiness row, not a database backup. *Classified* is a document, not a security level.
 Where a term maps to a table or a symbol, that is given, because the definition and the code
@@ -26,7 +26,7 @@ which is computed from these rows.
 vary by tutor. The main practice source for most of the academic year. Table `classifieds`.
 **Distinct from a past paper** — see *Past paper*. Nothing to do with confidentiality.
 
-**Classroom** — Google Classroom, an optional import source. Never "a class in MANARA";
+**Classroom** — Google Classroom, an optional import source. Never "a class in Avora";
 that is a *Group*.
 
 **CRM** — Student CRM: the student's complete, continuously-updating academic record.
@@ -176,7 +176,7 @@ whenever prompt text changes meaningfully.
 
 **Grounding** — Injecting authoritative context into a prompt: the tutor's Knowledge Base
 via `build_tutor_context()`, the student's record via `build_student_context()`. A grounded
-surface answers from MANARA's data rather than from the model's priors.
+surface answers from Avora's data rather than from the model's priors.
 
 **Knowledge Base** — Tutor-specific knowledge — teaching methods, solving approaches,
 marking preferences, instructions — stored in `knowledge_entries` and injected into every AI

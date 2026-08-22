@@ -26,7 +26,7 @@
 
 ## Purpose
 
-MANARA has a substantial, fast, well-designed backend test suite and **nothing that runs it**.
+Avora has a substantial, fast, well-designed backend test suite and **nothing that runs it**.
 This document records the harness and the patterns worth following, defines what "done" means
 per change class, and states the gap plainly: every rule here is currently enforced by a human
 remembering.

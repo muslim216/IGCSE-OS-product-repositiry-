@@ -8,7 +8,7 @@ from app.models.base import Base, TimestampMixin
 
 class Lesson(TimestampMixin, Base):
     """A taught lesson: date, notes, topics covered, and per-student
-    observations. The core entity the MANARA operating loop revolves around —
+    observations. The core entity the Avora operating loop revolves around —
     teach -> assign -> submit -> AI analyze -> update CRM & readiness ->
     review -> plan the next lesson."""
 

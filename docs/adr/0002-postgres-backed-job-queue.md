@@ -5,7 +5,7 @@
 
 ## Context
 
-Every AI operation in MANARA is too slow for a request cycle: question extraction from a PDF
+Every AI operation in Avora is too slow for a request cycle: question extraction from a PDF
 booklet, marking a submission, synthesizing a readiness score, generating a report,
 importing from Google Classroom. All of it must run asynchronously, survive a restart, and
 be observable when it fails.

@@ -1,7 +1,7 @@
 [project]
-name = "igcse-os-backend"
+name = "avora-backend"
 version = "0.1.0"
-description = "IGCSE Student Operating System — API"
+description = "Avora — API"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

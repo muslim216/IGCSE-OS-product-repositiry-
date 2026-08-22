@@ -28,7 +28,7 @@ never contradict one.**
 | Tier | Artifact | What it is authoritative for |
 |---|---|---|
 | **1** | **Engineering Constitution** — `docs/governance/` and the 14 numbered documents | Engineering standards, principles, and the system as built. The final word. |
-| **2** | **Architecture Specifications** — `docs/manara-architecture.md`, `docs/adr/` | Target design and the reasoning behind permanent decisions. |
+| **2** | **Architecture Specifications** — `docs/avora-architecture.md`, `docs/adr/` | Target design and the reasoning behind permanent decisions. |
 | **3** | **`CLAUDE.md`** | Agent-facing operating brief: the binding rules an agent needs loaded at all times, and the map into Tier 1. |
 | **4** | **`README.md`** | Product introduction, local setup, deploy walkthrough. |
 | **5** | **Inline documentation** — docstrings, module headers | How a specific unit behaves. |
@@ -37,8 +37,8 @@ never contradict one.**
 
 Two clarifications that matter in practice:
 
-- **Tier 1 outranks Tier 2 on questions of fact.** `docs/manara-architecture.md` describes
-  what MANARA is being built toward; the numbered documents describe what MANARA is. Where
+- **Tier 1 outranks Tier 2 on questions of fact.** `docs/avora-architecture.md` describes
+  what Avora is being built toward; the numbered documents describe what Avora is. Where
   they differ, the architecture document is not wrong — it is describing a different
   question. But if you need to know what your code will run against, Tier 1 answers it.
 - **An ADR outranks a standard on the question "why".** Standards say what to do; ADRs say
@@ -162,7 +162,7 @@ All 14 numbered documents follow the same nine-part structure, in this order:
 |---|---|---|
 | 1 | **Header** | Title, volume, status, version, and a one-line statement of what the document governs |
 | 2 | **Purpose** | Why this document exists and what question it answers |
-| 3 | **Scope** | What is in, what is out, and the **non-goals** — what MANARA deliberately does not do in this area |
+| 3 | **Scope** | What is in, what is out, and the **non-goals** — what Avora deliberately does not do in this area |
 | 4 | **Sources** | The real files this document was written from, so any claim can be re-verified |
 | 5 | **Principles** | `P1`…`Pn`, the document's constitutional layer |
 | 6 | **Current Reality** | How it works **today**, warts included, with file paths and line references |

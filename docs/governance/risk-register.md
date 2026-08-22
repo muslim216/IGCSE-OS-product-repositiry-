@@ -250,7 +250,7 @@ manually. See §14 for the disk-full runbook.
 
 **Likelihood:** Medium · **Impact:** Severe · **Priority:** P2 · **Owner:** Founder
 
-MANARA stores named children's academic records, parent contact details, images of student
+Avora stores named children's academic records, parent contact details, images of student
 handwriting, and encrypted Google refresh tokens. There is no data classification, no
 retention policy, no deletion path, no data-processing agreement, and no stated legal basis.
 

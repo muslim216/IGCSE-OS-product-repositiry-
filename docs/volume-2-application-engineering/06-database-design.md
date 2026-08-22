@@ -57,7 +57,7 @@ Written from: all 16 modules in `backend/app/models/`; all 21 migrations in
 
 ## Principles
 
-**P1 — The schema is the audit trail.** Where history matters, MANARA writes an append-only
+**P1 — The schema is the audit trail.** Where history matters, Avora writes an append-only
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_history` exist so a number can name its inputs (§01 P2).
 

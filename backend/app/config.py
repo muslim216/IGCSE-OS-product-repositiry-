@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "IGCSE Student Operating System"
+    app_name: str = "Avora"
     database_url: str = "postgresql+asyncpg://igcse:igcse@localhost:5432/igcse"
 
     @field_validator("database_url")

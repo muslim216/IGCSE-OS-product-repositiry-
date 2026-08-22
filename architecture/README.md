@@ -7,9 +7,9 @@ Written 6 August 2026 · Based on a full read of the codebase
 
 ## About the name
 
-The product is being renamed to **Avora**. Nothing in the product itself has been renamed yet — the code, the logo, the sign-in page and roughly forty pre-existing internal documents all still say **MANARA by OASIS AI**.
+The product is named **Avora** by OASIS AI — renamed from its working name, **MANARA**, across the codebase, docs and package names.
 
-This handoff document set is the one place that uses **Avora**, as the planned name, since that's where it's going. Everywhere else — including the running product — it's still MANARA, and they're the same thing.
+These documents use **Avora** throughout. Where older external material or the deployment identifiers still say IGCSE-OS, it is the same system.
 
 ## Who these documents are for
 

@@ -5,7 +5,7 @@
 
 ## Context
 
-MANARA's first customers are individual tutors. Its stated long-term market includes
+Avora's first customers are individual tutors. Its stated long-term market includes
 tutoring centres and schools — organizations with several tutors sharing students, classes,
 and settings.
 

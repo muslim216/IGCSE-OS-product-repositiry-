@@ -5,7 +5,7 @@
 
 ## Context
 
-MANARA uses AI for seven distinct jobs with genuinely different requirements: marking
+Avora uses AI for seven distinct jobs with genuinely different requirements: marking
 handwritten pages against a mark scheme, extracting questions from a PDF booklet, extracting
 a syllabus topic tree, synthesizing readiness, writing reports, streaming tutor chat, and
 producing a class brief.

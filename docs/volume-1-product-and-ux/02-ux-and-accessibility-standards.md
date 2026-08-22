@@ -3,7 +3,7 @@
 > **Volume 1 — Product & UX** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
-> Governs the MANARA design system, interaction patterns, and the accessibility standard the
+> Governs the Avora design system, interaction patterns, and the accessibility standard the
 > product is held to.
 
 ## Contents
@@ -28,7 +28,7 @@
 
 ## Purpose
 
-Until this document, the MANARA design system existed only as 283 lines of CSS that nobody
+Until this document, the Avora design system existed only as 283 lines of CSS that nobody
 had described, and accessibility was a set of habits applied unevenly across 60-odd
 components. Both are load-bearing: the CSS contains a mechanism that will surprise anyone who
 edits it naively, and the product is used by children.
@@ -118,7 +118,7 @@ The file has two halves, and they behave very differently:
    generates utility classes from these: `bg-canvas`, `text-ink-500`, `border-line`,
    `bg-brand-600`, `font-display`.
 2. **The rest of the file, the retarget layer.** Unlayered CSS that redefines Tailwind's *stock*
-   palette utilities — `.bg-white`, `.text-slate-500`, `.bg-blue-600` — to point at MANARA
+   palette utilities — `.bg-white`, `.text-slate-500`, `.bg-blue-600` — to point at Avora
    tokens.
 
 ### Colour tokens
@@ -315,7 +315,7 @@ Applied deliberately in a handful of files and largely absent elsewhere. Counted
 
 - **`Modal` has no focus trap.** Tab moves out of the dialog to the page behind it.
 - **`Modal` does not restore focus** to the trigger on close.
-- **`Modal`'s `aria-labelledby` is the hardcoded id `manara-modal-title`.** Two simultaneous
+- **`Modal`'s `aria-labelledby` is the hardcoded id `avora-modal-title`.** Two simultaneous
   modals produce duplicate ids and an ambiguous accessible name.
 - **`TutorChatPage.tsx` uses `role="assistant"`**, which is not a valid ARIA role and is
   ignored by assistive technology.

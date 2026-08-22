@@ -7,12 +7,12 @@
 # be filled in from the Render dashboard — see README "Deployment".
 
 databases:
-  - name: igcse-os-db
+  - name: avora-db
     plan: basic-256mb
 
 services:
   - type: web
-    name: igcse-os-api
+    name: avora-api
     runtime: docker
     rootDir: backend
     plan: starter
@@ -32,13 +32,13 @@ services:
     # worker claims with FOR UPDATE SKIP LOCKED so scaling out stays safe if
     # storage later moves to S3 and the disk goes away.
     disk:
-      name: igcse-os-uploads
+      name: avora-uploads
       mountPath: /data
       sizeGB: 10
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: igcse-os-db
+          name: avora-db
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
@@ -101,7 +101,7 @@ services:
       # when the frontend's callback URL changes — a new backend URL is a
       # frontend/vercel.json rewrite change and does not touch this value.
       - key: GOOGLE_REDIRECT_URI
-        value: https://igcse-os-product-repositiry.vercel.app/settings/classroom/callback
+        value: https://avora-product-repositiry.vercel.app/settings/classroom/callback
       # Encrypts stored Google refresh tokens at rest. Falls back to a key
       # derived from JWT_SECRET when unset; a dedicated value is preferred so
       # rotating one secret does not invalidate the other.
@@ -114,7 +114,7 @@ services:
       # cross-origin VITE_API_BASE_URL build, and an origin missing here fails
       # at the browser with no server-side trace.
       - key: CORS_ORIGINS
-        value: https://igcse-os-product-repositiry.vercel.app
+        value: https://avora-product-repositiry.vercel.app
       # The refresh cookie is HTTPS-only. Never set false on a real deploy.
       - key: REFRESH_COOKIE_SECURE
         value: "true"

@@ -5,18 +5,18 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 This file is the **operating brief**: the rules that bind every change, and a map into the
 detail. It is deliberately short so it can be read in full at the start of every session.
 
-**The full detail lives in `docs/` — the MANARA Engineering Constitution.** Load the volume
+**The full detail lives in `docs/` — the Avora Engineering Constitution.** Load the volume
 you need; do not work from memory of it.
 
 ## What this is
 
-**MANARA by OASIS AI** — an AI Operating System for IGCSE education (formerly the "IGCSE
-Student Operating System"), serving tutors, students, and parents. A Python/FastAPI backend
+**Avora by OASIS AI** — an AI Operating System for IGCSE education (formerly **MANARA**, the
+"IGCSE Student Operating System"), serving tutors, students, and parents. A Python/FastAPI backend
 and a React/Vite frontend live in one repo but deploy as two independent services. The
 product's heart is the **Readiness Engine**: every piece of academic evidence feeds
 exam-readiness scores that drive every dashboard, recommendation, and report.
 
-MANARA is **not** an AI tutor and **not** a homework marker — the platform (Student CRM,
+Avora is **not** an AI tutor and **not** a homework marker — the platform (Student CRM,
 Lessons, Readiness, Knowledge Base, Homework, Reports) is the product, with AI enhancing every
 layer.
 
@@ -53,7 +53,7 @@ Rules are cited by ID — `SEC-3`, `API-7`, `DB-11`. Cite them rather than re-de
 convention. `docs/governance/documentation-authority.md` defines the rule format, the
 authority hierarchy, and how rules are deprecated.
 
-**`docs/manara-architecture.md` is the design spec** for the MANARA update — the target state.
+**`docs/avora-architecture.md` is the design spec** for the Avora update — the target state.
 **`docs/experience-design.md` is the experience spec** — what each role sees, the shared grade
 and readiness vocabulary, and the cold start. The constitution documents the system **as
 built**. Where they differ they are answering different questions; the constitution tells you
@@ -146,7 +146,7 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 ### Product and data
 
-- **No metric exists unless MANARA can explain where it came from.** Every value is manual,
+- **No metric exists unless Avora can explain where it came from.** Every value is manual,
   imported, or calculated — and traceable to the rows that produced it. (`PROD-1`, §01)
 - **Never render a missing measurement as `0`, `0%`, or an empty bar.** Absent data is shown
   as absent — "not enough data yet", "no data". A factor without evidence is **omitted**, never

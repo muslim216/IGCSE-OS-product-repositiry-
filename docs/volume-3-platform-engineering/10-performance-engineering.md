@@ -26,7 +26,7 @@
 
 ## Purpose
 
-Answers *what "fast enough" means here, and what will stop being fast first*. MANARA's
+Answers *what "fast enough" means here, and what will stop being fast first*. Avora's
 performance profile is unusual in two ways worth stating before any rule: the API and its
 background worker share one process and one event loop, so a slow job degrades request
 serving; and the dominant scaling cost is not CPU but per-call AI spend, which makes
