@@ -1,7 +1,8 @@
 # Avora / IGCSE-OS — What Is Actually Built
 
-*Generated 2026-08-06 from the code at `IGCSE-OS-product-repositiry-` @ `a568533` (85 commits).*
-*Everything below was verified against source files, not against the docs.*
+*Originally generated 2026-08-06 from the code at `IGCSE-OS-product-repositiry-` @ `a568533`.*
+*Everything below was verified against source files, not against the docs. Counts were
+re-verified against this branch before merge; they drift with every merge after it.*
 
 ---
 
@@ -16,13 +17,13 @@ Three roles, one FastAPI app, one React app.
 
 | Part | Tech | Size |
 |---|---|---|
-| Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres | ~12,750 LOC |
-| Frontend | React 18, TypeScript, Vite, Tailwind, TanStack Query | ~9,800 LOC |
-| Tests | pytest (SQLite) + Vitest | 275 backend + 40 frontend |
-| AI | Per-surface routing: Gemini for marking/extraction/syllabus, Anthropic for chat/reports/readiness | — |
+| Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres | ~12,800 LOC |
+| Frontend | React 18, TypeScript, Vite, Tailwind, TanStack Query | ~12,400 LOC |
+| Tests | pytest (SQLite) + Vitest | 458 backend + 135 frontend test cases |
+| AI | Per-surface routing across 8 surfaces: Gemini for marking/extraction/syllabus, Anthropic for chat/reports/readiness/class brief/narrative | — |
 | Deploy | API + Postgres + disk on Render (`render.yaml`), frontend on Vercel | — |
 
-**23 API routers · ~120 endpoints · 52 database tables · 21 Alembic migrations.**
+**27 API routers · 133 route handlers · 53 database tables · 23 Alembic migrations.**
 
 ---
 
@@ -33,7 +34,9 @@ Three roles, one FastAPI app, one React app.
 
 - Pure-Python, **no ML**, fully explainable. Every topic score is a weighted average of
   evidence points.
-- **Source weighting**: past paper 1.8 · mock 1.5 · homework 1.0 · quiz 0.8 · observation 0.5.
+- **Source weighting**: past paper 1.8 · mock 1.5 · homework 1.0 · quiz 0.8 · observation 0.5 ·
+  tutor estimate 0.4 (the last is self-declared, not a mark on work, and decays as real
+  evidence arrives).
 - **Exponential time decay**, half-life 45 days (tutor-configurable) — recent evidence
   dominates.
 - **Confidence levels** (none/low/medium/high) derived from decay-weighted evidence volume;
@@ -118,8 +121,9 @@ to not knowing it".
 `services/knowledge.py`, `api/knowledge.py`
 
 Tutor-authored teaching methods, preferred solving approaches, resources, marking preferences,
-direct AI instructions and notes — compiled into one prompt block and injected into **every**
-AI surface (marking, chat, reports, extraction). Full CRUD.
+direct AI instructions and notes — compiled into one prompt block and injected into the AI
+surfaces that benefit from it — marking, chat, reports, extraction and readiness synthesis.
+Full CRUD.
 
 ### 2.8 Syllabus ingestion
 `services/syllabus_extraction.py`, `api/syllabus_uploads.py`, `tutor/SyllabusUploadPage.tsx`
@@ -194,8 +198,9 @@ counts and an estimated `cost_usd` from configured pricing. Summary + analytics 
 
 - Postgres-backed queue (ADR-0002) using `FOR UPDATE SKIP LOCKED` — already safe for multiple
   workers even though only one runs today.
-- Eight registered handlers: assignment extraction, past-paper extraction, marking, readiness v1
-  recompute, readiness v2 compute, report generation, sylla/ثطbus extraction, Classroom sync.
+- Ten registered handlers: assignment extraction, past-paper extraction, marking, readiness v1
+  recompute, readiness v2 compute, report generation, syllabus extraction, Classroom sync,
+  narrative generation, and the parent-narrative sweep (the one self-rescheduling job).
 - **Supervised worker**: the loop is restarted on any exception with a backoff, restarts are
   *counted* (not just logged), and `/health/ready` returns 503 when the worker is dead or the
   DB is unreachable. Both `/health` (shallow liveness, what Render polls) and `/health/ready`
