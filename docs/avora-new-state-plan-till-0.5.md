@@ -29,12 +29,20 @@ the GitHub rename) and none has been merged.
 
 | Task | Branch | Head | Files | Suite at commit |
 |---|---|---|---|---|
+| `0.0` | *(none — see below)* | — | — | — |
 | `0.1` | `fix/av-29-settled-statuses` | `edacdec` | 10 | backend 499 |
 | `0.2` | `feat/av-29-recompute-runner` | `56e40c9` | 13 | backend 503 |
 | `0.3` | `chore/av-57-remove-student-chat` | `3fa76e7` | 41 | backend 492 · frontend 161 |
 | — | `docs/fix-stale-semantic-counts` | `f14fe2e` | 1 | docs only |
 | `0.4` | `chore/av-57-remove-peer-ranking` | `e347f46` | 12 | backend 478 · frontend 153 |
 | `0.5` | `chore/av-58-hide-classroom-kb` | `20b2852` | 33 | backend 500 · frontend 161 |
+
+**Task `0.0` has no branch by design.** It was the audit — "read your task's row before
+writing anything" — and it produced findings, not code. It is marked `✅ DONE, 19 Aug` in
+`docs/avora-new-state-august-16.md` §7, where its results live as a BUILT / PARTIAL / ABSENT
+table covering every later task. It is complete; there is simply nothing to merge. Its finding
+for `0.1` (four correct copies of the settled-status tuple already existed, three other sites
+restated it wrongly) is what shaped `0.1` into a consolidation rather than a new feature.
 
 **The counts differ by branch because each is measured against its own branch, not a shared
 base.** They are not comparable to each other and are not meant to be. `0.2` is the only branch
