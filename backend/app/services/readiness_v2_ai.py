@@ -29,6 +29,7 @@ from app.config import get_settings
 from app.models import (
     AiFeature,
     AiSynthesisStatus,
+    FactorConfidence,
     FactorEvaluation,
     Group,
     GroupMember,
@@ -127,21 +128,55 @@ DEFAULT_WEIGHTS = dict.fromkeys(FACTOR_WEIGHT_ATTR.values(), 1.0)
 # rather than only a request the model can ignore.
 SCORE_CONTRADICTION_TOLERANCE = 10.0
 
+# The prompt also tells the model a low-confidence factor should carry less
+# weight than the raw number implies. A factor backed by only one or two
+# marks isn't as trustworthy a veto over the AI's score as one backed by a
+# term's worth of evidence, so the reference damps by whichever row within a
+# factor has the weakest confidence. no_data is unreachable here (a None
+# score is filtered out before this is consulted) but named for completeness.
+CONFIDENCE_MULTIPLIER = {
+    FactorConfidence.high: 1.0,
+    FactorConfidence.medium: 0.7,
+    FactorConfidence.low: 0.4,
+    FactorConfidence.no_data: 0.0,
+}
+_CONFIDENCE_RANK = {
+    FactorConfidence.no_data: 0,
+    FactorConfidence.low: 1,
+    FactorConfidence.medium: 2,
+    FactorConfidence.high: 3,
+}
+
 
 def _weighted_reference_score(
     factor_rows: list[FactorEvaluation], weights: dict[str, float]
 ) -> float | None:
-    """The deterministic answer, computed the same way the prompt describes
-    it, before the AI is involved. None when no factor has a score — that
-    case never reaches synthesis (see the "no evidence" branch above), but
-    this stays defensive rather than assuming that."""
-    total_weight = 0.0
-    weighted_sum = 0.0
+    """The deterministic answer, aggregated the way the prompt frames it to
+    the model: one score per factor, not per row. evaluate_subject_factors()
+    persists Topic Mastery as one row per topic but every other factor as a
+    single subject-level row — averaging over rows unweighted would let Topic
+    Mastery outvote the other six by however many topics the subject has.
+    Collapsing to one mean score per factor first (and damping by that
+    factor's weakest confidence) keeps the seven factors the prompt actually
+    describes equally able to veto the AI's score, not "however many rows
+    happen to exist".
+
+    None when no factor has a score — that case never reaches synthesis (see
+    the "no evidence" branch above), but this stays defensive rather than
+    assuming that."""
+    by_factor: dict[ReadinessFactor, list[FactorEvaluation]] = {}
     for row in factor_rows:
         if row.score is None:
             continue
-        weight = weights[FACTOR_WEIGHT_ATTR[row.factor]]
-        weighted_sum += row.score * weight
+        by_factor.setdefault(row.factor, []).append(row)
+
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for factor, rows in by_factor.items():
+        factor_score = sum(row.score for row in rows) / len(rows)
+        weakest = min(rows, key=lambda row: _CONFIDENCE_RANK[row.confidence])
+        weight = weights[FACTOR_WEIGHT_ATTR[factor]] * CONFIDENCE_MULTIPLIER[weakest.confidence]
+        weighted_sum += factor_score * weight
         total_weight += weight
     return weighted_sum / total_weight if total_weight else None
 
