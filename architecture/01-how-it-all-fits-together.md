@@ -9,13 +9,13 @@
 Almost every web product is three things, and Avora is no exception:
 
 **1. The app you see (the "frontend")**
-Everything visual — pages, buttons, dashboards, the upload screen. It runs inside the user's web browser. Written in React and TypeScript, about 9,800 lines, roughly 60 screens.
+Everything visual — pages, buttons, dashboards, the upload screen. It runs inside the user's web browser. Written in React and TypeScript, about 12,400 lines, roughly 60 screens.
 
 **2. The engine you don't see (the "backend")**
-Where the actual work happens: checking passwords, running the readiness calculations, talking to AI providers, deciding who's allowed to see what. Written in Python, about 12,400 lines. Users never see it directly — the app talks to it on their behalf.
+Where the actual work happens: checking passwords, running the readiness calculations, talking to AI providers, deciding who's allowed to see what. Written in Python, about 12,800 lines. Users never see it directly — the app talks to it on their behalf.
 
 **3. The memory (the "database")**
-Where everything is permanently kept: users, groups, homework, marks, evidence, scores. A PostgreSQL database with 52 tables.
+Where everything is permanently kept: users, groups, homework, marks, evidence, scores. A PostgreSQL database with 53 tables.
 
 Plus one thing that sits slightly outside those three:
 
@@ -53,7 +53,7 @@ The front desk can call the workshop. The workshop can call the filing system. *
 
 Why this matters commercially: the workshop is used by two completely different callers — live requests from users, *and* background work happening on a schedule. Because the thinking lives in the workshop rather than the front desk, both get the same behaviour for free. If the marking logic lived at the front desk, the background pipeline couldn't use it and it would have to be written twice — two copies that drift apart, and a fix applied to one silently doesn't apply to the other.
 
-By the numbers: 23 front-desk modules covering 125 different requests the app can make, 24 workshop modules, 16 filing-system modules covering 52 tables.
+By the numbers: 27 front-desk modules covering 133 route handlers, 31 workshop modules, 17 filing-system modules covering 53 tables.
 
 ## Work that happens in the background
 
@@ -66,7 +66,7 @@ So Avora has a **job queue.** When something slow needs doing:
 3. A background **worker** picks the job up moments later and does it.
 4. When it's finished, the result appears in the app.
 
-There are exactly **eight kinds of background job:**
+There are **ten kinds of background job:**
 
 | Job | What it does |
 |---|---|
@@ -78,12 +78,16 @@ There are exactly **eight kinds of background job:**
 | `generate_report` | Write a progress report |
 | `extract_syllabus` | Read a syllabus PDF, draft a topic tree |
 | `sync_classroom` | Import work from Google Classroom |
+| `generate_narrative` | Write a stored narrative paragraph for one audience |
+| `sweep_parent_narratives` | Find which students are due a parent narrative and queue one each |
+
+That last pair is the one piece of genuinely *scheduled* work in the system. The sweep re-enqueues its own successor a configured interval ahead (24 hours by default), committing the next one first so the schedule survives the current run failing. Everything else on this list runs only because a user action queued it.
 
 **Three design details worth knowing, because they're the difference between this working and not:**
 
 **Nothing is lost if the system restarts.** The job is written down *before* it runs. A server restart mid-job means the work is picked up again, not forgotten. If jobs lived only in memory, a routine deployment would silently drop every piece of homework being marked at that moment.
 
-**Retried jobs are designed not to corrupt state, but "safe to run twice" isn't uniform across all eight handlers.** For the ones that write over a fixed target — marking *updates* existing marks rather than adding new ones, and question extraction *replaces* the question list rather than appending to it — a retry can't double a student's marks. For others, "safe" means something looser: `recompute_readiness` and `compute_readiness_v2` append a new run rather than mutating one in place, so a retry adds an extra (consistent) record rather than a duplicate answer; the AI-calling handlers can simply repeat a paid API call on retry. Nothing about a retry corrupts data, but the guarantee is per-handler, not a single blanket property.
+**Retried jobs are designed not to corrupt state, but "safe to run twice" isn't uniform across all ten handlers.** For the ones that write over a fixed target — marking *updates* existing marks rather than adding new ones, and question extraction *replaces* the question list rather than appending to it — a retry can't double a student's marks. For others, "safe" means something looser: `recompute_readiness` and `compute_readiness_v2` append a new run rather than mutating one in place, so a retry adds an extra (consistent) record rather than a duplicate answer; the AI-calling handlers can simply repeat a paid API call on retry. Nothing about a retry corrupts data, but the guarantee is per-handler, not a single blanket property.
 
 **A job never overwrites a human decision.** If a tutor has finalised a mark, re-running the marking job leaves it alone. The tutor's authority isn't a policy statement — it's built into how the pipeline behaves.
 
@@ -99,7 +103,7 @@ Two hosting providers, one job each:
 
 The clever bit that makes this work: when the app needs the engine, it doesn't call Render directly. It calls **its own address**, and Vercel quietly forwards the request to Render behind the scenes.
 
-This isn't a technical curiosity — it's a security decision. Because the browser only ever sees one address, the app can use a **cookie** to keep users logged in. Cookies are the most secure way to hold a login credential, because code running on the page cannot read them, so a malicious script injected into the page can't steal the session. That protection only works when everything appears to come from one address. Call Render directly and the browser treats it as a different site, refuses to send the cookie, and users get logged out whenever their session needs renewing.
+This isn't a technical curiosity — it's a security decision. Because the browser only ever sees one address, the app can use a **cookie** to keep users logged in. A cookie marked `HttpOnly` is the safest place to hold a renewal credential, because code running on the page cannot read it — so a malicious script injected into the page cannot walk off with the session. (It could still *use* the logged-in session while the page is open; what the cookie prevents is the credential being exfiltrated and reused elsewhere later.) That protection only works when everything appears to come from one address. Call Render directly and the browser treats it as a different site, refuses to send the cookie, and users get logged out whenever their session needs renewing.
 
 ## How login works
 
@@ -150,11 +154,13 @@ The internal test for whether a new feature belongs in Avora is whether it sits 
 
 | | |
 |---|---|
-| Backend | ~12,500 lines of Python (`backend/app`; approximate, varies by whether tests and blank/comment lines are counted) |
-| Frontend | ~9,800 lines of TypeScript, ~60 screens |
-| Database | 52 tables, 21 schema updates to date |
-| Requests the app can make | 125 |
-| Background job types | 8 |
-| Automated tests | ~7,300 lines |
+| Backend | ~12,800 lines of Python in `backend/app` (~16,000 counting blanks and comments) |
+| Frontend | ~12,400 lines of TypeScript in `frontend/src` (~13,800 raw), ~60 screens |
+| Database | 53 tables, 23 migrations on this branch |
+| Requests the app can make | 133 route handlers |
+| Background job types | 10 |
+| Automated tests | ~9,300 lines in `backend/tests` (~11,500 raw) |
+
+*Counted on this branch, excluding blank and comment lines unless stated. Figures drift with every merge — treat them as scale, not specification.*
 
 This is a real application. Not a prototype, not a demo — a substantial system that a small team could work on for years.

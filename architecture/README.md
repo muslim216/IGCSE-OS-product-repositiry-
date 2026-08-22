@@ -7,9 +7,9 @@ Written 6 August 2026 · Based on a full read of the codebase
 
 ## About the name
 
-The product is being renamed to **Avora**. Nothing has been renamed yet — the code, the logo, the sign-in page and roughly forty internal documents all still say **MANARA by OASIS AI**.
+The product is being renamed to **Avora**. Nothing in the product itself has been renamed yet — the code, the logo, the sign-in page and roughly forty pre-existing internal documents all still say **MANARA by OASIS AI**.
 
-These documents use **Avora** throughout, since that's where it's going. Where you see MANARA in the actual code or docs, it's the same thing.
+This handoff document set is the one place that uses **Avora**, as the planned name, since that's where it's going. Everywhere else — including the running product — it's still MANARA, and they're the same thing.
 
 ## Who these documents are for
 
@@ -24,7 +24,7 @@ No prior technical knowledge is assumed. Where a technical term is unavoidable, 
 | [01 — How it all fits together](01-how-it-all-fits-together.md) | The big picture: the three pieces of the system, what happens when someone clicks something, where it's hosted | You want the map. **Start here.** |
 | [02 — Core features](02-core-features.md) | The six things the product does, and what each looks like for a tutor, student and parent | You want to know what it actually does |
 | [03 — The readiness engine](03-the-readiness-engine.md) | How a mark on a page becomes an exam-readiness score — the heart of the product | You want to understand the differentiator |
-| [04 — The AI layer](04-the-ai-layer.md) | The seven places AI is used, which model does what, and the rules on when AI is trusted without a human | You want to know where the AI is and how it's controlled |
+| [04 — The AI layer](04-the-ai-layer.md) | The eight places AI is used, which model does what, and the rules on when AI is trusted without a human | You want to know where the AI is and how it's controlled |
 | [05 — Data and storage](05-data-and-storage.md) | What gets stored, how it's organised, and the deliberate design rules behind it | You want to understand the asset the company owns |
 
 ## Reading order

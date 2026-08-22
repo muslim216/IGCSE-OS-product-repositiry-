@@ -145,7 +145,9 @@ It's covered as weakness #3 in the [weaknesses document](../Product-Overview-and
 
 > **No number exists unless the system can say where it came from.**
 
-Every readiness score traces to specific factor calculations, which trace to specific evidence records — and, where that evidence is a marked question (homework, a past paper), to specific marks on specific questions on specific dates. Not every evidence source carries a question-level mark (a tutor observation or a syllabus-coverage note doesn't), but every source is still a specific, named record rather than an unattributed number.
+Every readiness score traces to specific factor calculations, which trace to specific evidence records — and, where that evidence is a marked question (homework, quiz, mock, past paper), to specific marks on specific questions on specific dates.
+
+Two of the six evidence sources are deliberately not question marks: a tutor's `observation`, and the `tutor_estimate` a tutor enters before any work has been marked. Both are weighted lowest precisely because they aren't marks on a piece of work, and the estimate loses weight as real evidence arrives. The syllabus-coverage factor is different again — it's derived from which topics lessons actually covered, not from evidence rows at all. So the guarantee isn't "every number came from a question mark"; it's that every number came from a specific, named, queryable record.
 
 This constraint shaped the entire database. It's why each factor calculation is written as its own permanent record rather than bundled into a blob — because a blob can't be queried, and a number you can't interrogate is a number you can't defend.
 

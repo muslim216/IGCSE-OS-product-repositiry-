@@ -77,7 +77,7 @@ Plus a Google Classroom integration that imports coursework and submissions.
 
 ### Scale, in plain terms
 
-Roughly 12,500 lines of backend code and 9,800 of frontend, 52 database tables, 60+ screens, and about 7,300 lines of automated tests. (Backend line counts are approximate and move with whichever tool and scope — app code only vs. including tests — produced them; treat it as an order of magnitude, not a precise figure.) This is a real, substantial application — not a prototype. It runs on two hosting services: the app users visit is on Vercel, and the engine and database are on Render.
+Roughly 12,800 lines of backend code and 12,400 of frontend, 53 database tables, 60+ screens, and about 9,300 lines of automated tests. (Counted excluding blank and comment lines; these move with every merge, so treat them as scale rather than exact figures. The same table in [architecture/01](architecture/01-how-it-all-fits-together.md) is counted the same way.) This is a real, substantial application — not a prototype. It runs on two hosting services: the app users visit is on Vercel, and the engine and database are on Render.
 
 ---
 
