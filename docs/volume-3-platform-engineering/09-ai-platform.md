@@ -225,7 +225,7 @@ Three grounding sources, all injected rather than left to the model's priors:
 
 | Source | Function | Injected into |
 |---|---|---|
-| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports, chat |
+| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` *(AV-58 hid the way in; the block is still compiled and injected, from rows that already exist)* | Marking, extraction, reports, readiness synthesis, chat |
 | Student academic record | `services/student_context.py` → `build_student_context()` | Chat, reports |
 | Deterministic factor sub-scores | `services/readiness_v2.py` | Readiness synthesis |
 

@@ -44,8 +44,7 @@ import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
 import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
-import ClassroomSettingsPage from "./tutor/ClassroomSettingsPage";
-import ClassroomCallbackPage from "./tutor/ClassroomCallbackPage";
+import SettingsPage from "./tutor/SettingsPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
 
 import StudentHomePage from "./student/StudentHomePage";
@@ -136,10 +135,9 @@ export default function App() {
           <Route path="/tutor/assignments/:assignmentId" element={<AssignmentDetailPage />} />
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
-          <Route path="/tutor/settings" element={<ClassroomSettingsPage />} />
+          <Route path="/tutor/settings" element={<SettingsPage />} />
           <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
         </Route>
-        <Route path="/settings/classroom/callback" element={<ClassroomCallbackPage />} />
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>

@@ -1,8 +1,22 @@
 """The Tutor Knowledge Base: teaching methods, preferred solving approaches,
 resources, marking preferences, direct AI instructions, and notes. Compiled
 into a single prompt block and injected into every AI surface — marking,
-tutor chat, report generation, and extraction — so the AI behaves like that
-specific tutor."""
+extraction, report generation, readiness synthesis and tutor chat — so the AI
+behaves like that specific tutor.
+
+KEPT AND LIVE, but with no way in (AV-58). The knowledge base is hidden from
+the product: api/knowledge.py still exists and is correct, its router is
+simply not mounted in main.py, so nothing can create or edit a KnowledgeEntry
+any more. This module is unchanged and still called on every one of those AI
+surfaces. Existing rows keep being injected exactly as before; a fresh
+deployment compiles an empty block and build_tutor_context() returns "",
+which callers already handle.
+
+So this is not dead code, and the empty block is not a bug. Do not "simplify"
+the injection away on the evidence that the table is empty — re-mounting the
+router in main.py is the whole of bringing the feature back, and it has to
+find this intact when it does.
+"""
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

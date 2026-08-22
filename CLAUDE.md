@@ -17,8 +17,8 @@ product's heart is the **Readiness Engine**: every piece of academic evidence fe
 exam-readiness scores that drive every dashboard, recommendation, and report.
 
 Avora is **not** an AI tutor and **not** a homework marker — the platform (Student CRM,
-Lessons, Readiness, Knowledge Base, Homework, Reports) is the product, with AI enhancing every
-layer.
+Lessons, Readiness, Knowledge Base *(hidden, `AV-58`)*, Homework, Reports) is the product, with
+AI enhancing every layer.
 
 Read `docs/volume-1-product-and-ux/01-product-architecture.md` before your first change.
 
@@ -188,8 +188,9 @@ Keep these loaded. Each cites the document holding its full reasoning.
   `_tutor_owns()` in `api/submissions.py` is the one place that branch lives. (`API-20`)
 
 - **A role gate goes in the signature, never in the handler body.** `user: TutorUser` or
-  `user: StudentUser` from `api/deps.py` — 45 routes are tutor-gated and 14 student-gated
-  this way. A dependency cannot be forgotten; an imperative call can, and omitting it fails
+  `user: StudentUser` from `api/deps.py` — 45 routes carry a tutor gate and 14 a student gate
+  this way; 34 of the tutor-gated ones are reachable, the other 11 sitting on the two routers
+  `AV-58` hides. A dependency cannot be forgotten; an imperative call can, and omitting it fails
   **open** with nothing to detect it. That was the real state of this codebase until
   recently: eleven hand-copied `_require_tutor`/`_require_student` helpers called in 35
   handler bodies (`BE-17`, `SEC-11`, `RISK-7`). `tests/test_authorization.py` fails if any
@@ -348,11 +349,12 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 Full detail in §01 and §04; this is orientation only.
 
-- **Backend** (`backend/app/`): `api/` (27 routers, all mounted under `/api/v1` in `main.py`;
-  shared dependencies in `api/deps.py`), `services/` (31 modules — the real work), `models/`
-  (52 tables, SQLAlchemy 2.0 async), `schemas/` (Pydantic contracts), `workers/jobs.py`
-  (DB-backed job queue, in-process worker started in `main.py`'s `lifespan`). Roles are
-  `student`, `tutor`, `parent`, `admin`.
+- **Backend** (`backend/app/`): `api/` (27 router modules, 25 of them mounted under `/api/v1`
+  in `main.py` — `classroom` and `knowledge` are deliberately not, being hidden rather than
+  deleted (`AV-58`); shared dependencies in `api/deps.py`), `services/` (31 modules — the real
+  work), `models/` (52 tables, SQLAlchemy 2.0 async), `schemas/` (Pydantic contracts),
+  `workers/jobs.py` (DB-backed job queue, in-process worker started in `main.py`'s
+  `lifespan`). Roles are `student`, `tutor`, `parent`, `admin`.
 - **Frontend** (`frontend/src/`): React 18 + TypeScript + React Router v6 + TanStack Query +
   Tailwind v4. Role-oriented folders (`auth/`, `tutor/`, `student/`, `parent/`) plus shared
   `components/` and per-domain `api/` wrappers. Routes and role gates live in `App.tsx`.
@@ -374,7 +376,9 @@ Full detail in §01 and §04; this is orientation only.
   at `/data`), frontend on Vercel (`frontend/vercel.json` holds the `/api/*` rewrite and the
   app's security headers). Render deliberately does not serve a second copy — a duplicate
   origin would not match `GOOGLE_REDIRECT_URI`, so Classroom would fail for anyone who landed
-  on it while everything else appeared to work.
+  on it while everything else appeared to work. **That reason is dormant since Classroom was
+  hidden (`AV-58`)**, which is what lets Phase 1 scale out; the deployment itself is unchanged
+  and `INF-5` is still Active (§08).
 
 **The API is pinned to a single instance** by three things at once — the uploads disk, the
 in-process worker, and the in-process rate limiter. Scaling out is a correctness change, not a

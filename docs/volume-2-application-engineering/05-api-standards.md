@@ -74,8 +74,9 @@ more than a better convention followed in half the routers.
 
 ### Versioning and mounting
 
-One version. `main.py` mounts all 23 routers with `app.include_router(router,
-prefix="/api/v1")` in a single loop, so **no router hardcodes the version**. Health is the
+One version. `main.py` mounts 25 of the 27 routers with `app.include_router(router,
+prefix="/api/v1")` in a single loop — `classroom` and `knowledge` are deliberately left out
+(`AV-58`) — so **no router hardcodes the version**. Health is the
 exception: `GET /api/v1/health` is defined inline on the app, returning a static
 `{"status": "ok"}`.
 
@@ -83,7 +84,8 @@ exception: `GET /api/v1/health` is defined inline on the app, returning a static
 
 - **Kebab-case for multi-word resources**: `/ai-usage`, `/past-papers`, `/syllabus-uploads`,
   `/submissions/review-queue`, `/assignments/{id}/retry-extraction`,
-  `/assignments/{id}/my-submission`, `/classroom/auth-url`.
+  `/assignments/{id}/my-submission`. *(See `api/classroom.py` for historical examples; the
+  Classroom router is no longer mounted as of AV-58.)*
 - **snake_case for path and query parameters**: `{student_id}`, `subject_id`, `group_by`.
 - **Collections registered as `@router.get("")`** — an empty string, so the prefix is the full
   path and there is no trailing slash.
@@ -125,7 +127,7 @@ Status-code usage across `api/*.py`:
 | 422 | 16 | Explicitly raised semantic validation |
 | 204 | 13 | Deletion |
 | 401 | 9 | Authentication (all from `deps.py`) |
-| 503 | 4 | AI or Classroom not configured |
+| 503 | 4 (1 reachable) | AI unavailable. One site, `groups.py`'s class brief, is live; the other three are in `classroom.py`, whose router AV-58 unmounted |
 | 429 | 2 | Login throttle, daily chat cap |
 | 400 | 1 | — |
 | 202 | 1 | — |
@@ -142,11 +144,12 @@ changed is that the client no longer discards half of it.
 
 ### Pagination
 
-**None, anywhere.** All 29 `response_model=list[...]` endpoints return the complete result
-set. There are no `limit`, `offset`, `page`, or `cursor` parameters on any endpoint.
+**None, anywhere.** All 27 mounted `response_model=list[...]` endpoints return the complete
+result set — 30 are declared, three of them on the routers `AV-58` hides. There are no `limit`, `offset`, `page`, or `cursor` parameters on any endpoint.
 
 The only query parameters in the entire API are filters: `subject_id` (assessments,
-classifieds, knowledge, past-papers), `kind` (resources), `student_id` (reports — **required**,
+classifieds, past-papers — and `knowledge`, declared but unmounted since `AV-58`), `kind`
+(resources), `student_id` (reports — **required**,
 not optional), and `group_by: Literal["feature","month","provider"]` on `/ai-usage/analytics`,
 which is the only use of `fastapi.Query` in the codebase.
 
@@ -171,7 +174,8 @@ Naming as practiced:
 
 Off-convention names exist and are worth knowing rather than pretending away: `SendMessage`,
 `ReportGenerate`, `JoinRequest`, `LoginRequest`, `TutorSignupRequest`,
-`StudentRegisterRequest`, `ParentRegisterRequest`, `ClassroomConnect`, `RefreshRequest`.
+`StudentRegisterRequest`, `ParentRegisterRequest`, `ClassroomConnect` *(schema exists but routes
+are hidden as of AV-58)*, `RefreshRequest`.
 
 **Response construction is done two ways.** `model_config = ConfigDict(from_attributes=True)`
 appears on only **8 classes** across 3 files. Everywhere else the router hand-constructs the

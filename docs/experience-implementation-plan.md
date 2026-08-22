@@ -651,7 +651,7 @@ silent.
 those stay local-to-the-organization, which is what they have always meant implicitly.
 **Files:** `backend/app/models/orgs.py`, `alembic/versions/0022_org_timezone.py` (new),
 `backend/app/api/me.py`, `backend/app/api/auth.py`, `backend/app/schemas/`,
-`frontend/src/auth/TutorSignupPage.tsx`, `frontend/src/tutor/ClassroomSettingsPage.tsx`.
+`frontend/src/auth/TutorSignupPage.tsx`, `frontend/src/tutor/ClassroomSettingsPage.tsx` *(deleted in AV-58)*.
 **Rules:** `DB-15` — hand-written, `NNNN_short_name.py`, `down_revision` chained to
 `0021_invite_single_use` (verified: it is the current head). `DB-16` — a working `downgrade()`,
 verified up → down → up. `BE-15` — read through `get_settings()`, never `os.environ`. `PROD-3` —

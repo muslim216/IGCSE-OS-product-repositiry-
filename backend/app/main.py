@@ -17,11 +17,11 @@ from app.api import (
     auth,
     chat,
     classifieds,
-    classroom,
+    classroom,  # noqa: F401 - hidden, not deleted (AV-58); see the mount block below
     grade_boundaries,
     groups,
     improvement,
-    knowledge,
+    knowledge,  # noqa: F401 - hidden, not deleted (AV-58); see the mount block below
     lessons,
     me,
     narrative,
@@ -78,8 +78,14 @@ register_handler("compute_readiness_v2", compute_readiness_v2)
 register_handler("generate_report", generate_report)
 register_handler("extract_syllabus", extract_syllabus)
 # Polling sync: imports courseWork/submissions from every course a tutor has
-# linked (api/classroom.py). Enqueued on demand today; a future scheduler
-# can call the same job type periodically with no handler changes.
+# linked (api/classroom.py). A future scheduler can call the same job type
+# periodically with no handler changes.
+#
+# Currently unreachable, deliberately: the only enqueue site was the Classroom
+# router, which is no longer mounted (AV-58). The handler stays registered so
+# that any `sync_classroom` row already sitting in the jobs table still runs to
+# completion rather than failing as an unknown type, and so that re-mounting
+# the router is the only step needed to bring the feature back.
 register_handler("sync_classroom", sync_classroom)
 # The stored narrative (services/narrative.py). The class paragraph is enqueued
 # from the tail of the evidence build; the parent paragraph by a weekly sweep
@@ -318,6 +324,18 @@ def create_app() -> FastAPI:
         }
 
     for router in (
+        # `classroom.router` and `knowledge.router` are deliberately NOT mounted
+        # (AV-58): both are hidden from the product while their code, services,
+        # models and tables are kept. Re-mounting either restores its API.
+        # For `knowledge` that is the whole job — it never had a UI. For
+        # `classroom` it is not: the tutor surface was deleted rather than
+        # hidden, so re-activating it also means rebuilding that. See
+        # api/classroom.py and api/knowledge.py, which each say so at their
+        # own entry point.
+        # Both are still *imported* above (with a noqa) rather than dropped, so
+        # they are loaded at startup: hidden code that is never imported rots
+        # silently, and an ImportError or a stale model reference inside either
+        # module would otherwise not surface until someone tried to un-hide it.
         auth.router,
         ai_usage.router,
         analytics.router,
@@ -325,11 +343,9 @@ def create_app() -> FastAPI:
         assignments.router,
         chat.router,
         classifieds.router,
-        classroom.router,
         grade_boundaries.router,
         groups.router,
         improvement.router,
-        knowledge.router,
         lessons.router,
         me.router,
         narrative.router,

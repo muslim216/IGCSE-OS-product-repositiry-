@@ -72,6 +72,39 @@ async def client():
 
 
 @pytest.fixture
+async def hidden_client():
+    """The app as it would be with AV-58 un-hidden: every production router,
+    plus `classroom` and `knowledge`, which `main.create_app` deliberately does
+    not mount.
+
+    Hiding those two removed their HTTP surface, not their code — services,
+    models and tables all stay. Their test suites therefore keep running,
+    against this app rather than the real one. Deleting them instead would
+    leave the hidden code unverified, and the first person to un-hide it would
+    be the one to discover it had rotted. That is the same reasoning that keeps
+    both modules *imported* in main.py behind a noqa.
+
+    `test_a_hidden_route_is_absent_from_the_real_app` in test_authorization.py
+    is the other half of this: it asserts the *production* app still 404s them.
+
+    Note this app is rebuilt per test rather than shared. That is cheap and
+    keeps no state of its own, but it isolates nothing either: the login rate
+    limiter and the job-handler registry are module-level and shared by every
+    app in the process. Isolation here rides on the autouse fixtures above, not
+    on this fixture — worth knowing before copying the pattern.
+    """
+    from app.api import classroom, knowledge
+    from app.main import create_app
+
+    unhidden = create_app()
+    for router in (classroom.router, knowledge.router):
+        unhidden.include_router(router, prefix="/api/v1")
+    transport = ASGITransport(app=unhidden)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@pytest.fixture
 async def tutor(client):
     """A registered tutor with auth headers ready to use."""
     resp = await client.post(

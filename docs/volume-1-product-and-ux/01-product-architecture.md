@@ -118,7 +118,7 @@ drives what the tutor sees when planning the next lesson.
 | **Student CRM** | The student's complete, continuously-updating academic record | `services/student_crm.py`, `api/students.py`, `models/crm.py` |
 | **Lessons** | The dated teaching event — notes, topics covered, per-student observations | `api/lessons.py`, `models/lessons.py` |
 | **Readiness** | Exam-readiness scores, predicted grades, weak topics, revision plans | `services/readiness*.py`, `api/readiness*.py` |
-| **Knowledge Base** | Tutor-specific knowledge injected into every AI surface | `services/knowledge.py`, `api/knowledge.py` |
+| **Knowledge Base** | Tutor-specific knowledge injected into every AI surface *(hidden from product)* | `services/knowledge.py`, `api/knowledge.py` |
 | **Homework** | Booklet → questions → submission → marking → review → evidence | `api/{assignments,submissions,classifieds}.py`, `services/{marking,extraction}.py` |
 | **Reports** | Audience-specific narrative generated strictly from the student's data | `services/reports.py`, `api/reports.py` |
 
@@ -127,7 +127,14 @@ both `GET /api/v1/students/{id}/crm` and `services/student_context.py` (AI groun
 AI and the interface see the same record by construction.
 
 The Knowledge Base follows the same pattern: `build_tutor_context()` compiles a tutor's
-entries into one prompt block injected into marking, extraction, report generation and chat.
+entries into one prompt block, injected at five call sites — `services/marking.py`,
+`services/extraction.py`, `services/reports.py`, `services/readiness_v2_ai.py` and `api/chat.py`.
+(The chat one goes when task `0.3` deletes student chat under `AV-57`; the other four stay.)
+
+**The Knowledge Base is hidden from the product** (AV-58) — its router is unmounted, so nothing
+can create or edit an entry. The compiled block is still injected at every one of those sites,
+reading whatever rows already exist; a new deployment compiles an empty block, which each caller
+already handles. That is the intended end state, not a defect.
 
 ### Roles and visibility
 
@@ -301,10 +308,20 @@ Two consequences:
    `sync_classroom` job imports courseWork as draft `Assignment`s and turned-in submissions
    into the standard `mark_submission` pipeline. PDF and image attachments only — other Drive
    types are skipped, not guessed. Submissions match Classroom's roster email to an Avora
-   account; unmatched students are skipped, not guessed.
+   account; unmatched students are skipped, not guessed. **The integration is hidden from
+   the product** (AV-58) — its router is unmounted, so no UI or endpoint can initiate a connect
+   or sync. All backend code, models and database tables remain, so re-mounting the router
+   restores the API — but the tutor-facing UI was deleted, not hidden (`api/classroom.ts`,
+   `ClassroomSettingsPage.tsx`, `ClassroomCallbackPage.tsx`, and the
+   `/settings/classroom/callback` route). Re-activating the feature therefore means rebuilding
+   that surface as well. This differs from the Knowledge Base above, which never had a UI and
+   for which the mount really is the whole job.
 
-**Classroom reduces friction; it never replaces direct upload.** Both feed the same pipeline,
-and the feature degrades to a clear "not configured" state without its credentials.
+**Classroom reduced friction; it never replaced direct upload.** Both fed the same pipeline, and
+the feature degraded to a clear "not configured" state without its credentials. That principle is
+recorded in the past tense because the surface is hidden, not because it was reconsidered — it is
+the constraint any re-activation still has to meet. Direct upload was never the fallback path and
+is now the only one.
 
 ### The AI suite, mapped to surfaces
 
@@ -418,8 +435,8 @@ a date and a lesson behind it.
 | **No `factor_evaluations` retention policy.** Append-only, one row per factor per run. | Unbounded growth. Named as needed in two prior documents and never written; §06 now sets the policy. | `before scale` |
 | **Difficulty and topic proposals are not wired into the extraction review interface.** The AI assigns `assignment_questions.difficulty` with tutor override by design; the review screen does not surface it. | Topic Mastery buckets by difficulty, so an unreviewed AI guess silently shapes the score — a `PROD-1` traceability weakness. | `before scale` |
 | **`READINESS_V2_SHADOW_ENABLED` is misnamed.** It has been a kill switch since the cutover. | Someone will disable it believing it merely stops a duplicate computation, and silently move the product back to v1. | `nice to have` |
-| **Google Classroom has no configured credentials in any environment.** Built and tested against mocked calls only. | The integration is untested against the real API surface. Connecting it is a config step, not a code gap. | `nice to have` |
-| **Classroom sync is on-demand only.** `POST /classroom/sync` is the only trigger. | Imported work reaches readiness late or not at all. The job type would work unchanged on a schedule. | `nice to have` |
+| **Google Classroom has no configured credentials in any environment.** Built and tested against mocked calls only. | *(Dormant — feature hidden as of AV-58.)* The integration is untested against the real API surface. Connecting it is a config step, not a code gap. | `nice to have` |
+| **Classroom sync is on-demand only.** `POST /classroom/sync` is the only trigger. | *(Dormant — feature hidden as of AV-58.)* Imported work reaches readiness late or not at all. The job type would work unchanged on a schedule. | `nice to have` |
 
 ---
 
@@ -432,7 +449,7 @@ Update this document when:
 - `EvidenceSource`, `SOURCE_WEIGHTS`, or `HALF_LIFE_DAYS` changes.
 - The readiness v1 → v2 cutover advances — especially when `analytics.py`, `reports.py` or
   `student_crm.py` stop reading v1 tables.
-- A new ingestion path is added alongside direct upload and Classroom.
+- A new ingestion path is added alongside direct upload (Classroom being dormant, `AV-58`).
 - The seven readiness factors change in number, name, or meaning.
 - Tenancy stops being one organization per tutor.
 - Any `ADR` listed in Sources is superseded.

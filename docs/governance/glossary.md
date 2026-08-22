@@ -26,8 +26,9 @@ which is computed from these rows.
 vary by tutor. The main practice source for most of the academic year. Table `classifieds`.
 **Distinct from a past paper** — see *Past paper*. Nothing to do with confidentiality.
 
-**Classroom** — Google Classroom, an optional import source. Never "a class in Avora";
-that is a *Group*.
+**Classroom** — Google Classroom, an import source, **hidden from the product as of `AV-58`**:
+the backend code and tables are retained, the router is unmounted and the tutor UI was deleted.
+Never "a class in Avora"; that is a *Group*.
 
 **CRM** — Student CRM: the student's complete, continuously-updating academic record.
 Aggregated by `services/student_crm.py`, which serves both the UI and AI grounding. Backing
@@ -180,7 +181,9 @@ surface answers from Avora's data rather than from the model's priors.
 
 **Knowledge Base** — Tutor-specific knowledge — teaching methods, solving approaches,
 marking preferences, instructions — stored in `knowledge_entries` and injected into every AI
-surface so the AI behaves like *that* tutor.
+surface so the AI behaves like *that* tutor. **Hidden from the product as of `AV-58`**: the
+router is unmounted, so no entry can be created or edited, and `build_tutor_context()` injects
+only rows that already exist — an empty block on a new deployment.
 
 ## Platform and process
 

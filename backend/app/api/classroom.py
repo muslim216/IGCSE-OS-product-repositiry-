@@ -1,3 +1,22 @@
+"""HIDDEN FROM THE PRODUCT (AV-58) — code kept, router not mounted.
+
+This module is intact and correct. It is simply not registered in main.py, so
+none of its routes exist at runtime. Google Classroom sync is hidden rather than
+deleted, so **do not remove this file as dead code**.
+
+Re-mounting the router restores the API and nothing more. Unlike the knowledge
+base, Classroom's frontend was genuinely deleted, not hidden: api/classroom.ts,
+ClassroomSettingsPage.tsx and ClassroomCallbackPage.tsx are gone, and
+/settings/classroom/callback is no longer a route. So bringing the feature back
+means re-mounting this router AND rebuilding the tutor surface that drives it.
+Do not plan a re-activation on the assumption that the mount is the whole job.
+
+Hiding this surface also lifts the single-origin deployment constraint:
+GOOGLE_REDIRECT_URI had to match exactly one origin, which is why Render
+deliberately served no second copy of the frontend. Phase 1 depends on
+that constraint being gone (see §08).
+"""
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 

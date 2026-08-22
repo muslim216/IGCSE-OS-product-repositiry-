@@ -145,14 +145,23 @@ TUTOR_ONLY = [
     "/api/v1/assessments",
     "/api/v1/assignments/attention",
     "/api/v1/classifieds",
-    "/api/v1/classroom/status",
     "/api/v1/groups",
-    "/api/v1/knowledge",
     "/api/v1/me/today-lessons",
     "/api/v1/me/preferences",
     "/api/v1/readiness/weights",
     "/api/v1/submissions/review-queue",
     "/api/v1/syllabus-uploads",
+]
+
+#: Tutor-gated routes that AV-58 hid: their code is intact but main.create_app
+#: does not mount them, so on the real app they answer 404 to everyone and
+#: cannot be checked for a 403. They are still gated, and must stay gated while
+#: hidden — un-hiding is meant to be a one-line change in main.py, and it is not
+#: safe to be one if the gate rotted meanwhile. So they moved to their own list,
+#: exercised against `hidden_client` below rather than deleted from the suite.
+HIDDEN_TUTOR_ONLY = [
+    "/api/v1/classroom/status",
+    "/api/v1/knowledge",
 ]
 
 STUDENT_ONLY = [
@@ -181,6 +190,43 @@ async def test_a_tutor_cannot_reach_a_student_endpoint(client, tutor, path):
 async def test_no_token_is_refused_before_any_role_check(client, path):
     """401 and not 403: without a token there is no role to reject."""
     resp = await client.get(path)
+    assert resp.status_code == 401
+
+
+# --- AV-58: the hidden routers -------------------------------------------
+
+
+@pytest.mark.parametrize("path", HIDDEN_TUTOR_ONLY)
+async def test_a_hidden_route_is_absent_from_the_real_app(client, tutor, path):
+    """The product-facing half of AV-58.
+
+    404 and not 401 or 403: the route does not exist. Asserting it with a
+    *tutor's* token is the point — the one caller who would be allowed
+    through if it were mounted still cannot reach it, so this fails if
+    someone re-mounts either router in main.py without that being the
+    decision. Its opposite number is the 403 case just below.
+    """
+    resp = await client.get(path, headers=tutor["headers"])
+    assert resp.status_code == 404, f"{path} is reachable — was it re-mounted?"
+
+
+@pytest.mark.parametrize("path", HIDDEN_TUTOR_ONLY)
+async def test_a_hidden_route_still_refuses_a_student_when_mounted(hidden_client, student, path):  # noqa: F811
+    """The code-health half of AV-58: the gate is still there under the hiding.
+
+    A hidden route that quietly lost its role gate would pass every other test
+    in this file — nothing reaches it — and would fail open the moment someone
+    re-mounted it. This is the check that makes un-hiding a one-line change.
+    """
+    resp = await hidden_client.get(path, headers=student["headers"])
+    assert resp.status_code == 403, f"{path} let a student in"
+    assert resp.json()["detail"] == "Tutor account required"
+
+
+@pytest.mark.parametrize("path", HIDDEN_TUTOR_ONLY)
+async def test_a_hidden_route_refuses_an_anonymous_caller_when_mounted(hidden_client, path):
+    """As above, for the token check rather than the role check."""
+    resp = await hidden_client.get(path)
     assert resp.status_code == 401
 
 
