@@ -83,7 +83,7 @@ There are exactly **eight kinds of background job:**
 
 **Nothing is lost if the system restarts.** The job is written down *before* it runs. A server restart mid-job means the work is picked up again, not forgotten. If jobs lived only in memory, a routine deployment would silently drop every piece of homework being marked at that moment.
 
-**Every job is safe to run twice.** This sounds like a technicality; it's the most important correctness property in the system. Because a job can be retried, every job must produce the same result whether it runs once or three times. So marking *updates* existing marks rather than adding new ones, and question extraction *replaces* the question list rather than appending to it. Without this rule, a single retry would double a student's marks.
+**Retried jobs are designed not to corrupt state, but "safe to run twice" isn't uniform across all eight handlers.** For the ones that write over a fixed target — marking *updates* existing marks rather than adding new ones, and question extraction *replaces* the question list rather than appending to it — a retry can't double a student's marks. For others, "safe" means something looser: `recompute_readiness` and `compute_readiness_v2` append a new run rather than mutating one in place, so a retry adds an extra (consistent) record rather than a duplicate answer; the AI-calling handlers can simply repeat a paid API call on retry. Nothing about a retry corrupts data, but the guarantee is per-handler, not a single blanket property.
 
 **A job never overwrites a human decision.** If a tutor has finalised a mark, re-running the marking job leaves it alone. The tutor's authority isn't a policy statement — it's built into how the pipeline behaves.
 
@@ -107,9 +107,11 @@ Two credentials, deliberately different:
 
 **The access token** — a short-lived pass, sent with every request. Held in the browser's storage, where page code can read it. That's an accepted trade-off: it expires quickly.
 
-**The refresh token** — used only to get a new access token when the old one expires. Kept in a cookie that page code *cannot* read, and which is only sent to the specific address that renews sessions. The browser stores the only copy; the app deliberately never keeps its own.
+**The refresh token** — used only to get a new access token when the old one expires. Kept in a cookie that page code *cannot* read (`HttpOnly`, `Secure`, `SameSite=Lax`, scoped to the session-renewal address only), and the frontend deliberately never copies it into browser storage of its own.
 
-The result: if someone injected malicious code into the page, they could steal a short-lived pass. They could not steal the thing that renews it indefinitely.
+The result: a script that got into the page can't read the renewal credential out of storage, and can't read it out of the cookie.
+
+**One gap, worth stating rather than glossing:** the login and refresh endpoints currently also return the refresh token in the ordinary JSON response body, which page code *can* read at the moment it arrives. The cookie is therefore not the only copy in transit, and the protection above is weaker than the design intends. This is pre-existing behaviour, not a deliberate design decision, and the fix (return only the access token; let the cookie carry the rest) belongs in its own change to the auth endpoints and their response schema. Note also that `HttpOnly` never prevented an injected script from *making* authenticated requests as the user — it only stops it from walking off with the credential.
 
 **Logging out actually logs you out.** Every user has a version number stamped inside their tokens. Logging out bumps that number, which instantly invalidates every token ever issued to that account — including ones an attacker might be holding. Most systems just delete the token on your device and let stolen copies keep working until they expire.
 
@@ -148,7 +150,7 @@ The internal test for whether a new feature belongs in Avora is whether it sits 
 
 | | |
 |---|---|
-| Backend | ~12,400 lines of Python |
+| Backend | ~12,500 lines of Python (`backend/app`; approximate, varies by whether tests and blank/comment lines are counted) |
 | Frontend | ~9,800 lines of TypeScript, ~60 screens |
 | Database | 52 tables, 21 schema updates to date |
 | Requests the app can make | 125 |

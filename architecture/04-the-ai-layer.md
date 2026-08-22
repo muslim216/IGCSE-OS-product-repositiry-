@@ -117,7 +117,7 @@ Every AI feature is fed real context rather than being left to its general knowl
 
 | What's injected | Into |
 |---|---|
-| The tutor's knowledge base | Marking, extraction, reports, chat |
+| The tutor's knowledge base | Marking, extraction, reports, chat, readiness synthesis |
 | The student's full academic record | Chat, reports |
 | The seven deterministic factor scores | Readiness synthesis |
 
@@ -129,7 +129,7 @@ Readiness synthesis is the strictest case: the factor scores and tutor weights a
 
 ## Cost
 
-Every single AI call records: which organisation, which tutor, which student, which feature, which model, how many tokens in and out, and what it cost.
+Every single AI call records: which organisation, which tutor, which student, which feature, which model, how many tokens in and out, and a computed cost — which is `null`/unpriced rather than a guessed number until that model's pricing is configured (see the two gaps below).
 
 Because this happens at the single switchboard, **metering has no holes.** There's no way for a feature to spend money without being recorded.
 
@@ -157,7 +157,7 @@ The system runs fine without either provider's credentials. Surfaces routed to a
 
 Failures are recorded where the *tutor* can see them, not just in a log file. A failed extraction, a failed marking run, a failed report each write their reason somewhere the interface displays it.
 
-One configuration trap worth knowing: chat is the only streaming feature, and only one provider supports streaming. Routing chat to the other provider is accepted at configuration time and fails at runtime — on the one feature users interact with live.
+One configuration trap worth knowing: chat is the only streaming feature, and only one provider supports streaming. Routing chat to the other provider is accepted at configuration time — provider resolution only validates the provider name, not whether it can stream — and fails later at runtime, on the one feature users interact with live. Rejecting an unstreamable chat route up front, at startup or at resolution, is the obvious hardening and hasn't been done.
 
 ---
 

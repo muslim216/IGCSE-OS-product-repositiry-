@@ -101,7 +101,7 @@ The seven factor scores, the tutor's weightings, and the tutor's own knowledge b
 - a written explanation of *why*
 - a revision plan
 
-**The AI's job here is narrow and it's important to be precise about it.** It isn't asked to judge the student. It's given seven numbers it is **not permitted to contradict**, and asked to weigh them and explain the result in language a person can act on.
+**The AI's job here is narrow and it's important to be precise about it.** It isn't asked to judge the student. It's given seven numbers and *instructed* not to contradict them, then asked to weigh them and explain the result in language a person can act on. That constraint lives in the prompt, not in a check the backend runs on the response afterward — today nothing compares the model's synthesized score against the factor rows before saving it.
 
 It cannot decide a student is stronger than the evidence says. It's a translator from numbers to guidance, not a judge.
 
@@ -145,7 +145,7 @@ It's covered as weakness #3 in the [weaknesses document](../Product-Overview-and
 
 > **No number exists unless the system can say where it came from.**
 
-Every readiness score traces to specific factor calculations, which trace to specific pieces of evidence, which trace to specific marks on specific questions on specific dates.
+Every readiness score traces to specific factor calculations, which trace to specific evidence records — and, where that evidence is a marked question (homework, a past paper), to specific marks on specific questions on specific dates. Not every evidence source carries a question-level mark (a tutor observation or a syllabus-coverage note doesn't), but every source is still a specific, named record rather than an unattributed number.
 
 This constraint shaped the entire database. It's why each factor calculation is written as its own permanent record rather than bundled into a blob — because a blob can't be queried, and a number you can't interrogate is a number you can't defend.
 

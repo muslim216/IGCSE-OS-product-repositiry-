@@ -7,7 +7,7 @@ Written 6 August 2026 · Based on a full read of the codebase and its internal d
 
 ## A note on the name before we start
 
-This folder is called **avora**, but the product in the repository is called **MANARA, by OASIS AI**. The word "Avora" appears nowhere in the code, the docs, the landing page, or the branding. If Avora is a rename you're considering, nothing has been renamed yet — the logo, the sign-in page, the marketing page and roughly forty documents all say MANARA.
+This folder is called **avora**, but the product in the repository is called **MANARA, by OASIS AI**. Outside this new handoff document set, the word "Avora" appears nowhere — not in the code, the pre-handoff docs, the landing page, or the branding. If Avora is a rename you're considering, nothing has been renamed yet — the logo, the sign-in page, the marketing page and roughly forty pre-existing documents all say MANARA.
 
 That's a small thing to fix now and an expensive one to fix after customers have learned a name. I mention it first because it's the only weakness in this document that gets worse purely by waiting.
 
@@ -77,7 +77,7 @@ Plus a Google Classroom integration that imports coursework and submissions.
 
 ### Scale, in plain terms
 
-Roughly 12,700 lines of backend code and 9,800 of frontend, 52 database tables, 60+ screens, and about 7,300 lines of automated tests. This is a real, substantial application — not a prototype. It runs on two hosting services: the app users visit is on Vercel, and the engine and database are on Render.
+Roughly 12,500 lines of backend code and 9,800 of frontend, 52 database tables, 60+ screens, and about 7,300 lines of automated tests. (Backend line counts are approximate and move with whichever tool and scope — app code only vs. including tests — produced them; treat it as an order of magnitude, not a precise figure.) This is a real, substantial application — not a prototype. It runs on two hosting services: the app users visit is on Vercel, and the engine and database are on Render.
 
 ---
 
@@ -99,7 +99,7 @@ For a product whose entire value proposition is "we keep a complete academic rec
 
 The fix is well understood — move files to proper cloud storage (Amazon S3 or similar) and back it up. The code was designed to make this swap easy. It just hasn't been done.
 
-### 2. You cannot legally sell this to a school in its current state
+### 2. This isn't compliance-ready for school procurement in its current state
 
 **Severity: highest for anything beyond individual tutors.**
 

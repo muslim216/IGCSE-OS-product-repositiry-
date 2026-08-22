@@ -162,7 +162,7 @@ A single dashboard showing progress for each linked child. Deliberately minimal.
 
 This is what stops the product being locked to five syllabuses forever. It's the mechanism by which Avora expands to new boards, and eventually beyond IGCSE, without engineering work for each one.
 
-**Google Classroom.** Tutors already using Classroom can link a class, and coursework and turned-in submissions import automatically into the normal pipeline.
+**Google Classroom.** Tutors already using Classroom can link a class, then coursework and turned-in submissions can be imported into the normal pipeline whenever the tutor triggers a sync. Import is on demand today — there is no scheduled/background synchronization that pulls new Classroom work in on its own.
 
 Two deliberate restrictions: only PDFs and images are imported — other file types are skipped rather than guessed at — and submissions are matched to students by email, with unmatched students skipped rather than guessed. Guessing wrong here would attach one student's work to another's record.
 

@@ -27,7 +27,7 @@ The data is the company's actual asset. The code could be rewritten in a few mon
 
 Every tutor gets their own **organisation**, created automatically when they sign up. Students and parents inherit the organisation of the tutor who created them.
 
-Every significant record carries a stamp saying which organisation it belongs to, and every query is supposed to filter by it.
+Every tenant-owned record — anything that belongs to a specific organisation's practice, students, or teaching — carries a stamp saying which organisation it belongs to, and every query against it is supposed to filter by that stamp. Two kinds of table are deliberately exempt: global reference data shared by every tenant (subjects, topics — see below), and system-wide operational tables that have no tenant of their own (the job queue).
 
 ### The bet worth understanding
 
@@ -39,7 +39,7 @@ That looks like over-engineering. It isn't, and the reasoning is worth borrowing
 
 The day a tutoring centre with six tutors wants to buy, supporting them should be an interface change and a new role — a few weeks. Without this decision it would be a database migration on live customer data, which is months of work and the single most dangerous kind of change you can make.
 
-The internal standard is strict about maintaining it: any new table must carry the organisation stamp. A table without it turns "go multi-tutor later" back into the expensive migration this decision exists to avoid.
+The internal standard is strict about maintaining it: any new tenant-owned table must carry the organisation stamp. A table without it turns "go multi-tutor later" back into the expensive migration this decision exists to avoid.
 
 **The gap:** a proper safety mechanism to enforce this filtering exists in the code — and is used nowhere. Every query filters manually instead. It's correct today, but the separation between one tutor's data and another's depends on every developer remembering one line, every time, with nothing catching a mistake. That's weakness #9 in the [weaknesses document](../Product-Overview-and-Weaknesses.md).
 
@@ -49,7 +49,7 @@ The internal standard is strict about maintaining it: any new table must carry t
 
 But it has a sharp edge that has caused real bugs. Because subjects are shared, anything matched on subject *alone* would show a student every past paper every tutor anywhere had uploaded. So past-paper visibility is scoped by organisation **and** subject together, derived from the groups a student is actually in.
 
-That last detail is subtle and correct: a student who joined a second tutor's class by invite sees that tutor's papers, and only that tutor's. Scoping by the student's own organisation would have got this wrong.
+That last detail is subtle and correct: a student who joined a second tutor's class by invite sees papers from that class's organisation and subject — not their own home organisation's papers for the same subject. Scoping by the student's own organisation would have got this wrong. (The check is on the organisation-and-subject pair, not on tutor identity directly, because the schema already allows multiple tutors inside one organisation; today that distinction is usually invisible because most organisations have exactly one tutor.)
 
 ---
 

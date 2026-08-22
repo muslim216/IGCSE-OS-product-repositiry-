@@ -167,10 +167,12 @@ type check anywhere) all clean. Migration `0024` round-trips up → down → up 
 
 **Not verified, and why.** *The migration has not been exercised against Postgres.* The owner
 declined a local Postgres install, so `DB-16`'s up → down → up is confirmed only on SQLite here.
-CI's `migrations` job runs it against real Postgres 16 on every PR, which is the real check — but
-it has not run yet, because nothing has been opened as a PR. **A migration that is correct on
+CI's `migrations` job runs on every pull request with no path filter, which is the real check —
+but the migration itself (`0024`) lives on task `0.3`'s branch, and that branch has not been
+opened as a PR yet, so no Postgres result exists for it. (This handoff is its own PR, #34, but
+it's documentation-only and doesn't carry the migration.) **A migration that is correct on
 SQLite and wrong on Postgres is a failure that has actually happened in this repo (`RISK-3`).**
-Watch that job on `0.3`.
+Watch that job once `0.3` is opened.
 
 **Also unverified by anything:** every Python type annotation in `backend/`. There is no Python
 type checker in CI. That is task `0.8`'s job.
@@ -195,10 +197,11 @@ Recorded because each cost time and would cost it again.
 - **Don't reason about tuple order.** The four repointed `SETTLED_STATUSES` sites were checked
   individually; all are membership tests, so order is irrelevant. That was confirmed, not
   assumed.
-- **`docs/avora-new-state-august-16.md` is untracked and was lost once.** It has never been
-  committed. It vanished mid-session and was unrecoverable from git; work continued only because
-  the owner restored it. **Recommend committing it.** It was deliberately left out of the `0.5`
-  PR as scope creep, so this is a decision waiting on the owner.
+- **`docs/avora-new-state-august-16.md` was untracked and was lost once, mid-session.** It
+  vanished and was unrecoverable from git; work continued only because the owner restored it.
+  It was originally left out of the `0.5` PR as scope creep — that has since been reversed: the
+  file is now committed and tracked, alongside this handoff, so the audit evidence it records is
+  no longer at risk of a repeat loss.
 
 ---
 
