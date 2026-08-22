@@ -146,7 +146,7 @@ communications=[ParentCommunicationOut(..., body=c.body, ...) for c in crm.commu
 
 `TutorNote` is documented in `models/crm.py:41-43` as *"An append-only timeline entry a tutor writes about a student — context, observations, reminders."* `ParentCommunication` is the log of what the tutor said to the parent, privately, about the student.
 
-**Exploit path.** A student authenticates normally and calls `GET /api/v1/students/{their_own_id}/crm` with their own bearer token. Every candid observation a tutor has ever written about them comes back verbatim — disengagement notes, safeguarding-adjacent remarks, notes about the family. A parent gets the same. Both are fully "authorized" by the role check.
+**Impact.** Because the role check treats this as authorized, the student themselves and any linked parent can retrieve every candid observation a tutor has ever written about that student — disengagement notes, safeguarding-adjacent remarks, notes about the family — through their own normal login, with no special access technique involved.
 
 The sibling write path `_tutor_student` (`students.py:71+`) is correctly tutor-only, and `assessments.py`'s `/students/{id}/observations` is correctly `TutorUser`-gated. This endpoint is the one that isn't. It is not currently called by the frontend, which is **not a mitigation** — `SEC-10` says exactly that.
 
