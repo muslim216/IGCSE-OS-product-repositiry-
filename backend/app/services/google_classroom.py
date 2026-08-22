@@ -9,6 +9,19 @@ functions below (mirroring services/ai.py's get_client() choke point), so
 the OAuth flow and sync job are fully testable without real Google
 credentials. The feature degrades gracefully when GOOGLE_CLIENT_ID /
 GOOGLE_CLIENT_SECRET aren't set — see GoogleClassroomUnavailableError.
+
+KEPT BUT UNREACHABLE (AV-58). Classroom is hidden from the product: this
+module, api/classroom.py, the models and the tables are all intact, but that
+router is not mounted in main.py, so every path into here is closed. auth_url()
+and exchange_code() — the only two functions that send GOOGLE_REDIRECT_URI to
+Google, and the reason the deployment was pinned to a single origin — cannot
+now be called at all. sync_classroom() stays registered as a job handler so a
+row queued before the hiding still completes; nothing can enqueue a new one.
+
+Not dead code. Re-mounting the router in main.py restores the API, but not the
+feature: the tutor-facing Classroom UI was deleted rather than hidden, so a
+re-activation has to rebuild that too. See §08 for what the closed OAuth flow
+means for deployment.
 """
 
 import base64

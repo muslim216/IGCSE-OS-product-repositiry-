@@ -86,6 +86,13 @@ enforced by a human remembering. Say so, rather than implying otherwise.
 **45 files, ~12,400 lines. 528 tests pass** in about five and a half minutes with no database
 and no API key.
 
+> As with the frontend paragraph below, this read "28 files, ~6,600 lines. 297 tests" until
+> AV-58 and had drifted badly. AV-58 moved it again — net +2, from six new hidden-route cases
+> less four parametrized cases that could no longer run against the real app — so the number
+> had to be touched, and re-stating a figure that is 200 tests light would have been a fresh
+> claim rather than an inherited one. Both totals are counted, not estimated: `pytest
+> --collect-only -q` and `vitest run`.
+
 Coverage is concentrated where the risk is:
 
 | Area | Files | Notable |
@@ -94,10 +101,10 @@ Coverage is concentrated where the risk is:
 | Past papers | `test_past_papers.py` (398, 16) | Exercises the polymorphic path |
 | Security | `test_security_hardening.py` (370, 14) | Documented nowhere before this handbook |
 | Readiness | `test_readiness_*.py` × 6 | Engine, factors, v2, AI, shadow, cutover |
-| Classroom | `test_classroom.py` (362, 10) | Fully mocked Google API |
+| Classroom | `test_classroom.py` (396, 10) | Fully mocked Google API. AV-58 unmounted the router, so these run against the `hidden_client` fixture — the app with it mounted — rather than the real one |
 | Jobs | `test_jobs.py` (299, 9) | |
 | Auth | `test_auth.py` (125, 16) | |
-| Authorization | `test_authorization.py` (188, 37) | Route inventory + negative cases; fails if any route drops its gate |
+| Authorization | `test_authorization.py` (283, 43) | Route inventory + negative cases; fails if any route drops its gate, and — since AV-58 — if a hidden route is either re-mounted or lets its gate rot while hidden |
 | Health and worker | `test_health.py` (268, 13) | Liveness, readiness, worker supervision, retry backoff |
 
 Note the earlier `handoff.md` recorded 215 tests; that document is archived rather than

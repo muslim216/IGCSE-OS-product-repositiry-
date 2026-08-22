@@ -176,8 +176,10 @@ organization** (which rows).
 async def get_preferences(db: DbSession, user: TutorUser) -> PreferencesOut:
 ```
 
-`TutorUser` (tutor or admin → 403 `Tutor account required`) gates 38 routes and `StudentUser`
-(→ 403 `Student account required`) gates 13. `require_role(*roles, detail=...)` builds the
+`TutorUser` (tutor or admin → 403 `Tutor account required`) gates 45 declared routes — 34 of
+them reachable, the other 11 on the routers `AV-58` unmounted — and `StudentUser` (→ 403
+`Student account required`) gates 14. *(This read "38 and 13"; both were already wrong before
+`AV-58`, so they are corrected here rather than restated.)* `require_role(*roles, detail=...)` builds the
 same gate with a different message and is used once, by `reports.generate`. The seven
 ownership helpers that sit below the routing layer take a plain `User` and call
 `assert_tutor()` / `assert_student()` rather than repeating the condition — that matters
@@ -266,7 +268,8 @@ storage without touching rows.
 
 ### OAuth and stored third-party credentials
 
-Google Classroom uses per-tutor OAuth. Two controls matter:
+Google Classroom uses per-tutor OAuth *(feature hidden as of AV-58, controls documented for
+reference)*. Two controls matter:
 
 **The `state` parameter is verified server-side.** `create_state_token(user_id, purpose)`
 issues a signed, 10-minute token bound to the user who started the flow, with a nonce;

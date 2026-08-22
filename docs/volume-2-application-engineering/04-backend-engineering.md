@@ -49,7 +49,7 @@ testing (§12); Python style (§13).
 
 Written from: `backend/app/main.py`; `backend/app/api/deps.py`; `backend/app/db.py`;
 `backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 31 modules in
-`backend/app/services/`; the 27 routers in `backend/app/api/`.
+`backend/app/services/`; the 27 router modules in `backend/app/api/`, 25 of them mounted.
 
 ---
 
@@ -83,7 +83,7 @@ backend/app/
   config.py     pydantic-settings Settings, accessed via lru_cache'd get_settings()
   db.py         async engine + get_db
   security.py   bcrypt + PyJWT (access, refresh, OAuth state)
-  api/          27 routers + deps.py
+  api/          27 router modules (25 mounted; classroom + knowledge hidden) + deps.py
   schemas/      Pydantic request/response contracts, one module per domain
   services/     31 modules — the actual work
   models/       SQLAlchemy 2.0 async ORM, 52 tables
@@ -104,7 +104,7 @@ remark surface — which is where `BE-2` is under most pressure.
 |---|---|---|
 | `DbSession` | `Annotated[AsyncSession, Depends(get_db)]` | Yes, everywhere |
 | `get_current_user` / `CurrentUser` | Decodes the access token, loads the `User`, rejects when the token's `token_version` ≠ the user's | Yes, everywhere |
-| `TutorUser` | `CurrentUser` plus a tutor-or-admin gate | Yes — 45 routes |
+| `TutorUser` | `CurrentUser` plus a tutor-or-admin gate | Yes — 45 routes (34 mounted; 11 on the hidden `classroom`/`knowledge` routers) |
 | `StudentUser` | `CurrentUser` plus a student gate | Yes — 14 routes |
 | `require_role(*roles, detail=...)` | Builds a gate dependency with a custom 403 message | Once, `reports.generate` |
 | `assert_tutor` / `assert_student` | The same condition in imperative form | The 7 ownership helpers |
@@ -122,7 +122,8 @@ async def get_preferences(db: DbSession, user: TutorUser) -> PreferencesOut:
     ...
 ```
 
-Of 135 routes, 45 are tutor-gated, 14 student-gated, 68 authenticated without a role gate
+Of 135 declared routes, 122 are mounted — `AV-58` hides 13. Of those 122: 34 are
+tutor-gated, 14 student-gated, 66 authenticated without a role gate
 (they branch on role internally, or serve every role), and 8 are public — the six auth
 endpoints plus the two health ones.
 
@@ -221,7 +222,7 @@ submissions costs one synthesis call instead of one per submission.
 | `compute_readiness_v2` | Deliberately **append-only** — a re-run is a new audited evaluation, not a duplicate |
 | `generate_report` | Writes into the existing `Report` row |
 | `extract_syllabus` | Replaces the draft on the `SyllabusUpload` |
-| `sync_classroom` | `ClassroomWorkLink` makes re-polling idempotent — an already-imported item is updated, never duplicated |
+| `sync_classroom` | `ClassroomWorkLink` makes re-polling idempotent — an already-imported item is updated, never duplicated *(handler registered but unreachable; router hidden in AV-58)* |
 
 Downstream, `build_homework_evidence()` is idempotent by `source_ref`.
 

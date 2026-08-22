@@ -1,11 +1,21 @@
 """Tutor Knowledge Base: CRUD + injection into AI surfaces, and the AI usage
 metering view."""
 
+import pytest
 from sqlalchemy import select
 
 from app.db import async_session
 from app.models import AiFeature, AiUsageEvent, User
 from app.services.knowledge import build_tutor_context
+
+
+@pytest.fixture
+def client(hidden_client):
+    """AV-58 hid this router from the product; the code, service, model and
+    table all stay. Every test below is unchanged and still runs, against the
+    `hidden_client` app that mounts it. See that fixture in conftest.py for
+    why the suite was repointed rather than deleted."""
+    return hidden_client
 
 
 async def test_create_list_update_delete_entry(client, tutor):

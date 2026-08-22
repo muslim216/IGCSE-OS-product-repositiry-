@@ -1,3 +1,17 @@
+"""HIDDEN FROM THE PRODUCT (AV-58) — code kept, router not mounted.
+
+This module is intact and correct. It is simply not registered in main.py, so
+none of its routes exist at runtime. The tutor knowledge base is hidden rather than
+deleted, so **do not remove this file as dead code** — re-mounting the router
+in main.py is the whole of bringing it back.
+
+Note the consequence: build_tutor_context() in services/knowledge.py is
+still injected into marking, extraction, reports and readiness synthesis,
+but nothing can create or edit a KnowledgeEntry while this router is
+unmounted. Existing rows keep working; new deployments compile an empty
+block. That is intended, not a bug.
+"""
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 

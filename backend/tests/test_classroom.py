@@ -19,6 +19,16 @@ from app.models import (
 )
 from app.workers.jobs import process_one_job
 
+
+@pytest.fixture
+def client(hidden_client):
+    """AV-58 hid this router from the product; the code, service, model and
+    table all stay. Every test below is unchanged and still runs, against the
+    `hidden_client` app that mounts it. See that fixture in conftest.py for
+    why the suite was repointed rather than deleted."""
+    return hidden_client
+
+
 PDF_BYTES = b"%PDF-1.4 fake classroom pdf"
 
 

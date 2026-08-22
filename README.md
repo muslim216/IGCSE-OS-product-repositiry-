@@ -69,6 +69,11 @@ that origin (`https://…vercel.app/settings/classroom/callback`, path included)
 registered verbatim on the Google OAuth client. Render runs the API, the database and the
 uploads disk, and users never open its URL directly.
 
+> **Note:** Google Classroom integration is hidden from the product (AV-58). The
+> `GOOGLE_REDIRECT_URI` configuration remains available for future re-activation, but the
+> Classroom UI and sync endpoints are no longer accessible. All backend code, models, and
+> tables are retained.
+
 Both hosts build from the repository's **default branch**. A branch that is pushed but not
 merged into it does not deploy, however green its tests are.
 
@@ -88,7 +93,7 @@ merged into it does not deploy, however green its tests are.
    | `GEMINI_API_KEY` | marking, question extraction, syllabus extraction |
    | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
    | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
-   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; leave unset to run without it |
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | *(Google Classroom is hidden from the product as of AV-58 — nothing you can reach reads these; leave unset)* |
 
    `JWT_SECRET` and `GOOGLE_TOKEN_ENCRYPTION_KEY` are generated automatically.
    Every AI surface degrades gracefully when its provider key is missing, so a partial
@@ -105,11 +110,14 @@ merged into it does not deploy, however green its tests are.
    start command) — confirm this in the Dockerfile/start command if you change it.
 6. If your URLs differ, the three values change independently. A different **backend**
    URL is only the rewrite destination in `frontend/vercel.json`. A different **frontend**
-   origin is `CORS_ORIGINS` (origin only, no path) *and* `GOOGLE_REDIRECT_URI` (the full
-   callback URL, path included) — `GOOGLE_REDIRECT_URI` otherwise stays put, since the
-   backend never appears in it.
-   `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
-   on the Google Cloud OAuth client, or the Classroom connect flow fails.
+   origin is `CORS_ORIGINS` (origin only, no path) — the backend never appears in it.
+   
+   > **Note:** Google Classroom is hidden from the product (AV-58), so `GOOGLE_REDIRECT_URI` no
+   > longer constrains your choice of frontend origin — the only two functions that send it to
+   > Google, `auth_url()` and `exchange_code()`, are reachable only through the unmounted router.
+   > The setting stays in place. If Classroom is ever re-activated, the value must again match the
+   > frontend origin exactly and be registered verbatim as an authorized redirect URI on the
+   > Google Cloud OAuth client.
 
 ### Vercel (frontend)
 
@@ -142,7 +150,7 @@ All backend settings come from environment variables (see `backend/.env.example`
 | `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
 | `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; unset means the feature reports "not configured" |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | *(unused — Google Classroom is hidden from the product as of AV-58; code and configuration remain for future re-activation)* |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
 | `REFRESH_COOKIE_SECURE` | Default `true`; set `false` only for plain-HTTP local dev — the refresh-token cookie is `Secure` and browsers drop it over `http://` otherwise |
 

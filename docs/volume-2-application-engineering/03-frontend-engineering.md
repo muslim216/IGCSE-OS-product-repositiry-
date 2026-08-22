@@ -114,8 +114,8 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
   `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in.
 - **Tutor** (`roles={["tutor","admin"]}`): `/tutor` and children, including the nested
   `GroupLayout` at `/tutor/groups/:groupId` with tabs `homework | students | syllabus |
-  schedule | resources | analytics | new-homework | mock`. `/settings/classroom/callback`
-  sits inside the tutor guard but outside the shell.
+  schedule | resources | analytics | new-homework | mock`. *(The `/settings/classroom/callback`
+  route and Classroom UI were deleted in AV-58.)*
 - **Student** (`roles={["student"]}`): `/student` and nine siblings.
 - **Parent** (`roles={["parent"]}`): `/parent`, with no nav array.
 - **Catch-all:** `*` redirects to `/`.

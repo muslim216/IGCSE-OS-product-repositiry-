@@ -93,7 +93,7 @@ flowchart TD
   R --> D[(Persistent disk<br/><i>10 GB at /data</i>)]
   R --> AN[Anthropic]
   R --> GE[Gemini]
-  R --> GC[Google Classroom]
+  R -.-> GC[Google Classroom<br/><i>dormant — AV-58</i>]
   R -.->|in-process| W[Job worker]
 ```
 
@@ -101,6 +101,21 @@ flowchart TD
 of `render.yaml` gives the reason: a second origin would not match `GOOGLE_REDIRECT_URI`, so
 Classroom would silently fail for anyone who landed on it while everything else appeared to
 work.
+
+> **That reason is now dormant.** Google Classroom is hidden from the product (`AV-58`) — the
+> router is unmounted, so there is no OAuth flow left to break. `GOOGLE_REDIRECT_URI` is read
+> in exactly two places, `auth_url()` and `exchange_code()` in `services/google_classroom.py`,
+> and both are reachable only from routes that no longer exist. (`refresh_access_token()` also
+> calls `_oauth_config()` and is still reachable, via a `sync_classroom` job row queued before
+> the hiding — but it discards the redirect URI and never sends it.) So no origin comparison
+> against that value can happen. The single-origin constraint it created is therefore lifted,
+> which **Phase 1 of the Avora plan depends on**: it is what allows the API to run more than
+> one instance and the frontend to be served from more than one place.
+>
+> The deployment is unchanged by this task — nothing was scaled out here, and `INF-5` below is
+> deliberately left Active rather than retired. Retiring it is Phase 1's to do, together with
+> the change that actually makes use of it. Note the constraint returns in full if Classroom is
+> ever un-hidden.
 
 ### The API service
 
@@ -230,11 +245,19 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 
 **Google Classroom**
 
-| Variable | Default | Prod | Failure mode if wrong |
+> **Every failure mode in this table is dormant as of `AV-58`.** Classroom is hidden, so none
+> of these variables is read on any reachable path and none of the listed failures can occur.
+> Note also that `render.yaml`'s production `GOOGLE_REDIRECT_URI`
+> (`…vercel.app/settings/classroom/callback`) now points at a route that no longer exists —
+> the callback page was deleted, so that URL resolves to the SPA catch-all. The rows below
+> describe what these variables mean **after a re-activation**, which also has to rebuild the
+> deleted UI.
+
+| Variable | Default | Prod | Failure mode if wrong *(all dormant — `AV-58`)* |
 |---|---|---|---|
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | unset | `sync: false` | Feature reports "not configured"; app runs fine |
 | `GOOGLE_REDIRECT_URI` | localhost callback | Vercel callback URL | **The full URL, origin and path.** Must be registered verbatim on the Google OAuth client or connect fails |
-| `GOOGLE_TOKEN_ENCRYPTION_KEY` | unset → derived from `JWT_SECRET` | `generateValue` | Changing it makes every stored Google refresh token undecryptable; every tutor must reconnect |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | unset → derived from `JWT_SECRET` | `generateValue` | Changing it makes every stored Google refresh token undecryptable. While Classroom is hidden there is no reconnect path, so the loss is permanent — see `OPS-4` |
 
 **Frontend (build-time)**
 
@@ -314,6 +337,12 @@ change it is not, and the moment to work that out is not during an outage.
 Never deploy a second copy of the frontend on another origin.
 *Rationale:* it would not match `GOOGLE_REDIRECT_URI`, so Classroom fails silently for anyone
 who lands on it while everything else appears to work.
+*Status:* the rationale is dormant — Classroom is hidden (`AV-58`), and the two functions that
+send `GOOGLE_REDIRECT_URI` to Google are reachable only through the unmounted router. The rule
+is held Active rather than retired because retiring
+it is only meaningful alongside the change that uses the freedom, which is Phase 1's. **Do not
+cite this status as permission to deploy a second origin today**; do cite it when Phase 1
+proposes to.
 
 **`INF-6` — MUST · Critical · Active**
 Keep the API same-origin to the browser via the `/api/*` rewrite.

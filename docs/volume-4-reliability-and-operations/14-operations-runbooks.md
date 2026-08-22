@@ -48,8 +48,9 @@ person's memory.
 ## Scope
 
 **In scope:** deploying, verifying, and rolling back; migration failures; the job system;
-provider outages; marking and readiness problems; Classroom; disk and file problems; secret
-rotation; database restore; user support; incident response.
+provider outages; marking and readiness problems; disk and file problems; secret
+rotation; database restore; user support; incident response. *(Classroom runbooks are dormant
+as of AV-58; see R10.)*
 
 **Out of scope:** why the system is shaped this way (§08, §11); the standards a fix must meet
 (§12, §13).
@@ -95,7 +96,8 @@ Everything in this section is the operating context the runbooks assume. Read it
 procedures below all depend on it.
 
 **Access needed:** the Render dashboard (service, database, logs, shell), the Vercel dashboard,
-GitHub, and the Google Cloud console for Classroom.
+and GitHub. *(The Google Cloud console for Classroom is not needed while the feature is hidden
+as of AV-58.)*
 
 **Three facts that shape almost every response:**
 
@@ -251,7 +253,7 @@ means a failed migration is a service that never starts.
 ### R5 — Background work has stopped
 
 **Symptoms:** homework stays "processing" forever; readiness never updates; reports never
-finish; nothing appears from Classroom. **The API responds normally and `/api/v1/health`
+finish. **The API responds normally and `/api/v1/health`
 returns `ok`** — liveness cannot see this. `/api/v1/health/ready` can.
 
 This is the system's signature silent failure. The worker shares the API process.
@@ -501,6 +503,12 @@ sensibly against its factor rows.
 
 ### R10 — Google Classroom sync is failing
 
+> **Status: Dormant** — Google Classroom is hidden from the product (AV-58). The router is
+> unmounted and no UI or endpoint can initiate a connect or sync, so none of the symptoms below
+> can occur. This runbook applies only after a re-activation, which is **not** just re-mounting
+> the router in `app/main.py`: the tutor Settings and OAuth-callback pages were deleted, so the
+> surface an operator would send a tutor to no longer exists and has to be rebuilt first.
+
 **Symptoms:** "not configured"; sync returns an auth error; courseWork is not importing; some
 students' submissions are missing.
 
@@ -518,7 +526,10 @@ students' submissions are missing.
 
 - Redirect URI mismatch: the value in `render.yaml` must be registered verbatim as an
   authorized redirect URI on the Google Cloud OAuth client. A bare origin will not match.
-- Invalid token: the tutor disconnects and reconnects in Settings.
+- Invalid token: the tutor disconnects and reconnects in Settings. *(No such control exists
+  while the feature is hidden — `/tutor/settings` is the timezone alone. After a re-activation
+  that rebuilds the UI this is the fix; before one, the only recovery is `DELETE
+  /api/v1/classroom/account` once mounted, or deleting the `google_accounts` row.)*
 - **Undecryptable** token: this means `GOOGLE_TOKEN_ENCRYPTION_KEY` changed — see R12. Every
   linked tutor must reconnect.
 - Missing students: match the roster email to an Avora account, or have the student's account
@@ -573,10 +584,10 @@ surprise people.
 | Secret | Blast radius | Procedure |
 |---|---|---|
 | **`JWT_SECRET`** | **Every session ends immediately** — all access and refresh tokens become invalid. Also invalidates every stored Google refresh token **if `GOOGLE_TOKEN_ENCRYPTION_KEY` is unset**, because the key is then derived from it | Set a new value; restart. Warn users first. Set a dedicated `GOOGLE_TOKEN_ENCRYPTION_KEY` beforehand to decouple the two |
-| **`GOOGLE_TOKEN_ENCRYPTION_KEY`** | **Every stored Google refresh token becomes undecryptable.** Every linked tutor must reconnect Classroom | Set a new value; restart; tell every linked tutor to reconnect |
+| **`GOOGLE_TOKEN_ENCRYPTION_KEY`** | **Every stored Google refresh token becomes undecryptable.** *(Dormant as of `AV-58`: no tutor can be linked and none can reconnect, because the connect flow does not exist. The loss is therefore permanent rather than recoverable — which makes rotating this key while Classroom is hidden worse, not safer.)* | Set a new value; restart. There is no reconnect path until Classroom is re-activated |
 | `ANTHROPIC_API_KEY` | Chat, reports, readiness, class briefs fail until the new key is live | Issue a new key at the provider; update in Render; restart; revoke the old |
 | `GEMINI_API_KEY` | **The homework pipeline fails** until the new key is live | As above. Consider R7's re-route as a bridge |
-| `GOOGLE_CLIENT_SECRET` | New OAuth connections fail; existing refresh tokens keep working | Rotate in Google Cloud; update in Render; restart |
+| `GOOGLE_CLIENT_SECRET` | New OAuth connections fail; existing refresh tokens keep working *(dormant as of `AV-58` — no new connection can be started at all)* | Rotate in Google Cloud; update in Render; restart |
 | Database credentials | Total outage until updated | Rotate in Render; the service picks up `DATABASE_URL` from the database binding |
 
 **Universal steps**
@@ -663,7 +674,7 @@ It is debounced by design. Adding evidence enqueues a run scheduled
 |---|---|---|
 | **SEV1** | Data loss, a security breach, or a total outage | Disk loss, credential leak, database down, service will not start |
 | **SEV2** | A core workflow is broken for everyone | Marking down, worker dead, migration failed |
-| **SEV3** | A feature is degraded, or one user is affected | One provider down, a poisoned job, Classroom sync failing |
+| **SEV3** | A feature is degraded, or one user is affected | One provider down, a poisoned job *(Classroom sync dormant as of AV-58)* |
 
 **Response**
 
@@ -706,8 +717,9 @@ Take a database backup before running any `downgrade` that drops a column or a t
 
 **`OPS-4` — MUST · Critical · Active**
 Establish a secret's blast radius from R12's table before rotating it.
-*Rationale:* `JWT_SECRET` ends every session; `GOOGLE_TOKEN_ENCRYPTION_KEY` forces every linked
-tutor to reconnect. Both surprise people.
+*Rationale:* `JWT_SECRET` ends every session; `GOOGLE_TOKEN_ENCRYPTION_KEY` destroys every
+stored Google refresh token, and while Classroom is hidden (`AV-58`) there is no reconnect path
+to recover them. Both surprise people.
 
 **`OPS-5` — MUST · Important · Active**
 Prefer a configuration change to a code change during an incident.

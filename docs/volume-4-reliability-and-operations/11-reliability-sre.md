@@ -89,10 +89,15 @@ that has no measurement attached is recorded as a gap.
 |---|---|---|---|
 | **Postgres** | Everything | None. No graceful path exists | Request failures |
 | **Uploads disk** | New uploads, file downloads, extraction and marking of unread files | None | Request failures |
+<<<<<<< HEAD
 | **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
 | **Anthropic** | Reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
+=======
+| **The job worker** | All extraction, marking, readiness synthesis, reports *(Classroom sync dormant as of AV-58)* | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
+| **Anthropic** | Chat, reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
+>>>>>>> 9ff58d0 (chore: hide Google Classroom and the knowledge base (task 0.5, AV-58))
 | **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; chat and reports unaffected | Error persisted to a domain column |
-| **Google Classroom** | Import only | Direct upload unaffected by design | `sync_classroom` job failure |
+| **Google Classroom** | *(dormant as of AV-58 — import only when active)* | Direct upload unaffected by design | `sync_classroom` job failure *(route unmounted, unreachable)* |
 | **Readiness v2 Layer 2** | Readiness freshness | Falls back per-subject to v1, response says `engine: "v1"` | Snapshot `status="failed"` |
 | **Vercel** | The entire user-facing app | None — API is fine, nobody can reach it | External |
 | **A migration** | The whole API: it never starts | None, by design (`P4`) | Deploy failure |
@@ -105,7 +110,7 @@ single model provider outage stops the product. See `ADR-0006`.
 Four patterns are implemented and are the ones to copy:
 
 1. **Missing credential → clear per-surface error.** `AIUnavailableError` and
-   `GoogleClassroomUnavailableError` name the variable to set. The app still starts.
+   `GoogleClassroomUnavailableError` *(dormant as of AV-58)* name the variable to set. The app still starts.
 2. **Partial work is preserved.** If readiness Layer 2 fails, the already-computed
    `factor_evaluations` rows are kept and the snapshot is written with `status="failed"`.
    The evaluation is not lost and the failure is visible.

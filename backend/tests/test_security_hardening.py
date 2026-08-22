@@ -343,10 +343,17 @@ async def test_upload_still_accepts_a_real_pdf(client, tutor, subject):  # noqa:
 
 
 async def test_classroom_connect_rejects_a_state_it_did_not_issue(
-    client, tutor, other_tutor, monkeypatch
+    hidden_client, tutor, other_tutor, monkeypatch
 ):
     """Without a server-side check, a crafted callback URL attaches the
-    attacker's Google account to whichever tutor opens it."""
+    attacker's Google account to whichever tutor opens it.
+
+    AV-58 hid the Classroom router, so this runs against `hidden_client` — the
+    app with it mounted. The finding this test records (threat review) is
+    about code that still exists and is one line in main.py from being live
+    again, so the check outlives the hiding.
+    """
+    client = hidden_client
     from app.config import get_settings
     from tests.test_classroom import _fake_exchange_code, _fake_fetch_email
 
