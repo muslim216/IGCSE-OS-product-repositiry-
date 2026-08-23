@@ -72,8 +72,11 @@ services:
 
       # Per-token prices for ai_usage_events.cost_usd, as JSON. Empty means
       # calls record an unknown cost and report as unpriced_call_count — never
-      # a fabricated $0. Fill in real prices for the models you actually use.
+      # a fabricated $0. Fill in real prices for the models you actually use
+      # (keyed to the real IDs in config.py: e.g. claude-opus-4-8,
+      # claude-haiku-4-5, gemini-2.5-pro).
       - key: AI_MODEL_PRICING
+        value: '{"claude-opus-4-8": {"input_per_1m": 5, "output_per_1m": 25}, "claude-haiku-4-5": {"input_per_1m": 3, "output_per_1m": 15}, "gemini-2.5-pro": {"input_per_1m": 1.25, "output_per_1m": 10}}'
         sync: false
 
       # --- Readiness v2 -------------------------------------------------
