@@ -231,3 +231,84 @@ async def test_today_lessons_uses_org_timezone(client, tutor, monkeypatch):
         )
         resp = await client.get("/api/v1/me/today-lessons", headers=tutor["headers"])
     assert resp.json() == []
+
+
+# ---- The per-user override (AV-67) ----
+
+
+async def test_a_user_can_set_and_clear_their_own_timezone(client, tutor):
+    set_resp = await client.put(
+        "/api/v1/me/timezone", json={"timezone": "Asia/Dubai"}, headers=tutor["headers"]
+    )
+    assert set_resp.status_code == 200
+    assert set_resp.json()["time_zone"] == "Asia/Dubai"
+    # Readable both on the dedicated endpoint and the identity the app already has.
+    assert (
+        await client.get("/api/v1/me/timezone", headers=tutor["headers"])
+    ).json()["time_zone"] == "Asia/Dubai"
+    me = await client.get("/api/v1/auth/me", headers=tutor["headers"])
+    assert me.json()["time_zone"] == "Asia/Dubai"
+
+    cleared = await client.put("/api/v1/me/timezone", json={"timezone": None}, headers=tutor["headers"])
+    assert cleared.status_code == 200
+    assert cleared.json()["time_zone"] is None
+
+
+async def test_a_student_can_set_their_own_timezone_but_not_the_organizations(client, tutor):
+    """AV-67's whole point: the override is deliberately NOT tutor-gated."""
+    async with async_session() as session:
+        subject = Subject(
+            exam_board="Edexcel IGCSE",
+            code="4MA2",
+            name="Maths B",
+            grade_scale="9-1",
+            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
+        )
+        session.add(subject)
+        await session.commit()
+        subject_id = subject.id
+
+    group = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Set B", "subject_id": subject_id},
+            headers=tutor["headers"],
+        )
+    ).json()
+    await client.post(
+        f"/api/v1/groups/{group['id']}/students",
+        json={"name": "Omar", "username": "omar01", "password": "password123"},
+        headers=tutor["headers"],
+    )
+    login = await client.post(
+        "/api/v1/auth/login", json={"identifier": "omar01", "password": "password123"}
+    )
+    student_headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+
+    own = await client.put(
+        "/api/v1/me/timezone", json={"timezone": "Europe/London"}, headers=student_headers
+    )
+    assert own.status_code == 200
+    assert own.json()["time_zone"] == "Europe/London"
+
+    # The organization setting stays tutor-only (BE-17).
+    org = await client.put(
+        "/api/v1/me/organization/timezone",
+        json={"timezone": "Africa/Cairo"},
+        headers=student_headers,
+    )
+    assert org.status_code == 403
+
+
+async def test_own_timezone_rejects_an_unknown_zone(client, tutor):
+    resp = await client.put(
+        "/api/v1/me/timezone", json={"timezone": "Not/AZone"}, headers=tutor["headers"]
+    )
+    assert resp.status_code == 422
+
+
+async def test_own_timezone_requires_authentication(client):
+    """QA-12: the negative case. A caller may only ever change their own row,
+    and only when the row is behind a token at all."""
+    resp = await client.put("/api/v1/me/timezone", json={"timezone": "Africa/Cairo"})
+    assert resp.status_code == 401

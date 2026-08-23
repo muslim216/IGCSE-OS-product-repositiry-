@@ -9,6 +9,8 @@ export interface User {
   username: string | null;
   role: "student" | "tutor" | "parent" | "admin";
   name: string;
+  /** The user's own IANA zone, or null to follow the organization's. */
+  time_zone: string | null;
 }
 
 export interface AuthResponse {

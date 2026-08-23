@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.models import Group, GroupMember, Organization, ParentLink, ScheduleSlot, User
 from app.schemas.activity import ActivitySummary
-from app.schemas.auth import UserOut
+from app.schemas.auth import UserOut, UserTimezoneUpdate
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
 from app.schemas.orgs import OrganizationOut, OrganizationTimezoneUpdate
 from app.services import activity
@@ -119,3 +119,38 @@ async def set_my_organization_timezone(
     await db.commit()
     await db.refresh(org)
     return OrganizationOut(id=org.id, name=org.name, timezone=org.timezone)
+
+
+@router.get("/timezone", response_model=UserOut)
+async def my_timezone(db: DbSession, user: CurrentUser) -> UserOut:
+    """This user's own zone override, or None to follow the organization's.
+
+    Served from the authenticated user (SEC-7) — there is no path or body
+    parameter that could name anybody else.
+    """
+    _ = db  # session-per-request dependency; the user row is already loaded
+    return UserOut.model_validate(user)
+
+
+@router.put("/timezone", response_model=UserOut)
+async def set_my_timezone(
+    body: UserTimezoneUpdate, db: DbSession, user: CurrentUser
+) -> UserOut:
+    """Set (or clear) this user's own zone (AV-67).
+
+    Deliberately NOT tutor-gated: the whole point is that a student or parent
+    may sit in a different zone from the tutor whose organization they belong
+    to. The gate in the signature is authentication itself — a caller can
+    only ever change their own row. Validation matches the organization
+    endpoint exactly: an unusable name is reported, never stored.
+    """
+    try:
+        tz = normalize_timezone(body.timezone)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Not a recognised IANA timezone name"
+        ) from None
+    user.time_zone = tz
+    await db.commit()
+    await db.refresh(user)
+    return UserOut.model_validate(user)

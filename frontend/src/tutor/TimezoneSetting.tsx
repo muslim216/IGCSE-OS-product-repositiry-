@@ -7,7 +7,7 @@ import { ApiError } from "../api/client";
  * Intl.supportedValuesOf is recent enough that it may be absent; when it is,
  * the control degrades to offering the detected zone alone rather than
  * disappearing. An empty list is a smaller UI, not a broken one. */
-function supportedTimezones(): string[] {
+export function supportedTimezones(): string[] {
   const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
   try {
     return intl.supportedValuesOf?.("timeZone") ?? [];
@@ -16,7 +16,7 @@ function supportedTimezones(): string[] {
   }
 }
 
-function detectedTimezone(): string | null {
+export function detectedTimezone(): string | null {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
   } catch {

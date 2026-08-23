@@ -13,6 +13,7 @@ import {
 import { listGroups } from "../api/groups";
 import { ApiError } from "../api/client";
 import TimezoneSetting from "./TimezoneSetting";
+import MyTimezoneSetting from "./MyTimezoneSetting";
 
 /** Where the OAuth `state` is stashed between leaving for Google and coming
  * back to /settings/classroom/callback, so the callback can prove the redirect
@@ -99,6 +100,7 @@ export default function ClassroomSettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
       <TimezoneSetting />
+      <MyTimezoneSetting />
 
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Google Classroom</h2>

@@ -48,6 +48,15 @@ export const setOrganizationTimezone = (timezone: string | null) =>
     body: JSON.stringify({ timezone }),
   });
 
+/** The caller's own zone override (null = follow the organization's). */
+export const myTimezone = () => api<User>("/api/v1/me/timezone");
+
+export const setMyTimezone = (timezone: string | null) =>
+  api<User>("/api/v1/me/timezone", {
+    method: "PUT",
+    body: JSON.stringify({ timezone }),
+  });
+
 export function logout() {
   return api<void>("/api/v1/auth/logout", { method: "POST" });
 }
