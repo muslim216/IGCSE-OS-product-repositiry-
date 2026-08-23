@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myTimezone, setMyTimezone } from "../api/auth";
 import { ApiError } from "../api/client";
-import { supportedTimezones } from "./TimezoneSetting";
+import { supportedTimezones } from "../lib/timezones";
 
 /**
  * The signed-in user's own time zone (AV-67) — distinct from the

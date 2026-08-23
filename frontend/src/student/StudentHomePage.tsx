@@ -4,6 +4,7 @@ import { WEEKDAYS, myLessons } from "../api/groups";
 import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
 import { DirectionMark, EmptyState } from "../components/ui";
+import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { ABSENT } from "../lib/labels";
 import { dueVerdict, monthlyGains, recentlyMarked, subjectStrip } from "../lib/student";
 
@@ -218,6 +219,14 @@ export default function StudentHomePage() {
           </p>
         </section>
       )}
+
+      {/* Below everything the student came for. AV-67 is written for exactly
+          this reader — a student in another country from their tutor, whose
+          "due today" should turn over at their own midnight, not the account's.
+          A student has no settings screen yet and Phase D owns where one goes;
+          until then the control lives here rather than nowhere, because a
+          preference no one can reach is not a preference. */}
+      <MyTimezoneSetting />
     </div>
   );
 }

@@ -13,7 +13,7 @@ import {
 import { listGroups } from "../api/groups";
 import { ApiError } from "../api/client";
 import TimezoneSetting from "./TimezoneSetting";
-import MyTimezoneSetting from "./MyTimezoneSetting";
+import MyTimezoneSetting from "../components/MyTimezoneSetting";
 
 /** Where the OAuth `state` is stashed between leaving for Google and coming
  * back to /settings/classroom/callback, so the callback can prove the redirect
