@@ -9,7 +9,7 @@ Written 6 August 2026 · Based on a full read of the codebase
 
 The product is named **Avora** by OASIS AI — renamed from its working name, **MANARA**, across the code, the package names, and the prose of every maintained document.
 
-Two places still read MANARA, on purpose. The accepted ADRs under `docs/adr/` and the point-in-time records under `docs/archive/` are historical: they say what was decided and when, and an accepted decision is not edited to match a later brand. Read them as the same product under its earlier name.
+**MANARA still appears wherever changing it would falsify a record** — accepted ADRs, archived handoffs, version-history rows, dated audits, and the plans that describe the rename as work still to do. Each says what was true at a moment, and editing it to match a later brand would make it lie about that moment. Read those as the same product under its earlier name.
 
 These documents use **Avora** throughout. Where older external material or the deployment identifiers still say IGCSE-OS, it is again the same system.
 

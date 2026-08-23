@@ -196,11 +196,13 @@ model now renames the TypeScript type, and every use of the old name fails `tsc 
 Generated files close nothing while they go stale, so two checks keep them current:
 `backend/tests/test_openapi_snapshot.py` fails when `openapi.json` no longer matches the
 running app, and CI's frontend job regenerates `schema.d.ts` and fails on any diff. The first
-commit of this work proved the point — the alias read `components["schemas"]["TokenPair"]`, a
-schema name the backend has never had. The server calls that pair `AccessToken`; `TokenPair`
-was the frontend's own name for it, carried over when the hand-written interfaces became
-aliases. `npm test` does not type-check, so nothing local caught it: it was `tsc -b` in CI
-that said so.
+commit of this work proved the point, and the shape of the mistake is the argument. The alias
+read `components["schemas"]["TokenPair"]`. `TokenPair` is a real backend class — but its
+docstring says "never sent to a client as JSON", because `SEC-2` put the refresh token in an
+httpOnly cookie and left `AccessToken` as the only response body. A model nothing returns
+never becomes an OpenAPI component, so the name exists in the server's source and not in its
+contract. Mirroring by hand, that is precisely the name you would copy. `npm test` does not
+type-check, so nothing local caught it: `tsc -b` in CI did.
 
 **Residual:** the aliasing is not yet exhaustive. The per-domain wrappers under
 `frontend/src/api/` still declare their own interfaces for many payloads; each one converted
