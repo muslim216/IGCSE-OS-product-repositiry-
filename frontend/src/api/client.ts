@@ -34,6 +34,18 @@ export interface StoredTokens {
 
 const STORAGE_KEY = "avora-tokens";
 
+/** The key used before the Avora rename (task 0.6).
+ *
+ * Read once, when the current key holds nothing, because renaming the key
+ * alone signs out every browser that is currently signed in — and does it in
+ * a way the refresh flow cannot repair: `api()` only attempts a refresh when a
+ * stored access token exists, so a null read never reaches the httpOnly
+ * refresh cookie sitting valid for another 30 days. The migration is one extra
+ * read while signed out and none once a session exists. Delete this and its
+ * branch below once the deploy is far enough behind that no browser can still
+ * be holding the old key. */
+const LEGACY_STORAGE_KEY = "igcse-os-tokens";
+
 // Optional escape hatch for deployments without a same-origin API proxy
 // (e.g. a Vercel preview without vercel.json applied yet).
 export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -43,7 +55,17 @@ export function apiUrl(path: string): string {
 }
 
 export function getStoredTokens(): StoredTokens | null {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  let raw = localStorage.getItem(STORAGE_KEY);
+  // Carry a pre-rename session across, and clear the old key either way — a
+  // stale token left behind is a credential nothing will ever use again.
+  let migrating = false;
+  if (!raw) {
+    raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (raw) {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      migrating = true;
+    }
+  }
   if (!raw) return null;
   // Every request reads this, so anything unparseable here would throw before
   // the fetch and take down the whole app — including the login that would
@@ -59,10 +81,12 @@ export function getStoredTokens(): StoredTokens | null {
     localStorage.removeItem(STORAGE_KEY);
     return null;
   }
-  return {
+  const tokens: StoredTokens = {
     access_token: parsed.access_token,
     token_type: typeof parsed.token_type === "string" ? parsed.token_type : "bearer",
   };
+  if (migrating) storeTokens(tokens);
+  return tokens;
 }
 
 export function storeTokens(tokens: TokenPair | StoredTokens | null) {
