@@ -89,8 +89,8 @@ export default function GradeBoundariesPage() {
       <div>
         <h2 className="font-display text-xl font-semibold text-ink-900">Grade boundaries</h2>
         <p className="mt-1 max-w-prose text-sm text-ink-500">
-          What percentage earns each grade. Predicted grades across Avora are read through these,
-          so a change here is live everywhere on the next page load.
+          What percentage earns each grade. Predicted grades across Avora are read through these, so
+          a change here is live everywhere on the next page load.
         </p>
       </div>
 

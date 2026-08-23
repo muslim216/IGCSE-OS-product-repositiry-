@@ -1,11 +1,17 @@
 import type { components } from "./schema";
 
 // Re-export API contract types from the generated OpenAPI schema (FE-4).
-// The schema at src/api/schema.d.ts is produced by `npx openapi-typescript
-// openapi.json -o src/api/schema.d.ts` from the backend's OpenAPI document;
+// The schema at src/api/schema.d.ts is produced by `npm run generate:api`
+// from openapi.json, itself dumped from the backend's own OpenAPI document;
 // hand-maintained mirrors are not added — the generated file is the source
 // of truth and keeps frontend and backend in sync.
-export type TokenPair = components["schemas"]["TokenPair"];
+//
+// The alias below is the point of the exercise: this pair used to be a
+// hand-written `TokenPair` here, and the schema it mirrored has been called
+// AccessToken on the server the whole time. Aliasing the *server's* name is
+// what makes a rename over there a compile error over here rather than a
+// silent divergence nobody notices (RISK-6).
+export type TokenPair = components["schemas"]["AccessToken"];
 export type User = components["schemas"]["UserOut"];
 export type AuthResponse = components["schemas"]["AuthResponse"];
 

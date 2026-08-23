@@ -40,10 +40,7 @@ function renderPage(node: React.ReactNode) {
 }
 
 beforeEach(() => {
-  localStorage.setItem(
-    "avora-tokens",
-    JSON.stringify({ access_token: "t", token_type: "bearer" }),
-  );
+  localStorage.setItem("avora-tokens", JSON.stringify({ access_token: "t", token_type: "bearer" }));
 });
 
 afterEach(() => {
