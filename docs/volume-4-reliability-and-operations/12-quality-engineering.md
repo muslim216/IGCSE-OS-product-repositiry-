@@ -251,15 +251,21 @@ than racing it.
 
 **What CI does not do**, stated plainly because the gap is easy to mistake for coverage:
 
-- **No Python type checker.** No mypy or pyright, so every annotation in ~22k lines of Python
-  is decoration nothing verifies — the asymmetry with the frontend, where `tsc -b` is real.
-  This is now the whole of `RISK-2`.
+- **Python type checking covers two packages, not the backend.** `mypy app/services
+  app/schemas` runs in the `lint` job (task 0.8); annotations in `app/api`, `app/models` and
+  `app/workers` are still decoration nothing verifies. Widening it is a per-module ratchet —
+  `[tool.mypy] packages` in `backend/pyproject.toml` and the CI step move together. This is
+  now the whole of `RISK-2`.
 - **No dependency scan**, which is not a theoretical gap: the first `npm audit` anyone ran
   reported a critical and a high advisory in `vitest` and `vite`. See `RISK-11`.
 - **No coverage measurement**, so nothing reports which risky paths the 297 backend tests miss.
 - **The `migrations` database is empty.** Schema operations are proven; safety against
   existing rows, which is how 0012 actually failed, is not.
-- **No contract check between backend schemas and frontend types** (`RISK-6`).
+- **No contract check between backend schemas and the frontend's per-domain wrappers.** The
+  shared types in `api/client.ts` and `api/auth.ts` are generated from the app's own OpenAPI
+  document and their freshness is gated — `tests/test_openapi_snapshot.py` for
+  `openapi.json`, and a regenerate-and-diff step for `schema.d.ts`. The interfaces still
+  declared by hand in the other `api/*.ts` modules are not (`RISK-6` residual).
 
 `CLAUDE.md` also mentions CodeQL, Vercel preview builds, and CodeRabbit. Those are
 GitHub-App-configured and may well run; **nothing in the repository evidences them**, so they
@@ -357,8 +363,12 @@ A change to a job handler tests that running it twice on the same payload is saf
 is exactly the property that silently regresses.
 
 **`QA-15` — SHOULD · Important · Active**
-A change to a response schema updates its TypeScript mirror and exercises the endpoint.
-*Rationale:* `API-15`, `FE-4`. Nothing checks the two agree (`RISK-6`).
+A change to a response schema regenerates `frontend/openapi.json` and `schema.d.ts`, and
+exercises the endpoint.
+*Rationale:* `API-15`, `FE-4`. Regeneration is enforced — `tests/test_openapi_snapshot.py`
+fails on a stale snapshot and CI fails on stale generated types — but only the shapes already
+aliased from `components["schemas"]` benefit; a hand-written interface still agrees with the
+backend only because someone changed both (`RISK-6`).
 
 **`QA-16` — SHOULD · Recommended · Active**
 A new frontend page or shared component gets at least one test covering its primary state and
@@ -420,7 +430,7 @@ informs where to write real ones.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No type checker on the backend.** ruff and Prettier now cover style on both languages; mypy and pyright are still absent. | ~22k lines of Python annotations that nothing verifies, where the frontend has `tsc -b` in CI. This is the whole of what `RISK-2` still covers. Adding it wants a per-module ratchet, not one sweep. | `before scale` |
+| **The type checker covers `services/` and `schemas/` only.** mypy runs on those two packages in CI (task 0.8); `api/`, `models/` and `workers/` are unchecked. | The layer with the decision math and the API contracts is verified; a wrong annotation in a router still only misleads a reader. This is what `RISK-2` still covers. Widen it a package at a time — one `packages` entry plus the CI step, fixing what it finds in the same PR. | `before scale` |
 | **Nothing scans dependencies.** The first `npm audit` anyone ran reported 8 advisories — 1 critical (`vitest`), 1 high (`vite`), both needing a semver-major. | `RISK-11`'s stated trigger has fired. Both are dev-only and neither ships to a user, but the count grew unobserved for two majors, and an audit step in the existing `lint` job is the cheapest control in this document. | `blocking` |
 | **CI's migration check runs against an empty database.** Up/down/up on Postgres 16 is automated; data safety is not. | It cannot catch the failure that has actually happened — 0012 added a non-nullable column to a populated table. `QA-11`'s "with data" clause and `DB-18` are manual compensating controls. `RISK-3` residual. | `before scale` |
 | **The test suite itself still runs no migration.** Schema comes from `Base.metadata.create_all` on SQLite. | Model/migration drift is invisible to `pytest`; only the separate CI job would catch a migration that fails outright, and it would not catch one that merely disagrees with the models. | `before scale` |
@@ -428,7 +438,7 @@ informs where to write real ones.
 | **The frontend suite is 49 tests against 60+ pages**, and the four largest pages still have none. | 26 of those 49 guard the design tokens and the error parser, which is real but is not page coverage. The highest-change-risk frontend files remain unverified. | `before scale` |
 | **No coverage measurement.** `.gitignore` anticipates it; nothing produces it. | No signal on which risky paths are untested. Blocks `QA-21`. | `nice to have` |
 | **The test schema differs from production** — four indexes exist only in migrations. | No test exercises an indexed query plan. §06, `DB-12`. | `before scale` |
-| **No contract test between backend schemas and frontend types.** | A field rename passes both suites and fails at runtime. `RISK-6`. | `blocking` |
+| **The per-domain API wrappers still hand-mirror their payloads.** `client.ts` and `auth.ts` alias the generated schema; `homework.ts`, `readiness.ts` and the rest declare their own interfaces. | A field rename in one of those domains passes both suites and fails at runtime, exactly as before — the generated types close this only where they are used. Convert each domain as it is next touched. `RISK-6` residual. | `before scale` |
 | **The manual verification script referenced by the archived handoff lives outside the repository.** | The one documented end-to-end pass is unrecoverable; §14's manual checks replace it. | `nice to have` |
 
 ---
@@ -437,7 +447,7 @@ informs where to write real ones.
 
 Update this document when:
 
-- A type checker or coverage tool is configured — the two remaining static-analysis gaps.
+- mypy's package list widens, or a coverage tool is configured.
 - A dependency scan is added to CI, or the `vite`/`vitest` advisories are resolved.
 - `conftest.py`'s fixtures or environment setup change.
 - The test database stops being SQLite, which retires Trap 2 and changes `QA-11`.

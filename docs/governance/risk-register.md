@@ -64,8 +64,9 @@ is bounded and the trigger is observable.
 **Likelihood:** Low · **Impact:** Medium · **Priority:** P4 (residual) · **Owner:** Founder
 
 **Mitigated.** `.github/workflows/ci.yml` runs on every pull request in four jobs: `ruff
-check` + `ruff format --check` and `eslint --max-warnings 0`; `pytest`; `vitest` and
-`npm run build` (which is `tsc -b && vite build`, the only type check anywhere); and an
+check` + `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`
+and `prettier --check`; `pytest`; `vitest`, the API-type freshness check and
+`npm run build` (which is `tsc -b && vite build`, the only frontend type check); and an
 Alembic `upgrade head` → `downgrade base` → `upgrade head` against Postgres 16.
 
 Until then `.github/` had never existed on any branch, and `CLAUDE.md` stated that CI gated
@@ -81,17 +82,21 @@ than cosmetic: `UP042` is off because `(str, Enum)` → `StrEnum` changes `str(M
 serialized enums, and `react-refresh` is not installed because its only rule would have
 split six files of correctly co-located code.
 
-**Residual:** no Python type checker — no mypy or pyright. Every annotation in ~22k lines
-of Python is still decoration that nothing verifies, where the frontend has `tsc -b` in CI.
-That is now the whole of this risk, and it is a smaller thing than what it replaced: a
-wrong annotation misleads a reader, where an unlinted codebase merged unread.
+**Residual:** the Python type checker covers part of the backend. Task 0.8 put `mypy
+app/services app/schemas` in the lint job — the decision layer and the API contracts — so
+annotations there are now verified. Annotations in `app/api`, `app/models` and `app/workers`
+are still decoration that nothing checks. That is the whole of what is left of this risk, and
+it is a smaller thing than what it replaced: a wrong annotation in a router misleads a
+reader, where an unlinted codebase merged unread.
 
 **Trigger:** a typing regression merging unnoticed; or CI being disabled, made
 non-blocking, or its jobs allowed to stay red.
 
-**Mitigation:** done for correctness and style; outstanding for Python types. Adding mypy
-to ~22k lines of previously unchecked code is its own project — expect it to want
-`--ignore-missing-imports` and a per-module opt-in ratchet rather than a single sweep.
+**Mitigation:** done for correctness and style, and for types in `services/` and
+`schemas/`. Widening mypy to the rest is a per-module ratchet — add a package to
+`[tool.mypy] packages` in `backend/pyproject.toml` and to the CI step together, and fix what
+it finds in that PR rather than adding a suppression. `ignore_missing_imports = true` is
+already set, so the cost of each new package is its own annotations, not its dependencies'.
 Recorded in §12 and §13.
 
 **Accepted for now**, at P4. No longer the highest-priority item in the register.
@@ -180,20 +185,30 @@ own workstream.
 
 ## RISK-6 — Frontend and backend contracts drift silently
 
-**Likelihood:** High · **Impact:** Medium · **Priority:** P2 · **Owner:** Founder
+**Likelihood:** Low · **Impact:** Medium · **Priority:** P4 (residual) · **Owner:** Founder
 
-`frontend/src/api/*.ts` hand-mirrors the backend's Pydantic response shapes as TypeScript
-interfaces. There is no OpenAPI codegen and no contract test, although FastAPI generates a
-correct schema at `/docs` for free.
+**Closed for the shared contract types, 23 Aug (task 0.8).** `frontend/openapi.json` is
+dumped from the app's own OpenAPI document and `frontend/src/api/schema.d.ts` is generated
+from it by `npm run generate:api`; `api/client.ts` and `api/auth.ts` alias
+`components["schemas"][...]` rather than restating the shapes. A field renamed on a Pydantic
+model now renames the TypeScript type, and every use of the old name fails `tsc -b`.
 
-A backend field rename type-checks fine on both sides and fails at runtime, in production,
-as a blank field.
+Generated files close nothing while they go stale, so two checks keep them current:
+`backend/tests/test_openapi_snapshot.py` fails when `openapi.json` no longer matches the
+running app, and CI's frontend job regenerates `schema.d.ts` and fails on any diff. The first
+commit of this work proved the point — `TokenPair` was aliased to a schema name the backend
+has never had (`AccessToken`), and it was `tsc` in CI that said so.
 
-**Trigger:** any change to a Pydantic response model.
+**Residual:** the aliasing is not yet exhaustive. The per-domain wrappers under
+`frontend/src/api/` still declare their own interfaces for many payloads; each one converted
+is a shape that can no longer drift, and until then `FE-4` — both sides change in one PR —
+is the only control over those.
 
-**Mitigation:** generate types from the OpenAPI schema, or add a contract test comparing
-them. Today the only control is `FE-*` in §03 requiring both sides to change in one pull
-request — a convention, not a check.
+**Trigger:** a response model changing while a hand-written interface still mirrors it; or
+either generated file being edited by hand instead of regenerated.
+
+**Mitigation:** convert the remaining hand-written interfaces to schema aliases as each
+domain is next touched. Never hand-edit `openapi.json` or `schema.d.ts`.
 
 ---
 
@@ -352,7 +367,7 @@ breaker. The metering foundation is deliberately built for exactly this.
 |---|---|---|---|---|---|
 | RISK-11 | Dependencies unpinned and unscanned | High | High | P1 | **trigger fired** — 1 critical + 1 high advisory, both dev-only, both needing a major |
 | RISK-5 | Two readiness engines can disagree | High | Med | P2 | highest-ranked *unfired* risk |
-| RISK-6 | Frontend/backend contracts drift silently | High | Med | P2 | `tsc -b` now runs in CI, but nothing compares the two sides |
+| RISK-6 | Frontend/backend contracts drift silently | Low | Med | P4 | closed for the shared contract types — generated from OpenAPI and checked fresh in CI; per-domain wrappers still hand-written |
 | RISK-1 | Single-instance with no scale-out path | Med | High | P2 | |
 | RISK-3 | Migrations validated only by production | Low | Severe | P2 | up/down/up in CI; database not seeded |
 | RISK-4 | A dead worker is silent | Low | Med | P2 | detected and supervised; nothing alerts |
@@ -361,7 +376,7 @@ breaker. The metering foundation is deliberately built for exactly this.
 | RISK-7 | Authorization duplicated eleven times | Low | Severe | P3 | role checks closed; org scoping still per query |
 | RISK-10 | Prompt changes have no regression net | Med | Med | P3 | |
 | RISK-12 | AI cost model is unbounded | Med | Med | P3 | |
-| RISK-2 | Nothing automated verifies any change | Low | Med | P4 | lint, tests, types and migrations all gated; no Python type checker |
+| RISK-2 | Nothing automated verifies any change | Low | Med | P4 | lint, tests, types and migrations all gated; mypy covers `services/` and `schemas/` only |
 
 **One entry is ranked P1: `RISK-11`.** It is the only one in the register whose stated
 trigger has actually fired rather than being anticipated — `npm audit`, run for the first
@@ -371,7 +386,10 @@ we are watching and a finding we are holding.
 
 The four that were previously P1 — `RISK-2`, `RISK-3`, `RISK-4`, `RISK-7` — have all shipped
 mitigations and been re-ranked against their residuals. `RISK-2` has since dropped again to
-P4, its residual now narrowed to the absence of a Python type checker.
+P4, its residual now narrowed to the packages mypy does not yet cover. `RISK-6` joins them:
+task 0.8 generated the frontend's contract types from the backend's own OpenAPI document and
+gated both generated files in CI, dropping it from P2 to P4 on the shapes that were
+converted.
 
 The highest-ranked item with no realised failure behind it is `RISK-5`: readiness v1 and v2
 coexisting, with

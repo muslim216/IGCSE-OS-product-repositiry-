@@ -23,7 +23,8 @@
 Answers *how do I add or change something in `frontend/src/` without breaking the parts that
 are load-bearing*. Three things in this codebase look ordinary and are not: the single HTTP
 entry point with its transparent refresh, the deliberate exclusion of the refresh token from
-storage, and the hand-mirrored API types that nothing checks.
+storage, and the API types — generated from the backend's OpenAPI document where they are
+shared, still hand-written in the per-domain wrappers.
 
 ## Scope
 
@@ -216,10 +217,22 @@ Practiced conventions:
 
 ### Types
 
-Every `api/` module hand-writes TypeScript interfaces mirroring the backend's Pydantic
-response shapes. **There is no OpenAPI codegen and no contract test**, though FastAPI
-publishes a correct schema at `/docs` for free. A backend field rename type-checks cleanly on
-both sides and fails at runtime as a blank field. This is `RISK-6`.
+**The contract types are generated, not written** (task 0.8). `frontend/openapi.json` is the
+app's own OpenAPI document, dumped from `app.openapi()`; `src/api/schema.d.ts` is
+`npm run generate:api` (openapi-typescript) over it. `api/client.ts` and `api/auth.ts` alias
+`components["schemas"][...]` — `User` is `UserOut`, `AuthResponse` is `AuthResponse`,
+`TokenPair` is the server's `AccessToken`. A field renamed on a Pydantic model renames the
+TypeScript type, and every stale use fails `tsc -b`.
+
+Regenerate both files in the same PR as the backend change. Two checks enforce it:
+`backend/tests/test_openapi_snapshot.py` fails when `openapi.json` no longer matches the
+running app, and CI's frontend job regenerates `schema.d.ts` and fails on a diff. **Never
+hand-edit either file** — both are `.prettierignore`d for the same reason.
+
+**The per-domain wrappers are still hand-written.** `homework.ts`, `readiness.ts`,
+`groups.ts` and the rest declare their own interfaces, and for those a backend rename
+type-checks cleanly on both sides and fails at runtime as a blank field. That is what remains
+of `RISK-6`; convert a domain to schema aliases when you next touch it.
 
 ### Build and type configuration
 
@@ -258,9 +271,11 @@ Components call the wrapper, never a path literal.
 exercise.
 
 **`FE-4` — MUST · Critical · Active**
-A change to a backend response schema updates the mirroring TypeScript interface in the same
-pull request.
-*Rationale:* nothing checks the two agree; this convention is the only control (`RISK-6`).
+A change to a backend response schema regenerates `openapi.json` and `schema.d.ts` in the
+same pull request, and updates any interface still mirroring that shape by hand.
+*Rationale:* regeneration is checked in CI, so a stale snapshot fails rather than drifts; the
+hand-written wrappers have no such check and this convention is still their only control
+(`RISK-6`).
 
 **`FE-5` — MUST NOT · Important · Active**
 Never treat a `ProtectedRoute` role gate as a security control. It hides interface only.
@@ -340,10 +355,9 @@ leaks memory across navigations.
 | Gap | Why it matters | Severity |
 |---|---|---|
 | **`ApiError.fields` is populated and nothing renders it.** Forms show the joined `message` string, not per-field errors against the inputs. | The information now reaches the client and stops at the form. Rendering it is per-form work; the joined sentence is readable in the meantime, so this is an improvement left on the table rather than a defect. `API-11`. | `nice to have` |
-| **No OpenAPI codegen or contract test.** Response types are hand-mirrored. | A backend rename fails silently at runtime. `FE-4` is a convention with nothing enforcing it. `RISK-6`. | `blocking` |
+| **Codegen covers the shared contract types only.** `client.ts` and `auth.ts` alias the generated schema; every per-domain wrapper still hand-writes its interfaces. | A backend rename in an unconverted domain still fails silently at runtime — the generator closed the gap where it is used, not everywhere. `RISK-6` residual. | `before scale` |
 | **`QueryClient` has no defaults.** No `staleTime`, no `retry` policy. | Refetch-heavy behaviour and inconsistent retry semantics across the app. See §10. | `before scale` |
-| **No ESLint or Prettier.** | `FE-*` and §13 are enforced by review alone. Unused imports and hook-dependency mistakes are invisible. This is what remains of `RISK-2`; CI runs the suite and `tsc -b`, but no linter exists to run. | `blocking` |
-| **`vitest run` does not type-check.** Only `npm run build` does, and no automation runs it. | A type error reaches `main` unless someone builds locally. | `blocking` |
+| **`vitest run` does not type-check.** Only `npm run build` does; CI runs it, so a type error cannot reach `main` unnoticed. | The local loop still misses it: `npm test` passing is not evidence the branch compiles. Run `npm run build` before opening a PR. | `nice to have` |
 | **Auth state is a hand-rolled context** with a single `fetchMe()` on mount. | No refetch on focus and no cross-tab synchronization: signing out in one tab leaves another believing it is signed in until its next 401. | `nice to have` |
 | **Four pages exceed 300 lines** and none is covered by a test. | The highest-change-risk files in the frontend are the least verified. | `before scale` |
 

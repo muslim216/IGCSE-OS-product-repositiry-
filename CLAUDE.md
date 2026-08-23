@@ -94,14 +94,16 @@ superseded UI experiments and the original build history. A branch that has merg
 — **never reopen or stack new work on it**; start again from `main`.
 
 > **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request in four jobs —
-> `ruff check` + `ruff format --check` and `eslint --max-warnings 0`; `pytest`; `vitest` and
-> `npm run build` (the only type check anywhere); and an Alembic
+> `ruff check` + `ruff format --check`, `mypy app/services app/schemas`, `eslint
+> --max-warnings 0` and `prettier --check`; `pytest`; `vitest`, an API-type freshness check
+> and `npm run build` (the only *frontend* type check); and an Alembic
 > `upgrade head` → `downgrade base` → `upgrade head` against a real Postgres 16. **Still run
 > both suites and both linters locally before opening a PR**; CI is a backstop, not a
-> substitute for knowing your change works. Note what CI does *not* cover: **there is no
-> Python type checker**, so every annotation in `backend/` is decoration nothing verifies —
-> unlike the frontend, where `tsc -b` is real. CodeQL, Vercel preview builds, and CodeRabbit
-> are GitHub Apps and may also run; nothing in the repo evidences them.
+> substitute for knowing your change works. Note the shape of the Python type checking added
+> in task 0.8: **mypy covers `app/services` and `app/schemas` only** — annotations in
+> `app/api`, `app/models` and `app/workers` are still decoration nothing verifies, and
+> widening the scope is a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
+> and CodeRabbit are GitHub Apps and may also run; nothing in the repo evidences them.
 
 ## Common commands
 
@@ -298,8 +300,13 @@ Keep these loaded. Each cites the document holding its full reasoning.
 - **`api/client.ts` is the one HTTP entry point.** It attaches the bearer token and on a `401`
   transparently calls `/auth/refresh` once and retries. The only sanctioned bypasses are
   `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE. (`FE-1`)
-- **A backend response-schema change updates the mirroring TypeScript interface in the same
-  PR.** Nothing checks the two agree. (`FE-4`, `API-15`, `RISK-6`)
+- **A backend response-schema change is regenerated into the frontend types in the same PR** —
+  `python -c "import json;from app.main import app;print(json.dumps(app.openapi(),indent=2))" >
+  ../frontend/openapi.json`, then `npm run generate:api`. The types in `api/client.ts` alias
+  `components["schemas"][...]` from the generated `schema.d.ts`; **do not reintroduce a
+  hand-written interface**. Two CI checks keep the pair honest —
+  `tests/test_openapi_snapshot.py` proves `openapi.json` matches the running app, and the
+  frontend job regenerates `schema.d.ts` and fails on a diff. (`FE-4`, `API-15`, `RISK-6`)
 - **Server data lives in TanStack Query, not copied into `useState`.** (`FE-6`)
 - **Use semantic token classes** (`bg-surface`, `text-ink-700`, `border-line`), not stock
   Tailwind palette names — `bg-white` is silently retargeted and is not white. (`UX-2`)
