@@ -6,7 +6,7 @@
 > `0.5` and whose standing instructions remain in force.
 >
 > **Status at handoff:** six commits on five stacked branches plus this document, all cut from
-> the `0.5` docs branch. **None merged. Pushed 23 Aug; rebased onto the default branch after PRs #34/#35 landed** (the SEC-2 refresh-token change reshaped `TokenPair`, the tutor fixture and the tripwire — `0.8`'s OpenAPI artefacts were regenerated, `0.9` gained a one-line follow-up commit). The merge
+> the `0.5` docs branch. **None merged. Pushed 23 Aug; rebased onto the default branch after PRs #34/#35 landed** (the SEC-2 refresh-token change reshaped `TokenPair`, the tutor fixture and the tripwire — `0.8`'s OpenAPI artefacts were regenerated, `0.9` gained a one-line follow-up commit, and `0.8` a mypy fix over PR #35's new factor aggregation). The merge
 > button is the owner's.
 >
 > **Written:** 23 August 2026.
@@ -37,9 +37,9 @@ updates and the `0.5` handoff), which itself waits on the default branch
 | — | `docs/avora-handoff-through-0.5` | `8793f50` | 13 | docs only |
 | `0.6` | `feat/av-4-rename-avora` | `48d83b3` | 59 | backend 498 · frontend 161 |
 | `0.7` | `feat/av-67-user-timezone` | `66580a4` | 13 | backend 502 · frontend 161 |
-| `0.8` | `feat/av-79-type-safety` | `dfe88dc` | 27 | backend 502 · frontend 161 · **mypy 0 errors** |
-| `0.9` | `feat/f8-token-revocation-tripwire` | `1ed8bea` | 2 | backend 503 |
-| `0.10` | `feat/av-2-ai-pricing` | `b20a369` | 3 | backend 506 · frontend 161 |
+| `0.8` | `feat/av-79-type-safety` | `734749e` | 27 | backend 502 · frontend 161 · **mypy 0 errors** |
+| `0.9` | `feat/f8-token-revocation-tripwire` | `6bae471` | 2 | backend 503 |
+| `0.10` | `feat/av-2-ai-pricing` | `ab2ab0f` | 3 | backend 506 · frontend 161 |
 | — | `docs/handoff-through-0.10` | *(this file)* | 1 | docs only |
 
 **Merge order is the stack order.** Each branch contains the ones above it, so PRs must be
@@ -183,7 +183,7 @@ for a PR**; use ECC agents generously; never act on `agentic-os`.
 
 ## 5. What was verified, and what was not
 
-**Verified, on the stack tip `b20a369` and at every intermediate head:**
+**Verified, on the stack tip `ab2ab0f` and at every intermediate head:**
 
 - Backend `pytest`: **506 passed** (498 → +4 timezone, +1 revocation, +3 pricing). No assertion
   deleted anywhere.
