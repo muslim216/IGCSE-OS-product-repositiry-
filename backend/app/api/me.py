@@ -63,7 +63,7 @@ async def my_today_lessons(db: DbSession, user: TutorUser) -> list[UpcomingSched
     # The home aggregate serves the same list, so the query and the organization's
     # "today" rule live in services/today.py — one copy, and neither surface can
     # drift from the other (BE-2).
-    return await today_lessons(db, user.id, user.organization_id)
+    return await today_lessons(db, user.id, user.organization_id, user.time_zone)
 
 
 @router.get("/children", response_model=list[UserOut])

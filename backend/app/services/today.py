@@ -41,7 +41,7 @@ from app.services.grades import grade_band, predict_grade
 from app.services.groups import class_health, review_queue_predicate, weighted_learner_scores
 from app.services.groups import summaries as group_summaries
 from app.services.readiness_summary import CONFIDENT, trend_direction
-from app.services.timezones import today_weekday
+from app.services.timezones import effective_timezone, today_weekday
 
 #: Exceptions first. A tutor opening their home is looking for what needs them,
 #: so the strip is ordered by how much attention a class wants, and the healthy
@@ -113,7 +113,7 @@ async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
 
 
 async def today_lessons(
-    db: AsyncSession, tutor_id: int, organization_id: int
+    db: AsyncSession, tutor_id: int, organization_id: int, user_zone: str | None = None
 ) -> list[UpcomingScheduleSlot]:
     """The tutor's lessons for *their* today.
 
@@ -123,11 +123,16 @@ async def today_lessons(
     dependency or a Query parameter to that route would have silently changed the
     aggregate, and the timezone rule below was a side effect of a route.
     """
-    # "Today" is the tutor's today, not the server's. A tutor in Cairo opening
+    # "Today" is this person's today, not the server's. A tutor in Cairo opening
     # this at 01:00 local is on tomorrow's weekday while UTC is still on
     # yesterday's, and this answer is entirely *which day it is*.
+    #
+    # `user_zone` is their own override (AV-67) and wins over the organization's
+    # when set — a tutor travelling has moved their own midnight, not the
+    # account's. It defaults to None so a caller that has no user row still gets
+    # the organization's answer rather than silently getting UTC.
     org = await db.get(Organization, organization_id)
-    weekday = today_weekday(org.timezone if org else None)
+    weekday = today_weekday(effective_timezone(user_zone, org.timezone if org else None))
     rows = (
         await db.execute(
             select(ScheduleSlot, Group, func.count(GroupMember.id))
@@ -160,7 +165,7 @@ async def today_lessons(
 async def build_today(db: AsyncSession, user: User) -> TodayView:
     """The tutor's home. Scoped by the authenticated user's own classes — never
     by a path or body parameter (SEC-7)."""
-    lessons = await today_lessons(db, user.id, user.organization_id)
+    lessons = await today_lessons(db, user.id, user.organization_id, user.time_zone)
     groups = await tutor_groups(db, user.id)
     summaries = await group_summaries(db, [g.id for g in groups])
     health = await class_health(db, groups)

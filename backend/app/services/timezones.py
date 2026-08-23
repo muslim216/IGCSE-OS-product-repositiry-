@@ -41,6 +41,25 @@ def normalize_timezone(name: str | None) -> str | None:
     return cleaned
 
 
+def effective_timezone(user_zone: str | None, organization_zone: str | None) -> str | None:
+    """The zone a surface should answer in for one person (AV-67).
+
+    The per-user column added in 0025 is an override, and None on it means
+    "follow the organization", not UTC — so the fallback is ordered, not a
+    coalesce over equals. Kept as one pure function rather than
+    `user.time_zone or org.timezone` written out at each call site: that
+    expression is right until someone stores an empty string, and the four
+    hand-copied SETTLED_STATUSES in this codebase are what a restated
+    predicate turns into (AV-29). Whichever value wins is passed to `now_in`,
+    which degrades an unloadable zone to UTC rather than raising.
+
+    Note where this must NOT be used: the weekly send resolves on the tutor's
+    organization alone (AV-90) — one send moment per account, not one per
+    recipient.
+    """
+    return (user_zone or "").strip() or (organization_zone or "").strip() or None
+
+
 def now_in(name: str | None) -> datetime:
     """The current time in the organization's zone, falling back to UTC.
 

@@ -13,6 +13,7 @@ import pytest
 from app.db import async_session
 from app.models import Organization, ScheduleSlot, Subject, User
 from app.services.timezones import (
+    effective_timezone,
     is_valid_timezone,
     normalize_timezone,
     now_in,
@@ -314,3 +315,81 @@ async def test_own_timezone_requires_authentication(client):
     and only when the row is behind a token at all."""
     resp = await client.put("/api/v1/me/timezone", json={"timezone": "Africa/Cairo"})
     assert resp.status_code == 401
+
+
+# ---- Which zone a surface answers in (AV-67) ----
+
+
+def test_the_users_own_zone_wins_over_the_organizations():
+    assert effective_timezone("Asia/Dubai", "Africa/Cairo") == "Asia/Dubai"
+
+
+def test_no_override_follows_the_organization_rather_than_utc():
+    """The whole reason the resolution is a function: `None` on the user column
+    means "follow the account", and answering UTC there would silently move
+    every date for a tutor who never touched the setting."""
+    assert effective_timezone(None, "Africa/Cairo") == "Africa/Cairo"
+    # Blank is not a zone. It reaches the column as "" only through a direct
+    # write, but `user.time_zone or org.timezone` written out at a call site
+    # handles it and a `is not None` check does not — this asserts which one
+    # the codebase relies on.
+    assert effective_timezone("", "Africa/Cairo") == "Africa/Cairo"
+    assert effective_timezone("   ", "Africa/Cairo") == "Africa/Cairo"
+
+
+def test_neither_set_is_none_so_now_in_can_say_utc():
+    assert effective_timezone(None, None) is None
+
+
+async def test_today_lessons_follows_the_tutors_own_zone_over_the_organizations(client, tutor):
+    """A stored override that no surface reads is a setting that lies to the
+    person who set it. This is the read side of AV-67."""
+    async with async_session() as session:
+        subject = Subject(
+            exam_board="Edexcel IGCSE",
+            code="4PH1",
+            name="Physics",
+            grade_scale="9-1",
+            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
+        )
+        session.add(subject)
+        await session.commit()
+        subject_id = subject.id
+
+    group = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Phys", "subject_id": subject_id},
+            headers=tutor["headers"],
+        )
+    ).json()
+
+    async with async_session() as session:
+        # Tuesday (weekday 1)
+        session.add(
+            ScheduleSlot(group_id=group["id"], weekday=1, start_time=time(16, 0), duration_min=60)
+        )
+        user = await session.get(User, tutor["user"]["id"])
+        # The account sits in London; this tutor is working from Auckland.
+        org = await session.get(Organization, user.organization_id)
+        org.timezone = "Europe/London"
+        user.time_zone = "Pacific/Auckland"
+        await session.commit()
+
+    # 21:00 UTC Monday: still Monday in London, already Tuesday in Auckland.
+    monday_late = datetime(2026, 8, 10, 21, 0, tzinfo=timezone.utc)
+    with patch("app.services.timezones.datetime") as fake:
+        fake.now.side_effect = lambda tz=None: monday_late.astimezone(tz) if tz else monday_late
+        resp = await client.get("/api/v1/me/today-lessons", headers=tutor["headers"])
+    assert [s["group_id"] for s in resp.json()] == [group["id"]]
+
+    # Clearing the override hands the answer back to the organization, and the
+    # same instant is Monday there.
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        user.time_zone = None
+        await session.commit()
+    with patch("app.services.timezones.datetime") as fake:
+        fake.now.side_effect = lambda tz=None: monday_late.astimezone(tz) if tz else monday_late
+        resp = await client.get("/api/v1/me/today-lessons", headers=tutor["headers"])
+    assert resp.json() == []

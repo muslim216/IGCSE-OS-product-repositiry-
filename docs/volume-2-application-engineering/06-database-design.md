@@ -270,8 +270,16 @@ A linear chain, `0001` → `0021`, with string revision ids matching the filenam
 0008_group_resources              0019_auto_marking_review_queue
 0009_tutor_preferences            0020_past_papers             (162 lines)
 0010_user_token_version           0021_invite_single_use
-0011_syllabus_uploads
+0011_syllabus_uploads             0022_org_timezone
+                                  0023_narratives
+                                  0025_user_time_zone
 ```
+
+**0024 is deliberately absent.** It is reserved for task 0.3's `drop_chat`, which was written
+on a parallel branch; `0025_user_time_zone` chains to `0023`. Sequential numbering (`DB-15`)
+is about a single readable chain, not a gapless one — two revisions sharing a
+`down_revision` would give Alembic two heads, which is the failure worth avoiding. If 0024
+lands after this, rebase rather than renumber.
 
 `alembic/env.py` reads the URL from `get_settings().database_url` rather than from
 `alembic.ini`, and sets `target_metadata = Base.metadata`. Migrations run at container start:
