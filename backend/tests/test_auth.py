@@ -162,7 +162,7 @@ async def test_bumping_token_version_invalidates_both_tokens(client, tutor):
     from app.models import User
 
     old_access = tutor["headers"]["Authorization"].split(" ", 1)[1]
-    old_refresh = tutor["tokens"]["refresh_token"]
+    old_refresh = tutor["refresh_token"]  # cookie-only since SEC-2
     # Bump the version straight in the DB — the same write logout and
     # reset perform, without going through those handlers.
     async with async_session() as session:
