@@ -173,7 +173,7 @@ def _weighted_reference_score(
     total_weight = 0.0
     weighted_sum = 0.0
     for factor, rows in by_factor.items():
-        factor_score = sum(row.score for row in rows) / len(rows)
+        factor_score = sum(row.score for row in rows if row.score is not None) / len(rows)
         weakest = min(rows, key=lambda row: _CONFIDENCE_RANK[row.confidence])
         weight = weights[FACTOR_WEIGHT_ATTR[factor]] * CONFIDENCE_MULTIPLIER[weakest.confidence]
         weighted_sum += factor_score * weight
