@@ -147,3 +147,41 @@ async def test_login_after_logout_issues_valid_tokens(client, tutor):
     new_access = resp.json()["tokens"]["access_token"]
     me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
     assert me.status_code == 200
+
+
+async def test_bumping_token_version_invalidates_both_tokens(client, tutor):
+    """CODE-12 tripwire.
+
+    Any future endpoint that calls `user.token_version += 1` (password
+    reset, disable, etc.) must invalidate every outstanding access and
+    refresh token. This test bypasses the HTTP logout/reset handlers and
+    mutates the row directly so the invariant is checked even if a new
+    handler forgets to bump.
+    """
+    from app.db import async_session
+    from app.models import User
+
+    old_access = tutor["headers"]["Authorization"].split(" ", 1)[1]
+    old_refresh = tutor["tokens"]["refresh_token"]
+    # Bump the version straight in the DB — the same write logout and
+    # reset perform, without going through those handlers.
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        assert user is not None
+        user.token_version += 1
+        await session.commit()
+    # Old access token is now revoked (deps.py:29).
+    me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {old_access}"})
+    assert me.status_code == 401
+    # Old refresh token is also revoked (api/auth.py:152).
+    refresh = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
+    assert refresh.status_code == 401
+    # A fresh login at the new version still works.
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "tutor@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 200
+    new_access = resp.json()["tokens"]["access_token"]
+    me2 = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
+    assert me2.status_code == 200

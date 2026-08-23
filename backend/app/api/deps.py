@@ -26,6 +26,11 @@ async def get_current_user(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
+    # CODE-12: token_version is the single revocation signal. Every access
+    # and refresh token is minted at the user's current version; bumping
+    # users.token_version (logout, password reset, disable) invalidates all
+    # outstanding tokens at once because this check rejects any token whose
+    # version no longer matches. A new login mints tokens at the new version.
     if token_version != user.token_version:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
     return user
