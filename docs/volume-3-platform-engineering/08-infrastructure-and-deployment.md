@@ -88,8 +88,8 @@ surface with a clear message. The app still starts.
 ```mermaid
 flowchart TD
   U[Browser] -->|HTTPS| V[Vercel<br/><i>static SPA + /api/* rewrite</i>]
-  V -->|server-side proxy| R[Render web service<br/><i>avora-api, Docker</i>]
-  R --> DB[(Render Postgres<br/><i>avora-db, basic-256mb</i>)]
+  V -->|server-side proxy| R[Render web service<br/><i>igcse-os-api, Docker</i>]
+  R --> DB[(Render Postgres<br/><i>igcse-os-db, basic-256mb</i>)]
   R --> D[(Persistent disk<br/><i>10 GB at /data</i>)]
   R --> AN[Anthropic]
   R --> GE[Gemini]
@@ -104,10 +104,19 @@ work.
 
 ### The API service
 
-`render.yaml` provisions one Postgres database (`avora-db`, `plan: basic-256mb`) and one
-Docker web service (`avora-api`, `rootDir: backend`, `plan: starter`).
+`render.yaml` provisions one Postgres database (`igcse-os-db`, `plan: basic-256mb`) and one
+Docker web service (`igcse-os-api`, `rootDir: backend`, `plan: starter`).
 
-**The persistent disk** is `avora-uploads`, 10 GB, mounted at `/data`, with
+**Those names outlived the product's rename to Avora on purpose** (task 0.6, AV-4). Render
+matches blueprint entries to live resources by `name`: editing one here does not rename
+anything, it provisions a new empty resource and orphans the old one — a new database, a new
+uploads disk, a new hostname that `frontend/vercel.json` does not proxy to. The same holds
+for `GOOGLE_REDIRECT_URI` and `CORS_ORIGINS`, which must keep matching the Vercel project's
+real domain and the URI registered on the Google OAuth client. Renaming the deployed
+resources is an owner-run migration in the Render and Vercel dashboards, taken together with
+the GitHub repository rename (E10) — not a commit.
+
+**The persistent disk** is `igcse-os-uploads`, 10 GB, mounted at `/data`, with
 `UPLOAD_DIR=/data/uploads`. It exists because `services/storage.py` writes to the local
 filesystem and the database stores only relative paths — without it, every deploy replaces the
 container and silently orphans every file row. **A Render service with a disk runs a single

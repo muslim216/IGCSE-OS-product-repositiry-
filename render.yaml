@@ -5,14 +5,23 @@
 # Deploy by connecting this repo at https://dashboard.render.com ("New" ->
 # "Blueprint"). Values marked `sync: false` are not stored in the repo and must
 # be filled in from the Render dashboard — see README "Deployment".
-
+#
+# THE NAMES BELOW ARE IDENTITIES, NOT LABELS. Render matches blueprint entries
+# to existing resources by `name`. Renaming one here does not rename anything:
+# it provisions a *new* empty resource and orphans the old one — a new empty
+# Postgres, a new empty uploads disk, a new hostname the frontend does not
+# proxy to. That is why the Avora rename (task 0.6, AV-4) deliberately stops at
+# these five values and at the hostname in frontend/vercel.json. Renaming the
+# deployed resources is an owner-run migration in the Render dashboard, taken
+# together with the Vercel project rename and the GitHub repo rename (E10) —
+# not a commit.
 databases:
-  - name: avora-db
+  - name: igcse-os-db
     plan: basic-256mb
 
 services:
   - type: web
-    name: avora-api
+    name: igcse-os-api
     runtime: docker
     rootDir: backend
     plan: starter
@@ -32,13 +41,13 @@ services:
     # worker claims with FOR UPDATE SKIP LOCKED so scaling out stays safe if
     # storage later moves to S3 and the disk goes away.
     disk:
-      name: avora-uploads
+      name: igcse-os-uploads
       mountPath: /data
       sizeGB: 10
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: avora-db
+          name: igcse-os-db
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
@@ -70,13 +79,19 @@ services:
       - key: AI_SYLLABUS_PROVIDER
         value: gemini
 
-      # Per-token prices for ai_usage_events.cost_usd, as JSON. Empty means
-      # calls record an unknown cost and report as unpriced_call_count — never
-      # a fabricated $0. Fill in real prices for the models you actually use
-      # (keyed to the real IDs in config.py: e.g. claude-opus-4-8,
-      # claude-haiku-4-5, gemini-2.5-pro).
+      # Per-token prices for ai_usage_events.cost_usd, as JSON, keyed by the
+      # real model ids in config.py. Unset means calls record an unknown cost
+      # and report as unpriced_call_count — never a fabricated $0 (AI-17).
+      #
+      # Deliberately `sync: false` — a price is not a fact about this codebase,
+      # it is a fact about the account's contract on the day it is read, and it
+      # moves without a commit. Paste the current value from backend/.env.example
+      # into the dashboard, which is also where you correct it when rates change.
+      # model_pricing() is @lru_cache'd, so a changed value needs a restart, and
+      # nothing is backfilled: rows already written keep cost_usd = NULL. Verify
+      # GET /api/v1/ai-usage/analytics reports money afterwards — malformed JSON
+      # is ignored rather than raised, so a typo fails silently.
       - key: AI_MODEL_PRICING
-        value: '{"claude-opus-4-8": {"input_per_1m": 5, "output_per_1m": 25}, "claude-haiku-4-5": {"input_per_1m": 3, "output_per_1m": 15}, "gemini-2.5-pro": {"input_per_1m": 1.25, "output_per_1m": 10}}'
         sync: false
 
       # --- Readiness v2 -------------------------------------------------
@@ -104,7 +119,7 @@ services:
       # when the frontend's callback URL changes — a new backend URL is a
       # frontend/vercel.json rewrite change and does not touch this value.
       - key: GOOGLE_REDIRECT_URI
-        value: https://avora-product-repositiry.vercel.app/settings/classroom/callback
+        value: https://igcse-os-product-repositiry.vercel.app/settings/classroom/callback
       # Encrypts stored Google refresh tokens at rest. Falls back to a key
       # derived from JWT_SECRET when unset; a dedicated value is preferred so
       # rotating one secret does not invalidate the other.
@@ -117,7 +132,7 @@ services:
       # cross-origin VITE_API_BASE_URL build, and an origin missing here fails
       # at the browser with no server-side trace.
       - key: CORS_ORIGINS
-        value: https://avora-product-repositiry.vercel.app
+        value: https://igcse-os-product-repositiry.vercel.app
       # The refresh cookie is HTTPS-only. Never set false on a real deploy.
       - key: REFRESH_COOKIE_SECURE
         value: "true"
