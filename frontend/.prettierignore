@@ -8,6 +8,6 @@ package-lock.json
 # src/api/schema.d.ts is `npm run generate:api` over it. Formatting either one
 # makes every regeneration a diff against Prettier rather than against the API,
 # which is the drift these files exist to reveal. The generators' output is the
-# committed form; tests/test_openapi_snapshot.py is what keeps it honest.
+# committed form; backend/tests/test_openapi_snapshot.py is what keeps it honest.
 openapi.json
 src/api/schema.d.ts

@@ -45,7 +45,7 @@ Global non-goals are in `governance/non-goals.md`. Specific to product architect
 
 - **Avora is not an AI tutor and not a homework marker.** The platform is the product; AI
   enhances every layer. A feature that is impressive AI but strengthens none of the six
-  surfaces is not a Avora feature.
+  surfaces is not an Avora feature.
 - **No model is asked to produce a grade.** A grade is a claim about an examination board's
   boundaries, not a judgement.
 - **No AI adjudicates a dispute about AI output.** A remark request always routes to a human.

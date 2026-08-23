@@ -6,7 +6,7 @@ import { myAssignments } from "../api/homework";
 import { DirectionMark, EmptyState } from "../components/ui";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { ABSENT } from "../lib/labels";
-import { calendarDaysUntil } from "../lib/timezones";
+import { calendarDaysUntil, formatDayMonth } from "../lib/timezones";
 import { useMyTimezone } from "../auth/AuthContext";
 import { dueVerdict, monthlyGains, recentlyMarked, subjectStrip } from "../lib/student";
 
@@ -76,11 +76,7 @@ function dueLabel(dueAt: string | null, timeZone: string | null): string {
   if (days < 0) return "overdue";
   if (days === 0) return "due today";
   if (days === 1) return "due tomorrow";
-  return `due ${new Date(dueAt).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    timeZone: timeZone ?? undefined,
-  })}`;
+  return `due ${formatDayMonth(new Date(dueAt), timeZone)}`;
 }
 
 export default function StudentHomePage() {

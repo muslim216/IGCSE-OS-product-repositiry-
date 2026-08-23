@@ -57,9 +57,14 @@ export function apiUrl(path: string): string {
 export function getStoredTokens(): StoredTokens | null {
   let raw = localStorage.getItem(STORAGE_KEY);
   // Carry a pre-rename session across, and clear the old key either way — a
-  // stale token left behind is a credential nothing will ever use again.
+  // stale token left behind is a credential nothing will ever use again, and
+  // worse than useless: signing out removes only the current key, so a legacy
+  // value surviving here would be migrated straight back on the next read and
+  // the app would look signed in again until a request failed.
   let migrating = false;
-  if (!raw) {
+  if (raw) {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } else {
     raw = localStorage.getItem(LEGACY_STORAGE_KEY);
     if (raw) {
       localStorage.removeItem(LEGACY_STORAGE_KEY);

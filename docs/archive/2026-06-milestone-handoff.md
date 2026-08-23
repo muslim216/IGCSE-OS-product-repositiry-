@@ -1,4 +1,4 @@
-# Handoff — Avora Gemini/Auto-Marking/Past-Papers/Classroom-UI/Readiness-v2 Milestone
+# Handoff — MANARA Gemini/Auto-Marking/Past-Papers/Classroom-UI/Readiness-v2 Milestone
 
 > **Historical. Not maintained.** This is a point-in-time session handoff, archived
 > unedited as a record of one milestone. It describes the codebase as it stood at that

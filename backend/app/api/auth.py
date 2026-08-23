@@ -85,7 +85,7 @@ async def register_tutor(
     except ValueError:
         tz = None
     # A personal organization per tutor — the multi-tenant backbone that keeps
-    # the product experience single-tutor (see CLAUDE.md / avora-architecture.md).
+    # the product experience single-tutor (see CLAUDE.md / docs/avora-architecture.md).
     org = Organization(name=f"{body.name}'s Organization", timezone=tz)
     db.add(org)
     await db.flush()

@@ -141,7 +141,7 @@ hand-written migration; its output is not the migration.
 ### Avora is not an AI tutor and not a homework marker
 
 The platform is the product; AI enhances every layer. A feature that is impressive AI but
-strengthens none of the six surfaces is not a Avora feature.
+strengthens none of the six surfaces is not an Avora feature.
 
 *Why:* §01 P1. This is a product boundary with architectural consequences — it is why AI
 output is a proposal, why the tutor's authority is structural rather than a setting, and why

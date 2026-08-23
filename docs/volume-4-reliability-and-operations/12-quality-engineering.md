@@ -26,9 +26,10 @@
 
 ## Purpose
 
-Avora has a substantial, fast, well-designed backend test suite and **nothing that runs it**.
-This document records the harness and the patterns worth following, defines what "done" means
-per change class, and states the gap plainly: every rule here is currently enforced by a human
+Avora has a substantial, fast, well-designed backend test suite, and since `ci.yml` landed it
+runs on every pull request. This document records the harness and the patterns worth
+following, defines what "done" means per change class, and states plainly what remains
+unenforced: the rules below that CI cannot check are enforced by a human
 remembering.
 
 ## Scope
@@ -238,13 +239,14 @@ nothing produces them.
 ### What verifies a pull request
 
 `.github/workflows/ci.yml`, on every pull request and on every push to the default branch.
-Three jobs:
+Four jobs:
 
 | Job | Runs | Catches |
 |---|---|---|
+| `lint` | `ruff check`, `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`, `prettier --check`, and the API-type freshness check | Style and correctness defects ruff sees, type errors in the two checked backend packages, and a `schema.d.ts` that no longer matches `openapi.json` |
 | `backend` | Python 3.11, `pip install -e ".[dev]"`, `pytest` from `backend/` | Every backend regression the suite covers. No service container — `conftest.py` forces in-memory SQLite |
 | `migrations` | `postgres:16-alpine` service, then `alembic upgrade head` → `downgrade base` → `upgrade head` | A migration that is invalid or irreversible on Postgres. This is the only thing that has ever executed the downgrade path |
-| `frontend` | Node 20, `npm ci`, `npm test`, `npm run build` | Vitest regressions, and — via `tsc -b` inside `build` — every type error, which is the **only** type check that exists anywhere |
+| `frontend` | Node 20, `npm ci`, `npm test`, the API-type regeneration diff, `npm run build` | Vitest regressions, generated types drifting from `openapi.json`, and — via `tsc -b` inside `build` — every frontend type error, which is the only type check the frontend has |
 
 `concurrency` with `cancel-in-progress` means a force-push supersedes the previous run rather
 than racing it.

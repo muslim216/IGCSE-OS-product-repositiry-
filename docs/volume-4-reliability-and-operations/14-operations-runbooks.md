@@ -495,7 +495,7 @@ students' submissions are missing.
 | "Not configured" everywhere | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` unset |
 | Connect flow fails at Google | `GOOGLE_REDIRECT_URI` does not match the Google OAuth client **verbatim** — origin *and* path |
 | Sync returns an auth error | The stored refresh token is invalid, revoked, or undecryptable |
-| Some students missing | **Expected.** Roster emails that do not match a Avora account are skipped, not guessed |
+| Some students missing | **Expected.** Roster emails that do not match an Avora account are skipped, not guessed |
 | Some attachments missing | **Expected.** Only PDF/JPEG/PNG/WebP are imported; native Google Docs are skipped |
 
 **Action**
@@ -505,7 +505,7 @@ students' submissions are missing.
 - Invalid token: the tutor disconnects and reconnects in Settings.
 - **Undecryptable** token: this means `GOOGLE_TOKEN_ENCRYPTION_KEY` changed — see R12. Every
   linked tutor must reconnect.
-- Missing students: match the roster email to a Avora account, or have the student's account
+- Missing students: match the roster email to an Avora account, or have the student's account
   created with that address.
 
 **Verification:** `POST /classroom/sync` completes; courseWork appears as draft assignments;

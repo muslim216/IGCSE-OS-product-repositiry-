@@ -86,11 +86,17 @@ export default function ParentDashboard() {
     return <EmptyState title="This couldn't be loaded." hint={ABSENT.loadFailed} />;
   }
   if (!children.data || children.data.length === 0) {
+    // The zone control still renders here: a parent waiting on their link is
+    // exactly the person who has just arrived from another country, and the
+    // setting is theirs rather than their child's.
     return (
-      <EmptyState
-        title="No child is linked to this account yet."
-        hint="Ask the tutor for a parent link — it takes you straight to your child's page."
-      />
+      <div className="space-y-8">
+        <EmptyState
+          title="No child is linked to this account yet."
+          hint="Ask the tutor for a parent link — it takes you straight to your child's page."
+        />
+        <MyTimezoneSetting />
+      </div>
     );
   }
 

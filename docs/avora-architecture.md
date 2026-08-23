@@ -206,7 +206,7 @@ supported — both paths feed the same marking pipeline.
   handler changes): imports courseWork as draft Assignments (status `review` — the
   tutor still adds questions before publishing, since Classroom's courseWork isn't a
   question booklet); imports turned-in student submissions, matching Classroom's
-  roster email to a Avora student account (unmatched students are skipped, not
+  roster email to an Avora student account (unmatched students are skipped, not
   guessed); downloads PDF/JPEG/PNG/WebP Drive attachments into the storage service
   (other Drive types, e.g. native Google Docs, are skipped — the tutor uploads those
   directly) and enqueues the standard `mark_submission` job, so an imported submission

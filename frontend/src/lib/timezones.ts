@@ -50,6 +50,21 @@ export function dayKeyIn(instant: Date, timeZone?: string | null): string {
   }
 }
 
+/** A short `5 Sep` style date, rendered in `timeZone`.
+ *
+ * Every Intl call that takes a zone needs the same guard: an unusable stored
+ * zone makes the constructor throw `RangeError`, and one unrendered label would
+ * take the whole screen down with it. `calendarDaysUntil` degrades already; a
+ * date further out than tomorrow goes through here, so it has to as well. */
+export function formatDayMonth(instant: Date, timeZone?: string | null): string {
+  const options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  try {
+    return instant.toLocaleDateString(undefined, { ...options, timeZone: timeZone ?? undefined });
+  } catch {
+    return instant.toLocaleDateString(undefined, options);
+  }
+}
+
 /** Whole calendar days from today to `dueAt`, counted in `timeZone`.
  *
  * By midnight boundaries rather than elapsed milliseconds, so "due today" and

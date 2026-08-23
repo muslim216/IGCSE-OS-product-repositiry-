@@ -189,6 +189,12 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
     try:
         student = await session.get(User, report.student_id)
         if student is None:
+            # Fail the row rather than returning quietly. The handler returning
+            # successfully makes process_one_job() mark the job done, so a bare
+            # return leaves the report in `generating` for ever — no retry, no
+            # error, and a tutor watching a spinner that will never resolve.
+            report.status = ReportStatus.failed
+            report.error = "The student this report was for no longer exists"
             return
         subject_ids = await _visible_subjects(session, report.student_id, report.subject_id)
         facts = await build_report_facts(session, student, subject_ids)

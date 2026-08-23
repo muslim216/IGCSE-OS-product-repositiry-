@@ -7,6 +7,14 @@ interface AuthState {
   loading: boolean;
   signIn: (auth: AuthResponse) => void;
   signOut: () => void;
+  /** Replace the cached identity after the server returns an updated one.
+   *
+   * The provider loads the user once, with `fetchMe()` on mount, so anything
+   * that changes a field on that row has to say so — invalidating a TanStack
+   * query does not reach this state. Without it a user can save a preference,
+   * see the control confirm it, and watch every screen that reads the identity
+   * keep the old value until a reload. */
+  applyUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -39,8 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const applyUser = useCallback((updated: User) => setUser(updated), []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signOut, applyUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -62,4 +72,14 @@ export function useAuth(): AuthState {
  * screen. */
 export function useMyTimezone(): string | null {
   return useContext(AuthContext)?.user?.time_zone ?? null;
+}
+
+/** Update the cached identity, or do nothing outside a provider.
+ *
+ * Non-throwing for the same reason as `useMyTimezone`: a settings control that
+ * renders in isolation should degrade to "the write happened, this cache did
+ * not exist to update" rather than crashing the screen it sits on. */
+export function useApplyUser(): (user: User) => void {
+  const ctx = useContext(AuthContext);
+  return ctx?.applyUser ?? (() => {});
 }

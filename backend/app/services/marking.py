@@ -120,11 +120,39 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
     )
     group = await session.get(Group, assignment.group_id)
     assert group is not None
-    if classified is not None:
+    # The prompt must describe the documents that are ACTUALLY attached, so both
+    # the text and the attachments come from these two predicates rather than
+    # from separate conditions that can drift apart. They did drift: the
+    # attachments were tightened to require a mime alongside the path while the
+    # sentence below still keyed on the path alone, so a mark scheme with no
+    # stored mime was omitted from the request while the prompt told the model
+    # it had been supplied. A mark auto-finalizes only when it is scheme-backed
+    # (AI-11, ADR-0009) — a model told it has a scheme it cannot see can report
+    # exactly that, and the mark lands finalized with no official scheme behind
+    # it and no tutor in the loop.
+    booklet = (
+        (storage.read_file(classified.file_path), classified.file_mime)
+        if classified is not None and classified.file_path and classified.file_mime
+        else None
+    )
+    mark_scheme = (
+        (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
+        if classified is not None and classified.mark_scheme_path and classified.mark_scheme_mime
+        else None
+    )
+    has_booklet = booklet is not None
+    has_mark_scheme = mark_scheme is not None
+    if has_booklet:
         intro = (
             "The documents above are: (1) the question booklet, "
-            + ("(2) the mark scheme, " if classified.mark_scheme_path else "")
+            + ("(2) the mark scheme, " if has_mark_scheme else "")
             + "followed by the student's handwritten answer pages."
+        )
+    elif has_mark_scheme:
+        intro = (
+            "The document above is the mark scheme, followed by the student's handwritten "
+            "answer pages. No question booklet is attached — mark from the question list "
+            "below."
         )
     else:
         intro = (
@@ -133,18 +161,8 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         )
     return _MarkingSource(
         questions=questions,
-        booklet=(
-            (storage.read_file(classified.file_path), classified.file_mime)
-            if classified is not None and classified.file_path and classified.file_mime
-            else None
-        ),
-        mark_scheme=(
-            (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
-            if classified is not None
-            and classified.mark_scheme_path
-            and classified.mark_scheme_mime
-            else None
-        ),
+        booklet=booklet,
+        mark_scheme=mark_scheme,
         intro=intro,
         organization_id=group.organization_id,
         tutor_id=group.tutor_id,
@@ -170,23 +188,47 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         raise ValueError(
             "This past paper's questions haven't been extracted yet — try again shortly"
         )
+    # Same rule as the homework branch: the sentence names only what is attached.
+    # This one claimed both documents unconditionally, so a past paper stored
+    # without a mark scheme told the model it had the official scheme in front of
+    # it — the one input AI-11 lets a mark auto-finalize on.
+    booklet = (
+        (storage.read_file(paper.booklet_path), paper.booklet_mime)
+        if paper.booklet_path and paper.booklet_mime
+        else None
+    )
+    mark_scheme = (
+        (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
+        if paper.mark_scheme_path and paper.mark_scheme_mime
+        else None
+    )
+    has_booklet = booklet is not None
+    has_mark_scheme = mark_scheme is not None
+    attached = [
+        name
+        for name, present in (
+            ("the question paper", has_booklet),
+            ("the official mark scheme", has_mark_scheme),
+        )
+        if present
+    ]
+    if attached:
+        numbered = ", ".join(f"({n + 1}) {name}" for n, name in enumerate(attached))
+        intro = (
+            f"The documents above are {paper.session_label} {paper.paper_number}: "
+            f"{numbered}, followed by the student's handwritten answer pages."
+        )
+    else:
+        intro = (
+            f"Neither the question paper nor the mark scheme for {paper.session_label} "
+            f"{paper.paper_number} is attached — mark from the question list below and "
+            "the student's handwritten answer pages above only."
+        )
     return _MarkingSource(
         questions=questions,
-        booklet=(
-            (storage.read_file(paper.booklet_path), paper.booklet_mime)
-            if paper.booklet_path and paper.booklet_mime
-            else None
-        ),
-        mark_scheme=(
-            (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
-            if paper.mark_scheme_path and paper.mark_scheme_mime
-            else None
-        ),
-        intro=(
-            f"The documents above are {paper.session_label} {paper.paper_number}: "
-            "(1) the question paper, (2) the official mark scheme, followed by the "
-            "student's handwritten answer pages."
-        ),
+        booklet=booklet,
+        mark_scheme=mark_scheme,
+        intro=intro,
         organization_id=paper.organization_id,
         tutor_id=paper.tutor_id,
         subject_id=paper.subject_id,

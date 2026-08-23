@@ -256,8 +256,10 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain, `0001` → `0021`, with string revision ids matching the filename prefix and
-`down_revision` chained.
+A linear chain from `0001` to `0025_user_time_zone`, the current head, with string revision
+ids matching the filename prefix and `down_revision` chained. One number is deliberately
+absent: `0024` is reserved for task 0.3's `drop_chat` on a parallel branch, so `0025` chains
+straight to `0023` (see the note under the list).
 
 ```
 0001_users                        0012_organizations           (184 lines — largest)

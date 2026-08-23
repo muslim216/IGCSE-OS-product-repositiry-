@@ -32,11 +32,25 @@ describe("the pre-rename key", () => {
     });
   });
 
-  test("the current key wins and the old one is left for the next read", () => {
+  test("the current key wins and the old one is cleared with it", () => {
     localStorage.setItem(CURRENT, JSON.stringify({ access_token: "new", token_type: "bearer" }));
     localStorage.setItem(LEGACY, JSON.stringify({ access_token: "old", token_type: "bearer" }));
 
     expect(getStoredTokens()?.access_token).toBe("new");
+    // Leaving it would survive sign-out — storeTokens(null) clears only the
+    // current key, so the next read would migrate the stale token back and the
+    // app would look signed in again until a request failed.
+    expect(localStorage.getItem(LEGACY)).toBeNull();
+  });
+
+  test("signing out with both keys present does not resurrect the old session", () => {
+    localStorage.setItem(CURRENT, JSON.stringify({ access_token: "new", token_type: "bearer" }));
+    localStorage.setItem(LEGACY, JSON.stringify({ access_token: "old", token_type: "bearer" }));
+
+    getStoredTokens();
+    storeTokens(null);
+
+    expect(getStoredTokens()).toBeNull();
   });
 
   test("an unparseable old value is discarded rather than thrown", () => {

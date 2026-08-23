@@ -301,11 +301,12 @@ Keep these loaded. Each cites the document holding its full reasoning.
   transparently calls `/auth/refresh` once and retries. The only sanctioned bypasses are
   `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE. (`FE-1`)
 - **A backend response-schema change is regenerated into the frontend types in the same PR** —
-  `python -c "import json;from app.main import app;print(json.dumps(app.openapi(),indent=2))" >
-  ../frontend/openapi.json`, then `npm run generate:api`. The types in `api/client.ts` alias
+  from `backend/`, `python -c "import json;from app.main import
+  app;print(json.dumps(app.openapi(),indent=2))" > ../frontend/openapi.json`, then
+  `npm run generate:api` from `frontend/`. Both paths assume those working directories. The types in `api/client.ts` alias
   `components["schemas"][...]` from the generated `schema.d.ts`; **do not reintroduce a
   hand-written interface**. Two CI checks keep the pair honest —
-  `tests/test_openapi_snapshot.py` proves `openapi.json` matches the running app, and the
+  `backend/tests/test_openapi_snapshot.py` proves `openapi.json` matches the running app, and the
   frontend job regenerates `schema.d.ts` and fails on a diff. (`FE-4`, `API-15`, `RISK-6`)
 - **Server data lives in TanStack Query, not copied into `useState`.** (`FE-6`)
 - **Use semantic token classes** (`bg-surface`, `text-ink-700`, `border-line`), not stock

@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myTimezone, setMyTimezone } from "../api/auth";
 import { ApiError } from "../api/client";
-import { supportedTimezones } from "../lib/timezones";
+import { detectedTimezone, supportedTimezones } from "../lib/timezones";
+import { useApplyUser } from "../auth/AuthContext";
 
 /**
  * The signed-in user's own time zone (AV-67) — distinct from the
@@ -15,21 +16,36 @@ import { supportedTimezones } from "../lib/timezones";
  */
 export default function MyTimezoneSetting() {
   const queryClient = useQueryClient();
+  const applyUser = useApplyUser();
   const me = useQuery({ queryKey: ["my-timezone"], queryFn: myTimezone });
 
   const save = useMutation({
     mutationFn: setMyTimezone,
     onSuccess: (user) => {
       queryClient.setQueryData(["my-timezone"], user);
-      // The cached login identity carries time_zone too.
+      // The signed-in identity carries time_zone, and every screen that renders
+      // a date reads it from there. Invalidating a query does not reach that
+      // state — without this the save confirms here and nothing else moves
+      // until a reload, which is indistinguishable from the setting not working.
+      applyUser(user);
       queryClient.invalidateQueries({ queryKey: ["me"] });
     },
   });
 
   const current = me.data?.time_zone ?? null;
   // A stored zone this browser does not list would otherwise vanish from the
-  // picker and look unset — same guard as the organization picker.
-  const options = [...new Set([...supportedTimezones(), ...(current ? [current] : [])])].sort();
+  // picker and look unset — same guard as the organization picker. The detected
+  // zone is included for the same reason it is there: where
+  // Intl.supportedValuesOf is missing the list is empty, and an unset user
+  // would be left with nothing to choose.
+  const detected = detectedTimezone();
+  const options = [
+    ...new Set([
+      ...supportedTimezones(),
+      ...(detected ? [detected] : []),
+      ...(current ? [current] : []),
+    ]),
+  ].sort();
 
   if (me.isLoading) return null;
   if (me.isError) return null;
