@@ -61,7 +61,9 @@ cd frontend && npm test                          # frontend
 ## Deployment
 
 The live setup is **the API on Render and the frontend on Vercel**
-(`avora-product-repositiry.vercel.app`) — one host each, no overlap. Vercel serves the
+(`igcse-os-product-repositiry.vercel.app` — the deployed hosts keep their pre-Avora names
+until the owner renames them in the Render and Vercel dashboards; see `render.yaml`) — one
+host each, no overlap. Vercel serves the
 only copy of the app users visit, so `GOOGLE_REDIRECT_URI` is the full callback URL on
 that origin (`https://…vercel.app/settings/classroom/callback`, path included) and must be
 registered verbatim on the Google OAuth client. Render runs the API, the database and the

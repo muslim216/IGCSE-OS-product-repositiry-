@@ -27,3 +27,45 @@ export function detectedTimezone(): string | null {
     return null;
   }
 }
+
+/** The calendar day an instant falls on, in `timeZone`, as `YYYY-MM-DD`.
+ *
+ * en-CA because it formats as ISO; the locale is a formatting detail, not a
+ * user-facing choice. An unset or unusable zone falls back to the browser's,
+ * which is what every date on these screens used before the per-user override
+ * existed — so a user who has set nothing sees exactly what they saw. */
+export function dayKeyIn(instant: Date, timeZone?: string | null): string {
+  const options: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  };
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      ...options,
+      timeZone: timeZone ?? undefined,
+    }).format(instant);
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", options).format(instant);
+  }
+}
+
+/** Whole calendar days from today to `dueAt`, counted in `timeZone`.
+ *
+ * By midnight boundaries rather than elapsed milliseconds, so "due today" and
+ * "due tomorrow" turn over at midnight rather than 24 hours after the
+ * deadline — Math.round over elapsed time mislabels an evening deadline the
+ * next morning (~14h reads as "today", not "tomorrow").
+ *
+ * The zone is the reader's own (AV-67): a student who has told us they are in
+ * Dubai should see Dubai's midnight decide what is due today, whatever clock
+ * the device in front of them is set to. */
+export function calendarDaysUntil(dueAt: string, timeZone?: string | null): number {
+  const dueDay = dayKeyIn(new Date(dueAt), timeZone);
+  const today = dayKeyIn(new Date(), timeZone);
+  // Both are midnight-anchored day keys, so parsing them as UTC compares whole
+  // days without either zone's offset re-entering the arithmetic.
+  return Math.round(
+    (Date.parse(`${dueDay}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000,
+  );
+}

@@ -51,3 +51,15 @@ export function useAuth(): AuthState {
   if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
   return ctx;
 }
+
+/** The signed-in user's own zone (AV-67), or null when there is none.
+ *
+ * Deliberately does NOT throw outside the provider, where `useAuth` does. That
+ * strictness exists so nothing mistakes "no provider" for "signed out" while
+ * deciding what a user may see; this reads one presentation preference, and
+ * null already means "use the browser's zone" everywhere it is consumed. A
+ * date label is not an authorization decision and must not be able to blank a
+ * screen. */
+export function useMyTimezone(): string | null {
+  return useContext(AuthContext)?.user?.time_zone ?? null;
+}
