@@ -57,6 +57,18 @@ def test_weighted_reference_score_averages_per_factor_not_per_row():
     assert reference == 55.0
 
 
+def test_a_no_data_row_does_not_drag_a_factors_reference_down():
+    """A factor with one scored row and one no-data row averages to the scored
+    one, not to half of it. `sum(... if score is not None) / len(rows)` — the
+    shape a type checker invites — reads 45.0 here, scoring the absent
+    measurement as a zero (PROD-2)."""
+    rows = [
+        _row(ReadinessFactor.topic_mastery, 90.0),
+        _row(ReadinessFactor.topic_mastery, None, FactorConfidence.no_data),
+    ]
+    assert _weighted_reference_score(rows, DEFAULT_WEIGHTS) == 90.0
+
+
 def test_weighted_reference_score_damps_low_confidence_factors():
     """A factor backed by only one or two marks (low confidence) must not
     veto the AI's score as forcefully as a well-evidenced one at the same
