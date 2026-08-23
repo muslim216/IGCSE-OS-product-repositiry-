@@ -174,7 +174,18 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
 async def _past_paper_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
     paper = await session.get(PastPaper, submission.past_paper_id)
     assert paper is not None
-    assert paper.tutor_id is not None
+    if paper.tutor_id is None:
+        # An owning tutor is not decoration here: it selects the knowledge-base
+        # context the marking prompt is built with and attributes the call's
+        # cost in ai_usage_events. PastPaper.tutor_id is nullable, so this row
+        # is reachable — a bare assert turned it into "AssertionError" in the
+        # tutor's queue, which names nothing they can act on. Refuse with a
+        # sentence instead: guessing an owner would mark against another
+        # tutor's rules and bill them for it.
+        raise ValueError(
+            "This past paper has no owning tutor, so it cannot be marked — "
+            "re-upload it from your library, or ask for it to be reassigned"
+        )
     questions = list(
         (
             await session.scalars(

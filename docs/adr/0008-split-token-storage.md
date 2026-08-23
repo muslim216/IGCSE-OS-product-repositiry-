@@ -5,7 +5,7 @@
 
 ## Context
 
-Avora is a single-page React application talking to a separate FastAPI backend. It needs
+MANARA is a single-page React application talking to a separate FastAPI backend. It needs
 sessions that survive a page reload, work for students on shared or school devices, and can
 be revoked immediately when a tutor resets a student's password.
 
@@ -18,7 +18,7 @@ request forgery. A pure session cookie means the API cannot be called cross-orig
 **Split the two tokens by lifetime and threat.**
 
 - **Access token** — short-lived (30 minutes), sent as `Authorization: Bearer`, held in the
-  browser at `localStorage["avora-tokens"]`.
+  browser at `localStorage["igcse-os-tokens"]`.
 - **Refresh token** — 30 days, set as an **httpOnly, `SameSite=Lax` cookie scoped to
   `/api/v1/auth`**. Never persisted by JavaScript. `frontend/src/api/client.ts` deliberately
   does not write `refresh_token`, and says so in a block comment.

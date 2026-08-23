@@ -5,7 +5,7 @@
 
 ## Context
 
-Readiness is Avora's central metric. It drives every dashboard, recommendation, and report,
+Readiness is MANARA's central metric. It drives every dashboard, recommendation, and report,
 and it is what a tutor shows a parent when explaining whether a child is on track.
 
 Predicting exam performance from academic history is a textbook supervised-learning problem,
@@ -40,7 +40,7 @@ are reused as Layer 1's internal library.
 
 **A trained model predicting grades from history.** Would likely be more accurate on average.
 Rejected because it cannot explain itself to a tutor, cannot be corrected by one, needs
-training data Avora does not have, and would fail exactly where it matters most — on the
+training data MANARA does not have, and would fail exactly where it matters most — on the
 atypical student. Accuracy is not the objective function; actionability is.
 
 **Ask a language model for the whole score.** Simple to build. Rejected because it is

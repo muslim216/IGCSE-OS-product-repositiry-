@@ -105,3 +105,15 @@ ADR-0010 onward should be written before or alongside the change.
 - An accepted ADR's "Revisit when" condition occurs.
 - A non-goal in `governance/non-goals.md` is reversed — that always needs an ADR.
 - An ADR is superseded, which requires updating the index and both ADRs' headers.
+
+## A note on the Avora rename
+
+The product was renamed from MANARA to Avora in task 0.6 (`AV-4`). **The accepted
+ADR bodies still say MANARA, deliberately.** Rule: *an accepted ADR is never
+edited* — the text records what was decided, when, and on what evidence, and a
+decision made about a product called MANARA was made about a product called
+MANARA. Reading them, substitute the current name; do not sweep it through them.
+
+A rename is not a new architectural decision, so it gets no superseding ADR
+either. This index and the surrounding governance documents are maintained
+prose and do carry the current name.

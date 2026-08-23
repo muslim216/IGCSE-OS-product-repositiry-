@@ -5,7 +5,7 @@
 
 ## Context
 
-Avora spans six product surfaces — Student CRM, Lessons, Readiness, Knowledge Base,
+MANARA spans six product surfaces — Student CRM, Lessons, Readiness, Knowledge Base,
 Homework, Reports — plus AI integration, file storage, background processing, and two
 external integrations. That surface count invites decomposition: readiness computation looks
 like a service, marking looks like a service, Classroom sync looks like a service.
@@ -15,7 +15,7 @@ Python.
 
 ## Decision
 
-Avora is **one FastAPI application** (`backend/app/`) deployed as one Render service, and
+MANARA is **one FastAPI application** (`backend/app/`) deployed as one Render service, and
 one React application deployed on Vercel. There is no service mesh, no inter-service RPC,
 and no per-domain deployable.
 
