@@ -80,9 +80,16 @@ services:
         value: gemini
 
       # Per-token prices for ai_usage_events.cost_usd, as JSON, keyed by model
-      # id — claude-opus-5 and claude-sonnet-5 per AV-124, which retires Gemini
-      # from every surface. Unset means calls record an unknown cost and report
-      # as unpriced_call_count — never a fabricated $0 (AI-17).
+      # id. Unset means calls record an unknown cost and report as
+      # unpriced_call_count — never a fabricated $0 (AI-17).
+      #
+      # The ids in backend/.env.example are AV-124's targets — claude-opus-5 and
+      # claude-sonnet-5 — priced ahead of the routing flip (task 3.2). Read the
+      # three PROVIDER lines above before expecting a total: marking, extraction
+      # and syllabus still route to Gemini here, and gemini-2.5-pro is not in
+      # that table, so those calls stay unpriced until the flip lands. That is
+      # the intended reading of the number, not a gap to paper over with a
+      # guessed Gemini rate.
       #
       # Deliberately `sync: false` — a price is not a fact about this codebase,
       # it is a fact about the account's contract on the day it is read, and it

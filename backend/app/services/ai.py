@@ -23,9 +23,10 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any
+from typing import Any, TypedDict
 
 from anthropic import AsyncAnthropic
+from anthropic.types import TextBlockParam
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -203,17 +204,24 @@ def _gemini_parts(content: list[dict]) -> list[dict]:
     return parts
 
 
-def _anthropic_system(system_text: str, extra_system: list[str], cache_extra: bool) -> list[dict]:
+def _anthropic_system(
+    system_text: str, extra_system: list[str], cache_extra: bool
+) -> list[TextBlockParam]:
     """Assemble Anthropic system blocks. `cache_extra` marks the *last* extra
     block for prompt caching — by convention that's the tutor Knowledge Base,
     which is identical across every call for that tutor and so is worth
-    caching; per-student blocks before it are not."""
-    blocks: list[dict] = []
+    caching; per-student blocks before it are not.
+
+    Typed as the SDK's own `TextBlockParam` rather than `list[dict]` so the
+    three call sites need no suppression: a malformed block is then a type
+    error here, at the one place blocks are built, instead of being waved
+    through at each `system=`."""
+    blocks: list[TextBlockParam] = []
     if system_text:
         blocks.append({"type": "text", "text": system_text})
     last = len(extra_system) - 1
     for i, extra in enumerate(extra_system):
-        block: dict = {"type": "text", "text": extra}
+        block: TextBlockParam = {"type": "text", "text": extra}
         if cache_extra and i == last:
             block["cache_control"] = {"type": "ephemeral"}
         blocks.append(block)
@@ -251,7 +259,14 @@ async def structured_complete(
         response = await client.messages.parse(
             model=model,
             max_tokens=max_tokens,
-            system=_anthropic_system(prompt.system, extras, cache_extra_system),  # type: ignore[arg-type]
+            system=_anthropic_system(prompt.system, extras, cache_extra_system),
+            # `content` is list[dict] by this module's contract (see the module
+            # docstring): call sites build Anthropic-shaped blocks, and the
+            # Gemini branch below translates the same dicts. The SDK's block
+            # union cannot type that without every caller — marking, extraction,
+            # syllabus — importing SDK types, which would put a vendor SDK in
+            # modules AI-1 keeps it out of. file_block() is the constructor that
+            # holds the shape (CODE-26).
             messages=[{"role": "user", "content": content}],  # type: ignore[typeddict-item]
             output_format=output_format,
         )
@@ -288,7 +303,7 @@ async def structured_complete(
         model=model,
         prompt_version=prompt.version,
         parsed=parsed,
-        **_gemini_usage(response),  # type: ignore[arg-type]
+        **_gemini_usage(response),
     )
 
 
@@ -309,7 +324,10 @@ async def text_complete(
         response = await client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=_anthropic_system(template.system, extras, False),  # type: ignore[arg-type]
+            system=_anthropic_system(template.system, extras, False),
+            # `prompt` is a plain str, which the SDK's MessageParam does accept;
+            # mypy cannot see that through the dict literal's inferred value
+            # type. Nothing shape-dependent is masked (CODE-26).
             messages=[{"role": "user", "content": prompt}],  # type: ignore[typeddict-item]
         )
         usage = response.usage
@@ -367,7 +385,10 @@ async def stream_complete(
     async with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
-        system=_anthropic_system(template.system, extra_system or [], cache_extra_system),  # type: ignore[arg-type]
+        system=_anthropic_system(template.system, extra_system or [], cache_extra_system),
+        # Same `list[dict]` contract as structured_complete's `content`, for the
+        # same reason — the chat history arrives from api/chat.py as role/content
+        # dicts (CODE-26).
         messages=messages,  # type: ignore[arg-type]
     ) as stream:
         async for text in stream.text_stream:
@@ -381,7 +402,19 @@ async def stream_complete(
             usage["output_tokens"] = final.usage.output_tokens
 
 
-def _gemini_usage(response: object) -> dict[str, int]:
+class _GeminiUsage(TypedDict):
+    """The exact keys _gemini_usage yields.
+
+    A plain `dict[str, int]` would type-check only where the caller happens to
+    pass `text=` itself: unpacking it into AiResponse otherwise offers an int to
+    `text: str`. Naming the two keys lets mypy match them to the two int fields
+    and leaves the `**` unpacking checked rather than suppressed."""
+
+    input_tokens: int
+    output_tokens: int
+
+
+def _gemini_usage(response: object) -> _GeminiUsage:
     meta = getattr(response, "usage_metadata", None)
     if meta is None:
         return {"input_tokens": 0, "output_tokens": 0}

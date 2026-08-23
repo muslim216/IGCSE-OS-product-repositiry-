@@ -1,4 +1,5 @@
 import { api, type AuthResponse, type User } from "./client";
+import { detectedTimezone } from "../lib/timezones";
 import type { components } from "./schema";
 
 export function login(identifier: string, password: string) {
@@ -8,25 +9,19 @@ export function login(identifier: string, password: string) {
   });
 }
 
-/** The browser's IANA zone, or null if it cannot report one.
+/** Registration captures the browser's zone rather than asking for it: every
+ * "today" the product shows is computed in the organization's zone, and a tutor
+ * should not have to configure that before their first lesson list is correct.
+ * The server validates it and falls back to UTC, so a wrong or missing answer
+ * degrades rather than breaks.
  *
- * Captured here rather than asked for: every "today" the product shows is
- * computed in the organization's zone, and a tutor should not have to
- * configure that before their first lesson list is correct. The server
- * validates it and falls back to UTC, so a wrong or missing answer degrades
- * rather than breaks. */
-function browserTimezone(): string | null {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
-  } catch {
-    return null;
-  }
-}
-
+ * `detectedTimezone` is the one detector (lib/timezones) — the pickers offer
+ * what it returns, so a browser it cannot read must produce the same "unset"
+ * here as it does there. Two copies could disagree only by drifting. */
 export function registerTutor(name: string, email: string, password: string) {
   return api<AuthResponse>("/api/v1/auth/register/tutor", {
     method: "POST",
-    body: JSON.stringify({ name, email, password, timezone: browserTimezone() }),
+    body: JSON.stringify({ name, email, password, timezone: detectedTimezone() }),
   });
 }
 

@@ -83,7 +83,7 @@ enforced by a human remembering. Say so, rather than implying otherwise.
 
 ### The backend suite
 
-**28 files, ~6,600 lines. 297 tests pass** in about three and a half minutes with no database
+**45 files, ~12,300 lines. 527 tests pass** in about five and a half minutes with no database
 and no API key.
 
 Coverage is concentrated where the risk is:
@@ -102,7 +102,8 @@ Coverage is concentrated where the risk is:
 
 Note the earlier `handoff.md` recorded 215 tests; that document is archived rather than
 corrected, with a header saying so. The suite reached 247 by the time this handbook was
-written and 297 once the `RISK-4` and `RISK-7` fixes landed with their tests.
+written, 297 once the `RISK-4` and `RISK-7` fixes landed with their tests, and 527 through
+tasks 0.6–0.10.
 
 **Two of these files test properties rather than behaviour**, which is worth knowing before
 editing them. `test_authorization.py` walks the app's route tree and asserts things *about the
@@ -136,10 +137,14 @@ Fixtures:
 built from `Base.metadata`, which is populated by that barrel. The symptom is an
 "unknown table" error far from the cause (`BE-3`).
 
-**Trap 2 — the migrations are never executed.** The schema comes from `create_all`, not from
-Alembic. All 21 migrations run for the first time in production, where the container command is
-`alembic upgrade head && uvicorn`, so a failure means the service never starts. Migration 0012
-has already failed this way on Postgres with existing users.
+**Trap 2 — the suite never executes a migration.** The schema comes from `create_all`, not
+from Alembic, so nothing in `pytest` can tell you a migration works. CI's `migrations` job is
+what covers that gap: `upgrade head` → `downgrade base` → `upgrade head` on a real
+`postgres:16-alpine`, all 24 migrations, on every pull request. What it still cannot see is
+**data** — the CI database is empty, and the container command in production is
+`alembic upgrade head && uvicorn`, so a failure there means the service never starts.
+Migration 0012 failed exactly that way on Postgres with existing users, which an empty-database
+check would have passed.
 
 This trap has a second edge documented in §06: **four of the five real indexes exist only in
 migrations**, so the test schema is missing them and no test ever exercises an indexed plan.
@@ -243,7 +248,7 @@ Four jobs:
 
 | Job | Runs | Catches |
 |---|---|---|
-| `lint` | `ruff check`, `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`, `prettier --check`, and the API-type freshness check | Style and correctness defects ruff sees, type errors in the two checked backend packages, and a `schema.d.ts` that no longer matches `openapi.json` |
+| `lint` | `ruff check`, `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`, `prettier --check` | Style and correctness defects ruff and eslint see, and type errors in the two checked backend packages |
 | `backend` | Python 3.11, `pip install -e ".[dev]"`, `pytest` from `backend/` | Every backend regression the suite covers. No service container — `conftest.py` forces in-memory SQLite |
 | `migrations` | `postgres:16-alpine` service, then `alembic upgrade head` → `downgrade base` → `upgrade head` | A migration that is invalid or irreversible on Postgres. This is the only thing that has ever executed the downgrade path |
 | `frontend` | Node 20, `npm ci`, `npm test`, the API-type regeneration diff, `npm run build` | Vitest regressions, generated types drifting from `openapi.json`, and — via `tsc -b` inside `build` — every frontend type error, which is the only type check the frontend has |
@@ -260,7 +265,7 @@ than racing it.
   now the whole of `RISK-2`.
 - **No dependency scan**, which is not a theoretical gap: the first `npm audit` anyone ran
   reported a critical and a high advisory in `vitest` and `vite`. See `RISK-11`.
-- **No coverage measurement**, so nothing reports which risky paths the 297 backend tests miss.
+- **No coverage measurement**, so nothing reports which risky paths the 527 backend tests miss.
 - **The `migrations` database is empty.** Schema operations are proven; safety against
   existing rows, which is how 0012 actually failed, is not.
 - **No contract check between backend schemas and the frontend's per-domain wrappers.** The

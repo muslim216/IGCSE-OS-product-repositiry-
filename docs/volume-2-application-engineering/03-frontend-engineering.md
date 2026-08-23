@@ -237,13 +237,17 @@ of `RISK-6`; convert a domain to schema aliases when you next touch it.
 ### Build and type configuration
 
 - `npm run dev` — Vite on 5173, proxying `/api` to `localhost:8000` (`vite.config.ts`).
-- `npm run build` — `tsc -b && vite build`. **This is the only type check that runs
-  anywhere**; `vitest run` does not type-check.
+- `npm run build` — `tsc -b && vite build`. **This is the only type check on the frontend**;
+  `vitest run` does not type-check. CI's `frontend` job runs it, so a type error cannot reach
+  the default branch unnoticed — but nothing runs it for you locally.
 - `tsconfig.json` is genuinely strict: `strict`, `noUnusedLocals`, `noUnusedParameters`,
   `noFallthroughCasesInSwitch`, `isolatedModules`, `noEmit`, ES2022, `moduleResolution:
   "bundler"`, `skipLibCheck`.
-- **No ESLint and no Prettier.** `package.json` scripts are exactly `dev`, `build`, `preview`,
-  `test`.
+- **ESLint and Prettier are both configured**, and CI runs both: `npm run lint` (`eslint .`,
+  with `--max-warnings 0` in CI), `npm run format:check` (`prettier --check .`). `lint:fix`
+  and `format` are the writing forms; CI never writes.
+- `npm run generate:api` — `openapi-typescript openapi.json -o src/api/schema.d.ts`. CI
+  regenerates and fails on a diff, which is what keeps the generated contract honest.
 
 ---
 

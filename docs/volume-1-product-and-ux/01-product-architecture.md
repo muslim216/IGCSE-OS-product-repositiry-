@@ -300,7 +300,7 @@ Two consequences:
 2. **Google Classroom.** Per-tutor OAuth links a `Group` to one Classroom course. A
    `sync_classroom` job imports courseWork as draft `Assignment`s and turned-in submissions
    into the standard `mark_submission` pipeline. PDF and image attachments only — other Drive
-   types are skipped, not guessed. Submissions match Classroom's roster email to a Avora
+   types are skipped, not guessed. Submissions match Classroom's roster email to an Avora
    account; unmatched students are skipped, not guessed.
 
 **Classroom reduces friction; it never replaces direct upload.** Both feed the same pipeline,

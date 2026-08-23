@@ -47,47 +47,57 @@ export default function MyTimezoneSetting() {
     ]),
   ].sort();
 
-  if (me.isLoading) return null;
-  if (me.isError) return null;
-
   return (
     <div className="rounded-lg border border-line bg-surface p-4">
       <h3 className="font-medium text-ink-900">Your time zone</h3>
       <p className="mt-1 text-sm text-ink-500">
         Your own zone, overriding the account's for anything addressed to you.
       </p>
-      <p className="mt-3 text-sm text-ink-700">
-        {current ? (
-          <>
-            Currently <span className="font-medium text-ink-900">{current}</span>.
-          </>
-        ) : (
-          "Not set — you're following the account's time zone."
-        )}
-      </p>
-      <div className="mt-3">
-        <label htmlFor="my-timezone" className="sr-only">
-          Your time zone
-        </label>
-        <select
-          id="my-timezone"
-          value={current ?? ""}
-          disabled={save.isPending}
-          onChange={(e) => save.mutate(e.target.value || null)}
-          className="rounded-md border border-line-control bg-canvas px-3 py-2 text-sm text-ink-900"
-        >
-          <option value="">Follow the account's time zone</option>
-          {options.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </select>
-      </div>
-      {save.isError && (
-        <p className="mt-2 text-sm text-risk-600">
-          {save.error instanceof ApiError ? save.error.message : "Couldn't save that."}
-        </p>
+
+      {/* Loading and failure are stated, not rendered as absence. Returning
+          null on error removed the whole control, which reads as "this setting
+          does not exist for me" rather than "it could not be loaded" — and
+          leaves no way to retry. Same shape as TimezoneSetting (PROD-2). */}
+      {me.isLoading ? (
+        <p className="mt-3 text-sm text-ink-500">Loading…</p>
+      ) : me.isError ? (
+        <p className="mt-3 text-sm text-risk-600">Couldn't load your time zone.</p>
+      ) : (
+        <>
+          <p className="mt-3 text-sm text-ink-700">
+            {current ? (
+              <>
+                Currently <span className="font-medium text-ink-900">{current}</span>.
+              </>
+            ) : (
+              "Not set — you're following the account's time zone."
+            )}
+          </p>
+          <div className="mt-3">
+            <label htmlFor="my-timezone" className="sr-only">
+              Your time zone
+            </label>
+            <select
+              id="my-timezone"
+              value={current ?? ""}
+              disabled={save.isPending}
+              onChange={(e) => save.mutate(e.target.value || null)}
+              className="rounded-md border border-line-control bg-canvas px-3 py-2 text-sm text-ink-900"
+            >
+              <option value="">Follow the account's time zone</option>
+              {options.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </div>
+          {save.isError && (
+            <p className="mt-2 text-sm text-risk-600">
+              {save.error instanceof ApiError ? save.error.message : "Couldn't save that."}
+            </p>
+          )}
+        </>
       )}
     </div>
   );
