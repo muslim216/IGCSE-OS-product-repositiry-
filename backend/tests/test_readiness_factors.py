@@ -80,6 +80,19 @@ def test_past_paper_trend_improving():
 # ---- Homework Performance ----
 
 
+def test_homework_accuracy_averages_over_submitted_work_only():
+    """A missed assignment lowers completion; it must not be averaged into
+    accuracy as a zero (PROD-2). The regression this guards is a plausible
+    narrowing of `pct is not None` that keeps the full point count in the
+    denominator: that reads 50.0 here instead of 100.0."""
+    points = [
+        HomeworkPoint(pct=100, on_time=True),
+        HomeworkPoint(pct=None, on_time=None),
+    ]
+    result = homework_performance(points)
+    assert result.detail["accuracy"] == 100.0
+
+
 def test_homework_no_submissions_scores_zero_completion():
     points = [HomeworkPoint(pct=None, on_time=None), HomeworkPoint(pct=None, on_time=None)]
     result = homework_performance(points)

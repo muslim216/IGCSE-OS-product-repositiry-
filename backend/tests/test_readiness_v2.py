@@ -210,3 +210,63 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
             )
         ).all()
         assert len(persisted) == len(rows)
+
+
+async def test_an_unmarked_past_paper_attempt_is_omitted_not_scored_zero(client, tutor, world):
+    """PROD-2 / PROD-5: `raw_marks` is null until the submission behind the
+    attempt settles, so an unmarked attempt is ordinary work in progress. It
+    must not reach Past Paper Performance at all — scoring it 0.0 would report
+    a student who has started a paper as having failed it, and the factor
+    cannot tell a fabricated zero from an earned one.
+    """
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        assert tutor_user is not None
+        org_id = tutor_user.organization_id
+        past_paper = PastPaper(
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2027",
+            paper_number="2",
+        )
+        session.add(past_paper)
+        await session.flush()
+        session.add_all(
+            [
+                # Settled: 18/20 = 90%.
+                PastPaperAttempt(
+                    past_paper_id=past_paper.id,
+                    student_id=student_id,
+                    raw_marks=18,
+                    max_marks=20,
+                    timed=True,
+                    attempted_at=date.today() - timedelta(days=3),
+                ),
+                # Sat, not marked yet.
+                PastPaperAttempt(
+                    past_paper_id=past_paper.id,
+                    student_id=student_id,
+                    raw_marks=None,
+                    max_marks=20,
+                    timed=True,
+                    attempted_at=date.today() - timedelta(days=1),
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, student_id, subject_id, "test-run-unmarked", now=NOW
+        )
+        await session.commit()
+
+    paper = next(r for r in rows if r.factor == ReadinessFactor.past_paper_performance)
+    # One attempt counted, not two, and the average is the marked one alone.
+    # Were the unmarked attempt scored 0.0, this would be 45.0 over 2 attempts.
+    assert paper.evidence_count == 1
+    assert paper.detail["attempt_count"] == 1
+    assert paper.score == 90.0

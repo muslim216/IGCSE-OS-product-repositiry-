@@ -127,7 +127,12 @@ class HomeworkPoint:
 def homework_performance(points: list[HomeworkPoint]) -> FactorResult:
     if not points:
         return NO_DATA
-    submitted = [p for p in points if p.pct is not None]
+    # Held as the percentages themselves, not the points: the filter above is
+    # the only thing that makes `pct` non-optional, and a second `is not None`
+    # inside the average would divide a shrinking numerator by a fixed
+    # denominator — silently scoring a missing measurement as 0 (PROD-2). Narrow
+    # once, here, so that shape cannot be written.
+    submitted = [p.pct for p in points if p.pct is not None]
     completion_rate = len(submitted) / len(points)
     if not submitted:
         return FactorResult(
@@ -140,8 +145,8 @@ def homework_performance(points: list[HomeworkPoint]) -> FactorResult:
                 "on_time_rate": None,
             },
         )
-    accuracy = sum(p.pct for p in submitted if p.pct is not None) / len(submitted)
-    on_time_points = [p for p in submitted if p.on_time is not None]
+    accuracy = sum(submitted) / len(submitted)
+    on_time_points = [p for p in points if p.pct is not None and p.on_time is not None]
     on_time_rate = (
         sum(1 for p in on_time_points if p.on_time) / len(on_time_points)
         if on_time_points
