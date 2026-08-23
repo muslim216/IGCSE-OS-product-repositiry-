@@ -243,13 +243,15 @@ async def test_a_user_can_set_and_clear_their_own_timezone(client, tutor):
     assert set_resp.status_code == 200
     assert set_resp.json()["time_zone"] == "Asia/Dubai"
     # Readable both on the dedicated endpoint and the identity the app already has.
-    assert (
-        await client.get("/api/v1/me/timezone", headers=tutor["headers"])
-    ).json()["time_zone"] == "Asia/Dubai"
+    assert (await client.get("/api/v1/me/timezone", headers=tutor["headers"])).json()[
+        "time_zone"
+    ] == "Asia/Dubai"
     me = await client.get("/api/v1/auth/me", headers=tutor["headers"])
     assert me.json()["time_zone"] == "Asia/Dubai"
 
-    cleared = await client.put("/api/v1/me/timezone", json={"timezone": None}, headers=tutor["headers"])
+    cleared = await client.put(
+        "/api/v1/me/timezone", json={"timezone": None}, headers=tutor["headers"]
+    )
     assert cleared.status_code == 200
     assert cleared.json()["time_zone"] is None
 

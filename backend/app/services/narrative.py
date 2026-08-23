@@ -255,7 +255,12 @@ async def generate_narrative(session: AsyncSession, payload: dict) -> None:
             organization_id=group.organization_id,
             group_id=group.id,
         )
-        if not force and existing is not None and _aware(existing.generated_at) >= latest_ev:
+        if (
+            not force
+            and existing is not None
+            and (generated := _aware(existing.generated_at)) is not None
+            and generated >= latest_ev
+        ):
             return  # nothing new since the last narrative — no-op re-run
         grounding = await _class_grounding(session, group)
         await _store(
@@ -281,7 +286,12 @@ async def generate_narrative(session: AsyncSession, payload: dict) -> None:
         organization_id=student.organization_id,
         student_id=student.id,
     )
-    if not force and existing is not None and _aware(existing.generated_at) >= latest_ev:
+    if (
+        not force
+        and existing is not None
+        and (generated2 := _aware(existing.generated_at)) is not None
+        and generated2 >= latest_ev
+    ):
         return
     grounding = await _parent_grounding(session, student)
     tutor_id = await resolve_org_tutor_id(session, student.organization_id)

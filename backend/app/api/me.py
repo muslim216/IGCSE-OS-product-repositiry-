@@ -133,9 +133,7 @@ async def my_timezone(db: DbSession, user: CurrentUser) -> UserOut:
 
 
 @router.put("/timezone", response_model=UserOut)
-async def set_my_timezone(
-    body: UserTimezoneUpdate, db: DbSession, user: CurrentUser
-) -> UserOut:
+async def set_my_timezone(body: UserTimezoneUpdate, db: DbSession, user: CurrentUser) -> UserOut:
     """Set (or clear) this user's own zone (AV-67).
 
     Deliberately NOT tutor-gated: the whole point is that a student or parent

@@ -287,6 +287,7 @@ async def sync_classroom(session: AsyncSession, payload: dict) -> None:
 
 async def _sync_course(session: AsyncSession, access_token: str, link: ClassroomCourseLink) -> None:
     group = await session.get(Group, link.group_id)
+    assert group is not None
     for cw in await list_coursework(access_token, link.classroom_course_id):
         work_link = await session.scalar(
             select(ClassroomWorkLink).where(
@@ -311,7 +312,9 @@ async def _sync_course(session: AsyncSession, access_token: str, link: Classroom
             session.add(work_link)
             await session.flush()
         else:
-            assignment = await session.get(Assignment, work_link.assignment_id)
+            fetched = await session.get(Assignment, work_link.assignment_id)
+            assert fetched is not None
+            assignment = fetched
 
         await _sync_submissions(session, access_token, link, work_link, assignment)
 

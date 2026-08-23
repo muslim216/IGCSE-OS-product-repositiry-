@@ -103,6 +103,7 @@ class _MarkingSource:
 
 async def _homework_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
     assignment = await session.get(Assignment, submission.assignment_id)
+    assert assignment is not None
     classified = (
         await session.get(Classified, assignment.classified_id)
         if assignment.classified_id
@@ -118,6 +119,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         ).all()
     )
     group = await session.get(Group, assignment.group_id)
+    assert group is not None
     if classified is not None:
         intro = (
             "The documents above are: (1) the question booklet, "
@@ -133,12 +135,14 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         questions=questions,
         booklet=(
             (storage.read_file(classified.file_path), classified.file_mime)
-            if classified is not None
+            if classified is not None and classified.file_path and classified.file_mime
             else None
         ),
         mark_scheme=(
             (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
-            if classified is not None and classified.mark_scheme_path
+            if classified is not None
+            and classified.mark_scheme_path
+            and classified.mark_scheme_mime
             else None
         ),
         intro=intro,
@@ -151,6 +155,8 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
 
 async def _past_paper_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
     paper = await session.get(PastPaper, submission.past_paper_id)
+    assert paper is not None
+    assert paper.tutor_id is not None
     questions = list(
         (
             await session.scalars(
@@ -168,12 +174,12 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         questions=questions,
         booklet=(
             (storage.read_file(paper.booklet_path), paper.booklet_mime)
-            if paper.booklet_path
+            if paper.booklet_path and paper.booklet_mime
             else None
         ),
         mark_scheme=(
             (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
-            if paper.mark_scheme_path
+            if paper.mark_scheme_path and paper.mark_scheme_mime
             else None
         ),
         intro=(
@@ -367,6 +373,7 @@ async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) 
     Past Paper Performance factor reads. Upserted, not appended, so re-running
     after a tutor override corrects the total instead of double-counting it."""
     paper = await session.get(PastPaper, submission.past_paper_id)
+    assert paper is not None
     totals = (
         await session.execute(
             select(

@@ -140,7 +140,7 @@ def homework_performance(points: list[HomeworkPoint]) -> FactorResult:
                 "on_time_rate": None,
             },
         )
-    accuracy = sum(p.pct for p in submitted) / len(submitted)
+    accuracy = sum(p.pct for p in submitted if p.pct is not None) / len(submitted)
     on_time_points = [p for p in submitted if p.on_time is not None]
     on_time_rate = (
         sum(1 for p in on_time_points if p.on_time) / len(on_time_points)

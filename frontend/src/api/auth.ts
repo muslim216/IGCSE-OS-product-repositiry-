@@ -1,4 +1,5 @@
 import { api, type AuthResponse, type User } from "./client";
+import type { components } from "./schema";
 
 export function login(identifier: string, password: string) {
   return api<AuthResponse>("/api/v1/auth/login", {
@@ -33,12 +34,7 @@ export function fetchMe() {
   return api<User>("/api/v1/auth/me");
 }
 
-export interface Organization {
-  id: number;
-  name: string;
-  /** null means no zone is stored and the server is answering in UTC. */
-  timezone: string | null;
-}
+export type Organization = components["schemas"]["OrganizationOut"];
 
 export const myOrganization = () => api<Organization>("/api/v1/me/organization");
 

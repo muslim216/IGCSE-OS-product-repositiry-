@@ -95,17 +95,19 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
     if not group_ids:
         return {}
 
-    members = dict(
-        (
+    members: dict[int, int] = {
+        row[0]: row[1]
+        for row in (
             await session.execute(
                 select(GroupMember.group_id, func.count(GroupMember.id))
                 .where(GroupMember.group_id.in_(group_ids))
                 .group_by(GroupMember.group_id)
             )
         ).all()
-    )
-    published = dict(
-        (
+    }
+    published: dict[int, int] = {
+        row[0]: row[1]
+        for row in (
             await session.execute(
                 select(Assignment.group_id, func.count(Assignment.id))
                 .where(
@@ -115,9 +117,10 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
                 .group_by(Assignment.group_id)
             )
         ).all()
-    )
-    awaiting = dict(
-        (
+    }
+    awaiting: dict[int, int] = {
+        row[0]: row[1]
+        for row in (
             await session.execute(
                 select(Assignment.group_id, func.count(Submission.id))
                 .join(Assignment, Assignment.id == Submission.assignment_id)
@@ -128,7 +131,7 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
                 .group_by(Assignment.group_id)
             )
         ).all()
-    )
+    }
 
     # Coverage numerator: how many enrolled students the class's readiness
     # picture actually speaks for. A status derived from 2 of 11 students is a
@@ -139,8 +142,9 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
     # SEC-7: group_ids arrive already scoped to the authenticated tutor by the
     # callers in api/groups.py, so this inherits that scoping rather than
     # re-deriving it from a parameter.
-    covered = dict(
-        (
+    covered: dict[int, int] = {
+        row[0]: row[1]
+        for row in (
             await session.execute(
                 select(GroupMember.group_id, func.count(distinct(GroupMember.student_id)))
                 .join(Group, Group.id == GroupMember.group_id)
@@ -157,7 +161,7 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
                 .group_by(GroupMember.group_id)
             )
         ).all()
-    )
+    }
 
     by_group: dict[int, list[ScheduleSlot]] = defaultdict(list)
     for slot in (

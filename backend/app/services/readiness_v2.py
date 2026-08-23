@@ -9,6 +9,7 @@ compute_readiness_v2 background job (Layer 2, services/readiness_v2_ai.py),
 per the "run out-of-band" rule for deterministic computation.
 """
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -128,7 +129,9 @@ async def _past_paper_attempts(
     )
     return [
         PastPaperAttemptPoint(
-            pct=(a.raw_marks / a.max_marks * 100) if a.max_marks else 0.0,
+            pct=(a.raw_marks / a.max_marks * 100)
+            if a.max_marks and a.raw_marks is not None
+            else 0.0,
             timed=a.timed,
             attempted_at=a.attempted_at,
         )
@@ -227,7 +230,7 @@ async def _topic_coverage(
     student_id: int,
     subject_id: int,
     mastery_by_topic: dict[int, float | None],
-    topics: list[Topic],
+    topics: Sequence[Topic],
 ) -> list[TopicCoverage]:
     topic_ids = {t.id for t in topics}
 

@@ -69,6 +69,10 @@ jobs:
         working-directory: backend
         run: python -m ruff format --check .
 
+      - name: mypy (app.services + app.schemas)
+        working-directory: backend
+        run: python -m mypy app/services app/schemas
+
       - name: Install frontend
         working-directory: frontend
         run: npm ci

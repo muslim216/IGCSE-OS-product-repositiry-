@@ -85,6 +85,8 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
 async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None:
     classified = await session.get(Classified, assignment.classified_id)
     group = await session.get(Group, assignment.group_id)
+    assert classified is not None
+    assert group is not None
     topics = (
         await session.scalars(select(Topic).where(Topic.subject_id == group.subject_id))
     ).all()
@@ -93,7 +95,7 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
     content: list[dict] = [
         file_block(storage.read_file(classified.file_path), classified.file_mime)
     ]
-    if classified.mark_scheme_path:
+    if classified.mark_scheme_path and classified.mark_scheme_mime:
         content.append(
             file_block(storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
         )
@@ -190,13 +192,15 @@ async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int)
 
 
 async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) -> None:
+    assert paper.booklet_path is not None
+    assert paper.booklet_mime is not None
     topics = (
         await session.scalars(select(Topic).where(Topic.subject_id == paper.subject_id))
     ).all()
     topic_list = "\n".join(f"- {t.code}: {t.title}" for t in topics)
 
     content: list[dict] = [file_block(storage.read_file(paper.booklet_path), paper.booklet_mime)]
-    if paper.mark_scheme_path:
+    if paper.mark_scheme_path and paper.mark_scheme_mime:
         content.append(
             file_block(storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
         )

@@ -209,6 +209,7 @@ async def process_one_job() -> bool:
 
         async with async_session() as session:
             job = await session.get(Job, job_id)
+            assert job is not None
             if error is None:
                 job.status = JobStatus.done
                 job.error = None

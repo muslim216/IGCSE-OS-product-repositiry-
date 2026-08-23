@@ -101,7 +101,7 @@ async def consume(db: AsyncSession, invite: Invite) -> None:
         .values(used_at=now)
         .execution_options(synchronize_session=False)
     )
-    if result.rowcount != 1:
+    if getattr(result, "rowcount", 0) != 1:  # type: ignore[attr-defined]
         raise HTTPException(
             status.HTTP_410_GONE,
             "This invite link has already been used — ask for a new one",

@@ -188,6 +188,8 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
         return
     try:
         student = await session.get(User, report.student_id)
+        if student is None:
+            return
         subject_ids = await _visible_subjects(session, report.student_id, report.subject_id)
         facts = await build_report_facts(session, student, subject_ids)
         tutor = await session.get(User, report.generated_by_id)

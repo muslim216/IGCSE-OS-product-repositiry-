@@ -229,7 +229,7 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
         )
     ).all()
     member_ids = [mid for mid, _ in members]
-    names = dict(members)
+    names: dict[int, str] = {row[0]: row[1] for row in members}
 
     # Per-learner weighted readiness, from the same helper class_health folds
     # into the class score above. Restating the formula here is what let the

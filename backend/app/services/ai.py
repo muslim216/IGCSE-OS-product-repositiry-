@@ -23,8 +23,10 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any
 
 from anthropic import AsyncAnthropic
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -115,7 +117,7 @@ class AiResponse:
     prompt_version: str
     input_tokens: int = 0
     output_tokens: int = 0
-    parsed: object | None = None
+    parsed: Any = None
     text: str = ""
 
 
@@ -232,7 +234,7 @@ async def structured_complete(
     *,
     surface: str,
     content: list[dict],
-    output_format: type,
+    output_format: type[BaseModel],
     max_tokens: int,
     extra_system: list[str] | None = None,
     cache_extra_system: bool = False,
@@ -249,8 +251,8 @@ async def structured_complete(
         response = await client.messages.parse(
             model=model,
             max_tokens=max_tokens,
-            system=_anthropic_system(prompt.system, extras, cache_extra_system),
-            messages=[{"role": "user", "content": content}],
+            system=_anthropic_system(prompt.system, extras, cache_extra_system),  # type: ignore[arg-type]
+            messages=[{"role": "user", "content": content}],  # type: ignore[typeddict-item]
             output_format=output_format,
         )
         usage = response.usage
@@ -286,7 +288,7 @@ async def structured_complete(
         model=model,
         prompt_version=prompt.version,
         parsed=parsed,
-        **_gemini_usage(response),
+        **_gemini_usage(response),  # type: ignore[arg-type]
     )
 
 
@@ -307,12 +309,14 @@ async def text_complete(
         response = await client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=_anthropic_system(template.system, extras, False),
-            messages=[{"role": "user", "content": prompt}],
+            system=_anthropic_system(template.system, extras, False),  # type: ignore[arg-type]
+            messages=[{"role": "user", "content": prompt}],  # type: ignore[typeddict-item]
         )
         usage = response.usage
         text = "".join(
-            block.text for block in response.content if getattr(block, "type", None) == "text"
+            getattr(block, "text", "")
+            for block in response.content
+            if getattr(block, "type", None) == "text"
         )
         return AiResponse(
             provider=provider,
@@ -363,8 +367,8 @@ async def stream_complete(
     async with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
-        system=_anthropic_system(template.system, extra_system or [], cache_extra_system),
-        messages=messages,
+        system=_anthropic_system(template.system, extra_system or [], cache_extra_system),  # type: ignore[arg-type]
+        messages=messages,  # type: ignore[arg-type]
     ) as stream:
         async for text in stream.text_stream:
             yield text

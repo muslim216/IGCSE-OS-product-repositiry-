@@ -4,7 +4,9 @@ Only finalized homework and entered assessment/observation data become
 evidence — nothing provisional (like an AI draft) ever influences readiness.
 """
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +34,7 @@ async def build_homework_evidence(session: AsyncSession, submission: Submission)
     past_paper evidence source, which the engine weighs more heavily than
     homework (see readiness.SOURCE_WEIGHTS)."""
     is_past_paper = submission.past_paper_id is not None
+    rows: Sequence[Any]
     if is_past_paper:
         rows = (
             await session.execute(

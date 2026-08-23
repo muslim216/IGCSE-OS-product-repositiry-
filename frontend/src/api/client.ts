@@ -1,22 +1,13 @@
-export interface TokenPair {
-  access_token: string;
-  token_type: string;
-}
+import type { components } from "./schema";
 
-export interface User {
-  id: number;
-  email: string | null;
-  username: string | null;
-  role: "student" | "tutor" | "parent" | "admin";
-  name: string;
-  /** The user's own IANA zone, or null to follow the organization's. */
-  time_zone: string | null;
-}
-
-export interface AuthResponse {
-  user: User;
-  tokens: TokenPair;
-}
+// Re-export API contract types from the generated OpenAPI schema (FE-4).
+// The schema at src/api/schema.d.ts is produced by `npx openapi-typescript
+// openapi.json -o src/api/schema.d.ts` from the backend's OpenAPI document;
+// hand-maintained mirrors are not added — the generated file is the source
+// of truth and keeps frontend and backend in sync.
+export type TokenPair = components["schemas"]["TokenPair"];
+export type User = components["schemas"]["UserOut"];
+export type AuthResponse = components["schemas"]["AuthResponse"];
 
 /**
  * What we keep in localStorage. Deliberately NOT the refresh token.
