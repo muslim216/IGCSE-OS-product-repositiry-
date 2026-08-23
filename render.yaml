@@ -79,9 +79,10 @@ services:
       - key: AI_SYLLABUS_PROVIDER
         value: gemini
 
-      # Per-token prices for ai_usage_events.cost_usd, as JSON, keyed by the
-      # real model ids in config.py. Unset means calls record an unknown cost
-      # and report as unpriced_call_count — never a fabricated $0 (AI-17).
+      # Per-token prices for ai_usage_events.cost_usd, as JSON, keyed by model
+      # id — claude-opus-5 and claude-sonnet-5 per AV-124, which retires Gemini
+      # from every surface. Unset means calls record an unknown cost and report
+      # as unpriced_call_count — never a fabricated $0 (AI-17).
       #
       # Deliberately `sync: false` — a price is not a fact about this codebase,
       # it is a fact about the account's contract on the day it is read, and it

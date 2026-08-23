@@ -21,10 +21,17 @@ from app.services.ai import estimate_cost_usd, model_pricing
 
 ENV_EXAMPLE = pathlib.Path(__file__).resolve().parent.parent / ".env.example"
 
+# The models every surface routes to once AV-124 lands: Opus 5 for marking,
+# extraction, syllabus and readiness; Sonnet 5 for reports, class brief and
+# narrative. Hard-coded from the decision rather than read from config.py,
+# because this table is deliberately priced ahead of the routing flip (task
+# 3.2) and must not silently follow config back to Gemini.
+AV_124_MODELS = ("claude-opus-5", "claude-sonnet-5")
+
 # Every setting naming a model. A blank per-surface model means "use that
 # provider's default", so the defaults are what such a surface actually bills
-# against — which is why anthropic_model and gemini_model are in this list and
-# are separately required to carry a price below.
+# against — which is why anthropic_model is in this list and is separately
+# required to carry a price below.
 _MODEL_SETTINGS = (
     "anthropic_model",
     "gemini_model",
@@ -65,23 +72,37 @@ def test_example_pricing_is_valid_json_the_app_can_read():
             assert entry[field] > 0, f"{model}.{field} must be a real rate, not 0"
 
 
-def test_every_example_price_key_names_a_configured_model():
-    configured = _configured_model_ids()
+def test_every_example_price_key_is_a_model_something_resolves_to():
+    """A key matching no model prices nothing. Both windows count: the ids
+    config.py resolves to today, and the ones AV-124 moves every surface to."""
+    allowed = _configured_model_ids() | set(AV_124_MODELS)
     for key in _example_pricing():
-        assert key in configured, (
-            f"AI_MODEL_PRICING prices {key!r}, which is not a model id in config.py "
-            f"(configured: {sorted(configured)}). A key that matches nothing prices nothing."
+        assert key in allowed, (
+            f"AI_MODEL_PRICING prices {key!r}, which is neither a model id in config.py "
+            f"nor one of AV-124's targets {AV_124_MODELS}. Update the key or the routing."
         )
 
 
-def test_the_provider_default_models_are_priced():
-    """A per-surface model left blank resolves to its provider's default, so
-    those two ids carry almost all the spend — an unpriced default means the
-    usage report is close to empty."""
-    settings = get_settings()
+def test_the_models_av_124_routes_to_are_priced():
+    """The whole point of the task. Once task 3.2 flips the routing these two
+    carry every call in the product, and an unpriced one means the usage report
+    is empty in exactly the state it was built for."""
     prices = _example_pricing()
-    for default in (settings.anthropic_model, settings.gemini_model):
-        assert default in prices, f"the default model {default!r} has no price in .env.example"
+    for model in AV_124_MODELS:
+        assert model in prices, (
+            f"AV-124 routes surfaces to {model!r} and it has no price in .env.example"
+        )
+
+
+def test_the_anthropic_default_is_priced_before_the_routing_flip():
+    """Until 3.2 bumps anthropic_model, four surfaces resolve to whatever it
+    currently is. Leaving that unpriced would blind the interim window."""
+    prices = _example_pricing()
+    default = get_settings().anthropic_model
+    assert default in prices, (
+        f"anthropic_model is {default!r} and it has no price in .env.example — "
+        "price it, or land task 3.2 so nothing resolves to it."
+    )
 
 
 def test_estimate_cost_uses_the_table_and_admits_when_it_cannot(monkeypatch):
