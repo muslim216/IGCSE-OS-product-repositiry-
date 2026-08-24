@@ -99,10 +99,10 @@ non-blocking, or its jobs allowed to stay red.
 **Mitigation:** done for correctness and style, and for types in `services/` and
 `schemas/` — which, transitively, is most of `models/` and `workers/` too. Declaring
 `app.api`, `app.security` and `app.main` explicitly is the remaining ratchet — but not all
-under the same key: `app.api` is a package (add it to `[tool.mypy] packages`), while
-`app.security` and `app.main` are standalone modules with no `__init__.py`, which mypy's
-`packages` option cannot take — they belong in `[tool.mypy] modules` instead. Add both keys
-to `backend/pyproject.toml` and the CI step together, and fix what they find in that PR
+under the same key: `packages` recurses into a package's submodules, which is what `app.api`
+is; `app.security` and `app.main` are standalone modules with no `__init__.py` and nothing to
+recurse into, so `[tool.mypy] modules` is the key that names them for what they are. Add both
+keys to `backend/pyproject.toml` and the CI step together, and fix what they find in that PR
 rather than adding a suppression. `ignore_missing_imports = true` is already set, so the cost
 is those modules' own annotations, not their dependencies'.
 Recorded in §12 and §13.
