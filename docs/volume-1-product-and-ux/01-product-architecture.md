@@ -3,7 +3,7 @@
 > **Volume 1 — Product & UX** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
-> Governs the system map: what MANARA is, the loop it runs, who sees what, and how a mark on
+> Governs the system map: what Avora is, the loop it runs, who sees what, and how a mark on
 > a page becomes a readiness score.
 
 ## Contents
@@ -37,15 +37,15 @@ distinction; ingestion paths; the map from AI systems to product surfaces.
 
 **Out of scope, covered elsewhere:** interface and accessibility rules (§02); how to
 implement any of it (§03, §04); the API contract (§05); schema detail (§06); the AI platform
-beneath the AI surfaces (§09); target-state design not yet built (`docs/manara-architecture.md`).
+beneath the AI surfaces (§09); target-state design not yet built (`docs/avora-architecture.md`).
 
 ### Non-goals
 
 Global non-goals are in `governance/non-goals.md`. Specific to product architecture:
 
-- **MANARA is not an AI tutor and not a homework marker.** The platform is the product; AI
+- **Avora is not an AI tutor and not a homework marker.** The platform is the product; AI
   enhances every layer. A feature that is impressive AI but strengthens none of the six
-  surfaces is not a MANARA feature.
+  surfaces is not an Avora feature.
 - **No model is asked to produce a grade.** A grade is a claim about an examination board's
   boundaries, not a judgement.
 - **No AI adjudicates a dispute about AI output.** A remark request always routes to a human.
@@ -55,7 +55,7 @@ Global non-goals are in `governance/non-goals.md`. Specific to product architect
 
 ## Sources
 
-Written from: `docs/manara-architecture.md`; `backend/app/main.py`; `backend/app/models/`
+Written from: `docs/avora-architecture.md`; `backend/app/main.py`; `backend/app/models/`
 (all modules); `backend/app/services/evidence.py`, `readiness.py`, `readiness_summary_v2.py`,
 `student_crm.py`, `grades.py`; `backend/app/api/past_papers.py`; `frontend/src/App.tsx`.
 
@@ -66,7 +66,7 @@ Written from: `docs/manara-architecture.md`; `backend/app/main.py`; `backend/app
 **P1 — The platform is the product.** Student CRM, Lessons, Readiness, Knowledge Base,
 Homework and Reports are the product; AI enhances every layer.
 
-**P2 — Every number must be able to explain itself.** No metric exists unless MANARA can say
+**P2 — Every number must be able to explain itself.** No metric exists unless Avora can say
 where it came from. Every value is manual, imported, or calculated — and traceable to the
 rows that produced it. This constraint shapes the whole schema, and it is why
 `factor_evaluations` is an append-only row per factor per run rather than a JSON blob.
@@ -300,7 +300,7 @@ Two consequences:
 2. **Google Classroom.** Per-tutor OAuth links a `Group` to one Classroom course. A
    `sync_classroom` job imports courseWork as draft `Assignment`s and turned-in submissions
    into the standard `mark_submission` pipeline. PDF and image attachments only — other Drive
-   types are skipped, not guessed. Submissions match Classroom's roster email to a MANARA
+   types are skipped, not guessed. Submissions match Classroom's roster email to an Avora
    account; unmatched students are skipped, not guessed.
 
 **Classroom reduces friction; it never replaces direct upload.** Both feed the same pipeline,
@@ -326,7 +326,7 @@ is not allowed to contradict. See §09.
 ## Standards
 
 **`PROD-1` — MUST · Critical · Active**
-Every metric MANARA displays is traceable to the rows that produced it. A new metric ships
+Every metric Avora displays is traceable to the rows that produced it. A new metric ships
 with the query or job that computes it and a way for a tutor to see its inputs.
 *Rationale:* an unexplainable number cannot be corrected or disputed, so it cannot be trusted
 — and explainability is the product's differentiator, not a feature of it.

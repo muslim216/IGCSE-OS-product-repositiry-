@@ -42,7 +42,7 @@ from app.models import (
     Topic,
     User,
 )
-from app.services.ai import record_usage, structured_complete
+from app.services.ai import record_usage, require_parsed, structured_complete
 from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
@@ -173,7 +173,13 @@ def _weighted_reference_score(
     total_weight = 0.0
     weighted_sum = 0.0
     for factor, rows in by_factor.items():
-        factor_score = sum(row.score for row in rows) / len(rows)
+        # Numerator and denominator over the same list. A `row.score is not
+        # None` filter inside the sum with `len(rows)` beneath it type-checks
+        # and averages a no-data row as a zero — the shape that put a
+        # fabricated 0% into Past Paper Performance. Redundant while the loop
+        # above filters None out, which is the point: it cannot become wrong.
+        scores = [row.score for row in rows if row.score is not None]
+        factor_score = sum(scores) / len(scores)
         weakest = min(rows, key=lambda row: _CONFIDENCE_RANK[row.confidence])
         weight = weights[FACTOR_WEIGHT_ATTR[factor]] * CONFIDENCE_MULTIPLIER[weakest.confidence]
         weighted_sum += factor_score * weight
@@ -326,7 +332,7 @@ async def _synthesize_subject(
             student_id=student.id,
             feature=AiFeature.readiness,
         )
-    result: ReadinessSynthesis = response.parsed
+    result = require_parsed(response)
     reference_score = _weighted_reference_score(factor_rows, weights)
     score = _enforce_factor_score_constraint(result.score, reference_score)
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)

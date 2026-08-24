@@ -1,4 +1,4 @@
-# MANARA by OASIS AI — Experience Design
+# Avora by OASIS AI — Experience Design
 
 > **This is a design specification: the target state.** It says what the tutor, student and
 > parent experiences are being built toward and why. For the system **as built** — including
@@ -38,7 +38,7 @@ and must not alter what is settled here without an explicit new decision (§11).
 
 The goal this document serves, stated so it can be tested:
 
-> **A tutor should never think twice about opening MANARA and checking.**
+> **A tutor should never think twice about opening Avora and checking.**
 
 The tutor's home today (`frontend/src/tutor/today/TodayDashboard.tsx`) renders four stacked
 read-only sections — Teaching rhythm, Needs your review, Learner readiness, Evidence to action
@@ -63,7 +63,7 @@ saying what they mean or whether anything is required.
 
 ### 2.1 The information hierarchy
 
-Every primary surface in MANARA is ordered:
+Every primary surface in Avora is ordered:
 
 > **Verdict → Object → Explanation → Detail**
 
@@ -94,14 +94,14 @@ This is why the three homes are not variants of one screen. A tutor deciding, a 
 and a parent understanding need different first objects, and a shared layout would serve one
 of them at the expense of the other two.
 
-**Visit frequency inverts two of the design goals.** A tutor opens MANARA several times a day,
+**Visit frequency inverts two of the design goals.** A tutor opens Avora several times a day,
 so opening must be *cheap* — a boring answer still has to be worth the trip. A parent opens it
 a few times a term, so their screen must be *complete* — speed is worthless and a thin screen
 reads as neglect. These are opposite requirements and must not be reconciled into one pattern.
 
 ### 2.3 Every screen closes its own loop
 
-**MANARA has no person-to-person messaging, and none is planned.** There is no inbox, no
+**Avora has no person-to-person messaging, and none is planned.** There is no inbox, no
 thread, and no notification addressed to a human. This is a product decision, not an omission.
 
 Operationally, it means:
@@ -126,7 +126,7 @@ This section is the shared vocabulary. Everything in §4–§7 is expressed in i
 
 ### 3.1 Two independent axes
 
-MANARA already models both, and this design uses both rather than inventing a third thing.
+Avora already models both, and this design uses both rather than inventing a third thing.
 
 **Status** — `ReadinessStatus`, defined in
 [§02](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) and rendered by
@@ -625,12 +625,12 @@ Y11 CHEMISTRY
 ```
 
 This is a state that **changes between visits** — which is the whole requirement. It gives a
-new tutor a reason to open MANARA tomorrow, during the exact window in which the product can
+new tutor a reason to open Avora tomorrow, during the exact window in which the product can
 otherwise show them nothing.
 
 ### 7.3 Seeding and decay
 
-Once students have joined, the tutor may give MANARA a starting point rather than waiting
+Once students have joined, the tutor may give Avora a starting point rather than waiting
 weeks for evidence to accumulate: entering recent mock results, or uploading already-marked
 homework.
 

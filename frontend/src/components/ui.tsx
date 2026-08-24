@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-/* Shared MANARA primitives. Generic by design: every component here takes its
+/* Shared Avora primitives. Generic by design: every component here takes its
    data via props so it can be reused across Students, Lessons, Homework,
    Assessments, Readiness, Reports and future organization-level pages. */
 
@@ -176,11 +176,11 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="manara-modal-title"
+        aria-labelledby="avora-modal-title"
         tabIndex={-1}
         className="relative w-full max-w-md rounded-xl border border-line bg-surface p-6 shadow-lg outline-none"
       >
-        <h2 id="manara-modal-title" className="text-base font-semibold text-ink-900">
+        <h2 id="avora-modal-title" className="text-base font-semibold text-ink-900">
           {title}
         </h2>
         <div className="mt-4">{children}</div>

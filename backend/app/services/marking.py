@@ -38,7 +38,7 @@ from app.models import (
     SubmissionStatus,
 )
 from app.services import storage
-from app.services.ai import file_block, record_usage, structured_complete
+from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
@@ -103,6 +103,7 @@ class _MarkingSource:
 
 async def _homework_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
     assignment = await session.get(Assignment, submission.assignment_id)
+    assert assignment is not None
     classified = (
         await session.get(Classified, assignment.classified_id)
         if assignment.classified_id
@@ -118,11 +119,40 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         ).all()
     )
     group = await session.get(Group, assignment.group_id)
-    if classified is not None:
+    assert group is not None
+    # The prompt must describe the documents that are ACTUALLY attached, so both
+    # the text and the attachments come from these two predicates rather than
+    # from separate conditions that can drift apart. They did drift: the
+    # attachments were tightened to require a mime alongside the path while the
+    # sentence below still keyed on the path alone, so a mark scheme with no
+    # stored mime was omitted from the request while the prompt told the model
+    # it had been supplied. A mark auto-finalizes only when it is scheme-backed
+    # (AI-11, ADR-0009) — a model told it has a scheme it cannot see can report
+    # exactly that, and the mark lands finalized with no official scheme behind
+    # it and no tutor in the loop.
+    booklet = (
+        (storage.read_file(classified.file_path), classified.file_mime)
+        if classified is not None and classified.file_path and classified.file_mime
+        else None
+    )
+    mark_scheme = (
+        (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
+        if classified is not None and classified.mark_scheme_path and classified.mark_scheme_mime
+        else None
+    )
+    has_booklet = booklet is not None
+    has_mark_scheme = mark_scheme is not None
+    if has_booklet:
         intro = (
             "The documents above are: (1) the question booklet, "
-            + ("(2) the mark scheme, " if classified.mark_scheme_path else "")
+            + ("(2) the mark scheme, " if has_mark_scheme else "")
             + "followed by the student's handwritten answer pages."
+        )
+    elif has_mark_scheme:
+        intro = (
+            "The document above is the mark scheme, followed by the student's handwritten "
+            "answer pages. No question booklet is attached — mark from the question list "
+            "below."
         )
     else:
         intro = (
@@ -131,16 +161,8 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         )
     return _MarkingSource(
         questions=questions,
-        booklet=(
-            (storage.read_file(classified.file_path), classified.file_mime)
-            if classified is not None
-            else None
-        ),
-        mark_scheme=(
-            (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
-            if classified is not None and classified.mark_scheme_path
-            else None
-        ),
+        booklet=booklet,
+        mark_scheme=mark_scheme,
         intro=intro,
         organization_id=group.organization_id,
         tutor_id=group.tutor_id,
@@ -151,6 +173,19 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
 
 async def _past_paper_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
     paper = await session.get(PastPaper, submission.past_paper_id)
+    assert paper is not None
+    if paper.tutor_id is None:
+        # An owning tutor is not decoration here: it selects the knowledge-base
+        # context the marking prompt is built with and attributes the call's
+        # cost in ai_usage_events. PastPaper.tutor_id is nullable, so this row
+        # is reachable — a bare assert turned it into "AssertionError" in the
+        # tutor's queue, which names nothing they can act on. Refuse with a
+        # sentence instead: guessing an owner would mark against another
+        # tutor's rules and bill them for it.
+        raise ValueError(
+            "This past paper has no owning tutor, so it cannot be marked — "
+            "re-upload it from your library, or ask for it to be reassigned"
+        )
     questions = list(
         (
             await session.scalars(
@@ -164,23 +199,47 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         raise ValueError(
             "This past paper's questions haven't been extracted yet — try again shortly"
         )
+    # Same rule as the homework branch: the sentence names only what is attached.
+    # This one claimed both documents unconditionally, so a past paper stored
+    # without a mark scheme told the model it had the official scheme in front of
+    # it — the one input AI-11 lets a mark auto-finalize on.
+    booklet = (
+        (storage.read_file(paper.booklet_path), paper.booklet_mime)
+        if paper.booklet_path and paper.booklet_mime
+        else None
+    )
+    mark_scheme = (
+        (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
+        if paper.mark_scheme_path and paper.mark_scheme_mime
+        else None
+    )
+    has_booklet = booklet is not None
+    has_mark_scheme = mark_scheme is not None
+    attached = [
+        name
+        for name, present in (
+            ("the question paper", has_booklet),
+            ("the official mark scheme", has_mark_scheme),
+        )
+        if present
+    ]
+    if attached:
+        numbered = ", ".join(f"({n + 1}) {name}" for n, name in enumerate(attached))
+        intro = (
+            f"The documents above are {paper.session_label} {paper.paper_number}: "
+            f"{numbered}, followed by the student's handwritten answer pages."
+        )
+    else:
+        intro = (
+            f"Neither the question paper nor the mark scheme for {paper.session_label} "
+            f"{paper.paper_number} is attached — mark from the question list below and "
+            "the student's handwritten answer pages above only."
+        )
     return _MarkingSource(
         questions=questions,
-        booklet=(
-            (storage.read_file(paper.booklet_path), paper.booklet_mime)
-            if paper.booklet_path
-            else None
-        ),
-        mark_scheme=(
-            (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
-            if paper.mark_scheme_path
-            else None
-        ),
-        intro=(
-            f"The documents above are {paper.session_label} {paper.paper_number}: "
-            "(1) the question paper, (2) the official mark scheme, followed by the "
-            "student's handwritten answer pages."
-        ),
+        booklet=booklet,
+        mark_scheme=mark_scheme,
+        intro=intro,
         organization_id=paper.organization_id,
         tutor_id=paper.tutor_id,
         subject_id=paper.subject_id,
@@ -218,9 +277,26 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     ):
         return
 
+    # `q.has_mark_scheme` records what the *extractor* saw in the booklet, and is
+    # set once at extraction. Whether a scheme is in front of the model on THIS
+    # call is a different fact — `source.mark_scheme`. They diverge, and
+    # `PastPaperQuestion.has_mark_scheme` defaults to True (readiness_v2.py), so
+    # a past paper stored with no scheme file carries questions all claiming one.
+    #
+    # AI-11/ADR-0009 auto-finalize on "scheme-backed and confident": a mark
+    # written final, counted as Evidence, feeding readiness, with no tutor in the
+    # loop. That must mean a scheme the model actually read, so both the flag the
+    # prompt is told and the gate below are ANDed with the attachment. Fixing the
+    # prompt's prose alone (an earlier pass did exactly that) leaves the model
+    # correctly told there is no scheme while the mark still counts.
+    scheme_attached = source.mark_scheme is not None
+
+    def scheme_backed(q) -> bool:
+        return q.has_mark_scheme and scheme_attached
+
     question_list = "\n".join(
         f"- Q{q.number}: {q.text_summary} (max {q.max_marks} marks, "
-        f"has_mark_scheme={'true' if q.has_mark_scheme else 'false'})"
+        f"has_mark_scheme={'true' if scheme_backed(q) else 'false'})"
         for q in questions
     )
 
@@ -263,7 +339,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         student_id=submission.student_id,
         feature=AiFeature.marking,
     )
-    result: MarkingResult = response.parsed
+    result = require_parsed(response)
 
     drafts_by_number = {d.number.lstrip("Qq"): d for d in result.questions}
     for q in questions:
@@ -298,7 +374,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             )
 
         confident = mark.ai_confidence in AUTO_FINALIZE_CONFIDENCE
-        if q.has_mark_scheme and confident and mark.ai_marks is not None:
+        if scheme_backed(q) and confident and mark.ai_marks is not None:
             # Scheme-backed and confident: the mark counts now.
             mark.final_marks = mark.ai_marks
             mark.final_feedback = mark.ai_feedback
@@ -367,6 +443,7 @@ async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) 
     Past Paper Performance factor reads. Upserted, not appended, so re-running
     after a tutor override corrects the total instead of double-counting it."""
     paper = await session.get(PastPaper, submission.past_paper_id)
+    assert paper is not None
     totals = (
         await session.execute(
             select(

@@ -34,3 +34,11 @@ class User(TimestampMixin, Base):
     # Bumped on logout/password change to invalidate any refresh tokens issued
     # before that point — JWTs are otherwise stateless and can't be revoked.
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The user's own IANA zone (AV-67): a student or parent may sit in a
+    # different country from the tutor whose organization they belong to.
+    # Nullable; None means "use the organization's zone" — not UTC — so the
+    # org setting stays the single default and a per-user value is always a
+    # deliberate override (E11). Validated against the tz database before it
+    # is stored, exactly like Organization.timezone, because it arrives from
+    # a browser and is untrusted input.
+    time_zone: Mapped[str | None] = mapped_column(String(64), nullable=True)

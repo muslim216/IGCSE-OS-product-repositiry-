@@ -1,13 +1,13 @@
-# The MANARA Engineering Constitution
+# The Avora Engineering Constitution
 
-**Version 1.3** · Status: Active
+**Version 1.5** · Status: Active
 
-This is the source of truth for how MANARA by OASIS AI is built. Four volumes of fourteen
+This is the source of truth for how Avora by OASIS AI is built. Four volumes of fourteen
 numbered documents describe the system and the standards that govern it, sitting on a
 governance layer that says which document wins when two disagree and how the standards
 themselves change.
 
-It exists because MANARA outgrew the four markdown files that used to hold everything. The
+It exists because Avora outgrew the four markdown files that used to hold everything. The
 product is ~12,400 lines of Python and ~9,800 lines of TypeScript: 52 tables, 23 routers, 24
 services, 21 migrations, 8 background job handlers, 60+ React pages. No one holds that in
 their head, and the next engineer to touch it should not have to.
@@ -40,7 +40,7 @@ documents and each other.
 | [`governance/engineering-philosophy.md`](governance/engineering-philosophy.md) | The eight ordered principles that decide cases no rule covers |
 | [`governance/documentation-authority.md`](governance/documentation-authority.md) | The authority hierarchy, the rule format, rule classification and lifecycle, document structure, versioning |
 | [`governance/change-process.md`](governance/change-process.md) | How rules are proposed, changed, deprecated, superseded; when an ADR is required; the `GOV-*` documentation obligations |
-| [`governance/non-goals.md`](governance/non-goals.md) | What MANARA deliberately does not do and is not built with — and the trigger that would revisit each |
+| [`governance/non-goals.md`](governance/non-goals.md) | What Avora deliberately does not do and is not built with — and the trigger that would revisit each |
 | [`governance/glossary.md`](governance/glossary.md) | Domain terminology, defined once |
 | [`governance/ownership.md`](governance/ownership.md) | Who owns each subsystem and document, plus the dependency map |
 | [`governance/risk-register.md`](governance/risk-register.md) | Standing architectural risks with likelihood, impact, and mitigation |
@@ -49,7 +49,7 @@ documents and each other.
 ### The authority hierarchy, in brief
 
 1. **Engineering Constitution** (`docs/governance/` + the 14 numbered documents)
-2. **Architecture Specifications** (`docs/manara-architecture.md`, `docs/adr/`)
+2. **Architecture Specifications** (`docs/avora-architecture.md`, `docs/adr/`)
 3. **`CLAUDE.md`**
 4. **`README.md`**
 5. **Inline documentation**
@@ -66,7 +66,7 @@ including how to resolve a conflict, in `governance/documentation-authority.md`.
 | # | Document | Read this when… |
 |---|---|---|
 | 01 | [Product Architecture](volume-1-product-and-ux/01-product-architecture.md) | You need the system map: the six surfaces, the operating loop, the roles, and how evidence becomes a readiness score. **Start here.** |
-| 02 | [UX & Accessibility Standards](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) | You are writing any interface. Holds the MANARA design system — which lived only in `frontend/src/index.css` until now — and the accessibility standard. |
+| 02 | [UX & Accessibility Standards](volume-1-product-and-ux/02-ux-and-accessibility-standards.md) | You are writing any interface. Holds the Avora design system — which lived only in `frontend/src/index.css` until now — and the accessibility standard. |
 
 ### Volume 2 — Application Engineering
 
@@ -202,21 +202,22 @@ may only have a mitigation.
 |---|---|---|
 | `README.md` (root) | Product introduction, local setup, deploy walkthrough | Yes |
 | `CLAUDE.md` (root) | The agent-facing brief: binding rules plus a map into this constitution | Yes |
-| `docs/manara-architecture.md` | The **design spec** for the MANARA update — target state, product decisions, build order | Yes, as a design document |
+| `docs/avora-architecture.md` | The **design spec** for the Avora update — target state, product decisions, build order | Yes, as a design document |
 | [`docs/experience-design.md`](experience-design.md) | The **experience spec** — what the tutor, student and parent each see, in what order and in what states; the shared grade and readiness vocabulary; the cold start | Yes, as a design document |
 | [`docs/experience-implementation-plan.md`](experience-implementation-plan.md) | The **delivery plan** for that spec — every state each surface can be in, the copy it says in each, and the 30 pull requests that build it, in order | Yes, until Stage 9 lands |
 | [`docs/avora-visual-identity.md`](avora-visual-identity.md) | The **visual identity spec** — the Avora art direction (parchment / espresso / terracotta, Lora + Inter, motifs) applied over the settled experience. Phase 2 under `experience-design.md` §11; visual only, never IA | Yes, as a design document |
 | `docs/archive/` | Point-in-time records kept for history | No, deliberately |
 
-The distinction between the two design documents — `docs/manara-architecture.md` and
-`docs/experience-design.md` — and this constitution matters: **those documents say what MANARA
-is being built toward; these say what MANARA is.** Where the two disagree, neither is wrong —
+The distinction between the two design documents — `docs/avora-architecture.md` and
+`docs/experience-design.md` — and this constitution matters: **those documents say what Avora
+is being built toward; these say what Avora is.** Where the two disagree, neither is wrong —
 they answer different questions. But only one tells you what your code will run against.
 
 ## Version history
 
 | Version | Date | Change |
 |---|---|---|
+| **1.5** | 2026-08 | **MANARA → Avora across the prose, and the type checking that was missing** (tasks 0.6–0.10). The rename `1.4` deferred is done: code, docs, package names and the localStorage key, which now migrates a signed-in session across rather than silently ending it. **The accepted ADRs are deliberately not renamed** — `docs/adr/README.md` forbids editing an accepted record, and a rename earns no superseding ADR; the same reasoning holds the `1.4` row above and `docs/archive/` at their historical wording. `mypy app/services app/schemas` and an OpenAPI → TypeScript pipeline both run in CI, narrowing `RISK-2` to the packages mypy does not cover and `RISK-6` to the per-domain wrappers still hand-writing their interfaces. §03, §06 and §12 corrected where they described tooling that now exists or counts that had moved; §06's chain now runs to `0025_user_time_zone`, the per-user time zone (`AV-67`) this work adds, and gained the rule for landing a migration around an already-deployed one. |
 | **1.4** | 2026-08 | **The Avora visual identity.** The product's dark "MANARA" midnight theme is inverted to the Avora light identity — a warm parchment canvas, espresso ink, a restrained terracotta accent, and self-hosted Lora + Inter. `§02` rewritten: colour-token table, typography, measured-contrast table, and the `UX-4`/`UX-8`/`UX-9`/`UX-10` examples all re-keyed to the new palette; the "No light mode" and "No webfonts" non-goals superseded with rationale. New design document `docs/avora-visual-identity.md` added (Phase 2 under `experience-design.md` §11; visual only, no IA change). The visible wordmark is renamed `MANARA` → `avora`; the docs-wide prose rename is deferred. |
 | **1.3** | 2026-08 | Linting and formatting configured on both languages, closing the last of `RISK-2` except a Python type checker. `CODE-23`, `CODE-24` and `QA-20` promoted Draft → Active; `CODE-26` (a suppression carries its reason) and `QA-22` (formatting commits stand alone) added; `CODE-25` kept Draft with its blocker corrected — the linter now exists, only the layering rule is unwritten. `RISK-2` re-ranked P3 → P4. **`RISK-11` raised to P1**: the first `npm audit` anyone ran reported a critical (`vitest`) and a high (`vite`) advisory, making it the only entry in the register whose trigger has actually fired. §12 and §13 static-analysis sections rewritten from "none" to what is configured and why each exclusion is excluded. |
 | **1.2** | 2026-08 | The two user-visible defects fixed. `API-11` promoted Draft → Active — `client.ts` reads FastAPI's 422 list, so a field mistake names the field instead of saying "Unprocessable Entity". `UX-8` and `UX-9` rewritten against a changed palette: `--color-ink-400` removed as unusable (it failed AA on every surface and could not be retuned without becoming `ink-500`), and `--color-line-control` added because nothing existing met WCAG 1.4.11 for a control boundary. §02 contrast table, §03 error handling, §05 error shape and §12 suite counts updated. |

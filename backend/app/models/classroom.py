@@ -28,7 +28,7 @@ class GoogleAccount(TimestampMixin, Base):
 
 
 class ClassroomCourseLink(TimestampMixin, Base):
-    """Links one MANARA group to one Google Classroom course. A group can
+    """Links one Avora group to one Google Classroom course. A group can
     have at most one linked course."""
 
     __tablename__ = "classroom_course_links"

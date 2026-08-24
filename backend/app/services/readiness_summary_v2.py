@@ -215,9 +215,11 @@ async def build_summary_v2(
         # No v2 result for these yet — serve v1's numbers rather than a blank
         # page, and say so, so the UI can be honest about which engine spoke.
         legacy = await build_summary(db, student, fallback_needed)
-        for subject in legacy.subjects:
-            subject.engine = "v1"
-            subject.is_updating = everything_updating or subject.subject_id in updating
+        for legacy_subject in legacy.subjects:
+            legacy_subject.engine = "v1"
+            legacy_subject.is_updating = (
+                everything_updating or legacy_subject.subject_id in updating
+            )
         subjects_out.extend(legacy.subjects)
 
     subjects_out.sort(key=lambda s: subject_ids.index(s.subject_id))

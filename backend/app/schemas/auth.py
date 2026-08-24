@@ -53,6 +53,16 @@ class UserOut(BaseModel):
     username: str | None
     role: UserRole
     name: str
+    # The user's own IANA zone, or None to follow the organization's. Surfaces
+    # resolve the effective zone as time_zone or organization.timezone (E11).
+    time_zone: str | None = None
+
+
+class UserTimezoneUpdate(BaseModel):
+    # Same shape and validation contract as OrganizationTimezoneUpdate: null
+    # clears back to the org default, the name itself is checked against the
+    # real tz database in the handler.
+    timezone: str | None = Field(default=None, max_length=64)
 
 
 class AuthResponse(BaseModel):

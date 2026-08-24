@@ -7,7 +7,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-/* The MANARA learning loop, rendered as a quiet process strip. Reusable on any
+/* The Avora learning loop, rendered as a quiet process strip. Reusable on any
    page that needs to place the educator inside the workflow. Descriptive only —
    it never asserts anything about a particular learner's data. */
 

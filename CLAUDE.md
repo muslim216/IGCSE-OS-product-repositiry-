@@ -5,18 +5,18 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 This file is the **operating brief**: the rules that bind every change, and a map into the
 detail. It is deliberately short so it can be read in full at the start of every session.
 
-**The full detail lives in `docs/` — the MANARA Engineering Constitution.** Load the volume
+**The full detail lives in `docs/` — the Avora Engineering Constitution.** Load the volume
 you need; do not work from memory of it.
 
 ## What this is
 
-**MANARA by OASIS AI** — an AI Operating System for IGCSE education (formerly the "IGCSE
-Student Operating System"), serving tutors, students, and parents. A Python/FastAPI backend
+**Avora by OASIS AI** — an AI Operating System for IGCSE education (formerly **MANARA**, the
+"IGCSE Student Operating System"), serving tutors, students, and parents. A Python/FastAPI backend
 and a React/Vite frontend live in one repo but deploy as two independent services. The
 product's heart is the **Readiness Engine**: every piece of academic evidence feeds
 exam-readiness scores that drive every dashboard, recommendation, and report.
 
-MANARA is **not** an AI tutor and **not** a homework marker — the platform (Student CRM,
+Avora is **not** an AI tutor and **not** a homework marker — the platform (Student CRM,
 Lessons, Readiness, Knowledge Base, Homework, Reports) is the product, with AI enhancing every
 layer.
 
@@ -53,7 +53,7 @@ Rules are cited by ID — `SEC-3`, `API-7`, `DB-11`. Cite them rather than re-de
 convention. `docs/governance/documentation-authority.md` defines the rule format, the
 authority hierarchy, and how rules are deprecated.
 
-**`docs/manara-architecture.md` is the design spec** for the MANARA update — the target state.
+**`docs/avora-architecture.md` is the design spec** for the Avora update — the target state.
 **`docs/experience-design.md` is the experience spec** — what each role sees, the shared grade
 and readiness vocabulary, and the cold start. The constitution documents the system **as
 built**. Where they differ they are answering different questions; the constitution tells you
@@ -94,14 +94,20 @@ superseded UI experiments and the original build history. A branch that has merg
 — **never reopen or stack new work on it**; start again from `main`.
 
 > **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request in four jobs —
-> `ruff check` + `ruff format --check` and `eslint --max-warnings 0`; `pytest`; `vitest` and
-> `npm run build` (the only type check anywhere); and an Alembic
+> `ruff check` + `ruff format --check`, `mypy app/services app/schemas`, `eslint
+> --max-warnings 0` and `prettier --check`; `pytest`; `vitest`, an API-type freshness check
+> and `npm run build` (the only *frontend* type check); and an Alembic
 > `upgrade head` → `downgrade base` → `upgrade head` against a real Postgres 16. **Still run
 > both suites and both linters locally before opening a PR**; CI is a backstop, not a
-> substitute for knowing your change works. Note what CI does *not* cover: **there is no
-> Python type checker**, so every annotation in `backend/` is decoration nothing verifies —
-> unlike the frontend, where `tsc -b` is real. CodeQL, Vercel preview builds, and CodeRabbit
-> are GitHub Apps and may also run; nothing in the repo evidences them.
+> substitute for knowing your change works. Note the shape of the Python type checking added
+> in task 0.8: **`packages = ["app.services", "app.schemas"]` is the explicit mypy scope** —
+> but mypy's default `follow_imports=normal` checks every module those two packages import,
+> so `app/models` (imported by nearly every service) and `app/workers/jobs.py` (imported for
+> `enqueue`) are verified too, in practice. `app/api`, `app/security.py` and `app/main.py`
+> are genuinely unchecked — nothing in `app/services` or `app/schemas` imports any of them
+> (`BE-1` keeps the routers and the entrypoint from being imported by a lower layer). Widening
+> the *explicit* scope to any of them is still a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
+> and CodeRabbit are GitHub Apps and may also run; nothing in the repo evidences them.
 
 ## Common commands
 
@@ -146,7 +152,7 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 ### Product and data
 
-- **No metric exists unless MANARA can explain where it came from.** Every value is manual,
+- **No metric exists unless Avora can explain where it came from.** Every value is manual,
   imported, or calculated — and traceable to the rows that produced it. (`PROD-1`, §01)
 - **Never render a missing measurement as `0`, `0%`, or an empty bar.** Absent data is shown
   as absent — "not enough data yet", "no data". A factor without evidence is **omitted**, never
@@ -298,8 +304,14 @@ Keep these loaded. Each cites the document holding its full reasoning.
 - **`api/client.ts` is the one HTTP entry point.** It attaches the bearer token and on a `401`
   transparently calls `/auth/refresh` once and retries. The only sanctioned bypasses are
   `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE. (`FE-1`)
-- **A backend response-schema change updates the mirroring TypeScript interface in the same
-  PR.** Nothing checks the two agree. (`FE-4`, `API-15`, `RISK-6`)
+- **A backend response-schema change is regenerated into the frontend types in the same PR** —
+  from `backend/`, `python -c "import json;from app.main import
+  app;print(json.dumps(app.openapi(),indent=2))" > ../frontend/openapi.json`, then
+  `npm run generate:api` from `frontend/`. Both paths assume those working directories. The types in `api/client.ts` alias
+  `components["schemas"][...]` from the generated `schema.d.ts`; **do not reintroduce a
+  hand-written interface**. Two CI checks keep the pair honest —
+  `backend/tests/test_openapi_snapshot.py` proves `openapi.json` matches the running app, and the
+  frontend job regenerates `schema.d.ts` and fails on a diff. (`FE-4`, `API-15`, `RISK-6`)
 - **Server data lives in TanStack Query, not copied into `useState`.** (`FE-6`)
 - **Use semantic token classes** (`bg-surface`, `text-ink-700`, `border-line`), not stock
   Tailwind palette names — `bg-white` is silently retargeted and is not white. (`UX-2`)

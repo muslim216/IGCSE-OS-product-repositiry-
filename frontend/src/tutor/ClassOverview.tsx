@@ -56,7 +56,7 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
  * is therefore the only control here.
  *
  * The state **changes between visits**, which is the whole requirement: it
- * gives a new tutor a reason to open MANARA tomorrow, in the exact window when
+ * gives a new tutor a reason to open Avora tomorrow, in the exact window when
  * the product can otherwise show them nothing.
  */
 function EmptyRoom({ groupId, name }: { groupId: number; name: string }) {

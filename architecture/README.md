@@ -7,9 +7,11 @@ Written 6 August 2026 · Based on a full read of the codebase
 
 ## About the name
 
-The product is being renamed to **Avora**. Nothing in the product itself has been renamed yet — the code, the logo, the sign-in page and roughly forty pre-existing internal documents all still say **MANARA by OASIS AI**.
+The product is named **Avora** by OASIS AI — renamed from its working name, **MANARA**, across the code, the package names, and the prose of every maintained document.
 
-This handoff document set is the one place that uses **Avora**, as the planned name, since that's where it's going. Everywhere else — including the running product — it's still MANARA, and they're the same thing.
+**MANARA still appears wherever changing it would falsify a record** — accepted ADRs, archived handoffs, version-history rows, dated audits, and the plans that describe the rename as work still to do. Each says what was true at a moment, and editing it to match a later brand would make it lie about that moment. Read those as the same product under its earlier name.
+
+These documents use **Avora** throughout. Where older external material or the deployment identifiers still say IGCSE-OS, it is again the same system.
 
 ## Who these documents are for
 
@@ -35,7 +37,7 @@ A full pass through all five is about forty minutes.
 
 ## A companion document
 
-The folder above this one contains **[Product-Overview-and-Weaknesses.md](../Product-Overview-and-Weaknesses.md)**, which covers what the product is commercially and where it's fragile.
+The folder above this one contains **[Product-Overview-and-Weaknesses.md](../Product-Overview-and-Weaknesses.md)**, which covers what the product is commercially and where it's fragile. It was written 6 August 2026, before the rename described above — it calls the product MANARA throughout, including a section on the rename as a thing still to do. Read that document under its own date, the same way this one asks you to read an accepted ADR under its.
 
 These documents describe how Avora is built and are deliberately **not** a critique. Where a design decision has a known cost, it's noted honestly and pointed at the weaknesses document rather than argued here.
 

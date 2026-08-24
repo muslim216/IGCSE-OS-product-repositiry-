@@ -1,6 +1,6 @@
 # 12. Quality Engineering
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.2 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.5 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how a change is proven correct before it ships.
@@ -26,9 +26,10 @@
 
 ## Purpose
 
-MANARA has a substantial, fast, well-designed backend test suite and **nothing that runs it**.
-This document records the harness and the patterns worth following, defines what "done" means
-per change class, and states the gap plainly: every rule here is currently enforced by a human
+Avora has a substantial, fast, well-designed backend test suite, and since `ci.yml` landed it
+runs on every pull request. This document records the harness and the patterns worth
+following, defines what "done" means per change class, and states plainly what remains
+unenforced: the rules below that CI cannot check are enforced by a human
 remembering.
 
 ## Scope
@@ -82,7 +83,7 @@ enforced by a human remembering. Say so, rather than implying otherwise.
 
 ### The backend suite
 
-**28 files, ~6,600 lines. 297 tests pass** in about three and a half minutes with no database
+**45 files, ~12,400 lines. 528 tests pass** in about five and a half minutes with no database
 and no API key.
 
 Coverage is concentrated where the risk is:
@@ -101,7 +102,8 @@ Coverage is concentrated where the risk is:
 
 Note the earlier `handoff.md` recorded 215 tests; that document is archived rather than
 corrected, with a header saying so. The suite reached 247 by the time this handbook was
-written and 297 once the `RISK-4` and `RISK-7` fixes landed with their tests.
+written, 297 once the `RISK-4` and `RISK-7` fixes landed with their tests, and 528 through
+tasks 0.6–0.10.
 
 **Two of these files test properties rather than behaviour**, which is worth knowing before
 editing them. `test_authorization.py` walks the app's route tree and asserts things *about the
@@ -135,10 +137,14 @@ Fixtures:
 built from `Base.metadata`, which is populated by that barrel. The symptom is an
 "unknown table" error far from the cause (`BE-3`).
 
-**Trap 2 — the migrations are never executed.** The schema comes from `create_all`, not from
-Alembic. All 21 migrations run for the first time in production, where the container command is
-`alembic upgrade head && uvicorn`, so a failure means the service never starts. Migration 0012
-has already failed this way on Postgres with existing users.
+**Trap 2 — the suite never executes a migration.** The schema comes from `create_all`, not
+from Alembic, so nothing in `pytest` can tell you a migration works. CI's `migrations` job is
+what covers that gap: `upgrade head` → `downgrade base` → `upgrade head` on a real
+`postgres:16-alpine`, all 24 migrations, on every pull request. What it still cannot see is
+**data** — the CI database is empty, and the container command in production is
+`alembic upgrade head && uvicorn`, so a failure there means the service never starts.
+Migration 0012 failed exactly that way on Postgres with existing users, which an empty-database
+check would have passed.
 
 This trap has a second edge documented in §06: **four of the five real indexes exist only in
 migrations**, so the test schema is missing them and no test ever exercises an indexed plan.
@@ -168,9 +174,10 @@ unexpected place.
 
 ### The frontend suite
 
-**9 files, 49 tests.** `App.test.tsx` (1), `Nav.test.tsx` (2), `ClassroomSettings.test.tsx`
-(3), `PastPapers.test.tsx` (4), `ReadinessView.test.tsx` (4), `TodayDashboard.test.tsx` (4),
-`readiness-lib.test.ts` (5), `client-errors.test.ts` (17) and `contrast.test.ts` (9).
+**23 files, 181 tests.** The largest: `contrast.test.ts` (167 lines, 19 tests),
+`client-errors.test.ts` (177, 17), `ParentScreen.test.tsx` (184, 12), `StudentHome.test.tsx`
+(222, 12), `student-lib.test.ts` (132, 12), `SubmissionReview.test.tsx` (228, 10) and
+`TodayDashboard.test.tsx` (278, 10).
 
 The test names are worth reading as a statement of intent: several assert the constitution's
 own rules rather than mechanics — *"with no data it explains the empty state and invents no
@@ -194,11 +201,13 @@ setup file importing `@testing-library/jest-dom/vitest`. No `include`/`exclude` 
 coverage block.
 
 **`vitest run` does not type-check.** The only type gate anywhere is `tsc -b` inside
-`npm run build`, and no automation runs it.
+`npm run build` — CI's `frontend` job runs `npm run build` on every pull request (see the CI
+table below), but a developer running `npm test` alone, locally, still gets no type errors.
 
-Twenty tests against 60-plus pages is thin, and the four largest pages —
-`AssignmentDetailPage`, `SubmissionReviewPage`, `SyllabusUploadPage`, `AssignmentCreatePage` —
-have none.
+181 tests against 60-plus pages is still thin. One of the four largest pages this handbook
+once named untested now has coverage — `SubmissionReviewPage`, via
+`SubmissionReview.test.tsx`. `AssignmentDetailPage`, `SyllabusUploadPage` and
+`AssignmentCreatePage` still have none.
 
 ### Static analysis
 
@@ -238,28 +247,35 @@ nothing produces them.
 ### What verifies a pull request
 
 `.github/workflows/ci.yml`, on every pull request and on every push to the default branch.
-Three jobs:
+Four jobs:
 
 | Job | Runs | Catches |
 |---|---|---|
+| `lint` | `ruff check`, `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`, `prettier --check` | Style and correctness defects ruff and eslint see, and type errors in the two checked backend packages |
 | `backend` | Python 3.11, `pip install -e ".[dev]"`, `pytest` from `backend/` | Every backend regression the suite covers. No service container — `conftest.py` forces in-memory SQLite |
 | `migrations` | `postgres:16-alpine` service, then `alembic upgrade head` → `downgrade base` → `upgrade head` | A migration that is invalid or irreversible on Postgres. This is the only thing that has ever executed the downgrade path |
-| `frontend` | Node 20, `npm ci`, `npm test`, `npm run build` | Vitest regressions, and — via `tsc -b` inside `build` — every type error, which is the **only** type check that exists anywhere |
+| `frontend` | Node 20, `npm ci`, `npm test`, the API-type regeneration diff, `npm run build` | Vitest regressions, generated types drifting from `openapi.json`, and — via `tsc -b` inside `build` — every frontend type error, which is the only type check the frontend has |
 
 `concurrency` with `cancel-in-progress` means a force-push supersedes the previous run rather
 than racing it.
 
 **What CI does not do**, stated plainly because the gap is easy to mistake for coverage:
 
-- **No Python type checker.** No mypy or pyright, so every annotation in ~22k lines of Python
-  is decoration nothing verifies — the asymmetry with the frontend, where `tsc -b` is real.
-  This is now the whole of `RISK-2`.
+- **Python type checking covers two packages, not the backend.** `mypy app/services
+  app/schemas` runs in the `lint` job (task 0.8); annotations in `app/api`, `app/models` and
+  `app/workers` are still decoration nothing verifies. Widening it is a per-module ratchet —
+  `[tool.mypy] packages` in `backend/pyproject.toml` and the CI step move together. This is
+  now the whole of `RISK-2`.
 - **No dependency scan**, which is not a theoretical gap: the first `npm audit` anyone ran
   reported a critical and a high advisory in `vitest` and `vite`. See `RISK-11`.
-- **No coverage measurement**, so nothing reports which risky paths the 297 backend tests miss.
+- **No coverage measurement**, so nothing reports which risky paths the 528 backend tests miss.
 - **The `migrations` database is empty.** Schema operations are proven; safety against
   existing rows, which is how 0012 actually failed, is not.
-- **No contract check between backend schemas and frontend types** (`RISK-6`).
+- **No contract check between backend schemas and the frontend's per-domain wrappers.** The
+  shared types in `api/client.ts` and `api/auth.ts` are generated from the app's own OpenAPI
+  document and their freshness is gated — `tests/test_openapi_snapshot.py` for
+  `openapi.json`, and a regenerate-and-diff step for `schema.d.ts`. The interfaces still
+  declared by hand in the other `api/*.ts` modules are not (`RISK-6` residual).
 
 `CLAUDE.md` also mentions CodeQL, Vercel preview builds, and CodeRabbit. Those are
 GitHub-App-configured and may well run; **nothing in the repository evidences them**, so they
@@ -357,8 +373,12 @@ A change to a job handler tests that running it twice on the same payload is saf
 is exactly the property that silently regresses.
 
 **`QA-15` — SHOULD · Important · Active**
-A change to a response schema updates its TypeScript mirror and exercises the endpoint.
-*Rationale:* `API-15`, `FE-4`. Nothing checks the two agree (`RISK-6`).
+A change to a response schema regenerates `frontend/openapi.json` and `schema.d.ts`, and
+exercises the endpoint.
+*Rationale:* `API-15`, `FE-4`. Regeneration is enforced — `tests/test_openapi_snapshot.py`
+fails on a stale snapshot and CI fails on stale generated types — but only the shapes already
+aliased from `components["schemas"]` benefit; a hand-written interface still agrees with the
+backend only because someone changed both (`RISK-6`).
 
 **`QA-16` — SHOULD · Recommended · Active**
 A new frontend page or shared component gets at least one test covering its primary state and
@@ -420,15 +440,15 @@ informs where to write real ones.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No type checker on the backend.** ruff and Prettier now cover style on both languages; mypy and pyright are still absent. | ~22k lines of Python annotations that nothing verifies, where the frontend has `tsc -b` in CI. This is the whole of what `RISK-2` still covers. Adding it wants a per-module ratchet, not one sweep. | `before scale` |
+| **The type checker covers `services/` and `schemas/` only.** mypy runs on those two packages in CI (task 0.8); `api/`, `models/` and `workers/` are unchecked. | The layer with the decision math and the API contracts is verified; a wrong annotation in a router still only misleads a reader. This is what `RISK-2` still covers. Widen it a package at a time — one `packages` entry plus the CI step, fixing what it finds in the same PR. | `before scale` |
 | **Nothing scans dependencies.** The first `npm audit` anyone ran reported 8 advisories — 1 critical (`vitest`), 1 high (`vite`), both needing a semver-major. | `RISK-11`'s stated trigger has fired. Both are dev-only and neither ships to a user, but the count grew unobserved for two majors, and an audit step in the existing `lint` job is the cheapest control in this document. | `blocking` |
 | **CI's migration check runs against an empty database.** Up/down/up on Postgres 16 is automated; data safety is not. | It cannot catch the failure that has actually happened — 0012 added a non-nullable column to a populated table. `QA-11`'s "with data" clause and `DB-18` are manual compensating controls. `RISK-3` residual. | `before scale` |
 | **The test suite itself still runs no migration.** Schema comes from `Base.metadata.create_all` on SQLite. | Model/migration drift is invisible to `pytest`; only the separate CI job would catch a migration that fails outright, and it would not catch one that merely disagrees with the models. | `before scale` |
 | **`vitest run` does not type-check.** `npm run build` does, and CI runs it — but a developer running `npm test` locally still gets no type errors. | The strict `tsconfig.json` is now enforced on every PR; the local feedback loop still misses it, so type errors are found late rather than never. | `nice to have` |
-| **The frontend suite is 49 tests against 60+ pages**, and the four largest pages still have none. | 26 of those 49 guard the design tokens and the error parser, which is real but is not page coverage. The highest-change-risk frontend files remain unverified. | `before scale` |
+| **The frontend suite is 181 tests against 60+ pages**, and three of the four largest pages still have none. | 36 of those 181 guard the design tokens and the error parser alone, which is real but is not page coverage. The highest-change-risk frontend files remain unverified. | `before scale` |
 | **No coverage measurement.** `.gitignore` anticipates it; nothing produces it. | No signal on which risky paths are untested. Blocks `QA-21`. | `nice to have` |
 | **The test schema differs from production** — four indexes exist only in migrations. | No test exercises an indexed query plan. §06, `DB-12`. | `before scale` |
-| **No contract test between backend schemas and frontend types.** | A field rename passes both suites and fails at runtime. `RISK-6`. | `blocking` |
+| **The per-domain API wrappers still hand-mirror their payloads.** `client.ts` and `auth.ts` alias the generated schema; `homework.ts`, `readiness.ts` and the rest declare their own interfaces. | A field rename in one of those domains passes both suites and fails at runtime, exactly as before — the generated types close this only where they are used. Convert each domain as it is next touched. `RISK-6` residual. | `before scale` |
 | **The manual verification script referenced by the archived handoff lives outside the repository.** | The one documented end-to-end pass is unrecoverable; §14's manual checks replace it. | `nice to have` |
 
 ---
@@ -437,7 +457,7 @@ informs where to write real ones.
 
 Update this document when:
 
-- A type checker or coverage tool is configured — the two remaining static-analysis gaps.
+- mypy's package list widens, or a coverage tool is configured.
 - A dependency scan is added to CI, or the `vite`/`vitest` advisories are resolved.
 - `conftest.py`'s fixtures or environment setup change.
 - The test database stops being SQLite, which retires Trap 2 and changes `QA-11`.

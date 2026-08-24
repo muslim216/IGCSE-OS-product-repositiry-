@@ -87,7 +87,7 @@ leave the established hierarchy and information density intact.
 ## What is deliberately deferred
 
 - The **real mark artwork** (placeholder until supplied).
-- The **docs-wide `MANARA` → `avora` prose rename** — only the visible product and the two
+- The **docs-wide `Avora` → `avora` prose rename** — only the visible product and the two
   governance documents that a token change obliges (`§02`, this file, `README.md`) are changed
   here.
 - **Bespoke per-surface editorial redesign** of the Tutor/Student/Parent surfaces — that is the

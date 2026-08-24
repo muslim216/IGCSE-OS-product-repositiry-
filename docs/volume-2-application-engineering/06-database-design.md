@@ -1,6 +1,6 @@
 # 06. Database Design
 
-> **Volume 2 — Application Engineering** · Engineering Constitution v1.2 · Status: Active
+> **Volume 2 — Application Engineering** · Engineering Constitution v1.5 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs the schema, its conventions, and the migration process.
@@ -49,7 +49,7 @@ replicas or multi-region**, **no event sourcing**.
 
 ## Sources
 
-Written from: all 16 modules in `backend/app/models/`; all 21 migrations in
+Written from: all 16 modules in `backend/app/models/`; all 24 migrations in
 `backend/alembic/versions/`; `backend/alembic/env.py`; `backend/alembic.ini`;
 `backend/app/db.py`; `backend/app/config.py`; `backend/tests/conftest.py`.
 
@@ -57,7 +57,7 @@ Written from: all 16 modules in `backend/app/models/`; all 21 migrations in
 
 ## Principles
 
-**P1 — The schema is the audit trail.** Where history matters, MANARA writes an append-only
+**P1 — The schema is the audit trail.** Where history matters, Avora writes an append-only
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_history` exist so a number can name its inputs (§01 P2).
 
@@ -256,8 +256,10 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain, `0001` → `0021`, with string revision ids matching the filename prefix and
-`down_revision` chained.
+A linear chain from `0001` to `0025_user_time_zone`, the current head, with string revision
+ids matching the filename prefix and `down_revision` chained. One number is deliberately
+absent: `0024` is reserved for task 0.3's `drop_chat` on a parallel branch, so `0025` chains
+straight to `0023` (see the note under the list).
 
 ```
 0001_users                        0012_organizations           (184 lines — largest)
@@ -270,8 +272,26 @@ A linear chain, `0001` → `0021`, with string revision ids matching the filenam
 0008_group_resources              0019_auto_marking_review_queue
 0009_tutor_preferences            0020_past_papers             (162 lines)
 0010_user_token_version           0021_invite_single_use
-0011_syllabus_uploads
+0011_syllabus_uploads             0022_org_timezone
+                                  0023_narratives
+                                  0025_user_time_zone
 ```
+
+**0024 is deliberately absent.** It is reserved for task 0.3's `drop_chat`, which was written
+on a parallel branch; `0025_user_time_zone` chains to `0023`. Sequential numbering (`DB-15`)
+is about a single readable chain, not a gapless one — two revisions sharing a
+`down_revision` would give Alembic two heads, which is the failure worth avoiding.
+
+**Which way 0024 is landed depends on whether 0025 has deployed**, and getting this backwards
+skips a migration silently rather than loudly:
+
+- **0025 not yet deployed** — chain 0024 to `0023` and rebase 0025's `down_revision` onto
+  `0024`. Nothing has recorded 0025 yet, so the reordered chain runs in full.
+- **0025 already deployed** — chain 0024 to `0025` and leave 0025 alone, numbering be damned.
+  Production's `alembic_version` already reads `0025`, so `upgrade head` starts from there:
+  re-pointing 0025's parent would make Alembic step straight past 0024, and the chat tables it
+  drops would stay in the database with nothing reporting a problem. An applied revision is
+  history — the rule against editing one is the same rule as `DB-15` itself.
 
 `alembic/env.py` reads the URL from `get_settings().database_url` rather than from
 `alembic.ini`, and sets `target_metadata = Base.metadata`. Migrations run at container start:
@@ -297,7 +317,7 @@ painfully in 0020 and must be reused rather than rediscovered.
 `Base.metadata.create_all` and forces in-memory SQLite, so `pytest` proves nothing about
 Alembic. **CI is what exercises them.** The `migrations` job in `.github/workflows/ci.yml`
 runs `upgrade head` → `downgrade base` → `upgrade head` against a real `postgres:16-alpine`
-service container on every pull request, so all 21 migrations and all 21 downgrades run before
+service container on every pull request, so all 24 migrations and all 24 downgrades run before
 a merge rather than for the first time in production.
 
 **What that check still cannot see.** The CI database is **empty**. It proves the schema

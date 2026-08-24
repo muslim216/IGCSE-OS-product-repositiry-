@@ -44,7 +44,7 @@ CLASSROOM_API_BASE = "https://classroom.googleapis.com/v1"
 DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 HTTP_TIMEOUT = 20.0
 
-# Read-only throughout: MANARA only ever imports from Classroom, it never
+# Read-only throughout: Avora only ever imports from Classroom, it never
 # writes back to a tutor's Google account.
 SCOPES = (
     "https://www.googleapis.com/auth/classroom.courses.readonly",
@@ -287,6 +287,7 @@ async def sync_classroom(session: AsyncSession, payload: dict) -> None:
 
 async def _sync_course(session: AsyncSession, access_token: str, link: ClassroomCourseLink) -> None:
     group = await session.get(Group, link.group_id)
+    assert group is not None
     for cw in await list_coursework(access_token, link.classroom_course_id):
         work_link = await session.scalar(
             select(ClassroomWorkLink).where(
@@ -311,7 +312,9 @@ async def _sync_course(session: AsyncSession, access_token: str, link: Classroom
             session.add(work_link)
             await session.flush()
         else:
-            assignment = await session.get(Assignment, work_link.assignment_id)
+            fetched = await session.get(Assignment, work_link.assignment_id)
+            assert fetched is not None
+            assignment = fetched
 
         await _sync_submissions(session, access_token, link, work_link, assignment)
 
@@ -340,7 +343,7 @@ async def _sync_submissions(
             select(User).where(User.email == student_email, User.role == UserRole.student)
         )
         if student is None:
-            continue  # no MANARA student account matches this Classroom roster email yet
+            continue  # no Avora student account matches this Classroom roster email yet
 
         existing = await session.scalar(
             select(Submission).where(

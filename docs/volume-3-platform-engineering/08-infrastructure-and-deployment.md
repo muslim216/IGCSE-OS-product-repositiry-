@@ -3,7 +3,7 @@
 > **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
-> Governs how MANARA is built, configured, and deployed, and the constraints production
+> Governs how Avora is built, configured, and deployed, and the constraints production
 > imposes on the code.
 
 ## Contents
@@ -106,6 +106,15 @@ work.
 
 `render.yaml` provisions one Postgres database (`igcse-os-db`, `plan: basic-256mb`) and one
 Docker web service (`igcse-os-api`, `rootDir: backend`, `plan: starter`).
+
+**Those names outlived the product's rename to Avora on purpose** (task 0.6, AV-4). Render
+matches blueprint entries to live resources by `name`: editing one here does not rename
+anything, it provisions a new empty resource and orphans the old one — a new database, a new
+uploads disk, a new hostname that `frontend/vercel.json` does not proxy to. The same holds
+for `GOOGLE_REDIRECT_URI` and `CORS_ORIGINS`, which must keep matching the Vercel project's
+real domain and the URI registered on the Google OAuth client. Renaming the deployed
+resources is an owner-run migration in the Render and Vercel dashboards, taken together with
+the GitHub repository rename (E10) — not a commit.
 
 **The persistent disk** is `igcse-os-uploads`, 10 GB, mounted at `/data`, with
 `UPLOAD_DIR=/data/uploads`. It exists because `services/storage.py` writes to the local

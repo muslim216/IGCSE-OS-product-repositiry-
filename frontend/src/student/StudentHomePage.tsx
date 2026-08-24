@@ -4,7 +4,10 @@ import { WEEKDAYS, myLessons } from "../api/groups";
 import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
 import { DirectionMark, EmptyState } from "../components/ui";
+import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { ABSENT } from "../lib/labels";
+import { calendarDaysUntil, formatDayMonth } from "../lib/timezones";
+import { useMyTimezone } from "../auth/AuthContext";
 import { dueVerdict, monthlyGains, recentlyMarked, subjectStrip } from "../lib/student";
 
 /**
@@ -59,28 +62,27 @@ function SubjectChip({
   );
 }
 
-/** Whole calendar days between two dates, by local midnight — so "due today"
-    and "due tomorrow" turn over at midnight rather than 24 hours after the
-    deadline. Math.round on elapsed milliseconds mislabels an evening deadline
-    the next morning (~14h reads as "today", not "tomorrow"). */
-function calendarDaysUntil(dueAt: string): number {
-  const due = new Date(dueAt);
-  const dueMidnight = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  const now = new Date();
-  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((dueMidnight.getTime() - todayMidnight.getTime()) / 86_400_000);
-}
-
-function dueLabel(dueAt: string | null): string {
+/** "due today" in the student's own zone, not the device's (AV-67).
+ *
+ * The whole promise of the per-user override is that a student who has said
+ * they are in Dubai gets Dubai's midnight deciding what is due today. Without
+ * the zone threaded through here the setting saves and changes nothing they
+ * can see, which is worse than not offering it. Unset falls back to the
+ * browser's zone — the behaviour every one of these labels had before the
+ * column existed. */
+function dueLabel(dueAt: string | null, timeZone: string | null): string {
   if (!dueAt) return "no due date";
-  const days = calendarDaysUntil(dueAt);
+  const days = calendarDaysUntil(dueAt, timeZone);
   if (days < 0) return "overdue";
   if (days === 0) return "due today";
   if (days === 1) return "due tomorrow";
-  return `due ${new Date(dueAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  return `due ${formatDayMonth(new Date(dueAt), timeZone)}`;
 }
 
 export default function StudentHomePage() {
+  // The signed-in identity already carries time_zone, so no extra request is
+  // needed to know which midnight this reader's dates turn over on.
+  const myZone = useMyTimezone();
   const readiness = useQuery({ queryKey: ["my-readiness"], queryFn: myReadiness });
   const lessons = useQuery({ queryKey: ["my-lessons"], queryFn: myLessons });
   const assignments = useQuery({ queryKey: ["my-assignments"], queryFn: myAssignments });
@@ -144,7 +146,7 @@ export default function StudentHomePage() {
                   {a.title}
                 </span>
                 <span className="flex items-center gap-3">
-                  <span className="text-ink-500">{dueLabel(a.due_at)}</span>
+                  <span className="text-ink-500">{dueLabel(a.due_at, myZone)}</span>
                   <Link
                     to={`/student/homework/${a.id}`}
                     className="font-medium text-brand-600 hover:text-brand-700"
@@ -218,6 +220,14 @@ export default function StudentHomePage() {
           </p>
         </section>
       )}
+
+      {/* Below everything the student came for. AV-67 is written for exactly
+          this reader — a student in another country from their tutor, whose
+          "due today" should turn over at their own midnight, not the account's.
+          A student has no settings screen yet and Phase D owns where one goes;
+          until then the control lives here rather than nowhere, because a
+          preference no one can reach is not a preference. */}
+      <MyTimezoneSetting />
     </div>
   );
 }

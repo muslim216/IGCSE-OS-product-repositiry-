@@ -66,7 +66,7 @@ from app.models import (
     TopicReadiness,
     User,
 )
-from app.schemas.improvement import ImprovementPeriod, SubjectImprovement
+from app.schemas.improvement import FocusTopic, ImprovementPeriod, SubjectImprovement
 from app.services.readiness_summary import (
     CONFIDENT,
     MONTH_WINDOW_DAYS,
@@ -341,7 +341,7 @@ async def build_improvement(
                 member_count=member_count,
                 periods=periods,
                 focus=[
-                    {"topic_code": code, "topic_title": title, "score": score}
+                    FocusTopic(topic_code=code, topic_title=title, score=score)
                     for code, title, score in await _focus_topics(db, student.id, subject_id)
                 ],
             )

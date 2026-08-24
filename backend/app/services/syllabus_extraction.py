@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import SyllabusUpload, SyllabusUploadStatus
 from app.services import storage
-from app.services.ai import file_block, structured_complete
+from app.services.ai import file_block, require_parsed, structured_complete
 
 
 class ExtractedGradeBoundary(BaseModel):
@@ -73,7 +73,7 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
         output_format=SyllabusExtractionResult,
         max_tokens=16000,
     )
-    result: SyllabusExtractionResult = response.parsed
+    result = require_parsed(response)
     if not result.topics:
         raise ValueError("No topics were found in the document")
 

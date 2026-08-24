@@ -18,7 +18,7 @@ They are ordered. Where two principles pull in opposite directions, the earlier 
 
 ## 1. Explainability over opacity
 
-Every number MANARA shows must be able to say where it came from. This is not a
+Every number Avora shows must be able to say where it came from. This is not a
 nice-to-have: it is the product. A tutor who cannot see why a student's readiness moved
 cannot act on it, cannot defend it to a parent, and will not trust it a second time.
 

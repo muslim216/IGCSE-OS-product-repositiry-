@@ -23,8 +23,11 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Any, Generic, TypedDict, TypeVar
 
 from anthropic import AsyncAnthropic
+from anthropic.types import TextBlockParam
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -105,17 +108,29 @@ def resolve_surface(surface: str, *, require_streaming: bool = False) -> tuple[A
     return provider, model
 
 
+ParsedT = TypeVar("ParsedT", bound=BaseModel)
+
+
 @dataclass
-class AiResponse:
+class AiResponse(Generic[ParsedT]):
     """One AI call's result, normalized across providers so callers (and
-    record_usage) never branch on which vendor answered."""
+    record_usage) never branch on which vendor answered.
+
+    Generic in the parsed payload's type: `structured_complete(output_format=X)`
+    returns `AiResponse[X]`, so `result: X = response.parsed` at each call site
+    (extraction.py, marking.py, readiness_v2_ai.py, syllabus_extraction.py) is
+    an assignment mypy actually checks. A bare `Any` here made every one of
+    those annotations decorative — the four modules that most need the schema
+    guarantee (their `output_format` is the whole contract with the model) were
+    exactly the ones mypy could not hold to it. `text_complete` has no schema
+    to parametrize by and returns `AiResponse[Any]`."""
 
     provider: AiProvider
     model: str
     prompt_version: str
     input_tokens: int = 0
     output_tokens: int = 0
-    parsed: object | None = None
+    parsed: ParsedT | None = None
     text: str = ""
 
 
@@ -201,17 +216,24 @@ def _gemini_parts(content: list[dict]) -> list[dict]:
     return parts
 
 
-def _anthropic_system(system_text: str, extra_system: list[str], cache_extra: bool) -> list[dict]:
+def _anthropic_system(
+    system_text: str, extra_system: list[str], cache_extra: bool
+) -> list[TextBlockParam]:
     """Assemble Anthropic system blocks. `cache_extra` marks the *last* extra
     block for prompt caching — by convention that's the tutor Knowledge Base,
     which is identical across every call for that tutor and so is worth
-    caching; per-student blocks before it are not."""
-    blocks: list[dict] = []
+    caching; per-student blocks before it are not.
+
+    Typed as the SDK's own `TextBlockParam` rather than `list[dict]` so the
+    three call sites need no suppression: a malformed block is then a type
+    error here, at the one place blocks are built, instead of being waved
+    through at each `system=`."""
+    blocks: list[TextBlockParam] = []
     if system_text:
         blocks.append({"type": "text", "text": system_text})
     last = len(extra_system) - 1
     for i, extra in enumerate(extra_system):
-        block: dict = {"type": "text", "text": extra}
+        block: TextBlockParam = {"type": "text", "text": extra}
         if cache_extra and i == last:
             block["cache_control"] = {"type": "ephemeral"}
         blocks.append(block)
@@ -223,6 +245,25 @@ def _joined_system(system_text: str, extra_system: list[str]) -> str | None:
     return "\n\n".join(parts) or None
 
 
+def require_parsed(response: AiResponse[ParsedT]) -> ParsedT:
+    """The parsed payload of a `structured_complete` response, typed as
+    non-optional.
+
+    `AiResponse.parsed` is `ParsedT | None` on the dataclass because
+    `text_complete` never sets it — but every path through `structured_complete`
+    itself does: the Anthropic branch returns `response.parsed_output` from an
+    SDK call that raises rather than answering with none, and the Gemini branch
+    raises `ValueError` itself when `response.parsed` comes back empty. A caller
+    that only ever passes a `structured_complete` result through this is
+    trading a real (if currently unreachable) `None` for an assertion error with
+    a clear message, in exchange for mypy actually checking the schema type
+    downstream instead of silently accepting `Any` (the gap this function
+    closes — see the `AiResponse` docstring)."""
+    if response.parsed is None:
+        raise ValueError("structured_complete returned no parsed result")
+    return response.parsed
+
+
 # --------------------------------------------------------------------------
 # Unified completion helpers
 # --------------------------------------------------------------------------
@@ -232,11 +273,11 @@ async def structured_complete(
     *,
     surface: str,
     content: list[dict],
-    output_format: type,
+    output_format: type[ParsedT],
     max_tokens: int,
     extra_system: list[str] | None = None,
     cache_extra_system: bool = False,
-) -> AiResponse:
+) -> AiResponse[ParsedT]:
     """A structured (schema-constrained) completion for one surface. `content`
     is a list of Anthropic-shaped blocks; `output_format` is a Pydantic model
     both providers are asked to fill in."""
@@ -250,7 +291,14 @@ async def structured_complete(
             model=model,
             max_tokens=max_tokens,
             system=_anthropic_system(prompt.system, extras, cache_extra_system),
-            messages=[{"role": "user", "content": content}],
+            # `content` is list[dict] by this module's contract (see the module
+            # docstring): call sites build Anthropic-shaped blocks, and the
+            # Gemini branch below translates the same dicts. The SDK's block
+            # union cannot type that without every caller — marking, extraction,
+            # syllabus — importing SDK types, which would put a vendor SDK in
+            # modules AI-1 keeps it out of. file_block() is the constructor that
+            # holds the shape (CODE-26).
+            messages=[{"role": "user", "content": content}],  # type: ignore[typeddict-item]
             output_format=output_format,
         )
         usage = response.usage
@@ -296,8 +344,9 @@ async def text_complete(
     prompt: str,
     max_tokens: int,
     extra_system: list[str] | None = None,
-) -> AiResponse:
-    """A plain-text completion for one surface."""
+) -> AiResponse[Any]:
+    """A plain-text completion for one surface. Never sets `parsed` — there is
+    no schema to parametrize `AiResponse` by, so callers get `Any` for it."""
     provider, model = resolve_surface(surface)
     template = get_prompt(surface)
     extras = extra_system or []
@@ -308,11 +357,16 @@ async def text_complete(
             model=model,
             max_tokens=max_tokens,
             system=_anthropic_system(template.system, extras, False),
-            messages=[{"role": "user", "content": prompt}],
+            # `prompt` is a plain str, which the SDK's MessageParam does accept;
+            # mypy cannot see that through the dict literal's inferred value
+            # type. Nothing shape-dependent is masked (CODE-26).
+            messages=[{"role": "user", "content": prompt}],  # type: ignore[typeddict-item]
         )
         usage = response.usage
         text = "".join(
-            block.text for block in response.content if getattr(block, "type", None) == "text"
+            getattr(block, "text", "")
+            for block in response.content
+            if getattr(block, "type", None) == "text"
         )
         return AiResponse(
             provider=provider,
@@ -364,7 +418,10 @@ async def stream_complete(
         model=model,
         max_tokens=max_tokens,
         system=_anthropic_system(template.system, extra_system or [], cache_extra_system),
-        messages=messages,
+        # Same `list[dict]` contract as structured_complete's `content`, for the
+        # same reason — the chat history arrives from api/chat.py as role/content
+        # dicts (CODE-26).
+        messages=messages,  # type: ignore[arg-type]
     ) as stream:
         async for text in stream.text_stream:
             yield text
@@ -377,7 +434,19 @@ async def stream_complete(
             usage["output_tokens"] = final.usage.output_tokens
 
 
-def _gemini_usage(response: object) -> dict[str, int]:
+class _GeminiUsage(TypedDict):
+    """The exact keys _gemini_usage yields.
+
+    A plain `dict[str, int]` would type-check only where the caller happens to
+    pass `text=` itself: unpacking it into AiResponse otherwise offers an int to
+    `text: str`. Naming the two keys lets mypy match them to the two int fields
+    and leaves the `**` unpacking checked rather than suppressed."""
+
+    input_tokens: int
+    output_tokens: int
+
+
+def _gemini_usage(response: object) -> _GeminiUsage:
     meta = getattr(response, "usage_metadata", None)
     if meta is None:
         return {"input_tokens": 0, "output_tokens": 0}

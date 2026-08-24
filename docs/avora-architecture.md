@@ -1,18 +1,18 @@
-# MANARA by OASIS AI — Core Architecture
+# Avora by OASIS AI — Core Architecture
 
-> **This is a design specification: the target state.** It says what MANARA is being built
+> **This is a design specification: the target state.** It says what Avora is being built
 > toward and why. For the system **as built** — including where the code has diverged from
 > this document — read the Engineering Constitution at `docs/README.md`. Where the two differ
 > they are answering different questions, but only the constitution tells you what your code
 > will run against. Authority hierarchy: `docs/governance/documentation-authority.md`.
 
-MANARA is an **AI Operating System for IGCSE education**: it helps tutors and students
+Avora is an **AI Operating System for IGCSE education**: it helps tutors and students
 understand performance, personalize learning, and improve exam outcomes. Long-term it
 expands beyond IGCSE to any curriculum, school, or tutoring institution. This document is
-the target architecture for the MANARA update of the existing IGCSE Student OS codebase —
+the target architecture for the Avora update of the existing IGCSE Student OS codebase —
 what gets built, what it supersedes, and in what order.
 
-MANARA is *not* an AI tutor or a homework marker. The platform is the product — Student
+Avora is *not* an AI tutor or a homework marker. The platform is the product — Student
 CRM, Lessons, Readiness Engine, Knowledge Base, Homework, Reports — with AI enhancing
 every layer. Everything revolves around **Lessons**, and the core operating loop is:
 
@@ -36,7 +36,7 @@ every layer. Everything revolves around **Lessons**, and the core operating loop
   onboarding, editable in Settings. Boundaries influence readiness (70% can already be an
   A*/9 depending on the subject).
 - **Question difficulty**: AI-assigned during extraction, tutor override.
-- **Data philosophy**: no metric exists unless MANARA can explain where it came from.
+- **Data philosophy**: no metric exists unless Avora can explain where it came from.
   Every metric is manual (tutor-entered), imported (Classroom, past-paper marks), or
   calculated (readiness, mastery, trends) — and traceable to its source.
 - **IGCSE domain note**: *classifieds* — compilations of past-paper questions organized
@@ -61,7 +61,7 @@ every layer. Everything revolves around **Lessons**, and the core operating loop
 
 ### 2. Student CRM
 
-The student's complete, continuously-updating academic record — the foundation of MANARA.
+The student's complete, continuously-updating academic record — the foundation of Avora.
 
 - `student_profiles` (`models/crm.py`): user_id (unique FK), organization_id, school,
   grade/year, parent contact info.
@@ -185,7 +185,7 @@ current data volumes.
 
 ### 7. Google Classroom (built)
 
-Classroom reduces friction; it never replaces MANARA, and direct upload stays fully
+Classroom reduces friction; it never replaces Avora, and direct upload stays fully
 supported — both paths feed the same marking pipeline.
 
 - Per-tutor Google OAuth (`services/google_classroom.py`): `google_accounts`
@@ -206,7 +206,7 @@ supported — both paths feed the same marking pipeline.
   handler changes): imports courseWork as draft Assignments (status `review` — the
   tutor still adds questions before publishing, since Classroom's courseWork isn't a
   question booklet); imports turned-in student submissions, matching Classroom's
-  roster email to a MANARA student account (unmatched students are skipped, not
+  roster email to an Avora student account (unmatched students are skipped, not
   guessed); downloads PDF/JPEG/PNG/WebP Drive attachments into the storage service
   (other Drive types, e.g. native Google Docs, are skipped — the tutor uploads those
   directly) and enqueues the standard `mark_submission` job, so an imported submission
@@ -254,7 +254,7 @@ actually serves. Nothing is deleted until v2 is validated.
 **Cross-cutting**: every tenant table gains `organization_id`; `api/deps.py` gains org
 scoping; migrations continue the hand-written sequence from 0012.
 
-**Frontend restructure**: the tutor experience becomes the eight MANARA sections —
+**Frontend restructure**: the tutor experience becomes the eight Avora sections —
 Dashboard, Lessons, Students (CRM), Homework, Readiness, Reports, Knowledge Base,
 Settings. Existing pages map into them (TodayPage → Dashboard, StudentDetailPage → CRM
 record, MocksPage → Readiness/assessments, PreferencesPage → Settings).

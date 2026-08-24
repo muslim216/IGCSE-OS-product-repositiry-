@@ -3,7 +3,7 @@
 > **Volume 3 — Platform Engineering** · Engineering Constitution v1.2 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
-> Governs how MANARA calls models: routing, prompts, metering, and the rules that decide when
+> Governs how Avora calls models: routing, prompts, metering, and the rules that decide when
 > AI output is trusted without a human.
 
 ## Contents
@@ -30,7 +30,7 @@
 
 ## Purpose
 
-MANARA calls two providers across seven use cases, and one of those calls can put a mark on a
+Avora calls two providers across seven use cases, and one of those calls can put a mark on a
 student's record with no human review. This document defines the routing abstraction that
 keeps vendor detail in one file, the prompt governance that makes an AI-produced record
 traceable, and the trust rules that bound what automation is allowed to decide.
@@ -46,7 +46,7 @@ of the trust boundary (§07); AI-driven cost and latency (§10); testing AI path
 
 ### Non-goals
 
-- **No model training or fine-tuning.** MANARA calls hosted models with prompts. Student work
+- **No model training or fine-tuning.** Avora calls hosted models with prompts. Student work
   is never contributed to a model.
 - **No model is asked to produce a grade.** `predict_grade()` maps a score through
   tutor-entered boundaries.

@@ -5,7 +5,16 @@
 # Deploy by connecting this repo at https://dashboard.render.com ("New" ->
 # "Blueprint"). Values marked `sync: false` are not stored in the repo and must
 # be filled in from the Render dashboard — see README "Deployment".
-
+#
+# THE NAMES BELOW ARE IDENTITIES, NOT LABELS. Render matches blueprint entries
+# to existing resources by `name`. Renaming one here does not rename anything:
+# it provisions a *new* empty resource and orphans the old one — a new empty
+# Postgres, a new empty uploads disk, a new hostname the frontend does not
+# proxy to. That is why the Avora rename (task 0.6, AV-4) deliberately stops at
+# these five values and at the hostname in frontend/vercel.json. Renaming the
+# deployed resources is an owner-run migration in the Render dashboard, taken
+# together with the Vercel project rename and the GitHub repo rename (E10) —
+# not a commit.
 databases:
   - name: igcse-os-db
     plan: basic-256mb
@@ -70,9 +79,26 @@ services:
       - key: AI_SYLLABUS_PROVIDER
         value: gemini
 
-      # Per-token prices for ai_usage_events.cost_usd, as JSON. Empty means
-      # calls record an unknown cost and report as unpriced_call_count — never
-      # a fabricated $0. Fill in real prices for the models you actually use.
+      # Per-token prices for ai_usage_events.cost_usd, as JSON, keyed by model
+      # id. Unset means calls record an unknown cost and report as
+      # unpriced_call_count — never a fabricated $0 (AI-17).
+      #
+      # The ids in backend/.env.example are AV-124's targets — claude-opus-5 and
+      # claude-sonnet-5 — priced ahead of the routing flip (task 3.2). Read the
+      # three PROVIDER lines above before expecting a total: marking, extraction
+      # and syllabus still route to Gemini here, and gemini-2.5-pro is not in
+      # that table, so those calls stay unpriced until the flip lands. That is
+      # the intended reading of the number, not a gap to paper over with a
+      # guessed Gemini rate.
+      #
+      # Deliberately `sync: false` — a price is not a fact about this codebase,
+      # it is a fact about the account's contract on the day it is read, and it
+      # moves without a commit. Paste the current value from backend/.env.example
+      # into the dashboard, which is also where you correct it when rates change.
+      # model_pricing() is @lru_cache'd, so a changed value needs a restart, and
+      # nothing is backfilled: rows already written keep cost_usd = NULL. Verify
+      # GET /api/v1/ai-usage/analytics reports money afterwards — malformed JSON
+      # is ignored rather than raised, so a typo fails silently.
       - key: AI_MODEL_PRICING
         sync: false
 

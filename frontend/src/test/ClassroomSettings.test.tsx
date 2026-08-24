@@ -28,10 +28,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  localStorage.setItem(
-    "igcse-os-tokens",
-    JSON.stringify({ access_token: "t", token_type: "bearer" }),
-  );
+  localStorage.setItem("avora-tokens", JSON.stringify({ access_token: "t", token_type: "bearer" }));
 });
 
 afterEach(() => {

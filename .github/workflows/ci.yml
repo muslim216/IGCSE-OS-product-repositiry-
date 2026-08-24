@@ -69,6 +69,10 @@ jobs:
         working-directory: backend
         run: python -m ruff format --check .
 
+      - name: mypy (app.services + app.schemas)
+        working-directory: backend
+        run: python -m mypy app/services app/schemas
+
       - name: Install frontend
         working-directory: frontend
         run: npm ci
@@ -188,9 +192,21 @@ jobs:
       - name: vitest
         run: npm test
 
+      # src/api/schema.d.ts is generated from openapi.json (task 0.8) and both
+      # are committed, so nothing forces either to be regenerated when the
+      # backend changes. Two checks close that: backend
+      # tests/test_openapi_snapshot.py proves openapi.json still matches the
+      # running app, and this one proves the TypeScript still matches
+      # openapi.json. Without the pair, a stale generated file is the same
+      # RISK-6 divergence as the hand-mirrored interfaces it replaced, only
+      # now it looks automated. Fix a failure with `npm run generate:api`.
+      - name: API types match the OpenAPI document
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/api/schema.d.ts
+
       # `npm run build` is `tsc -b && vite build`. `npm test` does NOT type-check,
       # so this step is the only thing in the repository that ever type-checks the
-      # frontend — including the hand-maintained TypeScript interfaces that mirror
-      # the backend response schemas (FE-4).
+      # frontend — including everything typed from the generated schema (FE-4).
       - name: Type check and build
         run: npm run build

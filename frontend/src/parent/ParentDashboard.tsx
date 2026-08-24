@@ -5,6 +5,7 @@ import { studentNarrative } from "../api/narrative";
 import { studentReadiness, type SubjectReadiness } from "../api/readiness";
 import { DirectionMark, EmptyState, StatusBadge } from "../components/ui";
 import { ReportsPanel } from "../components/ReportsPanel";
+import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { ABSENT } from "../lib/labels";
 import { parentVerdict, provenance, whatYouCanDo } from "../lib/parent";
 
@@ -85,11 +86,17 @@ export default function ParentDashboard() {
     return <EmptyState title="This couldn't be loaded." hint={ABSENT.loadFailed} />;
   }
   if (!children.data || children.data.length === 0) {
+    // The zone control still renders here: a parent waiting on their link is
+    // exactly the person who has just arrived from another country, and the
+    // setting is theirs rather than their child's.
     return (
-      <EmptyState
-        title="No child is linked to this account yet."
-        hint="Ask the tutor for a parent link — it takes you straight to your child's page."
-      />
+      <div className="space-y-8">
+        <EmptyState
+          title="No child is linked to this account yet."
+          hint="Ask the tutor for a parent link — it takes you straight to your child's page."
+        />
+        <MyTimezoneSetting />
+      </div>
     );
   }
 
@@ -169,6 +176,15 @@ export default function ParentDashboard() {
       {selected !== null && (
         <ReportsPanel studentId={selected} audiences={["parent"]} canGenerate={false} />
       )}
+
+      {/* Last, and quiet: a parent came here to read about their child, not to
+          configure anything. It is here at all because a parent is exactly who
+          AV-67 exists for — the tutor's account may sit in another country, and
+          "this week" in the summary above should turn over at this reader's
+          midnight. Phase D owns where settings finally live for this role; the
+          endpoint is not tutor-gated, so leaving the control unmounted would
+          have made the override unreachable for both roles it was built for. */}
+      <MyTimezoneSetting />
     </div>
   );
 }

@@ -9,6 +9,7 @@ compute_readiness_v2 background job (Layer 2, services/readiness_v2_ai.py),
 per the "run out-of-band" rule for deterministic computation.
 """
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -126,13 +127,21 @@ async def _past_paper_attempts(
         .scalars()
         .all()
     )
+    # An attempt with no usable marks is OMITTED, never scored (PROD-2, PROD-5).
+    # `raw_marks` is null until the submission behind the attempt settles — the
+    # model says so — so this is the ordinary state of work in progress, not an
+    # edge case. Scoring it 0.0 would drag Past Paper Performance down for a
+    # student whose paper simply has not been marked yet, and the factor cannot
+    # tell a fabricated zero from an earned one. `max_marks` is NOT NULL, so the
+    # zero-denominator guard is the genuinely exceptional half of this.
     return [
         PastPaperAttemptPoint(
-            pct=(a.raw_marks / a.max_marks * 100) if a.max_marks else 0.0,
+            pct=a.raw_marks / a.max_marks * 100,
             timed=a.timed,
             attempted_at=a.attempted_at,
         )
         for a in rows
+        if a.raw_marks is not None and a.max_marks
     ]
 
 
@@ -227,7 +236,7 @@ async def _topic_coverage(
     student_id: int,
     subject_id: int,
     mastery_by_topic: dict[int, float | None],
-    topics: list[Topic],
+    topics: Sequence[Topic],
 ) -> list[TopicCoverage]:
     topic_ids = {t.id for t in topics}
 

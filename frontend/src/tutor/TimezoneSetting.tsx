@@ -1,28 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myOrganization, setOrganizationTimezone } from "../api/auth";
 import { ApiError } from "../api/client";
-
-/** Every IANA zone this browser knows, for the picker.
- *
- * Intl.supportedValuesOf is recent enough that it may be absent; when it is,
- * the control degrades to offering the detected zone alone rather than
- * disappearing. An empty list is a smaller UI, not a broken one. */
-function supportedTimezones(): string[] {
-  const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
-  try {
-    return intl.supportedValuesOf?.("timeZone") ?? [];
-  } catch {
-    return [];
-  }
-}
-
-function detectedTimezone(): string | null {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
-  } catch {
-    return null;
-  }
-}
+import { supportedTimezones, detectedTimezone } from "../lib/timezones";
 
 /**
  * The zone every "today" in the product is computed in — today's lessons, the

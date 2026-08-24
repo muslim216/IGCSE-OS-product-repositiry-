@@ -1,20 +1,19 @@
-export interface TokenPair {
-  access_token: string;
-  token_type: string;
-}
+import type { components } from "./schema";
 
-export interface User {
-  id: number;
-  email: string | null;
-  username: string | null;
-  role: "student" | "tutor" | "parent" | "admin";
-  name: string;
-}
-
-export interface AuthResponse {
-  user: User;
-  tokens: TokenPair;
-}
+// Re-export API contract types from the generated OpenAPI schema (FE-4).
+// The schema at src/api/schema.d.ts is produced by `npm run generate:api`
+// from openapi.json, itself dumped from the backend's own OpenAPI document;
+// hand-maintained mirrors are not added — the generated file is the source
+// of truth and keeps frontend and backend in sync.
+//
+// The alias below is the point of the exercise: this pair used to be a
+// hand-written `TokenPair` here, and the schema it mirrored has been called
+// AccessToken on the server the whole time. Aliasing the *server's* name is
+// what makes a rename over there a compile error over here rather than a
+// silent divergence nobody notices (RISK-6).
+export type TokenPair = components["schemas"]["AccessToken"];
+export type User = components["schemas"]["UserOut"];
+export type AuthResponse = components["schemas"]["AuthResponse"];
 
 /**
  * What we keep in localStorage. Deliberately NOT the refresh token.
@@ -33,7 +32,19 @@ export interface StoredTokens {
   token_type: string;
 }
 
-const STORAGE_KEY = "igcse-os-tokens";
+const STORAGE_KEY = "avora-tokens";
+
+/** The key used before the Avora rename (task 0.6).
+ *
+ * Read once, when the current key holds nothing, because renaming the key
+ * alone signs out every browser that is currently signed in — and does it in
+ * a way the refresh flow cannot repair: `api()` only attempts a refresh when a
+ * stored access token exists, so a null read never reaches the httpOnly
+ * refresh cookie sitting valid for another 30 days. The migration is one extra
+ * read while signed out and none once a session exists. Delete this and its
+ * branch below once the deploy is far enough behind that no browser can still
+ * be holding the old key. */
+const LEGACY_STORAGE_KEY = "igcse-os-tokens";
 
 // Optional escape hatch for deployments without a same-origin API proxy
 // (e.g. a Vercel preview without vercel.json applied yet).
@@ -43,27 +54,59 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-export function getStoredTokens(): StoredTokens | null {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return null;
-  // Every request reads this, so anything unparseable here would throw before
-  // the fetch and take down the whole app — including the login that would
-  // replace the bad entry. Discard it and let the user sign in again instead.
-  let parsed: Partial<TokenPair>;
+/** A stored value, or null if it is not one we can use.
+ *
+ * Every request reads this, so anything unparseable would throw before the
+ * fetch and take down the whole app — including the login that would replace
+ * the bad entry. Discard it and let the user sign in again instead. */
+function readStoredTokens(raw: string): StoredTokens | null {
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as Partial<TokenPair>;
+    parsed = JSON.parse(raw);
   } catch {
-    localStorage.removeItem(STORAGE_KEY);
     return null;
   }
-  if (typeof parsed.access_token !== "string" || !parsed.access_token) {
-    localStorage.removeItem(STORAGE_KEY);
-    return null;
-  }
+  // JSON.parse succeeds on plenty of things that are not our shape — the
+  // literal "null", a number, a quoted string — and none of them survives a
+  // `typeof` check the way the previous `Partial<TokenPair>` cast implied.
+  // `parsed.access_token` on `null` throws a TypeError uncaught by the block
+  // above, which is exactly the crash this function exists to prevent.
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const candidate = parsed as Partial<TokenPair>;
+  if (typeof candidate.access_token !== "string" || !candidate.access_token) return null;
   return {
-    access_token: parsed.access_token,
-    token_type: typeof parsed.token_type === "string" ? parsed.token_type : "bearer",
+    access_token: candidate.access_token,
+    token_type: typeof candidate.token_type === "string" ? candidate.token_type : "bearer",
   };
+}
+
+export function getStoredTokens(): StoredTokens | null {
+  // The old key is cleared whenever this returns — a stale token left behind
+  // is a credential nothing will ever use again, and worse than useless:
+  // signing out removes only the current key, so a legacy value surviving here
+  // would be migrated straight back on the next read and the app would look
+  // signed in again until a request failed.
+  //
+  // But it is cleared only once the current key has been *parsed*, not merely
+  // found. Dropping it on the presence of a current value discards a working
+  // pre-rename session whenever the current entry is unusable — truncated by a
+  // storage-quota write, half-written by another tab, edited by an extension —
+  // and that session is exactly what this migration exists to save.
+  const currentRaw = localStorage.getItem(STORAGE_KEY);
+  const current = currentRaw === null ? null : readStoredTokens(currentRaw);
+  if (current) {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    return current;
+  }
+  if (currentRaw !== null) localStorage.removeItem(STORAGE_KEY);
+
+  const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (legacyRaw === null) return null;
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  const legacy = readStoredTokens(legacyRaw);
+  if (!legacy) return null;
+  storeTokens(legacy);
+  return legacy;
 }
 
 export function storeTokens(tokens: TokenPair | StoredTokens | null) {
