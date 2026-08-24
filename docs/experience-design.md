@@ -225,9 +225,11 @@ Readiness · Reports · Library — flat, ordered by frequency of use, plus a sm
 for usage (`AV-105`, `AV-113`).**
 
 This supersedes the four-destination nav this document previously specified here (Today ·
-Classes · Review · Library), which was itself a reduction from the nine in
-`frontend/src/App.tsx:82-92`. **`Today` is renamed `Overview`** — no other screen answers the
-question §4.1–§4.2 describe, and `AV-47`, `AV-48` and `AV-101` all describe this screen's
+Classes · Review · Library, `TUTOR_NAV` at `frontend/src/App.tsx:94-99`), which was itself a
+reduction from a nine-destination tutor nav this document once described — the nine that now
+exist in the tree are `STUDENT_NAV` (`frontend/src/App.tsx:74-88`), not the tutor's.
+**`Today` is renamed `Overview`** — no other screen answers the question §4.1–§4.2 describe,
+and `AV-47`, `AV-48` and `AV-101` all describe this screen's
 content under the new name. Six destinations return to the top level: **Homework un-folds from
 Review** (`AV-108`) — reversing the fold this document's `9.1` contradiction-tracking recorded
 as a deliberate information-hiding fix, which `AV-108` now overrides; **Students** is new
@@ -267,8 +269,7 @@ the same basis as grade boundaries and the syllabus document (`AV-110`).
 │  Two lessons today · three pieces to mark when you have      │
 │  a moment                                          Mark →    │
 │                                                              │
-│  47 questions marked by Avora this week — roughly 3 hours    │
-│  of marking                                                  │
+│  47 questions marked — roughly 3 hours of marking.           │
 └──────────────────────────────────────────────────────────────┘
 
   Y10 Chemistry    🔴 At risk         predicted 4 avg   9/11 ●   Open →
@@ -649,10 +650,12 @@ choice about a subject or a class: the organization and per-user time zone
 (`TimezoneSetting.tsx`, `MyTimezoneSetting.tsx`, already built, `0.7`), and channel-level
 notification opt-outs once push exists (`8.7`).
 
-**Adds the tutor's own usage view** (`10.2`, `AV-2`): AI spend, students and classes, storage
-used, activity — rolled up per account from `ai_usage_events`, which already meters every call.
-**Never invents a price** — a model with no pricing entry reports as `unpriced_call_count`,
-never `$0` (`AI-17`); this tab shows exactly that distinction rather than papering over it.
+**Adds the tutor's own usage view** (`10.2`, `AV-2`): AI spend — rolled up per account from
+`ai_usage_events`, which already meters every call — alongside students and classes, storage
+used, and activity, each rolled up per account from its own existing source rather than from
+`ai_usage_events`, which meters AI calls only. **Never invents a price** — a model with no
+pricing entry reports as `unpriced_call_count`, never `$0` (`AI-17`); this tab shows exactly
+that distinction rather than papering over it.
 
 **Connects to:** nothing downstream — this is a leaf, consistent with `AV-113` describing it as
 small and separate.
@@ -927,10 +930,9 @@ Sara is on track in 3 of her 4 subjects.
 Based on 34 marked pieces · updated weekly
 
 HOW IT'S GOING
-  Sara's chemistry has moved up steadily this month — moles and
-  rates are both solid now. Maths is the one to watch: algebraic
-  fractions have been the sticking point across three pieces of
-  work. It's on her tutor's plan for this week.
+  Sara's chemistry has moved up steadily this month. Maths is
+  the one to watch — it's been the sticking point across three
+  pieces of work, and it's on her tutor's plan for this week.
 
 WHAT YOU CAN DO
   Nothing is needed right now. We'll tell you if that changes.
@@ -939,7 +941,10 @@ WHAT YOU CAN DO
 **Hierarchy: child state → narrative → what you can do.** The first sentence still answers the
 question the whole role exists to answer; the subject-by-subject detail that used to sit
 between the verdict and the narrative moves to Progress (§6.2), where it has its own tab rather
-than being read past on every visit.
+than being read past on every visit. **The narrative itself names no chapter or topic** — `AV-99`
+makes it the same generated text as the weekly send, and `AV-64` bars the send from the
+chapter/topic breakdown, so the narrative stays at the level "chemistry" and "maths," never
+"moles" or "algebraic fractions."
 
 **`WHAT YOU CAN DO` is required, including — especially — when the answer is nothing.** A
 parent visits rarely, cannot act on most of what they see, and reads ambiguity as bad news

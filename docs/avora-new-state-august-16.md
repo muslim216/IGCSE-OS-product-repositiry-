@@ -856,8 +856,9 @@ closes that, and every subsequent phase builds its own screens against what this
 | **D.3** | Design the new screens — ✅ done 24 Aug | L | ✅ |
 | **D.4** | States, empty states and copy — ✅ done 24 Aug | M | ✅ |
 
-**✅ Phase D is done, 24 Aug.** All four tasks landed in one pass in `docs/experience-design.md`
-(§4 Tutor, §5 Student, §6 Parent, §7 Onboarding and §13 for D.1–D.4 respectively), grounded
+**✅ Phase D is done, 24 Aug.** All four tasks landed in one pass in `docs/experience-design.md`:
+D.1's inventory in §4, D.2/D.3's screens across §§4–7 (§4 Tutor, §5 Student, §6 Parent, §7
+Onboarding), and D.4's states and copy in §13 — grounded
 throughout in the `AV`/`E` decisions already settled above — no product or architecture
 decision was made in writing it. Two stale entries in that document's own §9 contradiction
 record were also corrected in passing, verified against the working tree
