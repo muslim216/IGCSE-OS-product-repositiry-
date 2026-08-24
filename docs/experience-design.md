@@ -31,6 +31,7 @@ and must not alter what is settled here without an explicit new decision (§11).
 - [10. Success criteria](#10-success-criteria)
 - [11. Phase boundary](#11-phase-boundary)
 - [12. Appendix: rules this design would add](#12-appendix-rules-this-design-would-add)
+- [13. States and copy for the screens this phase changes](#13-states-and-copy-for-the-screens-this-phase-changes-d4)
 
 ---
 
@@ -219,17 +220,56 @@ number alone, and it is the honest explanation of why a predicted grade is not a
 
 ## 4. Tutor
 
-**Navigation: Today · Classes · Review · Library.** Down from the nine in
-`frontend/src/App.tsx:82-92`. Library absorbs past papers, mocks and syllabuses; Settings
-absorbs Preferences and leaves the primary navigation.
+**Navigation: Overview · Review · Homework · Classes · Students · Mocks · Past papers ·
+Readiness · Reports · Library — flat, ordered by frequency of use, plus a small Settings area
+for usage (`AV-105`, `AV-113`).**
 
-### 4.1 Today — desktop
+This supersedes the four-destination nav this document previously specified here (Today ·
+Classes · Review · Library, `TUTOR_NAV` at `frontend/src/App.tsx:94-99`), which was itself a
+reduction from a nine-destination tutor nav this document once described — the nine that now
+exist in the tree are `STUDENT_NAV` (`frontend/src/App.tsx:74-88`), not the tutor's.
+**`Today` is renamed `Overview`** — no other screen answers the question §4.1–§4.2 describe,
+and `AV-47`, `AV-48` and `AV-101` all describe this screen's
+content under the new name. Six destinations return to the top level: **Homework un-folds from
+Review** (`AV-108`) — reversing the fold this document's `9.1` contradiction-tracking recorded
+as a deliberate information-hiding fix, which `AV-108` now overrides; **Students** is new
+top-level ground for content that lives only inside a class today (`AV-114`); **Mocks** and
+**Past papers** promote out of the Library shelf; **Readiness** and **Reports** each get a tab
+of their own (`AV-112`). Library keeps the rest and gains scope it did not have before
+(`AV-110`, `AV-111`). `AppShell.tsx`'s existing `MAX_TABS = 4` mobile behaviour (§4.2) already
+folds anything past three primary tabs into a **More** sheet — ten destinations exercises that
+path for the first time; no new mobile mechanism is required.
+
+**Screen inventory (`D.1`), reconciled against task `0.0`'s audit — every nav position, what
+already exists, and what this phase adds:**
+
+| Nav position | Backs onto | State |
+|---|---|---|
+| Overview | `tutor/today/TodayDashboard.tsx` | Built — a rework, not a rebuild (`9.2`) |
+| Review | `tutor/ReviewQueuePage.tsx`, `tutor/SubmissionReviewPage.tsx` | Built |
+| Homework | Detail lives only in the per-class `tutor/tabs/HomeworkTab.tsx` today | Partial — the top-level detail page is new; the per-class tab narrows to metadata (`AV-108`) |
+| Classes | `tutor/GroupsPage.tsx` | Built |
+| Students | Detail lives only in the per-class `tutor/tabs/StudentsTab.tsx` today | Partial — same shape as Homework (`AV-114`) |
+| Mocks | `tutor/MocksPage.tsx`, `tutor/MockEntryPage.tsx` | Built → extend: assignment and timed sitting (`AV-115`, `AV-116`) |
+| Past papers | `tutor/PastPapersPage.tsx` | Built → extend: booklets (`AV-117`) |
+| Readiness | `tutor/ClassReadinessPage.tsx` + `tutor/PreferencesPage.tsx`, merging | Built → merge and extend: custom criteria, switch-off, weak threshold (`5.4`, `5.6`) |
+| Reports | `components/ReportsPanel.tsx`, currently embedded rather than routed | Built → promote to a tab, rework content (`8.6`, `AV-112`) |
+| Library | `tutor/LibraryPage.tsx` | Built → restructure (`AV-110`, `AV-111`) |
+| Settings (usage) | `tutor/ClassroomSettingsPage.tsx`, `tutor/PreferencesPage.tsx` exist; the usage view does not | Partial (`10.2`, `AV-113`) |
+
+`tutor/GradeBoundariesPage.tsx` and `tutor/SyllabusUploadPage.tsx` already exist as routes
+outside the nav (`0.0`) — both land inside Library below rather than gaining their own tab, on
+the same basis as grade boundaries and the syllabus document (`AV-110`).
+
+### 4.1 Overview — desktop
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Your classes are running well.                              │
 │  Two lessons today · three pieces to mark when you have      │
 │  a moment                                          Mark →    │
+│                                                              │
+│  47 questions marked — roughly 3 hours of marking            │
 └──────────────────────────────────────────────────────────────┘
 
   Y10 Chemistry    🔴 At risk         predicted 4 avg   9/11 ●   Open →
@@ -242,13 +282,43 @@ TODAY
   16:00   Y11 Chemistry · Moles                    Before you teach ▾
   18:00   Y10 Biology · Transport in plants        Before you teach ▾
 
+  Y10 Chemistry is 2 lessons behind its plan             Re-plan →
+  Chapter 7 starts Monday — no classified uploaded yet       Upload →
+
 WHAT CHANGED
   Quiet day. Sara's chemistry has clicked — she's on track now, and
   six pieces came in overnight.
 
+  This week's send is out.                              Read it →
+
 NEEDS YOU
   3 submissions waiting                                      Review →
+
+  Weak topics across your classes: Moles (Y10 Chem) ·
+  Algebraic fractions (Y10 Maths, Y11 Maths)
 ```
+
+**The good-news figure is exact about what it counts and honest about what it estimates**
+(`AV-101`). The **count** — `47 questions marked` — is real and traces to the auto-finalized
+marks in the period, the same way every other number on this screen must (`PROD-1`). The
+**time** is a derived estimate and is labelled as one: *"roughly 3 hours of marking"*. The word
+**"roughly" is load-bearing** — this is the most-viewed screen in the product, and the moment
+that estimate reads as a measurement it becomes a claim `PROD-1` cannot back.
+
+**Plan progress, upload prompts and weak topics are additions from `9.2`'s compact-overview
+list**, not new sections — they extend `TODAY`, `WHAT CHANGED` and `NEEDS YOU` rather than
+opening new ones, because a fourth top-level block competes with the verdict for the two-second
+read this screen exists to protect. A class running behind its teaching plan (`6.6`, `AV-18`)
+and a chapter about to start with no classified uploaded (`6.7`, `AV-20`, `AV-22`) are both
+**non-blocking prompts inside `TODAY`**, not alerts — `6.7` states this explicitly. Weak topics
+aggregated across classes (`5.6`, `AV-42`, `AV-43`) sit inside `NEEDS YOU` as information; they
+are never generated, assigned or suggested as work (`AV-42`), so the line names topics and
+links nowhere but the Readiness tab.
+
+**This week's send is a link into the stored artifact, not a duplicate of it** (`AV-51`, `8.4`).
+The weekly send and the on-screen narrative are written by the same generator (`AV-99`) but
+remain two different objects — a scheduled artifact and an always-current paragraph — so this
+line points at the send rather than trying to fold its content into `WHAT CHANGED`.
 
 **The verdict block is the primary entry point.** The whole block is one target: reading it
 answers the question, and acting on it requires no second decision about where to go.
@@ -283,7 +353,7 @@ WHAT CHANGED
 That's everything. Enjoy your day.
 ```
 
-### 4.2 Today — phone
+### 4.2 Overview — phone
 
 Same order, cut to what one hand can act on. **Not a narrowed desktop:**
 
@@ -293,6 +363,8 @@ Same order, cut to what one hand can act on. **Not a narrowed desktop:**
 │ well.                        │
 │ Two lessons today · three    │
 │ to mark            Mark →    │
+│                              │
+│ 47 marked — roughly 3 hrs    │
 └──────────────────────────────┘
 
  Y10 Chem  🔴  Y10 Bio 🟡
@@ -308,18 +380,29 @@ Same order, cut to what one hand can act on. **Not a narrowed desktop:**
 
  3 waiting            Review →
 
- [Today] [Classes] [Review] [Library]
+ [Overview] [Review] [Homework] [More]
 ```
 
 Dropped relative to desktop: the full lesson list (next only), the per-class grade and
-coverage detail (colour only), and any table. A phone glance that requires horizontal scanning
-has failed.
+coverage detail (colour only), any table, and the plan-progress/upload-prompt/weak-topic lines
+from §4.1 — the phone verdict stays to what one hand can act on, and those three are one tap
+away inside the class or Readiness screens they name.
 
-> The bottom tab bar does not exist today. `frontend/src/components/AppShell.tsx:144` holds
-> the only `md:hidden` in the codebase, rendering a horizontally scrolling strip of every nav
-> item; `AppShell.tsx:159-165` maps the full `nav` array and ignores the `slot` split that the
-> sidebar honours at `:85-86`. Safe-area handling does not exist and
-> `frontend/index.html:5` has no `viewport-fit=cover`. §9 records all three.
+**The bottom bar now shows `Overview · Review · Homework · More`, not the four-item nav this
+document previously specified.** `AppShell.tsx`'s `MAX_TABS = 4` (`:20`) keeps the first three
+main-nav items as tabs and folds everything else — the remaining seven of `AV-105`'s ten
+destinations — into the **More** sheet (`:126-134`) once the list no longer fits in four. This
+is existing, shipped logic (`components/AppShell.tsx`, delivered as PR 12) applied to the new
+ten-item nav; nothing about the mechanism is new here, only which items overflow.
+
+> **Correction to this document's own prior record.** An earlier revision of this section
+> stated the bottom tab bar, the `slot`-aware overflow, and safe-area handling did not exist,
+> citing `AppShell.tsx:144,159-165` and `frontend/index.html:5`. Verified against the current
+> working tree while writing this phase: all three now exist —
+> `components/AppShell.tsx:20,126-134,212` (`MAX_TABS`, the fits/overflow split, `pb-safe`) and
+> `frontend/index.html:5` (`viewport-fit=cover`) — delivered as PR 12
+> (`docs/experience-implementation-plan.md` §12). §9.2's matching row is corrected alongside
+> this one.
 
 ### 4.3 A class
 
@@ -337,7 +420,7 @@ NEEDS YOU
   Omar       3    ↓ declining
   Layla      4    ↓ nothing marked since the 14th
 
-STUDENTS  ·  HOMEWORK  ·  LESSONS  ·  SYLLABUS  ·  RESOURCES
+HOMEWORK  ·  STUDENTS  ·  SYLLABUS  ·  SCHEDULE  ·  RESOURCES  ·  ANALYTICS
 ```
 
 **`NEEDS YOU` inside a class selects on direction, not level.** A student who has always sat
@@ -349,10 +432,36 @@ Low-and-stable students are not thereby ignored: they are the reason the class c
 the verdict, and they are listed under **Students**. The distinction is between *what changed*
 and *what is*, and only the first belongs in a section called `NEEDS YOU`.
 
+**The class's own tab bar is `HOMEWORK · STUDENTS · SYLLABUS · SCHEDULE · RESOURCES ·
+ANALYTICS`** — the six sub-tabs `GroupLayout.tsx` already renders, unchanged in number, two of
+them narrowed or widened in scope by this phase:
+
+- **Homework here shows name and metadata only** — status, due date, submission count — **and
+  links through to the top-level Homework tab (§4.6) for the questions, marking and management
+  detail** (`AV-108`). This is the fold reversing itself in the other direction: the detail is
+  no longer hidden inside Review, but it is not duplicated here either.
+- **Schedule holds the teaching plan, the lesson list, and in-person attendance capture** in
+  one place (`AV-109`) — the plan's slots, the tutor's accept/edit controls (`6.4`), lesson
+  pre-fill and the 15-minute reminder's revise action (`7.4`), and the attendance register for
+  in-person lessons (`7.1`). A `ScheduleTab.tsx` shell already exists to build this into (`0.0`,
+  Phase 6 audit row); this document does not prescribe the plan's own screen layout beyond what
+  `6.1`–`6.8` already settle, because the calendar-and-slot editing surface is Phase 6's to
+  design in detail against a data model this phase does not have.
+- **Students, Syllabus, Resources and Analytics are unchanged in scope.** The top-level
+  Students tab (§4.8) is a second, class-grouped entry point onto the same roster data, not a
+  replacement for the per-class view — the same relationship Homework now has to its top-level
+  tab.
+
 ### 4.4 A student
 
 The same shape one level down — Verdict → subjects → why → evidence. A student's page is a
 class page with a different object, and shares its components.
+
+**The tutor-facing mistake rollup is added here, per topic and per chapter** (`AV-40`, `4.4`)
+— aggregated the same way the readiness evidence beneath it already is, on the same page,
+below the existing evidence drill-down. This is the tutor's view of the pattern; the student's
+own view of their own pattern is a different screen, on their Progress tab (§5.2), never this
+one (`AV-121`).
 
 ### 4.5 Review
 
@@ -379,6 +488,178 @@ correct and is kept. **The missing piece is traversal**: there is no next/previo
 today and the breadcrumb at `:117` returns to the assignment rather than the queue, so
 clearing six submissions is six full navigation round trips.
 
+**This surface gains no new screen, only new inputs to the same one.** A typed answer (`3.3`,
+`AV-73`) and an AI-marked mock (`3.4`, `AV-26`) both reach this page through the existing
+polymorphic `Submission` path — `AV-91` requires a typed answer to auto-finalize exactly like a
+photographed one, so nothing here may treat it as a different kind of review. Where the
+deterministic pre-marking scan (`AV-93`) has flagged a submission, that reason is one more
+value the existing reason badge already renders (`REASON_LABELS`, §9.1) — not a different
+badge or a separate queue.
+
+**The tutor's mistake revision (`4.3`, `AV-38`) is edited from this same marked-work view, not
+a screen of its own.** The task is explicit that it needs no prompt, no queue and no blocking
+step — a tutor who disagrees with the AI's assigned category or severity changes it here, the
+same motion as revising a mark, and the change writes an append-only audit row (`PROD-7`,
+`AI-12`) with no further UI implied.
+
+### 4.6 Homework
+
+**Shows:** every assignment across every class the tutor teaches, its status through
+extraction → publish → marking, the extracted question list once it exists, per-student
+submission status, and the entry point into each submission's review. This is
+`AssignmentDetailPage.tsx` and the per-class `HomeworkTab.tsx`'s existing detail, promoted to a
+tab of its own — **the detail; the per-class tab (§4.3) is now name and metadata only and
+links through to it** (`AV-108`).
+
+**Empty state:** no assignments across any class — the terminal state names the action that
+fixes it (`UX-29`), not a blank list.
+
+**Does:** publish a drafted assignment; open a submission (which hands off to Review, §4.5, for
+the marking itself); start a new one from a class's chapter (`AssignmentCreatePage.tsx`,
+unchanged — homework continues to be created from classifieds, `AV-23`).
+
+**Connects to:** the per-class Homework tab it now supersedes for detail; Review, for anything
+flagged; Classes, for the class an assignment belongs to.
+
+### 4.7 Classes
+
+**Unchanged in content and position within the flat nav's first half.** `GroupsPage.tsx`
+already shows the grid of class cards — subject, schedule, member count, a review-count badge —
+plus the create-class form. Nothing in `AV-105`–`AV-122` asks this screen to change; it moves
+from a four-item nav into a ten-item one at the same relative position.
+
+### 4.8 Students
+
+**Shows:** every class's roster, grouped by class (`AV-114`) — the same grouping the class
+picker elsewhere in this document already uses, applied here as the organising structure
+rather than a filter.
+
+**Does, per `AV-114`:** invite a student to a class; remove a student; open a student's full
+record (§4.4); move a student between classes; link a parent to a student.
+
+**Empty state:** a class with no students yet shows its invite code and share action — the
+same empty-room state onboarding already produces (§7.2), reused rather than reinvented.
+
+**Connects to:** §4.4 (a student's own page) for the record itself; the per-class Students
+sub-tab (§4.3), which remains the roster scoped to one class rather than being replaced by
+this class-grouped view of all of them.
+
+### 4.9 Mocks
+
+**Shows:** `MocksPage.tsx`'s existing per-class mark-entry links and list of past assessments,
+now also able to hold work the tutor has **assigned** to students rather than only work they
+have hand-entered scores for (`AV-115`) — small tests, big tests and mocks are the same
+surface, not three.
+
+**Does:** type scores in directly (`MockEntryPage.tsx`, unchanged); upload student work for AI
+marking through the same pipeline homework uses (`3.4`, `AV-26`, `PROD-9`); assign a mock to
+students the way an assignment is set. **An assigned mock is timed from the moment the student
+first opens it, on the server's clock** (`AV-116`, `3.6`) — this document does not design that
+sitting screen beyond what `3.6` settles (a server-side clock, late work accepted and flagged
+rather than blocked) because the timing mechanism is Phase 3's to build.
+
+**Empty state:** no mocks recorded for a class — names the two ways to add one (enter scores,
+assign work), per `UX-29`.
+
+**Connects to:** Review, for AI-marked mock submissions; Readiness (§4.11), where mock evidence
+feeds the same factor set as homework.
+
+### 4.10 Past papers
+
+**Shows:** `PastPapersPage.tsx`'s existing library, extended to distinguish a **single paper**
+from a **booklet** — one uploaded file holding many whole papers across sessions (`AV-117`).
+
+**Does:** upload either kind. On a booklet, an AI job extracts the list of papers inside —
+session, paper number, code, page range — **using the same upload → AI draft → tutor review →
+apply pattern `SyllabusUpload` already implements** (`3.5`); this document does not invent a
+second review-screen shape for it, because `3.5` is explicit that none should exist. When
+assigning a paper to a student, the tutor picks one from that reviewed list; a single-paper
+upload skips extraction and behaves exactly as it does today.
+
+**Empty state:** unchanged from the existing library's empty state.
+
+**Connects to:** Mocks and Homework, wherever a past paper is assigned as work; the student's
+own Past papers tab (§5.7), which reads the same reviewed list.
+
+### 4.11 Readiness
+
+**Shows:** the class readiness view and the readiness setup **in one tab** (`AV-112`) —
+`ClassReadinessPage.tsx`'s existing `ReadinessTable` (All / Needs attention / On track) beside
+`PreferencesPage.tsx`'s existing factor-weight and half-life controls, merged rather than left
+as two destinations.
+
+**Does, added by this phase:** re-weight a factor; **switch a factor off**, which omits it from
+the weighted set rather than zero-weighting it (`5.4`, `AV-34`); add a **custom criterion** —
+name, description, weight, scope — hand-scored by the tutor with no AI and no derivation, and
+labelled as tutor-entered wherever it is shown (`5.4`, `PROD-8`, `UX-20`); set the **weak-topic
+threshold** (`5.6`, `AV-74`), captured first at onboarding (§7.1 step 8) and editable here
+afterwards, on the same account-with-subject-override precedence as the rest of this
+configuration (`AV-35`). This document does not lay out the custom-criterion form beyond the
+fields `5.4` names, because no field beyond that list is settled anywhere in the plan.
+
+**Empty state:** unchanged — a class or student with no evidence still reads *"not enough data
+yet"* (`PROD-2`, `UX-19`), which `5.5`'s existing cold-start behaviour already produces.
+
+**Connects to:** §4.3 (a class) and §4.4 (a student), where the same readiness values surface
+in context; Library (§4.13), where grade boundaries — a different, tutor-entered input this tab
+does not own — are set.
+
+### 4.12 Reports
+
+**Shows:** `components/ReportsPanel.tsx`'s existing generate/list/read flow, **promoted from an
+embedded panel to a tab of its own** (`AV-112`), carrying the tutor's report — chapter and
+topic breakdown, mistake patterns, plan progress and countdown, attendance — available on
+demand and delivered weekly (`8.6`, `AV-53`). **This is a different document from the parent's
+report** (§6.4): neither is built by filtering the other, and this tab does not attempt to
+produce the parent's version.
+
+**Empty state:** no report generated yet for a class or student — the generate action is the
+terminal state, not a blank panel.
+
+**Connects to:** a class (§4.3) or a student (§4.4), the objects a report is generated about.
+
+### 4.13 Library
+
+**Shows, restructured around `AV-110`'s definition of what belongs here** — every choice made
+during onboarding, the uploaded material, and the classifieds — now that Mocks, Past papers and
+Readiness have their own tabs and no longer sit on this shelf:
+
+- The syllabus document and its chapter/topic tree, via the existing upload → review → apply
+  flow (`SyllabusUploadPage.tsx`, extended per `2.3` to edit two levels).
+- Teaching guidance, the second per-subject document (`2.5`, `AV-10`).
+- Grade boundaries (`GradeBoundariesPage.tsx`, already built) — set here because they are an
+  onboarding choice (§7.1 step 5), not because any `AV` decision names this tab explicitly.
+- Classifieds, chapter-scoped (`3.1`, `AV-20`).
+- **The "AI marking agreement"** — the per-subject marking rules, in the tutor's own words,
+  read and edited here (`AV-111`). It describes **how** the AI marks, never **when** a mark
+  counts (`AV-111` restates that `AV-25` is unchanged) — this tab has no control over
+  auto-finalization.
+- Mistake categories — the tutor-owned list seeded at onboarding (§7.1 step 7), accepted,
+  edited or replaced here afterwards (`4.1`, `AV-39`).
+
+**Does not** hold: usage (moved to its own settings area, §4.14, `AV-113`); Mocks, Past papers
+or Readiness (promoted to their own tabs).
+
+**Connects to:** onboarding (§7.1), where every item on this shelf is first set; the class and
+subject screens that consume each one.
+
+### 4.14 Settings and usage
+
+**A small area, separate from Library** (`AV-113`) — account-level configuration that is not a
+choice about a subject or a class: the organization and per-user time zone
+(`TimezoneSetting.tsx`, `MyTimezoneSetting.tsx`, already built, `0.7`), and channel-level
+notification opt-outs once push exists (`8.7`).
+
+**Adds the tutor's own usage view** (`10.2`, `AV-2`): AI spend — rolled up per account from
+`ai_usage_events`, which already meters every call — alongside students and classes, storage
+used, and activity, each rolled up per account from its own existing source rather than from
+`ai_usage_events`, which meters AI calls only. **Never invents a price** — a model with no
+pricing entry reports as `unpriced_call_count`, never `$0` (`AI-17`); this tab shows exactly
+that distinction rather than papering over it.
+
+**Connects to:** nothing downstream — this is a leaf, consistent with `AV-113` describing it as
+small and separate.
+
 ---
 
 ## 5. Student
@@ -387,9 +668,52 @@ clearing six submissions is six full navigation round trips.
 The phone answers *what do I need to do*; the laptop is where work is actually submitted, past
 papers are sat, and progress is read properly.
 
-Navigation keeps its existing destinations — Home, Work, Past papers, Exams, Files,
-Recordings, Progress, Ask. Eight fit a sidebar. They do not fit a phone tab bar, which is why
-the phone surface carries four plus an overflow.
+**Navigation: Home · Homework · Mocks · Past papers · Progress · Materials** (`AV-106`) — six
+destinations, down from the nine the current build actually renders: `Home`, `Progress`,
+`Improvement`, `Homework`, `Past papers`, `Exams`, `Files`, `Recordings`, plus `AI Tutor` in the
+bottom slot (`frontend/src/App.tsx:74-88`; this corrects an earlier revision of this line,
+which named destinations — `Work`, `Ask` — the current build does not use). Reconciling nine
+against `AV-106`'s six is forced, not chosen, once each of the three deletions and mergers this
+plan already settles is applied:
+
+- **`AI Tutor` is deleted** (`0.3`, `AV-57`, `AV-100`) — `api/chat.py`, `models/chat.py` and
+  `TutorChatPage.tsx` are student-gated on every route, so removal is clean; already gone from
+  the target.
+- **`Improvement` has no destination in `AV-106`'s six** — `AV-57` and `AV-100` delete the peer
+  improvement ranking outright, and this document does not treat that as open. What is
+  unresolved is narrower: `experience-implementation-plan.md`'s `D6` settled a different,
+  already-built design — `student/ImprovementPage.tsx` ranks the reader's own position only, no
+  classmate ever named — and this document cannot tell from the plan alone whether `AV-100`
+  reaffirms deletion knowing that build exists, or was written without it in view. §5.2 flags
+  the code as it stands rather than guessing which side wins.
+- **`Exams` and `Homework` map onto `Mocks` and `Homework`** — `Exams` is exactly the mock/test
+  scores `AV-115` folds into the Mocks tab; `Homework` keeps its name and destination.
+- **`Files` and `Recordings` merge into `Materials`** — the only pair left unaccounted for once
+  the other seven are placed, and the only unclaimed name in `AV-106`'s list is `Materials`.
+  This document records that mapping as the one forced reading of the settled list, not as a
+  new decision about what belongs there: the merged tab's content is exactly the union of what
+  `FilesPage.tsx` and `RecordingsPage.tsx` already show, grouped by class as they are today.
+
+Six still do not fit a phone tab bar on their own once `More` is accounted for — the same
+`MAX_TABS = 4` mechanism as the tutor's (§4.2) keeps `Home`, `Homework` and `Mocks` as tabs and
+folds `Past papers`, `Progress` and `Materials` into the sheet.
+
+**Screen inventory (`D.1`):**
+
+| Nav position | Backs onto | State |
+|---|---|---|
+| Home | `student/StudentHomePage.tsx` | Built |
+| Homework | `student/HomeworkPage.tsx`, `student/SubmitHomeworkPage.tsx` | Built |
+| Mocks | `student/ExamsPage.tsx` | Built → renamed and extended: measured vs self-declared past-paper sittings fold in (`AV-115`, `AV-116`) |
+| Past papers | `student/PastPapersPage.tsx`, `student/SitPastPaperPage.tsx` | Built |
+| Progress | `student/ProgressPage.tsx` | Built → extend: weak topics, attendance, mistake pattern (`AV-121`) |
+| Materials | `student/FilesPage.tsx` + `student/RecordingsPage.tsx`, merging | Partial — new merged tab, no new content (§5.8) |
+
+Two of the nine current destinations are not in this table because `AV-57`/`AV-100` remove them
+rather than route them anywhere: `student/TutorChatPage.tsx` (`AI Tutor`) and
+`student/ImprovementPage.tsx` (`Improvement`). See the note at the end of §5.2 on the second of
+those two — the code currently in the tree does not match what the deletion decision says to do
+with it, and this document does not resolve that on its own.
 
 ### 5.1 Home
 
@@ -414,8 +738,14 @@ the phone surface carries four plus an overflow.
 │                                    │
 │  NEXT ─────────────────────────    │
 │  Chemistry · today 16:00           │
+│                                    │
+│  This week's send is out.   Read → │
 └────────────────────────────────────┘
 ```
+
+**The weekly send appears here the same way it appears on the tutor's home** (§4.1, `AV-51`,
+`8.4`) — a link to the stored artifact, not a duplicate of `YOU DID`. It is the student's own
+week, written by the same generator as every other narrative in the product (`AV-99`).
 
 **The home always answers "what do I do next?"** — `DO` is the object, and it is never below
 the fold on any supported viewport.
@@ -450,35 +780,52 @@ CHEMISTRY
   You're tracking above your recent average — the last three
   pieces have been stronger than the ones before.
 
-CLASS PROGRESS — THIS MONTH
-  1   ▲ +11    Student
-  2   ▲ +9     Student
-  3   ▲ +6   ← you
-  4   ▲ +5     Student
-  5   ▲ +4     Student
-
 WHY
   Moles              5 of 6 marks recently
   Rates              3 of 8
   Electrolysis       not enough data yet
 
+WEAK TOPICS
+  Moles — below your tutor's threshold for this subject
+
+ATTENDANCE
+  11 of 12 lessons this term
+
+YOUR MISTAKES
+  Sign errors        4 times, mostly in Moles
+  Missed units       2 times
+
 EVIDENCE ▾
 ```
 
-**The leaderboard ranks improvement, not attainment.** An attainment ranking has one winner
-and eleven losers, the order barely moves across a year, and the student at the bottom in
-September is the student at the bottom in May. An improvement ranking resets monthly and can
-be won by anyone — including, and especially, the weakest student in the room. This is the
-same *progress-as-positive-reinforcement* principle the rest of the design rests on, pointed
-at the mechanic that usually violates it.
+**This tab now carries everything `AV-121` names**: readiness, predicted grade, weak topics
+and attendance, alongside the mistake pattern that supersedes `AV-41`'s original placement in
+the homework tab. All four are additions to the existing Predicted/Averaging/WHY shape, not a
+redesign of it.
 
-Two conditions gate it:
+**Weak topics are shown as information, never as assigned work** (`5.6`, `AV-42`, `AV-43`) — a
+topic below the tutor's own threshold, named and nothing more; nothing here proposes practice
+or generates a task.
 
-- **Fewer than five students in the class: the leaderboard is not shown.** Below that,
-  "anonymous" is a formality — students compare marks aloud and reconstruct the order within
-  a day. The personal progress line is shown instead.
-- **Insufficient coverage: the leaderboard is not shown.** Ranking the three students who
-  have evidence out of twelve is not a ranking (`PROD-2`).
+**Attendance is not a readiness factor and carries no colour** (`AV-33`) — it explains gaps in
+the evidence above it; it does not score them.
+
+**The mistake pattern is the student's own view of the same rows the tutor sees rolled up on
+their profile** (§4.4, `4.4`, `4.5`, `AV-40`) — the task names only "their own pattern" as what
+the student sees; this document does not add or withhold any field beyond that, and any further
+detail is left to whoever builds `4.5` against the rollup `4.4` produces.
+
+> **Not resolved here — `Improvement`'s leaderboard.** `AV-57` and `AV-100` delete the peer
+> improvement ranking; `AV-100` adds "the cost seen and accepted," which reads as the product
+> manager weighing something already built. `experience-implementation-plan.md`'s `D6` had
+> earlier settled the opposite — build it — and PR 23 shipped `student/ImprovementPage.tsx`
+> exactly to that spec: the reader's own rank or band only, no classmate ever named, on its own
+> tab, on no home surface. That built version does not resemble the "peer improvement ranking"
+> `AV-57` names, and this document cannot tell from the plan text alone whether `AV-100`'s
+> acceptance is of deleting that specific, already-redesigned page, or was written without it
+> in view. This Progress tab therefore carries no leaderboard of any form, and
+> `student/ImprovementPage.tsx` is left as it stands in the tree — neither routed to from
+> `AV-106`'s six nor described as deleted — until that question is put to the product manager.
 
 ### 5.3 The cleared state
 
@@ -512,14 +859,91 @@ requires that framing on student surfaces; stating it once, deliberately, at the
 materially better than letting a student discover it as a refusal at 11pm, because the
 boundary then reads as design rather than as an obstacle.
 
+### 5.5 Homework
+
+**Shows:** `HomeworkPage.tsx`'s existing assignment list with status badges (Not started /
+Submitted / Being marked / Marked) and due labels, unchanged in shape.
+
+**Does, extended by this phase:** submit a photograph or PDF of an answer, as today, **or type
+an answer directly** (`3.3`, `AV-73`) — the pipeline takes text wherever it takes images, on
+the same submission screen (`SubmitHomeworkPage.tsx`). **No feedback is shown while the student
+is still working**; marks and feedback appear only once they submit (`AV-92`) — this document
+does not describe an in-progress feedback state because `3.3`'s security criteria explicitly
+forbid building one. A typed submission auto-finalizes exactly as a photographed one does
+(`AV-91`); nothing on this screen distinguishes the two once marking is complete.
+
+**Connects to:** Progress (§5.2), where a finalized mark's evidence and any mistakes it
+produced eventually surface.
+
+### 5.6 Mocks
+
+**Shows:** the merged Exams/Mocks content (§5's nav mapping above) — scores the tutor has
+entered directly, and assignments the student is meant to sit.
+
+**Does:** open an assigned mock and start it. **The clock starts on first open and runs
+server-side** (`AV-116`); a client-side display is a convenience, not the limit. Submitting
+after time is up is **accepted, not blocked**, and is flagged rather than hidden (`AV-116`) —
+this document does not specify the exact wording of that flag, which belongs with the copy pass
+for the screen that builds it (`3.6`).
+
+**A measured mock is not self-declared and must not be labelled as such** — the past-paper
+`timed` flag it replaces on that surface is self-declared and does carry that label (`PROD-8`,
+`UX-20`); `3.6` is explicit that the two must not be visually conflated, so this tab's timer
+state and a past paper's self-declared one are different UI, not the same badge with different
+data behind it.
+
+**Connects to:** Review, for AI-marked mock submissions; the tutor's Mocks tab (§4.9), where
+assignment happens.
+
+### 5.7 Past papers
+
+**Shows:** `PastPapersPage.tsx`'s existing browsable cards (session, paper number, marks,
+duration), and `SitPastPaperPage.tsx`'s existing sitting flow — booklet link, attempt log (date,
+timed, minutes), answer upload, poll for marking. Both are unchanged by this phase; the booklet
+extraction (§4.10, `3.5`) happens on the tutor's side before a paper reaches this list.
+
+**Reasserts the existing self-declared labelling** (`PROD-8`, `UX-20`) that already applies
+here: `timed` and `time_taken_minutes` on a past-paper attempt are the student's own account,
+not a measurement, and must read as such — the distinction §5.6 draws against the new measured
+mock timer applies in the other direction here.
+
+### 5.8 Materials
+
+**Shows:** the union of `FilesPage.tsx` and `RecordingsPage.tsx` — tutor-shared files and
+lesson recording links, grouped by class, under the one name `AV-106` gives this destination.
+Neither screen's content changes; they are presented together rather than as two tabs.
+
 ---
 
 ## 6. Parent
 
-**One screen. No navigation.** The parent role has exactly one route today
-(`App.tsx:149-153`) and that is correct, not an omission — adding a navigation bar to a
-one-screen role is decoration. The invite link is single-use and already identifies the child
-(`SEC-13`), so the parent lands directly on the screen with no intermediate explainer.
+**Four tabs: Overview · Progress · Attendance · Reports** (`AV-107`) — this reverses what this
+document previously specified here (one screen, no navigation) on the strength of a settled
+decision that post-dates it. The invite link is still single-use and already identifies the
+child (`SEC-13`), so the parent still lands directly on Overview with no intermediate explainer
+— only the destinations after that first screen are new.
+
+**Every field below already belongs to the parent role under `AV-46`, unchanged, and `AV-64`,
+the parent-report content list — this phase distributes existing content across four tabs; it
+adds no field to what a parent may see.** `AV-46` names exactly three things: the weekly send,
+readiness and predicted grade, and attendance. `AV-64` names what the parent's *report*
+additionally carries — an attendance and homework record — and, as pointedly, what it does
+**not**: the chapter/topic breakdown and mistake patterns that appear on the tutor's and
+student's own screens (`CLAUDE.md`'s "Deliberate difference — do not harmonise" callout exists
+for exactly this gap). Because the weekly report itself is barred from chapter/topic breakdowns
+or mistake patterns, no in-app tab may show the parent more than the report does; the split
+below is a redistribution of the one screen's existing content, not new depth.
+
+**Screen inventory (`D.1`):**
+
+| Nav position | Backs onto | State |
+|---|---|---|
+| Overview | `parent/ParentDashboard.tsx`, splitting | Built → split into four tabs, no new content (`AV-107`) |
+| Progress | `parent/ParentDashboard.tsx`'s `SubjectRow` rows, splitting | Partial — same source, new tab |
+| Attendance | `parent/ParentDashboard.tsx`, splitting | Partial — same source, new tab |
+| Reports | `parent/ParentDashboard.tsx`'s existing `ReportsPanel`, splitting | Partial — same source, new tab |
+
+### 6.1 Overview
 
 ```
 Sara — Year 11
@@ -527,44 +951,27 @@ Sara — Year 11
 Sara is on track in 3 of her 4 subjects.
 Based on 34 marked pieces · updated weekly
 
-  Chemistry     On track          predicted 7 · averaging 6    ↑
-  Biology       On track          predicted 6 · averaging 6    →
-  Physics       On track          predicted 7 · averaging 7    ↑
-  Maths         Needs attention   predicted 4 · averaging 4    ↓
-  Geography     not enough data yet
-
 HOW IT'S GOING
-  Sara's chemistry has moved up steadily this month — moles and
-  rates are both solid now. Maths is the one to watch: algebraic
-  fractions have been the sticking point across three pieces of
-  work. It's on her tutor's plan for this week.
+  Sara's chemistry has moved up steadily this month. Maths is
+  the one to watch — it's been the sticking point across three
+  pieces of work, and it's on her tutor's plan for this week.
 
 WHAT YOU CAN DO
   Nothing is needed right now. We'll tell you if that changes.
-
-Earlier reports ▾
 ```
 
-**Hierarchy: child state → narrative → evidence → detail.** The first sentence answers the
-question. The subject rows are the objects. The paragraph is the explanation. Earlier reports
-are the detail.
-
-**Predicted and averaging are both shown and visibly distinguished** (§3.3). This is where the
-pair earns its place: a parent who sees only a predicted grade reads it as a forecast the
-school is committing to. Seeing it beside the average makes it legible as an estimate that
-moves.
+**Hierarchy: child state → narrative → what you can do.** The first sentence still answers the
+question the whole role exists to answer; the subject-by-subject detail that used to sit
+between the verdict and the narrative moves to Progress (§6.2), where it has its own tab rather
+than being read past on every visit. **The narrative itself names no chapter or topic** — `AV-99`
+makes it the same generated text as the weekly send, and `AV-64` bars the send from the
+chapter/topic breakdown, so the narrative stays at the level "chemistry" and "maths," never
+"moles" or "algebraic fractions."
 
 **`WHAT YOU CAN DO` is required, including — especially — when the answer is nothing.** A
 parent visits rarely, cannot act on most of what they see, and reads ambiguity as bad news
 that then lands on the child. A screen that ends without saying whether anything is required
 manufactures the anxiety it exists to prevent.
-
-**No per-homework detail.** Aggregates and direction only. Per-piece results turn the parent
-screen into a surveillance surface the student can feel, which damages the relationship the
-tutor depends on.
-
-**`not enough data yet` is a first-class state here, not an edge case.** A newly linked
-parent will see mostly that, and the screen must look deliberate in that condition.
 
 > **Proposed, not accepted — tutor review of the parent narrative.** The narrative is
 > AI-written and carries no byline (§8). `PROD-7` establishes that the tutor has final
@@ -573,6 +980,46 @@ parent will see mostly that, and the screen must look deliberate in that conditi
 > product. The proposal is that the tutor sees it on the class page before the parent does,
 > with one control to edit or suppress — a veto, not a writing obligation. **This has not been
 > agreed and is recorded here as an open decision**, not as part of the design.
+
+### 6.2 Progress
+
+```
+  Chemistry     On track          predicted 7 · averaging 6    ↑
+  Biology       On track          predicted 6 · averaging 6    →
+  Physics       On track          predicted 7 · averaging 7    ↑
+  Maths         Needs attention   predicted 4 · averaging 4    ↓
+  Geography     not enough data yet
+```
+
+**The per-subject rows this document previously placed inline on the single screen, given a
+tab of their own.** Nothing is added beyond what `AV-46` already grants — readiness and
+predicted grade, per subject. **Predicted and averaging are both shown and visibly
+distinguished** (§3.3): a parent who sees only a predicted grade reads it as a forecast the
+school is committing to; seeing it beside the average makes it legible as an estimate that
+moves. **No per-homework or per-topic detail** — `AV-64` withholds the chapter/topic breakdown
+from the parent's report, so this tab, which may show no more than the report, withholds it
+too. Aggregates and direction only; per-piece results turn the parent screen into a
+surveillance surface the student can feel, which damages the relationship the tutor depends on.
+
+**`not enough data yet` is a first-class state here, not an edge case.** A newly linked parent
+will see mostly that, and the tab must look deliberate in that condition.
+
+### 6.3 Attendance
+
+**Shows:** the child's attendance record — the same fact `AV-46` already grants the parent day
+to day and `AV-64` includes in their weekly report, given its own tab per `AV-107` rather than
+folded into Progress. **Not a readiness factor and carries no colour** (`AV-33`); it explains
+gaps in the Progress tab's evidence, it does not score them — the same relationship it has to
+readiness on the student's own Progress tab (§5.2).
+
+### 6.4 Reports
+
+**Shows:** the parent's weekly sends — *"Earlier reports ▾"* from the original single screen,
+now a tab of its own. **This is the parent's report in full, and it is one artifact, not two**
+(`AV-63`): fixed facts (readiness, predicted grade, attendance, and — only here, not on
+Progress or Overview — a homework record) plus the one AI paragraph, composed by the same
+writer that produces the on-screen narrative (`AV-99`, `8.2`, `8.3`). **This is a different
+document from the tutor's report** (§4.12); neither is built by filtering the other (`AV-64`).
 
 ---
 
@@ -583,38 +1030,63 @@ finds an empty product on day one does not return to see it fill.
 
 ### 7.1 The actual flow
 
-Verified against the implementation:
+**Superseded by `9.1`: onboarding becomes a blocking, step-by-step flow the tutor must
+finish**, reaching an accepted teaching plan before the product hands over to §4's screens
+(`AV-56`, `AV-60`). This replaces the shorter flow this document previously verified against
+the current implementation — subjects, a class, an invite code, everything else optional at
+step 5 — which described the product before the phases below exist. The eleven steps, in the
+order `9.1` fixes:
 
 ```
-1  Subjects, scales, boundaries
-2  Create a class          →  invite code
-3  Share the code
-   ─────────── hours or days ───────────
-4  Students join
-5  Only now: optional seeding
+ 1  Language, time zone, weekly send day        (pre-filled default)
+ 2  Subject — exam board and level
+ 3  Syllabus upload, then review the chapter/topic tree
+ 4  Teaching guidance upload
+ 5  Grade boundaries
+ 6  Per-subject marking rules              — offered, skippable
+ 7  Mistake categories — accept, edit or replace the suggested list
+ 8  Weak-topic threshold
+ 9  Class — one subject
+10  Exam date, lessons per week and length, past-paper start, holidays
+11  Accept the teaching plan                        — the finish line
 ```
 
-**Tutors create classes. Students attach themselves to one.** `InviteKind.student_join`
-carries a `group_id` (`backend/app/api/auth.py:181-184`), and student signup calls
+**Server-side state, resumable, and not skippable up to step 11** (`9.1`) — a frontend gate is
+never an authorization control (`SEC-10`), so what this list marks as required is enforced by
+what the backend allows next, not only by what the screen shows. **Step 6 is the one named
+exception**: per-subject marking rules are offered and may be skipped (`AV-75`, `AV-87`); every
+other step is not.
+
+**Tutors still create classes; students still attach themselves to one**, now at step 9 rather
+than step 2. `InviteKind.student_join` carries a `group_id`
+(`backend/app/api/auth.py:181-184`), and student signup calls
 `_add_to_group(db, invite.group_id, …)` at `:230`. A tutor cannot create a student record.
 
-**Therefore no design may assume students exist when a tutor finishes setting up.** Any
-onboarding step that asks a tutor about their students — rating them, entering their past
-results, reviewing their readiness — cannot be part of steps 1–3. It belongs at step 5, after
-the room has filled, and must be optional because it may never happen.
+**Adding students is optional and sits outside the flow** (`AV-60`) — this document's earlier
+conclusion, that no design may assume students exist when a tutor finishes setting up, still
+holds without amendment; only where it applies has moved, from step 2 to step 9, and the empty
+room below now follows step 11 rather than step 3.
 
-**Grade boundaries ship pre-filled** with published standard values per subject and scale, and
-the tutor adjusts them. The alternative — requiring a tutor to type every boundary for every
-subject before anything works — puts a data-entry wall in front of a stranger. Where defaults
-have not been confirmed by the tutor, that is a fact the interface may state; it is not a
-reason to withhold the grade.
+**Grade boundaries still ship pre-filled**, now named explicitly as step 5, with published
+standard values per subject and scale, and the tutor adjusts them. The alternative — requiring
+a tutor to type every boundary for every subject before anything works — puts a data-entry wall
+in front of a stranger. Where defaults have not been confirmed by the tutor, that is a fact the
+interface may state; it is not a reason to withhold the grade.
+
+**This document records the order and what each step collects, not the interaction design of
+getting through it.** Step 3's chapter/topic review is the existing `SyllabusUpload`
+draft-then-review pattern, extended per `2.3`; step 7's suggested category list and step 8's
+threshold value are `4.1`'s and `5.6`'s to specify beyond what §7.1 names. Eleven steps behind
+one blocking flow is new ground for the product, and this phase does not draw the screen for
+any one of them beyond what `9.1` and the phase owning that step's data already settle.
 
 ### 7.2 The empty room
 
-Between steps 3 and 4 the tutor has a configured class with nobody in it. **The correct
-surface here is not a dashboard.** Readiness is computed from marked evidence; there is none;
-every panel would honestly and correctly render "not enough data yet", and a screen of empty
-circles reads as a broken product rather than a new one.
+Once step 11 is accepted and the invite is shared, the tutor has a configured class — with an
+accepted teaching plan behind it — and nobody in it. **The correct surface here is not a
+dashboard.** Readiness is computed from marked evidence; there is none; every panel would
+honestly and correctly render "not enough data yet", and a screen of empty circles reads as a
+broken product rather than a new one.
 
 ```
 Y11 CHEMISTRY
@@ -649,7 +1121,16 @@ satisfy.
 ## 8. The precomputed narrative
 
 Two surfaces carry AI-written prose: `WHAT CHANGED` on the tutor's home (§4.1) and
-`HOW IT'S GOING` on the parent screen (§6).
+`HOW IT'S GOING` on the parent's Overview tab (§6.1).
+
+**One writer now produces both of these, plus the weekly send (§4.1, §5.1, §6.4)** (`AV-98`,
+`AV-99`, `8.3`). The narrative was not deleted, and this phase does not introduce a second
+generator for the weekly artifact — the send reads the same stored rows `WHAT CHANGED` and
+`HOW IT'S GOING` already read, rather than composing its own text. This keeps `8.1`'s
+requirement below true for a third surface at no additional cost: the weekly send is itself a
+precomputed, stored artifact, never assembled at request time. `services/narrative.py`'s
+sweep-not-a-chain shape survives the merge unchanged (`CODE-13`, `E24`); this document does not
+name the mechanism, consistent with the rest of this section.
 
 ### 8.1 The UX requirement
 
@@ -720,9 +1201,13 @@ Every citation below was verified against the working tree while this document w
 |---|---|---|
 | Purple and orange are not retargeted in `frontend/src/index.css`. Five sites render raw Tailwind palette colours on the navy surface with no token and no contrast measurement. | Semantic tokens, with cases added to `frontend/src/test/contrast.test.ts`. | `UX-2`; `student/SubmitHomeworkPage.tsx:151`, `tutor/SubmissionReviewPage.tsx:23,235,258`, `tutor/HomeworkOverviewPage.tsx:64` |
 | `ParentDashboard.tsx` and `StudentHomePage.tsx` are unmigrated legacy markup — `text-slate-*`, `bg-blue-600`, `bg-white` — so the student and parent halves of the product are visually a different application from the tutor's. | Migrated to the semantic token system. | `UX-2`; `parent/ParentDashboard.tsx`, `student/StudentHomePage.tsx` |
-| The mobile navigation maps the full `nav` array, ignoring the `slot` split the desktop sidebar honours at `:85-86`, and renders every item in one horizontally scrolling strip. | A bottom tab bar honouring `slot`. | §4.2; `components/AppShell.tsx:159-165` |
-| `<meta name="viewport" content="width=device-width, initial-scale=1.0">` — no `viewport-fit=cover`, and no safe-area handling exists anywhere. | Both, before any fixed bottom bar ships. | §4.2, §5.1; `frontend/index.html:5` |
 | `ClassReadinessPage.tsx` carries its own legacy markup and a duplicated copy of the readiness thresholds. | Converged onto the shared `ReadinessTable`. | `tutor/ClassReadinessPage.tsx` |
+
+> **Two rows closed, per `GOV-2`.** The bottom tab bar ignoring the `slot` split, and the
+> missing `viewport-fit=cover`/safe-area handling, were both verified resolved while writing
+> this phase — `components/AppShell.tsx:20,126-134,212` and `frontend/index.html:5` — delivered
+> as PR 12. Their entries are removed rather than left to describe a state that no longer
+> exists; see the correction recorded at §4.2.
 
 ### 9.3 Technical contradictions
 
@@ -744,7 +1229,7 @@ These test the Phase-1 structure, and become Phase 2's baseline.
 |---|---|
 | **Tutor** | Can determine whether anything needs their attention **immediately, without navigating** — from the first line of the home surface, on either device. |
 | **Student** | Can determine **what to do next immediately** — the `DO` section is above the fold on every supported viewport, and never requires interpreting a score first. |
-| **Parent** | Can understand **whether their child is okay without navigation** — the first sentence answers it, and the screen states whether anything is required of them. |
+| **Parent** | Can understand **whether their child is okay without navigating away from Overview** — the first sentence on landing answers it, and the screen states whether anything is required of them. The criterion predates `AV-107`'s four tabs (§6); it is now read as "without leaving the landing tab" rather than "the role has no navigation at all," since the parent still lands on Overview by default and the deeper tabs are optional. |
 
 Three structural checks apply to all three:
 
@@ -835,3 +1320,102 @@ time of writing; these begin at `UX-27`.
 > call to render its primary content.
 > *Rationale:* a surface whose value is that opening it is cheap cannot contain a model call in
 > its render path.
+
+---
+
+## 13. States and copy for the screens this phase changes (D.4)
+
+`docs/experience-implementation-plan.md` set the standard this task matches: every state a
+surface can be in, and the exact words it says in each (§3, §4 there). That document is
+delivered — its 30 PRs are shipped — and its own screens keep the states already recorded
+against them; **this section covers only the surfaces §4–§8 above add or restructure**, so the
+two documents do not duplicate or drift against each other.
+
+**The governing rules do not change.** A missing measurement is words, never `0`, `0%` or an
+empty bar (`PROD-2`, `UX-19`); self-declared data is labelled as self-declared wherever shown
+(`PROD-8`, `UX-20`), and so is anything hand-scored by a tutor (`AV-34`); a section with nothing
+to report is not rendered, and the terminal state is a sentence (`UX-29`). Every new empty state
+below is an application of these, through the existing `EmptyState` component
+(`components/ui.tsx:124-140`) and the shared `ABSENT` copy map (`frontend/src/lib/labels.ts`),
+not a new mechanism.
+
+### 13.1 Copy this phase's decisions fix exactly
+
+Two strings are settled by the product manager, not composed here — quoted rather than
+paraphrased, because a paraphrase would be this document inventing wording a decision already
+gave:
+
+| Decision | Exact string |
+|---|---|
+| `AV-101` — the tutor home's good-news figure | *"{n} questions marked — roughly {t} of marking"* — `{n}` is the real, traceable auto-finalized count; `{t}` is a derived estimate. **"Roughly" is not optional and may not be dropped.** |
+| `UX-26`, first sign-in (§5.4) | Not a literal string, but a fixed requirement on one: the screen must state, plainly, that the assistant explains concepts and works through method, and does not supply answers to work currently assigned to the student. |
+
+### 13.2 State matrix — the genuinely new operational states
+
+Legend: **absent** = not rendered at all · **skeleton** = the existing hand-rolled
+`animate-pulse` loading pattern already used throughout `frontend/src/`. Cells not listed follow
+the same loading/error handling every other async surface in the product already uses
+(`UX-23`) and are not repeated here.
+
+**Overview (tutor), §4.1 additions**
+
+| State | Good-news figure | Plan-progress / upload prompt | Weak topics line |
+|---|---|---|---|
+| No auto-finalized marks in the period | absent | as applicable | as applicable |
+| Marks exist | *"{n} questions marked — roughly {t} of marking"* | absent unless a class is behind or a chapter has no classified | absent unless a factor is below the tutor's threshold somewhere |
+| Nothing in any of the three | all three absent | — | — |
+
+**Mocks (tutor and student), §4.9 / §5.6 — the timed sitting state**
+
+| State | What's shown |
+|---|---|
+| Not yet opened | Assigned, not started; no clock shown |
+| Opened, in progress | Server-side clock running; **no feedback or mark of any kind** (`AV-92`) |
+| Submitted on time | Marking in progress → marked, exactly as homework |
+| Submitted after the server clock elapsed | Accepted; **flagged**, not blocked (`AV-116`) — this document does not fix the flag's exact wording, which is not settled anywhere in the plan; it states only that the flag must be visibly different from the self-declared `timed` label a past-paper attempt carries (§5.7), because the two describe different kinds of evidence and must not look alike |
+
+**Past papers (tutor), §4.10 — booklet extraction**
+
+| State | What's shown |
+|---|---|
+| Single-paper upload | Behaves exactly as today; no extraction step |
+| Booklet uploaded, extraction pending | The existing `SyllabusUpload`-pattern pending state, reused rather than redesigned (`3.5`) |
+| Extraction complete, awaiting tutor review | The draft list — session, paper number, code, page range — editable before it is applied, matching `SyllabusUpload`'s review screen shape |
+| Extraction failed | The existing `aiUnavailable` / `loadFailed` labels in `ABSENT` apply; this is not a new failure mode |
+
+**Onboarding (tutor), §7.1 — the eleven-step flow**
+
+| State | What's shown |
+|---|---|
+| Step 1–5, 7–11 incomplete | The current step is reachable; steps after it are not — enforced server-side (`SEC-10`), not only visually |
+| Step 6 (marking rules) | Reachable and explicitly skippable — the one step this applies to (`AV-75`, `AV-87`) |
+| Tutor leaves and returns | Resumes at the first incomplete step; nothing already entered is lost |
+| Step 11 accepted | Onboarding ends; the tutor lands on Overview, which is now in the empty-room state (§7.2) if no student has joined yet |
+
+**Readiness (tutor), §4.11 — configurable factors**
+
+| State | What's shown |
+|---|---|
+| Factor at its default weight | Unchanged from today |
+| Factor switched off | **Omitted from the weighted set**, not shown at zero weight (`5.4`, `AV-34`) — the same "omit, don't fabricate" rule as an evidence-less factor (`PROD-2`), applied to a tutor's own configuration choice rather than to missing data |
+| Custom criterion, scored | Shown labelled as tutor-entered, wherever it surfaces downstream (`PROD-8`, `UX-20`) |
+| Custom criterion, not yet scored for a student | *"not enough data yet"* — the same `ABSENT.noEvidence` string every other unscored factor already uses; a hand-scored criterion with nobody having scored it yet is absent data like any other |
+
+**Parent, §6 — the four-tab split**
+
+| State | Overview | Progress | Attendance | Reports |
+|---|---|---|---|---|
+| Just linked, nothing marked | *"There isn't enough marked work yet to say how {name} is doing."* — the settled string (`experience-implementation-plan.md`'s no-data row) | rows, all *"not enough data yet"* | *"not enough data yet"* | absent — no send has gone out yet |
+| Steady state | as §6.1–§6.4 show | as §6.2 shows | the attendance record | the list, newest first |
+| Narrative refreshing | previous text + `Updating…` (`UX-21`), never blank | unchanged | unchanged | unchanged |
+
+This table does not repeat `docs/experience-implementation-plan.md` §3.5's existing parent
+state matrix, which covered the single pre-`AV-107` screen; it adds only what four tabs change
+— which tab a given fact now lives on — not the facts themselves.
+
+### 13.3 What this section deliberately leaves open
+
+Consistent with §7.1, §4.9 and §4.11 above: where the plan does not give an exact string and no
+existing `labels.ts` entry already covers the situation by direct analogy, this document does
+not supply one. Naming the gap is the honest version of "matching the standard" — inventing
+copy to fill it would not be.
