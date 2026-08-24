@@ -6,8 +6,8 @@
  */
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { AuthProvider, useAuth } from "../auth/AuthContext";
-import type { User } from "../api/client";
+import { AuthProvider, useApplyUser, useAuth } from "../auth/AuthContext";
+import type { AuthResponse, User } from "../api/client";
 
 const alice = {
   id: 1,
@@ -18,9 +18,15 @@ const alice = {
 } as unknown as User;
 
 let ctx: ReturnType<typeof useAuth>;
+// `useApplyUser()` binds the epoch current at whichever render produced it —
+// exactly what a `useMutation`'s `onSuccess` closes over in real callers. This
+// is captured fresh on every render of Probe, the same way a component's own
+// render would.
+let boundApplyUser: (user: User) => void;
 
 function Probe() {
   ctx = useAuth();
+  boundApplyUser = useApplyUser();
   return <div data-testid="who">{ctx.loading ? "…" : (ctx.user?.name ?? "signed out")}</div>;
 }
 
@@ -58,7 +64,7 @@ test("a late identity update after sign-out does not restore the session", async
   // then it resolves. Without the guard the provider ends up with tokens gone
   // and `user` set — which every role gate reads as signed in.
   act(() => ctx.signOut());
-  act(() => ctx.applyUser({ ...alice, name: "Alice Renamed" }));
+  act(() => boundApplyUser({ ...alice, name: "Alice Renamed" }));
 
   expect(screen.getByTestId("who")).toHaveTextContent("signed out");
   expect(localStorage.getItem("avora-tokens")).toBeNull();
@@ -67,7 +73,7 @@ test("a late identity update after sign-out does not restore the session", async
 test("a late update belonging to a different account is ignored", async () => {
   await mounted();
 
-  act(() => ctx.applyUser({ ...alice, id: 2, name: "Bob" }));
+  act(() => boundApplyUser({ ...alice, id: 2, name: "Bob" }));
 
   expect(screen.getByTestId("who")).toHaveTextContent("Alice");
 });
@@ -75,7 +81,33 @@ test("a late update belonging to a different account is ignored", async () => {
 test("an update for the signed-in user still applies", async () => {
   await mounted();
 
-  act(() => ctx.applyUser({ ...alice, name: "Alice Renamed" }));
+  act(() => boundApplyUser({ ...alice, name: "Alice Renamed" }));
 
   expect(screen.getByTestId("who")).toHaveTextContent("Alice Renamed");
+});
+
+test("a write from before a sign-out/sign-back-in cycle is ignored even for the same account", async () => {
+  await mounted();
+
+  // Captured now, while signed in under the epoch this render started with —
+  // the closure a `useMutation`'s `onSuccess` would have bound at this point.
+  // TanStack Query keeps calling this exact closure even once the component
+  // that created it has unmounted (verified separately), so an id check alone
+  // cannot tell this write apart from one the *current* session actually made:
+  // both name Alice's id.
+  const staleWrite = boundApplyUser;
+
+  act(() => ctx.signOut());
+  act(() =>
+    ctx.signIn({
+      user: alice,
+      tokens: { access_token: "t2", token_type: "bearer" },
+    } as unknown as AuthResponse),
+  );
+  await waitFor(() => expect(screen.getByTestId("who")).toHaveTextContent("Alice"));
+
+  act(() => staleWrite({ ...alice, name: "Stale Rename" }));
+
+  expect(screen.getByTestId("who")).toHaveTextContent("Alice");
+  expect(screen.getByTestId("who")).not.toHaveTextContent("Stale Rename");
 });

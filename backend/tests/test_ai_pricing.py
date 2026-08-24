@@ -58,7 +58,8 @@ _MODEL_SETTINGS = (
 
 
 def _repo_settings() -> Settings:
-    """`config.py`'s own defaults — deliberately not the cached `get_settings()`.
+    """`config.py`'s own field defaults — deliberately not the cached
+    `get_settings()`.
 
     That reads whatever `.env` file sits next to it, which is the developer's
     own local configuration (the setup instructions have everyone `cp
@@ -69,9 +70,18 @@ def _repo_settings() -> Settings:
     comparison against whatever happens to be on that one machine: it fails
     locally for a developer pointed at a real deployed model while passing in
     CI, where no `.env` exists and the field defaults are all that's there.
-    `_env_file=None` disables the dotenv lookup so this matches CI's view
-    regardless of what the local checkout has on disk."""
-    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+    `_env_file=None` disables the dotenv lookup, but pydantic-settings still
+    reads real environment variables above it — a developer with these set in
+    their shell profile (direnv, `.bashrc`) would leak straight through that
+    alone. So every model field is also passed its own class default as an
+    explicit keyword: pydantic-settings ranks constructor arguments above
+    environment variables, which forces each one back to config.py's default
+    regardless of what the process environment holds. Verified: exporting
+    `ANTHROPIC_MODEL`/`GEMINI_MODEL`/`AI_CHAT_MODEL` before running this still
+    resolves to `claude-opus-4-8` / `gemini-2.5-pro` / `claude-haiku-4-5`."""
+    overrides = {name: Settings.model_fields[name].default for name in _MODEL_SETTINGS}
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
 
 def _configured_model_ids() -> set[str]:

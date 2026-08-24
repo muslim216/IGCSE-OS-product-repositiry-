@@ -82,6 +82,18 @@ describe("the pre-rename key", () => {
     expect(localStorage.getItem(LEGACY)).toBeNull();
   });
 
+  test("a current value that parses to a primitive is discarded rather than thrown", () => {
+    // JSON.parse succeeds on the literal "null" — it is not malformed JSON,
+    // so the try/catch around JSON.parse never fires. Only a follow-up check
+    // that the parsed value is actually an object stops `.access_token` from
+    // being read off `null`, which would throw uncaught on every request.
+    localStorage.setItem(CURRENT, "null");
+    localStorage.setItem(LEGACY, JSON.stringify({ access_token: "old", token_type: "bearer" }));
+
+    expect(() => getStoredTokens()).not.toThrow();
+    expect(getStoredTokens()?.access_token).toBe("old");
+  });
+
   test("an unparseable old value is discarded rather than thrown", () => {
     // Every request reads this. Throwing here would take down the app
     // including the login that would replace the bad entry.

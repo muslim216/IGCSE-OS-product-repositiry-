@@ -86,20 +86,22 @@ split six files of correctly co-located code.
 undeclared than the explicit `packages = ["app.services", "app.schemas"]` list suggests.
 mypy's default `follow_imports=normal` checks every module those two packages import, and
 `app/models` (the barrel nearly every service imports) and `app/workers/jobs.py` (imported
-for `enqueue`) both come along for free — verified in practice, just not declared. Only
-`app/api` is genuinely unchecked: nothing in `app/services` or `app/schemas` imports upward
-into it (`BE-1`), so a wrong annotation in a router still misleads a reader with nothing to
-catch it. That router-only gap is the whole of what is left of this risk.
+for `enqueue`) both come along for free — verified in practice, just not declared. `app/api`,
+`app/security.py` and `app/main.py` are genuinely unchecked: nothing in `app/services` or
+`app/schemas` imports any of them (`BE-1` keeps the routers and the entrypoint from being
+imported by a lower layer), so a wrong annotation in a router, `security.py`, or `main.py`
+still misleads a reader with nothing to catch it. That is the whole of what is left of this
+risk.
 
 **Trigger:** a typing regression merging unnoticed; or CI being disabled, made
 non-blocking, or its jobs allowed to stay red.
 
 **Mitigation:** done for correctness and style, and for types in `services/` and
 `schemas/` — which, transitively, is most of `models/` and `workers/` too. Declaring
-`app.api` explicitly is the remaining ratchet — add it to `[tool.mypy] packages` in
-`backend/pyproject.toml` and to the CI step together, and fix what it finds in that PR rather
-than adding a suppression. `ignore_missing_imports = true` is already set, so the cost is
-`app/api`'s own annotations, not its dependencies'.
+`app.api`, `app.security` and `app.main` explicitly is the remaining ratchet — add them to
+`[tool.mypy] packages` in `backend/pyproject.toml` and to the CI step together, and fix what
+it finds in that PR rather than adding a suppression. `ignore_missing_imports = true` is
+already set, so the cost is those modules' own annotations, not their dependencies'.
 Recorded in §12 and §13.
 
 **Accepted for now**, at P4. No longer the highest-priority item in the register.
@@ -384,7 +386,7 @@ breaker. The metering foundation is deliberately built for exactly this.
 | RISK-7 | Authorization duplicated eleven times | Low | Severe | P3 | role checks closed; org scoping still per query |
 | RISK-10 | Prompt changes have no regression net | Med | Med | P3 | |
 | RISK-12 | AI cost model is unbounded | Med | Med | P3 | |
-| RISK-2 | Nothing automated verifies any change | Low | Med | P4 | lint, tests, types and migrations all gated; mypy covers `services/` and `schemas/` only |
+| RISK-2 | Nothing automated verifies any change | Low | Med | P4 | lint, tests, types and migrations all gated; mypy's declared scope is `services/`/`schemas/`, but transitively covers most of `models/`/`workers/` too — `api/`, `security.py` and `main.py` are the real gap |
 
 **One entry is ranked P1: `RISK-11`.** It is the only one in the register whose stated
 trigger has actually fired rather than being anticipated — `npm audit`, run for the first

@@ -12,7 +12,7 @@
  * is the regression these tests exist to catch.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { calendarDaysUntil, dayKeyIn, formatDayMonth } from "../lib/timezones";
+import { calendarDaysUntil, dayKeyIn, detectedTimezone, formatDayMonth } from "../lib/timezones";
 
 // 11:00 UTC on 10 Aug 2026: mid-morning in London, 23:00 the same day in
 // Auckland — so both readers are still on the 10th when "now" is taken.
@@ -70,10 +70,12 @@ describe("an unusable stored zone degrades instead of breaking the screen", () =
     const instant = new Date("2026-09-05T09:00:00Z");
     expect(() => formatDayMonth(instant, unknown)).not.toThrow();
     // And degrades to the browser's zone specifically — the same string the
-    // screen showed before the per-user override existed.
-    expect(formatDayMonth(instant, unknown)).toBe(
-      instant.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-    );
+    // screen showed before the per-user override existed. Compared against
+    // `formatDayMonth` called with the *actual* detected zone (a genuinely
+    // independent code path through the try branch, not the catch branch's own
+    // literal options object restated) so this would fail if the fallback ever
+    // stopped landing on the browser's zone, not just if it started throwing.
+    expect(formatDayMonth(instant, unknown)).toBe(formatDayMonth(instant, detectedTimezone()));
   });
 
   test("a valid zone still formats in that zone", () => {

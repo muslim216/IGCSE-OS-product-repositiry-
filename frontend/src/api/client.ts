@@ -60,16 +60,23 @@ export function apiUrl(path: string): string {
  * fetch and take down the whole app — including the login that would replace
  * the bad entry. Discard it and let the user sign in again instead. */
 function readStoredTokens(raw: string): StoredTokens | null {
-  let parsed: Partial<TokenPair>;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw) as Partial<TokenPair>;
+    parsed = JSON.parse(raw);
   } catch {
     return null;
   }
-  if (typeof parsed.access_token !== "string" || !parsed.access_token) return null;
+  // JSON.parse succeeds on plenty of things that are not our shape — the
+  // literal "null", a number, a quoted string — and none of them survives a
+  // `typeof` check the way the previous `Partial<TokenPair>` cast implied.
+  // `parsed.access_token` on `null` throws a TypeError uncaught by the block
+  // above, which is exactly the crash this function exists to prevent.
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const candidate = parsed as Partial<TokenPair>;
+  if (typeof candidate.access_token !== "string" || !candidate.access_token) return null;
   return {
-    access_token: parsed.access_token,
-    token_type: typeof parsed.token_type === "string" ? parsed.token_type : "bearer",
+    access_token: candidate.access_token,
+    token_type: typeof candidate.token_type === "string" ? candidate.token_type : "bearer",
   };
 }
 

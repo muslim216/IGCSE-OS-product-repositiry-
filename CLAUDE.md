@@ -103,9 +103,10 @@ superseded UI experiments and the original build history. A branch that has merg
 > in task 0.8: **`packages = ["app.services", "app.schemas"]` is the explicit mypy scope** —
 > but mypy's default `follow_imports=normal` checks every module those two packages import,
 > so `app/models` (imported by nearly every service) and `app/workers/jobs.py` (imported for
-> `enqueue`) are verified too, in practice. Only `app/api` is genuinely unchecked — nothing
-> in `app/services` or `app/schemas` imports upward into it (`BE-1`). Widening the *explicit*
-> scope to `app/api` is still a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
+> `enqueue`) are verified too, in practice. `app/api`, `app/security.py` and `app/main.py`
+> are genuinely unchecked — nothing in `app/services` or `app/schemas` imports any of them
+> (`BE-1` keeps the routers and the entrypoint from being imported by a lower layer). Widening
+> the *explicit* scope to any of them is still a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
 > and CodeRabbit are GitHub Apps and may also run; nothing in the repo evidences them.
 
 ## Common commands
