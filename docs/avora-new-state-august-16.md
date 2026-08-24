@@ -851,10 +851,21 @@ closes that, and every subsequent phase builds its own screens against what this
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
-| **D.1** | Screen inventory and current-state capture | S | → |
-| **D.2** | Redesign the existing screens | L | after D.1 |
-| **D.3** | Design the new screens | L | after D.1 |
-| **D.4** | States, empty states and copy | M | after D.2, D.3 |
+| **D.1** | Screen inventory and current-state capture — ✅ done 24 Aug | S | ✅ |
+| **D.2** | Redesign the existing screens — ✅ done 24 Aug | L | ✅ |
+| **D.3** | Design the new screens — ✅ done 24 Aug | L | ✅ |
+| **D.4** | States, empty states and copy — ✅ done 24 Aug | M | ✅ |
+
+**✅ Phase D is done, 24 Aug.** All four tasks landed in one pass in `docs/experience-design.md`
+(§4 Tutor, §5 Student, §6 Parent, §7 Onboarding and §13 for D.1–D.4 respectively), grounded
+throughout in the `AV`/`E` decisions already settled above — no product or architecture
+decision was made in writing it. Two stale entries in that document's own §9 contradiction
+record were also corrected in passing, verified against the working tree
+(`components/AppShell.tsx`, `frontend/index.html`) rather than assumed. Where a screen the
+"genuinely new, at minimum" list below names had no settled detail beyond a one-line mention —
+the custom-criteria builder's exact form, the late-mock flag's exact wording — that document
+says so explicitly rather than inventing it; those remain open for whichever phase task builds
+the screen. Phase 2 may now build against it.
 
 **Scope, precisely.** **Every screen is redesigned — existing as well as new** (AV-102). The
 product must read as one thing afterwards, not as new screens bolted onto old ones.
