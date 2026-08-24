@@ -6,18 +6,27 @@
  * first time someone moved a file.
  */
 
-/** Every IANA zone this browser knows, for the picker.
+/** Every zone the pickers offer.
  *
  * Intl.supportedValuesOf is recent enough that it may be absent; when it is,
- * the control degrades to offering the detected zone alone rather than
- * disappearing. An empty list is a smaller UI, not a broken one. */
+ * the control degrades to offering UTC and the detected zone alone rather than
+ * disappearing. A short list is a smaller UI, not a broken one.
+ *
+ * UTC is added because that list does not contain it — V8 returns 418 zones
+ * and neither `UTC` nor `Etc/UTC` is among them. The organization control tells
+ * an unset tutor that "days are worked out in UTC", so UTC is a zone this
+ * product names to users and one the API accepts (`available_timezones()`
+ * carries it); a tutor who wants to pin it deliberately, rather than leave the
+ * setting unset, could not choose it from a list built on the browser alone. */
 export function supportedTimezones(): string[] {
   const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+  let zones: string[];
   try {
-    return intl.supportedValuesOf?.("timeZone") ?? [];
+    zones = intl.supportedValuesOf?.("timeZone") ?? [];
   } catch {
-    return [];
+    zones = [];
   }
+  return zones.includes("UTC") ? zones : [...zones, "UTC"];
 }
 
 export function detectedTimezone(): string | null {

@@ -23,7 +23,7 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, TypedDict
+from typing import Any, Generic, TypedDict, TypeVar
 
 from anthropic import AsyncAnthropic
 from anthropic.types import TextBlockParam
@@ -108,17 +108,29 @@ def resolve_surface(surface: str, *, require_streaming: bool = False) -> tuple[A
     return provider, model
 
 
+ParsedT = TypeVar("ParsedT", bound=BaseModel)
+
+
 @dataclass
-class AiResponse:
+class AiResponse(Generic[ParsedT]):
     """One AI call's result, normalized across providers so callers (and
-    record_usage) never branch on which vendor answered."""
+    record_usage) never branch on which vendor answered.
+
+    Generic in the parsed payload's type: `structured_complete(output_format=X)`
+    returns `AiResponse[X]`, so `result: X = response.parsed` at each call site
+    (extraction.py, marking.py, readiness_v2_ai.py, syllabus_extraction.py) is
+    an assignment mypy actually checks. A bare `Any` here made every one of
+    those annotations decorative — the four modules that most need the schema
+    guarantee (their `output_format` is the whole contract with the model) were
+    exactly the ones mypy could not hold to it. `text_complete` has no schema
+    to parametrize by and returns `AiResponse[Any]`."""
 
     provider: AiProvider
     model: str
     prompt_version: str
     input_tokens: int = 0
     output_tokens: int = 0
-    parsed: Any = None
+    parsed: ParsedT | None = None
     text: str = ""
 
 
@@ -233,6 +245,25 @@ def _joined_system(system_text: str, extra_system: list[str]) -> str | None:
     return "\n\n".join(parts) or None
 
 
+def require_parsed(response: AiResponse[ParsedT]) -> ParsedT:
+    """The parsed payload of a `structured_complete` response, typed as
+    non-optional.
+
+    `AiResponse.parsed` is `ParsedT | None` on the dataclass because
+    `text_complete` never sets it — but every path through `structured_complete`
+    itself does: the Anthropic branch returns `response.parsed_output` from an
+    SDK call that raises rather than answering with none, and the Gemini branch
+    raises `ValueError` itself when `response.parsed` comes back empty. A caller
+    that only ever passes a `structured_complete` result through this is
+    trading a real (if currently unreachable) `None` for an assertion error with
+    a clear message, in exchange for mypy actually checking the schema type
+    downstream instead of silently accepting `Any` (the gap this function
+    closes — see the `AiResponse` docstring)."""
+    if response.parsed is None:
+        raise ValueError("structured_complete returned no parsed result")
+    return response.parsed
+
+
 # --------------------------------------------------------------------------
 # Unified completion helpers
 # --------------------------------------------------------------------------
@@ -242,11 +273,11 @@ async def structured_complete(
     *,
     surface: str,
     content: list[dict],
-    output_format: type[BaseModel],
+    output_format: type[ParsedT],
     max_tokens: int,
     extra_system: list[str] | None = None,
     cache_extra_system: bool = False,
-) -> AiResponse:
+) -> AiResponse[ParsedT]:
     """A structured (schema-constrained) completion for one surface. `content`
     is a list of Anthropic-shaped blocks; `output_format` is a Pydantic model
     both providers are asked to fill in."""
@@ -313,8 +344,9 @@ async def text_complete(
     prompt: str,
     max_tokens: int,
     extra_system: list[str] | None = None,
-) -> AiResponse:
-    """A plain-text completion for one surface."""
+) -> AiResponse[Any]:
+    """A plain-text completion for one surface. Never sets `parsed` — there is
+    no schema to parametrize `AiResponse` by, so callers get `Any` for it."""
     provider, model = resolve_surface(surface)
     template = get_prompt(surface)
     extras = extra_system or []

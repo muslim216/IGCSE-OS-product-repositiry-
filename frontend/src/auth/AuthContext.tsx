@@ -13,7 +13,12 @@ interface AuthState {
    * that changes a field on that row has to say so — invalidating a TanStack
    * query does not reach this state. Without it a user can save a preference,
    * see the control confirm it, and watch every screen that reads the identity
-   * keep the old value until a reload. */
+   * keep the old value until a reload.
+   *
+   * Ignored unless the update still describes the session that is signed in:
+   * a PATCH in flight when the user signs out would otherwise resolve after
+   * `signOut` cleared the state and put the old identity back — tokens gone,
+   * `user` non-null, so every role gate reads as signed in. */
   applyUser: (user: User) => void;
 }
 
@@ -47,7 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  const applyUser = useCallback((updated: User) => setUser(updated), []);
+  // Functional update, and matched on id: the decision has to be made against
+  // the state at the moment it applies, not the state captured when the write
+  // started. A signed-out provider (`current` null) and a different signed-in
+  // user both mean this response belongs to a session that is over.
+  const applyUser = useCallback(
+    (updated: User) => setUser((current) => (current?.id === updated.id ? updated : current)),
+    [],
+  );
 
   return (
     <AuthContext.Provider value={{ user, loading, signIn, signOut, applyUser }}>

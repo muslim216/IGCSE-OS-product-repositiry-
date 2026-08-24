@@ -53,6 +53,35 @@ describe("the pre-rename key", () => {
     expect(getStoredTokens()).toBeNull();
   });
 
+  test("an unusable current value does not cost a valid pre-rename session", () => {
+    // The migration exists to keep a signed-in browser signed in. A current
+    // entry that cannot be read is not a session — treating its mere presence
+    // as one throws away the only real credential the browser holds, and the
+    // refresh cookie cannot repair it (see the header comment).
+    localStorage.setItem(CURRENT, "{not json");
+    localStorage.setItem(LEGACY, JSON.stringify({ access_token: "old", token_type: "bearer" }));
+
+    expect(getStoredTokens()?.access_token).toBe("old");
+    expect(localStorage.getItem(LEGACY)).toBeNull();
+    expect(JSON.parse(localStorage.getItem(CURRENT)!).access_token).toBe("old");
+  });
+
+  test("a current value with no access token is treated the same way", () => {
+    localStorage.setItem(CURRENT, JSON.stringify({ token_type: "bearer" }));
+    localStorage.setItem(LEGACY, JSON.stringify({ access_token: "old", token_type: "bearer" }));
+
+    expect(getStoredTokens()?.access_token).toBe("old");
+  });
+
+  test("both keys unusable leaves nothing behind", () => {
+    localStorage.setItem(CURRENT, "{not json");
+    localStorage.setItem(LEGACY, "{also not json");
+
+    expect(getStoredTokens()).toBeNull();
+    expect(localStorage.getItem(CURRENT)).toBeNull();
+    expect(localStorage.getItem(LEGACY)).toBeNull();
+  });
+
   test("an unparseable old value is discarded rather than thrown", () => {
     // Every request reads this. Throwing here would take down the app
     // including the login that would replace the bad entry.

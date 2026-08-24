@@ -16,7 +16,7 @@ import json
 import pathlib
 import re
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.services.ai import estimate_cost_usd, model_pricing
 
 ENV_EXAMPLE = pathlib.Path(__file__).resolve().parent.parent / ".env.example"
@@ -57,8 +57,25 @@ _MODEL_SETTINGS = (
 )
 
 
+def _repo_settings() -> Settings:
+    """`config.py`'s own defaults — deliberately not the cached `get_settings()`.
+
+    That reads whatever `.env` file sits next to it, which is the developer's
+    own local configuration (the setup instructions have everyone `cp
+    .env.example .env` and then set real values), not something this repo
+    declares. What this guard actually checks is drift between config.py's
+    defaults and the committed .env.example — a repo-to-repo comparison — and
+    reading a developer's real ANTHROPIC_MODEL/GEMINI_MODEL turns it into a
+    comparison against whatever happens to be on that one machine: it fails
+    locally for a developer pointed at a real deployed model while passing in
+    CI, where no `.env` exists and the field defaults are all that's there.
+    `_env_file=None` disables the dotenv lookup so this matches CI's view
+    regardless of what the local checkout has on disk."""
+    return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
 def _configured_model_ids() -> set[str]:
-    settings = get_settings()
+    settings = _repo_settings()
     return {v for attr in _MODEL_SETTINGS if (v := getattr(settings, attr, ""))}
 
 
@@ -110,7 +127,7 @@ def test_the_anthropic_default_is_priced_before_the_routing_flip():
     model resolves to whatever it currently is. Leaving that unpriced would
     blind the interim window."""
     prices = _example_pricing()
-    default = get_settings().anthropic_model
+    default = _repo_settings().anthropic_model
     assert default in prices, (
         f"anthropic_model is {default!r} and it has no price in .env.example — "
         "price it, or land task 3.2 so nothing resolves to it."

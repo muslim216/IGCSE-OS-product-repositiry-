@@ -100,9 +100,12 @@ superseded UI experiments and the original build history. A branch that has merg
 > `upgrade head` → `downgrade base` → `upgrade head` against a real Postgres 16. **Still run
 > both suites and both linters locally before opening a PR**; CI is a backstop, not a
 > substitute for knowing your change works. Note the shape of the Python type checking added
-> in task 0.8: **mypy covers `app/services` and `app/schemas` only** — annotations in
-> `app/api`, `app/models` and `app/workers` are still decoration nothing verifies, and
-> widening the scope is a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
+> in task 0.8: **`packages = ["app.services", "app.schemas"]` is the explicit mypy scope** —
+> but mypy's default `follow_imports=normal` checks every module those two packages import,
+> so `app/models` (imported by nearly every service) and `app/workers/jobs.py` (imported for
+> `enqueue`) are verified too, in practice. Only `app/api` is genuinely unchecked — nothing
+> in `app/services` or `app/schemas` imports upward into it (`BE-1`). Widening the *explicit*
+> scope to `app/api` is still a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
 > and CodeRabbit are GitHub Apps and may also run; nothing in the repo evidences them.
 
 ## Common commands

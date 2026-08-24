@@ -19,7 +19,7 @@ from app.models import (
     Topic,
 )
 from app.services import storage
-from app.services.ai import file_block, record_usage, structured_complete
+from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.knowledge import build_tutor_context
 
 
@@ -131,7 +131,7 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
         student_id=None,
         feature=AiFeature.extraction,
     )
-    result: ExtractionResult = response.parsed
+    result = require_parsed(response)
     if not result.questions:
         raise ValueError("No questions were found in the document")
 
@@ -232,7 +232,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
             student_id=None,
             feature=AiFeature.extraction,
         )
-    result: ExtractionResult = response.parsed
+    result = require_parsed(response)
     if not result.questions:
         raise ValueError("No questions were found in the past paper")
 

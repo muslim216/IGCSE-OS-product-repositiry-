@@ -37,7 +37,7 @@ A full pass through all five is about forty minutes.
 
 ## A companion document
 
-The folder above this one contains **[Product-Overview-and-Weaknesses.md](../Product-Overview-and-Weaknesses.md)**, which covers what the product is commercially and where it's fragile.
+The folder above this one contains **[Product-Overview-and-Weaknesses.md](../Product-Overview-and-Weaknesses.md)**, which covers what the product is commercially and where it's fragile. It was written 6 August 2026, before the rename described above — it calls the product MANARA throughout, including a section on the rename as a thing still to do. Read that document under its own date, the same way this one asks you to read an accepted ADR under its.
 
 These documents describe how Avora is built and are deliberately **not** a critique. Where a design decision has a known cost, it's noted honestly and pointed at the weaknesses document rather than argued here.
 

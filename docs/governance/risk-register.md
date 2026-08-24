@@ -3,7 +3,7 @@
 > **Governance layer.** Standing architectural risks, their likelihood, impact, and
 > mitigation.
 >
-> **Status:** Active · Part of Engineering Constitution v1.2
+> **Status:** Active · Part of Engineering Constitution v1.5
 >
 > **Review cadence:** quarterly, per `governance/change-process.md`.
 
@@ -25,7 +25,7 @@ A gap can be closed. A risk is accepted, mitigated, or transferred, and then rev
 |---|---|
 | **Likelihood** | Low / Medium / High — chance of materializing within roughly 12 months at current trajectory |
 | **Impact** | Low / Medium / High / Severe — consequence if it does |
-| **Priority** | P1 (act now) / P2 (planned) / P3 (accepted, watched) |
+| **Priority** | P1 (act now) / P2 (planned) / P3 (accepted, watched) / P4 (residual — mitigated, what's left is small enough to watch rather than plan) |
 | **Trigger** | The observable event that means this risk is materializing |
 | **Mitigation** | What reduces likelihood or impact, and whether it is done |
 | **Owner** | Who watches it — see `governance/ownership.md` |
@@ -82,21 +82,24 @@ than cosmetic: `UP042` is off because `(str, Enum)` → `StrEnum` changes `str(M
 serialized enums, and `react-refresh` is not installed because its only rule would have
 split six files of correctly co-located code.
 
-**Residual:** the Python type checker covers part of the backend. Task 0.8 put `mypy
-app/services app/schemas` in the lint job — the decision layer and the API contracts — so
-annotations there are now verified. Annotations in `app/api`, `app/models` and `app/workers`
-are still decoration that nothing checks. That is the whole of what is left of this risk, and
-it is a smaller thing than what it replaced: a wrong annotation in a router misleads a
-reader, where an unlinted codebase merged unread.
+**Residual:** the Python type checker covers part of the backend, and less of it is
+undeclared than the explicit `packages = ["app.services", "app.schemas"]` list suggests.
+mypy's default `follow_imports=normal` checks every module those two packages import, and
+`app/models` (the barrel nearly every service imports) and `app/workers/jobs.py` (imported
+for `enqueue`) both come along for free — verified in practice, just not declared. Only
+`app/api` is genuinely unchecked: nothing in `app/services` or `app/schemas` imports upward
+into it (`BE-1`), so a wrong annotation in a router still misleads a reader with nothing to
+catch it. That router-only gap is the whole of what is left of this risk.
 
 **Trigger:** a typing regression merging unnoticed; or CI being disabled, made
 non-blocking, or its jobs allowed to stay red.
 
 **Mitigation:** done for correctness and style, and for types in `services/` and
-`schemas/`. Widening mypy to the rest is a per-module ratchet — add a package to
-`[tool.mypy] packages` in `backend/pyproject.toml` and to the CI step together, and fix what
-it finds in that PR rather than adding a suppression. `ignore_missing_imports = true` is
-already set, so the cost of each new package is its own annotations, not its dependencies'.
+`schemas/` — which, transitively, is most of `models/` and `workers/` too. Declaring
+`app.api` explicitly is the remaining ratchet — add it to `[tool.mypy] packages` in
+`backend/pyproject.toml` and to the CI step together, and fix what it finds in that PR rather
+than adding a suppression. `ignore_missing_imports = true` is already set, so the cost is
+`app/api`'s own annotations, not its dependencies'.
 Recorded in §12 and §13.
 
 **Accepted for now**, at P4. No longer the highest-priority item in the register.

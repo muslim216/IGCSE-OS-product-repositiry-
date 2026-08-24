@@ -42,7 +42,7 @@ from app.models import (
     Topic,
     User,
 )
-from app.services.ai import record_usage, structured_complete
+from app.services.ai import record_usage, require_parsed, structured_complete
 from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
@@ -332,7 +332,7 @@ async def _synthesize_subject(
             student_id=student.id,
             feature=AiFeature.readiness,
         )
-    result: ReadinessSynthesis = response.parsed
+    result = require_parsed(response)
     reference_score = _weighted_reference_score(factor_rows, weights)
     score = _enforce_factor_score_constraint(result.score, reference_score)
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)

@@ -38,7 +38,7 @@ from app.models import (
     SubmissionStatus,
 )
 from app.services import storage
-from app.services.ai import file_block, record_usage, structured_complete
+from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
@@ -277,9 +277,26 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     ):
         return
 
+    # `q.has_mark_scheme` records what the *extractor* saw in the booklet, and is
+    # set once at extraction. Whether a scheme is in front of the model on THIS
+    # call is a different fact — `source.mark_scheme`. They diverge, and
+    # `PastPaperQuestion.has_mark_scheme` defaults to True (readiness_v2.py), so
+    # a past paper stored with no scheme file carries questions all claiming one.
+    #
+    # AI-11/ADR-0009 auto-finalize on "scheme-backed and confident": a mark
+    # written final, counted as Evidence, feeding readiness, with no tutor in the
+    # loop. That must mean a scheme the model actually read, so both the flag the
+    # prompt is told and the gate below are ANDed with the attachment. Fixing the
+    # prompt's prose alone (an earlier pass did exactly that) leaves the model
+    # correctly told there is no scheme while the mark still counts.
+    scheme_attached = source.mark_scheme is not None
+
+    def scheme_backed(q) -> bool:
+        return q.has_mark_scheme and scheme_attached
+
     question_list = "\n".join(
         f"- Q{q.number}: {q.text_summary} (max {q.max_marks} marks, "
-        f"has_mark_scheme={'true' if q.has_mark_scheme else 'false'})"
+        f"has_mark_scheme={'true' if scheme_backed(q) else 'false'})"
         for q in questions
     )
 
@@ -322,7 +339,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         student_id=submission.student_id,
         feature=AiFeature.marking,
     )
-    result: MarkingResult = response.parsed
+    result = require_parsed(response)
 
     drafts_by_number = {d.number.lstrip("Qq"): d for d in result.questions}
     for q in questions:
@@ -357,7 +374,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             )
 
         confident = mark.ai_confidence in AUTO_FINALIZE_CONFIDENCE
-        if q.has_mark_scheme and confident and mark.ai_marks is not None:
+        if scheme_backed(q) and confident and mark.ai_marks is not None:
             # Scheme-backed and confident: the mark counts now.
             mark.final_marks = mark.ai_marks
             mark.final_feedback = mark.ai_feedback

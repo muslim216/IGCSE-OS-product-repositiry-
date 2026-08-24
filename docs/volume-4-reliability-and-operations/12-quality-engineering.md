@@ -1,6 +1,6 @@
 # 12. Quality Engineering
 
-> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.2 · Status: Active
+> **Volume 4 — Reliability & Operations** · Engineering Constitution v1.5 · Status: Active
 > **Owner:** Founder (see `governance/ownership.md`)
 >
 > Governs how a change is proven correct before it ships.
@@ -83,7 +83,7 @@ enforced by a human remembering. Say so, rather than implying otherwise.
 
 ### The backend suite
 
-**45 files, ~12,300 lines. 527 tests pass** in about five and a half minutes with no database
+**45 files, ~12,400 lines. 528 tests pass** in about five and a half minutes with no database
 and no API key.
 
 Coverage is concentrated where the risk is:
@@ -102,7 +102,7 @@ Coverage is concentrated where the risk is:
 
 Note the earlier `handoff.md` recorded 215 tests; that document is archived rather than
 corrected, with a header saying so. The suite reached 247 by the time this handbook was
-written, 297 once the `RISK-4` and `RISK-7` fixes landed with their tests, and 527 through
+written, 297 once the `RISK-4` and `RISK-7` fixes landed with their tests, and 528 through
 tasks 0.6–0.10.
 
 **Two of these files test properties rather than behaviour**, which is worth knowing before
@@ -174,9 +174,10 @@ unexpected place.
 
 ### The frontend suite
 
-**9 files, 49 tests.** `App.test.tsx` (1), `Nav.test.tsx` (2), `ClassroomSettings.test.tsx`
-(3), `PastPapers.test.tsx` (4), `ReadinessView.test.tsx` (4), `TodayDashboard.test.tsx` (4),
-`readiness-lib.test.ts` (5), `client-errors.test.ts` (17) and `contrast.test.ts` (9).
+**23 files, 179 tests.** The largest: `contrast.test.ts` (167 lines, 19 tests),
+`client-errors.test.ts` (177, 17), `StudentHome.test.tsx` (222, 13), `ParentScreen.test.tsx`
+(184, 13), `student-lib.test.ts` (132, 12), `TodayDashboard.test.tsx` (278, 11) and
+`SubmissionReview.test.tsx` (228, 11).
 
 The test names are worth reading as a statement of intent: several assert the constitution's
 own rules rather than mechanics — *"with no data it explains the empty state and invents no
@@ -200,11 +201,13 @@ setup file importing `@testing-library/jest-dom/vitest`. No `include`/`exclude` 
 coverage block.
 
 **`vitest run` does not type-check.** The only type gate anywhere is `tsc -b` inside
-`npm run build`, and no automation runs it.
+`npm run build` — CI's `frontend` job runs `npm run build` on every pull request (see the CI
+table below), but a developer running `npm test` alone, locally, still gets no type errors.
 
-Twenty tests against 60-plus pages is thin, and the four largest pages —
-`AssignmentDetailPage`, `SubmissionReviewPage`, `SyllabusUploadPage`, `AssignmentCreatePage` —
-have none.
+179 tests against 60-plus pages is still thin. One of the four largest pages this handbook
+once named untested now has coverage — `SubmissionReviewPage`, via
+`SubmissionReview.test.tsx`. `AssignmentDetailPage`, `SyllabusUploadPage` and
+`AssignmentCreatePage` still have none.
 
 ### Static analysis
 
@@ -265,7 +268,7 @@ than racing it.
   now the whole of `RISK-2`.
 - **No dependency scan**, which is not a theoretical gap: the first `npm audit` anyone ran
   reported a critical and a high advisory in `vitest` and `vite`. See `RISK-11`.
-- **No coverage measurement**, so nothing reports which risky paths the 527 backend tests miss.
+- **No coverage measurement**, so nothing reports which risky paths the 528 backend tests miss.
 - **The `migrations` database is empty.** Schema operations are proven; safety against
   existing rows, which is how 0012 actually failed, is not.
 - **No contract check between backend schemas and the frontend's per-domain wrappers.** The
@@ -442,7 +445,7 @@ informs where to write real ones.
 | **CI's migration check runs against an empty database.** Up/down/up on Postgres 16 is automated; data safety is not. | It cannot catch the failure that has actually happened — 0012 added a non-nullable column to a populated table. `QA-11`'s "with data" clause and `DB-18` are manual compensating controls. `RISK-3` residual. | `before scale` |
 | **The test suite itself still runs no migration.** Schema comes from `Base.metadata.create_all` on SQLite. | Model/migration drift is invisible to `pytest`; only the separate CI job would catch a migration that fails outright, and it would not catch one that merely disagrees with the models. | `before scale` |
 | **`vitest run` does not type-check.** `npm run build` does, and CI runs it — but a developer running `npm test` locally still gets no type errors. | The strict `tsconfig.json` is now enforced on every PR; the local feedback loop still misses it, so type errors are found late rather than never. | `nice to have` |
-| **The frontend suite is 49 tests against 60+ pages**, and the four largest pages still have none. | 26 of those 49 guard the design tokens and the error parser, which is real but is not page coverage. The highest-change-risk frontend files remain unverified. | `before scale` |
+| **The frontend suite is 179 tests against 60+ pages**, and three of the four largest pages still have none. | 36 of those 179 guard the design tokens and the error parser alone, which is real but is not page coverage. The highest-change-risk frontend files remain unverified. | `before scale` |
 | **No coverage measurement.** `.gitignore` anticipates it; nothing produces it. | No signal on which risky paths are untested. Blocks `QA-21`. | `nice to have` |
 | **The test schema differs from production** — four indexes exist only in migrations. | No test exercises an indexed query plan. §06, `DB-12`. | `before scale` |
 | **The per-domain API wrappers still hand-mirror their payloads.** `client.ts` and `auth.ts` alias the generated schema; `homework.ts`, `readiness.ts` and the rest declare their own interfaces. | A field rename in one of those domains passes both suites and fails at runtime, exactly as before — the generated types close this only where they are used. Convert each domain as it is next touched. `RISK-6` residual. | `before scale` |

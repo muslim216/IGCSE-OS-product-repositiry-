@@ -13,6 +13,8 @@ of mark_scheme_path, so every mismatch below is a row the database allows.
 
 from datetime import date
 
+from sqlalchemy import select
+
 from app.config import get_settings
 from app.db import async_session
 from app.models import (
@@ -134,3 +136,101 @@ async def test_a_mark_scheme_with_no_stored_mime_is_not_announced(client, tutor,
 
     assert source.mark_scheme is None
     assert "mark scheme" not in source.intro
+
+
+async def test_an_unattached_scheme_never_auto_finalizes_however_confident(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    """The gate and the attachment must agree, not just the prose.
+
+    `PastPaperQuestion.has_mark_scheme` defaults to **True** (readiness_v2.py),
+    where the homework column defaults to False. So a paper stored without a
+    scheme file — or whose questions were never extracted — carries questions
+    all claiming coverage. Gating auto-finalize on that flag alone let a
+    confident mark be written final, counted as Evidence and fed into readiness,
+    against a scheme no model ever read and no tutor ever saw (AI-11, ADR-0009).
+
+    Fixing only the prompt's sentence, as an earlier pass did, leaves the model
+    correctly told there is no scheme while the mark still counts — which is
+    why this asserts the stored mark, not the prompt text.
+    """
+    from app.models import MarkConfidence, QuestionMark, SubmissionFile
+    from app.services.marking import MarkingResult, QuestionMarkDraft, mark_submission
+
+    org_id = await _org_id(tutor)
+    async with async_session() as session:
+        paper = PastPaper(
+            organization_id=org_id,
+            tutor_id=tutor["user"]["id"],
+            subject_id=world["subject_id"],
+            session_label="June 2026",
+            paper_number="Paper 1",
+            booklet_path=_write("papers/booklet2.pdf"),
+            booklet_mime="application/pdf",
+            # No mark_scheme_path: nothing for the model to mark against.
+        )
+        session.add(paper)
+        await session.flush()
+        session.add(
+            PastPaperQuestion(
+                past_paper_id=paper.id,
+                position=1,
+                number="1",
+                text_summary="Solve for x",
+                max_marks=5,
+                # The model default — not a deliberate claim by anyone.
+                has_mark_scheme=True,
+            )
+        )
+        submission = Submission(
+            student_id=world["student_id"], past_paper_id=paper.id, attempted_at=date.today()
+        )
+        session.add(submission)
+        await session.flush()
+        session.add(
+            SubmissionFile(
+                submission_id=submission.id,
+                position=0,
+                path=_write("submissions/page1.pdf"),
+                name="page1.pdf",
+                mime="application/pdf",
+            )
+        )
+        await session.commit()
+        submission_id = submission.id
+
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete",
+        fake_ai(
+            MarkingResult(
+                questions=[
+                    QuestionMarkDraft(
+                        number="1",
+                        transcription="x = 4",
+                        proposed_marks=5,
+                        feedback="Correct.",
+                        confidence="high",
+                    )
+                ]
+            )
+        ),
+    )
+
+    # The job handler, not _run_marking — it is what production calls, and it
+    # eager-loads the submission's files the way the worker does.
+    async with async_session() as session:
+        await mark_submission(session, {"submission_id": submission_id})
+        await session.commit()
+
+    async with async_session() as session:
+        mark = await session.scalar(
+            select(QuestionMark).where(QuestionMark.submission_id == submission_id)
+        )
+        assert mark is not None
+        # The AI's number is kept as a suggestion...
+        assert mark.ai_marks == 5
+        assert mark.ai_confidence is MarkConfidence.high
+        # ...but nothing counts it without a scheme behind it.
+        assert mark.auto_finalized is False
+        assert mark.needs_review is True
+        assert mark.final_marks is None

@@ -54,44 +54,52 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
 
-export function getStoredTokens(): StoredTokens | null {
-  let raw = localStorage.getItem(STORAGE_KEY);
-  // Carry a pre-rename session across, and clear the old key either way — a
-  // stale token left behind is a credential nothing will ever use again, and
-  // worse than useless: signing out removes only the current key, so a legacy
-  // value surviving here would be migrated straight back on the next read and
-  // the app would look signed in again until a request failed.
-  let migrating = false;
-  if (raw) {
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
-  } else {
-    raw = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (raw) {
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-      migrating = true;
-    }
-  }
-  if (!raw) return null;
-  // Every request reads this, so anything unparseable here would throw before
-  // the fetch and take down the whole app — including the login that would
-  // replace the bad entry. Discard it and let the user sign in again instead.
+/** A stored value, or null if it is not one we can use.
+ *
+ * Every request reads this, so anything unparseable would throw before the
+ * fetch and take down the whole app — including the login that would replace
+ * the bad entry. Discard it and let the user sign in again instead. */
+function readStoredTokens(raw: string): StoredTokens | null {
   let parsed: Partial<TokenPair>;
   try {
     parsed = JSON.parse(raw) as Partial<TokenPair>;
   } catch {
-    localStorage.removeItem(STORAGE_KEY);
     return null;
   }
-  if (typeof parsed.access_token !== "string" || !parsed.access_token) {
-    localStorage.removeItem(STORAGE_KEY);
-    return null;
-  }
-  const tokens: StoredTokens = {
+  if (typeof parsed.access_token !== "string" || !parsed.access_token) return null;
+  return {
     access_token: parsed.access_token,
     token_type: typeof parsed.token_type === "string" ? parsed.token_type : "bearer",
   };
-  if (migrating) storeTokens(tokens);
-  return tokens;
+}
+
+export function getStoredTokens(): StoredTokens | null {
+  // The old key is cleared whenever this returns — a stale token left behind
+  // is a credential nothing will ever use again, and worse than useless:
+  // signing out removes only the current key, so a legacy value surviving here
+  // would be migrated straight back on the next read and the app would look
+  // signed in again until a request failed.
+  //
+  // But it is cleared only once the current key has been *parsed*, not merely
+  // found. Dropping it on the presence of a current value discards a working
+  // pre-rename session whenever the current entry is unusable — truncated by a
+  // storage-quota write, half-written by another tab, edited by an extension —
+  // and that session is exactly what this migration exists to save.
+  const currentRaw = localStorage.getItem(STORAGE_KEY);
+  const current = currentRaw === null ? null : readStoredTokens(currentRaw);
+  if (current) {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    return current;
+  }
+  if (currentRaw !== null) localStorage.removeItem(STORAGE_KEY);
+
+  const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (legacyRaw === null) return null;
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  const legacy = readStoredTokens(legacyRaw);
+  if (!legacy) return null;
+  storeTokens(legacy);
+  return legacy;
 }
 
 export function storeTokens(tokens: TokenPair | StoredTokens | null) {

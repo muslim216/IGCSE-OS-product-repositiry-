@@ -67,16 +67,31 @@ describe("an unusable stored zone degrades instead of breaking the screen", () =
   test("a date beyond tomorrow still formats", () => {
     // The branch that actually threw: `due 5 Sep` goes through
     // toLocaleDateString with the same zone, which has its own constructor.
-    expect(() => formatDayMonth(new Date("2026-09-05T09:00:00Z"), unknown)).not.toThrow();
-    expect(formatDayMonth(new Date("2026-09-05T09:00:00Z"), unknown)).toMatch(/\d/);
+    const instant = new Date("2026-09-05T09:00:00Z");
+    expect(() => formatDayMonth(instant, unknown)).not.toThrow();
+    // And degrades to the browser's zone specifically — the same string the
+    // screen showed before the per-user override existed.
+    expect(formatDayMonth(instant, unknown)).toBe(
+      instant.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+    );
   });
 
   test("a valid zone still formats in that zone", () => {
     // 23:30 UTC on the 4th is already the 5th in Auckland and still the 4th in
     // New York. London is not the contrast here — it is on BST in September,
     // so 23:30 UTC is 00:30 on the 5th there too.
+    //
+    // Compared against the helper's own rendering of each day rather than the
+    // literal "5" and "4": `formatDayMonth` passes `undefined` as the locale,
+    // so the digits are the runtime's default — en-US under CI, but whatever
+    // the developer's machine is set to locally, and plenty of locales render
+    // these in non-Latin digits. Both sides move together under any locale;
+    // the inequality is what keeps the comparison meaningful.
     const instant = new Date("2026-09-04T23:30:00Z");
-    expect(formatDayMonth(instant, "Pacific/Auckland")).toContain("5");
-    expect(formatDayMonth(instant, "America/New_York")).toContain("4");
+    const fifth = formatDayMonth(new Date("2026-09-05T12:00:00Z"), "UTC");
+    const fourth = formatDayMonth(new Date("2026-09-04T12:00:00Z"), "UTC");
+    expect(fifth).not.toBe(fourth);
+    expect(formatDayMonth(instant, "Pacific/Auckland")).toBe(fifth);
+    expect(formatDayMonth(instant, "America/New_York")).toBe(fourth);
   });
 });

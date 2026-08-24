@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.db import async_session
 from app.models import (
+    AssignmentQuestion,
     Evidence,
     MarkOverrideAudit,
     QuestionMark,
@@ -28,36 +29,41 @@ from tests.test_homework import (  # noqa: F401 - shared fixtures
 
 
 @pytest.fixture
-async def assignment_all_scheme(client, tutor, group, monkeypatch):  # noqa: F811
+async def assignment_all_scheme(client, tutor, group, classified, subject, monkeypatch):  # noqa: F811
     """A published assignment whose questions all have mark-scheme coverage —
-    the case that should need no tutor at all."""
+    the case that should need no tutor at all.
+
+    Built on `classified`, which uploads a real mark_scheme file, because
+    "scheme-backed" means a scheme the model actually read: `prompts.py` defines
+    has_mark_scheme as true "ONLY when an official mark scheme ... appears in the
+    provided documents", and ADR-0009 keeps it a separate requirement from
+    confidence precisely because the scheme is what makes the mark checkable.
+    This fixture used to create a bare assignment and hand-set the flag, so it
+    asserted auto-finalize on a state the system says cannot exist — and would
+    have passed even after the gate stopped requiring an attached scheme."""
+    monkeypatch.setattr("app.services.extraction._run_extraction", fake_extraction(subject))
     created = await client.post(
         "/api/v1/assignments",
-        json={"group_id": group["id"], "title": "Fully covered homework"},
+        json={
+            "group_id": group["id"],
+            "classified_id": classified["id"],
+            "title": "Fully covered homework",
+            "question_range": "Q1-2",
+        },
         headers=tutor["headers"],
     )
     aid = created.json()["id"]
-    await client.put(
-        f"/api/v1/assignments/{aid}/questions",
-        json=[
-            {
-                "number": "1",
-                "text_summary": "Define an isotope",
-                "max_marks": 2,
-                "has_mark_scheme": True,
-                "topic_ids": [],
-            },
-            {
-                "number": "2",
-                "text_summary": "Explain ionic bonding",
-                "max_marks": 4,
-                "has_mark_scheme": True,
-                "topic_ids": [],
-            },
-        ],
-        headers=tutor["headers"],
-    )
-    await client.post(f"/api/v1/assignments/{aid}/publish", headers=tutor["headers"])
+    assert await process_one_job() is True  # extraction publishes on success
+
+    # fake_extraction leaves Q2 uncovered; this fixture is the all-covered case.
+    async with async_session() as session:
+        for q in (
+            await session.scalars(
+                select(AssignmentQuestion).where(AssignmentQuestion.assignment_id == aid)
+            )
+        ).all():
+            q.has_mark_scheme = True
+        await session.commit()
     return aid
 
 

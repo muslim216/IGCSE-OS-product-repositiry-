@@ -24,11 +24,12 @@ export default function MyTimezoneSetting() {
     onSuccess: (user) => {
       queryClient.setQueryData(["my-timezone"], user);
       // The signed-in identity carries time_zone, and every screen that renders
-      // a date reads it from there. Invalidating a query does not reach that
-      // state — without this the save confirms here and nothing else moves
-      // until a reload, which is indistinguishable from the setting not working.
+      // a date reads it from there. It is React state in AuthProvider, not a
+      // query — there is no ["me"] key to invalidate, and an invalidation aimed
+      // at one would be a silent no-op standing in for the update. Without this
+      // call the save confirms here and nothing else moves until a reload,
+      // which is indistinguishable from the setting not working.
       applyUser(user);
-      queryClient.invalidateQueries({ queryKey: ["me"] });
     },
   });
 
