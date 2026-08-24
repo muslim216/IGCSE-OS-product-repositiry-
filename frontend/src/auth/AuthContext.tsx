@@ -82,9 +82,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // that is over — but so does a *matching* id whose epoch has moved on,
   // which is what catches signing back into the same account before an
   // earlier write resolves (id-only can't tell those two sessions apart).
+  // The epoch check has to live inside the updater, not just guard the call to
+  // setUser: React can defer a queued update, and a signOut/signIn cycle can
+  // advance epochRef in that gap — an outer-only check would already have
+  // passed by the time that happens, leaving the id check alone to protect a
+  // matching-id write it cannot tell apart from a current one.
   const applyUser = useCallback((updated: User, epoch: number) => {
-    if (epoch !== epochRef.current) return;
-    setUser((current) => (current?.id === updated.id ? updated : current));
+    setUser((current) =>
+      epoch === epochRef.current && current?.id === updated.id ? updated : current,
+    );
   }, []);
 
   return (

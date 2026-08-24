@@ -98,10 +98,13 @@ non-blocking, or its jobs allowed to stay red.
 
 **Mitigation:** done for correctness and style, and for types in `services/` and
 `schemas/` — which, transitively, is most of `models/` and `workers/` too. Declaring
-`app.api`, `app.security` and `app.main` explicitly is the remaining ratchet — add them to
-`[tool.mypy] packages` in `backend/pyproject.toml` and to the CI step together, and fix what
-it finds in that PR rather than adding a suppression. `ignore_missing_imports = true` is
-already set, so the cost is those modules' own annotations, not their dependencies'.
+`app.api`, `app.security` and `app.main` explicitly is the remaining ratchet — but not all
+under the same key: `app.api` is a package (add it to `[tool.mypy] packages`), while
+`app.security` and `app.main` are standalone modules with no `__init__.py`, which mypy's
+`packages` option cannot take — they belong in `[tool.mypy] modules` instead. Add both keys
+to `backend/pyproject.toml` and the CI step together, and fix what they find in that PR
+rather than adding a suppression. `ignore_missing_imports = true` is already set, so the cost
+is those modules' own annotations, not their dependencies'.
 Recorded in §12 and §13.
 
 **Accepted for now**, at P4. No longer the highest-priority item in the register.
