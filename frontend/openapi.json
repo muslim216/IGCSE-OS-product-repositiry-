@@ -1182,200 +1182,6 @@
         }
       }
     },
-    "/api/v1/chat/conversations": {
-      "get": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "List Conversations",
-        "operationId": "list_conversations_api_v1_chat_conversations_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ConversationOut"
-                  },
-                  "type": "array",
-                  "title": "Response List Conversations Api V1 Chat Conversations Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Create Conversation",
-        "operationId": "create_conversation_api_v1_chat_conversations_post",
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationDetail"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/chat/conversations/{conversation_id}": {
-      "get": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Get Conversation",
-        "operationId": "get_conversation_api_v1_chat_conversations__conversation_id__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Delete Conversation",
-        "operationId": "delete_conversation_api_v1_chat_conversations__conversation_id__delete",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/chat/conversations/{conversation_id}/messages": {
-      "post": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Send Message",
-        "operationId": "send_message_api_v1_chat_conversations__conversation_id__messages_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendMessage"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/classifieds": {
       "post": {
         "tags": [
@@ -7553,56 +7359,6 @@
         ],
         "title": "ClassroomStatus"
       },
-      "ConversationDetail": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "title": {
-            "type": "string",
-            "title": "Title"
-          },
-          "messages": {
-            "items": {
-              "$ref": "#/components/schemas/MessageOut"
-            },
-            "type": "array",
-            "title": "Messages"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "messages"
-        ],
-        "title": "ConversationDetail"
-      },
-      "ConversationOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "title": {
-            "type": "string",
-            "title": "Title"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "updated_at"
-        ],
-        "title": "ConversationOut"
-      },
       "CrmHomeworkItem": {
         "properties": {
           "assignment_id": {
@@ -8850,35 +8606,6 @@
           "question_id"
         ],
         "title": "MarkUpdate"
-      },
-      "MessageOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "role": {
-            "type": "string",
-            "title": "Role"
-          },
-          "content": {
-            "type": "string",
-            "title": "Content"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "role",
-          "content",
-          "created_at"
-        ],
-        "title": "MessageOut"
       },
       "MyAssessmentScore": {
         "properties": {
@@ -10466,21 +10193,6 @@
         ],
         "title": "SeedTopicScore"
       },
-      "SendMessage": {
-        "properties": {
-          "content": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Content"
-          }
-        },
-        "type": "object",
-        "required": [
-          "content"
-        ],
-        "title": "SendMessage"
-      },
       "StudentAssignment": {
         "properties": {
           "id": {
@@ -10688,7 +10400,7 @@
           "communications"
         ],
         "title": "StudentCrmOut",
-        "description": "The student's full academic record \u2014 the one aggregation that feeds\nboth the CRM UI and the AI's grounding context (services/student_context.py)."
+        "description": "The student's full academic record \u2014 the one aggregation behind the CRM\nUI. It also fed the AI's grounding context via services/student_context.py\nuntil the student AI chat was deleted (AV-57); it stays a single complete\nrecord so the next AI surface needing one reads this rather than\nreassembling it."
       },
       "StudentMarkRow": {
         "properties": {
