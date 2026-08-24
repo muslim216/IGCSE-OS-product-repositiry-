@@ -131,6 +131,8 @@ uvicorn app.main:app --reload        # http://localhost:8000, OpenAPI docs at /d
 
 python -m seed.load_syllabus         # load the 5 built-in subject topic trees
 python -m seed.demo                  # idempotent demo tutor/students/parent with ~90d of data
+python -m seed.recompute_readiness   # queue a v2 run for every (student, subject) with evidence
+                                     # — the backfill after a factor's maths changes (runbook R9)
 ```
 
 Frontend (run from `frontend/`, Node 20+):

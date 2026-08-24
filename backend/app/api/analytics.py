@@ -91,6 +91,14 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
     weak_topics.sort(key=lambda t: t.avg_score)
 
     # AI agreement rate on finalized submissions in this group.
+    #
+    # `finalized` alone is deliberate here, and is the one place that does not
+    # use SETTLED_STATUSES (AV-80). This measures how often a *tutor* agreed
+    # with the AI, so it may only count submissions a tutor actually looked at.
+    # An auto_finalized mark has final_marks == ai_marks by construction — the
+    # AI's own number, never reviewed — so including those would count the AI
+    # agreeing with itself and drive the rate toward 100% as auto-finalize
+    # coverage grows. Do not "fix" this to match the other call sites.
     marks = (
         await db.scalars(
             select(QuestionMark)

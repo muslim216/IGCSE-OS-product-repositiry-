@@ -132,6 +132,15 @@ class SubmissionStatus(str, enum.Enum):
     finalized = "finalized"
 
 
+# The one definition of "this submission's marks count" (AV-29). A mark is an
+# outcome only once it has settled — either a tutor signed it off (finalized)
+# or the AI marked every question confidently against an official scheme
+# (auto_finalized). Anything earlier is a draft and must not move a grade
+# shown to anyone (PROD-5). Restating this tuple locally is how three sites
+# silently dropped auto_finalized work from readiness; import it instead.
+SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
+
+
 class Submission(TimestampMixin, Base):
     """A student's uploaded answers to *either* a homework assignment or a past
     paper — exactly one of assignment_id / past_paper_id is set.

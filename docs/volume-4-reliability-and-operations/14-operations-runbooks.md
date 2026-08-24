@@ -481,6 +481,29 @@ For staleness:
 **Verification:** a new snapshot with `status='ready'` appears, and the score decomposes
 sensibly against its factor rows.
 
+**Backfill after a maths change.** When the code behind a factor changes, existing snapshots
+keep reporting the old answer — nothing recomputes them on its own, because a run is normally
+triggered by new marks landing and a student whose work is already marked would never fire one.
+Queue a run for every (student, subject) that has evidence:
+
+```bash
+# from backend/
+python -m seed.recompute_readiness              # 30s apart, the default
+python -m seed.recompute_readiness --spacing 60 # slower, if the provider is rate-limiting
+```
+
+Each run is an AI call, so the runner **spaces them deliberately** rather than firing the whole
+backlog at once — the spacing drains roughly `3600 / spacing` runs an hour and leaves headroom
+for the marking traffic sharing the same worker. It queues jobs rather than computing inline, so
+every snapshot is written by the same handler the product uses. Safe to re-run: a pair that
+already has a pending job is skipped, so a second invocation mid-drain adds nothing.
+
+It does nothing while `READINESS_V2_SHADOW_ENABLED=false` (the debounced enqueue is a no-op with
+the kill switch off) and says so rather than reporting a successful run of zero jobs.
+
+Watch the drain with the `jobs` query above; the backfill is done when no
+`compute_readiness_v2` rows remain `pending`.
+
 ---
 
 ### R10 — Google Classroom sync is failing
