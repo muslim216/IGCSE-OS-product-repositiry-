@@ -849,24 +849,31 @@ Revision 3 was roughly 80% backend. It described databases and jobs in detail an
 screens a clause each — for a product whose entire value is what the tutor sees. This phase
 closes that, and every subsequent phase builds its own screens against what this produces.
 
-| ID | Task | Size | Mode |
-|---|---|---|---|
-| **D.1** | Screen inventory and current-state capture — ✅ done 24 Aug | S | ✅ |
-| **D.2** | Redesign the existing screens — ✅ done 24 Aug | L | ✅ |
-| **D.3** | Design the new screens — ✅ done 24 Aug | L | ✅ |
-| **D.4** | States, empty states and copy — ✅ done 24 Aug | M | ✅ |
+| ID | Task | Size | Mode | Status |
+|---|---|---|---|---|
+| **D.1** | Screen inventory and current-state capture | S | ✅ | done 24 Aug |
+| **D.2** | Redesign the existing screens | L | after D.1 | done 24 Aug |
+| **D.3** | Design the new screens | L | after D.1 | done 24 Aug |
+| **D.4** | States, empty states and copy | M | after D.2, D.3 | done 24 Aug |
 
 **✅ Phase D is done, 24 Aug.** All four tasks landed in one pass in `docs/experience-design.md`:
-D.1's inventory in §4, D.2/D.3's screens across §§4–7 (§4 Tutor, §5 Student, §6 Parent, §7
-Onboarding), and D.4's states and copy in §13 — grounded
-throughout in the `AV`/`E` decisions already settled above — no product or architecture
-decision was made in writing it. Two stale entries in that document's own §9 contradiction
-record were also corrected in passing, verified against the working tree
-(`components/AppShell.tsx`, `frontend/index.html`) rather than assumed. Where a screen the
-"genuinely new, at minimum" list below names had no settled detail beyond a one-line mention —
-the custom-criteria builder's exact form, the late-mock flag's exact wording — that document
-says so explicitly rather than inventing it; those remain open for whichever phase task builds
-the screen. Phase 2 may now build against it.
+D.1's inventory in §4, §5 and §6 (one per role), D.2/D.3's screens across §§4–7 (§4 Tutor, §5
+Student, §6 Parent, §7 Onboarding), and D.4's states and copy in §13 — grounded throughout in
+the `AV`/`E` decisions already settled above — no product or architecture decision was made in
+writing it. Two stale entries in that document's own §9 contradiction record were also
+corrected in passing, verified against the working tree (`components/AppShell.tsx`,
+`frontend/index.html`) rather than assumed. Where a screen the "genuinely new, at minimum" list
+below names had no settled detail beyond a one-line mention — the custom-criteria builder's
+exact form, the late-mock flag's exact wording — that document says so explicitly rather than
+inventing it; those remain open for whichever phase task builds the screen.
+
+**One open question surfaced in writing D.1, not settled here.** `AV-57`/`AV-100` delete the
+peer improvement ranking; `experience-implementation-plan.md`'s `D6` had earlier settled the
+opposite and PR 23 shipped `student/ImprovementPage.tsx` to that spec — the reader's own rank
+or band only, no classmate ever named. `docs/experience-design.md` §5.2 records this rather than
+picking a side: whether `AV-100`'s reaffirmed deletion was written with that already-built,
+self-only redesign in view is a question for the product manager, not this document. Phase 2
+may now build against everything else Phase D produced.
 
 **Scope, precisely.** **Every screen is redesigned — existing as well as new** (AV-102). The
 product must read as one thing afterwards, not as new screens bolted onto old ones.

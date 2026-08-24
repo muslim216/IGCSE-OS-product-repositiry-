@@ -448,7 +448,7 @@ them narrowed or widened in scope by this phase:
   `6.1`–`6.8` already settle, because the calendar-and-slot editing surface is Phase 6's to
   design in detail against a data model this phase does not have.
 - **Students, Syllabus, Resources and Analytics are unchanged in scope.** The top-level
-  Students tab (§4.7) is a second, class-grouped entry point onto the same roster data, not a
+  Students tab (§4.8) is a second, class-grouped entry point onto the same roster data, not a
   replacement for the per-class view — the same relationship Homework now has to its top-level
   tab.
 
@@ -579,7 +579,7 @@ upload skips extraction and behaves exactly as it does today.
 **Empty state:** unchanged from the existing library's empty state.
 
 **Connects to:** Mocks and Homework, wherever a past paper is assigned as work; the student's
-own Past papers tab (§5.3), which reads the same reviewed list.
+own Past papers tab (§5.7), which reads the same reviewed list.
 
 ### 4.11 Readiness
 
@@ -676,10 +676,16 @@ which named destinations — `Work`, `Ask` — the current build does not use). 
 against `AV-106`'s six is forced, not chosen, once each of the three deletions and mergers this
 plan already settles is applied:
 
-- **`AI Tutor` is deleted** (`0.3`, `AV-57`, `AV-100`) — already gone from the target.
-- **`Improvement` folds into `Progress`**, not dropped — this document's §5.2 already put the
-  leaderboard inside Progress before `AV-106` existed to confirm it; the two were never meant
-  to be separate destinations.
+- **`AI Tutor` is deleted** (`0.3`, `AV-57`, `AV-100`) — `api/chat.py`, `models/chat.py` and
+  `TutorChatPage.tsx` are student-gated on every route, so removal is clean; already gone from
+  the target.
+- **`Improvement` has no destination in `AV-106`'s six** — `AV-57` and `AV-100` delete the peer
+  improvement ranking outright, and this document does not treat that as open. What is
+  unresolved is narrower: `experience-implementation-plan.md`'s `D6` settled a different,
+  already-built design — `student/ImprovementPage.tsx` ranks the reader's own position only, no
+  classmate ever named — and this document cannot tell from the plan alone whether `AV-100`
+  reaffirms deletion knowing that build exists, or was written without it in view. §5.2 flags
+  the code as it stands rather than guessing which side wins.
 - **`Exams` and `Homework` map onto `Mocks` and `Homework`** — `Exams` is exactly the mock/test
   scores `AV-115` folds into the Mocks tab; `Homework` keeps its name and destination.
 - **`Files` and `Recordings` merge into `Materials`** — the only pair left unaccounted for once
@@ -691,6 +697,23 @@ plan already settles is applied:
 Six still do not fit a phone tab bar on their own once `More` is accounted for — the same
 `MAX_TABS = 4` mechanism as the tutor's (§4.2) keeps `Home`, `Homework` and `Mocks` as tabs and
 folds `Past papers`, `Progress` and `Materials` into the sheet.
+
+**Screen inventory (`D.1`):**
+
+| Nav position | Backs onto | State |
+|---|---|---|
+| Home | `student/StudentHomePage.tsx` | Built |
+| Homework | `student/HomeworkPage.tsx`, `student/SubmitHomeworkPage.tsx` | Built |
+| Mocks | `student/ExamsPage.tsx` | Built → renamed and extended: measured vs self-declared past-paper sittings fold in (`AV-115`, `AV-116`) |
+| Past papers | `student/PastPapersPage.tsx`, `student/SitPastPaperPage.tsx` | Built |
+| Progress | `student/ProgressPage.tsx` | Built → extend: weak topics, attendance, mistake pattern (`AV-121`) |
+| Materials | `student/FilesPage.tsx` + `student/RecordingsPage.tsx`, merging | Partial — new merged tab, no new content (§5.8) |
+
+Two of the nine current destinations are not in this table because `AV-57`/`AV-100` remove them
+rather than route them anywhere: `student/TutorChatPage.tsx` (`AI Tutor`) and
+`student/ImprovementPage.tsx` (`Improvement`). See the note at the end of §5.2 on the second of
+those two — the code currently in the tree does not match what the deletion decision says to do
+with it, and this document does not resolve that on its own.
 
 ### 5.1 Home
 
@@ -757,13 +780,6 @@ CHEMISTRY
   You're tracking above your recent average — the last three
   pieces have been stronger than the ones before.
 
-CLASS PROGRESS — THIS MONTH
-  1   ▲ +11    Student
-  2   ▲ +9     Student
-  3   ▲ +6   ← you
-  4   ▲ +5     Student
-  5   ▲ +4     Student
-
 WHY
   Moles              5 of 6 marks recently
   Rates              3 of 8
@@ -799,20 +815,17 @@ their profile** (§4.4, `4.4`, `4.5`, `AV-40`) — the task names only "their ow
 the student sees; this document does not add or withhold any field beyond that, and any further
 detail is left to whoever builds `4.5` against the rollup `4.4` produces.
 
-**The leaderboard ranks improvement, not attainment.** An attainment ranking has one winner
-and eleven losers, the order barely moves across a year, and the student at the bottom in
-September is the student at the bottom in May. An improvement ranking resets monthly and can
-be won by anyone — including, and especially, the weakest student in the room. This is the
-same *progress-as-positive-reinforcement* principle the rest of the design rests on, pointed
-at the mechanic that usually violates it.
-
-Two conditions gate it:
-
-- **Fewer than five students in the class: the leaderboard is not shown.** Below that,
-  "anonymous" is a formality — students compare marks aloud and reconstruct the order within
-  a day. The personal progress line is shown instead.
-- **Insufficient coverage: the leaderboard is not shown.** Ranking the three students who
-  have evidence out of twelve is not a ranking (`PROD-2`).
+> **Not resolved here — `Improvement`'s leaderboard.** `AV-57` and `AV-100` delete the peer
+> improvement ranking; `AV-100` adds "the cost seen and accepted," which reads as the product
+> manager weighing something already built. `experience-implementation-plan.md`'s `D6` had
+> earlier settled the opposite — build it — and PR 23 shipped `student/ImprovementPage.tsx`
+> exactly to that spec: the reader's own rank or band only, no classmate ever named, on its own
+> tab, on no home surface. That built version does not resemble the "peer improvement ranking"
+> `AV-57` names, and this document cannot tell from the plan text alone whether `AV-100`'s
+> acceptance is of deleting that specific, already-redesigned page, or was written without it
+> in view. This Progress tab therefore carries no leaderboard of any form, and
+> `student/ImprovementPage.tsx` is left as it stands in the tree — neither routed to from
+> `AV-106`'s six nor described as deleted — until that question is put to the product manager.
 
 ### 5.3 The cleared state
 
@@ -917,9 +930,18 @@ readiness and predicted grade, and attendance. `AV-64` names what the parent's *
 additionally carries — an attendance and homework record — and, as pointedly, what it does
 **not**: the chapter/topic breakdown and mistake patterns that appear on the tutor's and
 student's own screens (`CLAUDE.md`'s "Deliberate difference — do not harmonise" callout exists
-for exactly this gap). Because the weekly report itself is barred from topic-level or mistake detail,
-no in-app tab may show the parent more than the report does; the split below is a
-redistribution of the one screen's existing content, not new depth.
+for exactly this gap). Because the weekly report itself is barred from chapter/topic breakdowns
+or mistake patterns, no in-app tab may show the parent more than the report does; the split
+below is a redistribution of the one screen's existing content, not new depth.
+
+**Screen inventory (`D.1`):**
+
+| Nav position | Backs onto | State |
+|---|---|---|
+| Overview | `parent/ParentDashboard.tsx`, splitting | Built → split into four tabs, no new content (`AV-107`) |
+| Progress | `parent/ParentDashboard.tsx`'s `SubjectRow` rows, splitting | Partial — same source, new tab |
+| Attendance | `parent/ParentDashboard.tsx`, splitting | Partial — same source, new tab |
+| Reports | `parent/ParentDashboard.tsx`'s existing `ReportsPanel`, splitting | Partial — same source, new tab |
 
 ### 6.1 Overview
 
@@ -1383,7 +1405,7 @@ the same loading/error handling every other async surface in the product already
 
 | State | Overview | Progress | Attendance | Reports |
 |---|---|---|---|---|
-| Just linked, nothing marked | verdict + *"not enough data yet"* | rows, all *"not enough data yet"* | *"not enough data yet"* | absent — no send has gone out yet |
+| Just linked, nothing marked | *"There isn't enough marked work yet to say how {name} is doing."* — the settled string (`experience-implementation-plan.md`'s no-data row) | rows, all *"not enough data yet"* | *"not enough data yet"* | absent — no send has gone out yet |
 | Steady state | as §6.1–§6.4 show | as §6.2 shows | the attendance record | the list, newest first |
 | Narrative refreshing | previous text + `Updating…` (`UX-21`), never blank | unchanged | unchanged | unchanged |
 
