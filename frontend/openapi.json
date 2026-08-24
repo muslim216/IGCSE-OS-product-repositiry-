@@ -2592,37 +2592,6 @@
         }
       }
     },
-    "/api/v1/improvement/me": {
-      "get": {
-        "tags": [
-          "improvement"
-        ],
-        "summary": "My Improvement",
-        "description": "The reader's own placing per subject, with the reader's own history.\n\nSubjects come from `visible_subject_ids`, the same helper the readiness API\nuses, so this endpoint can never widen a student's reach beyond the subjects\nthey are enrolled in \u2014 including into another organization's copy of the\nsame global subject row (SEC-8).",
-        "operationId": "my_improvement_api_v1_improvement_me_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SubjectImprovement"
-                  },
-                  "type": "array",
-                  "title": "Response My Improvement Api V1 Improvement Me Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
     "/api/v1/knowledge": {
       "post": {
         "tags": [
@@ -7774,35 +7743,6 @@
         ],
         "title": "FactorEvaluationOut"
       },
-      "FocusTopic": {
-        "properties": {
-          "topic_code": {
-            "type": "string",
-            "title": "Topic Code"
-          },
-          "topic_title": {
-            "type": "string",
-            "title": "Topic Title"
-          },
-          "score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Score"
-          }
-        },
-        "type": "object",
-        "required": [
-          "topic_code",
-          "topic_title"
-        ],
-        "title": "FocusTopic"
-      },
       "GradeBand": {
         "properties": {
           "grade": {
@@ -8055,52 +7995,6 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
-      },
-      "ImprovementPeriod": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "delta": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delta"
-          },
-          "rank": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank"
-          },
-          "ranked_count": {
-            "type": "integer",
-            "title": "Ranked Count",
-            "default": 0
-          },
-          "banded": {
-            "type": "boolean",
-            "title": "Banded",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "label"
-        ],
-        "title": "ImprovementPeriod",
-        "description": "One window: the reader's own movement, and where it placed them."
       },
       "InviteOut": {
         "properties": {
@@ -11151,50 +11045,6 @@
           "marks"
         ],
         "title": "StudentSubmissionView"
-      },
-      "SubjectImprovement": {
-        "properties": {
-          "subject_id": {
-            "type": "integer",
-            "title": "Subject Id"
-          },
-          "subject_name": {
-            "type": "string",
-            "title": "Subject Name"
-          },
-          "window_days": {
-            "type": "integer",
-            "title": "Window Days"
-          },
-          "member_count": {
-            "type": "integer",
-            "title": "Member Count"
-          },
-          "periods": {
-            "items": {
-              "$ref": "#/components/schemas/ImprovementPeriod"
-            },
-            "type": "array",
-            "title": "Periods"
-          },
-          "focus": {
-            "items": {
-              "$ref": "#/components/schemas/FocusTopic"
-            },
-            "type": "array",
-            "title": "Focus"
-          }
-        },
-        "type": "object",
-        "required": [
-          "subject_id",
-          "subject_name",
-          "window_days",
-          "member_count",
-          "periods",
-          "focus"
-        ],
-        "title": "SubjectImprovement"
       },
       "SubjectOut": {
         "properties": {

@@ -999,31 +999,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/improvement/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * My Improvement
-         * @description The reader's own placing per subject, with the reader's own history.
-         *
-         *     Subjects come from `visible_subject_ids`, the same helper the readiness API
-         *     uses, so this endpoint can never widen a student's reach beyond the subjects
-         *     they are enrolled in — including into another organization's copy of the
-         *     same global subject row (SEC-8).
-         */
-        get: operations["my_improvement_api_v1_improvement_me_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/knowledge": {
         parameters: {
             query?: never;
@@ -2784,15 +2759,6 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** FocusTopic */
-        FocusTopic: {
-            /** Topic Code */
-            topic_code: string;
-            /** Topic Title */
-            topic_title: string;
-            /** Score */
-            score?: number | null;
-        };
         /** GradeBand */
         GradeBand: {
             /** Grade */
@@ -2901,28 +2867,6 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /**
-         * ImprovementPeriod
-         * @description One window: the reader's own movement, and where it placed them.
-         */
-        ImprovementPeriod: {
-            /** Label */
-            label: string;
-            /** Delta */
-            delta?: number | null;
-            /** Rank */
-            rank?: number | null;
-            /**
-             * Ranked Count
-             * @default 0
-             */
-            ranked_count: number;
-            /**
-             * Banded
-             * @default false
-             */
-            banded: boolean;
         };
         /** InviteOut */
         InviteOut: {
@@ -3909,21 +3853,6 @@ export interface components {
             total_max: number;
             /** Marks */
             marks: components["schemas"]["StudentMarkRow"][];
-        };
-        /** SubjectImprovement */
-        SubjectImprovement: {
-            /** Subject Id */
-            subject_id: number;
-            /** Subject Name */
-            subject_name: string;
-            /** Window Days */
-            window_days: number;
-            /** Member Count */
-            member_count: number;
-            /** Periods */
-            periods: components["schemas"]["ImprovementPeriod"][];
-            /** Focus */
-            focus: components["schemas"]["FocusTopic"][];
         };
         /** SubjectOut */
         SubjectOut: {
@@ -6160,26 +6089,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    my_improvement_api_v1_improvement_me_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubjectImprovement"][];
                 };
             };
         };
