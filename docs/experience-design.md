@@ -269,7 +269,7 @@ the same basis as grade boundaries and the syllabus document (`AV-110`).
 │  Two lessons today · three pieces to mark when you have      │
 │  a moment                                          Mark →    │
 │                                                              │
-│  47 questions marked — roughly 3 hours of marking.           │
+│  47 questions marked — roughly 3 hours of marking            │
 └──────────────────────────────────────────────────────────────┘
 
   Y10 Chemistry    🔴 At risk         predicted 4 avg   9/11 ●   Open →
