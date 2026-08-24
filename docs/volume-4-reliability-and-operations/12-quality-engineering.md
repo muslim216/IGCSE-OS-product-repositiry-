@@ -83,7 +83,7 @@ enforced by a human remembering. Say so, rather than implying otherwise.
 
 ### The backend suite
 
-**45 files, ~12,400 lines. 528 tests pass** in about five and a half minutes with no database
+**45 files, ~12,700 lines. 550 tests pass** in about four minutes with no database
 and no API key.
 
 > As with the frontend paragraph below, this read "28 files, ~6,600 lines. 297 tests" until
