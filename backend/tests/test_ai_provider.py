@@ -36,15 +36,20 @@ def test_get_prompt_rejects_an_unknown_surface():
 
 def test_default_routing_splits_providers_by_surface():
     """The shipped defaults: bulk document work on Gemini, everything else on
-    Anthropic, with chat on the cheap model."""
+    Anthropic. Chat routed here too before 0.3 deleted it (AV-57) along with
+    the surface itself — there is nothing left to assert."""
     assert resolve_surface("marking")[0] is AiProvider.gemini
     assert resolve_surface("extraction")[0] is AiProvider.gemini
     assert resolve_surface("syllabus")[0] is AiProvider.gemini
     assert resolve_surface("reports")[0] is AiProvider.anthropic
     assert resolve_surface("readiness")[0] is AiProvider.anthropic
-    chat_provider, chat_model = resolve_surface("chat")
-    assert chat_provider is AiProvider.anthropic
-    assert chat_model == "claude-haiku-4-5"
+
+
+def test_chat_surface_no_longer_exists():
+    """0.3 deleted the student chat surface (AV-57) — `resolve_surface` must
+    reject it rather than silently resolving a route nothing serves any more."""
+    with pytest.raises(ValueError, match="Unknown AI surface"):
+        resolve_surface("chat")
 
 
 def test_narrative_surface_is_registered_and_routes_like_a_report():

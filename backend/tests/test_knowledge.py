@@ -1,11 +1,47 @@
 """Tutor Knowledge Base: CRUD + injection into AI surfaces, and the AI usage
-metering view."""
+metering view.
 
+0.5 (AV-58) unmounted knowledge.router from the production app — the surface
+is hidden, not deleted, so its code, service and tables stay live and this
+file keeps exercising them. The `client` fixture below shadows conftest's: it
+mounts knowledge.router onto a fresh app instance so these tests reach it even
+though a real deployment can't. `test_knowledge_route_is_hidden_in_production`
+proves the other half — that the real app genuinely can't."""
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from app.api import knowledge
 from app.db import async_session
+from app.main import app as production_app
+from app.main import create_app
 from app.models import AiFeature, AiUsageEvent, User
 from app.services.knowledge import build_tutor_context
+
+
+@pytest.fixture
+async def client():
+    """Overrides conftest's `client`: a fresh app with knowledge.router mounted
+    on top of everything production mounts, so `tutor`/`student` and every
+    other conftest fixture that depends on `client` still work unchanged —
+    this app is a superset of production, not a different one."""
+    app = create_app()
+    app.include_router(knowledge.router, prefix="/api/v1")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def test_knowledge_route_is_hidden_in_production():
+    """The other half of 0.5: not just that knowledge works when mounted
+    (every other test in this file), but that the real app genuinely does not
+    mount it. A route that is merely untested is not the same as one that is
+    unreachable."""
+    transport = ASGITransport(app=production_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.get("/api/v1/knowledge")
+    assert resp.status_code == 404
 
 
 async def test_create_list_update_delete_entry(client, tutor):

@@ -140,14 +140,20 @@ def test_no_router_has_grown_its_own_copy_of_the_gate():
 
 # --- Live negative cases ---------------------------------------------------
 
+#: classroom/status and knowledge were both here until 0.5 (AV-58) unmounted
+#: their routers from the production app — a live negative case needs a route
+#: that actually resolves, and neither does any more. Their role gates are
+#: proved instead in test_classroom.py / test_knowledge.py against the app
+#: those files build with the router mounted back on; `test_no_route_is_public
+#: _by_accident` and `test_role_gates_are_one_shared_dependency` below still
+#: cover them implicitly by simply never seeing them, since both walk the real
+#: production `app`.
 TUTOR_ONLY = [
     "/api/v1/ai-usage/summary",
     "/api/v1/assessments",
     "/api/v1/assignments/attention",
     "/api/v1/classifieds",
-    "/api/v1/classroom/status",
     "/api/v1/groups",
-    "/api/v1/knowledge",
     "/api/v1/me/today-lessons",
     "/api/v1/me/preferences",
     "/api/v1/readiness/weights",
@@ -155,8 +161,10 @@ TUTOR_ONLY = [
     "/api/v1/syllabus-uploads",
 ]
 
+#: chat/conversations was here until 0.3 (AV-57) deleted the student chat
+#: surface outright — api/chat.py no longer exists, so there is no route left
+#: to assert a negative case against.
 STUDENT_ONLY = [
-    "/api/v1/chat/conversations",
     "/api/v1/me/assessments",
     "/api/v1/me/assignments",
     "/api/v1/readiness/me",
