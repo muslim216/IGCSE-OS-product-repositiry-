@@ -125,7 +125,8 @@ drives what the tutor sees when planning the next lesson.
 **The CRM aggregation feeds `GET /api/v1/students/{id}/crm`.** `services/student_crm.py` also
 fed `services/student_context.py` — AI grounding for the student chat surface, so the AI and
 the interface saw the same record by construction — until task 0.3 deleted both the surface and
-that grounding module (AV-57). No surface reads a student's own record today.
+that grounding module (AV-57). No AI surface grounds itself in a student's own record today —
+the CRM endpoint remains the only reader, serving the student's own CRM view directly.
 
 The Knowledge Base follows a related pattern: `build_tutor_context()` compiles a tutor's
 entries into one prompt block injected into marking, extraction, report generation and
@@ -318,11 +319,13 @@ and the feature degrades to a clear "not configured" state without its credentia
 | Syllabus Extractor | `services/syllabus_extraction.py` | Subjects |
 | Class Brief | `api/groups.py` → `class_brief` surface | Lessons |
 
-Every one is grounded: marking, extraction, report generation and readiness synthesis all get
+Most are grounded: marking, extraction, report generation and readiness synthesis all get
 the tutor's Knowledge Base (`build_tutor_context()`), and readiness synthesis additionally gets
-deterministic factor sub-scores it is not allowed to contradict. (The deleted student chat
-surface was the one AI system grounded in the student's own CRM record, via
-`services/student_context.py` — task 0.3, AV-57, removed both together; see above.) See §09.
+deterministic factor sub-scores it is not allowed to contradict. The Syllabus Extractor and
+Class Brief do not — they work from the uploaded document and the class's own scheduling data
+respectively, with no Knowledge Base injection. (The deleted student chat surface was the one
+AI system grounded in the student's own CRM record, via `services/student_context.py` — task
+0.3, AV-57, removed both together; see above.) See §09.
 
 ---
 

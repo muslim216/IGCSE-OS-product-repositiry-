@@ -32,9 +32,9 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import async_session
-from app.models import Evidence, Job, Topic
+from app.models import Evidence, Topic
 from app.services.readiness_summary_v2 import _IN_FLIGHT
-from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
+from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced, in_flight_readiness_pairs
 
 #: Seconds between consecutive queued runs. The default drains 120 pairs an
 #: hour, comfortably under the AI provider's limits while leaving headroom for
@@ -79,27 +79,14 @@ async def already_pending(session, pairs: list[tuple[int, int]]) -> set[tuple[in
     covering every pair for that student, not just a (student_id, None) pair
     that would never itself appear in `pairs`.
 
-    The payload is a JSON column, so the comparison happens in Python — the
-    same reason `enqueue_readiness_v2_debounced` does it that way.
+    Reads through `in_flight_readiness_pairs()`, the one place this query
+    lives — `enqueue_readiness_v2_debounced` and the readiness summary's
+    "recalculating" check use it too, so a payload-shape or status-set change
+    can't drift between the three.
     """
-    payloads = (
-        await session.scalars(
-            select(Job.payload).where(
-                Job.type == "compute_readiness_v2",
-                Job.status.in_(_IN_FLIGHT),
-            )
-        )
-    ).all()
-    exact = {
-        (p["student_id"], p["subject_id"])
-        for p in payloads
-        if p.get("student_id") is not None and p.get("subject_id") is not None
-    }
-    wildcard_students = {
-        p["student_id"]
-        for p in payloads
-        if p.get("student_id") is not None and p.get("subject_id") is None
-    }
+    in_flight = await in_flight_readiness_pairs(session, _IN_FLIGHT)
+    exact = {(sid, subj) for sid, subj in in_flight if subj is not None}
+    wildcard_students = {sid for sid, subj in in_flight if subj is None}
     return exact | {pair for pair in pairs if pair[0] in wildcard_students}
 
 

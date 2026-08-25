@@ -86,7 +86,7 @@ backend/app/
   api/          27 routers + deps.py
   schemas/      Pydantic request/response contracts, one module per domain
   services/     31 modules — the actual work
-  models/       SQLAlchemy 2.0 async ORM, 52 tables
+  models/       SQLAlchemy 2.0 async ORM, 51 tables
   workers/      jobs.py
 ```
 
@@ -155,7 +155,7 @@ they own a whole unit of work. The caller — router or job handler — commits.
 
 ### Models
 
-52 tables across 16 modules. **`models/__init__.py` is a re-export barrel with an explicit
+51 tables across 15 modules. **`models/__init__.py` is a re-export barrel with an explicit
 `__all__`**, and it is load-bearing twice over: Alembic's `env.py` imports from it to build
 `target_metadata`, and the test suite builds its schema from `Base.metadata`. A model not
 re-exported therefore **silently gets no table in tests** while working fine in production

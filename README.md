@@ -65,9 +65,10 @@ The live setup is **the API on Render and the frontend on Vercel**
 until the owner renames them in the Render and Vercel dashboards; see `render.yaml`) — one
 host each, no overlap. Vercel serves the
 only copy of the app users visit. Google Classroom (`GOOGLE_REDIRECT_URI` and its callback
-route) is unmounted as of 0.5 (AV-58) — the backend router and frontend page still exist but
-are not reachable, so there is currently no live callback URL to register. Render runs the
-API, the database and the uploads disk, and users never open its URL directly.
+route) is unmounted as of 0.5 (AV-58) — the backend router, models and services still exist for
+rollback, but the frontend pages that could reach the OAuth flow were deleted, not just
+unmounted, so there is currently no live callback URL to register. Render runs the API, the
+database and the uploads disk, and users never open its URL directly.
 
 Both hosts build from the repository's **default branch**. A branch that is pushed but not
 merged into it does not deploy, however green its tests are.

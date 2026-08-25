@@ -26,7 +26,6 @@ from app.models import (
     AiSynthesisStatus,
     FactorConfidence,
     FactorEvaluation,
-    Job,
     JobStatus,
     ReadinessFactor,
     ReadinessSnapshot,
@@ -49,7 +48,7 @@ from app.services.readiness_summary import (
     trend_direction,
     v2_score_points,
 )
-from app.services.readiness_v2_ai import resolve_grade_boundaries
+from app.services.readiness_v2_ai import in_flight_readiness_pairs, resolve_grade_boundaries
 
 # Job types whose presence means "a new score is on its way".
 _IN_FLIGHT = (JobStatus.pending, JobStatus.running)
@@ -74,20 +73,12 @@ async def in_flight_subjects(db: AsyncSession, student_id: int) -> tuple[bool, s
     """(all_subjects, specific_subject_ids) with a v2 synthesis queued or
     running for this student. A job with no subject_id recomputes every subject
     they are enrolled in, so it sets the first element."""
-    payloads = (
-        await db.scalars(
-            select(Job.payload).where(
-                Job.type == "compute_readiness_v2",
-                Job.status.in_(_IN_FLIGHT),
-            )
-        )
-    ).all()
+    pairs = await in_flight_readiness_pairs(db, _IN_FLIGHT)
     all_subjects = False
     subject_ids: set[int] = set()
-    for payload in payloads:
-        if payload.get("student_id") != student_id:
+    for pair_student_id, subject_id in pairs:
+        if pair_student_id != student_id:
             continue
-        subject_id = payload.get("subject_id")
         if subject_id is None:
             all_subjects = True
         else:

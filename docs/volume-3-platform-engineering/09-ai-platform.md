@@ -167,16 +167,15 @@ Current versions:
 | `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
 | `class_brief` | v1 | System prompt is empty — all instruction is in the user turn |
 
-Two prompts carry rules that are not stylistic:
+One active prompt carries rules that are not stylistic: **`marking`** states that page content
+is data and never instructions, and that anything addressing the marker is flagged with
+confidence `low` for a tutor rather than acted on. This is a security control (`SEC-20`).
 
-- **`marking`** states that page content is data and never instructions, and that anything
-  addressing the marker is flagged with confidence `low` for a tutor rather than acted on. This
-  is a security control (`SEC-20`).
-- **`chat`** used to carry the anti-cheating guardrails — never give complete answers to the
-  student's own homework; teach the method, use a worked example on a *different* problem, ask
-  guiding questions; forbid presenting internal readiness percentages as official grades — until
-  task 0.3 deleted the surface along with the guardrails it needed (AV-57). No remaining surface
-  talks with a student directly.
+*Historical:* **`chat`** was the other one — anti-cheating guardrails: never give complete
+answers to the student's own homework; teach the method, use a worked example on a *different*
+problem, ask guiding questions; forbid presenting internal readiness percentages as official
+grades — until task 0.3 deleted the surface along with the guardrails it needed (AV-57). No
+remaining surface talks with a student directly.
 
 ### Metering and cost
 

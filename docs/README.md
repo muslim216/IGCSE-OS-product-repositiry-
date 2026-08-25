@@ -8,7 +8,7 @@ governance layer that says which document wins when two disagree and how the sta
 themselves change.
 
 It exists because Avora outgrew the four markdown files that used to hold everything. The
-product is ~12,400 lines of Python and ~9,800 lines of TypeScript: 52 tables, 23 routers, 24
+product is ~12,400 lines of Python and ~9,800 lines of TypeScript: 51 tables, 23 routers, 24
 services, 21 migrations, 8 background job handlers, 60+ React pages. No one holds that in
 their head, and the next engineer to touch it should not have to.
 

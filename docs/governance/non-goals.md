@@ -94,7 +94,7 @@ availability requirements exceed what a single region provides.
 
 Every table uses an integer autoincrement primary key.
 
-*Why:* consistency across 52 tables is worth more than the individual merits of either
+*Why:* consistency across 51 tables is worth more than the individual merits of either
 choice, and integer keys are smaller, faster to index, and easier to read in logs and
 support conversations.
 

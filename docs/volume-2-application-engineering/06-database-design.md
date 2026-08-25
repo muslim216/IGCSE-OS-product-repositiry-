@@ -26,8 +26,9 @@
 ## Purpose
 
 Answers *what is in the database, why is it shaped this way, and how do I change it safely*.
-Fifty-two tables across sixteen modules, with conventions that are unusually consistent in
-some dimensions and unusually thin in others.
+Fifty-one tables across fifteen modules (`chat.py`'s two tables were dropped by migration
+`0026`, task 0.3, AV-57), with conventions that are unusually consistent in some dimensions and
+unusually thin in others.
 
 It also records a discrepancy nobody had noticed: **the ORM models and the migrated database
 do not agree about indexes**, which means the test schema is not the production schema.
@@ -49,7 +50,7 @@ replicas or multi-region**, **no event sourcing**.
 
 ## Sources
 
-Written from: all 16 modules in `backend/app/models/`; all 24 migrations in
+Written from: all 15 modules in `backend/app/models/`; all 25 migrations in
 `backend/alembic/versions/`; `backend/alembic/env.py`; `backend/alembic.ini`;
 `backend/app/db.py`; `backend/app/config.py`; `backend/tests/conftest.py`.
 
@@ -61,7 +62,7 @@ Written from: all 16 modules in `backend/app/models/`; all 24 migrations in
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_history` exist so a number can name its inputs (§01 P2).
 
-**P2 — Consistency across 52 tables beats local optimality.** Integer keys, `VARCHAR` enums,
+**P2 — Consistency across 51 tables beats local optimality.** Integer keys, `VARCHAR` enums,
 timezone-aware timestamps — each is arguable in isolation and correct as a rule.
 
 **P3 — The test database must resemble the production database.** Every schema decision is
@@ -76,7 +77,7 @@ tests stop being evidence.
 
 ### The schema by domain
 
-52 tables. Grouped by the module that defines them:
+51 tables. Grouped by the module that defines them:
 
 | Module | Tables |
 |---|---|
@@ -127,13 +128,13 @@ erDiagram
   factor_evaluations }o--|| readiness_snapshots : "evaluation_run_id"
 ```
 
-The diagram shows the spine, not all 52 tables. Note `submissions` receiving from **both**
+The diagram shows the spine, not all 51 tables. Note `submissions` receiving from **both**
 `assignments` and `past_papers` — the polymorphism from `ADR-0004`.
 
 ### Conventions
 
 **Primary keys.** Uniformly `id: Mapped[int] = mapped_column(primary_key=True)` — integer
-autoincrement on all 52 tables. **No UUIDs anywhere.** The one UUID-shaped value,
+autoincrement on all 51 tables. **No UUIDs anywhere.** The one UUID-shaped value,
 `evaluation_run_id: Mapped[str] = mapped_column(String(36))` on `factor_evaluations` and
 `readiness_snapshots`, is a correlation key, not a primary key.
 
@@ -259,10 +260,10 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain from `0001` to `0025_user_time_zone`, the current head, with string revision
-ids matching the filename prefix and `down_revision` chained. One number is deliberately
-absent: `0024` is reserved for task 0.3's `drop_chat` on a parallel branch, so `0025` chains
-straight to `0023` (see the note under the list).
+A linear chain from `0001` to `0026_drop_chat`, the current head, with string revision ids
+matching the filename prefix and `down_revision` chained. One number is deliberately absent:
+`0024` was reserved for task 0.3's `drop_chat` while it was being written on a parallel branch
+(see the note under the list), but it landed as `0026` instead once `0025` had already merged.
 
 ```
 0001_users                        0012_organizations           (184 lines — largest)
@@ -278,23 +279,29 @@ straight to `0023` (see the note under the list).
 0011_syllabus_uploads             0022_org_timezone
                                   0023_narratives
                                   0025_user_time_zone
+                                  0026_drop_chat
 ```
 
-**0024 is deliberately absent.** It is reserved for task 0.3's `drop_chat`, which was written
-on a parallel branch; `0025_user_time_zone` chains to `0023`. Sequential numbering (`DB-15`)
-is about a single readable chain, not a gapless one — two revisions sharing a
-`down_revision` would give Alembic two heads, which is the failure worth avoiding.
+**0024 is deliberately absent.** It was reserved for task 0.3's `drop_chat`, written on a
+parallel branch while `0025_user_time_zone` (chaining to `0023`) was in flight elsewhere.
+Sequential numbering (`DB-15`) is about a single readable chain, not a gapless one — two
+revisions sharing a `down_revision` would give Alembic two heads, which is the failure worth
+avoiding.
 
-**Which way 0024 is landed depends on whether 0025 has deployed**, and getting this backwards
-skips a migration silently rather than loudly:
+**Which number `drop_chat` landed as depended on whether `0025` had deployed by the time it
+merged**, and getting this backwards would have skipped a migration silently rather than
+loudly:
 
-- **0025 not yet deployed** — chain 0024 to `0023` and rebase 0025's `down_revision` onto
-  `0024`. Nothing has recorded 0025 yet, so the reordered chain runs in full.
-- **0025 already deployed** — chain 0024 to `0025` and leave 0025 alone, numbering be damned.
-  Production's `alembic_version` already reads `0025`, so `upgrade head` starts from there:
-  re-pointing 0025's parent would make Alembic step straight past 0024, and the chat tables it
-  drops would stay in the database with nothing reporting a problem. An applied revision is
-  history — the rule against editing one is the same rule as `DB-15` itself.
+- **If `0025` had not yet deployed** — chain the new migration to `0023` as `0024` and rebase
+  `0025`'s `down_revision` onto it. Nothing would have recorded `0025` yet, so the reordered
+  chain would run in full.
+- **If `0025` had already deployed** (the actual outcome here) — chain the new migration to
+  `0025` instead, numbered `0026`, and leave `0025` alone. Production's `alembic_version`
+  already read `0025`, so `upgrade head` starts from there: re-pointing `0025`'s parent would
+  have made Alembic step straight past the new migration, and the chat tables it drops would
+  have stayed in the database with nothing reporting a problem. An applied revision is history
+  — the rule against editing one is the same rule as `DB-15` itself. `0024` stays permanently
+  unused as the record of that decision.
 
 `alembic/env.py` reads the URL from `get_settings().database_url` rather than from
 `alembic.ini`, and sets `target_metadata = Base.metadata`. Migrations run at container start:
@@ -320,7 +327,7 @@ painfully in 0020 and must be reused rather than rediscovered.
 `Base.metadata.create_all` and forces in-memory SQLite, so `pytest` proves nothing about
 Alembic. **CI is what exercises them.** The `migrations` job in `.github/workflows/ci.yml`
 runs `upgrade head` → `downgrade base` → `upgrade head` against a real `postgres:16-alpine`
-service container on every pull request, so all 24 migrations and all 24 downgrades run before
+service container on every pull request, so all 25 migrations and all 25 downgrades run before
 a merge rather than for the first time in production.
 
 **What that check still cannot see.** The CI database is **empty**. It proves the schema
@@ -339,7 +346,7 @@ automatically, because hosting providers hand out the bare scheme.
 
 **`DB-1` — MUST · Important · Active**
 New tables use an integer autoincrement primary key named `id`.
-*Rationale:* consistency across 52 tables; see `governance/non-goals.md` for why not UUIDs,
+*Rationale:* consistency across 51 tables; see `governance/non-goals.md` for why not UUIDs,
 including the enumerability that `API-7` then has to handle.
 
 **`DB-2` — MUST · Critical · Active**
