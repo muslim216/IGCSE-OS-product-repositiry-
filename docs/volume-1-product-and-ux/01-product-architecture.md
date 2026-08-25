@@ -128,7 +128,8 @@ the interface saw the same record by construction — until task 0.3 deleted bot
 that grounding module (AV-57). No surface reads a student's own record today.
 
 The Knowledge Base follows a related pattern: `build_tutor_context()` compiles a tutor's
-entries into one prompt block injected into marking, extraction and report generation.
+entries into one prompt block injected into marking, extraction, report generation and
+readiness synthesis.
 
 ### Roles and visibility
 
@@ -136,7 +137,7 @@ Four roles, defined by `UserRole` in `backend/app/models/users.py`:
 
 | Role | Sees | Notably cannot |
 |---|---|---|
-| `student` | Own readiness, own homework and past papers, own exam results, group files and recordings, AI chat | See other students; generate reports; download a past paper's mark scheme |
+| `student` | Own readiness, own homework and past papers, own exam results, group files and recordings | See other students; generate reports; download a past paper's mark scheme |
 | `tutor` | Everything in their organization | Reach another organization's data |
 | `parent` | Plain-language progress for linked children only | See anything not linked via a single-use `ParentLink` |
 | `admin` | Tutor surfaces, plus report generation | — |
@@ -317,9 +318,11 @@ and the feature degrades to a clear "not configured" state without its credentia
 | Syllabus Extractor | `services/syllabus_extraction.py` | Subjects |
 | Class Brief | `api/groups.py` → `class_brief` surface | Lessons |
 
-Every one is grounded: marking and extraction get the tutor's Knowledge Base, chat and reports
-get the student's CRM context, and readiness synthesis gets deterministic factor sub-scores it
-is not allowed to contradict. See §09.
+Every one is grounded: marking, extraction, report generation and readiness synthesis all get
+the tutor's Knowledge Base (`build_tutor_context()`), and readiness synthesis additionally gets
+deterministic factor sub-scores it is not allowed to contradict. (The deleted student chat
+surface was the one AI system grounded in the student's own CRM record, via
+`services/student_context.py` — task 0.3, AV-57, removed both together; see above.) See §09.
 
 ---
 

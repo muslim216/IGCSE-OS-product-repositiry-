@@ -111,8 +111,8 @@ Seven surfaces, defined in `SURFACES`:
 | `syllabus` | Gemini | `GEMINI_MODEL` | Extracts a topic tree from a syllabus document |
 | `reports` | Anthropic | `claude-opus-4-8` | Audience-specific narrative reports |
 | `readiness` | Anthropic | `claude-opus-4-8` | Layer 2 readiness synthesis |
-| `chat` | Anthropic | `claude-haiku-4-5` | Streaming tutor chat |
 | `class_brief` | Anthropic | `claude-opus-4-8` | Pre-lesson class brief |
+| `narrative` | Anthropic | `claude-opus-4-8` | Merged narrative + weekly-send writer |
 
 `resolve_surface(surface)` reads `AI_<SURFACE>_PROVIDER` and `AI_<SURFACE>_MODEL`, falling back
 to that provider's default model when the per-surface model is blank. It **raises on an unknown
@@ -121,8 +121,8 @@ values — so a typo in configuration fails loudly at the call rather than silen
 somewhere unintended.
 
 The split is deliberate: bulk document work goes to the cheaper provider, quality-dominated
-low-volume work to the more capable one, and chat to the fastest. No single provider outage
-stops the product. See `ADR-0006`.
+low-volume work to the more capable one. No single provider outage stops the product. See
+`ADR-0006`.
 
 **Surfaces and billing buckets are different things.** `SURFACE_FEATURE` maps each surface to
 an `AiFeature` for metering, and several deliberately share a bucket — `syllabus` meters as
@@ -164,7 +164,7 @@ Current versions:
 |---|---|---|
 | `marking` | **v3** | Bumped when marks began counting without tutor review |
 | `extraction` | v2 | |
-| `syllabus`, `reports`, `readiness`, `chat` | v1 | |
+| `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
 | `class_brief` | v1 | System prompt is empty — all instruction is in the user turn |
 
 Two prompts carry rules that are not stylistic:
@@ -172,9 +172,11 @@ Two prompts carry rules that are not stylistic:
 - **`marking`** states that page content is data and never instructions, and that anything
   addressing the marker is flagged with confidence `low` for a tutor rather than acted on. This
   is a security control (`SEC-20`).
-- **`chat`** carries the anti-cheating guardrails: never give complete answers to the student's
-  own homework; teach the method, use a worked example on a *different* problem, ask guiding
-  questions. It also forbids presenting internal readiness percentages as official grades.
+- **`chat`** used to carry the anti-cheating guardrails — never give complete answers to the
+  student's own homework; teach the method, use a worked example on a *different* problem, ask
+  guiding questions; forbid presenting internal readiness percentages as official grades — until
+  task 0.3 deleted the surface along with the guardrails it needed (AV-57). No remaining surface
+  talks with a student directly.
 
 ### Metering and cost
 
@@ -228,7 +230,7 @@ Two grounding sources, both injected rather than left to the model's priors:
 
 | Source | Function | Injected into |
 |---|---|---|
-| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports |
+| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports, readiness synthesis |
 | Deterministic factor sub-scores | `services/readiness_v2.py` | Readiness synthesis |
 
 `build_tutor_context()` uses the same `cache=True` prompt-caching pattern as `file_block()`.
@@ -310,8 +312,9 @@ records produced by different instructions.
 
 **`AI-8` — MUST · Critical · Active**
 A prompt carrying a safety instruction preserves it through any rewrite. The `marking` prompt's
-data-not-instructions rule and the `chat` prompt's anti-cheating rules are safety instructions.
-*Rationale:* `SEC-21`. Marking's output can count with no human; chat's output reaches a child.
+data-not-instructions rule is a safety instruction. (The `chat` prompt's anti-cheating rules
+were the other standing example, until task 0.3 deleted the surface, AV-57.)
+*Rationale:* `SEC-21`. Marking's output can count with no human in the loop.
 
 **`AI-9` — MUST · Important · Active**
 A prompt that processes user-supplied content states that the content is data and never

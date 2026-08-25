@@ -6,8 +6,8 @@ feeds topic-level exam-readiness scores, which drive dashboards, recommendations
 
 - **Tutors** create groups, assign homework from classified PDFs, review AI-drafted marking
   (the tutor always has final authority), record mock results, and track analytics.
-- **Students** submit photos/PDFs of handwritten work, see their readiness (% + predicted
-  grade), weak topics, upcoming lessons, and chat with an AI academic mentor.
+- **Students** submit photos/PDFs of handwritten work, and see their readiness (% + predicted
+  grade), weak topics, and upcoming lessons.
 - **Parents** get plain-language progress views and reports.
 
 ## Documentation
@@ -26,7 +26,7 @@ New engineers should read `docs/README.md` first; it carries a reading order.
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for chat/reports/readiness |
+| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for reports/readiness/class briefs/narrative |
 | Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development
@@ -64,10 +64,10 @@ The live setup is **the API on Render and the frontend on Vercel**
 (`igcse-os-product-repositiry.vercel.app` — the deployed hosts keep their pre-Avora names
 until the owner renames them in the Render and Vercel dashboards; see `render.yaml`) — one
 host each, no overlap. Vercel serves the
-only copy of the app users visit, so `GOOGLE_REDIRECT_URI` is the full callback URL on
-that origin (`https://…vercel.app/settings/classroom/callback`, path included) and must be
-registered verbatim on the Google OAuth client. Render runs the API, the database and the
-uploads disk, and users never open its URL directly.
+only copy of the app users visit. Google Classroom (`GOOGLE_REDIRECT_URI` and its callback
+route) is unmounted as of 0.5 (AV-58) — the backend router and frontend page still exist but
+are not reachable, so there is currently no live callback URL to register. Render runs the
+API, the database and the uploads disk, and users never open its URL directly.
 
 Both hosts build from the repository's **default branch**. A branch that is pushed but not
 merged into it does not deploy, however green its tests are.
@@ -84,11 +84,11 @@ merged into it does not deploy, however green its tests are.
 
    | Variable | Needed for |
    | --- | --- |
-   | `ANTHROPIC_API_KEY` | chat, reports, readiness synthesis, class briefs |
+   | `ANTHROPIC_API_KEY` | reports, readiness synthesis, class briefs, narrative |
    | `GEMINI_API_KEY` | marking, question extraction, syllabus extraction |
    | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
    | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
-   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; leave unset to run without it |
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; the surface is unmounted (0.5, AV-58) so these currently have no effect — leave unset |
 
    `JWT_SECRET` and `GOOGLE_TOKEN_ENCRYPTION_KEY` are generated automatically.
    Every AI surface degrades gracefully when its provider key is missing, so a partial
@@ -108,8 +108,8 @@ merged into it does not deploy, however green its tests are.
    origin is `CORS_ORIGINS` (origin only, no path) *and* `GOOGLE_REDIRECT_URI` (the full
    callback URL, path included) — `GOOGLE_REDIRECT_URI` otherwise stays put, since the
    backend never appears in it.
-   `GOOGLE_REDIRECT_URI` must also be registered verbatim as an authorized redirect URI
-   on the Google Cloud OAuth client, or the Classroom connect flow fails.
+   Google Classroom is currently unmounted (0.5, AV-58), so `GOOGLE_REDIRECT_URI` has no
+   live route to register against — this only applies if the surface is remounted.
 
 ### Vercel (frontend)
 
@@ -137,12 +137,12 @@ All backend settings come from environment variables (see `backend/.env.example`
 |---|---|
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
-| `ANTHROPIC_API_KEY` | Chat, reports, readiness synthesis, class briefs |
+| `ANTHROPIC_API_KEY` | Reports, readiness synthesis, class briefs, narrative |
 | `GEMINI_API_KEY` | Marking, question extraction, syllabus extraction — the homework pipeline |
 | `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
 | `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; unset means the feature reports "not configured" |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; the surface is unmounted (0.5, AV-58), so these currently have no effect |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |
 | `REFRESH_COOKIE_SECURE` | Default `true`; set `false` only for plain-HTTP local dev — the refresh-token cookie is `Secure` and browsers drop it over `http://` otherwise |
 
@@ -188,7 +188,7 @@ runnable end-to-end:
 - [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
 - [x] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
 - [x] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock/observation entry, student & tutor dashboards, analytics, agreement rate
-- [x] **E — AI tutor chat:** streaming mentor grounded in the student's readiness/workload, anti-cheating guardrails, daily message cap
+- [x] ~~**E — AI tutor chat:** streaming mentor grounded in the student's readiness/workload, anti-cheating guardrails, daily message cap~~ — deleted in 0.3 (AV-57); the platform is not an AI tutor by design
 - [x] **F — Parents & reports:** parent dashboard with per-child readiness; audience-specific AI reports (student / tutor / parent) generated strictly from the student's data
 
 ### Planned next (designed for, not yet built)

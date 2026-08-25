@@ -90,7 +90,8 @@ that has no measurement attached is recorded as a gap.
 | **Postgres** | Everything | None. No graceful path exists | Request failures |
 | **Uploads disk** | New uploads, file downloads, extraction and marking of unread files | None | Request failures |
 | **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
-| **Anthropic** | Reports, readiness synthesis, class briefs, narrative | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
+| **Anthropic** | Reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
+| **Anthropic (narrative)** | The merged narrative + weekly-send writer (`services/narrative.py`) | Logs a warning and leaves the surface in its absent state — nothing is persisted to signal the failure | Log only; not surfaced in `/health/ready` |
 | **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; reports unaffected | Error persisted to a domain column |
 | **Google Classroom** (hidden, 0.5/AV-58) | Import only, and only for a `sync_classroom` job queued before the hide — the router is unmounted, so nothing enqueues a new one | Direct upload unaffected by design | `sync_classroom` job failure |
 | **Readiness v2 Layer 2** | Readiness freshness | Falls back per-subject to v1, response says `engine: "v1"` | Snapshot `status="failed"` |
@@ -184,7 +185,7 @@ The mechanism is described in §04. Its reliability properties:
 ```mermaid
 flowchart LR
   A[Handler raises] --> B{attempts &lt; 2?}
-  B -->|yes| C[status=pending<br/>reclaimed in ~2s]
+  B -->|yes| C[status=pending<br/>run_after=+60s, reclaimed on the next<br/>2s poll once due]
   B -->|no| D[status=failed<br/>error recorded]
   D --> E[Nothing happens.<br/>Nobody is told.]
 ```
@@ -201,9 +202,10 @@ exist, none wired to anything beyond Python's own defaults:
 
 - `workers/jobs.py` — `logging.getLogger("jobs")`: worker started/stopped, job failure with a
   traceback, and an iteration crash.
-- `main.py` — `logging.getLogger("api")`: the chat-surface startup check that used to live
-  here was deleted with the surface itself (task 0.3, AV-57); what remains is the narrative
-  sweep's best-effort scheduling failure at boot.
+- `main.py` — `logging.getLogger("api")`: `_supervised_worker()`'s restart-on-crash /
+  restart-on-unexpected-return, the narrative sweep's best-effort scheduling failure at boot,
+  and `/health/ready`'s database-unreachable case. (The chat-surface startup check that used to
+  live here was deleted with the surface itself, task 0.3, AV-57.)
 - `services/narrative.py` — `logging.getLogger("narrative")`.
 - `services/readiness_v2_ai.py` — `logging.getLogger("readiness_v2_ai")`.
 
@@ -326,7 +328,7 @@ every asynchronous surface (`PERF-11`).
 The application configures logging explicitly, emits structured records, and logs at least:
 service start and stop, unhandled exceptions, job lifecycle transitions, authentication and
 authorization failures, and external-call failures.
-*Rationale:* two ad-hoc loggers and no configuration means most failures leave no trace at all.
+*Rationale:* four ad-hoc loggers and no configuration means most failures leave no trace at all.
 **Draft** — the required change is a logging configuration plus call sites.
 
 **`REL-13` — MUST · Critical · Draft**
@@ -399,7 +401,7 @@ knowing the complete list.
 | **Nothing announces a failure; something must ask.** `/health/ready` reports a stalled queue, a dead worker and an unreachable database accurately — to whoever polls it, and no one polls it. | This is the whole residual of `RISK-4`. Visible is not announced. Closing it needs an external uptime monitor pointed at `/api/v1/health/ready` and alerting on 503 — a configuration step outside this repo, which is why it is not a code task. Blocks `REL-10`. | `blocking` |
 | **No revision reported anywhere.** Neither health endpoint says which build is running. | "Is the fix deployed?" is answerable only by reading Render's dashboard. `REL-5` is Active with this clause unmet; it needs a build identifier injected at deploy time. | `before scale` |
 | **A terminally failed job has no dead-letter queue and no re-enqueue path.** It is logged at `error` and counted in `/health/ready`, but recovering it is a manual database action. | The job is findable now, which it was not before; it is still not recoverable without someone writing SQL. §14 has the procedure. | `before scale` |
-| **No logging configuration and only two loggers.** Most failures leave no trace outside a database column. | Blocks `REL-12`. An incident could not be reconstructed. | `blocking` |
+| **No logging configuration and only four loggers.** Most failures leave no trace outside a database column. | Blocks `REL-12`. An incident could not be reconstructed. | `blocking` |
 | **No request ids.** | A user-reported error cannot be tied to a log line. Blocks `REL-13`. | `blocking` |
 | **No metrics and no error tracking.** | Every objective in `REL-17` is unmeasurable, and unhandled exceptions go to stdout on one container. | `blocking` |
 | **The retry budget is still one attempt at a fixed 60s.** No exponential backoff, no jitter, no per-error-class policy. | Better than the immediate re-claim it replaced, but a provider outage longer than a minute still exhausts the budget, and a burst of failures retries in lockstep. `REL-9` is partially met. | `before scale` |

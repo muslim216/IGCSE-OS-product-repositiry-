@@ -2,8 +2,6 @@ import TimezoneSetting from "./TimezoneSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 
 /**
- * Tutor settings.
- *
  * This was `ClassroomSettingsPage` until 0.5 (AV-58) hid the Google Classroom
  * surface. The timezone controls shipped in 0.7 lived on that page and are the
  * only way to set the organization's zone and the reader's own — Phase 6's plan
@@ -15,6 +13,7 @@ import MyTimezoneSetting from "../components/MyTimezoneSetting";
 export default function SettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
+      <h2 className="text-xl font-semibold text-ink-900">Settings</h2>
       <TimezoneSetting />
       <MyTimezoneSetting />
     </div>

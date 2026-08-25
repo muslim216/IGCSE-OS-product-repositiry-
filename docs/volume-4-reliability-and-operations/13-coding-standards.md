@@ -109,8 +109,9 @@ the pure scoring types are `@dataclass(frozen=True)`.
 the reader. Services raise domain exceptions — `AIUnavailableError`,
 `GoogleClassroomUnavailableError` — or `ValueError` when the caller may be a job rather than a
 request (`services/storage.py:save_bytes` says so explicitly). Bare `except Exception` appears
-in exactly three places, all in the worker and chat streaming, all where the process must
-survive any error, and all annotated.
+at several call sites, mostly annotated with why the process must survive that particular
+error. (Chat streaming was one of the originally-cited examples until task 0.3 deleted the
+surface, AV-57 — this line is due a fresh count, not covered by this PR.)
 
 **Purity.** Decision math takes plain dataclasses and touches no database:
 `services/readiness_factors.py`, `services/readiness.py`'s scoring functions,

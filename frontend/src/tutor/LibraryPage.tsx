@@ -66,7 +66,7 @@ const SETTINGS: Shelf[] = [
   {
     to: "/tutor/settings",
     label: "Settings",
-    hint: "Classroom, timezone and integrations.",
+    hint: "Timezone and integrations.",
     icon: SettingsIcon,
   },
 ];

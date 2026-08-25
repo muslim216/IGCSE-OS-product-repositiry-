@@ -19,9 +19,10 @@ once would hit the provider's rate limit and bury real-time marking behind the
 backfill. Pairs are queued with a steadily increasing `run_after`, which drains
 the backlog at a predictable rate — roughly `3600 / spacing` runs an hour.
 
-Safe to re-run: `enqueue_readiness_v2_debounced` skips a pair that already has
-a pending job, so a second invocation while the first is still draining adds
-nothing rather than doubling the queue.
+Safe to re-run: `already_pending()` below excludes any pair with a pending or
+running job before this module ever calls `enqueue_readiness_v2_debounced`
+(which only catches `pending` on its own), so a second invocation while the
+first is still draining adds nothing rather than doubling the queue.
 """
 
 import argparse
@@ -31,7 +32,8 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import async_session
-from app.models import Evidence, Job, JobStatus, Topic
+from app.models import Evidence, Job, Topic
+from app.services.readiness_summary_v2 import _IN_FLIGHT
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 
 #: Seconds between consecutive queued runs. The default drains 120 pairs an
@@ -57,14 +59,25 @@ async def pairs_with_evidence(session) -> list[tuple[int, int]]:
     return [(student_id, subject_id) for student_id, subject_id in rows]
 
 
-async def already_pending(session) -> set[tuple[int, int]]:
-    """The (student_id, subject_id) pairs that already have a run queued.
+async def already_pending(session, pairs: list[tuple[int, int]]) -> set[tuple[int, int]]:
+    """The (student_id, subject_id) pairs from `pairs` already covered by a
+    queued or running run.
 
     `enqueue_readiness_v2_debounced` skips these on its own, but it does so
-    silently and returns nothing either way. Reading them here lets the runner
-    report a count that is actually true, and keeps the spacing contiguous:
-    were skipped pairs still to consume a slot, a re-run over a mostly-queued
-    backlog would schedule its handful of real jobs hours apart.
+    silently and returns nothing either way, and only checks `pending` — a job
+    that is already `running` isn't in its window, so re-running this script
+    while a backfill job is actively executing would still re-queue it.
+    Reading both statuses here (the same `_IN_FLIGHT` pair the readiness
+    summary uses to show "recalculating") lets the runner report a count that
+    is actually true, and keeps the spacing contiguous: were skipped pairs
+    still to consume a slot, a re-run over a mostly-queued backlog would
+    schedule its handful of real jobs hours apart.
+
+    A job queued with `subject_id: None` covers every subject the student is
+    enrolled in (`compute_readiness_v2`'s own contract) — not just the one
+    pair it happens to share a payload shape with — so it must count as
+    covering every pair for that student, not just a (student_id, None) pair
+    that would never itself appear in `pairs`.
 
     The payload is a JSON column, so the comparison happens in Python — the
     same reason `enqueue_readiness_v2_debounced` does it that way.
@@ -73,18 +86,29 @@ async def already_pending(session) -> set[tuple[int, int]]:
         await session.scalars(
             select(Job.payload).where(
                 Job.type == "compute_readiness_v2",
-                Job.status == JobStatus.pending,
+                Job.status.in_(_IN_FLIGHT),
             )
         )
     ).all()
-    return {
+    exact = {
         (p["student_id"], p["subject_id"])
         for p in payloads
         if p.get("student_id") is not None and p.get("subject_id") is not None
     }
+    wildcard_students = {
+        p["student_id"]
+        for p in payloads
+        if p.get("student_id") is not None and p.get("subject_id") is None
+    }
+    return exact | {pair for pair in pairs if pair[0] in wildcard_students}
 
 
 async def main(spacing_seconds: int = DEFAULT_SPACING_SECONDS) -> None:
+    if spacing_seconds <= 0:
+        # Zero or negative collapses every `run_after` to "now" (or the past),
+        # defeating the rate-limit protection this whole module exists for.
+        raise SystemExit(f"--spacing must be a positive number of seconds, got {spacing_seconds}")
+
     settings = get_settings()
     if not settings.readiness_v2_shadow_enabled:
         # The debounced enqueue is a no-op with the kill switch off, so the
@@ -98,7 +122,7 @@ async def main(spacing_seconds: int = DEFAULT_SPACING_SECONDS) -> None:
             print("No evidence found — nothing to recompute.")
             return
 
-        pending = await already_pending(session)
+        pending = await already_pending(session, pairs)
         todo = [pair for pair in pairs if pair not in pending]
 
         for index, (student_id, subject_id) in enumerate(todo):

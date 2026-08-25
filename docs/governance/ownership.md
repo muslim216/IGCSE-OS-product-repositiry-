@@ -112,8 +112,8 @@ column is what fails; the right is what stops working with it.
 | **Postgres** | Everything. No graceful degradation exists. |
 | **Upload disk** | New uploads; existing file downloads; extraction and marking of anything not yet read. |
 | **The in-process worker** | All extraction, marking, readiness synthesis, report generation, and Classroom sync. The loop is supervised and `/health/ready` reports its state, so the failure is now **findable** — but nothing alerts, so it stays silent until someone looks. |
-| **Anthropic** | Chat, reports, readiness synthesis, class briefs. Marking and extraction survive (Gemini). |
-| **Gemini** | Marking, question extraction, syllabus extraction — the homework pipeline. Chat and reports survive (Anthropic). |
+| **Anthropic** | Reports, readiness synthesis, class briefs, narrative. Marking and extraction survive (Gemini). |
+| **Gemini** | Marking, question extraction, syllabus extraction — the homework pipeline. Reports survive (Anthropic). |
 | **Google Classroom** | Import only. Direct upload is unaffected by design. |
 | **Readiness v2 (Layer 2)** | Readiness falls back per-subject to v1 and says `engine: "v1"`. |
 | **Vercel** | The entire user-facing app. The API is unaffected but nobody can reach it. |

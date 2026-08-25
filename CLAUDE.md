@@ -304,8 +304,9 @@ Keep these loaded. Each cites the document holding its full reasoning.
 ### Frontend
 
 - **`api/client.ts` is the one HTTP entry point.** It attaches the bearer token and on a `401`
-  transparently calls `/auth/refresh` once and retries. The only sanctioned bypasses are
-  `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE. (`FE-1`)
+  transparently calls `/auth/refresh` once and retries. The only sanctioned bypass is
+  `fetchFileUrl()` for blob downloads. (`streamMessage()` for SSE was the other one until task
+  0.3 (AV-57) deleted the chat surface.) (`FE-1`)
 - **A backend response-schema change is regenerated into the frontend types in the same PR** —
   from `backend/`, `python -c "import json;from app.main import
   app;print(json.dumps(app.openapi(),indent=2))" > ../frontend/openapi.json`, then
@@ -367,8 +368,9 @@ Full detail in §01 and §04; this is orientation only.
   read v1 tables directly, so numbers can disagree (`RISK-5`). `READINESS_V2_SHADOW_ENABLED` is
   a **kill switch**, not a shadow flag.
 - **AI**: seven surfaces routed independently to Anthropic or Gemini. Bulk document work
-  (marking, extraction, syllabus) → Gemini; chat → Haiku; reports, readiness, class brief →
-  Opus. Every call is metered into `ai_usage_events`.
+  (marking, extraction, syllabus) → Gemini; reports, readiness, class brief, narrative →
+  Opus/Sonnet. Every call is metered into `ai_usage_events`. (The student chat surface, once
+  routed to Haiku, was deleted in 0.3 / AV-57.)
 - **Storage**: local disk, paths stored relative to `UPLOAD_DIR` so the folder can move to S3
   later without touching data. 20 MB cap; PDF/JPEG/PNG/WebP, with HEIC transcoded to JPEG on
   the way in.

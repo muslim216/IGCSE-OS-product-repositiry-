@@ -90,7 +90,6 @@ tests stop being evidence.
 | `readiness.py` | `evidence`, `topic_readiness`, `readiness_history`, `tutor_observations`, `assessments`, `assessment_scores`, `tutor_preferences` |
 | `readiness_v2.py` | `mistakes`, `past_papers`, `past_paper_questions`, `past_paper_question_topics`, `past_paper_attempts`, `grade_boundaries`, `readiness_weights`, `factor_evaluations`, `readiness_snapshots` |
 | `knowledge.py` | `knowledge_entries` |
-| `chat.py` | `chat_conversations`, `chat_messages` |
 | `reports.py` | `reports` |
 | `resources.py` | `group_resources` |
 | `ai_usage.py` | `ai_usage_events` |
@@ -98,6 +97,10 @@ tests stop being evidence.
 
 `jobs` lives in `homework.py` rather than with the worker — historical, and worth knowing when
 searching.
+
+`chat.py` (`chat_conversations`, `chat_messages`) is gone — task 0.3 deleted the model along
+with the surface it backed (AV-57), and migration `0026_drop_chat.py` dropped both tables (with
+a verified `downgrade()` that recreates them, per `DB-16`).
 
 ```mermaid
 erDiagram

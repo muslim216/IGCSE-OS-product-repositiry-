@@ -497,13 +497,15 @@ Each run is an AI call, so the runner **spaces them deliberately** rather than f
 backlog at once — the spacing drains roughly `3600 / spacing` runs an hour and leaves headroom
 for the marking traffic sharing the same worker. It queues jobs rather than computing inline, so
 every snapshot is written by the same handler the product uses. Safe to re-run: a pair that
-already has a pending job is skipped, so a second invocation mid-drain adds nothing.
+already has a pending or running job is skipped, so a second invocation mid-drain adds nothing.
+`--spacing` must be a positive number of seconds — `0` or negative is rejected, since it would
+collapse every `run_after` to "now" and defeat the rate-limit spacing this exists for.
 
 It does nothing while `READINESS_V2_SHADOW_ENABLED=false` (the debounced enqueue is a no-op with
 the kill switch off) and says so rather than reporting a successful run of zero jobs.
 
 Watch the drain with the `jobs` query above; the backfill is done when no
-`compute_readiness_v2` rows remain `pending`.
+`compute_readiness_v2` rows remain `pending` or `running`.
 
 ---
 

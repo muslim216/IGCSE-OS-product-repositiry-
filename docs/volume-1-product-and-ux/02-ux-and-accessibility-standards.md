@@ -420,7 +420,8 @@ invisible to a screen reader.
 Content that changes without a navigation — streaming AI output, async status transitions,
 toasts, validation summaries — is announced through a live region. Use `aria-live="polite"`;
 reserve `assertive` for errors that block progress.
-*Rationale:* the chat transcript and the readiness "updating" state are currently silent.
+*Rationale:* the readiness "updating" state is currently silent. (The chat transcript was the
+other standing example until task 0.3 (AV-57) deleted the student AI chat surface outright.)
 
 **`UX-14` — MUST · Important · Active**
 Decorative graphics are `aria-hidden`; meaningful graphics carry a text alternative. A
@@ -541,7 +542,7 @@ reads as a standing judgement of the person.
 direction is `null` — one point is not a trend, and `→` would claim a movement nothing
 measured.
 
-**`UX-32` — RETIRED, superseded by deletion**
+**`~~UX-32~~` — MUST NOT · Important · Deprecated (2026-08, task 0.4 deleted the surface it governed)**
 A student is never shown another student's score, grade, delta or identity.
 *History:* the "(revised)" text this rule carried permitted a student their own position
 within a self-only improvement ranking, on a surface dedicated to it — the compromise struck
