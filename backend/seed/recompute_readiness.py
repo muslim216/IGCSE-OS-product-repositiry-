@@ -11,8 +11,11 @@ triggered by new marks landing, and a student whose work is all marked already
 would never be recomputed.
 
 It queues jobs rather than computing inline, so every snapshot is written by
-the same handler the product uses (no second code path), and a failed run
-retries like any other job.
+the same handler the product uses (no second code path). An AI/provider
+failure does **not** retry: `compute_readiness_v2` catches it, writes a
+`ReadinessSnapshot` with `status="failed"`, and returns normally, so the
+worker marks the job done — only an infrastructure failure (the job handler
+itself raising) gets the worker's usual retry.
 
 **Spacing is the point.** Each run is an AI call, so firing several hundred at
 once would hit the provider's rate limit and bury real-time marking behind the

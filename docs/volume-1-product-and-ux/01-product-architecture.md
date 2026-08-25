@@ -118,7 +118,7 @@ drives what the tutor sees when planning the next lesson.
 | **Student CRM** | The student's complete, continuously-updating academic record | `services/student_crm.py`, `api/students.py`, `models/crm.py` |
 | **Lessons** | The dated teaching event — notes, topics covered, per-student observations | `api/lessons.py`, `models/lessons.py` |
 | **Readiness** | Exam-readiness scores, predicted grades, weak topics, revision plans | `services/readiness*.py`, `api/readiness*.py` |
-| **Knowledge Base** | Tutor-specific knowledge injected into every AI surface | `services/knowledge.py`, `api/knowledge.py` |
+| **Knowledge Base** | Tutor-specific knowledge injected into most AI surfaces (marking, extraction, report generation, readiness synthesis — not Syllabus Extractor or Class Brief) | `services/knowledge.py`, `api/knowledge.py` |
 | **Homework** | Booklet → questions → submission → marking → review → evidence | `api/{assignments,submissions,classifieds}.py`, `services/{marking,extraction}.py` |
 | **Reports** | Audience-specific narrative generated strictly from the student's data | `services/reports.py`, `api/reports.py` |
 
@@ -129,7 +129,8 @@ that grounding module (AV-57). No AI surface reads *that specific aggregation* t
 endpoint remains its only reader. (`services/reports.py`'s `build_report_facts()` is a separate
 AI grounding path into a student's own record — readiness scores and topic breakdowns, queried
 directly rather than through `student_crm.py` — for the `reports` surface's student-audience
-output; it was never routed through `student_context.py` and 0.3 didn't touch it.)
+output; it was never routed through `student_context.py` and 0.3 didn't touch it. This is a
+pre-existing `PROD-11` violation, not one this change introduces — see Known Gaps.)
 
 The Knowledge Base follows a related pattern: `build_tutor_context()` compiles a tutor's
 entries into one prompt block injected into marking, extraction, report generation and
@@ -430,6 +431,7 @@ a date and a lesson behind it.
 | **`READINESS_V2_SHADOW_ENABLED` is misnamed.** It has been a kill switch since the cutover. | Someone will disable it believing it merely stops a duplicate computation, and silently move the product back to v1. | `nice to have` |
 | **Google Classroom has no configured credentials in any environment.** Built and tested against mocked calls only. | The integration is untested against the real API surface. Connecting it is a config step, not a code gap. | `nice to have` |
 | **Classroom sync is on-demand only.** `POST /classroom/sync` is the only trigger. | Imported work reaches readiness late or not at all. The job type would work unchanged on a schedule. | `nice to have` |
+| **`services/reports.py`'s `build_report_facts()` violates `PROD-11`.** It queries readiness/topic data directly for the `reports` AI surface instead of going through `services/student_crm.py`. Pre-existing, not introduced by 0.3–0.5. | The `reports` and CRM surfaces could in principle diverge on the same student's numbers, the exact failure `PROD-11` exists to prevent. | `before scale` |
 
 ---
 

@@ -326,11 +326,12 @@ change it is not, and the moment to work that out is not during an outage.
 Never deploy a second copy of the frontend on another origin.
 *Rationale:* originally, a mismatch with `GOOGLE_REDIRECT_URI` would fail Classroom silently
 for anyone who landed on the second origin. Task 0.5 (AV-58) unmounted Classroom, lifting that
-specific reason (see Topology above) — but `INF-6`'s same-origin refresh-cookie requirement
-still makes a second frontend origin broken on its own (a second Vercel deployment still
-proxies to the one Render API, so it isn't `RISK-1`'s disk/worker/limiter pinning at stake
-here — that's about scaling the *API*, not the frontend), so the rule stays Active regardless
-of Classroom's state.
+specific reason (see Topology above). `INF-6`'s same-origin refresh-cookie mechanism works
+per-origin — a second Vercel deployment carrying the same checked-in `/api/*` rewrite would, on
+its own domain, also see the API as same-origin — so it does not by itself re-establish the
+constraint either, and it is not `RISK-1`'s disk/worker/limiter pinning (that's about scaling
+the *API*, not the frontend). No currently-verified technical reason blocks a second origin;
+the rule stays Active as an operational convention pending that verification. See Known Gaps.
 
 **`INF-6` — MUST · Critical · Active**
 Keep the API same-origin to the browser via the `/api/*` rewrite.
@@ -418,6 +419,7 @@ against existing rows — is still on the author.
 | **No documented rollback procedure.** | §14 now provides one; until this document was written there was none. | `blocking` |
 | **No backup or restore procedure for the uploads disk.** | The database confidently references files that a disk loss would destroy. `RISK-8`. | `before scale` |
 | **Scaling out is a correctness change, not a configuration change.** | Three independent constraints break simultaneously. `RISK-1`; the unwind order is above. | `before scale` |
+| **`INF-5`'s remaining rationale is unverified.** Both of the technical reasons previously cited for banning a second frontend origin (Classroom's `GOOGLE_REDIRECT_URI`, `INF-6`'s cookie mechanism) turn out not to apply once checked closely. No replacement reason has been confirmed. | The rule may be enforceable as written for no real reason, or a real reason exists and hasn't been identified — either way it needs a deliberate decision, not silent carry-forward. | `before scale` |
 
 ---
 

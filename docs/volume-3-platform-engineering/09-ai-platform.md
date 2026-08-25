@@ -230,12 +230,13 @@ See `ADR-0009`.
 
 ### Grounding
 
-Two grounding sources, both injected rather than left to the model's priors:
+Three grounding sources, all injected rather than left to the model's priors:
 
 | Source | Function | Injected into |
 |---|---|---|
 | Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports, readiness synthesis |
 | Deterministic factor sub-scores | `services/readiness_v2.py` | Readiness synthesis |
+| Marked-work/readiness evidence, queried directly (not through `student_crm.py` — `PROD-11` gap, see §01 Known Gaps) | `reports.build_report_facts()`, class readiness analytics in `api/groups.py`'s `class_brief` handler, `narrative._class_grounding()` / `_parent_grounding()` | Reports, class brief, narrative |
 
 `build_tutor_context()` uses the same `cache=True` prompt-caching pattern as `file_block()`.
 

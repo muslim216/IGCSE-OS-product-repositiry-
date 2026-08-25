@@ -194,7 +194,8 @@ cascades.
 
 **This is the finding worth reading twice.**
 
-The ORM models declare exactly **one** index:
+Two models declare indexes in `__table_args__`: `jobs` (one) and `narratives` (three, added in
+0023 — `DB-12` applied going forward from that migration on, per `models/narrative.py`):
 
 ```python
 __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)   # homework.py:312
@@ -202,17 +203,22 @@ __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)   #
 
 No column anywhere uses `index=True`.
 
-The migrations, however, create **five**:
+The migrations create **eight** in total:
 
-| Index | Table and columns | Migration |
-|---|---|---|
-| `ix_evidence_student_topic` | `evidence(student_id, topic_id)` | 0004 |
-| `ix_factor_evaluations_run_student_subject` | `factor_evaluations(evaluation_run_id, student_id, subject_id)` | 0016 |
-| `ix_readiness_snapshots_student_subject` | `readiness_snapshots(student_id, subject_id, created_at)` | 0016 |
-| `ix_jobs_status_run_after` | `jobs(status, run_after)` | 0018 |
-| `ix_mark_override_audit_question_mark_id` | `mark_override_audit(question_mark_id)` | 0019 |
+| Index | Table and columns | Migration | In the model? |
+|---|---|---|---|
+| `ix_evidence_student_topic` | `evidence(student_id, topic_id)` | 0004 | No |
+| `ix_factor_evaluations_run_student_subject` | `factor_evaluations(evaluation_run_id, student_id, subject_id)` | 0016 | No |
+| `ix_readiness_snapshots_student_subject` | `readiness_snapshots(student_id, subject_id, created_at)` | 0016 | No |
+| `ix_jobs_status_run_after` | `jobs(status, run_after)` | 0018 | Yes |
+| `ix_mark_override_audit_question_mark_id` | `mark_override_audit(question_mark_id)` | 0019 | No |
+| `ix_narratives_org` | `narratives(organization_id)` | 0023 | Yes |
+| `ix_narratives_org_group` | `narratives(organization_id, group_id, id)` | 0023 | Yes |
+| `ix_narratives_org_student` | `narratives(organization_id, student_id, id)` | 0023 | Yes |
 
-**Four of the five exist only in migrations.** The consequences are concrete:
+**Four of the original five exist only in migrations** — the narratives set (0023) is the first
+to follow `DB-12` and is declared in both places. The consequences of the older gap are still
+concrete:
 
 - **The test schema is not the production schema.** `tests/conftest.py` builds from
   `Base.metadata.create_all`, so tests run against a database missing four indexes that
