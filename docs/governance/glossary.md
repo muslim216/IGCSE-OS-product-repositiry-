@@ -177,10 +177,11 @@ whenever prompt text changes meaningfully.
 `cost_usd = NULL` and is reported as `unpriced_call_count`. **Never folded in as `$0`.**
 
 **Grounding** — Injecting authoritative context into a prompt: the tutor's Knowledge Base via
-`build_tutor_context()`, or evidence-derived facts queried directly for reports/class
-brief/narrative. (`build_student_context()`, which grounded the deleted student chat surface
-in the student's own record, was removed with it in task 0.3, AV-57.) A grounded surface
-answers from Avora's data rather than from the model's priors.
+`build_tutor_context()`, evidence-derived facts queried directly for reports/class
+brief/narrative, or readiness synthesis's deterministic factor sub-scores, which the model is
+not permitted to contradict. (`build_student_context()`, which grounded the deleted student
+chat surface in the student's own record, was removed with it in task 0.3, AV-57.) A grounded
+surface answers from Avora's data rather than from the model's priors.
 
 **Knowledge Base** — Tutor-specific knowledge — teaching methods, solving approaches,
 marking preferences, instructions — stored in `knowledge_entries` and injected into most AI

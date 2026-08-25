@@ -246,7 +246,7 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 | Variable | Default | Prod | Failure mode if wrong |
 |---|---|---|---|
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | unset | `sync: false` | Feature reports "not configured"; app runs fine |
-| `GOOGLE_REDIRECT_URI` | localhost callback | Vercel callback URL | **The full URL, origin and path.** Must be registered verbatim on the Google OAuth client or connect fails |
+| `GOOGLE_REDIRECT_URI` | localhost callback | Vercel callback URL | **Classroom is hidden (0.5/AV-58) — no route can reach this callback today**, so a mismatch has no live effect. Kept configured for when the router is re-mounted, or for Phase 7's Zoom/Meet OAuth, which will need the same care: the full URL, origin and path must be registered verbatim on the Google OAuth client or connect fails |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | unset → derived from `JWT_SECRET` | `generateValue` | Changing it makes every stored Google refresh token undecryptable; every tutor must reconnect |
 
 **Frontend (build-time)**

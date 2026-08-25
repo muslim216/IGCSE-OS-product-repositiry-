@@ -503,7 +503,7 @@ wrong reason.
 | **The test suite still runs no migration.** `conftest.py` uses `Base.metadata.create_all` on SQLite. | A model and its migration can drift without any test noticing; only CI's separate Postgres job would catch a migration that fails outright. `DB-12` — four of five indexes exist only in migrations — is a live instance of this drift. | `before scale` |
 | **No retention policy is implemented.** `DB-20` is Draft; `factor_evaluations` grows unbounded. | Flagged as needed in two prior documents. The policy now exists on paper; the pruning job does not. | `before scale` |
 | **v1 readiness tables are still written and read** — `topic_readiness`, `readiness_history`, `tutor_preferences`. | Three tables and their writes exist to serve three modules that have not been repointed. `RISK-5`. | `before scale` |
-| **`updated_at` is inconsistent** — present on 4 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |
+| **`updated_at` is inconsistent** — present on 3 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |
 
 ---
 
