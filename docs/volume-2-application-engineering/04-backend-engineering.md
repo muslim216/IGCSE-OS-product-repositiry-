@@ -48,8 +48,8 @@ testing (§12); Python style (§13).
 ## Sources
 
 Written from: `backend/app/main.py`; `backend/app/api/deps.py`; `backend/app/db.py`;
-`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 31 modules in
-`backend/app/services/`; the 27 routers in `backend/app/api/`.
+`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 28 modules in
+`backend/app/services/`; the 25 routers in `backend/app/api/` (23 mounted).
 
 ---
 
@@ -83,9 +83,9 @@ backend/app/
   config.py     pydantic-settings Settings, accessed via lru_cache'd get_settings()
   db.py         async engine + get_db
   security.py   bcrypt + PyJWT (access, refresh, OAuth state)
-  api/          27 routers + deps.py
+  api/          25 routers + deps.py (23 mounted; classroom and knowledge are hidden, 0.5/AV-58)
   schemas/      Pydantic request/response contracts, one module per domain
-  services/     31 modules — the actual work
+  services/     28 modules — the actual work
   models/       SQLAlchemy 2.0 async ORM, 51 tables
   workers/      jobs.py
 ```
@@ -143,7 +143,7 @@ Organization scoping is still applied ad hoc, per query, using `user.organizatio
 
 ### Services
 
-31 modules, each owning one area. The shape that recurs and is worth copying: **a pure core
+28 modules, each owning one area. The shape that recurs and is worth copying: **a pure core
 plus a database-facing shell**. `services/readiness_factors.py` (284 lines) is pure scoring
 math over dataclasses; `services/readiness_v2.py` (356 lines) gathers rows and calls it. The
 same split exists in v1 between `readiness.py`'s pure functions and `recompute_student()`.

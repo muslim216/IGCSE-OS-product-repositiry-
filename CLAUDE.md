@@ -351,9 +351,10 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 Full detail in §01 and §04; this is orientation only.
 
-- **Backend** (`backend/app/`): `api/` (27 routers, all mounted under `/api/v1` in `main.py`;
-  shared dependencies in `api/deps.py`), `services/` (31 modules — the real work), `models/`
-  (52 tables, SQLAlchemy 2.0 async), `schemas/` (Pydantic contracts), `workers/jobs.py`
+- **Backend** (`backend/app/`): `api/` (25 routers; 23 mounted under `/api/v1` in `main.py` —
+  classroom and knowledge are hidden, 0.5/AV-58; shared dependencies in `api/deps.py`),
+  `services/` (28 modules — the real work), `models/` (51 tables, SQLAlchemy 2.0 async),
+  `schemas/` (Pydantic contracts), `workers/jobs.py`
   (DB-backed job queue, in-process worker started in `main.py`'s `lifespan`). Roles are
   `student`, `tutor`, `parent`, `admin`.
 - **Frontend** (`frontend/src/`): React 18 + TypeScript + React Router v6 + TanStack Query +
