@@ -22,6 +22,14 @@ once would hit the provider's rate limit and bury real-time marking behind the
 backfill. Pairs are queued with a steadily increasing `run_after`, which drains
 the backlog at a predictable rate — roughly `3600 / spacing` runs an hour.
 
+**Known limitation:** the worker claims due jobs in `Job.id` order
+(`workers/jobs.py`'s `process_one_job`), not by `run_after` or job type. If the
+worker falls behind — a long outage, a burst of restarts — every backfill job
+whose `run_after` has since passed becomes due at once and, having the lower
+id, is claimed ahead of a real-time marking job queued after it. Spacing
+controls the steady-state rate; it doesn't give real-time work priority once
+the queue is already backed up.
+
 Safe to re-run: `already_pending()` below excludes any pair with a pending or
 running job before this module ever calls `enqueue_readiness_v2_debounced`
 (which only catches `pending` on its own), so a second invocation while the

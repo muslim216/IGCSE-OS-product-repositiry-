@@ -228,9 +228,11 @@ concrete:
 - **A `create_all` in any environment silently loses them.**
 
 Beyond these eight, indexing relies on primary keys and the implicit indexes behind unique
-constraints. **Most foreign key columns are not indexed** — Postgres does not index them
-automatically, and `narratives`' three are the only foreign keys covered so far — so every join
-and every `WHERE parent_id = ?` on another large table is a sequential scan.
+constraints. The eight above also cover several foreign keys (`evidence.student_id`/`topic_id`,
+`factor_evaluations.student_id`/`subject_id`, `readiness_snapshots.student_id`/`subject_id`,
+`mark_override_audit.question_mark_id`, and `narratives`' three); **most other foreign key
+columns are not indexed** — Postgres does not index them automatically — so a join or
+`WHERE parent_id = ?` on one of those remaining columns is a sequential scan.
 
 ### Constraints
 

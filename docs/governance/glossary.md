@@ -185,7 +185,9 @@ answers from Avora's data rather than from the model's priors.
 **Knowledge Base** — Tutor-specific knowledge — teaching methods, solving approaches,
 marking preferences, instructions — stored in `knowledge_entries` and injected into most AI
 surfaces (assignment extraction, marking, report generation, readiness synthesis — not
-past-paper extraction, Syllabus Extractor, or Class Brief) so the AI behaves like *that* tutor.
+past-paper extraction, Syllabus Extractor, Class Brief, or narrative) so the AI behaves like
+*that* tutor. (Its API is currently hidden, 0.5/AV-58 — the service and injection keep
+running for the surfaces that call it directly.)
 
 ## Platform and process
 

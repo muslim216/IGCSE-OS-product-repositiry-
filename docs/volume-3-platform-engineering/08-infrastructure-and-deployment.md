@@ -98,11 +98,12 @@ flowchart TD
 ```
 
 **Render deliberately does not serve a second copy of the frontend.** The comment at the top
-of `render.yaml` gives the reason: a second origin would not match `GOOGLE_REDIRECT_URI`, so
-Classroom would silently fail for anyone who landed on it while everything else appeared to
-work.
+of `render.yaml` gives the historical reason: a second origin would not match
+`GOOGLE_REDIRECT_URI`, so Classroom would silently fail for anyone who landed on it while
+everything else appeared to work. **That specific reason is currently lifted** — see below —
+but the rule (`INF-5`) stays in force regardless; see its rationale for why.
 
-**That constraint is currently lifted.** Task 0.5 (AV-58) unmounted `classroom.router` from
+Task 0.5 (AV-58) unmounted `classroom.router` from
 the production app — `api/classroom.py`'s routes 404, and the frontend surface that could
 reach the OAuth flow (`ClassroomSettingsPage.tsx`, `/settings/classroom/callback`) is deleted
 — so there is no path left by which landing on a second origin can trigger a Classroom OAuth
@@ -220,7 +221,7 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 
 | Variable | Default | Prod | Failure mode if wrong |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | unset | `sync: false` | `class_brief` is the one on-demand call and surfaces `AIUnavailableError`'s "not configured" message to the caller directly; reports and readiness synthesis run as background jobs and instead persist `status="failed"` on the row (§11); narrative runs as a background sweep and logs a warning, leaving the surface in its absent state (§11) |
+| `ANTHROPIC_API_KEY` | unset | `sync: false` | `class_brief` is the one on-demand call and surfaces `AIUnavailableError`'s "not configured" message to the caller directly; reports and readiness synthesis run as background jobs and instead persist `status="failed"` on the row (§11); narrative runs as background jobs (marking-triggered class narratives and the weekly parent sweep) and logs a warning, leaving the surface in its absent state (§11) |
 | `ANTHROPIC_MODEL` | `claude-opus-4-8` | default | — |
 | `GEMINI_API_KEY` | unset | `sync: false` | **The homework pipeline fails** — marking, extraction, syllabus all default to Gemini |
 | `GEMINI_MODEL` | `gemini-2.5-pro` (**placeholder**) | `sync: false` | An owner-supplied value; the default is explicitly not a real commitment |

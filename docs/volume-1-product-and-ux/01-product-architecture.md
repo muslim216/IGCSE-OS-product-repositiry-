@@ -118,7 +118,7 @@ drives what the tutor sees when planning the next lesson.
 | **Student CRM** | The student's complete, continuously-updating academic record | `services/student_crm.py`, `api/students.py`, `models/crm.py` |
 | **Lessons** | The dated teaching event — notes, topics covered, per-student observations | `api/lessons.py`, `models/lessons.py` |
 | **Readiness** | Exam-readiness scores, predicted grades, weak topics, revision plans | `services/readiness*.py`, `api/readiness*.py` |
-| **Knowledge Base** | Tutor-specific knowledge injected into assignment extraction, marking, report generation and readiness synthesis (not past-paper extraction, Syllabus Extractor, or Class Brief) | `services/knowledge.py`, `api/knowledge.py` |
+| **Knowledge Base (hidden)** | Tutor-specific knowledge injected into assignment extraction, marking, report generation and readiness synthesis (routes unmounted in 0.5/AV-58; not past-paper extraction, Syllabus Extractor, Class Brief, or narrative) | `services/knowledge.py`, `api/knowledge.py` (router hidden) |
 | **Homework** | Booklet → questions → submission → marking → review → evidence | `api/{assignments,submissions,classifieds}.py`, `services/{marking,extraction}.py` |
 | **Reports** | Audience-specific narrative generated strictly from the student's data | `services/reports.py`, `api/reports.py` |
 
