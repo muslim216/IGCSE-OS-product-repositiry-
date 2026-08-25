@@ -20,7 +20,6 @@ what the call sites already build; the Gemini branch translates them.
 import base64
 import enum
 import json
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Generic, TypedDict, TypeVar
@@ -50,7 +49,6 @@ SURFACES = (
     "syllabus",
     "reports",
     "readiness",
-    "chat",
     "class_brief",
     "narrative",
 )
@@ -65,28 +63,22 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "syllabus": AiFeature.extraction,
     "reports": AiFeature.report,
     "readiness": AiFeature.readiness,
-    "chat": AiFeature.chat,
     "class_brief": AiFeature.report,
     # The stored narrative is a report-shaped paragraph, so it shares that bucket.
     "narrative": AiFeature.report,
 }
 
-# Streaming is Anthropic-only (see stream_complete). Naming the surfaces that
-# need it here, rather than only checking inside stream_complete, means
-# resolve_surface() itself rejects a misconfigured route — the check runs
-# wherever a surface is resolved, not only at the moment a stream is opened.
-SURFACES_REQUIRING_STREAMING = frozenset({"chat"})
 
-
-def resolve_surface(surface: str, *, require_streaming: bool = False) -> tuple[AiProvider, str]:
+def resolve_surface(surface: str) -> tuple[AiProvider, str]:
     """(provider, model) for one AI surface, from settings. A blank per-surface
     model falls back to that provider's default model.
 
-    `require_streaming=True` rejects a provider that cannot stream immediately,
-    instead of resolving successfully and only failing once a caller actually
-    tries to open a stream (AI-20: this is a configuration error, not a missing
-    key, so it raises rather than degrading — the caller decides whether that
-    surfaces at startup or at first request)."""
+    No surface streams today. Streaming was Anthropic-only and existed for the
+    student chat surface alone, which 0.3 deleted (AV-57); the provider check
+    that went with it went too. Anything added here that needs streaming must
+    reject a non-Anthropic provider *at resolve time*, not when the stream is
+    opened — routing chat to Gemini once stayed invisible until a student
+    opened it, and that is the failure the check existed to prevent."""
     if surface not in SURFACES:
         raise ValueError(f"Unknown AI surface '{surface}'")
     settings = get_settings()
@@ -98,10 +90,6 @@ def resolve_surface(surface: str, *, require_streaming: bool = False) -> tuple[A
             f"AI_{surface.upper()}_PROVIDER is '{raw_provider}'; expected one of "
             + ", ".join(p.value for p in AiProvider)
         ) from None
-    if require_streaming and provider is not AiProvider.anthropic:
-        raise AIUnavailableError(
-            f"Streaming is only supported on Anthropic; set AI_{surface.upper()}_PROVIDER=anthropic"
-        )
     model = getattr(settings, f"ai_{surface}_model", "") or (
         settings.gemini_model if provider is AiProvider.gemini else settings.anthropic_model
     )
@@ -395,43 +383,6 @@ async def text_complete(
         text=response.text or "",
         **_gemini_usage(response),
     )
-
-
-async def stream_complete(
-    *,
-    surface: str,
-    messages: list[dict],
-    max_tokens: int,
-    extra_system: list[str] | None = None,
-    cache_extra_system: bool = False,
-    usage: dict | None = None,
-) -> AsyncIterator[str]:
-    """Stream a reply chunk by chunk. Anthropic-only: streaming is used by the
-    student chat surface alone, and adding a second streaming implementation
-    for it isn't worth the surface area. When `usage` is passed it is filled in
-    with model/provider/prompt_version/token counts once the stream ends, so
-    the caller can meter the call on its own session."""
-    provider, model = resolve_surface(surface, require_streaming=True)
-    template = get_prompt(surface)
-    client = get_client()
-    async with client.messages.stream(
-        model=model,
-        max_tokens=max_tokens,
-        system=_anthropic_system(template.system, extra_system or [], cache_extra_system),
-        # Same `list[dict]` contract as structured_complete's `content`, for the
-        # same reason — the chat history arrives from api/chat.py as role/content
-        # dicts (CODE-26).
-        messages=messages,  # type: ignore[arg-type]
-    ) as stream:
-        async for text in stream.text_stream:
-            yield text
-        if usage is not None:
-            final = await stream.get_final_message()
-            usage["provider"] = provider.value
-            usage["model"] = final.model
-            usage["prompt_version"] = template.version
-            usage["input_tokens"] = final.usage.input_tokens
-            usage["output_tokens"] = final.usage.output_tokens
 
 
 class _GeminiUsage(TypedDict):

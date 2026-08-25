@@ -1,3 +1,19 @@
+"""Google Classroom sync.
+
+**Not mounted.** 0.5 (AV-58) hid this surface: the router is no longer included
+in main.py, so none of these routes are reachable. The code, its service
+(services/google_classroom.py), its models and its tables are deliberately
+kept — this is hidden, not deleted, and re-mounting the router is all it takes
+to bring it back.
+
+Hiding it is also what lifts the single-origin deployment constraint: the
+GOOGLE_REDIRECT_URI had to match exactly one origin, which is why Render
+deliberately did not serve a second copy of the frontend (§08). Phase 1 depends
+on that being lifted. Phase 7's Zoom and Meet attendance integrations put an
+equivalent constraint back, so plan those redirect URIs deliberately rather
+than rediscovering this.
+"""
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 

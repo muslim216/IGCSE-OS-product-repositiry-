@@ -9,6 +9,11 @@ from app.models.base import Base, utcnow
 
 class AiFeature(str, enum.Enum):
     marking = "marking"
+    # Kept although nothing writes it any more: the student chat surface was
+    # deleted in 0.3 (AV-57), but every call it ever made is still a row in
+    # ai_usage_events. The enum is non-native (DB-5), so the value is stored as
+    # a string and dropping the member would break reading that history back —
+    # including the spend it accounts for. Nothing may route to it again.
     chat = "chat"
     report = "report"
     extraction = "extraction"

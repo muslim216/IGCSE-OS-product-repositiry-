@@ -18,7 +18,6 @@ from app.services.ai import (
     file_block,
     record_usage,
     resolve_surface,
-    stream_complete,
 )
 from app.services.prompts import PROMPTS, get_prompt
 
@@ -93,22 +92,6 @@ def test_resolve_surface_rejects_unknown_surface_and_provider(monkeypatch):
         resolve_surface("marking")
 
 
-def test_resolve_surface_rejects_a_non_streaming_provider_up_front(monkeypatch):
-    """A misconfigured chat route must fail the moment it's resolved, not only
-    once a caller reaches into stream_complete() and tries to open a stream —
-    see the startup check in main.py's lifespan()."""
-    monkeypatch.setattr(get_settings(), "ai_chat_provider", "gemini")
-    with pytest.raises(AIUnavailableError, match="Streaming"):
-        resolve_surface("chat", require_streaming=True)
-
-
-def test_resolve_surface_without_require_streaming_still_resolves_any_provider(monkeypatch):
-    """Only the streaming call path cares. A hypothetical future non-streaming
-    use of the chat surface must not be blocked by this."""
-    monkeypatch.setattr(get_settings(), "ai_chat_provider", "gemini")
-    assert resolve_surface("chat")[0] is AiProvider.gemini
-
-
 def test_gemini_client_without_a_key_raises_a_clear_error(monkeypatch):
     monkeypatch.setattr(get_settings(), "gemini_api_key", None)
     with pytest.raises(AIUnavailableError, match="GEMINI_API_KEY"):
@@ -141,13 +124,6 @@ def test_anthropic_system_caches_only_the_last_extra_block():
     assert [b["text"] for b in blocks] == ["base", "student context", "kb"]
     assert "cache_control" not in blocks[1]
     assert blocks[2]["cache_control"] == {"type": "ephemeral"}
-
-
-async def test_streaming_rejects_a_non_anthropic_surface(monkeypatch):
-    monkeypatch.setattr(get_settings(), "ai_chat_provider", "gemini")
-    with pytest.raises(AIUnavailableError, match="Streaming"):
-        async for _ in stream_complete(surface="chat", messages=[], max_tokens=10):
-            pass
 
 
 def test_cost_is_none_for_a_model_with_no_configured_price(monkeypatch):
