@@ -496,7 +496,7 @@ wrong reason.
 | Gap | Why it matters | Severity |
 |---|---|---|
 | **Four of five indexes exist only in migrations, not in the models.** `evidence`, `factor_evaluations`, `readiness_snapshots`, and `mark_override_audit` indexes are invisible to `Base.metadata`. | The test database is not the production database, so no test exercises an indexed plan; and a reader of the models is misinformed. `DB-12` binds new work; converging the existing four is a one-migration-free change to `__table_args__`. | `blocking` |
-| **Foreign key columns are not indexed.** | Every join and parent-id filter on a growing table is a sequential scan. `DB-11` binds new work only. | `before scale` |
+| **Most foreign key columns are not indexed** (a handful — see the Indexes section above — already are). | A join or parent-id filter on one of the remaining unindexed columns is a sequential scan. `DB-11` binds new work only. | `before scale` |
 | **No ForeignKey declares `ondelete=`.** Cascades are ORM-level only. | Any delete outside a mapped relationship orphans rows, with no constraint to catch it. Uploaded files compound this — see `RISK-8`. | `before scale` |
 | **The polymorphic exactly-one invariant has no CHECK constraint.** | A row with both or neither foreign key set is representable, and `API-20`'s trap becomes a data problem rather than a code one. | `before scale` |
 | **CI verifies migrations against an empty database.** The `migrations` job runs up → down → up on Postgres 16, but with no rows in any table. | It catches invalid or irreversible schema operations. It cannot catch the failure that actually happened — 0012 added a non-nullable column to a *populated* table. `DB-18` is still enforced by review alone. `RISK-3` residual. | `before scale` |
