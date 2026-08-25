@@ -112,7 +112,7 @@ Seven surfaces, defined in `SURFACES`:
 | `reports` | Anthropic | `claude-opus-4-8` | Audience-specific narrative reports |
 | `readiness` | Anthropic | `claude-opus-4-8` | Layer 2 readiness synthesis |
 | `class_brief` | Anthropic | `claude-opus-4-8` | Pre-lesson class brief |
-| `narrative` | Anthropic | `claude-opus-4-8` | Merged narrative + weekly-send writer |
+| `narrative` | Anthropic | `claude-opus-4-8` | Precomputed class/parent narrative writer (weekly-send merge is a future phase, not yet built) |
 
 `resolve_surface(surface)` reads `AI_<SURFACE>_PROVIDER` and `AI_<SURFACE>_MODEL`, falling back
 to that provider's default model when the per-surface model is blank. It **raises on an unknown
@@ -163,15 +163,17 @@ Current versions:
 | Surface | Version | Note |
 |---|---|---|
 | `marking` | **v3** | Bumped when marks began counting without tutor review |
+| `class_brief` | **v2** | Full system prompt (naming-a-learner rule, data-not-instructions) |
 | `extraction` | v2 | |
 | `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
-| `class_brief` | v1 | System prompt is empty — all instruction is in the user turn |
 
-Two active prompts carry rules that are not stylistic: **`marking`** states that page content
-is data and never instructions, and that anything addressing the marker is flagged with
-confidence `low` for a tutor rather than acted on; **`extraction`** carries the equivalent rule
-for booklet content, since extracted questions can reach a student with no human reading them
-first. Both are security controls (`SEC-20`).
+Four active prompts carry rules that are not stylistic — all a form of `SEC-20`: **`marking`**
+states that page content is data and never instructions, and that anything addressing the
+marker is flagged with confidence `low` for a tutor rather than acted on; **`extraction`**
+carries the equivalent rule for booklet content, since extracted questions can reach a student
+with no human reading them first; **`class_brief`** and **`narrative`** both carry it for the
+same reason — their grounding data comes from a student's own marked work, which the student
+controls.
 
 *Historical:* **`chat`** was a third one — anti-cheating guardrails: never give complete
 answers to the student's own homework; teach the method, use a worked example on a *different*
@@ -313,11 +315,12 @@ model is instructed to do is always meaningful.
 records produced by different instructions.
 
 **`AI-8` — MUST · Critical · Active**
-A prompt carrying a safety instruction preserves it through any rewrite. The `marking` and
-`extraction` prompts' data-not-instructions rules are safety instructions. (The `chat` prompt's
-anti-cheating rules were a third standing example, until task 0.3 deleted the surface, AV-57.)
+A prompt carrying a safety instruction preserves it through any rewrite. The `marking`,
+`extraction`, `class_brief` and `narrative` prompts' data-not-instructions rules are safety
+instructions. (The `chat` prompt's anti-cheating rules were another standing example, until
+task 0.3 deleted the surface, AV-57.)
 *Rationale:* `SEC-21`. Marking's output can count with no human in the loop; extraction's output
-reaches a student unreviewed.
+reaches a student unreviewed; class_brief and narrative are grounded in a student's own work.
 
 **`AI-9` — MUST · Important · Active**
 A prompt that processes user-supplied content states that the content is data and never

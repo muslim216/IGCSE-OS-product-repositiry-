@@ -77,7 +77,18 @@ async def already_pending(session, pairs: list[tuple[int, int]]) -> set[tuple[in
     enrolled in (`compute_readiness_v2`'s own contract) — not just the one
     pair it happens to share a payload shape with — so it must count as
     covering every pair for that student, not just a (student_id, None) pair
-    that would never itself appear in `pairs`.
+    that would never itself appear in `pairs`. **Known imprecision:** if the
+    student has evidence in a subject they've since left, a wildcard job
+    still marks that pair "covered" here even though the handler only
+    recomputes currently-enrolled subjects — an acceptable miss for a
+    backfill utility (it just skips a dropped subject), not a correctness
+    hazard.
+
+    **Known race:** the check here and the later `enqueue_readiness_v2_debounced`
+    insert are not one atomic transaction, so two runners started at the same
+    moment could both pass this check for the same pair. This script is a
+    manually-invoked CLI backfill, not a concurrent hot path — acceptable
+    for now; a scheduled/automated invocation would need a real lock.
 
     Reads through `in_flight_readiness_pairs()`, the one place this query
     lives — `enqueue_readiness_v2_debounced` and the readiness summary's

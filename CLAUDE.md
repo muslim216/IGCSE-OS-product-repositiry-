@@ -370,8 +370,10 @@ Full detail in §01 and §04; this is orientation only.
   a **kill switch**, not a shadow flag.
 - **AI**: seven surfaces routed independently to Anthropic or Gemini. Bulk document work
   (marking, extraction, syllabus) → Gemini; reports, readiness, class brief, narrative →
-  Opus/Sonnet. Every call is metered into `ai_usage_events`. (The student chat surface, once
-  routed to Haiku, was deleted in 0.3 / AV-57.)
+  Anthropic — every one currently resolves to the `anthropic_model` default (`claude-opus-4-8`);
+  no Sonnet route is live yet (that split is task 3.2, AV-124). Every call is metered into
+  `ai_usage_events`. (The student chat surface, once routed to Haiku, was deleted in 0.3 /
+  AV-57.)
 - **Storage**: local disk, paths stored relative to `UPLOAD_DIR` so the folder can move to S3
   later without touching data. 20 MB cap; PDF/JPEG/PNG/WebP, with HEIC transcoded to JPEG on
   the way in.

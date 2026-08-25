@@ -92,7 +92,7 @@ that has no measurement attached is recorded as a gap.
 | **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
 | **Anthropic** | Reports, readiness synthesis | Job-queued; each persists `status="failed"` on its own row | Error persisted to a domain column |
 | **Anthropic (class_brief)** | Class briefs | On-demand call; returns a `503` with a clear "not configured" message directly to the caller — nothing is written | Request failure only, nothing to inspect afterward |
-| **Anthropic (narrative)** | The merged narrative + weekly-send writer (`services/narrative.py`) | Logs a warning and leaves the surface in its absent state — nothing is persisted to signal the failure | Log only; not surfaced in `/health/ready` |
+| **Anthropic (narrative)** | The precomputed class/parent narrative writer (`services/narrative.py`) | Logs a warning and leaves the surface in its absent state — nothing is persisted to signal the failure | Log only; not surfaced in `/health/ready` |
 | **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; reports unaffected | Error persisted to a domain column |
 | **Google Classroom** (hidden, 0.5/AV-58) | Import only, and only for a `sync_classroom` job queued before the hide — the router is unmounted, so nothing enqueues a new one | Direct upload unaffected by design | `sync_classroom` job failure |
 | **Readiness v2 Layer 2** | Readiness freshness | Falls back per-subject to v1, response says `engine: "v1"` | Snapshot `status="failed"` |

@@ -125,8 +125,11 @@ drives what the tutor sees when planning the next lesson.
 **The CRM aggregation feeds `GET /api/v1/students/{id}/crm`.** `services/student_crm.py` also
 fed `services/student_context.py` — AI grounding for the student chat surface, so the AI and
 the interface saw the same record by construction — until task 0.3 deleted both the surface and
-that grounding module (AV-57). No AI surface grounds itself in a student's own record today —
-the CRM endpoint remains the only reader, serving the student's own CRM view directly.
+that grounding module (AV-57). No AI surface reads *that specific aggregation* today — the CRM
+endpoint remains its only reader. (`services/reports.py`'s `build_report_facts()` is a separate
+AI grounding path into a student's own record — readiness scores and topic breakdowns, queried
+directly rather than through `student_crm.py` — for the `reports` surface's student-audience
+output; it was never routed through `student_context.py` and 0.3 didn't touch it.)
 
 The Knowledge Base follows a related pattern: `build_tutor_context()` compiles a tutor's
 entries into one prompt block injected into marking, extraction, report generation and

@@ -159,8 +159,9 @@ order is `class Foo(TimestampMixin, Base)`.
 2. Append-only tables declaring `created_at` explicitly instead of using the mixin:
    `Evidence`, `ReadinessHistory` (as `recorded_at`), `MarkOverrideAudit`, `RemarkRequest`,
    `FactorEvaluation`, `ReadinessSnapshot`, `AiUsageEvent`.
-3. `updated_at` on exactly **four** models — `StudentProfile`, `Job`, `ChatConversation`,
-   `TopicReadiness` — always `default=utcnow, onupdate=utcnow`.
+3. `updated_at` on exactly **three** models — `StudentProfile`, `Job`, `TopicReadiness` —
+   always `default=utcnow, onupdate=utcnow`. (`ChatConversation` was the fourth, until task
+   0.3 deleted it with the chat surface, AV-57.)
 
 All datetimes are `DateTime(timezone=True)`. `Date` is used for calendar-only fields
 (`Lesson.date`, `Assessment.date`, `PastPaperAttempt.attempted_at`, `Submission.attempted_at`)
@@ -245,10 +246,10 @@ Column-level `unique=True`: `users.email`, `users.username`, `invites.code`,
 `student_profiles.student_id`, `google_accounts.tutor_id`, `classroom_course_links.group_id`,
 `classroom_work_links.assignment_id`.
 
-**Cascades are ORM-level only.** Ten relationships declare `cascade="all, delete-orphan"`
+**Cascades are ORM-level only.** Nine relationships declare `cascade="all, delete-orphan"`
 (`Assignment.questions`, `AssignmentQuestion.topics`, `Submission.files`, `Submission.marks`,
-`Subject.topics`, `Group.members`, `Group.schedule_slots`, `ChatConversation.messages`,
-`GoogleAccount.course_links`, `ClassroomCourseLink.work_links`).
+`Subject.topics`, `Group.members`, `Group.schedule_slots`, `GoogleAccount.course_links`,
+`ClassroomCourseLink.work_links`).
 
 **No ForeignKey anywhere declares `ondelete=`** — verified by search across both `models/` and
 `alembic/versions/`. Nothing is enforced at the database level, so a delete that bypasses the

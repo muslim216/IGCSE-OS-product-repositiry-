@@ -326,9 +326,11 @@ change it is not, and the moment to work that out is not during an outage.
 Never deploy a second copy of the frontend on another origin.
 *Rationale:* originally, a mismatch with `GOOGLE_REDIRECT_URI` would fail Classroom silently
 for anyone who landed on the second origin. Task 0.5 (AV-58) unmounted Classroom, lifting that
-specific reason (see Topology above) — but `INF-6`'s same-origin refresh-cookie requirement and
-the uploads-disk/worker/limiter pinning in `RISK-1` still make a second origin broken on their
-own, so the rule stays Active regardless of Classroom's state.
+specific reason (see Topology above) — but `INF-6`'s same-origin refresh-cookie requirement
+still makes a second frontend origin broken on its own (a second Vercel deployment still
+proxies to the one Render API, so it isn't `RISK-1`'s disk/worker/limiter pinning at stake
+here — that's about scaling the *API*, not the frontend), so the rule stays Active regardless
+of Classroom's state.
 
 **`INF-6` — MUST · Critical · Active**
 Keep the API same-origin to the browser via the `/api/*` rewrite.
