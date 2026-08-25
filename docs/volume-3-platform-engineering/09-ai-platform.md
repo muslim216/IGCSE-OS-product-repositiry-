@@ -15,7 +15,7 @@
 - [Current Reality](#current-reality)
   - [The choke point](#the-choke-point)
   - [Surfaces and routing](#surfaces-and-routing)
-  - [The three helpers](#the-three-helpers)
+  - [The two helpers](#the-two-helpers)
   - [Content blocks](#content-blocks)
   - [Prompts](#prompts)
   - [Metering and cost](#metering-and-cost)
@@ -94,7 +94,7 @@ evidence reports "no data", not `0`.
 ### The choke point
 
 `backend/app/services/ai.py` is 448 lines and the only module that imports either SDK. It
-provides client construction, the surface routing table, three call helpers, the neutral
+provides client construction, the surface routing table, two call helpers, the neutral
 content-block format, cost estimation, and usage recording.
 
 `AiResponse` is the normalized result — `{provider, model, prompt_version, input_tokens,
