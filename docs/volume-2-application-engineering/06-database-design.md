@@ -94,6 +94,7 @@ tests stop being evidence.
 | `reports.py` | `reports` |
 | `resources.py` | `group_resources` |
 | `ai_usage.py` | `ai_usage_events` |
+| `narrative.py` | `narratives` |
 | `classroom.py` | `google_accounts`, `classroom_course_links`, `classroom_work_links` |
 
 `jobs` lives in `homework.py` rather than with the worker — historical, and worth knowing when

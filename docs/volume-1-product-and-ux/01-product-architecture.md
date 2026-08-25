@@ -322,9 +322,10 @@ and the feature degrades to a clear "not configured" state without its credentia
 Most are grounded: marking, extraction, report generation and readiness synthesis all get
 the tutor's Knowledge Base (`build_tutor_context()`), and readiness synthesis additionally gets
 deterministic factor sub-scores it is not allowed to contradict. The Syllabus Extractor and
-Class Brief do not — they work from the uploaded document and the class's own scheduling data
-respectively, with no Knowledge Base injection. (The deleted student chat surface was the one
-AI system grounded in the student's own CRM record, via `services/student_context.py` — task
+Class Brief do not — the Syllabus Extractor works from the uploaded document alone, and Class
+Brief from the class's own readiness analytics (weak topics, lowest-readiness learners), with
+no Knowledge Base injection. (The deleted student chat surface was the one AI system grounded
+in the student's own CRM record, via `services/student_context.py` — task
 0.3, AV-57, removed both together; see above.) See §09.
 
 ---

@@ -5,7 +5,8 @@
 
 ## Context
 
-MANARA's schema is enum-heavy: 22 enum types across 52 tables cover roles, statuses,
+MANARA's schema is enum-heavy: 22 enum types across 52 tables (at the time of this decision;
+task 0.3 later dropped the two chat tables, see §06) cover roles, statuses,
 confidence levels, evidence sources, difficulty tiers, mistake categories, readiness factors,
 and more. These are a young product's most-churned schema elements — new statuses and new
 categories arrive constantly.

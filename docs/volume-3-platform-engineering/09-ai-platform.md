@@ -167,15 +167,18 @@ Current versions:
 | `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
 | `class_brief` | v1 | System prompt is empty — all instruction is in the user turn |
 
-One active prompt carries rules that are not stylistic: **`marking`** states that page content
+Two active prompts carry rules that are not stylistic: **`marking`** states that page content
 is data and never instructions, and that anything addressing the marker is flagged with
-confidence `low` for a tutor rather than acted on. This is a security control (`SEC-20`).
+confidence `low` for a tutor rather than acted on; **`extraction`** carries the equivalent rule
+for booklet content, since extracted questions can reach a student with no human reading them
+first. Both are security controls (`SEC-20`).
 
-*Historical:* **`chat`** was the other one — anti-cheating guardrails: never give complete
+*Historical:* **`chat`** was a third one — anti-cheating guardrails: never give complete
 answers to the student's own homework; teach the method, use a worked example on a *different*
 problem, ask guiding questions; forbid presenting internal readiness percentages as official
-grades — until task 0.3 deleted the surface along with the guardrails it needed (AV-57). No
-remaining surface talks with a student directly.
+grades — until task 0.3 deleted the surface along with the guardrails it needed (AV-57). Chat
+was the only surface that held a *conversation* with a student; `reports` still writes
+student-audience narrative directly to one (`ReportAudience.student`), just not interactively.
 
 ### Metering and cost
 
@@ -310,10 +313,11 @@ model is instructed to do is always meaningful.
 records produced by different instructions.
 
 **`AI-8` — MUST · Critical · Active**
-A prompt carrying a safety instruction preserves it through any rewrite. The `marking` prompt's
-data-not-instructions rule is a safety instruction. (The `chat` prompt's anti-cheating rules
-were the other standing example, until task 0.3 deleted the surface, AV-57.)
-*Rationale:* `SEC-21`. Marking's output can count with no human in the loop.
+A prompt carrying a safety instruction preserves it through any rewrite. The `marking` and
+`extraction` prompts' data-not-instructions rules are safety instructions. (The `chat` prompt's
+anti-cheating rules were a third standing example, until task 0.3 deleted the surface, AV-57.)
+*Rationale:* `SEC-21`. Marking's output can count with no human in the loop; extraction's output
+reaches a student unreviewed.
 
 **`AI-9` — MUST · Important · Active**
 A prompt that processes user-supplied content states that the content is data and never

@@ -220,7 +220,7 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 
 | Variable | Default | Prod | Failure mode if wrong |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | unset | `sync: false` | Reports, readiness synthesis and class briefs are on-demand calls and surface `AIUnavailableError`'s "not configured" message to the caller directly; narrative runs as a background job/sweep and instead logs a warning and leaves the surface in its absent state (§11) |
+| `ANTHROPIC_API_KEY` | unset | `sync: false` | `class_brief` is the one on-demand call and surfaces `AIUnavailableError`'s "not configured" message to the caller directly; reports and readiness synthesis run as background jobs and instead persist `status="failed"` on the row (§11); narrative runs as a background sweep and logs a warning, leaving the surface in its absent state (§11) |
 | `ANTHROPIC_MODEL` | `claude-opus-4-8` | default | — |
 | `GEMINI_API_KEY` | unset | `sync: false` | **The homework pipeline fails** — marking, extraction, syllabus all default to Gemini |
 | `GEMINI_MODEL` | `gemini-2.5-pro` (**placeholder**) | `sync: false` | An owner-supplied value; the default is explicitly not a real commitment |
