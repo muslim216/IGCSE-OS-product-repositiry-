@@ -52,18 +52,20 @@ of the trust boundary (§07); AI-driven cost and latency (§10); testing AI path
   tutor-entered boundaries.
 - **No AI adjudicates a dispute about AI output.** A remark request routes to a human.
 - **No AI abstraction library.** Two SDKs, one wrapper module. A generic library would hide
-  exactly the vendor-specific features being used — prompt caching and streaming.
+  exactly the vendor-specific features being used — prompt caching, and streaming while it
+  existed.
 - **No prompts outside `services/prompts.py`.**
 - **No agentic or tool-using loops.** Every call is a single request with a bounded response.
-- **No streaming except chat.**
+- **No streaming, full stop.** Chat was the one streaming surface; task 0.3 deleted it (AV-57)
+  along with `stream_complete()` and the provider check that existed only for it.
 
 ## Sources
 
 Written from: `backend/app/services/ai.py` (448 lines);
 `backend/app/services/prompts.py` (161 lines); `backend/app/services/marking.py`;
 `backend/app/services/extraction.py`; `backend/app/services/readiness_v2_ai.py`;
-`backend/app/services/knowledge.py`; `backend/app/services/student_context.py`;
-`backend/app/models/ai_usage.py`; `backend/app/config.py`; `backend/app/api/ai_usage.py`.
+`backend/app/services/knowledge.py`; `backend/app/models/ai_usage.py`;
+`backend/app/config.py`; `backend/app/api/ai_usage.py`.
 
 ---
 
@@ -127,17 +129,18 @@ an `AiFeature` for metering, and several deliberately share a bucket — `syllab
 `extraction`, `class_brief` meters as `report`. The surface is the routing key; `AiFeature` is
 the billing-facing grouping.
 
-### The three helpers
+### The two helpers
 
 | Helper | Providers | Returns | Used for |
 |---|---|---|---|
 | `structured_complete()` | Both | `AiResponse.parsed` | Schema-constrained output — marking, extraction, syllabus, readiness |
-| `text_complete()` | Both | `AiResponse.text` | Prose — reports, class brief |
-| `stream_complete()` | **Anthropic only** | An async iterator | Chat, the sole streaming surface |
+| `text_complete()` | Both | `AiResponse.text` | Prose — reports, class brief, narrative |
 
-**A Gemini-routed chat raises.** That is a real configuration trap: setting
-`AI_CHAT_PROVIDER=gemini` produces a runtime failure on the one surface users interact with
-live.
+**`stream_complete()` is gone.** It was Anthropic-only and existed for the chat surface alone;
+task 0.3 deleted both together (AV-57), and with them the one live configuration trap this
+platform had — `AI_CHAT_PROVIDER=gemini` producing a runtime failure on the surface users
+interacted with directly. Every remaining surface is fully non-streaming and provider-agnostic
+at the call site.
 
 ### Content blocks
 
@@ -221,17 +224,20 @@ See `ADR-0009`.
 
 ### Grounding
 
-Three grounding sources, all injected rather than left to the model's priors:
+Two grounding sources, both injected rather than left to the model's priors:
 
 | Source | Function | Injected into |
 |---|---|---|
-| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports, chat |
-| Student academic record | `services/student_context.py` → `build_student_context()` | Chat, reports |
+| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports |
 | Deterministic factor sub-scores | `services/readiness_v2.py` | Readiness synthesis |
 
 `build_tutor_context()` uses the same `cache=True` prompt-caching pattern as `file_block()`.
-The student context reads from `services/student_crm.py` — the same aggregation the interface
-uses — so the AI and the tutor cannot be grounded in different truths (`PROD-11`).
+
+`services/student_context.py` and its `build_student_context()` are gone — they existed to
+ground chat in a student's own record, reading the same aggregation `student_crm.py` exposes
+to the tutor interface so the two could never disagree (`PROD-11`). Task 0.3 deleted them with
+the chat surface (AV-57); no other surface consumed them. `student_crm.py` itself is unchanged
+and still backs the CRM UI through `api/students.py`.
 
 Readiness synthesis is the strictest case: the factor sub-scores and tutor weights are
 **mandated inputs**, and the model is not permitted to contradict them or to produce a grade.
@@ -276,9 +282,12 @@ re-routed, cannot be metered, or has no versioned prompt.
 
 **`AI-4` — MUST · Important · Active**
 Vendor-specific behaviour stays inside `services/ai.py` and is documented at its call site
-when it changes semantics — `cache=True` is Anthropic-only; streaming is Anthropic-only.
-*Rationale:* a silently ignored parameter is a cost regression nobody notices; a raising one is
-an outage on the surface users watch live.
+when it changes semantics — `cache=True` is Anthropic-only, and is a silent no-op on Gemini
+rather than an error.
+*Rationale:* a silently ignored parameter is a cost regression nobody notices. (Streaming was
+the other example — Anthropic-only, and a raising one, so an outage on the surface users
+watched live — until task 0.3 deleted it with the chat surface, AV-57. Kept as the reasoning
+behind this rule, not as a current instance of it.)
 
 **`AI-5` — MUST · Important · Active**
 Use Anthropic's block shape as the wire format for file content, via `file_block()`.
@@ -394,7 +403,6 @@ deterministic work already completed.
 | **`AI_MODEL_PRICING` is empty in every environment.** | Spend is reported as `unpriced_call_count` rather than a number anyone can act on — correct behaviour, but it means cost is currently unmeasured. `RISK-12`. | `before scale` |
 | **No budget, cap, or circuit breaker.** Metering is built; enforcement is not. | A large classified or a burst of submissions spends whatever it spends. `RISK-12`. | `before scale` |
 | **No calibration measurement on the trust rule.** Remark-request rate and tutor override rate on auto-finalized marks are both derivable from existing rows and neither is computed. | The auto-finalize threshold cannot be tuned on evidence. `ADR-0009` names this. | `before scale` |
-| **`AI_CHAT_PROVIDER=gemini` is accepted at configuration time and fails at runtime.** | `resolve_surface` validates the provider name but not that the provider supports streaming. | `nice to have` |
 | **No per-call timeout or retry policy in `services/ai.py`.** Job-level retry is the only recovery, and it has no backoff (§04). | A hung provider call occupies the single worker until the client's own default fires. | `before scale` |
 
 ---

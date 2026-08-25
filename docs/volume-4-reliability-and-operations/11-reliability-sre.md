@@ -56,8 +56,8 @@ failure (§14); performance budgets (§10); test coverage (§12).
 
 Written from: `backend/app/main.py`; `backend/app/workers/jobs.py`; `backend/app/db.py`;
 `backend/app/services/storage.py`; `backend/app/services/ai.py`;
-`backend/app/services/readiness_v2_ai.py`; `backend/app/api/chat.py`; `render.yaml`;
-`docker-compose.yml`; `backend/app/models/`.
+`backend/app/services/readiness_v2_ai.py`; `render.yaml`; `docker-compose.yml`;
+`backend/app/models/`.
 
 ---
 
@@ -90,9 +90,9 @@ that has no measurement attached is recorded as a gap.
 | **Postgres** | Everything | None. No graceful path exists | Request failures |
 | **Uploads disk** | New uploads, file downloads, extraction and marking of unread files | None | Request failures |
 | **The job worker** | All extraction, marking, readiness synthesis, reports, Classroom sync | The loop is restarted by `_supervised_worker()`; a dead *process* still takes it | `/health/ready` reports it — **but only when asked** |
-| **Anthropic** | Chat, reports, readiness synthesis, class briefs | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
-| **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; chat and reports unaffected | Error persisted to a domain column |
-| **Google Classroom** | Import only | Direct upload unaffected by design | `sync_classroom` job failure |
+| **Anthropic** | Reports, readiness synthesis, class briefs, narrative | Clear "not configured"/error per surface; marking and extraction unaffected | Error persisted to a domain column |
+| **Gemini** | Marking, extraction, syllabus extraction — the homework pipeline | Same; reports unaffected | Error persisted to a domain column |
+| **Google Classroom** (hidden, 0.5/AV-58) | Import only, and only for a `sync_classroom` job queued before the hide — the router is unmounted, so nothing enqueues a new one | Direct upload unaffected by design | `sync_classroom` job failure |
 | **Readiness v2 Layer 2** | Readiness freshness | Falls back per-subject to v1, response says `engine: "v1"` | Snapshot `status="failed"` |
 | **Vercel** | The entire user-facing app | None — API is fine, nobody can reach it | External |
 | **A migration** | The whole API: it never starts | None, by design (`P4`) | Deploy failure |
@@ -196,12 +196,16 @@ The user-visible symptom of `E` is homework that stays "processing" forever.
 This is the thinnest area of the system, and it is thin by omission rather than by decision.
 
 **Logging.** There is **no logging configuration at all** — no `basicConfig`, no `dictConfig`,
-no structured logging, no log-level setting, no uvicorn log config. Two loggers exist in the
-entire application:
+no structured logging, no log-level setting, no uvicorn log config. A handful of named loggers
+exist, none wired to anything beyond Python's own defaults:
 
-- `workers/jobs.py:21` — `logging.getLogger("jobs")`: worker started/stopped, job failure with
-  a traceback, and an iteration crash.
-- `api/chat.py:33` — `logging.getLogger(__name__)`: AI unavailable, and a streaming failure.
+- `workers/jobs.py` — `logging.getLogger("jobs")`: worker started/stopped, job failure with a
+  traceback, and an iteration crash.
+- `main.py` — `logging.getLogger("api")`: the chat-surface startup check that used to live
+  here was deleted with the surface itself (task 0.3, AV-57); what remains is the narrative
+  sweep's best-effort scheduling failure at boot.
+- `services/narrative.py` — `logging.getLogger("narrative")`.
+- `services/readiness_v2_ai.py` — `logging.getLogger("readiness_v2_ai")`.
 
 Everything else that fails is written to a database column and never logged. `alembic.ini` has
 a logging section, but it applies only during migrations.

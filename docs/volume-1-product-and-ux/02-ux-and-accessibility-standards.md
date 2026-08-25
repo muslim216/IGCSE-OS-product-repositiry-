@@ -317,9 +317,6 @@ Applied deliberately in a handful of files and largely absent elsewhere. Counted
 - **`Modal` does not restore focus** to the trigger on close.
 - **`Modal`'s `aria-labelledby` is the hardcoded id `avora-modal-title`.** Two simultaneous
   modals produce duplicate ids and an ambiguous accessible name.
-- **`TutorChatPage.tsx` uses `role="assistant"`**, which is not a valid ARIA role and is
-  ignored by assistive technology.
-- **The streaming chat transcript has no `aria-live`**, so arriving AI text is silent.
 - **There is no skip link** to bypass navigation.
 - **Loading and error states are unannounced plain `<div>`s** — `"Loading…"` in `App.tsx:65`
   and `ProtectedRoute.tsx:21`.
@@ -439,7 +436,9 @@ Colour is never the sole carrier of meaning. Status is accompanied by text or an
 Use the semantic element for the job — `<button>` for actions, `<a>` for navigation,
 `<table>` with `<th>` for tabular data, landmarks for layout. An ARIA role is a last resort,
 and must be a real ARIA role.
-*Rationale:* `role="assistant"` in `TutorChatPage.tsx` is not one, and does nothing.
+*Rationale:* the standing counter-example was `role="assistant"` in `TutorChatPage.tsx` — not
+a real ARIA role, and silently doing nothing. Task 0.3 (AV-57) deleted the student AI chat
+surface outright, which removed the example along with the bug; the rule is unchanged.
 
 **`UX-17` — SHOULD · Important · Active**
 Respect `prefers-reduced-motion`: suppress non-essential transitions and any animation that
@@ -542,18 +541,19 @@ reads as a standing judgement of the person.
 direction is `null` — one point is not a trend, and `→` would claim a movement nothing
 measured.
 
-**`UX-32` (revised) — MUST NOT · Important · Active**
-A student is never shown another student's score, grade, delta or identity. A student may be
-shown **their own position** within an improvement ranking, on a surface dedicated to it,
-never on a home surface, and never as a bare bottom placing.
-*Rationale unchanged in substance:* the harm the original rule was written against is a
-standing whose disappearance becomes the message, and a board that publishes classmates to
-each other. Neither survives in the shipped design — the ranking exists and the ranked do not
-appear. The original wording ("peer comparison … never as a persistent standing or rank")
-would have forbidden the Improvement tab outright; `GOV-3` allows three responses to a rule a
-change breaks, and this takes the second: the rule is superseded rather than quietly broken.
-The de-anonymisation analysis this rests on, and the three residual risks accepted rather than
-solved, are in `backend/app/services/improvement.py`.
+**`UX-32` — RETIRED, superseded by deletion**
+A student is never shown another student's score, grade, delta or identity.
+*History:* the "(revised)" text this rule carried permitted a student their own position
+within a self-only improvement ranking, on a surface dedicated to it — the compromise struck
+after the original wording ("peer comparison … never as a persistent standing or rank") turned
+out to forbid the Improvement tab outright (`GOV-3`'s second response, superseding rather than
+quietly breaking the rule). Task 0.4 (AV-57, AV-100) went further and deleted the ranking
+outright — `services/improvement.py`, `api/improvement.py`, `ImprovementPage.tsx` and their
+tests are gone, not merely de-identified. There is no longer a standing this rule needs to
+permit an exception for; the underlying prohibition (never another student's identity or rank)
+folds back into the ordinary reading of `PROD-3`/`SEC-7`'s tenant scoping and needs no
+standalone rule. Kept here, marked retired, so the reasoning that produced and then reversed
+the earlier compromise is not lost (`CODE-13`).
 
 **`UX-33` — MUST · Important · Active**
 Generated narrative is present when the surface opens; no primary surface waits on a model
@@ -572,9 +572,7 @@ its render path.
 | **`Modal` has no focus trap and no focus restore** (`components/ui.tsx:120–157`). | Breaks `UX-11`. Keyboard and screen-reader users tab out of the dialog into the page behind it and lose their place on close. | `blocking` |
 | **Contrast is guarded at the token level, not at the point of use.** `contrast.test.ts` proves every token clears the ratio its role needs; nothing checks that a given token is used in the role it was measured for. | A `brand-500` (sienna) label used as body text (~2.4:1) would pass every test and still fail AA. The guard closes the systemic failure, not the individual mistake. | `before scale` |
 | **`--color-line` (1.33 on surface) is the default border for many legacy inputs.** | Breaks `UX-9`. Form fields styled with a bare `border` have no perceptible boundary for low-vision users; the bare `input` element and token-based fields correctly use `line-control`. | `blocking` |
-| **`role="assistant"` in `TutorChatPage.tsx`** is not a valid ARIA role. | Breaks `UX-16`. Silently does nothing; the author presumably believed it conveyed something. | `blocking` |
 | **`Modal`'s panel carries `outline-none`** without a custom indicator. | Narrows `UX-10` for that one container. A global unlayered `:focus-visible` outline (terracotta, ≥3:1) now covers every interactive element, so this is the remaining exception, not the rule. | `nice to have` |
-| **The streaming chat transcript has no `aria-live`.** | Breaks `UX-13`. Arriving AI text is silent to a screen reader — the primary content of that page. | `before scale` |
 | **No skip link.** | Every page begins by tabbing through the full navigation. | `before scale` |
 | **`Modal`'s `aria-labelledby` is a hardcoded id.** | Duplicate ids and an ambiguous accessible name if two modals are ever open. Latent, not yet triggered. | `nice to have` |
 | **Loading and error states are unannounced `<div>`s** (`App.tsx:65`, `ProtectedRoute.tsx:21`). | Breaks `UX-13` at the application's entry point. | `before scale` |

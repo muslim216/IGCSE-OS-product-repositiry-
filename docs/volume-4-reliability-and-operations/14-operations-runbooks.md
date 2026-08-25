@@ -364,7 +364,7 @@ clear next step.
 | Failing | Provider |
 |---|---|
 | Marking, question extraction, syllabus extraction | **Gemini** |
-| Chat, reports, readiness synthesis, class briefs | **Anthropic** |
+| Reports, readiness synthesis, class briefs, narrative | **Anthropic** |
 
 **Diagnosis**
 
@@ -381,9 +381,10 @@ AI_EXTRACTION_PROVIDER=anthropic
 AI_SYLLABUS_PROVIDER=anthropic
 ```
 
-or the reverse for an Anthropic outage — **except `chat`**. Chat is the only streaming surface
-and `stream_complete()` is Anthropic-only; setting `AI_CHAT_PROVIDER=gemini` makes chat raise.
-Leave chat down rather than mis-route it.
+or the reverse for an Anthropic outage. No surface streams today — the student chat surface
+that once required Anthropic-only routing (`stream_complete()`) was deleted by task 0.3
+(AV-57), and `resolve_surface()` no longer carries a streaming exception. Every remaining
+surface routes freely between providers.
 
 Restart the service after changing the variables. Re-enqueue the jobs that failed (R6).
 
@@ -508,6 +509,18 @@ Watch the drain with the `jobs` query above; the backfill is done when no
 
 ### R10 — Google Classroom sync is failing
 
+**The surface is currently hidden** (task 0.5, AV-58). `classroom.router` is unmounted from
+the production app, so nothing below can be triggered through the product any more — every
+`/api/v1/classroom/*` route 404s, and `ClassroomSettingsPage.tsx` (the only frontend surface
+that reached it) is deleted. The service, models and tables are kept, and the `sync_classroom`
+job handler stays registered specifically so this runbook is not moot: a job of that type
+enqueued **before** the hide can still be sitting in the queue, and the worker will still
+attempt it, reading `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/the stored refresh token exactly
+as before. Missing or invalid credentials fail that job the same way they always did — retried
+once (`BE-6`), then `failed` — there is simply no route left for a tutor to fix the underlying
+connection themselves; that now needs re-mounting the router (or a one-off script). Everything
+below describes behaviour that returns unchanged the day the router is re-mounted.
+
 **Symptoms:** "not configured"; sync returns an auth error; courseWork is not importing; some
 students' submissions are missing.
 
@@ -581,7 +594,7 @@ surprise people.
 |---|---|---|
 | **`JWT_SECRET`** | **Every session ends immediately** — all access and refresh tokens become invalid. Also invalidates every stored Google refresh token **if `GOOGLE_TOKEN_ENCRYPTION_KEY` is unset**, because the key is then derived from it | Set a new value; restart. Warn users first. Set a dedicated `GOOGLE_TOKEN_ENCRYPTION_KEY` beforehand to decouple the two |
 | **`GOOGLE_TOKEN_ENCRYPTION_KEY`** | **Every stored Google refresh token becomes undecryptable.** Every linked tutor must reconnect Classroom | Set a new value; restart; tell every linked tutor to reconnect |
-| `ANTHROPIC_API_KEY` | Chat, reports, readiness, class briefs fail until the new key is live | Issue a new key at the provider; update in Render; restart; revoke the old |
+| `ANTHROPIC_API_KEY` | Reports, readiness, class briefs, narrative fail until the new key is live | Issue a new key at the provider; update in Render; restart; revoke the old |
 | `GEMINI_API_KEY` | **The homework pipeline fails** until the new key is live | As above. Consider R7's re-route as a bridge |
 | `GOOGLE_CLIENT_SECRET` | New OAuth connections fail; existing refresh tokens keep working | Rotate in Google Cloud; update in Render; restart |
 | Database credentials | Total outage until updated | Rotate in Render; the service picks up `DATABASE_URL` from the database binding |

@@ -122,12 +122,13 @@ drives what the tutor sees when planning the next lesson.
 | **Homework** | Booklet → questions → submission → marking → review → evidence | `api/{assignments,submissions,classifieds}.py`, `services/{marking,extraction}.py` |
 | **Reports** | Audience-specific narrative generated strictly from the student's data | `services/reports.py`, `api/reports.py` |
 
-**The CRM aggregation is one function with two consumers.** `services/student_crm.py` feeds
-both `GET /api/v1/students/{id}/crm` and `services/student_context.py` (AI grounding), so the
-AI and the interface see the same record by construction.
+**The CRM aggregation feeds `GET /api/v1/students/{id}/crm`.** `services/student_crm.py` also
+fed `services/student_context.py` — AI grounding for the student chat surface, so the AI and
+the interface saw the same record by construction — until task 0.3 deleted both the surface and
+that grounding module (AV-57). No surface reads a student's own record today.
 
-The Knowledge Base follows the same pattern: `build_tutor_context()` compiles a tutor's
-entries into one prompt block injected into marking, extraction, report generation and chat.
+The Knowledge Base follows a related pattern: `build_tutor_context()` compiles a tutor's
+entries into one prompt block injected into marking, extraction and report generation.
 
 ### Roles and visibility
 
@@ -311,7 +312,6 @@ and the feature degrades to a clear "not configured" state without its credentia
 | AI system | Where it lives | Product surface |
 |---|---|---|
 | Homework Analyzer | `services/marking.py`, `services/extraction.py` | Homework |
-| Learning Assistant | `services/tutor_chat.py` | Student chat |
 | Readiness Engine | `compute_readiness_v2` job (Layer 2) | Readiness |
 | Report Generator | `services/reports.py` | Reports |
 | Syllabus Extractor | `services/syllabus_extraction.py` | Subjects |

@@ -220,9 +220,9 @@ ignore. `line-length = 100` because that is what the code already is (99th-perce
 than cosmetic are `UP042` (`(str, Enum)` → `StrEnum` changes `str(Member)` on enums that get
 serialized) and `F811` in tests (pytest's fixture idiom is a redefinition by construction).
 
-The `# noqa: BLE001` comments in `workers/jobs.py`, `api/chat.py`, `main.py` and
-`readiness_v2_ai.py` are no longer vestigial: `BLE` is selected, so they suppress a rule that
-actually runs, and the next blind `except Exception` is a decision on the record.
+The `# noqa: BLE001` comments in `workers/jobs.py`, `main.py`, `readiness_v2_ai.py`,
+`storage.py` and `timezones.py` are no longer vestigial: `BLE` is selected, so they suppress a
+rule that actually runs, and the next blind `except Exception` is a decision on the record.
 
 **Frontend: ESLint 9 (flat config) and Prettier**, run in CI as `eslint --max-warnings 0` and
 `prettier --check`. ESLint adds only what types cannot see — `rules-of-hooks`,

@@ -102,6 +102,16 @@ of `render.yaml` gives the reason: a second origin would not match `GOOGLE_REDIR
 Classroom would silently fail for anyone who landed on it while everything else appeared to
 work.
 
+**That constraint is currently lifted.** Task 0.5 (AV-58) unmounted `classroom.router` from
+the production app — `api/classroom.py`'s routes 404, and the frontend surface that could
+reach the OAuth flow (`ClassroomSettingsPage.tsx`, `/settings/classroom/callback`) is deleted
+— so there is no path left by which landing on a second origin can trigger a Classroom OAuth
+attempt at all. The code, service and `GoogleAccount`/`ClassroomCourseLink` tables are kept,
+not deleted, so this is reversible: re-mounting the router brings the constraint back exactly
+as described above. **It also returns, independently of Classroom, when Phase 7 adds Zoom and
+Google Meet attendance OAuth** (`docs/avora-new-state-august-16.md` §7.3) — plan those redirect
+URIs deliberately rather than rediscovering this the way Classroom did.
+
 ### The API service
 
 `render.yaml` provisions one Postgres database (`igcse-os-db`, `plan: basic-256mb`) and one

@@ -205,9 +205,9 @@ reformatted 75 of the frontend's instead of 47 — churn wearing a standard's cl
 No `eslint-config-prettier`, because there is nothing to reconcile: the ESLint config enables
 no stylistic rules at all, only ones that catch defects the type checker cannot see.
 
-The `# noqa: BLE001` comments across `workers/jobs.py`, `api/chat.py`, `main.py`,
-`readiness_v2_ai.py` and `storage.py` now suppress a rule that runs — `BLE` is selected
-precisely so those comments mean what they say.
+The `# noqa: BLE001` comments across `workers/jobs.py`, `main.py`, `readiness_v2_ai.py`,
+`storage.py` and `timezones.py` now suppress a rule that runs — `BLE` is selected precisely
+so those comments mean what they say.
 
 Still absent: **mypy/pyright**, **EditorConfig**, **pre-commit**, and any import-direction
 check. `tsc -b` inside `npm run build` remains the only *type* check in the repository, and

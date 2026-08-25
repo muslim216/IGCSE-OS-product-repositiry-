@@ -114,15 +114,18 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
   `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in.
 - **Tutor** (`roles={["tutor","admin"]}`): `/tutor` and children, including the nested
   `GroupLayout` at `/tutor/groups/:groupId` with tabs `homework | students | syllabus |
-  schedule | resources | analytics | new-homework | mock`. `/settings/classroom/callback`
-  sits inside the tutor guard but outside the shell.
-- **Student** (`roles={["student"]}`): `/student` and nine siblings.
+  schedule | resources | analytics | new-homework | mock`.
+- **Student** (`roles={["student"]}`): `/student` and its siblings. `/student/improvement`
+  and `/student/tutor` still resolve — both redirect (to `/student/progress` and `/student`
+  respectively) rather than 404 a bookmark — but neither is in `STUDENT_NAV` or routes to a
+  live page; task 0.4 deleted `ImprovementPage.tsx` (AV-57, AV-100) and 0.3 deleted
+  `TutorChatPage.tsx` (AV-57).
 - **Parent** (`roles={["parent"]}`): `/parent`, with no nav array.
 - **Catch-all:** `*` redirects to `/`.
 
-Navigation is data-driven: `STUDENT_NAV` (8 entries, `/student/tutor` carrying
-`slot: "bottom"`) and `TUTOR_NAV` (9 entries), each `{ to, label, icon }` with `lucide-react`
-icons.
+Navigation is data-driven: `STUDENT_NAV` (7 entries, no bottom-slot item since 0.3 removed the
+one that carried `slot: "bottom"`) and `TUTOR_NAV`, each `{ to, label, icon }` with
+`lucide-react` icons.
 
 **Route guards are a convenience, not a control.** `ProtectedRoute` hides interface; the API
 enforces authorization. Never treat a role gate as a security boundary — see `SEC` rules in

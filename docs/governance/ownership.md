@@ -39,12 +39,11 @@ outages nobody is fixing.
 | Past papers | `api/past_papers.py`, `models/readiness_v2.py` | Founder | Founder | Founder |
 | Readiness v1 | `services/readiness.py`, `services/readiness_summary.py` | Founder | Founder | Founder |
 | Readiness v2 | `services/readiness_factors.py`, `readiness_v2.py`, `readiness_v2_ai.py`, `readiness_summary_v2.py` | Founder | Founder | Founder |
-| Knowledge Base | `services/knowledge.py`, `api/knowledge.py` | Founder | Founder | Founder |
+| Knowledge Base (hidden, 0.5/AV-58 — code and tables live, router unmounted) | `services/knowledge.py`, `api/knowledge.py` | Founder | Founder | Founder |
 | AI platform | `services/ai.py`, `services/prompts.py` | Founder | Founder | Founder |
 | AI metering & cost | `models/ai_usage.py`, `api/ai_usage.py` | Founder | Founder | Founder |
 | Reports | `services/reports.py`, `api/reports.py` | Founder | Founder | Founder |
-| Tutor chat | `api/chat.py`, `services/tutor_chat.py` | Founder | Founder | Founder |
-| Google Classroom | `services/google_classroom.py`, `api/classroom.py` | Founder | Founder | Founder |
+| Google Classroom (hidden, 0.5/AV-58 — code and tables live, router unmounted) | `services/google_classroom.py`, `api/classroom.py` | Founder | Founder | Founder |
 | Background jobs | `workers/jobs.py`, handler registration in `main.py` | Founder | Founder | Founder |
 | File storage | `services/storage.py` | Founder | Founder | Founder |
 | Frontend shell & routing | `App.tsx`, `AppShell.tsx`, `ProtectedRoute.tsx` | Founder | Founder | Founder |

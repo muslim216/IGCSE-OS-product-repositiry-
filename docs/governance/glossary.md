@@ -163,9 +163,11 @@ rows.
 ## AI platform
 
 **Surface** — A named AI use case that resolves independently to a provider and model:
-`marking`, `extraction`, `syllabus`, `reports`, `readiness`, `chat`, `class_brief`.
+`marking`, `extraction`, `syllabus`, `reports`, `readiness`, `class_brief`, `narrative`.
 Configured by `AI_<SURFACE>_PROVIDER` / `AI_<SURFACE>_MODEL`. **Call sites name a surface,
-never a model.** The single most important vocabulary term in §09.
+never a model.** The single most important vocabulary term in §09. (`chat` was a surface here
+until task 0.3 deleted the student AI chat surface entirely, AV-57 — streaming, which existed
+only for it, went too.)
 
 **Prompt version** — The version stamped on a prompt in `services/prompts.py`, recorded on
 every record the prompt produced (`ai_prompt_version`) and every usage event. Bumped
