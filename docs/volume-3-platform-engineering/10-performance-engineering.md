@@ -110,7 +110,6 @@ consequence of `ADR-0002` and the single-instance constraint in §08.
 | Marking a submission | One AI call over page images | Seconds to minutes; asynchronous |
 | Readiness synthesis | One frontier-model call | Seconds; asynchronous and **debounced** |
 | Report generation | One frontier-model call | Seconds; asynchronous |
-| Chat | Streaming tokens | First token is what the user perceives |
 
 Every AI path is a job, not a request. The user-visible latency for those is **queue wait plus
 model time**, and queue wait is where the single worker shows: jobs are strictly serial. Two
@@ -295,7 +294,6 @@ first real measurement has something to disagree with.
 | Job queue wait, p95 | < 30 s |
 | Marking a submission, end to end | < 3 min |
 | Readiness synthesis after the debounce window | < 60 s |
-| Chat first token | < 2 s |
 | Frontend first contentful paint, 4G mobile | < 2.5 s |
 | Initial JavaScript bundle | < 400 KB gzipped |
 

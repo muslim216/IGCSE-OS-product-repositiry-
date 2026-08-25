@@ -1,3 +1,11 @@
+"""Tutor knowledge base.
+
+**Not mounted.** 0.5 (AV-58) hid this surface: the router is no longer included
+in main.py, so none of these routes are reachable. The code, its service, its
+models and its tables are deliberately kept — this is hidden, not deleted, and
+re-mounting the router is all it takes to bring it back.
+"""
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 

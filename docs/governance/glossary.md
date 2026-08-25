@@ -163,9 +163,11 @@ rows.
 ## AI platform
 
 **Surface** — A named AI use case that resolves independently to a provider and model:
-`marking`, `extraction`, `syllabus`, `reports`, `readiness`, `chat`, `class_brief`.
+`marking`, `extraction`, `syllabus`, `reports`, `readiness`, `class_brief`, `narrative`.
 Configured by `AI_<SURFACE>_PROVIDER` / `AI_<SURFACE>_MODEL`. **Call sites name a surface,
-never a model.** The single most important vocabulary term in §09.
+never a model.** The single most important vocabulary term in §09. (`chat` was a surface here
+until task 0.3 deleted the student AI chat surface entirely, AV-57 — streaming, which existed
+only for it, went too.)
 
 **Prompt version** — The version stamped on a prompt in `services/prompts.py`, recorded on
 every record the prompt produced (`ai_prompt_version`) and every usage event. Bumped
@@ -174,13 +176,19 @@ whenever prompt text changes meaningfully.
 **Unpriced call** — An AI call whose model has no entry in `AI_MODEL_PRICING`. Records
 `cost_usd = NULL` and is reported as `unpriced_call_count`. **Never folded in as `$0`.**
 
-**Grounding** — Injecting authoritative context into a prompt: the tutor's Knowledge Base
-via `build_tutor_context()`, the student's record via `build_student_context()`. A grounded
+**Grounding** — Injecting authoritative context into a prompt: the tutor's Knowledge Base via
+`build_tutor_context()`, evidence-derived facts queried directly for reports/class
+brief/narrative, or readiness synthesis's deterministic factor sub-scores, which the model is
+not permitted to contradict. (`build_student_context()`, which grounded the deleted student
+chat surface in the student's own record, was removed with it in task 0.3, AV-57.) A grounded
 surface answers from Avora's data rather than from the model's priors.
 
 **Knowledge Base** — Tutor-specific knowledge — teaching methods, solving approaches,
-marking preferences, instructions — stored in `knowledge_entries` and injected into every AI
-surface so the AI behaves like *that* tutor.
+marking preferences, instructions — stored in `knowledge_entries` and injected into most AI
+surfaces (assignment extraction, marking, report generation, readiness synthesis — not
+past-paper extraction, Syllabus Extractor, Class Brief, or narrative) so the AI behaves like
+*that* tutor. (Its API is currently hidden, 0.5/AV-58 — the service and injection keep
+running for the surfaces that call it directly.)
 
 ## Platform and process
 

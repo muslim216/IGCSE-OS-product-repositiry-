@@ -8,9 +8,9 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import SyllabusUpload, SyllabusUploadStatus
+from app.models import AiFeature, SyllabusUpload, SyllabusUploadStatus, User
 from app.services import storage
-from app.services.ai import file_block, require_parsed, structured_complete
+from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 
 
 class ExtractedGradeBoundary(BaseModel):
@@ -72,6 +72,16 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
         content=content,
         output_format=SyllabusExtractionResult,
         max_tokens=16000,
+    )
+    tutor = await session.get(User, upload.tutor_id)
+    assert tutor is not None
+    await record_usage(
+        session,
+        response,
+        organization_id=tutor.organization_id,
+        tutor_id=upload.tutor_id,
+        student_id=None,
+        feature=AiFeature.extraction,
     )
     result = require_parsed(response)
     if not result.topics:

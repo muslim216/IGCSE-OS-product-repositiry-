@@ -8,9 +8,7 @@ import {
   Gauge,
   GraduationCap,
   Home as HomeIcon,
-  Sparkles,
   Sunrise,
-  TrendingUp,
   Users,
   Video,
 } from "lucide-react";
@@ -44,17 +42,14 @@ import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
 import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
-import ClassroomSettingsPage from "./tutor/ClassroomSettingsPage";
-import ClassroomCallbackPage from "./tutor/ClassroomCallbackPage";
+import SettingsPage from "./tutor/SettingsPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
 
 import StudentHomePage from "./student/StudentHomePage";
 import ProgressPage from "./student/ProgressPage";
-import ImprovementPage from "./student/ImprovementPage";
 import WelcomePage from "./student/WelcomePage";
 import HomeworkPage from "./student/HomeworkPage";
 import SubmitHomeworkPage from "./student/SubmitHomeworkPage";
-import TutorChatPage from "./student/TutorChatPage";
 import FilesPage from "./student/FilesPage";
 import RecordingsPage from "./student/RecordingsPage";
 import ExamsPage from "./student/ExamsPage";
@@ -78,13 +73,11 @@ const STUDENT_NAV: NavItem[] = [
   // it after the engine that computes one of those numbers described the
   // machinery rather than what the reader gets (UX-25).
   { to: "/student/progress", label: "Progress", icon: Gauge },
-  { to: "/student/improvement", label: "Improvement", icon: TrendingUp },
   { to: "/student/homework", label: "Homework", icon: ClipboardList },
   { to: "/student/past-papers", label: "Past papers", icon: FileText },
   { to: "/student/exams", label: "Exams", icon: GraduationCap },
   { to: "/student/files", label: "Files", icon: FolderOpen },
   { to: "/student/recordings", label: "Recordings", icon: Video },
-  { to: "/student/tutor", label: "AI Tutor", icon: Sparkles, slot: "bottom" },
 ];
 
 // Four destinations, not nine. Today · Classes · Review · Library is the whole
@@ -136,10 +129,9 @@ export default function App() {
           <Route path="/tutor/assignments/:assignmentId" element={<AssignmentDetailPage />} />
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
-          <Route path="/tutor/settings" element={<ClassroomSettingsPage />} />
+          <Route path="/tutor/settings" element={<SettingsPage />} />
           <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
         </Route>
-        <Route path="/settings/classroom/callback" element={<ClassroomCallbackPage />} />
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>
@@ -147,14 +139,20 @@ export default function App() {
           <Route path="/student" element={<StudentHomePage />} />
           <Route path="/student/welcome" element={<WelcomePage />} />
           <Route path="/student/progress" element={<ProgressPage />} />
-          <Route path="/student/improvement" element={<ImprovementPage />} />
+          {/* Deleted in 0.4 (AV-100). The old URL lands on Progress rather
+              than 404ing a bookmark. */}
+          <Route
+            path="/student/improvement"
+            element={<Navigate to="/student/progress" replace />}
+          />
           {/* The old Readiness page's URL still lands — no bookmark 404s. */}
           <Route path="/student/readiness" element={<Navigate to="/student/progress" replace />} />
           <Route path="/student/files" element={<FilesPage />} />
           <Route path="/student/recordings" element={<RecordingsPage />} />
           <Route path="/student/homework" element={<HomeworkPage />} />
           <Route path="/student/homework/:assignmentId" element={<SubmitHomeworkPage />} />
-          <Route path="/student/tutor" element={<TutorChatPage />} />
+          {/* Deleted in 0.3 (AV-57). The old URL lands on Home. */}
+          <Route path="/student/tutor" element={<Navigate to="/student" replace />} />
           <Route path="/student/past-papers" element={<StudentPastPapersPage />} />
           <Route path="/student/past-papers/:pastPaperId" element={<SitPastPaperPage />} />
           <Route path="/student/exams" element={<ExamsPage />} />

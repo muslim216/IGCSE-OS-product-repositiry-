@@ -339,39 +339,12 @@ async def test_upload_still_accepts_a_real_pdf(client, tutor, subject):  # noqa:
     assert resp.status_code == 201, resp.text
 
 
-# --- OAuth -----------------------------------------------------------------
-
-
-async def test_classroom_connect_rejects_a_state_it_did_not_issue(
-    client, tutor, other_tutor, monkeypatch
-):
-    """Without a server-side check, a crafted callback URL attaches the
-    attacker's Google account to whichever tutor opens it."""
-    from app.config import get_settings
-    from tests.test_classroom import _fake_exchange_code, _fake_fetch_email
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "google_client_id", "test-client-id")
-    monkeypatch.setattr(settings, "google_client_secret", "test-client-secret")
-    monkeypatch.setattr("app.services.google_classroom.exchange_code", _fake_exchange_code)
-    monkeypatch.setattr("app.services.google_classroom.fetch_google_email", _fake_fetch_email)
-
-    forged = await client.post(
-        "/api/v1/classroom/connect",
-        json={"code": "attacker-code", "state": "made-up"},
-        headers=tutor["headers"],
-    )
-    assert forged.status_code == 400
-
-    # A genuine state, but issued to a different tutor, is no better.
-    issued = await client.get("/api/v1/classroom/auth-url", headers=other_tutor["headers"])
-    borrowed = await client.post(
-        "/api/v1/classroom/connect",
-        json={"code": "attacker-code", "state": issued.json()["state"]},
-        headers=tutor["headers"],
-    )
-    assert borrowed.status_code == 400
-
+# --- OAuth -------------------------------------------------------------
+#
+# test_classroom_connect_rejects_a_state_it_did_not_issue moved to
+# test_classroom.py in 0.5 (AV-58): classroom.router is unmounted from the
+# production `app` this file's `client` fixture serves, and that test needs
+# the router actually reachable to exercise it.
 
 # --- Response headers ------------------------------------------------------
 

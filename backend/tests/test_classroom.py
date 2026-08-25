@@ -1,13 +1,24 @@
 """Google Classroom integration: OAuth connect/disconnect, course linking,
 and the sync_classroom job — all driven against monkeypatched Google API
 calls (mirroring how test_homework.py fakes get_client()), so nothing here
-needs real Google credentials."""
+needs real Google credentials.
+
+0.5 (AV-58) unmounted classroom.router from the production app — the surface
+is hidden, not deleted, so its code, service and tables stay live and this
+file keeps exercising them. The `client` fixture below shadows conftest's:
+it mounts classroom.router onto a fresh app instance so these tests reach it
+even though a real deployment can't. `test_classroom_route_is_hidden_in_production`
+proves the other half — that the real app genuinely can't."""
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from app.api import classroom
 from app.config import get_settings
 from app.db import async_session
+from app.main import app as production_app
+from app.main import create_app
 from app.models import (
     Assignment,
     ClassroomCourseLink,
@@ -20,6 +31,30 @@ from app.models import (
 from app.workers.jobs import process_one_job
 
 PDF_BYTES = b"%PDF-1.4 fake classroom pdf"
+
+
+@pytest.fixture
+async def client():
+    """Overrides conftest's `client`: a fresh app with classroom.router mounted
+    on top of everything production mounts, so `tutor`/`student`/`group` and
+    every other conftest fixture that depends on `client` still work unchanged
+    — this app is a superset of production, not a different one."""
+    app = create_app()
+    app.include_router(classroom.router, prefix="/api/v1")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def test_classroom_route_is_hidden_in_production():
+    """The other half of 0.5: not just that classroom works when mounted
+    (every other test in this file), but that the real app genuinely does not
+    mount it. A route that is merely untested is not the same as one that is
+    unreachable."""
+    transport = ASGITransport(app=production_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        resp = await c.get("/api/v1/classroom/status")
+    assert resp.status_code == 404
 
 
 @pytest.fixture(autouse=True)
@@ -384,3 +419,35 @@ async def test_classroom_access_control_across_tutors(client, tutor, group, monk
         headers=other_headers,
     )
     assert resp2.status_code == 404  # not connected
+
+
+async def test_classroom_connect_rejects_a_state_it_did_not_issue(client, tutor, monkeypatch):
+    """Without a server-side check, a crafted callback URL attaches the
+    attacker's Google account to whichever tutor opens it.
+
+    Moved here from test_security_hardening.py in 0.5 (AV-58): that file's
+    `client` fixture serves the production app, which no longer mounts
+    classroom.router. This one does — see the `client` override above."""
+    monkeypatch.setattr("app.services.google_classroom.exchange_code", _fake_exchange_code)
+    monkeypatch.setattr("app.services.google_classroom.fetch_google_email", _fake_fetch_email)
+
+    forged = await client.post(
+        "/api/v1/classroom/connect",
+        json={"code": "attacker-code", "state": "made-up"},
+        headers=tutor["headers"],
+    )
+    assert forged.status_code == 400
+
+    # A genuine state, but issued to a different tutor, is no better.
+    other = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Rival", "email": "rival-state@example.com", "password": "password123"},
+    )
+    other_headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
+    issued = await client.get("/api/v1/classroom/auth-url", headers=other_headers)
+    borrowed = await client.post(
+        "/api/v1/classroom/connect",
+        json={"code": "attacker-code", "state": issued.json()["state"]},
+        headers=tutor["headers"],
+    )
+    assert borrowed.status_code == 400

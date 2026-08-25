@@ -98,9 +98,23 @@ flowchart TD
 ```
 
 **Render deliberately does not serve a second copy of the frontend.** The comment at the top
-of `render.yaml` gives the reason: a second origin would not match `GOOGLE_REDIRECT_URI`, so
-Classroom would silently fail for anyone who landed on it while everything else appeared to
-work.
+of `render.yaml` gives the historical reason: a second origin would not match
+`GOOGLE_REDIRECT_URI`, so Classroom would silently fail for anyone who landed on it while
+everything else appeared to work. **That specific reason is currently lifted** — see below —
+but the rule (`INF-5`) stays in force regardless; see its rationale for why.
+
+Task 0.5 (AV-58) unmounted `classroom.router` from
+the production app — `api/classroom.py`'s routes 404, and the frontend surface that could
+reach the OAuth flow (`ClassroomSettingsPage.tsx`, `/settings/classroom/callback`) is deleted
+— so there is no path left by which landing on a second origin can trigger a Classroom OAuth
+attempt at all. The code, service and `GoogleAccount`/`ClassroomCourseLink` tables are kept,
+not deleted, so the *redirect-mismatch constraint* is reversible: re-mounting the router alone
+brings it back exactly as described above. (It does **not** restore the Classroom feature
+itself — the frontend pages and callback route this PR deletes would need rebuilding
+separately; re-mounting only reopens the backend endpoints and, with them, the constraint.)
+**It also returns, independently of Classroom, when Phase 7 adds Zoom and
+Google Meet attendance OAuth** (`docs/avora-new-state-august-16.md` §7.3) — plan those redirect
+URIs deliberately rather than rediscovering this the way Classroom did.
 
 ### The API service
 
@@ -182,8 +196,8 @@ change in the CSP. Prefer the rewrite.
 The `full` profile has two configuration defects, both of which produce confusing symptoms:
 
 - It passes `ANTHROPIC_API_KEY` but **not `GEMINI_API_KEY`**. Marking, extraction, and syllabus
-  extraction default to Gemini, so the entire homework pipeline fails there while chat and
-  reports work.
+  extraction default to Gemini, so the entire homework pipeline fails there while the
+  Anthropic-routed surfaces (reports, readiness, class brief, narrative) work.
 - It does not set `REFRESH_COOKIE_SECURE`, which **defaults to `true`**. Over plain-HTTP
   localhost the browser drops the refresh cookie, so sessions silently expire after 30 minutes
   with no error.
@@ -210,17 +224,17 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 
 | Variable | Default | Prod | Failure mode if wrong |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | unset | `sync: false` | Chat, reports, readiness synthesis, class briefs report "not configured" |
+| `ANTHROPIC_API_KEY` | unset | `sync: false` | `class_brief` is the one on-demand call and surfaces `AIUnavailableError`'s "not configured" message to the caller directly; reports and readiness synthesis run as background jobs and instead persist `status="failed"` on the row (§11); narrative runs as background jobs (marking-triggered class narratives and the weekly parent sweep) and logs a warning, leaving the surface in its absent state (§11) |
 | `ANTHROPIC_MODEL` | `claude-opus-4-8` | default | — |
 | `GEMINI_API_KEY` | unset | `sync: false` | **The homework pipeline fails** — marking, extraction, syllabus all default to Gemini |
 | `GEMINI_MODEL` | `gemini-2.5-pro` (**placeholder**) | `sync: false` | An owner-supplied value; the default is explicitly not a real commitment |
 | `AI_MARKING_PROVIDER` / `_MODEL` | `gemini` / `""` | `gemini` | Restated in `render.yaml` so it can be flipped to `anthropic` from the dashboard with no code change |
 | `AI_EXTRACTION_PROVIDER` / `_MODEL` | `gemini` / `""` | `gemini` | as above |
 | `AI_SYLLABUS_PROVIDER` / `_MODEL` | `gemini` / `""` | `gemini` | as above |
-| `AI_CHAT_PROVIDER` / `_MODEL` | `anthropic` / `claude-haiku-4-5` | default | Chat is the only streaming surface; a Gemini-routed chat **raises** |
 | `AI_REPORTS_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
 | `AI_READINESS_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
 | `AI_CLASS_BRIEF_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
+| `AI_NARRATIVE_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
 | `AI_MODEL_PRICING` | `"{}"` | `sync: false` | Empty means every call records `cost_usd = NULL` and reports as `unpriced_call_count` — never a fabricated `$0` |
 
 **Readiness**
@@ -235,7 +249,7 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 | Variable | Default | Prod | Failure mode if wrong |
 |---|---|---|---|
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | unset | `sync: false` | Feature reports "not configured"; app runs fine |
-| `GOOGLE_REDIRECT_URI` | localhost callback | Vercel callback URL | **The full URL, origin and path.** Must be registered verbatim on the Google OAuth client or connect fails |
+| `GOOGLE_REDIRECT_URI` | localhost callback | Vercel callback URL | **Classroom is hidden (0.5/AV-58) — no route can reach this callback today**, so a mismatch has no live effect. Kept configured for when the router is re-mounted, or for Phase 7's Zoom/Meet OAuth, which will need the same care: the full URL, origin and path must be registered verbatim on the Google OAuth client or connect fails |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | unset → derived from `JWT_SECRET` | `generateValue` | Changing it makes every stored Google refresh token undecryptable; every tutor must reconnect |
 
 **Frontend (build-time)**
@@ -314,8 +328,14 @@ change it is not, and the moment to work that out is not during an outage.
 
 **`INF-5` — MUST NOT · Critical · Active**
 Never deploy a second copy of the frontend on another origin.
-*Rationale:* it would not match `GOOGLE_REDIRECT_URI`, so Classroom fails silently for anyone
-who lands on it while everything else appears to work.
+*Rationale:* originally, a mismatch with `GOOGLE_REDIRECT_URI` would fail Classroom silently
+for anyone who landed on the second origin. Task 0.5 (AV-58) unmounted Classroom, lifting that
+specific reason (see Topology above). `INF-6`'s same-origin refresh-cookie mechanism works
+per-origin — a second Vercel deployment carrying the same checked-in `/api/*` rewrite would, on
+its own domain, also see the API as same-origin — so it does not by itself re-establish the
+constraint either, and it is not `RISK-1`'s disk/worker/limiter pinning (that's about scaling
+the *API*, not the frontend). No currently-verified technical reason blocks a second origin;
+the rule stays Active as an operational convention pending that verification. See Known Gaps.
 
 **`INF-6` — MUST · Critical · Active**
 Keep the API same-origin to the browser via the `/api/*` rewrite.
@@ -403,6 +423,7 @@ against existing rows — is still on the author.
 | **No documented rollback procedure.** | §14 now provides one; until this document was written there was none. | `blocking` |
 | **No backup or restore procedure for the uploads disk.** | The database confidently references files that a disk loss would destroy. `RISK-8`. | `before scale` |
 | **Scaling out is a correctness change, not a configuration change.** | Three independent constraints break simultaneously. `RISK-1`; the unwind order is above. | `before scale` |
+| **`INF-5`'s remaining rationale is unverified.** Both of the technical reasons previously cited for banning a second frontend origin (Classroom's `GOOGLE_REDIRECT_URI`, `INF-6`'s cookie mechanism) turn out not to apply once checked closely. No replacement reason has been confirmed. | The rule may be enforceable as written for no real reason, or a real reason exists and hasn't been identified — either way it needs a deliberate decision, not silent carry-forward. | `before scale` |
 
 ---
 

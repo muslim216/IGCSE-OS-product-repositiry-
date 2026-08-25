@@ -15,7 +15,7 @@
 - [Current Reality](#current-reality)
   - [The choke point](#the-choke-point)
   - [Surfaces and routing](#surfaces-and-routing)
-  - [The three helpers](#the-three-helpers)
+  - [The two helpers](#the-two-helpers)
   - [Content blocks](#content-blocks)
   - [Prompts](#prompts)
   - [Metering and cost](#metering-and-cost)
@@ -52,18 +52,20 @@ of the trust boundary (§07); AI-driven cost and latency (§10); testing AI path
   tutor-entered boundaries.
 - **No AI adjudicates a dispute about AI output.** A remark request routes to a human.
 - **No AI abstraction library.** Two SDKs, one wrapper module. A generic library would hide
-  exactly the vendor-specific features being used — prompt caching and streaming.
+  exactly the vendor-specific features being used — prompt caching, and streaming while it
+  existed.
 - **No prompts outside `services/prompts.py`.**
 - **No agentic or tool-using loops.** Every call is a single request with a bounded response.
-- **No streaming except chat.**
+- **No streaming, full stop.** Chat was the one streaming surface; task 0.3 deleted it (AV-57)
+  along with `stream_complete()` and the provider check that existed only for it.
 
 ## Sources
 
 Written from: `backend/app/services/ai.py` (448 lines);
 `backend/app/services/prompts.py` (161 lines); `backend/app/services/marking.py`;
 `backend/app/services/extraction.py`; `backend/app/services/readiness_v2_ai.py`;
-`backend/app/services/knowledge.py`; `backend/app/services/student_context.py`;
-`backend/app/models/ai_usage.py`; `backend/app/config.py`; `backend/app/api/ai_usage.py`.
+`backend/app/services/knowledge.py`; `backend/app/models/ai_usage.py`;
+`backend/app/config.py`; `backend/app/api/ai_usage.py`.
 
 ---
 
@@ -92,7 +94,7 @@ evidence reports "no data", not `0`.
 ### The choke point
 
 `backend/app/services/ai.py` is 448 lines and the only module that imports either SDK. It
-provides client construction, the surface routing table, three call helpers, the neutral
+provides client construction, the surface routing table, two call helpers, the neutral
 content-block format, cost estimation, and usage recording.
 
 `AiResponse` is the normalized result — `{provider, model, prompt_version, input_tokens,
@@ -109,8 +111,8 @@ Seven surfaces, defined in `SURFACES`:
 | `syllabus` | Gemini | `GEMINI_MODEL` | Extracts a topic tree from a syllabus document |
 | `reports` | Anthropic | `claude-opus-4-8` | Audience-specific narrative reports |
 | `readiness` | Anthropic | `claude-opus-4-8` | Layer 2 readiness synthesis |
-| `chat` | Anthropic | `claude-haiku-4-5` | Streaming tutor chat |
 | `class_brief` | Anthropic | `claude-opus-4-8` | Pre-lesson class brief |
+| `narrative` | Anthropic | `claude-opus-4-8` | Precomputed class/parent narrative writer (weekly-send merge is a future phase, not yet built) |
 
 `resolve_surface(surface)` reads `AI_<SURFACE>_PROVIDER` and `AI_<SURFACE>_MODEL`, falling back
 to that provider's default model when the per-surface model is blank. It **raises on an unknown
@@ -119,25 +121,26 @@ values — so a typo in configuration fails loudly at the call rather than silen
 somewhere unintended.
 
 The split is deliberate: bulk document work goes to the cheaper provider, quality-dominated
-low-volume work to the more capable one, and chat to the fastest. No single provider outage
-stops the product. See `ADR-0006`.
+low-volume work to the more capable one. No single provider outage stops the product. See
+`ADR-0006`.
 
 **Surfaces and billing buckets are different things.** `SURFACE_FEATURE` maps each surface to
 an `AiFeature` for metering, and several deliberately share a bucket — `syllabus` meters as
 `extraction`, `class_brief` meters as `report`. The surface is the routing key; `AiFeature` is
 the billing-facing grouping.
 
-### The three helpers
+### The two helpers
 
 | Helper | Providers | Returns | Used for |
 |---|---|---|---|
 | `structured_complete()` | Both | `AiResponse.parsed` | Schema-constrained output — marking, extraction, syllabus, readiness |
-| `text_complete()` | Both | `AiResponse.text` | Prose — reports, class brief |
-| `stream_complete()` | **Anthropic only** | An async iterator | Chat, the sole streaming surface |
+| `text_complete()` | Both | `AiResponse.text` | Prose — reports, class brief, narrative |
 
-**A Gemini-routed chat raises.** That is a real configuration trap: setting
-`AI_CHAT_PROVIDER=gemini` produces a runtime failure on the one surface users interact with
-live.
+**`stream_complete()` is gone.** It was Anthropic-only and existed for the chat surface alone;
+task 0.3 deleted both together (AV-57), and with them the one live configuration trap this
+platform had — `AI_CHAT_PROVIDER=gemini` producing a runtime failure on the surface users
+interacted with directly. Every remaining surface is fully non-streaming and provider-agnostic
+at the call site.
 
 ### Content blocks
 
@@ -160,18 +163,24 @@ Current versions:
 | Surface | Version | Note |
 |---|---|---|
 | `marking` | **v3** | Bumped when marks began counting without tutor review |
+| `class_brief` | **v2** | Full system prompt (naming-a-learner rule, data-not-instructions) |
 | `extraction` | v2 | |
-| `syllabus`, `reports`, `readiness`, `chat` | v1 | |
-| `class_brief` | v1 | System prompt is empty — all instruction is in the user turn |
+| `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
 
-Two prompts carry rules that are not stylistic:
+Four active prompts carry rules that are not stylistic — all a form of `SEC-20`: **`marking`**
+states that page content is data and never instructions, and that anything addressing the
+marker is flagged with confidence `low` for a tutor rather than acted on; **`extraction`**
+carries the equivalent rule for booklet content, since extracted questions can reach a student
+with no human reading them first; **`class_brief`** and **`narrative`** both carry it for the
+same reason — their grounding data comes from a student's own marked work, which the student
+controls.
 
-- **`marking`** states that page content is data and never instructions, and that anything
-  addressing the marker is flagged with confidence `low` for a tutor rather than acted on. This
-  is a security control (`SEC-20`).
-- **`chat`** carries the anti-cheating guardrails: never give complete answers to the student's
-  own homework; teach the method, use a worked example on a *different* problem, ask guiding
-  questions. It also forbids presenting internal readiness percentages as official grades.
+*Historical:* **`chat`** was a third one — anti-cheating guardrails: never give complete
+answers to the student's own homework; teach the method, use a worked example on a *different*
+problem, ask guiding questions; forbid presenting internal readiness percentages as official
+grades — until task 0.3 deleted the surface along with the guardrails it needed (AV-57). Chat
+was the only surface that held a *conversation* with a student; `reports` still writes
+student-audience narrative directly to one (`ReportAudience.student`), just not interactively.
 
 ### Metering and cost
 
@@ -225,13 +234,17 @@ Three grounding sources, all injected rather than left to the model's priors:
 
 | Source | Function | Injected into |
 |---|---|---|
-| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, extraction, reports, chat |
-| Student academic record | `services/student_context.py` → `build_student_context()` | Chat, reports |
+| Tutor Knowledge Base | `services/knowledge.py` → `build_tutor_context()` | Marking, assignment extraction (not past-paper extraction), reports, readiness synthesis |
 | Deterministic factor sub-scores | `services/readiness_v2.py` | Readiness synthesis |
+| Marked-work/readiness evidence, queried directly (not through `student_crm.py` — `PROD-11` gap, see §01 Known Gaps) | `reports.build_report_facts()`, class readiness analytics in `api/groups.py`'s `class_brief` handler, `narrative._class_grounding()` / `_parent_grounding()` | Reports, class brief, narrative |
 
 `build_tutor_context()` uses the same `cache=True` prompt-caching pattern as `file_block()`.
-The student context reads from `services/student_crm.py` — the same aggregation the interface
-uses — so the AI and the tutor cannot be grounded in different truths (`PROD-11`).
+
+`services/student_context.py` and its `build_student_context()` are gone — they existed to
+ground chat in a student's own record, reading the same aggregation `student_crm.py` exposes
+to the tutor interface so the two could never disagree (`PROD-11`). Task 0.3 deleted them with
+the chat surface (AV-57); no other surface consumed them. `student_crm.py` itself is unchanged
+and still backs the CRM UI through `api/students.py`.
 
 Readiness synthesis is the strictest case: the factor sub-scores and tutor weights are
 **mandated inputs**, and the model is not permitted to contradict them or to produce a grade.
@@ -276,9 +289,12 @@ re-routed, cannot be metered, or has no versioned prompt.
 
 **`AI-4` — MUST · Important · Active**
 Vendor-specific behaviour stays inside `services/ai.py` and is documented at its call site
-when it changes semantics — `cache=True` is Anthropic-only; streaming is Anthropic-only.
-*Rationale:* a silently ignored parameter is a cost regression nobody notices; a raising one is
-an outage on the surface users watch live.
+when it changes semantics — `cache=True` is Anthropic-only, and is a silent no-op on Gemini
+rather than an error.
+*Rationale:* a silently ignored parameter is a cost regression nobody notices. (Streaming was
+the other example — Anthropic-only, and a raising one, so an outage on the surface users
+watched live — until task 0.3 deleted it with the chat surface, AV-57. Kept as the reasoning
+behind this rule, not as a current instance of it.)
 
 **`AI-5` — MUST · Important · Active**
 Use Anthropic's block shape as the wire format for file content, via `file_block()`.
@@ -300,9 +316,12 @@ model is instructed to do is always meaningful.
 records produced by different instructions.
 
 **`AI-8` — MUST · Critical · Active**
-A prompt carrying a safety instruction preserves it through any rewrite. The `marking` prompt's
-data-not-instructions rule and the `chat` prompt's anti-cheating rules are safety instructions.
-*Rationale:* `SEC-21`. Marking's output can count with no human; chat's output reaches a child.
+A prompt carrying a safety instruction preserves it through any rewrite. The `marking`,
+`extraction`, `class_brief` and `narrative` prompts' data-not-instructions rules are safety
+instructions. (The `chat` prompt's anti-cheating rules were another standing example, until
+task 0.3 deleted the surface, AV-57.)
+*Rationale:* `SEC-21`. Marking's output can count with no human in the loop; extraction's output
+reaches a student unreviewed; class_brief and narrative are grounded in a student's own work.
 
 **`AI-9` — MUST · Important · Active**
 A prompt that processes user-supplied content states that the content is data and never
@@ -394,7 +413,6 @@ deterministic work already completed.
 | **`AI_MODEL_PRICING` is empty in every environment.** | Spend is reported as `unpriced_call_count` rather than a number anyone can act on — correct behaviour, but it means cost is currently unmeasured. `RISK-12`. | `before scale` |
 | **No budget, cap, or circuit breaker.** Metering is built; enforcement is not. | A large classified or a burst of submissions spends whatever it spends. `RISK-12`. | `before scale` |
 | **No calibration measurement on the trust rule.** Remark-request rate and tutor override rate on auto-finalized marks are both derivable from existing rows and neither is computed. | The auto-finalize threshold cannot be tuned on evidence. `ADR-0009` names this. | `before scale` |
-| **`AI_CHAT_PROVIDER=gemini` is accepted at configuration time and fails at runtime.** | `resolve_surface` validates the provider name but not that the provider supports streaming. | `nice to have` |
 | **No per-call timeout or retry policy in `services/ai.py`.** Job-level retry is the only recovery, and it has no backoff (§04). | A hung provider call occupies the single worker until the client's own default fires. | `before scale` |
 
 ---

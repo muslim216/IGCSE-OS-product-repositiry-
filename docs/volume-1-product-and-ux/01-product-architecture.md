@@ -118,16 +118,23 @@ drives what the tutor sees when planning the next lesson.
 | **Student CRM** | The student's complete, continuously-updating academic record | `services/student_crm.py`, `api/students.py`, `models/crm.py` |
 | **Lessons** | The dated teaching event — notes, topics covered, per-student observations | `api/lessons.py`, `models/lessons.py` |
 | **Readiness** | Exam-readiness scores, predicted grades, weak topics, revision plans | `services/readiness*.py`, `api/readiness*.py` |
-| **Knowledge Base** | Tutor-specific knowledge injected into every AI surface | `services/knowledge.py`, `api/knowledge.py` |
+| **Knowledge Base (hidden)** | Tutor-specific knowledge injected into assignment extraction, marking, report generation and readiness synthesis (routes unmounted in 0.5/AV-58; not past-paper extraction, Syllabus Extractor, Class Brief, or narrative) | `services/knowledge.py`, `api/knowledge.py` (router hidden) |
 | **Homework** | Booklet → questions → submission → marking → review → evidence | `api/{assignments,submissions,classifieds}.py`, `services/{marking,extraction}.py` |
 | **Reports** | Audience-specific narrative generated strictly from the student's data | `services/reports.py`, `api/reports.py` |
 
-**The CRM aggregation is one function with two consumers.** `services/student_crm.py` feeds
-both `GET /api/v1/students/{id}/crm` and `services/student_context.py` (AI grounding), so the
-AI and the interface see the same record by construction.
+**The CRM aggregation feeds `GET /api/v1/students/{id}/crm`.** `services/student_crm.py` also
+fed `services/student_context.py` — AI grounding for the student chat surface, so the AI and
+the interface saw the same record by construction — until task 0.3 deleted both the surface and
+that grounding module (AV-57). No AI surface reads *that specific aggregation* today — the CRM
+endpoint remains its only reader. (`services/reports.py`'s `build_report_facts()` is a separate
+AI grounding path into a student's own record — readiness scores and topic breakdowns, queried
+directly rather than through `student_crm.py` — for the `reports` surface's student-audience
+output; it was never routed through `student_context.py` and 0.3 didn't touch it. This is a
+pre-existing `PROD-11` violation, not one this change introduces — see Known Gaps.)
 
-The Knowledge Base follows the same pattern: `build_tutor_context()` compiles a tutor's
-entries into one prompt block injected into marking, extraction, report generation and chat.
+The Knowledge Base follows a related pattern: `build_tutor_context()` compiles a tutor's
+entries into one prompt block injected into marking, extraction, report generation and
+readiness synthesis.
 
 ### Roles and visibility
 
@@ -135,7 +142,7 @@ Four roles, defined by `UserRole` in `backend/app/models/users.py`:
 
 | Role | Sees | Notably cannot |
 |---|---|---|
-| `student` | Own readiness, own homework and past papers, own exam results, group files and recordings, AI chat | See other students; generate reports; download a past paper's mark scheme |
+| `student` | Own readiness, own homework and past papers, own exam results, group files and recordings | See other students; generate reports; download a past paper's mark scheme |
 | `tutor` | Everything in their organization | Reach another organization's data |
 | `parent` | Plain-language progress for linked children only | See anything not linked via a single-use `ParentLink` |
 | `admin` | Tutor surfaces, plus report generation | — |
@@ -311,15 +318,21 @@ and the feature degrades to a clear "not configured" state without its credentia
 | AI system | Where it lives | Product surface |
 |---|---|---|
 | Homework Analyzer | `services/marking.py`, `services/extraction.py` | Homework |
-| Learning Assistant | `services/tutor_chat.py` | Student chat |
 | Readiness Engine | `compute_readiness_v2` job (Layer 2) | Readiness |
 | Report Generator | `services/reports.py` | Reports |
 | Syllabus Extractor | `services/syllabus_extraction.py` | Subjects |
 | Class Brief | `api/groups.py` → `class_brief` surface | Lessons |
 
-Every one is grounded: marking and extraction get the tutor's Knowledge Base, chat and reports
-get the student's CRM context, and readiness synthesis gets deterministic factor sub-scores it
-is not allowed to contradict. See §09.
+Most are grounded: marking, assignment extraction, report generation and readiness synthesis
+all get the tutor's Knowledge Base (`build_tutor_context()`), and readiness synthesis
+additionally gets deterministic factor sub-scores it is not allowed to contradict. Past-paper
+extraction (`_run_past_paper_extraction()`) does not — the assignment path built the KB
+injection, and the past-paper path was never extended to match it. The Syllabus Extractor and
+Class Brief do not either — the Syllabus Extractor works from the uploaded document alone, and
+Class Brief from the class's own readiness analytics (weak topics, lowest-readiness learners),
+with no Knowledge Base injection. (The deleted student chat surface was the one AI system
+grounded in the student's own CRM record, via `services/student_context.py` — task
+0.3, AV-57, removed both together; see above.) See §09.
 
 ---
 
@@ -420,6 +433,8 @@ a date and a lesson behind it.
 | **`READINESS_V2_SHADOW_ENABLED` is misnamed.** It has been a kill switch since the cutover. | Someone will disable it believing it merely stops a duplicate computation, and silently move the product back to v1. | `nice to have` |
 | **Google Classroom has no configured credentials in any environment.** Built and tested against mocked calls only. | The integration is untested against the real API surface. Connecting it is a config step, not a code gap. | `nice to have` |
 | **Classroom sync is on-demand only.** `POST /classroom/sync` is the only trigger. | Imported work reaches readiness late or not at all. The job type would work unchanged on a schedule. | `nice to have` |
+| **`services/reports.py`'s `build_report_facts()`, `api/groups.py`'s `class_brief` handler, and `services/narrative.py`'s grounding builders all violate `PROD-11`.** Each queries readiness/topic/mistake data directly for its AI surface instead of going through `services/student_crm.py`. Pre-existing, not introduced by 0.3–0.5. | These surfaces and the CRM could in principle diverge on the same student's numbers, the exact failure `PROD-11` exists to prevent. | `before scale` |
+| **Past-paper extraction (`_run_past_paper_extraction()`) never got Knowledge Base injection.** Assignment extraction (`_run_extraction()`) does. | A tutor's marking-style instructions apply to assignment extraction but silently not to past papers — an inconsistency, not a correctness bug. | `nice to have` |
 
 ---
 

@@ -270,3 +270,97 @@ async def test_an_unmarked_past_paper_attempt_is_omitted_not_scored_zero(client,
     assert paper.evidence_count == 1
     assert paper.detail["attempt_count"] == 1
     assert paper.score == 90.0
+
+
+async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
+    """AV-29: an auto-finalized submission is a settled outcome and must reach
+    every factor that reads marks.
+
+    Three gatherers here restated "settled" as `finalized` alone, so work the
+    AI marked confidently against an official scheme — which needs no tutor and
+    is already visible to the student — was silently dropped from Topic
+    Mastery, counted as *not submitted* by Homework Performance, and left out
+    of Mistake Analysis' denominator. The last is the worst of the three: the
+    mistakes still counted, so the ratio was computed against a smaller total
+    and overstated how often the student erred.
+    """
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+    group_id = world["group"]["id"]
+    topic1 = world["topic1"]
+
+    async with async_session() as session:
+        assignment = Assignment(
+            group_id=group_id,
+            title="Auto-marked HW",
+            status=AssignmentStatus.published,
+            due_at=NOW - timedelta(days=2),
+        )
+        session.add(assignment)
+        await session.flush()
+        question = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=0,
+            number="1",
+            text_summary="Q1",
+            max_marks=10,
+            has_mark_scheme=True,
+            difficulty=QuestionDifficulty.medium,
+        )
+        session.add(question)
+        await session.flush()
+        session.add(QuestionTopic(question_id=question.id, topic_id=topic1))
+
+        submission = Submission(
+            assignment_id=assignment.id,
+            student_id=student_id,
+            # The AI marked every question confidently against an official
+            # scheme. No tutor touched it, and none needs to (AI-11).
+            status=SubmissionStatus.auto_finalized,
+            submitted_at=NOW - timedelta(days=3),
+            finalized_at=NOW - timedelta(days=1),
+        )
+        session.add(submission)
+        await session.flush()
+        mark = QuestionMark(
+            submission_id=submission.id,
+            question_id=question.id,
+            final_marks=6,
+        )
+        session.add(mark)
+        await session.flush()
+        session.add(
+            Mistake(
+                student_id=student_id,
+                question_mark_id=mark.id,
+                topic_id=topic1,
+                category=MistakeCategory.careless,
+                severity=1,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, student_id, subject_id, "test-run-auto", now=NOW
+        )
+        await session.commit()
+
+    by_factor: dict[tuple, FactorEvaluation] = {(r.factor, r.topic_id): r for r in rows}
+
+    # Topic Mastery: 6/10 on the only marked question for this topic.
+    mastery = by_factor[(ReadinessFactor.topic_mastery, topic1)]
+    assert mastery.score == 60.0
+
+    # Homework Performance: the piece counts as submitted and scored, not as
+    # an outstanding assignment.
+    homework = by_factor[(ReadinessFactor.homework_performance, None)]
+    assert homework.evidence_count == 1
+    assert homework.detail["completion_rate"] == 1.0
+
+    # Mistake Analysis: the mistake and the question it came from are counted
+    # against each other. A denominator of 0 here is the bug this test exists
+    # to catch.
+    mistakes = by_factor[(ReadinessFactor.mistake_analysis, None)]
+    assert mistakes.evidence_count == 1
+    assert mistakes.detail["total_questions"] == 1

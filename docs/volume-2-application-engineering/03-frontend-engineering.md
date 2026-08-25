@@ -114,15 +114,18 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
   `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in.
 - **Tutor** (`roles={["tutor","admin"]}`): `/tutor` and children, including the nested
   `GroupLayout` at `/tutor/groups/:groupId` with tabs `homework | students | syllabus |
-  schedule | resources | analytics | new-homework | mock`. `/settings/classroom/callback`
-  sits inside the tutor guard but outside the shell.
-- **Student** (`roles={["student"]}`): `/student` and nine siblings.
+  schedule | resources | analytics | new-homework | mock`.
+- **Student** (`roles={["student"]}`): `/student` and its siblings. `/student/improvement`
+  and `/student/tutor` still resolve — both redirect (to `/student/progress` and `/student`
+  respectively) rather than 404 a bookmark — but neither is in `STUDENT_NAV` or routes to a
+  live page; task 0.4 deleted `ImprovementPage.tsx` (AV-57, AV-100) and 0.3 deleted
+  `TutorChatPage.tsx` (AV-57).
 - **Parent** (`roles={["parent"]}`): `/parent`, with no nav array.
 - **Catch-all:** `*` redirects to `/`.
 
-Navigation is data-driven: `STUDENT_NAV` (8 entries, `/student/tutor` carrying
-`slot: "bottom"`) and `TUTOR_NAV` (9 entries), each `{ to, label, icon }` with `lucide-react`
-icons.
+Navigation is data-driven: `STUDENT_NAV` (7 entries, no bottom-slot item since 0.3 removed the
+one that carried `slot: "bottom"`) and `TUTOR_NAV`, each `{ to, label, icon }` with
+`lucide-react` icons.
 
 **Route guards are a convenience, not a control.** `ProtectedRoute` hides interface; the API
 enforces authorization. Never treat a role gate as a security boundary — see `SEC` rules in
@@ -158,11 +161,13 @@ expiry.
 throwing, with a comment explaining why: every request reads it, so a throw here would take
 down the app including the login that would fix it.
 
-**Two deliberate bypasses** of `api<T>()` exist and are the only sanctioned ones:
+**One deliberate bypass** of `api<T>()` exists and is the only sanctioned one:
 
 - `homework.ts:fetchFileUrl()` — fetches a file as a blob for `URL.createObjectURL`, because
   an authenticated file cannot be an `<img src>`.
-- `chat.ts:streamMessage()` — Server-Sent Events, with its own 401-refresh-and-retry.
+
+(`chat.ts:streamMessage()` was the other bypass — Server-Sent Events, with its own
+401-refresh-and-retry — until task 0.3 (AV-57) deleted the chat surface, `chat.ts` included.)
 
 ### Error handling reality
 
@@ -257,8 +262,8 @@ of `RISK-6`; convert a domain to schema aliases when you next touch it.
 
 **`FE-1` — MUST · Critical · Active**
 Every HTTP call goes through `api<T>()` in `frontend/src/api/client.ts`. The only sanctioned
-exceptions are `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE, both of
-which implement their own auth and refresh.
+exception is `fetchFileUrl()` for blob downloads, which implements its own auth and refresh.
+(`streamMessage()` for SSE was the other one until task 0.3 (AV-57) deleted the chat surface.)
 *Rationale:* bearer attachment, transparent refresh, and error normalization live there; a
 raw `fetch` silently opts out of all three, and its 401s will log the user out.
 

@@ -28,16 +28,16 @@ ENV_EXAMPLE = pathlib.Path(__file__).resolve().parent.parent / ".env.example"
 # 3.2) and must not silently follow config back to Gemini.
 AV_124_MODELS = ("claude-opus-5", "claude-sonnet-5")
 
-# Configured today, deliberately not priced — both are on the way out under
-# AV-124, and pricing a model being deleted is work that expires.
+# Configured today, deliberately not priced — on the way out under AV-124,
+# and pricing a model being deleted is work that expires.
 #
 #   gemini-2.5-pro    the three Gemini surfaces AV-124 moves to Opus 5
-#   claude-haiku-4-5  chat, which task 0.3 removes (0024_drop_chat)
 #
-# They are named rather than skipped so the guard below can be exhaustive:
-# anything else configured and unpriced is drift, not a decision. If chat
-# outlives 0.3, this entry is what has to be argued with.
-DELIBERATELY_UNPRICED = {"gemini-2.5-pro", "claude-haiku-4-5"}
+# Named rather than skipped so the guard below can be exhaustive: anything
+# else configured and unpriced is drift, not a decision. `claude-haiku-4-5`
+# is not here any more — it was chat's model, and task 0.3 deleted chat from
+# config.py entirely rather than leaving a dead setting behind.
+DELIBERATELY_UNPRICED = {"gemini-2.5-pro"}
 
 # Every setting naming a model. A blank per-surface model means "use that
 # provider's default", so the defaults are what such a surface actually bills
@@ -49,7 +49,6 @@ _MODEL_SETTINGS = (
     "ai_marking_model",
     "ai_extraction_model",
     "ai_syllabus_model",
-    "ai_chat_model",
     "ai_reports_model",
     "ai_readiness_model",
     "ai_class_brief_model",
@@ -78,8 +77,8 @@ def _repo_settings() -> Settings:
     explicit keyword: pydantic-settings ranks constructor arguments above
     environment variables, which forces each one back to config.py's default
     regardless of what the process environment holds. Verified: exporting
-    `ANTHROPIC_MODEL`/`GEMINI_MODEL`/`AI_CHAT_MODEL` before running this still
-    resolves to `claude-opus-4-8` / `gemini-2.5-pro` / `claude-haiku-4-5`."""
+    `ANTHROPIC_MODEL`/`GEMINI_MODEL` before running this still resolves to
+    `claude-opus-4-8` / `gemini-2.5-pro`."""
     overrides = {name: Settings.model_fields[name].default for name in _MODEL_SETTINGS}
     return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
@@ -149,8 +148,9 @@ def test_no_configured_model_is_unpriced_by_accident():
 
     A blank per-surface model bills against its provider's default, so the two
     defaults cover most surfaces — but a *non-blank* one resolves straight to
-    the id it names, and `ai_chat_model` is exactly that. Asserting only on
-    anthropic_model leaves every such surface able to go unpriced in silence,
+    the id it names instead (every per-surface `*_model` setting can be set
+    this way; none is today, but nothing stops a future one). Asserting only
+    on anthropic_model leaves such a surface able to go unpriced in silence,
     which is the drift this file exists to catch: nothing raises, and usage
     analytics simply reports fewer dollars than were spent.
 

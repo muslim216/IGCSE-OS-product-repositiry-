@@ -109,8 +109,9 @@ the pure scoring types are `@dataclass(frozen=True)`.
 the reader. Services raise domain exceptions — `AIUnavailableError`,
 `GoogleClassroomUnavailableError` — or `ValueError` when the caller may be a job rather than a
 request (`services/storage.py:save_bytes` says so explicitly). Bare `except Exception` appears
-in exactly three places, all in the worker and chat streaming, all where the process must
-survive any error, and all annotated.
+at several call sites, mostly annotated with why the process must survive that particular
+error. (Chat streaming was one of the originally-cited examples until task 0.3 deleted the
+surface, AV-57 — this line is due a fresh count, not covered by this PR.)
 
 **Purity.** Decision math takes plain dataclasses and touches no database:
 `services/readiness_factors.py`, `services/readiness.py`'s scoring functions,
@@ -205,9 +206,9 @@ reformatted 75 of the frontend's instead of 47 — churn wearing a standard's cl
 No `eslint-config-prettier`, because there is nothing to reconcile: the ESLint config enables
 no stylistic rules at all, only ones that catch defects the type checker cannot see.
 
-The `# noqa: BLE001` comments across `workers/jobs.py`, `api/chat.py`, `main.py`,
-`readiness_v2_ai.py` and `storage.py` now suppress a rule that runs — `BLE` is selected
-precisely so those comments mean what they say.
+The `# noqa: BLE001` comments across `workers/jobs.py`, `main.py`, `readiness_v2_ai.py`,
+`storage.py` and `timezones.py` now suppress a rule that runs — `BLE` is selected precisely
+so those comments mean what they say.
 
 Still absent: **mypy/pyright**, **EditorConfig**, **pre-commit**, and any import-direction
 check. `tsc -b` inside `npm run build` remains the only *type* check in the repository, and

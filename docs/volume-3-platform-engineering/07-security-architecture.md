@@ -235,7 +235,8 @@ above 10,000 keys so a long-running process cannot accumulate an entry per attem
 The window is fixed rather than sliding — a burst straddling a boundary can briefly exceed the
 limit, accepted deliberately as the price of a plain dict.
 
-Nothing else in the API is rate limited except the chat daily message cap.
+Nothing else in the API is rate limited. (The chat daily message cap was the other one, until
+task 0.3 deleted the surface it capped, AV-57.)
 
 ### Upload safety
 
@@ -542,7 +543,7 @@ Application containers run as a non-root user.
 | **No data retention or deletion policy**, and no subject-access or erasure path. | C2 data on minors is kept indefinitely with no defined basis or route to remove it. `RISK-9`. | `before scale` |
 | **No security logging.** Failed authorization, token revocation, and password resets are not recorded anywhere. | A compromise could not be reconstructed. Compounded by there being no request ids at all (§11). | `before scale` |
 | **Login throttling is per-process.** Correct only at one instance. | Scaling out multiplies the effective limit by the instance count. The docstring names this precisely. `RISK-1`. | `before scale` |
-| **Only login and chat are rate limited.** AI-triggering endpoints are unbounded per user. | A single account can drive arbitrary AI spend (`RISK-12`). | `before scale` |
+| **Only login is rate limited.** AI-triggering endpoints are unbounded per user. (Chat was the other one, until task 0.3 deleted the surface, AV-57.) | A single account can drive arbitrary AI spend (`RISK-12`). | `before scale` |
 | **No MFA for tutor accounts.** | A tutor account holds every student's C2 data; password-only is the whole control. Deliberate for students, arguable for tutors. | `nice to have` |
 | **`JWT_SECRET` defaults to `"change-me-in-production"`.** Safe only because `render.yaml` generates one. | Any deployment not using the blueprint inherits a known signing key. | `before scale` |
 

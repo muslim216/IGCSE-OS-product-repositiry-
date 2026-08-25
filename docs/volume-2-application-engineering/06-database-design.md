@@ -26,8 +26,10 @@
 ## Purpose
 
 Answers *what is in the database, why is it shaped this way, and how do I change it safely*.
-Fifty-two tables across sixteen modules, with conventions that are unusually consistent in
-some dimensions and unusually thin in others.
+Fifty-one tables across fifteen modules (`chat.py`'s two tables were dropped by migration
+`0026`, task 0.3, AV-57 — `ADR-0007`'s "52 tables" is the count as of that Accepted, and
+therefore immutable, decision), with conventions that are unusually consistent in some
+dimensions and unusually thin in others.
 
 It also records a discrepancy nobody had noticed: **the ORM models and the migrated database
 do not agree about indexes**, which means the test schema is not the production schema.
@@ -49,7 +51,7 @@ replicas or multi-region**, **no event sourcing**.
 
 ## Sources
 
-Written from: all 16 modules in `backend/app/models/`; all 24 migrations in
+Written from: all 15 modules in `backend/app/models/`; all 25 migrations in
 `backend/alembic/versions/`; `backend/alembic/env.py`; `backend/alembic.ini`;
 `backend/app/db.py`; `backend/app/config.py`; `backend/tests/conftest.py`.
 
@@ -61,7 +63,7 @@ Written from: all 16 modules in `backend/app/models/`; all 24 migrations in
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_history` exist so a number can name its inputs (§01 P2).
 
-**P2 — Consistency across 52 tables beats local optimality.** Integer keys, `VARCHAR` enums,
+**P2 — Consistency across 51 tables beats local optimality.** Integer keys, `VARCHAR` enums,
 timezone-aware timestamps — each is arguable in isolation and correct as a rule.
 
 **P3 — The test database must resemble the production database.** Every schema decision is
@@ -76,7 +78,7 @@ tests stop being evidence.
 
 ### The schema by domain
 
-52 tables. Grouped by the module that defines them:
+51 tables. Grouped by the module that defines them:
 
 | Module | Tables |
 |---|---|
@@ -90,14 +92,18 @@ tests stop being evidence.
 | `readiness.py` | `evidence`, `topic_readiness`, `readiness_history`, `tutor_observations`, `assessments`, `assessment_scores`, `tutor_preferences` |
 | `readiness_v2.py` | `mistakes`, `past_papers`, `past_paper_questions`, `past_paper_question_topics`, `past_paper_attempts`, `grade_boundaries`, `readiness_weights`, `factor_evaluations`, `readiness_snapshots` |
 | `knowledge.py` | `knowledge_entries` |
-| `chat.py` | `chat_conversations`, `chat_messages` |
 | `reports.py` | `reports` |
 | `resources.py` | `group_resources` |
 | `ai_usage.py` | `ai_usage_events` |
+| `narrative.py` | `narratives` |
 | `classroom.py` | `google_accounts`, `classroom_course_links`, `classroom_work_links` |
 
 `jobs` lives in `homework.py` rather than with the worker — historical, and worth knowing when
 searching.
+
+`chat.py` (`chat_conversations`, `chat_messages`) is gone — task 0.3 deleted the model along
+with the surface it backed (AV-57), and migration `0026_drop_chat.py` dropped both tables (with
+a verified `downgrade()` that recreates them, per `DB-16`).
 
 ```mermaid
 erDiagram
@@ -124,13 +130,13 @@ erDiagram
   factor_evaluations }o--|| readiness_snapshots : "evaluation_run_id"
 ```
 
-The diagram shows the spine, not all 52 tables. Note `submissions` receiving from **both**
+The diagram shows the spine, not all 51 tables. Note `submissions` receiving from **both**
 `assignments` and `past_papers` — the polymorphism from `ADR-0004`.
 
 ### Conventions
 
 **Primary keys.** Uniformly `id: Mapped[int] = mapped_column(primary_key=True)` — integer
-autoincrement on all 52 tables. **No UUIDs anywhere.** The one UUID-shaped value,
+autoincrement on all 51 tables. **No UUIDs anywhere.** The one UUID-shaped value,
 `evaluation_run_id: Mapped[str] = mapped_column(String(36))` on `factor_evaluations` and
 `readiness_snapshots`, is a correlation key, not a primary key.
 
@@ -153,8 +159,9 @@ order is `class Foo(TimestampMixin, Base)`.
 2. Append-only tables declaring `created_at` explicitly instead of using the mixin:
    `Evidence`, `ReadinessHistory` (as `recorded_at`), `MarkOverrideAudit`, `RemarkRequest`,
    `FactorEvaluation`, `ReadinessSnapshot`, `AiUsageEvent`.
-3. `updated_at` on exactly **four** models — `StudentProfile`, `Job`, `ChatConversation`,
-   `TopicReadiness` — always `default=utcnow, onupdate=utcnow`.
+3. `updated_at` on exactly **three** models — `StudentProfile`, `Job`, `TopicReadiness` —
+   always `default=utcnow, onupdate=utcnow`. (`ChatConversation` was the fourth, until task
+   0.3 deleted it with the chat surface, AV-57.)
 
 All datetimes are `DateTime(timezone=True)`. `Date` is used for calendar-only fields
 (`Lesson.date`, `Assessment.date`, `PastPaperAttempt.attempted_at`, `Submission.attempted_at`)
@@ -187,7 +194,8 @@ cascades.
 
 **This is the finding worth reading twice.**
 
-The ORM models declare exactly **one** index:
+Two models declare indexes in `__table_args__`: `jobs` (one) and `narratives` (three, added in
+0023 — `DB-12` applied going forward from that migration on, per `models/narrative.py`):
 
 ```python
 __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)   # homework.py:312
@@ -195,17 +203,22 @@ __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)   #
 
 No column anywhere uses `index=True`.
 
-The migrations, however, create **five**:
+The migrations create **eight** in total:
 
-| Index | Table and columns | Migration |
-|---|---|---|
-| `ix_evidence_student_topic` | `evidence(student_id, topic_id)` | 0004 |
-| `ix_factor_evaluations_run_student_subject` | `factor_evaluations(evaluation_run_id, student_id, subject_id)` | 0016 |
-| `ix_readiness_snapshots_student_subject` | `readiness_snapshots(student_id, subject_id, created_at)` | 0016 |
-| `ix_jobs_status_run_after` | `jobs(status, run_after)` | 0018 |
-| `ix_mark_override_audit_question_mark_id` | `mark_override_audit(question_mark_id)` | 0019 |
+| Index | Table and columns | Migration | In the model? |
+|---|---|---|---|
+| `ix_evidence_student_topic` | `evidence(student_id, topic_id)` | 0004 | No |
+| `ix_factor_evaluations_run_student_subject` | `factor_evaluations(evaluation_run_id, student_id, subject_id)` | 0016 | No |
+| `ix_readiness_snapshots_student_subject` | `readiness_snapshots(student_id, subject_id, created_at)` | 0016 | No |
+| `ix_jobs_status_run_after` | `jobs(status, run_after)` | 0018 | Yes |
+| `ix_mark_override_audit_question_mark_id` | `mark_override_audit(question_mark_id)` | 0019 | No |
+| `ix_narratives_org` | `narratives(organization_id)` | 0023 | Yes |
+| `ix_narratives_org_group` | `narratives(organization_id, group_id, id)` | 0023 | Yes |
+| `ix_narratives_org_student` | `narratives(organization_id, student_id, id)` | 0023 | Yes |
 
-**Four of the five exist only in migrations.** The consequences are concrete:
+**Four of the original five exist only in migrations** — the narratives set (0023) is the first
+to follow `DB-12` and is declared in both places. The consequences of the older gap are still
+concrete:
 
 - **The test schema is not the production schema.** `tests/conftest.py` builds from
   `Base.metadata.create_all`, so tests run against a database missing four indexes that
@@ -214,10 +227,12 @@ The migrations, however, create **five**:
   on `evidence` and may add a duplicate.
 - **A `create_all` in any environment silently loses them.**
 
-Beyond these five, indexing relies on primary keys and the implicit indexes behind unique
-constraints. **Foreign key columns are not indexed** — Postgres does not index them
-automatically — so every join and every `WHERE parent_id = ?` on a large table is a sequential
-scan.
+Beyond these eight, indexing relies on primary keys and the implicit indexes behind unique
+constraints. The eight above also cover several foreign keys (`evidence.student_id`/`topic_id`,
+`factor_evaluations.student_id`/`subject_id`, `readiness_snapshots.student_id`/`subject_id`,
+`mark_override_audit.question_mark_id`, and `narratives`' three); **most other foreign key
+columns are not indexed** — Postgres does not index them automatically, so joins or
+`WHERE parent_id = ?` filters on those columns can require a sequential scan.
 
 ### Constraints
 
@@ -239,10 +254,10 @@ Column-level `unique=True`: `users.email`, `users.username`, `invites.code`,
 `student_profiles.student_id`, `google_accounts.tutor_id`, `classroom_course_links.group_id`,
 `classroom_work_links.assignment_id`.
 
-**Cascades are ORM-level only.** Ten relationships declare `cascade="all, delete-orphan"`
+**Cascades are ORM-level only.** Nine relationships declare `cascade="all, delete-orphan"`
 (`Assignment.questions`, `AssignmentQuestion.topics`, `Submission.files`, `Submission.marks`,
-`Subject.topics`, `Group.members`, `Group.schedule_slots`, `ChatConversation.messages`,
-`GoogleAccount.course_links`, `ClassroomCourseLink.work_links`).
+`Subject.topics`, `Group.members`, `Group.schedule_slots`, `GoogleAccount.course_links`,
+`ClassroomCourseLink.work_links`).
 
 **No ForeignKey anywhere declares `ondelete=`** — verified by search across both `models/` and
 `alembic/versions/`. Nothing is enforced at the database level, so a delete that bypasses the
@@ -256,10 +271,10 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain from `0001` to `0025_user_time_zone`, the current head, with string revision
-ids matching the filename prefix and `down_revision` chained. One number is deliberately
-absent: `0024` is reserved for task 0.3's `drop_chat` on a parallel branch, so `0025` chains
-straight to `0023` (see the note under the list).
+A linear chain from `0001` to `0026_drop_chat`, the current head, with string revision ids
+matching the filename prefix and `down_revision` chained. One number is deliberately absent:
+`0024` was reserved for task 0.3's `drop_chat` while it was being written on a parallel branch
+(see the note under the list), but it landed as `0026` instead once `0025` had already merged.
 
 ```
 0001_users                        0012_organizations           (184 lines — largest)
@@ -275,23 +290,29 @@ straight to `0023` (see the note under the list).
 0011_syllabus_uploads             0022_org_timezone
                                   0023_narratives
                                   0025_user_time_zone
+                                  0026_drop_chat
 ```
 
-**0024 is deliberately absent.** It is reserved for task 0.3's `drop_chat`, which was written
-on a parallel branch; `0025_user_time_zone` chains to `0023`. Sequential numbering (`DB-15`)
-is about a single readable chain, not a gapless one — two revisions sharing a
-`down_revision` would give Alembic two heads, which is the failure worth avoiding.
+**0024 is deliberately absent.** It was reserved for task 0.3's `drop_chat`, written on a
+parallel branch while `0025_user_time_zone` (chaining to `0023`) was in flight elsewhere.
+Sequential numbering (`DB-15`) is about a single readable chain, not a gapless one — two
+revisions sharing a `down_revision` would give Alembic two heads, which is the failure worth
+avoiding.
 
-**Which way 0024 is landed depends on whether 0025 has deployed**, and getting this backwards
-skips a migration silently rather than loudly:
+**Which number `drop_chat` landed as depended on whether `0025` had deployed by the time it
+merged**, and getting this backwards would have skipped a migration silently rather than
+loudly:
 
-- **0025 not yet deployed** — chain 0024 to `0023` and rebase 0025's `down_revision` onto
-  `0024`. Nothing has recorded 0025 yet, so the reordered chain runs in full.
-- **0025 already deployed** — chain 0024 to `0025` and leave 0025 alone, numbering be damned.
-  Production's `alembic_version` already reads `0025`, so `upgrade head` starts from there:
-  re-pointing 0025's parent would make Alembic step straight past 0024, and the chat tables it
-  drops would stay in the database with nothing reporting a problem. An applied revision is
-  history — the rule against editing one is the same rule as `DB-15` itself.
+- **If `0025` had not yet deployed** — chain the new migration to `0023` as `0024` and rebase
+  `0025`'s `down_revision` onto it. Nothing would have recorded `0025` yet, so the reordered
+  chain would run in full.
+- **If `0025` had already deployed** (the actual outcome here) — chain the new migration to
+  `0025` instead, numbered `0026`, and leave `0025` alone. Production's `alembic_version`
+  already read `0025`, so `upgrade head` starts from there: re-pointing `0025`'s parent would
+  have made Alembic step straight past the new migration, and the chat tables it drops would
+  have stayed in the database with nothing reporting a problem. An applied revision is history
+  — the rule against editing one is the same rule as `DB-15` itself. `0024` stays permanently
+  unused as the record of that decision.
 
 `alembic/env.py` reads the URL from `get_settings().database_url` rather than from
 `alembic.ini`, and sets `target_metadata = Base.metadata`. Migrations run at container start:
@@ -317,7 +338,7 @@ painfully in 0020 and must be reused rather than rediscovered.
 `Base.metadata.create_all` and forces in-memory SQLite, so `pytest` proves nothing about
 Alembic. **CI is what exercises them.** The `migrations` job in `.github/workflows/ci.yml`
 runs `upgrade head` → `downgrade base` → `upgrade head` against a real `postgres:16-alpine`
-service container on every pull request, so all 24 migrations and all 24 downgrades run before
+service container on every pull request, so all 25 migrations and all 25 downgrades run before
 a merge rather than for the first time in production.
 
 **What that check still cannot see.** The CI database is **empty**. It proves the schema
@@ -336,7 +357,7 @@ automatically, because hosting providers hand out the bare scheme.
 
 **`DB-1` — MUST · Important · Active**
 New tables use an integer autoincrement primary key named `id`.
-*Rationale:* consistency across 52 tables; see `governance/non-goals.md` for why not UUIDs,
+*Rationale:* consistency across 51 tables; see `governance/non-goals.md` for why not UUIDs,
 including the enumerability that `API-7` then has to handle.
 
 **`DB-2` — MUST · Critical · Active**
@@ -475,14 +496,14 @@ wrong reason.
 | Gap | Why it matters | Severity |
 |---|---|---|
 | **Four of five indexes exist only in migrations, not in the models.** `evidence`, `factor_evaluations`, `readiness_snapshots`, and `mark_override_audit` indexes are invisible to `Base.metadata`. | The test database is not the production database, so no test exercises an indexed plan; and a reader of the models is misinformed. `DB-12` binds new work; converging the existing four is a one-migration-free change to `__table_args__`. | `blocking` |
-| **Foreign key columns are not indexed.** | Every join and parent-id filter on a growing table is a sequential scan. `DB-11` binds new work only. | `before scale` |
+| **Most foreign key columns are not indexed** (a handful — see the Indexes section above — already are). | A join or parent-id filter on one of the remaining unindexed columns is a sequential scan. `DB-11` binds new work only. | `before scale` |
 | **No ForeignKey declares `ondelete=`.** Cascades are ORM-level only. | Any delete outside a mapped relationship orphans rows, with no constraint to catch it. Uploaded files compound this — see `RISK-8`. | `before scale` |
 | **The polymorphic exactly-one invariant has no CHECK constraint.** | A row with both or neither foreign key set is representable, and `API-20`'s trap becomes a data problem rather than a code one. | `before scale` |
 | **CI verifies migrations against an empty database.** The `migrations` job runs up → down → up on Postgres 16, but with no rows in any table. | It catches invalid or irreversible schema operations. It cannot catch the failure that actually happened — 0012 added a non-nullable column to a *populated* table. `DB-18` is still enforced by review alone. `RISK-3` residual. | `before scale` |
 | **The test suite still runs no migration.** `conftest.py` uses `Base.metadata.create_all` on SQLite. | A model and its migration can drift without any test noticing; only CI's separate Postgres job would catch a migration that fails outright. `DB-12` — four of five indexes exist only in migrations — is a live instance of this drift. | `before scale` |
 | **No retention policy is implemented.** `DB-20` is Draft; `factor_evaluations` grows unbounded. | Flagged as needed in two prior documents. The policy now exists on paper; the pruning job does not. | `before scale` |
 | **v1 readiness tables are still written and read** — `topic_readiness`, `readiness_history`, `tutor_preferences`. | Three tables and their writes exist to serve three modules that have not been repointed. `RISK-5`. | `before scale` |
-| **`updated_at` is inconsistent** — present on 4 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |
+| **`updated_at` is inconsistent** — present on 3 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |
 
 ---
 

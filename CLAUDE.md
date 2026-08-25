@@ -131,6 +131,8 @@ uvicorn app.main:app --reload        # http://localhost:8000, OpenAPI docs at /d
 
 python -m seed.load_syllabus         # load the 5 built-in subject topic trees
 python -m seed.demo                  # idempotent demo tutor/students/parent with ~90d of data
+python -m seed.recompute_readiness   # queue a v2 run for every (student, subject) with evidence
+                                     # — the backfill after a factor's maths changes (runbook R9)
 ```
 
 Frontend (run from `frontend/`, Node 20+):
@@ -302,8 +304,9 @@ Keep these loaded. Each cites the document holding its full reasoning.
 ### Frontend
 
 - **`api/client.ts` is the one HTTP entry point.** It attaches the bearer token and on a `401`
-  transparently calls `/auth/refresh` once and retries. The only sanctioned bypasses are
-  `fetchFileUrl()` for blob downloads and `streamMessage()` for SSE. (`FE-1`)
+  transparently calls `/auth/refresh` once and retries. The only sanctioned bypass is
+  `fetchFileUrl()` for blob downloads. (`streamMessage()` for SSE was the other one until task
+  0.3 (AV-57) deleted the chat surface.) (`FE-1`)
 - **A backend response-schema change is regenerated into the frontend types in the same PR** —
   from `backend/`, `python -c "import json;from app.main import
   app;print(json.dumps(app.openapi(),indent=2))" > ../frontend/openapi.json`, then
@@ -348,9 +351,10 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 Full detail in §01 and §04; this is orientation only.
 
-- **Backend** (`backend/app/`): `api/` (27 routers, all mounted under `/api/v1` in `main.py`;
-  shared dependencies in `api/deps.py`), `services/` (31 modules — the real work), `models/`
-  (52 tables, SQLAlchemy 2.0 async), `schemas/` (Pydantic contracts), `workers/jobs.py`
+- **Backend** (`backend/app/`): `api/` (25 routers; 23 mounted under `/api/v1` in `main.py` —
+  classroom and knowledge are hidden, 0.5/AV-58; shared dependencies in `api/deps.py`),
+  `services/` (28 modules — the real work), `models/` (51 tables, SQLAlchemy 2.0 async),
+  `schemas/` (Pydantic contracts), `workers/jobs.py`
   (DB-backed job queue, in-process worker started in `main.py`'s `lifespan`). Roles are
   `student`, `tutor`, `parent`, `admin`.
 - **Frontend** (`frontend/src/`): React 18 + TypeScript + React Router v6 + TanStack Query +
@@ -365,8 +369,11 @@ Full detail in §01 and §04; this is orientation only.
   read v1 tables directly, so numbers can disagree (`RISK-5`). `READINESS_V2_SHADOW_ENABLED` is
   a **kill switch**, not a shadow flag.
 - **AI**: seven surfaces routed independently to Anthropic or Gemini. Bulk document work
-  (marking, extraction, syllabus) → Gemini; chat → Haiku; reports, readiness, class brief →
-  Opus. Every call is metered into `ai_usage_events`.
+  (marking, extraction, syllabus) → Gemini; reports, readiness, class brief, narrative →
+  Anthropic — every one currently resolves to the `anthropic_model` default (`claude-opus-4-8`);
+  no Sonnet route is live yet (that split is task 3.2, AV-124). Every call is metered into
+  `ai_usage_events`. (The student chat surface, once routed to Haiku, was deleted in 0.3 /
+  AV-57.)
 - **Storage**: local disk, paths stored relative to `UPLOAD_DIR` so the folder can move to S3
   later without touching data. 20 MB cap; PDF/JPEG/PNG/WebP, with HEIC transcoded to JPEG on
   the way in.

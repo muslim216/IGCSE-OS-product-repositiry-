@@ -1,5 +1,8 @@
 import pytest
+from sqlalchemy import select
 
+from app.db import async_session
+from app.models import AiFeature, AiUsageEvent
 from app.workers.jobs import process_one_job
 
 PDF_BYTES = b"%PDF-1.4 fake test syllabus pdf"
@@ -48,6 +51,41 @@ async def test_upload_and_extract_flow(client, tutor, uploaded):
     assert body["status"] == "review"
     assert body["draft"]["code"] == "4XX1"
     assert body["draft"]["topics"][0]["children"][1]["title"] == "Sub-topic B"
+
+
+async def test_extraction_records_ai_usage(client, tutor, monkeypatch, fake_ai):
+    """A cost-analytics gap found on review: extract_syllabus called
+    structured_complete but never record_usage, so every syllabus extraction
+    call was silently missing from ai_usage_events (undercounting spend, not
+    even reporting as unpriced_call_count — AI-17 needs the row to exist)."""
+    from app.services.syllabus_extraction import SyllabusExtractionResult
+
+    result = SyllabusExtractionResult(
+        exam_board="Edexcel IGCSE",
+        code="4XX1",
+        name="Test Subject",
+        grade_scale="9-1",
+        grade_boundaries=[],
+        topics=[{"code": "1", "title": "Section one", "weight": 1.0, "children": []}],
+    )
+    monkeypatch.setattr("app.services.syllabus_extraction.structured_complete", fake_ai(result))
+    resp = await client.post(
+        "/api/v1/syllabus-uploads",
+        data={"title": "Test syllabus"},
+        files={"file": ("syllabus.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        events = (
+            await session.scalars(
+                select(AiUsageEvent).where(AiUsageEvent.feature == AiFeature.extraction)
+            )
+        ).all()
+    assert len(events) == 1
+    assert events[0].tutor_id == tutor["user"]["id"]
 
 
 async def test_apply_creates_subject_and_topic_tree(client, tutor, uploaded):

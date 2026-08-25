@@ -52,14 +52,11 @@ test("every student destination is reachable from the nav", async () => {
   for (const label of [
     "Home",
     // "Progress", not "Readiness" — the destination is named for what the
-    // reader gets, not for the engine behind one of its numbers. Improvement is
-    // its own destination and appears on no home surface.
+    // reader gets, not for the engine behind one of its numbers.
     "Progress",
-    "Improvement",
     "Files",
     "Recordings",
     "Homework",
-    "AI Tutor",
     "Past papers",
     "Exams",
   ]) {
@@ -129,15 +126,17 @@ test("a bookmarked retired route lands on its successor, never a 404", async () 
   ).toBeInTheDocument();
 });
 
-test("the mobile tab bar shows main-slot destinations, not the bottom-slot one", async () => {
-  // The bottom-slot "AI Tutor" sits apart from the workflow nav, so it must not
-  // become a primary thumb tab — it folds into More instead. The always-visible
-  // bar carries the main-workflow items.
+test("the mobile tab bar carries the main workflow and overflows the rest", async () => {
+  // The bar holds MAX_TABS destinations and folds the remainder into More, so
+  // the thumb reaches the daily loop without the bar becoming a scroll.
+  //
+  // This asserted the bottom-slot item stayed out of the bar until 0.3 deleted
+  // "AI Tutor", which was the only one. AppShell still honours `slot: "bottom"`
+  // — nothing uses it today.
   mockAuthedFetch("student");
   renderApp("/student");
   const tabBar = await screen.findByRole("navigation", { name: "Student tabs" });
   expect(within(tabBar).getByText("Home")).toBeInTheDocument();
-  expect(within(tabBar).queryByText("AI Tutor")).not.toBeInTheDocument();
   // Overflow exists because the student has more destinations than the bar holds.
   expect(within(tabBar).getByRole("button", { name: /More/ })).toBeInTheDocument();
 });
@@ -148,9 +147,9 @@ test("every nav destination remains reachable on mobile via More", async () => {
   const tabBar = await screen.findByRole("navigation", { name: "Student tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
   const menu = await screen.findByRole("menu");
-  // The destinations that don't fit the bar — including the bottom-slot item —
-  // are all present in the overflow sheet.
-  for (const label of ["Exams", "Files", "Recordings", "AI Tutor"]) {
+  // The destinations that don't fit the bar are all present in the overflow
+  // sheet — nothing becomes unreachable by being pushed out of it.
+  for (const label of ["Exams", "Files", "Recordings"]) {
     expect(within(menu).getByText(label)).toBeInTheDocument();
   }
 });

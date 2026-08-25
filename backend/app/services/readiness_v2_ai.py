@@ -59,6 +59,35 @@ log = logging.getLogger("readiness_v2_ai")
 __all__ = ["resolve_grade_boundaries"]
 
 
+async def in_flight_readiness_pairs(
+    db: AsyncSession, statuses: tuple[JobStatus, ...]
+) -> list[tuple[int, int | None]]:
+    """Raw (student_id, subject_id) pairs for every queued `compute_readiness_v2`
+    job in one of `statuses`. `subject_id` is `None` for a wildcard job that
+    covers every subject the student is enrolled in (`compute_readiness_v2`'s
+    own contract).
+
+    The one place this reads the job table — `enqueue_readiness_v2_debounced`'s
+    dedup check, `readiness_summary_v2.in_flight_subjects()`'s "is this
+    recalculating" read, and `seed/recompute_readiness.py`'s backfill dedup all
+    call this rather than each running their own copy of the query, so a
+    payload-shape or status-set change can't drift between them. Compared in
+    Python rather than SQL: the payload is a JSON column, and Postgres' json
+    type has no equality operator.
+    """
+    payloads = (
+        await db.scalars(
+            select(Job.payload).where(
+                Job.type == "compute_readiness_v2",
+                Job.status.in_(statuses),
+            )
+        )
+    ).all()
+    return [
+        (p["student_id"], p.get("subject_id")) for p in payloads if p.get("student_id") is not None
+    ]
+
+
 async def enqueue_readiness_v2_debounced(
     db: AsyncSession,
     student_id: int,
@@ -78,19 +107,8 @@ async def enqueue_readiness_v2_debounced(
     if not settings.readiness_v2_shadow_enabled:
         return
     payload = {"student_id": student_id, "subject_id": subject_id}
-    # Compared in Python rather than SQL: the payload is a JSON column, and
-    # Postgres' json type has no equality operator.
-    pending = (
-        await db.scalars(
-            select(Job.payload).where(
-                Job.type == "compute_readiness_v2",
-                Job.status == JobStatus.pending,
-            )
-        )
-    ).all()
-    if any(
-        p.get("student_id") == student_id and p.get("subject_id") == subject_id for p in pending
-    ):
+    pending = await in_flight_readiness_pairs(db, (JobStatus.pending,))
+    if (student_id, subject_id) in pending:
         return
     if delay_seconds is None:
         delay_seconds = settings.readiness_v2_coalesce_seconds

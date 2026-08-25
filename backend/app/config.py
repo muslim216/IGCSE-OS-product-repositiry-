@@ -44,8 +44,6 @@ class Settings(BaseSettings):
     ai_extraction_model: str = ""
     ai_syllabus_provider: str = "gemini"
     ai_syllabus_model: str = ""
-    ai_chat_provider: str = "anthropic"
-    ai_chat_model: str = "claude-haiku-4-5"
     ai_reports_provider: str = "anthropic"
     ai_reports_model: str = ""
     ai_readiness_provider: str = "anthropic"

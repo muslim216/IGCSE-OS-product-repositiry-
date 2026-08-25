@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    SETTLED_STATUSES,
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
@@ -21,7 +22,6 @@ from app.models import (
     StudentSubject,
     Subject,
     Submission,
-    SubmissionStatus,
     TutorNote,
     User,
 )
@@ -126,7 +126,7 @@ async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
             or 0
         )
         total_final = None
-        if submission is not None and submission.status == SubmissionStatus.finalized:
+        if submission is not None and submission.status in SETTLED_STATUSES:
             total_final = await session.scalar(
                 select(func.coalesce(func.sum(QuestionMark.final_marks), 0)).where(
                     QuestionMark.submission_id == submission.id
