@@ -176,13 +176,16 @@ whenever prompt text changes meaningfully.
 **Unpriced call** — An AI call whose model has no entry in `AI_MODEL_PRICING`. Records
 `cost_usd = NULL` and is reported as `unpriced_call_count`. **Never folded in as `$0`.**
 
-**Grounding** — Injecting authoritative context into a prompt: the tutor's Knowledge Base
-via `build_tutor_context()`, the student's record via `build_student_context()`. A grounded
-surface answers from Avora's data rather than from the model's priors.
+**Grounding** — Injecting authoritative context into a prompt: the tutor's Knowledge Base via
+`build_tutor_context()`, or evidence-derived facts queried directly for reports/class
+brief/narrative. (`build_student_context()`, which grounded the deleted student chat surface
+in the student's own record, was removed with it in task 0.3, AV-57.) A grounded surface
+answers from Avora's data rather than from the model's priors.
 
 **Knowledge Base** — Tutor-specific knowledge — teaching methods, solving approaches,
-marking preferences, instructions — stored in `knowledge_entries` and injected into every AI
-surface so the AI behaves like *that* tutor.
+marking preferences, instructions — stored in `knowledge_entries` and injected into most AI
+surfaces (assignment extraction, marking, report generation, readiness synthesis — not
+past-paper extraction, Syllabus Extractor, or Class Brief) so the AI behaves like *that* tutor.
 
 ## Platform and process
 

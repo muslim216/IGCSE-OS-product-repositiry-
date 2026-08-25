@@ -227,10 +227,10 @@ concrete:
   on `evidence` and may add a duplicate.
 - **A `create_all` in any environment silently loses them.**
 
-Beyond these five, indexing relies on primary keys and the implicit indexes behind unique
-constraints. **Foreign key columns are not indexed** — Postgres does not index them
-automatically — so every join and every `WHERE parent_id = ?` on a large table is a sequential
-scan.
+Beyond these eight, indexing relies on primary keys and the implicit indexes behind unique
+constraints. **Most foreign key columns are not indexed** — Postgres does not index them
+automatically, and `narratives`' three are the only foreign keys covered so far — so every join
+and every `WHERE parent_id = ?` on another large table is a sequential scan.
 
 ### Constraints
 
