@@ -1182,200 +1182,6 @@
         }
       }
     },
-    "/api/v1/chat/conversations": {
-      "get": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "List Conversations",
-        "operationId": "list_conversations_api_v1_chat_conversations_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ConversationOut"
-                  },
-                  "type": "array",
-                  "title": "Response List Conversations Api V1 Chat Conversations Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Create Conversation",
-        "operationId": "create_conversation_api_v1_chat_conversations_post",
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationDetail"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/chat/conversations/{conversation_id}": {
-      "get": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Get Conversation",
-        "operationId": "get_conversation_api_v1_chat_conversations__conversation_id__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConversationDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Delete Conversation",
-        "operationId": "delete_conversation_api_v1_chat_conversations__conversation_id__delete",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/chat/conversations/{conversation_id}/messages": {
-      "post": {
-        "tags": [
-          "chat"
-        ],
-        "summary": "Send Message",
-        "operationId": "send_message_api_v1_chat_conversations__conversation_id__messages_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "conversation_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Conversation Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SendMessage"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/classifieds": {
       "post": {
         "tags": [
@@ -2590,37 +2396,6 @@
             }
           }
         }
-      }
-    },
-    "/api/v1/improvement/me": {
-      "get": {
-        "tags": [
-          "improvement"
-        ],
-        "summary": "My Improvement",
-        "description": "The reader's own placing per subject, with the reader's own history.\n\nSubjects come from `visible_subject_ids`, the same helper the readiness API\nuses, so this endpoint can never widen a student's reach beyond the subjects\nthey are enrolled in \u2014 including into another organization's copy of the\nsame global subject row (SEC-8).",
-        "operationId": "my_improvement_api_v1_improvement_me_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SubjectImprovement"
-                  },
-                  "type": "array",
-                  "title": "Response My Improvement Api V1 Improvement Me Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
       }
     },
     "/api/v1/knowledge": {
@@ -7553,56 +7328,6 @@
         ],
         "title": "ClassroomStatus"
       },
-      "ConversationDetail": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "title": {
-            "type": "string",
-            "title": "Title"
-          },
-          "messages": {
-            "items": {
-              "$ref": "#/components/schemas/MessageOut"
-            },
-            "type": "array",
-            "title": "Messages"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "messages"
-        ],
-        "title": "ConversationDetail"
-      },
-      "ConversationOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "title": {
-            "type": "string",
-            "title": "Title"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "title",
-          "updated_at"
-        ],
-        "title": "ConversationOut"
-      },
       "CrmHomeworkItem": {
         "properties": {
           "assignment_id": {
@@ -7773,35 +7498,6 @@
           "detail"
         ],
         "title": "FactorEvaluationOut"
-      },
-      "FocusTopic": {
-        "properties": {
-          "topic_code": {
-            "type": "string",
-            "title": "Topic Code"
-          },
-          "topic_title": {
-            "type": "string",
-            "title": "Topic Title"
-          },
-          "score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Score"
-          }
-        },
-        "type": "object",
-        "required": [
-          "topic_code",
-          "topic_title"
-        ],
-        "title": "FocusTopic"
       },
       "GradeBand": {
         "properties": {
@@ -8055,52 +7751,6 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
-      },
-      "ImprovementPeriod": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "delta": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Delta"
-          },
-          "rank": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rank"
-          },
-          "ranked_count": {
-            "type": "integer",
-            "title": "Ranked Count",
-            "default": 0
-          },
-          "banded": {
-            "type": "boolean",
-            "title": "Banded",
-            "default": false
-          }
-        },
-        "type": "object",
-        "required": [
-          "label"
-        ],
-        "title": "ImprovementPeriod",
-        "description": "One window: the reader's own movement, and where it placed them."
       },
       "InviteOut": {
         "properties": {
@@ -8850,35 +8500,6 @@
           "question_id"
         ],
         "title": "MarkUpdate"
-      },
-      "MessageOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "role": {
-            "type": "string",
-            "title": "Role"
-          },
-          "content": {
-            "type": "string",
-            "title": "Content"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "role",
-          "content",
-          "created_at"
-        ],
-        "title": "MessageOut"
       },
       "MyAssessmentScore": {
         "properties": {
@@ -10466,21 +10087,6 @@
         ],
         "title": "SeedTopicScore"
       },
-      "SendMessage": {
-        "properties": {
-          "content": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Content"
-          }
-        },
-        "type": "object",
-        "required": [
-          "content"
-        ],
-        "title": "SendMessage"
-      },
       "StudentAssignment": {
         "properties": {
           "id": {
@@ -10688,7 +10294,7 @@
           "communications"
         ],
         "title": "StudentCrmOut",
-        "description": "The student's full academic record \u2014 the one aggregation that feeds\nboth the CRM UI and the AI's grounding context (services/student_context.py)."
+        "description": "The student's full academic record \u2014 the one aggregation behind the CRM\nUI. It also fed the AI's grounding context via services/student_context.py\nuntil the student AI chat was deleted (AV-57); it stays a single complete\nrecord so the next AI surface needing one reads this rather than\nreassembling it."
       },
       "StudentMarkRow": {
         "properties": {
@@ -11151,50 +10757,6 @@
           "marks"
         ],
         "title": "StudentSubmissionView"
-      },
-      "SubjectImprovement": {
-        "properties": {
-          "subject_id": {
-            "type": "integer",
-            "title": "Subject Id"
-          },
-          "subject_name": {
-            "type": "string",
-            "title": "Subject Name"
-          },
-          "window_days": {
-            "type": "integer",
-            "title": "Window Days"
-          },
-          "member_count": {
-            "type": "integer",
-            "title": "Member Count"
-          },
-          "periods": {
-            "items": {
-              "$ref": "#/components/schemas/ImprovementPeriod"
-            },
-            "type": "array",
-            "title": "Periods"
-          },
-          "focus": {
-            "items": {
-              "$ref": "#/components/schemas/FocusTopic"
-            },
-            "type": "array",
-            "title": "Focus"
-          }
-        },
-        "type": "object",
-        "required": [
-          "subject_id",
-          "subject_name",
-          "window_days",
-          "member_count",
-          "periods",
-          "focus"
-        ],
-        "title": "SubjectImprovement"
       },
       "SubjectOut": {
         "properties": {

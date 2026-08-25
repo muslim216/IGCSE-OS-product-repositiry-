@@ -548,59 +548,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/chat/conversations": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Conversations */
-        get: operations["list_conversations_api_v1_chat_conversations_get"];
-        put?: never;
-        /** Create Conversation */
-        post: operations["create_conversation_api_v1_chat_conversations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/chat/conversations/{conversation_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Conversation */
-        get: operations["get_conversation_api_v1_chat_conversations__conversation_id__get"];
-        put?: never;
-        post?: never;
-        /** Delete Conversation */
-        delete: operations["delete_conversation_api_v1_chat_conversations__conversation_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/chat/conversations/{conversation_id}/messages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Send Message */
-        post: operations["send_message_api_v1_chat_conversations__conversation_id__messages_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/classifieds": {
         parameters: {
             query?: never;
@@ -994,31 +941,6 @@ export interface paths {
         post?: never;
         /** Delete Schedule Slot */
         delete: operations["delete_schedule_slot_api_v1_groups__group_id__lessons__slot_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/improvement/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * My Improvement
-         * @description The reader's own placing per subject, with the reader's own history.
-         *
-         *     Subjects come from `visible_subject_ids`, the same helper the readiness API
-         *     uses, so this endpoint can never widen a student's reach beyond the subjects
-         *     they are enrolled in — including into another organization's copy of the
-         *     same global subject row (SEC-8).
-         */
-        get: operations["my_improvement_api_v1_improvement_me_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2711,27 +2633,6 @@ export interface components {
             /** Connected At */
             connected_at?: string | null;
         };
-        /** ConversationDetail */
-        ConversationDetail: {
-            /** Id */
-            id: number;
-            /** Title */
-            title: string;
-            /** Messages */
-            messages: components["schemas"]["MessageOut"][];
-        };
-        /** ConversationOut */
-        ConversationOut: {
-            /** Id */
-            id: number;
-            /** Title */
-            title: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
         /** CrmHomeworkItem */
         CrmHomeworkItem: {
             /** Assignment Id */
@@ -2783,15 +2684,6 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
-        };
-        /** FocusTopic */
-        FocusTopic: {
-            /** Topic Code */
-            topic_code: string;
-            /** Topic Title */
-            topic_title: string;
-            /** Score */
-            score?: number | null;
         };
         /** GradeBand */
         GradeBand: {
@@ -2901,28 +2793,6 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /**
-         * ImprovementPeriod
-         * @description One window: the reader's own movement, and where it placed them.
-         */
-        ImprovementPeriod: {
-            /** Label */
-            label: string;
-            /** Delta */
-            delta?: number | null;
-            /** Rank */
-            rank?: number | null;
-            /**
-             * Ranked Count
-             * @default 0
-             */
-            ranked_count: number;
-            /**
-             * Banded
-             * @default false
-             */
-            banded: boolean;
         };
         /** InviteOut */
         InviteOut: {
@@ -3156,20 +3026,6 @@ export interface components {
             final_marks?: number | null;
             /** Final Feedback */
             final_feedback?: string | null;
-        };
-        /** MessageOut */
-        MessageOut: {
-            /** Id */
-            id: number;
-            /** Role */
-            role: string;
-            /** Content */
-            content: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /** MyAssessmentScore */
         MyAssessmentScore: {
@@ -3711,11 +3567,6 @@ export interface components {
             /** Score Pct */
             score_pct: number;
         };
-        /** SendMessage */
-        SendMessage: {
-            /** Content */
-            content: string;
-        };
         /** StudentAssignment */
         StudentAssignment: {
             /** Id */
@@ -3765,8 +3616,11 @@ export interface components {
         };
         /**
          * StudentCrmOut
-         * @description The student's full academic record — the one aggregation that feeds
-         *     both the CRM UI and the AI's grounding context (services/student_context.py).
+         * @description The student's full academic record — the one aggregation behind the CRM
+         *     UI. It also fed the AI's grounding context via services/student_context.py
+         *     until the student AI chat was deleted (AV-57); it stays a single complete
+         *     record so the next AI surface needing one reads this rather than
+         *     reassembling it.
          */
         StudentCrmOut: {
             /** Student Id */
@@ -3909,21 +3763,6 @@ export interface components {
             total_max: number;
             /** Marks */
             marks: components["schemas"]["StudentMarkRow"][];
-        };
-        /** SubjectImprovement */
-        SubjectImprovement: {
-            /** Subject Id */
-            subject_id: number;
-            /** Subject Name */
-            subject_name: string;
-            /** Window Days */
-            window_days: number;
-            /** Member Count */
-            member_count: number;
-            /** Periods */
-            periods: components["schemas"]["ImprovementPeriod"][];
-            /** Focus */
-            focus: components["schemas"]["FocusTopic"][];
         };
         /** SubjectOut */
         SubjectOut: {
@@ -5217,141 +5056,6 @@ export interface operations {
             };
         };
     };
-    list_conversations_api_v1_chat_conversations_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationOut"][];
-                };
-            };
-        };
-    };
-    create_conversation_api_v1_chat_conversations_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationDetail"];
-                };
-            };
-        };
-    };
-    get_conversation_api_v1_chat_conversations__conversation_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversation_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_conversation_api_v1_chat_conversations__conversation_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversation_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    send_message_api_v1_chat_conversations__conversation_id__messages_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversation_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SendMessage"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_classifieds_api_v1_classifieds_get: {
         parameters: {
             query?: {
@@ -6160,26 +5864,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    my_improvement_api_v1_improvement_me_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubjectImprovement"][];
                 };
             };
         };
