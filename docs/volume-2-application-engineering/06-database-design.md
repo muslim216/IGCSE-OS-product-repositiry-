@@ -231,8 +231,8 @@ Beyond these eight, indexing relies on primary keys and the implicit indexes beh
 constraints. The eight above also cover several foreign keys (`evidence.student_id`/`topic_id`,
 `factor_evaluations.student_id`/`subject_id`, `readiness_snapshots.student_id`/`subject_id`,
 `mark_override_audit.question_mark_id`, and `narratives`' three); **most other foreign key
-columns are not indexed** — Postgres does not index them automatically — so a join or
-`WHERE parent_id = ?` on one of those remaining columns is a sequential scan.
+columns are not indexed** — Postgres does not index them automatically, so joins or
+`WHERE parent_id = ?` filters on those columns can require a sequential scan.
 
 ### Constraints
 

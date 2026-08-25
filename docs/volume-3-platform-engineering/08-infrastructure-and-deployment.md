@@ -108,8 +108,11 @@ the production app — `api/classroom.py`'s routes 404, and the frontend surface
 reach the OAuth flow (`ClassroomSettingsPage.tsx`, `/settings/classroom/callback`) is deleted
 — so there is no path left by which landing on a second origin can trigger a Classroom OAuth
 attempt at all. The code, service and `GoogleAccount`/`ClassroomCourseLink` tables are kept,
-not deleted, so this is reversible: re-mounting the router brings the constraint back exactly
-as described above. **It also returns, independently of Classroom, when Phase 7 adds Zoom and
+not deleted, so the *redirect-mismatch constraint* is reversible: re-mounting the router alone
+brings it back exactly as described above. (It does **not** restore the Classroom feature
+itself — the frontend pages and callback route this PR deletes would need rebuilding
+separately; re-mounting only reopens the backend endpoints and, with them, the constraint.)
+**It also returns, independently of Classroom, when Phase 7 adds Zoom and
 Google Meet attendance OAuth** (`docs/avora-new-state-august-16.md` §7.3) — plan those redirect
 URIs deliberately rather than rediscovering this the way Classroom did.
 
