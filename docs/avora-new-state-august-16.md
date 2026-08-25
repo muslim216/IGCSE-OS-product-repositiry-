@@ -652,9 +652,9 @@ where the two overlap.
 | **0.0** | **Audit what already exists** — ✅ done 19 Aug | S | ✅ |
 | **0.1** | Shared `SETTLED_STATUSES` + fix the v2 gatherers — ✅ done 24 Aug | S | ✅ |
 | **0.2** | Recompute runner and full backfill — ✅ done 24 Aug | S | ✅ |
-| **0.3** | Delete student AI chat | S | ∥ |
-| **0.4** | Delete peer improvement ranking | S | ∥ |
-| **0.5** | Hide Google Classroom sync and knowledge base | S | ∥ |
+| **0.3** | Delete student AI chat — ✅ done 25 Aug | S | ✅ |
+| **0.4** | Delete peer improvement ranking — ✅ done 25 Aug | S | ✅ |
+| **0.5** | Hide Google Classroom sync and knowledge base — ✅ done 25 Aug | S | ✅ |
 | **0.6** | Rename MANARA / IGCSE-OS → Avora — ✅ done | M | ✅ |
 | **0.7** | Time zones — ✅ done | S | ✅ |
 | **0.8** | Python type checker + generated API types — ✅ done | M | ✅ |
