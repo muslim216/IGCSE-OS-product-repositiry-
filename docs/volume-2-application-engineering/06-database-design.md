@@ -27,8 +27,9 @@
 
 Answers *what is in the database, why is it shaped this way, and how do I change it safely*.
 Fifty-one tables across fifteen modules (`chat.py`'s two tables were dropped by migration
-`0026`, task 0.3, AV-57), with conventions that are unusually consistent in some dimensions and
-unusually thin in others.
+`0026`, task 0.3, AV-57 — `ADR-0007`'s "52 tables" is the count as of that Accepted, and
+therefore immutable, decision), with conventions that are unusually consistent in some
+dimensions and unusually thin in others.
 
 It also records a discrepancy nobody had noticed: **the ORM models and the migrated database
 do not agree about indexes**, which means the test schema is not the production schema.
