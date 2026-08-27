@@ -353,7 +353,7 @@ async def _sync_submissions(
         if existing is not None:
             continue  # already imported — re-polling is idempotent
 
-        files = await _download_attachments(access_token, sub)
+        files = await _download_attachments(access_token, sub, organization_id=link.organization_id)
         submission = Submission(
             assignment_id=assignment.id, student_id=student.id, status=SubmissionStatus.submitted
         )
@@ -369,7 +369,9 @@ async def _sync_submissions(
             await enqueue(session, "mark_submission", {"submission_id": submission.id})
 
 
-async def _download_attachments(access_token: str, sub: dict) -> list[tuple[str, str, str]]:
+async def _download_attachments(
+    access_token: str, sub: dict, *, organization_id: int
+) -> list[tuple[str, str, str]]:
     files: list[tuple[str, str, str]] = []
     attachments = sub.get("assignmentSubmission", {}).get("attachments", [])
     for attachment in attachments:
@@ -382,7 +384,14 @@ async def _download_attachments(access_token: str, sub: dict) -> list[tuple[str,
             continue  # e.g. a native Google Doc — the tutor uploads it directly instead
         data = await download_drive_file(access_token, drive_file["id"])
         try:
-            files.append(storage.save_bytes(data, mime, meta.get("name", drive_file["id"])))
+            files.append(
+                await storage.save_bytes(
+                    data,
+                    mime,
+                    meta.get("name", drive_file["id"]),
+                    organization_id=organization_id,
+                )
+            )
         except ValueError:
             # Over the 20MB cap, or bytes that don't match the type Drive
             # declared. Skip the attachment rather than failing the whole sync.

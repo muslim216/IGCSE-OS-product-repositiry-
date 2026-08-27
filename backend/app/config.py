@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -109,6 +110,26 @@ class Settings(BaseSettings):
     # even without extra config — set a dedicated value in production.
     google_token_encryption_key: str | None = None
     upload_dir: str = "uploads"
+    # "local" writes under upload_dir; "s3" targets any S3-compatible store
+    # (AWS S3, Cloudflare R2, MinIO). Local is the default so development and
+    # tests need no object store, and so a missing bucket cannot silently
+    # become the production configuration. A Literal rather than a bare str:
+    # a typo (e.g. "S3") must fail startup, not silently keep production on
+    # the single-instance-pinning local disk this task exists to remove
+    # (RISK-1).
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_bucket: str = ""
+    # Empty targets AWS itself. R2 and MinIO require their own endpoint.
+    s3_endpoint_url: str = ""
+    # R2 ignores the region but the SDK requires one; "auto" is what R2 documents.
+    s3_region: str = "auto"
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    # Signed URLs are bearer credentials that cannot be revoked before they
+    # expire, so the window is short by default (threat review F3). They are
+    # minted only for tutor material — student submissions proxy through the
+    # API so the ownership check runs on every view.
+    signed_url_ttl_seconds: int = 300
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
@@ -116,6 +137,15 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _s3_backend_needs_a_bucket(self) -> "Settings":
+        # A valid storage_backend value with no bucket is still a
+        # misconfiguration — better to fail startup than to have S3Backend's
+        # first real call fail confusingly against an empty bucket name.
+        if self.storage_backend == "s3" and not self.s3_bucket:
+            raise ValueError("S3_BUCKET is required when STORAGE_BACKEND=s3")
+        return self
 
 
 @lru_cache

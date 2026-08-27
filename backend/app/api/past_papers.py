@@ -16,12 +16,12 @@ Two rules specific to past papers:
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser
+from app.api.file_responses import signed_or_proxied_file
 from app.models import (
     SETTLED_STATUSES,
     Group,
@@ -140,8 +140,12 @@ async def upload_past_paper(
             "paper can't rest on the AI's judgement alone.",
         )
 
-    booklet_path, booklet_name, booklet_mime = await storage.save_upload(booklet)
-    ms_path, ms_name, ms_mime = await storage.save_upload(mark_scheme)
+    booklet_path, booklet_name, booklet_mime = await storage.save_upload(
+        booklet, organization_id=user.organization_id
+    )
+    ms_path, ms_name, ms_mime = await storage.save_upload(
+        mark_scheme, organization_id=user.organization_id
+    )
     paper = PastPaper(
         organization_id=user.organization_id,
         tutor_id=user.id,
@@ -222,29 +226,27 @@ async def past_paper_detail(
 
 
 @router.get("/{past_paper_id}/booklet")
-async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUser) -> Response:
     """The question paper — readable by enrolled students so they can sit it."""
     paper = await _visible_paper(db, user, past_paper_id)
     if paper.booklet_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No booklet uploaded")
-    return FileResponse(
-        storage.absolute_path(paper.booklet_path),
-        media_type=paper.booklet_mime,
+    return await signed_or_proxied_file(
+        paper.booklet_path,
+        mime=paper.booklet_mime,
         filename=paper.booklet_name,
     )
 
 
 @router.get("/{past_paper_id}/mark-scheme")
-async def past_paper_mark_scheme(
-    past_paper_id: int, db: DbSession, user: TutorUser
-) -> FileResponse:
+async def past_paper_mark_scheme(past_paper_id: int, db: DbSession, user: TutorUser) -> Response:
     """Tutor-only — handing this to a student would defeat the exercise."""
     paper = await _visible_paper(db, user, past_paper_id)
     if paper.mark_scheme_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No mark scheme uploaded")
-    return FileResponse(
-        storage.absolute_path(paper.mark_scheme_path),
-        media_type=paper.mark_scheme_mime,
+    return await signed_or_proxied_file(
+        paper.mark_scheme_path,
+        mime=paper.mark_scheme_mime,
         filename=paper.mark_scheme_name,
     )
 
@@ -321,7 +323,7 @@ async def log_attempt(
     submission.time_taken_minutes = time_taken_minutes
     submission.attempted_at = attempted_at
     for position, upload in enumerate(files):
-        path, name, mime = await storage.save_upload(upload)
+        path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
         db.add(
             SubmissionFile(
                 submission_id=submission.id, position=position, path=path, name=name, mime=mime

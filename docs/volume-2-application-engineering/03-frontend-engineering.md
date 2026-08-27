@@ -267,6 +267,18 @@ exception is `fetchFileUrl()` for blob downloads, which implements its own auth 
 *Rationale:* bearer attachment, transparent refresh, and error normalization live there; a
 raw `fetch` silently opts out of all three, and its 401s will log the user out.
 
+Since task 1.2 (AV-82), the endpoint behind `fetchFileUrl()`'s path can answer one of two ways
+(threat review F3): a 200 with the bytes directly (student submissions — proxied, so the API's
+ownership check runs on that request), or a 307 to a short-lived signed object-store URL
+(tutor material — classifieds, past papers, group resources). `fetch()` follows the redirect on
+its own, and browsers strip `Authorization` before following a cross-origin redirect — relied
+on deliberately, so the bearer token never reaches the object store. This still counts as the
+one sanctioned bypass, not a second one: the shape widened, the function did not multiply. See
+`backend/app/api/file_responses.py` and `frontend/src/api/homework.ts:fetchFileUrl()` for the
+two sides of the contract. The object store's CORS policy must allow the frontend origin for
+GET, or the redirect path fails — local disk and MinIO never redirect, so this only bites once
+a signing backend is actually configured in production.
+
 **`FE-2` — MUST NOT · Critical · Active**
 Never write `refresh_token` to `localStorage`, `sessionStorage`, IndexedDB, or any
 script-readable store.

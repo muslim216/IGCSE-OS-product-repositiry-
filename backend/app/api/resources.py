@@ -1,11 +1,11 @@
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, TutorUser
+from app.api.file_responses import signed_or_proxied_file
 from app.models import Group, GroupMember, GroupResource, ResourceKind, User, UserRole
 from app.schemas.resources import ResourceOut
 from app.services import storage
@@ -78,7 +78,7 @@ async def create_resource(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY, "A file resource needs a file"
             )
-        path, name, mime = await storage.save_upload(file)
+        path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
         resource.file_path = path
         resource.file_name = name
         resource.file_mime = mime
@@ -106,16 +106,17 @@ async def list_resources(
 
 
 @router.get("/resources/{resource_id}/file")
-async def download_resource_file(
-    resource_id: int, db: DbSession, user: CurrentUser
-) -> FileResponse:
+async def download_resource_file(resource_id: int, db: DbSession, user: CurrentUser) -> Response:
     resource = await db.get(GroupResource, resource_id)
     if resource is None or resource.file_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await _can_view_group(db, user, resource.group_id)
-    return FileResponse(
-        storage.absolute_path(resource.file_path),
-        media_type=resource.file_mime or "application/octet-stream",
+    # Signed rather than proxied: group resources are tutor-authored teaching
+    # material. F3's test is whose personal data is in the file, and here it is
+    # nobody's — see docs/av-82-architecture-impact-report.md.
+    return await signed_or_proxied_file(
+        resource.file_path,
+        mime=resource.file_mime or "application/octet-stream",
         filename=resource.file_name or "file",
     )
 

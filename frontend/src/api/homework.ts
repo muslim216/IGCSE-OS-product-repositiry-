@@ -294,10 +294,28 @@ export const requestRemark = (submissionId: number, questionId: number, reason: 
     { method: "POST", body: JSON.stringify({ reason: reason || null }) },
   );
 
-/** Fetch a protected file with auth and return an object URL for display. */
+/** Fetch a protected file with auth and return an object URL for display.
+ *
+ * Since task 1.2 (AV-82), the endpoint behind `path` takes one of two shapes
+ * (threat review F3): student submissions respond 200 with the bytes directly
+ * — the API's ownership check runs on this request, every time. Tutor
+ * material (classifieds, past papers, group resources) responds 307 to a
+ * short-lived signed object-store URL instead.
+ *
+ * `fetch()` follows that redirect on its own (`redirect: "follow"` below is
+ * the default made explicit, since this function's correctness now depends on
+ * it). Browsers strip the `Authorization` header before following a
+ * cross-origin redirect — deliberately relied on here: the bearer token must
+ * never reach the object store, only Avora's own API.
+ *
+ * For the redirect path to work in production, the bucket's CORS policy must
+ * allow the frontend origin for GET — otherwise `resp.blob()` below rejects.
+ * Local disk and MinIO never redirect (`LocalBackend.get_signed_url` returns
+ * None), so this only bites once a signing backend is actually configured. */
 export async function fetchFileUrl(path: string): Promise<string> {
   const tokens = getStoredTokens();
   const resp = await fetch(apiUrl(path), {
+    redirect: "follow",
     headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {},
   });
   if (!resp.ok) throw new Error(`Could not load file (${resp.status})`);

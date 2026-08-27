@@ -131,12 +131,12 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
     # exactly that, and the mark lands finalized with no official scheme behind
     # it and no tutor in the loop.
     booklet = (
-        (storage.read_file(classified.file_path), classified.file_mime)
+        (await storage.read_file(classified.file_path), classified.file_mime)
         if classified is not None and classified.file_path and classified.file_mime
         else None
     )
     mark_scheme = (
-        (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
+        (await storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
         if classified is not None and classified.mark_scheme_path and classified.mark_scheme_mime
         else None
     )
@@ -204,12 +204,12 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
     # without a mark scheme told the model it had the official scheme in front of
     # it — the one input AI-11 lets a mark auto-finalize on.
     booklet = (
-        (storage.read_file(paper.booklet_path), paper.booklet_mime)
+        (await storage.read_file(paper.booklet_path), paper.booklet_mime)
         if paper.booklet_path and paper.booklet_mime
         else None
     )
     mark_scheme = (
-        (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
+        (await storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
         if paper.mark_scheme_path and paper.mark_scheme_mime
         else None
     )
@@ -308,7 +308,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     if source.mark_scheme is not None:
         content.append(file_block(*source.mark_scheme, cache=True))
     for f in files:
-        content.append(file_block(storage.read_file(f.path), f.mime))
+        content.append(file_block(await storage.read_file(f.path), f.mime))
 
     content.append(
         {

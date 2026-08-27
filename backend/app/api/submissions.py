@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, assert_tutor
+from app.api.file_responses import proxied_file
 from app.models import (
     SETTLED_STATUSES,
     Assignment,
@@ -148,7 +148,7 @@ async def submit_work(
         await db.flush()
 
     for position, upload in enumerate(files):
-        path, name, mime = await storage.save_upload(upload)
+        path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
         db.add(
             SubmissionFile(
                 submission_id=submission.id, position=position, path=path, name=name, mime=mime
@@ -591,7 +591,7 @@ async def submission_detail(
 @router.get("/submissions/{submission_id}/files/{file_id}")
 async def submission_file(
     submission_id: int, file_id: int, db: DbSession, user: CurrentUser
-) -> FileResponse:
+) -> Response:
     submission = await db.get(Submission, submission_id, options=[selectinload(Submission.files)])
     if submission is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
@@ -600,7 +600,9 @@ async def submission_file(
     file = next((f for f in submission.files if f.id == file_id), None)
     if file is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    return FileResponse(storage.absolute_path(file.path), media_type=file.mime, filename=file.name)
+    # Proxied, not signed: the ownership check above must run on every view
+    # (threat review F3). See app/api/file_responses.py.
+    return await proxied_file(file.path, mime=file.mime, filename=file.name)
 
 
 @router.put("/submissions/{submission_id}/marks", response_model=SubmissionDetail)

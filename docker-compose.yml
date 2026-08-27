@@ -15,6 +15,28 @@ services:
       timeout: 3s
       retries: 10
 
+  # S3-compatible object storage, standing in for Cloudflare R2 / AWS S3
+  # locally (task 1.2, AV-82). Opt-in via `--profile full`, same as `backend`
+  # — plain `docker compose up -d db` (the documented default) never starts
+  # it, so STORAGE_BACKEND stays "local" and needs nothing extra.
+  minio:
+    image: minio/minio:latest
+    profiles: ["full"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: igcse-dev
+      MINIO_ROOT_PASSWORD: igcse-dev-secret
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
     profiles: ["full"]
@@ -23,6 +45,18 @@ services:
       JWT_SECRET: dev-only-secret-change-me
       CORS_ORIGINS: http://localhost:5173
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Local disk remains the default (see the `minio` service comment).
+      # Set STORAGE_BACKEND=s3 to exercise the object-storage path locally —
+      # the bucket must exist first: `docker compose --profile full up -d
+      # minio` then create it once via the mc client or the console at
+      # :9001. Real deployments point these at R2/S3 instead; MinIO is
+      # dev/CI-only and is never reachable from outside this compose network.
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_BUCKET: ${S3_BUCKET:-avora-dev}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-igcse-dev}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-igcse-dev-secret}
     ports:
       - "8000:8000"
     depends_on:
@@ -34,3 +68,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  miniodata:

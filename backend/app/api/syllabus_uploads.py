@@ -41,7 +41,7 @@ async def upload_syllabus(
     title: Annotated[str, Form(min_length=1, max_length=255)],
     file: Annotated[UploadFile, File()],
 ) -> SyllabusUploadDetail:
-    path, name, mime = await storage.save_upload(file)
+    path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     upload = SyllabusUpload(
         tutor_id=user.id,
         title=title,

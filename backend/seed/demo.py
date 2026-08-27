@@ -225,18 +225,23 @@ async def main() -> None:
         )
 
         # One published assignment with a finalized submission per student.
+        # The key is generated the same way a real upload generates one
+        # (SEC-16) rather than a hardcoded literal, so demo seeding exercises
+        # the real storage path under either backend instead of only working
+        # against local disk.
+        classified_key = storage.new_key(org.id, "application/pdf")
         classified = Classified(
             organization_id=org.id,
             tutor_id=tutor.id,
             subject_id=subject.id,
             title="Demo classified — Atomic structure",
-            file_path="demo-classified.pdf",
+            file_path=classified_key,
             file_name="atomic-structure.pdf",
             file_mime="application/pdf",
         )
         session.add(classified)
         await session.flush()
-        storage.absolute_path(classified.file_path).write_bytes(FAKE_PDF_BYTES)
+        await storage.get_storage().upload(classified_key, FAKE_PDF_BYTES, "application/pdf")
 
         assignment = Assignment(
             group_id=group.id,
