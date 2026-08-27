@@ -1,3 +1,4 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
 /**
@@ -8,11 +9,7 @@ import { api } from "./client";
  * states the absence in words rather than rendering an empty panel (PROD-2,
  * UX-19). There are no review fields, because there is no review step (D2).
  */
-export interface Narrative {
-  text: string | null;
-  generated_at: string | null;
-  prompt_version: string | null;
-}
+export type Narrative = components["schemas"]["NarrativeOut"];
 
 /** The class paragraph, for the tutor's home and class page. */
 export const groupNarrative = (groupId: number) =>

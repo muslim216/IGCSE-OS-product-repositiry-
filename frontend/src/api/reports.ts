@@ -1,20 +1,18 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
-export interface Report {
-  id: number;
-  student_id: number;
-  subject_id: number | null;
+/** `audience` and `status` are plain `str` in the OpenAPI schema; the literal
+    unions are frontend refinements (surfaces branch on the exact value), kept
+    here while the rest of the shape is anchored to the generated type. */
+export type Report = Omit<components["schemas"]["ReportOut"], "audience" | "status"> & {
   audience: "student" | "tutor" | "parent";
   status: "generating" | "ready" | "failed";
-  title: string;
-  created_at: string;
-  generated_at: string | null;
-}
+};
 
-export interface ReportDetail extends Report {
-  content: string | null;
-  error: string | null;
-}
+export type ReportDetail = Omit<components["schemas"]["ReportDetail"], "audience" | "status"> & {
+  audience: "student" | "tutor" | "parent";
+  status: "generating" | "ready" | "failed";
+};
 
 export const listReports = (studentId: number) =>
   api<Report[]>(`/api/v1/reports?student_id=${studentId}`);

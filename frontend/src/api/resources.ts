@@ -1,14 +1,12 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
-export interface Resource {
-  id: number;
-  group_id: number;
+/** `kind` is a plain `str` in the OpenAPI schema; the two-value union is a
+    frontend refinement (surfaces and the create calls branch on it), kept here
+    while the rest of the shape is anchored to the generated type. */
+export type Resource = Omit<components["schemas"]["ResourceOut"], "kind"> & {
   kind: "file" | "recording";
-  title: string;
-  url: string | null;
-  file_name: string | null;
-  created_at: string;
-}
+};
 
 export const listResources = (groupId: number, kind?: "file" | "recording") =>
   api<Resource[]>(`/api/v1/groups/${groupId}/resources${kind ? `?kind=${kind}` : ""}`);

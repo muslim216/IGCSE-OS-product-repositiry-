@@ -1,181 +1,50 @@
-import { api, apiUrl, getStoredTokens } from "./client";
-import type { Topic } from "./syllabus";
+import { api, apiUrl, getStoredTokens, type Present } from "./client";
+import type { components } from "./schema";
 
-export interface Classified {
-  id: number;
-  subject_id: number;
-  title: string;
-  file_name: string;
-  mark_scheme_name: string | null;
-}
+export type Classified = components["schemas"]["ClassifiedOut"];
+export type Question = components["schemas"]["QuestionOut"];
+export type QuestionIn = components["schemas"]["QuestionIn"];
+export type Assignment = components["schemas"]["AssignmentOut"];
+export type AssignmentDetail = components["schemas"]["AssignmentDetail"];
 
-export interface Question {
-  id: number;
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  has_mark_scheme: boolean;
-  topics: Topic[];
-}
+/**
+ * The student's view of an assignment. Two fields carry usage rules the shape
+ * alone does not (CODE-13):
+ * - `is_open` — whether the assignment still accepts a submission. The list
+ *   includes closed assignments (their marks stay in history), so a "Start"
+ *   action must gate on this, not on submission status alone.
+ * - `finalized_at` — when the marks were settled; null until then. The home
+ *   uses it to tell recent results from everything ever marked, and cannot
+ *   guess a date.
+ * - `highest_in_class` — whether this student's mark was the best in their
+ *   class on this piece. A boolean about the reader and nothing else: no
+ *   classmate's mark, count or identity is sent, and it is shown only to the
+ *   student it is about. False whenever there is nothing to compare against,
+ *   so an absent comparison never reads as a bad result.
+ */
+export type StudentAssignment = components["schemas"]["StudentAssignment"];
 
-export interface QuestionIn {
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  has_mark_scheme: boolean;
-  topic_ids: number[];
-}
+/** `needs_review` is why this row is (or isn't) waiting on the tutor. */
+export type MarkRow = components["schemas"]["MarkRow"];
+export type ReviewQueueItem = components["schemas"]["ReviewQueueItem"];
+export type MarkHistoryEntry = components["schemas"]["MarkHistoryEntry"];
+export type RemarkRequestOut = components["schemas"]["RemarkRequestOut"];
+export type SubmissionSummary = components["schemas"]["SubmissionSummary"];
+export type SubmissionFileInfo = components["schemas"]["SubmissionFileOut"];
 
-export interface Assignment {
-  id: number;
-  group_id: number;
-  title: string;
-  status: string;
-  due_at: string | null;
-  question_count: number;
-  total_marks: number;
-  submission_count: number;
-}
+/** `assignment_id` and `past_paper_id` are polymorphic: exactly one is set —
+    the work is homework or a past paper (never read the other unconditionally,
+    API-20). */
+export type SubmissionDetail = components["schemas"]["SubmissionDetail"];
 
-export interface AssignmentDetail {
-  id: number;
-  group_id: number;
-  classified_id: number | null;
-  title: string;
-  instructions: string | null;
-  due_at: string | null;
-  question_range: string | null;
-  status: string;
-  extraction_error: string | null;
-  questions: Question[];
-}
-
-export interface StudentAssignment {
-  id: number;
-  title: string;
-  instructions: string | null;
-  due_at: string | null;
-  subject_name: string;
-  group_name: string;
-  question_count: number;
-  total_marks: number;
-  submission_status: string | null;
-  /** Whether the assignment still accepts a submission. The list includes closed
-      assignments (their marks stay in history), so a "Start" action must gate on
-      this, not on submission status alone. */
-  is_open: boolean;
-  my_total: number | null;
-  /** When the marks were settled. null until then — the home uses it to tell
-      recent results from everything ever marked, and cannot guess a date. */
-  finalized_at: string | null;
-  /** Whether this student's mark was the best in their class on this piece. A
-      boolean about the reader and nothing else — no classmate's mark, count or
-      identity is sent — and shown only to the student it is about. False
-      whenever there is nothing to compare against, so an absent comparison
-      never reads as a bad result. */
-  highest_in_class: boolean;
-}
-
-export interface MarkRow {
-  question_id: number;
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  has_mark_scheme: boolean;
-  ai_transcription: string | null;
-  ai_marks: number | null;
-  ai_feedback: string | null;
-  ai_confidence: string | null;
-  final_marks: number | null;
-  final_feedback: string | null;
-  overridden: boolean;
-  /** Why this row is (or isn't) waiting on the tutor. */
-  needs_review: boolean;
-  auto_finalized: boolean;
-  remark_requested: boolean;
-  remark_reason: string | null;
-}
-
-export interface ReviewQueueItem {
-  submission_id: number;
-  assignment_id: number | null;
-  past_paper_id: number | null;
-  assignment_title: string;
-  student_id: number;
-  student_name: string;
-  submitted_at: string;
-  unsure_count: number;
-  remark_request_count: number;
-}
-
-export interface MarkHistoryEntry {
-  old_marks: number | null;
-  new_marks: number | null;
-  changed_by_name: string;
-  reason: string | null;
-  created_at: string;
-}
-
-export interface RemarkRequestOut {
-  id: number;
-  question_id: number;
-  status: string;
-  reason: string | null;
-  created_at: string;
-}
-
-export interface SubmissionSummary {
-  id: number;
-  student_id: number;
-  student_name: string;
-  status: string;
-  submitted_at: string;
-  total_final: number | null;
-  total_max: number;
-}
-
-export interface SubmissionFileInfo {
-  id: number;
-  name: string;
-  mime: string;
-  position: number;
-}
-
-export interface SubmissionDetail {
-  id: number;
-  /** Exactly one is set: the work is homework or a past paper. */
-  assignment_id: number | null;
-  past_paper_id: number | null;
-  assignment_title: string;
-  student_id: number;
-  student_name: string;
-  status: string;
-  ai_error: string | null;
-  submitted_at: string;
-  files: SubmissionFileInfo[];
-  marks: MarkRow[];
-}
-
-export interface StudentMarkRow {
-  question_id: number | null;
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  final_marks: number | null;
-  final_feedback: string | null;
-  /** Set once the student has asked for this mark to be looked at again. */
-  remark_status: string | null;
-}
-
-export interface StudentSubmissionView {
-  submission_id: number | null;
-  status: string;
-  submitted_at: string | null;
-  finalized_at: string | null;
-  total: number | null;
-  total_max: number;
+/** `remark_status` is set once the student has asked for this mark to be looked
+    at again. */
+export type StudentMarkRow = Present<components["schemas"]["StudentMarkRow"]>;
+export type StudentSubmissionView = Present<
+  Omit<components["schemas"]["StudentSubmissionView"], "marks">
+> & {
   marks: StudentMarkRow[];
-}
+};
 
 export const listClassifieds = (subjectId?: number) =>
   api<Classified[]>(`/api/v1/classifieds${subjectId ? `?subject_id=${subjectId}` : ""}`);
@@ -242,14 +111,7 @@ export const publishAssignment = (id: number) =>
 export const retryExtraction = (id: number) =>
   api<AssignmentDetail>(`/api/v1/assignments/${id}/retry-extraction`, { method: "POST" });
 
-export interface AssignmentAttention {
-  assignment_id: number;
-  assignment_title: string;
-  reason: string;
-  detail: string | null;
-  submission_id: number | null;
-  student_name: string | null;
-}
+export type AssignmentAttention = components["schemas"]["AssignmentAttention"];
 
 export const assignmentsNeedingAttention = () =>
   api<AssignmentAttention[]>("/api/v1/assignments/attention");

@@ -1,17 +1,7 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
-export interface ActivityItem {
-  kind: string;
-  label: string;
-  sublabel: string | null;
-  link: string;
-  occurred_at: string;
-}
-
-export interface ActivitySummary {
-  /** Everything outstanding, which may exceed `items`. */
-  count: number;
-  items: ActivityItem[];
-}
+export type ActivityItem = components["schemas"]["ActivityItem"];
+export type ActivitySummary = components["schemas"]["ActivitySummary"];
 
 export const myActivity = () => api<ActivitySummary>("/api/v1/me/activity");

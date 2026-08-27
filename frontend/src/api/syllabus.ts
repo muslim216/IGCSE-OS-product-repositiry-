@@ -1,12 +1,7 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
-export interface Topic {
-  id: number;
-  code: string;
-  title: string;
-  parent_id: number | null;
-  weight: number;
-}
+export type Topic = components["schemas"]["TopicOut"];
 
 export const listTopics = (subjectId: number) =>
   api<Topic[]>(`/api/v1/subjects/${subjectId}/topics`);

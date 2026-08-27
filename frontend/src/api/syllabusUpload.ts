@@ -1,39 +1,27 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
-export interface GradeBoundary {
-  grade: string;
-  min: number;
-}
+export type GradeBoundary = components["schemas"]["GradeBoundaryIn"];
 
-export interface SyllabusTopicDraft {
-  code: string;
-  title: string;
-  weight: number;
-  children: SyllabusTopicDraft[];
-}
+/** The draft topic tree. Input and Output variants of the generated schema are
+    structurally identical; the Output one is used for the read path and passed
+    back unchanged on the write path. */
+export type SyllabusTopicDraft = components["schemas"]["SyllabusTopicIn-Output"];
 
-export interface SyllabusDraft {
-  exam_board: string;
-  code: string;
-  name: string;
-  grade_scale: string;
-  grade_boundaries: GradeBoundary[];
-  topics: SyllabusTopicDraft[];
-}
+export type SyllabusDraft = components["schemas"]["SyllabusDraft-Output"];
 
-export interface SyllabusUpload {
-  id: number;
-  title: string;
-  file_name: string;
-  status: "extracting" | "extraction_failed" | "review" | "applied";
-  error: string | null;
-  subject_id: number | null;
-  created_at: string;
-}
+/** `status` is a plain `str` in the OpenAPI schema; the four-value union is a
+    frontend refinement (surfaces branch on the exact value), kept here while
+    the rest of the shape is anchored to the generated type. */
+type SyllabusUploadStatus = "extracting" | "extraction_failed" | "review" | "applied";
 
-export interface SyllabusUploadDetail extends SyllabusUpload {
-  draft: SyllabusDraft | null;
-}
+export type SyllabusUpload = Omit<components["schemas"]["SyllabusUploadOut"], "status"> & {
+  status: SyllabusUploadStatus;
+};
+
+export type SyllabusUploadDetail = Omit<components["schemas"]["SyllabusUploadDetail"], "status"> & {
+  status: SyllabusUploadStatus;
+};
 
 export const listSyllabusUploads = () => api<SyllabusUpload[]>("/api/v1/syllabus-uploads");
 export const getSyllabusUpload = (id: number) =>

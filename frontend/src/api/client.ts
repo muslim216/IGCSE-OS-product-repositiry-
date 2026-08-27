@@ -16,6 +16,22 @@ export type User = components["schemas"]["UserOut"];
 export type AuthResponse = components["schemas"]["AuthResponse"];
 
 /**
+ * Restore a response DTO's default-valued fields to required-nullable.
+ *
+ * A Pydantic field with a default (`x: T | None = None`) is absent from the
+ * schema's `required` list, so the generated type marks it optional (`x?: …`,
+ * i.e. `… | undefined`). But no endpoint here uses exclude_none/exclude_unset,
+ * so every such field is always serialized — the value is `T | null`, never
+ * missing. `Present` removes the optional modifier the generator added while
+ * keeping the declared nullability, which is both what the backend actually
+ * sends and the contract the app was built against.
+ *
+ * Only for RESPONSE types. Request bodies keep their optionality — there a
+ * missing field is meaningfully different from a null one.
+ */
+export type Present<T> = { [K in keyof T]-?: T[K] };
+
+/**
  * What we keep in localStorage. Deliberately NOT the refresh token.
  *
  * The server also sets the refresh token as an httpOnly, SameSite=Lax cookie

@@ -1,79 +1,35 @@
 import { api, type AuthResponse, type User } from "./client";
+import type { components } from "./schema";
 
-export interface Subject {
-  id: number;
-  exam_board: string;
-  code: string;
-  name: string;
-  grade_scale: string;
-}
+export type Subject = components["schemas"]["SubjectOut"];
 
-export interface NextLesson {
-  weekday: number;
-  start_time: string;
-  duration_min: number;
-  title: string | null;
-}
+export type NextLesson = components["schemas"]["NextLesson"];
 
-/** The aggregates a class card shows at a glance. */
-export interface GroupSummary {
-  member_count: number;
-  /** Coverage numerator over member_count: enrolled students with confident
-      evidence in this class's subject. `0` is a real answer, not a missing
-      one — a status drawn from part of a class must not look like one drawn
-      from all of it. */
-  students_with_evidence: number;
-  published_assignment_count: number;
-  awaiting_review_count: number;
-  next_lesson: NextLesson | null;
-}
+/** The aggregates a class card shows at a glance — the summary fields of
+    `GroupOut` without its identity. `students_with_evidence` is a coverage
+    numerator over `member_count`: enrolled students with confident evidence in
+    this class's subject. `0` is a real answer, not a missing one — a status
+    drawn from part of a class must not look like one drawn from all of it. */
+export type GroupSummary = Omit<components["schemas"]["GroupOut"], "id" | "name" | "subject">;
 
-export interface Group extends GroupSummary {
-  id: number;
-  name: string;
-  subject: Subject;
-}
+export type Group = components["schemas"]["GroupOut"];
 
-export interface GroupDetail extends GroupSummary {
-  id: number;
-  name: string;
-  subject: Subject;
-  members: User[];
-}
+export type GroupDetail = components["schemas"]["GroupDetail"];
 
-export interface Invite {
-  code: string;
-  kind: string;
-  expires_at: string | null;
-}
+export type Invite = components["schemas"]["InviteOut"];
 
-export interface InvitePreview {
+/** `kind` is a plain `str` in the OpenAPI schema; the two-value union is a
+    frontend refinement (a surface branches on the exact value), kept here while
+    the rest of the shape is anchored to the generated type. */
+export type InvitePreview = Omit<components["schemas"]["InvitePreview"], "kind"> & {
   kind: "student_join" | "parent_link";
-  group_name: string | null;
-  subject_name: string | null;
-  tutor_name: string | null;
-  student_name: string | null;
-}
+};
 
-export interface Lesson {
-  id: number;
-  group_id: number;
-  weekday: number;
-  start_time: string;
-  duration_min: number;
-  title: string | null;
-}
+/** A recurring schedule slot for a class (weekday + start time), not a single
+    lesson occurrence — the backend calls this a ScheduleSlot. */
+export type Lesson = components["schemas"]["ScheduleSlotOut"];
 
-export interface UpcomingLesson {
-  id: number;
-  group_id: number;
-  group_name: string;
-  subject_name: string;
-  weekday: number;
-  start_time: string;
-  duration_min: number;
-  title: string | null;
-}
+export type UpcomingLesson = components["schemas"]["UpcomingScheduleSlot"];
 
 export const WEEKDAYS = [
   "Monday",

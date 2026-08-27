@@ -1,45 +1,10 @@
+import type { components } from "./schema";
 import { api } from "./client";
 
-export interface PastPaperQuestion {
-  id: number;
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  has_mark_scheme: boolean;
-}
-
-export interface PastPaper {
-  id: number;
-  subject_id: number;
-  session_label: string;
-  paper_number: string;
-  total_marks: number | null;
-  duration_minutes: number | null;
-  booklet_name: string | null;
-  /** Tutors only — students never receive the mark scheme's name or file. */
-  mark_scheme_name: string | null;
-  extraction_error: string | null;
-  question_count: number;
-}
-
-export interface PastPaperDetail extends PastPaper {
-  questions: PastPaperQuestion[];
-}
-
-export interface PastPaperAttempt {
-  submission_id: number;
-  past_paper_id: number;
-  session_label: string;
-  paper_number: string;
-  subject_name: string;
-  status: string;
-  timed: boolean;
-  time_taken_minutes: number | null;
-  attempted_at: string | null;
-  submitted_at: string;
-  raw_marks: number | null;
-  max_marks: number | null;
-}
+export type PastPaperQuestion = components["schemas"]["PastPaperQuestionOut"];
+export type PastPaper = components["schemas"]["PastPaperOut"];
+export type PastPaperDetail = components["schemas"]["PastPaperDetail"];
+export type PastPaperAttempt = components["schemas"]["PastPaperAttemptOut"];
 
 export const listPastPapers = (subjectId?: number) =>
   api<PastPaper[]>(`/api/v1/past-papers${subjectId ? `?subject_id=${subjectId}` : ""}`);
