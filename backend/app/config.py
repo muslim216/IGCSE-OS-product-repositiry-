@@ -121,10 +121,16 @@ class Settings(BaseSettings):
     s3_bucket: str = ""
     # Empty targets AWS itself. R2 and MinIO require their own endpoint.
     s3_endpoint_url: str = ""
-    # R2 ignores the region but the SDK requires one; "auto" is what R2 documents.
+    # "auto" is what R2 documents and is correct for a custom endpoint. AWS
+    # itself rejects it — see the validator below, which requires a real region
+    # when no endpoint is set rather than letting every request fail signing.
     s3_region: str = "auto"
-    s3_access_key_id: str = ""
-    s3_secret_access_key: str = ""
+    # None, not "": an empty string is a *present* credential as far as boto3 is
+    # concerned, so it overrides the standard credential chain (env vars, shared
+    # config, instance role) and every request then fails authentication.
+    # Leaving these unset must mean "resolve them the normal way".
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
     # Signed URLs are bearer credentials that cannot be revoked before they
     # expire, so the window is short by default (threat review F3). They are
     # minted only for tutor material — student submissions proxy through the
@@ -139,12 +145,26 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @model_validator(mode="after")
-    def _s3_backend_needs_a_bucket(self) -> "Settings":
-        # A valid storage_backend value with no bucket is still a
-        # misconfiguration — better to fail startup than to have S3Backend's
-        # first real call fail confusingly against an empty bucket name.
-        if self.storage_backend == "s3" and not self.s3_bucket:
+    def _s3_backend_is_configured(self) -> "Settings":
+        # Fail startup rather than let the first real request fail confusingly
+        # against an empty bucket name or an unsignable region.
+        if self.storage_backend != "s3":
+            return self
+        if not self.s3_bucket:
             raise ValueError("S3_BUCKET is required when STORAGE_BACKEND=s3")
+        # "auto" is an R2-ism. Against AWS (no custom endpoint) it is not a real
+        # region and every signed request fails, which is a confusing way to
+        # discover a one-word config mistake.
+        if not self.s3_endpoint_url and self.s3_region == "auto":
+            raise ValueError(
+                "S3_REGION must name a real AWS region (e.g. eu-west-2) when "
+                "S3_ENDPOINT_URL is unset; 'auto' is only valid for R2"
+            )
+        if not 0 < self.signed_url_ttl_seconds <= 3600:
+            # Zero or negative mints URLs that are already expired; an
+            # over-long one keeps an unrevocable bearer credential alive far
+            # past the window threat review F3 asks for.
+            raise ValueError("SIGNED_URL_TTL_SECONDS must be between 1 and 3600")
         return self
 
 

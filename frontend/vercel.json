@@ -9,6 +9,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
+          "//": "connect-src must list the object-store origin before STORAGE_BACKEND=s3 goes live (task 1.2, AV-82). Tutor material is served as a 307 to a signed URL, and fetchFileUrl() follows that redirect — with 'self' alone the browser blocks it and every such download fails. It stays 'self' while the backend is local, which never redirects; add the bucket origin in the same change that flips the backend.",
           "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         },
         { "key": "X-Content-Type-Options", "value": "nosniff" },

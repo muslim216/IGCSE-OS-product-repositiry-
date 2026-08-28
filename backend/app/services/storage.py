@@ -7,8 +7,15 @@ row resolves whichever backend is configured.
 
 Keys are tenant-scoped (`org/{organization_id}/{random}.ext`), server-generated,
 and contain no user-controlled fragment (`SEC-16`). Rows written before task 1.2
-hold a bare `{random}.ext` key and still resolve: the key is whatever the row
-says, so no backfill is required.
+hold a bare `{random}.ext` key and still *resolve* under either backend: the key
+is whatever the row says, so no key rewrite or migration is needed.
+
+That is about key resolution only, and is not the same as the data being there.
+Switching an existing deployment from local disk to S3 does not move any bytes —
+every pre-existing file has to be copied into the bucket under its stored key, or
+those rows resolve to objects that do not exist. That copy is part of the
+production cutover, which is deliberately a separate change from this one;
+`STORAGE_BACKEND` stays `local` until it happens.
 """
 
 import asyncio
@@ -17,6 +24,7 @@ import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile, status
 
@@ -117,6 +125,23 @@ def safe_filename(name: str) -> str:
     reimplemented at each call site, where the two copies could drift."""
     cleaned = "".join(c for c in name if c.isprintable() and c not in '"\\\r\n')
     return cleaned[:200] or "download"
+
+
+def content_disposition(filename: str) -> str:
+    """A complete `attachment` Content-Disposition value, safe to put in a
+    header.
+
+    HTTP headers are latin-1 encoded, so a perfectly ordinary filename — Arabic,
+    Chinese, an emoji — raises `UnicodeEncodeError` when the header is built and
+    the download 500s. Starlette's `FileResponse` handled this for us before
+    task 1.2 replaced it, so this reimplements what it did: an ASCII-only
+    `filename=` that any client understands, plus RFC 5987 `filename*=` carrying
+    the real name for clients that read it.
+    """
+    safe = safe_filename(filename)
+    ascii_name = safe.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    quoted = quote(safe, safe="")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted}"
 
 
 class ObjectNotFoundError(Exception):
@@ -294,7 +319,7 @@ class S3Backend:
                 "Bucket": self._bucket,
                 "Key": key,
                 "ResponseContentType": mime,
-                "ResponseContentDisposition": f'attachment; filename="{safe_filename(filename)}"',
+                "ResponseContentDisposition": content_disposition(filename),
             },
             ExpiresIn=expires_in,
         )

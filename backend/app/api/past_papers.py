@@ -231,10 +231,12 @@ async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUse
     paper = await _visible_paper(db, user, past_paper_id)
     if paper.booklet_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No booklet uploaded")
+    # booklet_mime/_name are nullable, so fall back rather than 500 on a row
+    # that does have a file to serve (same reason as classifieds.py).
     return await signed_or_proxied_file(
         paper.booklet_path,
-        mime=paper.booklet_mime,
-        filename=paper.booklet_name,
+        mime=paper.booklet_mime or "application/octet-stream",
+        filename=paper.booklet_name or "booklet",
     )
 
 
@@ -246,8 +248,8 @@ async def past_paper_mark_scheme(past_paper_id: int, db: DbSession, user: TutorU
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No mark scheme uploaded")
     return await signed_or_proxied_file(
         paper.mark_scheme_path,
-        mime=paper.mark_scheme_mime,
-        filename=paper.mark_scheme_name,
+        mime=paper.mark_scheme_mime or "application/octet-stream",
+        filename=paper.mark_scheme_name or "mark-scheme",
     )
 
 

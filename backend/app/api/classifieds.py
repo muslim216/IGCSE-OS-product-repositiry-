@@ -106,8 +106,12 @@ async def download_mark_scheme(classified_id: int, db: DbSession, user: CurrentU
     # Mark schemes are tutor-only: students should not download the answers.
     if classified.tutor_id != user.id and user.role != UserRole.admin:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    # mark_scheme_mime/_name are nullable and can be absent on a partially
+    # populated row even when the path is set. Starlette's FileResponse
+    # tolerated None here before task 1.2; these helpers require real values,
+    # so fall back rather than 500 on a row that does have a file to serve.
     return await signed_or_proxied_file(
         classified.mark_scheme_path,
-        mime=classified.mark_scheme_mime,
-        filename=classified.mark_scheme_name,
+        mime=classified.mark_scheme_mime or "application/octet-stream",
+        filename=classified.mark_scheme_name or "mark-scheme",
     )

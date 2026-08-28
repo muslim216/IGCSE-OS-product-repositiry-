@@ -27,10 +27,16 @@ from app.services import storage
 log = logging.getLogger("api")
 
 
-def _disposition(filename: str) -> str:
-    """Files are always attachments, never rendered inline. A PDF opened inline
-    executes in the origin's context; served as an attachment it does not."""
-    return f'attachment; filename="{storage.safe_filename(filename)}"'
+#: Files are always attachments, never rendered inline. A PDF opened inline
+#: executes in the origin's context; served as an attachment it does not.
+_disposition = storage.content_disposition
+
+#: Both serving paths carry this. The proxied path needs it *more* than the
+#: signed one, not less: a bearer URL at least expires on its own, while these
+#: are the submission bytes themselves — a named minor's marked work — and an
+#: `Authorization` request header does not reliably stop a browser or shared
+#: cache from retaining the response.
+_NO_STORE = "no-store, private"
 
 
 async def proxied_file(key: str, *, mime: str, filename: str) -> Response:
@@ -54,7 +60,10 @@ async def proxied_file(key: str, *, mime: str, filename: str) -> Response:
     return Response(
         content=data,
         media_type=mime,
-        headers={"Content-Disposition": _disposition(filename)},
+        headers={
+            "Content-Disposition": _disposition(filename),
+            "Cache-Control": _NO_STORE,
+        },
     )
 
 
@@ -66,7 +75,15 @@ async def signed_or_proxied_file(key: str, *, mime: str, filename: str) -> Respo
     without an object store, and it is safe by construction: proxying is the
     stricter of the two paths, never the weaker one.
     """
-    url = storage.signed_url(key, mime=mime, filename=filename)
+    try:
+        url = storage.signed_url(key, mime=mime, filename=filename)
+    except Exception:
+        # Signing is a local computation, but it can still fail on a
+        # misconfigured client. Falling back to proxying degrades to the
+        # stricter path and keeps the download working, which is what the
+        # backend-cannot-sign branch below already does.
+        log.exception("could not mint a signed URL; proxying instead key=%s", key)
+        url = None
     if url is None:
         return await proxied_file(key, mime=mime, filename=filename)
     # 307 rather than 302: the method must be preserved, and a cached 302 for a
@@ -74,4 +91,4 @@ async def signed_or_proxied_file(key: str, *, mime: str, filename: str) -> Respo
     # makes that invariant part of the response itself rather than only a
     # comment — a 307 is unlikely to be cached by a conformant client even
     # without it, but the URL is a bearer credential and this is cheap.
-    return RedirectResponse(url, status_code=307, headers={"Cache-Control": "no-store"})
+    return RedirectResponse(url, status_code=307, headers={"Cache-Control": _NO_STORE})

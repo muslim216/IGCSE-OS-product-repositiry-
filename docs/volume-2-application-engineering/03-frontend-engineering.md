@@ -275,9 +275,15 @@ its own, and browsers strip `Authorization` before following a cross-origin redi
 on deliberately, so the bearer token never reaches the object store. This still counts as the
 one sanctioned bypass, not a second one: the shape widened, the function did not multiply. See
 `backend/app/api/file_responses.py` and `frontend/src/api/homework.ts:fetchFileUrl()` for the
-two sides of the contract. The object store's CORS policy must allow the frontend origin for
-GET, or the redirect path fails — local disk and MinIO never redirect, so this only bites once
-a signing backend is actually configured in production.
+two sides of the contract.
+
+Which path a request takes is decided by the configured backend, not by the endpoint: local
+disk cannot mint a signed URL, so it always proxies; anything S3-compatible — including the
+MinIO in `docker-compose.yml`'s `full` profile — redirects for tutor material; and a signer
+that fails falls back to proxying, which is the stricter path, never the weaker one. Before
+`STORAGE_BACKEND=s3` goes live, two things must be configured together or every signed
+download fails: the bucket's CORS policy has to allow the frontend origin for GET, and
+`connect-src` in `frontend/vercel.json`'s CSP has to list the object-store origin.
 
 **`FE-2` — MUST NOT · Critical · Active**
 Never write `refresh_token` to `localStorage`, `sessionStorage`, IndexedDB, or any

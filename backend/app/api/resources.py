@@ -78,7 +78,11 @@ async def create_resource(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY, "A file resource needs a file"
             )
-        path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
+        # The group's organization, not the caller's: the resource is owned by
+        # the group (`tutor_id=group.tutor_id` above), and an admin acting
+        # across organizations would otherwise file it under their own tenant
+        # prefix. Matches services/assignments.py.
+        path, name, mime = await storage.save_upload(file, organization_id=group.organization_id)
         resource.file_path = path
         resource.file_name = name
         resource.file_mime = mime

@@ -14,6 +14,7 @@ at any time, every override is audited, and a student can contest any
 finalized mark through a remark request.
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
@@ -307,8 +308,12 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         content.append(file_block(*source.booklet, cache=True))
     if source.mark_scheme is not None:
         content.append(file_block(*source.mark_scheme, cache=True))
-    for f in files:
-        content.append(file_block(await storage.read_file(f.path), f.mime))
+    # Fetched concurrently: these are independent reads, and against an object
+    # store each is a network round trip, so awaiting them one at a time makes
+    # a multi-page submission N sequential round trips. gather preserves order,
+    # which matters — the pages are the student's work in sequence.
+    pages = await asyncio.gather(*(storage.read_file(f.path) for f in files))
+    content.extend(file_block(data, f.mime) for data, f in zip(pages, files, strict=True))
 
     content.append(
         {

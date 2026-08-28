@@ -167,3 +167,34 @@ def test_signed_urls_are_not_reused_across_calls(signing_storage, monkeypatch):
     storage.signed_url("org/1/x.pdf", mime="application/pdf", filename="x.pdf")
     storage.signed_url("org/1/x.pdf", mime="application/pdf", filename="x.pdf")
     assert len(calls) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Content-Disposition header safety
+# --------------------------------------------------------------------------- #
+
+
+def test_a_non_ascii_filename_produces_a_header_that_can_be_encoded():
+    """HTTP headers are latin-1. A perfectly ordinary Arabic or Chinese
+    filename raised UnicodeEncodeError when the header was built, 500ing a
+    valid download — Starlette's FileResponse handled this before task 1.2
+    replaced it."""
+    value = storage.content_disposition("واجب الطالب.pdf")
+    value.encode("latin-1")  # must not raise
+    assert "filename*=UTF-8''" in value
+
+
+def test_content_disposition_still_blocks_header_injection():
+    """The property that matters is that a crafted name cannot *break out* of
+    the header — no CR/LF to start a new one, no bare quote to end the value
+    early. Surviving as literal text inside the quoted filename is harmless."""
+    value = storage.content_disposition('evil".pdf\r\nX-Injected: 1')
+    value.encode("latin-1")
+    assert "\r" not in value and "\n" not in value
+    # Exactly two quotes: the ones opening and closing the filename value.
+    assert value.count('"') == 2
+
+
+def test_content_disposition_always_marks_the_file_as_an_attachment():
+    """Never inline: a PDF opened inline executes in the origin's context."""
+    assert storage.content_disposition("x.pdf").startswith("attachment;")

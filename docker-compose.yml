@@ -26,9 +26,15 @@ services:
     environment:
       MINIO_ROOT_USER: igcse-dev
       MINIO_ROOT_PASSWORD: igcse-dev-secret
+      # Must match S3_REGION on the backend: boto3 signs with the configured
+      # region and MinIO rejects a mismatch as SignatureDoesNotMatch.
+      MINIO_REGION: us-east-1
     ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # web console
+      # Bound to loopback: these carry fixed root credentials, and an
+      # unqualified "9000:9000" publishes the dev bucket to anything that can
+      # reach this host on the network.
+      - "127.0.0.1:9000:9000" # S3 API
+      - "127.0.0.1:9001:9001" # web console
     volumes:
       - miniodata:/data
     healthcheck:
@@ -54,13 +60,19 @@ services:
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       S3_BUCKET: ${S3_BUCKET:-avora-dev}
       S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
-      S3_REGION: ${S3_REGION:-auto}
+      # Matches MINIO_REGION above. Not "auto" — that is an R2-ism, and MinIO
+      # signs against its own configured region.
+      S3_REGION: ${S3_REGION:-us-east-1}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-igcse-dev}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-igcse-dev-secret}
     ports:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+      minio:
+        # Only meaningful under STORAGE_BACKEND=s3, but harmless otherwise and
+        # cheaper than debugging a first upload that raced MinIO's startup.
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
