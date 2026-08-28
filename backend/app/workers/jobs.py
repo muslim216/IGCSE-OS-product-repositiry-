@@ -129,7 +129,23 @@ async def register_worker(now: datetime | None = None) -> None:
         async with async_session() as session:
             await session.execute(
                 delete(WorkerHeartbeat).where(
-                    WorkerHeartbeat.last_loop_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS)
+                    WorkerHeartbeat.last_loop_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS),
+                    # A worker inside a single long job does not advance
+                    # last_loop_at — see worker_loop() — so without this
+                    # exclusion a job running past HEARTBEAT_REAP_SECONDS
+                    # would have its own (live) row reaped out from under it,
+                    # losing the "stalled" signal JOB_STALL_SECONDS exists to
+                    # give rather than just being slow to update a clock.
+                    #
+                    # The residual, deliberately accepted: a worker killed
+                    # mid-job leaves job_started_at set, so its row is now
+                    # never reaped. It cannot be told apart from a live long
+                    # job without a heartbeat that beats *during* a job, which
+                    # this loop cannot do while it awaits process_one_job().
+                    # Tolerated because worker_status() reports the healthiest
+                    # row, so an orphan cannot by itself turn /health/ready
+                    # red while a real worker is running.
+                    WorkerHeartbeat.job_started_at.is_(None),
                 )
             )
             row = await session.scalar(

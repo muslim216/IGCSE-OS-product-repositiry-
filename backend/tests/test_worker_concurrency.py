@@ -30,22 +30,56 @@ import contextlib
 import os
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import delete, func, select
 
 from app.db import async_session, engine
 from app.models import Base, Job, JobStatus
 from app.workers import jobs
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("TEST_DATABASE_URL", "").startswith("postgresql"),
-    reason=(
-        "needs real Postgres: SQLite silently drops FOR UPDATE SKIP LOCKED, so this "
-        "would pass without exercising the lock (see docs/av-82-architecture-impact-report.md)"
+pytestmark = [
+    pytest.mark.skipif(
+        not os.environ.get("TEST_DATABASE_URL", "").startswith("postgresql"),
+        reason=(
+            "needs real Postgres: SQLite silently drops FOR UPDATE SKIP LOCKED, so this "
+            "would pass without exercising the lock (see docs/av-82-architecture-impact-report.md)"
+        ),
     ),
-)
+    # Module-scoped, not the function-scoped default: `engine` (app.db) is a
+    # module-level asyncpg pool created once and shared by every test here. A
+    # fresh event loop per test would leave pooled connections bound to a loop
+    # that the next test's loop is not — a RuntimeError during fixture setup,
+    # not a real bug in the code under test.
+    pytest.mark.asyncio(loop_scope="module"),
+]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="module", autouse=True)
+async def _db_schema():
+    """Shadow conftest's function-scoped `_db_schema` for this module.
+
+    That fixture's loop is function-scoped by default, which does not match
+    the module-scoped loop the tests below run in (see the `loop_scope`
+    marker above) — asyncpg connections opened while it runs would be bound
+    to a loop the tests then reach from a different one, which is exactly
+    the "attached to a different loop" / "another operation is in progress"
+    failures this override exists to avoid. `pg_schema` below still does its
+    own per-test cleanup; this only replaces the create half.
+
+    It deliberately does NOT drop the schema on the way out, for the same
+    reason conftest's version guards its teardown: TEST_DATABASE_URL points
+    DATABASE_URL at a real database, so a `drop_all` here deletes the schema
+    CI's migrations job just built and verified, and against any other
+    Postgres someone points this at, it is straightforward data loss. The
+    tables are shared with that job by design; only the rows below are ours
+    to clean up.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+@pytest_asyncio.fixture(loop_scope="module")
 async def pg_schema():
     """Make sure the tables exist and start from an empty queue.
 
@@ -54,16 +88,13 @@ async def pg_schema():
     migrations job). Only the rows this test creates are cleaned up — dropping
     the schema would fight the migration job it runs inside.
 
-    The engine is disposed at both ends. `app.db.engine` is module-level and
-    pools its connections, but pytest-asyncio gives each test a fresh event
-    loop — so a connection opened under one test's loop and reused by the next
-    fails with "attached to a different loop", inside fixture setup, where the
-    traceback points at asyncpg rather than at the cause. Disposing drops the
-    pooled connections so each test opens its own. This is a real constraint on
-    any Postgres test that shares this engine, so 1.5's two-instance suite will
-    need the same treatment.
+    Loop scope is the module's, not the per-test default, because `app.db.engine`
+    is module-level and pools its connections: a connection opened under one
+    test's loop and reused by the next fails with "attached to a different
+    loop" during fixture setup, where the traceback points at asyncpg rather
+    than at the cause. That is a real constraint on any Postgres test sharing
+    this engine, so 1.5's two-instance suite will need the same treatment.
     """
-    await engine.dispose()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as session:
@@ -79,7 +110,6 @@ async def pg_schema():
     async with async_session() as session:
         await session.execute(delete(Job))
         await session.commit()
-    await engine.dispose()
 
 
 async def test_two_workers_never_claim_the_same_job(pg_schema):
