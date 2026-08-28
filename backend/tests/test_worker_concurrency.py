@@ -71,7 +71,7 @@ async def _db_schema():
         await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(loop_scope="module")
 async def pg_schema():
     """Make sure the tables exist and start from an empty queue.
 
