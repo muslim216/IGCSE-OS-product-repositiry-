@@ -233,7 +233,7 @@ def create_app() -> FastAPI:
             worker = await asyncio.wait_for(
                 worker_status(), timeout=READINESS_DB_TIMEOUT_SECONDS
             )
-        except (TimeoutError, asyncio.TimeoutError):
+        except TimeoutError:
             log.exception("worker status read timed out")
             worker = WorkerStatus(
                 state="not_started",
