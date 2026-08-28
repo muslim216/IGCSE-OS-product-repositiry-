@@ -129,23 +129,31 @@ async def register_worker(now: datetime | None = None) -> None:
         async with async_session() as session:
             await session.execute(
                 delete(WorkerHeartbeat).where(
-                    WorkerHeartbeat.last_loop_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS),
-                    # A worker inside a single long job does not advance
-                    # last_loop_at — see worker_loop() — so without this
-                    # exclusion a job running past HEARTBEAT_REAP_SECONDS
-                    # would have its own (live) row reaped out from under it,
-                    # losing the "stalled" signal JOB_STALL_SECONDS exists to
-                    # give rather than just being slow to update a clock.
-                    #
-                    # The residual, deliberately accepted: a worker killed
-                    # mid-job leaves job_started_at set, so its row is now
-                    # never reaped. It cannot be told apart from a live long
-                    # job without a heartbeat that beats *during* a job, which
-                    # this loop cannot do while it awaits process_one_job().
-                    # Tolerated because worker_status() reports the healthiest
-                    # row, so an orphan cannot by itself turn /health/ready
-                    # red while a real worker is running.
-                    WorkerHeartbeat.job_started_at.is_(None),
+                    or_(
+                        # No job in flight: last_loop_at alone tells us the
+                        # loop stopped turning, exactly as before.
+                        (
+                            WorkerHeartbeat.job_started_at.is_(None)
+                            & (WorkerHeartbeat.last_loop_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS))
+                        ),
+                        # A job in flight: a worker inside a single long job
+                        # does not advance last_loop_at (see worker_loop()), so
+                        # last_loop_at cannot be the test here — a live job
+                        # past JOB_STALL_SECONDS must keep reporting `stalled`,
+                        # not disappear. job_started_at itself is what a
+                        # process killed mid-job leaves behind forever, so once
+                        # a job has been "in flight" past the same
+                        # HEARTBEAT_REAP_SECONDS window, that is no longer a
+                        # slow job — nothing survives that long — it is a dead
+                        # process's last row, and reaping it is what makes
+                        # `register_worker` responsible for the case
+                        # `worker_loop()` cannot detect from inside its own
+                        # await.
+                        (
+                            WorkerHeartbeat.job_started_at.is_not(None)
+                            & (WorkerHeartbeat.job_started_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS))
+                        ),
+                    )
                 )
             )
             row = await session.scalar(
@@ -216,6 +224,8 @@ async def note_worker_restart(now: datetime | None = None) -> None:
         raise
     except TimeoutError:
         task.cancel()
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await task
         log.warning("worker restart record timed out; continuing without it")
     except Exception:  # noqa: BLE001 — see _write_heartbeat
         log.exception("could not record worker restart")
