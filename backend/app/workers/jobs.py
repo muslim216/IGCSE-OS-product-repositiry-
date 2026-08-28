@@ -105,6 +105,7 @@ async def _write_heartbeat(**fields) -> None:
     processing — the heartbeat is a report about the worker, not a dependency
     of it.
     """
+    global _worker_registered
     if not _worker_registered:
         return
     try:
@@ -113,6 +114,18 @@ async def _write_heartbeat(**fields) -> None:
                 select(WorkerHeartbeat).where(WorkerHeartbeat.worker_id == WORKER_ID)
             )
             if row is None:
+                # Our row is gone but we are demonstrably alive. That happens
+                # when another worker's register_worker() reaps us: a job in
+                # flight past HEARTBEAT_REAP_SECONDS is indistinguishable from
+                # a process that died holding one, so the reap is right to be
+                # aggressive — but the live worker must come back, not vanish.
+                # Returning silently here would leave this process working
+                # normally while absent from every health answer, which is the
+                # invisible-worker failure (RISK-4) this table exists to end.
+                # Clearing the flag hands it to worker_loop's existing
+                # re-registration retry on the next iteration.
+                _worker_registered = False
+                log.warning("worker heartbeat row disappeared; will re-register")
                 return
             for key, value in fields.items():
                 setattr(row, key, value)

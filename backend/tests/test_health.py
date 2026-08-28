@@ -11,7 +11,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db import async_session
 from app.models import Job, JobStatus, WorkerHeartbeat
@@ -22,6 +22,7 @@ from app.workers.jobs import (
     STALE_AFTER_SECONDS,
     enqueue,
     process_one_job,
+    register_worker,
 )
 from app.workers.runner import supervised_worker
 
@@ -439,3 +440,44 @@ async def test_a_hanging_database_is_reported_rather_than_waited_out(client, mon
     assert body["database"] == {"ok": False, "error": "TimeoutError"}
     # Not a queue of zeroes: PROD-2 applies to the platform's own telemetry.
     assert body["queue"] is None
+
+
+# --- A reaped worker comes back ---------------------------------------------
+
+
+async def test_a_worker_whose_row_was_reaped_re_registers():
+    """A live worker must never be left working while invisible.
+
+    register_worker() reaps a mid-job row once the job itself is older than
+    HEARTBEAT_REAP_SECONDS, because a job in flight that long cannot be told
+    apart from a process that died holding one. That is the right call, but it
+    can hit a worker that is genuinely alive — another worker starting is
+    enough. Before this, _write_heartbeat() found no row and returned silently
+    while _worker_registered stayed True, so the loop never re-registered: the
+    process went on doing work that no health answer could see, which is
+    exactly the RISK-4 blindness this table exists to end.
+    """
+    await register_worker()
+    assert jobs._worker_registered
+
+    # Stand in for another worker's register_worker() reaping this one.
+    async with async_session() as session:
+        await session.execute(
+            delete(WorkerHeartbeat).where(WorkerHeartbeat.worker_id == jobs.WORKER_ID)
+        )
+        await session.commit()
+
+    # The write process_one_job() does in its finally when the job ends.
+    await jobs._write_heartbeat(job_started_at=None)
+    assert not jobs._worker_registered, "a vanished row must clear the flag, not pass silently"
+
+    # worker_loop()'s existing retry, which the cleared flag hands it to.
+    if not jobs._worker_registered:
+        await register_worker()
+
+    async with async_session() as session:
+        row = await session.scalar(
+            select(WorkerHeartbeat).where(WorkerHeartbeat.worker_id == jobs.WORKER_ID)
+        )
+    assert row is not None, "the worker must be visible again"
+    assert jobs._worker_registered
