@@ -8,6 +8,7 @@ from app.models import (
     MarkConfidence,
     QuestionMark,
     QuestionTopic,
+    SubmissionFile,
     Topic,
 )
 from app.workers.jobs import process_one_job
@@ -654,10 +655,12 @@ async def test_iphone_photos_are_converted_to_jpeg():
     Image.new("RGB", (8, 8), (120, 30, 30)).save(buffer, format="HEIF")
     heic_bytes = buffer.getvalue()
 
-    path, _name, mime = storage.save_bytes(heic_bytes, "image/heic", "work.heic")
+    key, _name, mime = await storage.save_bytes(
+        heic_bytes, "image/heic", "work.heic", organization_id=1
+    )
     assert mime == "image/jpeg"
-    assert path.endswith(".jpg")
-    assert storage.read_file(path).startswith(b"\xff\xd8")  # JPEG magic bytes
+    assert key.endswith(".jpg")
+    assert (await storage.read_file(key)).startswith(b"\xff\xd8")  # JPEG magic bytes
 
 
 async def test_heic_that_cannot_be_decoded_is_rejected():
@@ -665,14 +668,18 @@ async def test_heic_that_cannot_be_decoded_is_rejected():
     from app.services import storage
 
     with pytest.raises(ValueError, match="couldn't be read"):
-        storage.save_bytes(b"definitely not an image", "image/heic", "fake.heic")
+        await storage.save_bytes(
+            b"definitely not an image", "image/heic", "fake.heic", organization_id=1
+        )
 
 
 async def test_mime_aliases_are_normalised():
     """Some clients report image/jpg; it must not be rejected as unknown."""
     from app.services import storage
 
-    _, _, mime = storage.save_bytes(b"\xff\xd8\xff fake jpeg", "image/jpg", "photo.jpg")
+    _, _, mime = await storage.save_bytes(
+        b"\xff\xd8\xff fake jpeg", "image/jpg", "photo.jpg", organization_id=1
+    )
     assert mime == "image/jpeg"
 
 
@@ -734,15 +741,35 @@ async def test_oversized_bytes_are_rejected_before_any_decode():
     from app.services import storage
 
     with pytest.raises(ValueError, match="20 MB"):
-        storage.save_bytes(b"\x00" * (storage.MAX_FILE_BYTES + 1), "image/heic", "huge.heic")
+        await storage.save_bytes(
+            b"\x00" * (storage.MAX_FILE_BYTES + 1),
+            "image/heic",
+            "huge.heic",
+            organization_id=1,
+        )
+
+
+def _stored_keys() -> set[str]:
+    """Every object the local backend currently holds.
+
+    The StorageBackend contract has no list operation on purpose — nothing in
+    the application needs to enumerate a tenant's objects, and an S3 list is a
+    paginated network call, not a cheap directory read. The test reaches past
+    the interface deliberately.
+    """
+    from pathlib import Path
+
+    from app.config import get_settings
+
+    root = Path(get_settings().upload_dir)
+    return {str(p.relative_to(root)) for p in root.rglob("*") if p.is_file()}
 
 
 async def test_a_rejected_mark_scheme_leaves_no_orphaned_file(client, tutor, group):
     """The paper is written to disk before the mark scheme is validated, so a
     bad mark scheme must take the already-written paper with it."""
-    from app.services import storage
 
-    before = set(storage.upload_root().iterdir())
+    before = _stored_keys()
     resp = await client.post(
         "/api/v1/assignments/upload",
         data={"group_id": group["id"]},
@@ -753,4 +780,81 @@ async def test_a_rejected_mark_scheme_leaves_no_orphaned_file(client, tutor, gro
         headers=tutor["headers"],
     )
     assert resp.status_code == 415
-    assert set(storage.upload_root().iterdir()) == before
+    assert _stored_keys() == before
+
+
+async def test_submission_files_are_proxied_never_redirected(
+    client, tutor, student, published_assignment, signing_storage
+):
+    """The one rule F3 says must not be simplified away: student submissions
+    proxy through the API on every view, even when the configured backend is
+    capable of minting a signed URL. A redirect here would hand out a bearer
+    credential for a photograph of a named minor's marked work."""
+    aid = published_assignment["id"]
+    submission = await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("work.pdf", PDF_BYTES, "application/pdf"))],
+        headers=student["headers"],
+    )
+    assert submission.status_code == 201, submission.text
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    submission_id = subs.json()[0]["id"]
+    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
+    file_id = detail.json()["files"][0]["id"]
+
+    resp = await client.get(
+        f"/api/v1/submissions/{submission_id}/files/{file_id}",
+        headers=student["headers"],
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.content == PDF_BYTES
+    assert "location" not in resp.headers
+
+
+async def test_classified_material_gets_a_signed_redirect_by_contrast(
+    client, tutor, classified, signing_storage
+):
+    """The other half of the F3 split: tutor material with no personal data
+    does redirect. Proves the local-backend fallback in
+    test_submission_files_are_proxied_never_redirected is a deliberate choice
+    per endpoint, not the only path the code can take."""
+    resp = await client.get(
+        f"/api/v1/classifieds/{classified['id']}/file",
+        headers=tutor["headers"],
+        follow_redirects=False,
+    )
+    assert resp.status_code == 307
+    assert resp.headers["location"].startswith("https://objects.example/")
+
+
+async def test_a_stale_row_returns_404_not_an_unhandled_500(
+    client, tutor, student, published_assignment
+):
+    """The object a row points at can go missing independently of the row —
+    a lifecycle policy, a manual bucket edit. That must surface as 404, not a
+    bare 500 with no distinguishing signal (backend/app/api/file_responses.py)."""
+    from app.db import async_session
+    from app.services import storage
+
+    aid = published_assignment["id"]
+    submission = await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("work.pdf", PDF_BYTES, "application/pdf"))],
+        headers=student["headers"],
+    )
+    assert submission.status_code == 201, submission.text
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    submission_id = subs.json()[0]["id"]
+    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
+    file_id = detail.json()["files"][0]["id"]
+
+    async with async_session() as session:
+        row = await session.get(SubmissionFile, file_id)
+        await storage.delete_file(row.path)  # the object vanishes; the row stays
+
+    resp = await client.get(
+        f"/api/v1/submissions/{submission_id}/files/{file_id}",
+        headers=student["headers"],
+    )
+    assert resp.status_code == 404, f"expected 404, got {resp.status_code}: {resp.text}"

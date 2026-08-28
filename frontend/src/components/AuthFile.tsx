@@ -26,21 +26,28 @@ export function AuthImage({ path, alt }: { path: string; alt: string }) {
 
 export function AuthFileLink({ path, label }: { path: string; label: string }) {
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
     <button
       disabled={busy}
       onClick={async () => {
         setBusy(true);
+        setFailed(false);
         try {
           const url = await fetchFileUrl(path);
           window.open(url, "_blank");
+        } catch {
+          // Since task 1.2, tutor material can redirect to the object store —
+          // a network failure or bucket CORS misconfiguration surfaces here
+          // as a rejected fetch rather than a response status to check.
+          setFailed(true);
         } finally {
           setBusy(false);
         }
       }}
       className="text-blue-600 hover:underline disabled:opacity-50"
     >
-      {busy ? "Opening…" : label}
+      {busy ? "Opening…" : failed ? "Couldn't open — try again" : label}
     </button>
   );
 }

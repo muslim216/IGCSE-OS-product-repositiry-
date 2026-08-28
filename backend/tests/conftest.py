@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from app.db import engine
 from app.main import app
 from app.models import Base
+from app.services import storage
 from app.services.ai import AiProvider, AiResponse
 
 
@@ -42,6 +43,24 @@ def fake_ai():
         )
     """
     return _fake_structured_complete
+
+
+class FakeSigningBackend(storage.LocalBackend):
+    """A local backend that also mints signed URLs, standing in for S3 so the
+    F3 serving split (proxy vs. signed redirect) can be tested without a real
+    object store. Shared here rather than living in one test module, since
+    both test_storage.py and test_homework.py need to swap it in — the same
+    reason `fake_ai` above lives in conftest rather than one caller's file."""
+
+    def get_signed_url(self, key, *, mime, filename, expires_in):
+        return f"https://objects.example/{key}?sig=deadbeef&expires={expires_in}"
+
+
+@pytest.fixture
+def signing_storage(monkeypatch):
+    backend = FakeSigningBackend()
+    monkeypatch.setattr(storage, "get_storage", lambda: backend)
+    return backend
 
 
 @pytest.fixture(autouse=True)

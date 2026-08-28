@@ -5,6 +5,7 @@ and the `Assignment` that points at it, and queues extraction — replacing the
 two-request flow where a failure in between left an orphaned classified.
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Assignment, AssignmentStatus, Classified, Group, User
 from app.services import storage
 from app.workers.jobs import enqueue
+
+log = logging.getLogger("api")
 
 
 async def create_from_upload(
@@ -37,7 +40,7 @@ async def create_from_upload(
     """
     written: list[str] = []
     try:
-        path, name, mime = await storage.save_upload(file)
+        path, name, mime = await storage.save_upload(file, organization_id=group.organization_id)
         written.append(path)
         # "4CH1 June 2023 Paper 1.pdf" -> "4CH1 June 2023 Paper 1"
         resolved_title = (title or Path(name).stem or name)[:255]
@@ -51,7 +54,9 @@ async def create_from_upload(
             file_mime=mime,
         )
         if mark_scheme is not None:
-            ms_path, ms_name, ms_mime = await storage.save_upload(mark_scheme)
+            ms_path, ms_name, ms_mime = await storage.save_upload(
+                mark_scheme, organization_id=group.organization_id
+            )
             written.append(ms_path)
             classified.mark_scheme_path = ms_path
             classified.mark_scheme_name = ms_name
@@ -75,7 +80,15 @@ async def create_from_upload(
     except Exception:
         await session.rollback()
         for rel_path in written:
-            storage.delete_file(rel_path)
+            # Each delete is isolated: a failure here (a network blip against
+            # S3, unlike local unlink(missing_ok=True) which never raises)
+            # must not stop the remaining files from being cleaned up, and
+            # must not replace the original exception this except block is
+            # already handling.
+            try:
+                await storage.delete_file(rel_path)
+            except Exception:
+                log.exception("could not clean up orphaned upload key=%s", rel_path)
         raise
 
     return assignment

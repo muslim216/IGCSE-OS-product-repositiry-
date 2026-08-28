@@ -59,7 +59,7 @@ async def extract_syllabus(session: AsyncSession, payload: dict) -> None:
 
 
 async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None:
-    content: list[dict] = [file_block(storage.read_file(upload.file_path), upload.file_mime)]
+    content: list[dict] = [file_block(await storage.read_file(upload.file_path), upload.file_mime)]
     content.append(
         {
             "type": "text",

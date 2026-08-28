@@ -54,6 +54,25 @@ services:
       - key: UPLOAD_DIR
         value: /data/uploads
 
+      # --- Object storage (task 1.2, AV-82) ------------------------------
+      # STORAGE_BACKEND stays "local" here deliberately: the persistent disk
+      # above is still what's live. Flipping to "s3" is a separate, deliberate
+      # cutover once a real bucket exists (docs/av-82-architecture-impact-
+      # report.md recommends Cloudflare R2) — it is not automatic from this
+      # key existing. The S3_* values are placeholders until that day.
+      - key: STORAGE_BACKEND
+        value: local
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_REGION
+        value: auto
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+
       # --- AI providers -------------------------------------------------
       # Anthropic serves chat, reports, readiness synthesis and class briefs.
       - key: ANTHROPIC_API_KEY

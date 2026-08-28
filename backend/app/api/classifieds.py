@@ -1,10 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, TutorUser
+from app.api.file_responses import signed_or_proxied_file
 from app.models import (
     Assignment,
     AssignmentStatus,
@@ -32,7 +32,7 @@ async def upload_classified(
     subject = await db.get(Subject, subject_id)
     if subject is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
-    path, name, mime = await storage.save_upload(file)
+    path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     classified = Classified(
         organization_id=user.organization_id,
         tutor_id=user.id,
@@ -43,7 +43,9 @@ async def upload_classified(
         file_mime=mime,
     )
     if mark_scheme is not None:
-        ms_path, ms_name, ms_mime = await storage.save_upload(mark_scheme)
+        ms_path, ms_name, ms_mime = await storage.save_upload(
+            mark_scheme, organization_id=user.organization_id
+        )
         classified.mark_scheme_path = ms_path
         classified.mark_scheme_name = ms_name
         classified.mark_scheme_mime = ms_mime
@@ -85,29 +87,31 @@ async def _can_view_classified(db, user: User, classified: Classified) -> bool:
 
 
 @router.get("/{classified_id}/file")
-async def download_classified(classified_id: int, db: DbSession, user: CurrentUser) -> FileResponse:
+async def download_classified(classified_id: int, db: DbSession, user: CurrentUser) -> Response:
     classified = await db.get(Classified, classified_id)
     if classified is None or not await _can_view_classified(db, user, classified):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    return FileResponse(
-        storage.absolute_path(classified.file_path),
-        media_type=classified.file_mime,
+    return await signed_or_proxied_file(
+        classified.file_path,
+        mime=classified.file_mime,
         filename=classified.file_name,
     )
 
 
 @router.get("/{classified_id}/mark-scheme")
-async def download_mark_scheme(
-    classified_id: int, db: DbSession, user: CurrentUser
-) -> FileResponse:
+async def download_mark_scheme(classified_id: int, db: DbSession, user: CurrentUser) -> Response:
     classified = await db.get(Classified, classified_id)
     if classified is None or classified.mark_scheme_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     # Mark schemes are tutor-only: students should not download the answers.
     if classified.tutor_id != user.id and user.role != UserRole.admin:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    return FileResponse(
-        storage.absolute_path(classified.mark_scheme_path),
-        media_type=classified.mark_scheme_mime,
-        filename=classified.mark_scheme_name,
+    # mark_scheme_mime/_name are nullable and can be absent on a partially
+    # populated row even when the path is set. Starlette's FileResponse
+    # tolerated None here before task 1.2; these helpers require real values,
+    # so fall back rather than 500 on a row that does have a file to serve.
+    return await signed_or_proxied_file(
+        classified.mark_scheme_path,
+        mime=classified.mark_scheme_mime or "application/octet-stream",
+        filename=classified.mark_scheme_name or "mark-scheme",
     )

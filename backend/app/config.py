@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -109,6 +110,32 @@ class Settings(BaseSettings):
     # even without extra config — set a dedicated value in production.
     google_token_encryption_key: str | None = None
     upload_dir: str = "uploads"
+    # "local" writes under upload_dir; "s3" targets any S3-compatible store
+    # (AWS S3, Cloudflare R2, MinIO). Local is the default so development and
+    # tests need no object store, and so a missing bucket cannot silently
+    # become the production configuration. A Literal rather than a bare str:
+    # a typo (e.g. "S3") must fail startup, not silently keep production on
+    # the single-instance-pinning local disk this task exists to remove
+    # (RISK-1).
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_bucket: str = ""
+    # Empty targets AWS itself. R2 and MinIO require their own endpoint.
+    s3_endpoint_url: str = ""
+    # "auto" is what R2 documents and is correct for a custom endpoint. AWS
+    # itself rejects it — see the validator below, which requires a real region
+    # when no endpoint is set rather than letting every request fail signing.
+    s3_region: str = "auto"
+    # None, not "": an empty string is a *present* credential as far as boto3 is
+    # concerned, so it overrides the standard credential chain (env vars, shared
+    # config, instance role) and every request then fails authentication.
+    # Leaving these unset must mean "resolve them the normal way".
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    # Signed URLs are bearer credentials that cannot be revoked before they
+    # expire, so the window is short by default (threat review F3). They are
+    # minted only for tutor material — student submissions proxy through the
+    # API so the ownership check runs on every view.
+    signed_url_ttl_seconds: int = 300
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
@@ -116,6 +143,29 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _s3_backend_is_configured(self) -> "Settings":
+        # Fail startup rather than let the first real request fail confusingly
+        # against an empty bucket name or an unsignable region.
+        if self.storage_backend != "s3":
+            return self
+        if not self.s3_bucket:
+            raise ValueError("S3_BUCKET is required when STORAGE_BACKEND=s3")
+        # "auto" is an R2-ism. Against AWS (no custom endpoint) it is not a real
+        # region and every signed request fails, which is a confusing way to
+        # discover a one-word config mistake.
+        if not self.s3_endpoint_url and self.s3_region == "auto":
+            raise ValueError(
+                "S3_REGION must name a real AWS region (e.g. eu-west-2) when "
+                "S3_ENDPOINT_URL is unset; 'auto' is only valid for R2"
+            )
+        if not 0 < self.signed_url_ttl_seconds <= 3600:
+            # Zero or negative mints URLs that are already expired; an
+            # over-long one keeps an unrevocable bearer credential alive far
+            # past the window threat review F3 asks for.
+            raise ValueError("SIGNED_URL_TTL_SECONDS must be between 1 and 3600")
+        return self
 
 
 @lru_cache

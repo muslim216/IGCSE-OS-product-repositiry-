@@ -14,6 +14,7 @@ at any time, every override is audited, and a student can contest any
 finalized mark through a remark request.
 """
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
@@ -131,12 +132,12 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
     # exactly that, and the mark lands finalized with no official scheme behind
     # it and no tutor in the loop.
     booklet = (
-        (storage.read_file(classified.file_path), classified.file_mime)
+        (await storage.read_file(classified.file_path), classified.file_mime)
         if classified is not None and classified.file_path and classified.file_mime
         else None
     )
     mark_scheme = (
-        (storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
+        (await storage.read_file(classified.mark_scheme_path), classified.mark_scheme_mime)
         if classified is not None and classified.mark_scheme_path and classified.mark_scheme_mime
         else None
     )
@@ -204,12 +205,12 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
     # without a mark scheme told the model it had the official scheme in front of
     # it — the one input AI-11 lets a mark auto-finalize on.
     booklet = (
-        (storage.read_file(paper.booklet_path), paper.booklet_mime)
+        (await storage.read_file(paper.booklet_path), paper.booklet_mime)
         if paper.booklet_path and paper.booklet_mime
         else None
     )
     mark_scheme = (
-        (storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
+        (await storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
         if paper.mark_scheme_path and paper.mark_scheme_mime
         else None
     )
@@ -307,8 +308,12 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         content.append(file_block(*source.booklet, cache=True))
     if source.mark_scheme is not None:
         content.append(file_block(*source.mark_scheme, cache=True))
-    for f in files:
-        content.append(file_block(storage.read_file(f.path), f.mime))
+    # Fetched concurrently: these are independent reads, and against an object
+    # store each is a network round trip, so awaiting them one at a time makes
+    # a multi-page submission N sequential round trips. gather preserves order,
+    # which matters — the pages are the student's work in sequence.
+    pages = await asyncio.gather(*(storage.read_file(f.path) for f in files))
+    content.extend(file_block(data, f.mime) for data, f in zip(pages, files, strict=True))
 
     content.append(
         {
