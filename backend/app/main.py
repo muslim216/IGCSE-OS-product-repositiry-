@@ -132,6 +132,33 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+async def _worker_snapshot() -> WorkerStatus:
+    """The worker half of /health/ready, bounded and never fatal.
+
+    Bounded for the same reason as the queue probe, and separately from it:
+    this is a second database read, so a pool that is exhausted rather than
+    refused would hang here having sailed past that timeout.
+
+    An unreadable worker table reports `unknown`, which is not healthy — "no
+    idea" must not be answered with the 200 that "no workers yet" legitimately
+    gets.
+    """
+    try:
+        return await asyncio.wait_for(worker_status(), timeout=READINESS_DB_TIMEOUT_SECONDS)
+    # The failure is the answer.
+    except Exception:  # noqa: BLE001
+        log.exception("readiness check could not read worker status")
+        return WorkerStatus(
+            state="unknown",
+            started_at=None,
+            last_loop_at=None,
+            seconds_since_loop=None,
+            job_running_seconds=None,
+            restarts_in_window=0,
+            last_restart_at=None,
+        )
+
+
 def _age_seconds(value: datetime | None) -> float | None:
     """Seconds since `value`, tolerating a naive timestamp.
 
@@ -225,25 +252,7 @@ def create_app() -> FastAPI:
             log.exception("readiness check could not reach the database")
             database = {"ok": False, "error": exc.__class__.__name__}
 
-        # Bounded for the same reason as the queue probe above, and separately
-        # from it: this is a second database read, so a pool that is exhausted
-        # rather than refused would hang here having sailed past that timeout.
-        # An unreadable worker table reports `unknown`, which is not healthy —
-        # "no idea" must not be answered with the 200 that "no workers yet"
-        # legitimately gets.
-        try:
-            worker = await asyncio.wait_for(worker_status(), timeout=READINESS_DB_TIMEOUT_SECONDS)
-        except Exception:  # noqa: BLE001 — the failure is the answer
-            log.exception("readiness check could not read worker status")
-            worker = WorkerStatus(
-                state="unknown",
-                started_at=None,
-                last_loop_at=None,
-                seconds_since_loop=None,
-                job_running_seconds=None,
-                restarts_in_window=0,
-                last_restart_at=None,
-            )
+        worker = await _worker_snapshot()
         ok = database["ok"] and worker.healthy
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

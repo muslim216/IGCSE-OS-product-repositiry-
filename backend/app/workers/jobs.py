@@ -339,7 +339,8 @@ async def worker_status(now: datetime | None = None) -> WorkerStatus:
     try:
         async with async_session() as session:
             rows = list(await session.scalars(select(WorkerHeartbeat)))
-    except Exception:  # noqa: BLE001 — reported as `unknown`, never as healthy
+    # Reported as `unknown`, never as healthy.
+    except Exception:  # noqa: BLE001
         # NOT the same as an empty table. "No workers" is a healthy answer
         # under the test client; "the query failed" is not an answer at all,
         # and collapsing the two would return 200 for a database this endpoint

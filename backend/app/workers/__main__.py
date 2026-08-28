@@ -50,10 +50,18 @@ async def main() -> None:
         await worker
     except asyncio.CancelledError:
         log.info("standalone job worker stopped")
+        # Re-raised rather than swallowed here. Awaiting a task that gets
+        # cancelled and being cancelled *ourselves* arrive at this line
+        # identically, and swallowing the second would silently turn a
+        # cancellation into a normal return for whatever is above us. The
+        # shutdown is absorbed at the top level instead, where the process is
+        # exiting anyway and nothing is left to mislead.
+        raise
 
 
 if __name__ == "__main__":
-    # Ctrl-C / SIGINT is how this process is meant to stop; a traceback would
-    # make a normal shutdown look like a crash in the logs.
-    with contextlib.suppress(KeyboardInterrupt):
+    # Ctrl-C / SIGINT and SIGTERM are how this process is meant to stop; a
+    # traceback would make a normal shutdown look like a crash in the logs.
+    # CancelledError lands here because main() re-raises it — see above.
+    with contextlib.suppress(KeyboardInterrupt, asyncio.CancelledError):
         asyncio.run(main())
