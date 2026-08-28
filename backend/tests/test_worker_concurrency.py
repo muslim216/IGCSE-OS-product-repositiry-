@@ -28,6 +28,7 @@ import asyncio
 import os
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import delete, func, select
 
 from app.db import async_session, engine
@@ -49,6 +50,25 @@ pytestmark = [
     # not a real bug in the code under test.
     pytest.mark.asyncio(loop_scope="module"),
 ]
+
+
+@pytest_asyncio.fixture(loop_scope="module", autouse=True)
+async def _db_schema():
+    """Shadow conftest's function-scoped `_db_schema` for this module.
+
+    That fixture's loop is function-scoped by default, which does not match
+    the module-scoped loop the tests below run in (see the `loop_scope`
+    marker above) — asyncpg connections opened while it runs would be bound
+    to a loop the tests then reach from a different one, which is exactly
+    the "attached to a different loop" / "another operation is in progress"
+    failures this override exists to avoid. `pg_schema` below still does its
+    own per-test cleanup; this only replaces the create/drop-all half.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture

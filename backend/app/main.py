@@ -230,9 +230,7 @@ def create_app() -> FastAPI:
             # database that is unreachable rather than merely slow leaves
             # database["ok"] False regardless, so this still reports 503 —
             # it just does so without waiting out the pool.
-            worker = await asyncio.wait_for(
-                worker_status(), timeout=READINESS_DB_TIMEOUT_SECONDS
-            )
+            worker = await asyncio.wait_for(worker_status(), timeout=READINESS_DB_TIMEOUT_SECONDS)
         except TimeoutError:
             log.exception("worker status read timed out")
             worker = WorkerStatus(
