@@ -20,11 +20,13 @@ overrides the latter to SQLite before any app import; the opt-in name is what
 lets these tests reach a real database without changing what every other test
 runs against.
 
-CI's `migrations` job already stands up Postgres 16; wiring these into it is
-task 1.5's job, along with the rest of the two-instance suite.
+These run in CI's `migrations` job, which already stands up Postgres 16. That
+step fails if the URL is not Postgres or if anything skips, so a green tick
+cannot mean "never ran".
 """
 
 import asyncio
+import contextlib
 import os
 
 import pytest
@@ -51,16 +53,33 @@ async def pg_schema():
     already built the schema (which is the case in CI, where these run in the
     migrations job). Only the rows this test creates are cleaned up — dropping
     the schema would fight the migration job it runs inside.
+
+    The engine is disposed at both ends. `app.db.engine` is module-level and
+    pools its connections, but pytest-asyncio gives each test a fresh event
+    loop — so a connection opened under one test's loop and reused by the next
+    fails with "attached to a different loop", inside fixture setup, where the
+    traceback points at asyncpg rather than at the cause. Disposing drops the
+    pooled connections so each test opens its own. This is a real constraint on
+    any Postgres test that shares this engine, so 1.5's two-instance suite will
+    need the same treatment.
     """
+    await engine.dispose()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as session:
         await session.execute(delete(Job))
         await session.commit()
+    registered_before = set(jobs._handlers)
     yield
+    # `_handlers` is a process-global dict. Without this, the probe handlers
+    # below — one of which sleeps — stay registered for the rest of the pytest
+    # session and could be picked up by any later test that drains the queue.
+    for name in set(jobs._handlers) - registered_before:
+        jobs._handlers.pop(name, None)
     async with async_session() as session:
         await session.execute(delete(Job))
         await session.commit()
+    await engine.dispose()
 
 
 async def test_two_workers_never_claim_the_same_job(pg_schema):
@@ -107,10 +126,14 @@ async def test_a_job_left_running_by_a_killed_worker_is_visible(pg_schema):
     down here so the gap is a known one rather than a surprise.
     """
     started = asyncio.Event()
+    release = asyncio.Event()
 
     async def _hangs(session, payload):
         started.set()
-        await asyncio.sleep(30)
+        # Waits on an event rather than sleeping a fixed interval: the test
+        # cancels this deliberately, and a wall-clock sleep would decide how
+        # long a leaked task lingers if anything ever went wrong here.
+        await release.wait()
 
     jobs.register_handler("hang_probe", _hangs)
 
@@ -119,10 +142,26 @@ async def test_a_job_left_running_by_a_killed_worker_is_visible(pg_schema):
         await session.commit()
 
     task = asyncio.create_task(jobs.process_one_job())
-    await asyncio.wait_for(started.wait(), timeout=5)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        # Generous, because this only ever runs in CI against a cold asyncpg
+        # connection under variable load; it bounds a hang, it does not pace
+        # the test.
+        await asyncio.wait_for(started.wait(), timeout=30)
+    finally:
+        # In a finally so a timeout cannot leave the task pending — that would
+        # surface as "Task was destroyed but it is pending" and obscure the
+        # real failure.
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    # The cancelled task held an asyncpg connection mid-transaction — that is
+    # the whole point of simulating a hard kill. But the pool does not know
+    # the connection is unusable, and handing it to the next checkout raises
+    # deep inside asyncpg rather than cleanly. Disposing forces a fresh
+    # connection for the read below and for whatever runs after this test,
+    # rather than leaking a corrupt one into either.
+    await engine.dispose()
 
     async with async_session() as session:
         row = await session.scalar(select(Job).where(Job.type == "hang_probe"))

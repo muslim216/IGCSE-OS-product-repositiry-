@@ -51,6 +51,10 @@ services:
       JWT_SECRET: dev-only-secret-change-me
       CORS_ORIGINS: http://localhost:5173
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Set false only together with running a worker service; see
+      # backend/.env.example. Passed through explicitly because a value in the
+      # developer's .env does not reach the container otherwise.
+      RUN_WORKER_IN_API: ${RUN_WORKER_IN_API:-true}
       # Local disk remains the default (see the `minio` service comment).
       # Set STORAGE_BACKEND=s3 to exercise the object-storage path locally —
       # the bucket must exist first: `docker compose --profile full up -d

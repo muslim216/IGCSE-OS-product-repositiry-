@@ -13,6 +13,7 @@ contain.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import secrets
@@ -85,6 +86,12 @@ HEARTBEAT_REAP_SECONDS = 3600.0
 #: not register a heartbeat — doing so would make `not_started` unreachable in
 #: tests and turn every suite run into a fake worker.
 _worker_registered = False
+
+#: Ceiling on any single heartbeat write. These run on the worker's own path —
+#: including the supervisor's restart record — so an unbounded wait on an
+#: exhausted pool would delay the work itself for pool_timeout to record
+#: telemetry about it. Losing a heartbeat is cheap; stalling the worker is not.
+HEARTBEAT_WRITE_TIMEOUT_SECONDS = 5.0
 
 #: Throttle for the loop clock; see HEARTBEAT_INTERVAL_SECONDS.
 _last_heartbeat_write: datetime | None = None
@@ -170,13 +177,30 @@ async def note_worker_restart(now: datetime | None = None) -> None:
             row.restarts = kept
             await session.commit()
 
+    # Shielded: this runs from the supervisor, which is exactly where a
+    # shutdown cancellation lands. A restart recorded half-way is worse than
+    # useless — it leaves a statement in flight on the connection — and the
+    # write is a single short round trip, so letting it finish costs nothing
+    # measurable at shutdown.
+    #
+    # Bounded as well as shielded: telemetry must not hold up a restart. If the
+    # pool is exhausted, an unbounded acquire would block the supervisor for
+    # pool_timeout instead of honouring WORKER_RESTART_SECONDS, delaying the
+    # recovery this call exists to record.
+    task = asyncio.ensure_future(_record())
     try:
-        # Shielded: this runs from the supervisor, which is exactly where a
-        # shutdown cancellation lands. A restart recorded half-way is worse
-        # than useless — it leaves a statement in flight on the connection —
-        # and the write is a single short round trip, so letting it finish
-        # costs nothing measurable at shutdown.
-        await asyncio.shield(_record())
+        await asyncio.wait_for(asyncio.shield(task), timeout=HEARTBEAT_WRITE_TIMEOUT_SECONDS)
+    except asyncio.CancelledError:
+        # shield() re-raises the cancellation while `task` keeps running
+        # underneath. Awaiting it before propagating is what stops an orphaned
+        # write outliving this coroutine and finishing against a connection
+        # nobody is watching.
+        with contextlib.suppress(Exception):
+            await task
+        raise
+    except TimeoutError:
+        task.cancel()
+        log.warning("worker restart record timed out; continuing without it")
     except Exception:  # noqa: BLE001 — see _write_heartbeat
         log.exception("could not record worker restart")
 
@@ -211,8 +235,11 @@ class WorkerStatus:
 
     `state` is the operator-facing answer:
 
-    - `not_started` — worker_loop() has never run in this process. That is the
-      normal state under the test client, which never enters the app's lifespan.
+    - `not_started` — no worker has registered. That is the normal state under
+      the test client, which never enters the app's lifespan.
+    - `unknown` — the heartbeat table could not be read, so nothing is known
+      either way. Deliberately NOT healthy: reporting "no workers" when the
+      real answer is "no idea" would return 200 for an unreadable database.
     - `running` — the loop completed an iteration recently, or is inside a job.
     - `crash_looping` — the supervisor has restarted the loop CRASH_LOOP_THRESHOLD
       times inside the window. The loop is alive and no work is getting done.
@@ -296,9 +323,21 @@ async def worker_status(now: datetime | None = None) -> WorkerStatus:
     try:
         async with async_session() as session:
             rows = list(await session.scalars(select(WorkerHeartbeat)))
-    except Exception:  # noqa: BLE001 — the database check reports this separately
+    except Exception:  # noqa: BLE001 — reported as `unknown`, never as healthy
+        # NOT the same as an empty table. "No workers" is a healthy answer
+        # under the test client; "the query failed" is not an answer at all,
+        # and collapsing the two would return 200 for a database this endpoint
+        # could not read.
         log.exception("could not read worker heartbeats")
-        rows = []
+        return WorkerStatus(
+            state="unknown",
+            started_at=None,
+            last_loop_at=None,
+            seconds_since_loop=None,
+            job_running_seconds=None,
+            restarts_in_window=0,
+            last_restart_at=None,
+        )
 
     if not rows:
         return WorkerStatus(
@@ -410,6 +449,13 @@ async def worker_loop() -> None:
     await register_worker()
     log.info("job worker started (worker_id=%s)", WORKER_ID)
     while True:
+        # Retried, not attempted once: a database that is unreachable at
+        # startup would otherwise leave this worker permanently unregistered.
+        # Jobs would resume the moment the database came back — the claim
+        # query has its own connection — while readiness went on reporting
+        # `not_started` forever, which is the one thing it exists not to do.
+        if not _worker_registered:
+            await register_worker()
         # Stamped before the claim, not after the work, so the timestamp answers
         # "is the loop turning?" rather than "did a job finish?" — an idle queue
         # and a dead loop otherwise look identical. Throttled to

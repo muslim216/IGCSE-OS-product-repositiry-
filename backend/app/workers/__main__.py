@@ -17,6 +17,7 @@ until Phase 11 (AV-85).
 import asyncio
 import contextlib
 import logging
+import signal
 
 from app.workers.handlers import register_all
 from app.workers.runner import supervised_worker
@@ -31,8 +32,22 @@ async def main() -> None:
     )
     register_all()
     log.info("standalone job worker starting")
+
+    worker = asyncio.ensure_future(supervised_worker())
+
+    # SIGTERM is how Docker, Render and Kubernetes stop a container — SIGKILL
+    # only follows if the process ignores it. Without handling it the process
+    # dies where it stands: an in-flight job stays claimed as `running` with
+    # nothing to release it, and the heartbeat row is left behind to age out.
+    # Cancelling the worker instead runs the same shutdown path the API's
+    # lifespan uses.
+    loop = asyncio.get_running_loop()
+    for signame in (signal.SIGTERM, signal.SIGINT):
+        with contextlib.suppress(NotImplementedError):  # not available on Windows
+            loop.add_signal_handler(signame, worker.cancel)
+
     try:
-        await supervised_worker()
+        await worker
     except asyncio.CancelledError:
         log.info("standalone job worker stopped")
 
