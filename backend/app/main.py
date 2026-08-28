@@ -39,7 +39,7 @@ from app.db import async_session
 from app.models import Job, JobStatus
 from app.services.narrative import ensure_narrative_sweep_scheduled
 from app.workers.handlers import register_all
-from app.workers.jobs import worker_status
+from app.workers.jobs import WorkerStatus, worker_status
 from app.workers.runner import supervised_worker
 
 log = logging.getLogger("api")
@@ -225,7 +225,25 @@ def create_app() -> FastAPI:
             log.exception("readiness check could not reach the database")
             database = {"ok": False, "error": exc.__class__.__name__}
 
-        worker = await worker_status()
+        try:
+            # Bounded for the same reason as the queue snapshot above: a
+            # database that is unreachable rather than merely slow leaves
+            # database["ok"] False regardless, so this still reports 503 —
+            # it just does so without waiting out the pool.
+            worker = await asyncio.wait_for(
+                worker_status(), timeout=READINESS_DB_TIMEOUT_SECONDS
+            )
+        except (TimeoutError, asyncio.TimeoutError):
+            log.exception("worker status read timed out")
+            worker = WorkerStatus(
+                state="not_started",
+                started_at=None,
+                last_loop_at=None,
+                seconds_since_loop=None,
+                job_running_seconds=None,
+                restarts_in_window=0,
+                last_restart_at=None,
+            )
         ok = database["ok"] and worker.healthy
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

@@ -34,13 +34,21 @@ from app.db import async_session, engine
 from app.models import Base, Job, JobStatus
 from app.workers import jobs
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("TEST_DATABASE_URL", "").startswith("postgresql"),
-    reason=(
-        "needs real Postgres: SQLite silently drops FOR UPDATE SKIP LOCKED, so this "
-        "would pass without exercising the lock (see docs/av-82-architecture-impact-report.md)"
+pytestmark = [
+    pytest.mark.skipif(
+        not os.environ.get("TEST_DATABASE_URL", "").startswith("postgresql"),
+        reason=(
+            "needs real Postgres: SQLite silently drops FOR UPDATE SKIP LOCKED, so this "
+            "would pass without exercising the lock (see docs/av-82-architecture-impact-report.md)"
+        ),
     ),
-)
+    # Module-scoped, not the function-scoped default: `engine` (app.db) is a
+    # module-level asyncpg pool created once and shared by every test here. A
+    # fresh event loop per test would leave pooled connections bound to a loop
+    # that the next test's loop is not — a RuntimeError during fixture setup,
+    # not a real bug in the code under test.
+    pytest.mark.asyncio(loop_scope="module"),
+]
 
 
 @pytest.fixture
