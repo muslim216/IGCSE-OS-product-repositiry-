@@ -136,6 +136,13 @@ class Settings(BaseSettings):
     # minted only for tutor material — student submissions proxy through the
     # API so the ownership check runs on every view.
     signed_url_ttl_seconds: int = 300
+    # The job worker runs inside the API process by default, which is the
+    # deployment today. Task 1.3 (AV-82) also makes it runnable on its own
+    # (`python -m app.workers`); set this false ONLY together with actually
+    # running that service, since an API with no worker and no worker service
+    # means marking, extraction, readiness and reports all stop with no error
+    # anywhere — /health/ready reports `not_started`, which is the signal.
+    run_worker_in_api: bool = True
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True

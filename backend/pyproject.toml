@@ -37,6 +37,14 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Matches the function-scoped default pytest-asyncio has always used. Called
+# out explicitly because test_worker_concurrency.py opts a handful of tests
+# into `loop_scope="module"` instead — without this default pinned, a
+# pytest-asyncio version bump silently changing the fallback would make an
+# unrelated module's fixtures resolve to a different loop than its tests,
+# producing the exact asyncpg "another operation is in progress" failure
+# task 1.3 (AV-82) exists to avoid.
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
 [tool.ruff]

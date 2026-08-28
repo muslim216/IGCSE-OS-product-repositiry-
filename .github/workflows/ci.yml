@@ -171,6 +171,32 @@ jobs:
       - name: Upgrade to head again
         run: python -m alembic upgrade head
 
+      # The multi-worker claim tests (task 1.3, AV-82) run here rather than in
+      # the `backend` job because that one forces SQLite, which silently DROPS
+      # `FOR UPDATE SKIP LOCKED` — no error, no warning. Running them there
+      # would exercise a query with no locking in it, pass, and prove nothing,
+      # which is worse than not running them at all because the green tick
+      # gets cited as evidence. This job already has a real Postgres, so it is
+      # the only place they mean anything. They skip themselves on a non-
+      # Postgres DATABASE_URL, so this step cannot silently no-op unnoticed.
+      # The tests skip themselves on a non-Postgres URL, and a skip here would
+      # be a green tick for tests that never ran — the exact failure mode the
+      # module docstring warns about. So the step fails on a wrong URL, and
+      # fails again if pytest reports anything skipped or uncollected.
+      - name: Multi-worker job-claim tests (Postgres)
+        run: |
+          set -euo pipefail
+          case "$DATABASE_URL" in
+            postgresql*) ;;
+            *) echo "::error::DATABASE_URL is not PostgreSQL; these tests would silently skip"; exit 1 ;;
+          esac
+          TEST_DATABASE_URL="$DATABASE_URL" python -m pytest tests/test_worker_concurrency.py -v -ra \
+            | tee /tmp/worker-concurrency.log
+          if grep -qE "skipped|no tests ran" /tmp/worker-concurrency.log; then
+            echo "::error::concurrency tests skipped or not collected — they must actually run here"
+            exit 1
+          fi
+
   frontend:
     name: Frontend tests and build
     runs-on: ubuntu-latest
