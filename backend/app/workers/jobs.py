@@ -134,7 +134,10 @@ async def register_worker(now: datetime | None = None) -> None:
                         # loop stopped turning, exactly as before.
                         (
                             WorkerHeartbeat.job_started_at.is_(None)
-                            & (WorkerHeartbeat.last_loop_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS))
+                            & (
+                                WorkerHeartbeat.last_loop_at
+                                < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS)
+                            )
                         ),
                         # A job in flight: a worker inside a single long job
                         # does not advance last_loop_at (see worker_loop()), so
@@ -151,7 +154,10 @@ async def register_worker(now: datetime | None = None) -> None:
                         # await.
                         (
                             WorkerHeartbeat.job_started_at.is_not(None)
-                            & (WorkerHeartbeat.job_started_at < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS))
+                            & (
+                                WorkerHeartbeat.job_started_at
+                                < now - timedelta(seconds=HEARTBEAT_REAP_SECONDS)
+                            )
                         ),
                     )
                 )
