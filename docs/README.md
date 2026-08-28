@@ -207,6 +207,8 @@ may only have a mitigation.
 | [`docs/experience-design.md`](experience-design.md) | The **experience spec** — what the tutor, student and parent each see, in what order and in what states; the shared grade and readiness vocabulary; the cold start | Yes, as a design document |
 | [`docs/experience-implementation-plan.md`](experience-implementation-plan.md) | The **delivery plan** for that spec — every state each surface can be in, the copy it says in each, and the 30 pull requests that build it, in order | Yes, until Stage 9 lands |
 | [`docs/avora-visual-identity.md`](avora-visual-identity.md) | The **visual identity spec** — the Avora art direction (parchment / espresso / terracotta, Lora + Inter, motifs) applied over the settled experience. Phase 2 under `experience-design.md` §11; visual only, never IA | Yes, as a design document |
+| [`docs/av-82-architecture-impact-report.md`](av-82-architecture-impact-report.md) | Task 1.1's output — every local-filesystem dependency, module-level mutable state and single-process assumption in the repository, classified `SAFE_PROCESS_LOCAL` / `SHARED_STATE_REQUIRED` / `PERSISTENT_STORAGE_REQUIRED` | Yes, until Phase 1 completes |
+| [`docs/av-82-phase-1-handoff.md`](av-82-phase-1-handoff.md) | **Written for agents, not humans.** Where Phase 1 (`AV-82`) stands: what landed in 1.1–1.3, the invariants that must not regress, the test-infrastructure constraints task 1.5 will hit, and a ready-to-execute brief for 1.4. Distinguishes capability built from deployment unchanged (`AV-85`) | Yes, until Phase 1 completes |
 | `docs/archive/` | Point-in-time records kept for history | No, deliberately |
 
 The distinction between the two design documents — `docs/avora-architecture.md` and
