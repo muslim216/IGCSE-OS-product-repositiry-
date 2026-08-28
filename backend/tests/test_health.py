@@ -8,15 +8,13 @@ readiness tells the truth about the worker and the queue.
 """
 
 import asyncio
-from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
 from app.db import async_session
-from app.main import _supervised_worker
-from app.models import Job, JobStatus
+from app.models import Job, JobStatus, WorkerHeartbeat
 from app.workers import jobs
 from app.workers.jobs import (
     JOB_STALL_SECONDS,
@@ -25,40 +23,53 @@ from app.workers.jobs import (
     enqueue,
     process_one_job,
 )
+from app.workers.runner import supervised_worker
 
 
 @pytest.fixture(autouse=True)
 def _isolated_worker_state():
-    """Reset the worker module's globals around every test in this file.
+    """Reset the worker module's process-local flags around every test.
 
-    Worker liveness is module state — correct in production, where there is one
-    worker in one process, but shared between tests in a way that makes them
-    order-dependent. Without this a supervisor test that restarts the worker
-    leaves entries in _restart_times, and a later test asserting a restart count
-    passes or fails depending on what ran before it.
+    Since task 1.3 the liveness clocks themselves live in the database (the
+    `worker_heartbeats` table, reset per test by conftest's `_db_schema`), so
+    what is left here is the two flags that stay in memory: whether this
+    process has registered a worker, and when it last wrote its clock. A
+    supervisor test that registers a worker would otherwise leave the flag set
+    and let a later test write heartbeats it never asked for.
     """
-    saved = (
-        jobs._started_at,
-        jobs._last_loop_at,
-        jobs._job_started_at,
-        deque(jobs._restart_times, maxlen=64),
-    )
-    jobs._started_at = None
-    jobs._last_loop_at = None
-    jobs._job_started_at = None
-    jobs._restart_times = deque(maxlen=64)
+    saved = (jobs._worker_registered, jobs._last_heartbeat_write)
+    jobs._worker_registered = False
+    jobs._last_heartbeat_write = None
     yield
-    (
-        jobs._started_at,
-        jobs._last_loop_at,
-        jobs._job_started_at,
-        jobs._restart_times,
-    ) = saved
+    jobs._worker_registered, jobs._last_heartbeat_write = saved
 
 
-STALE_MARKER = "app.workers.jobs._last_loop_at"
-STARTED_MARKER = "app.workers.jobs._started_at"
-IN_FLIGHT_MARKER = "app.workers.jobs._job_started_at"
+async def _heartbeat(
+    *,
+    started_at: datetime | None = None,
+    last_loop_at: datetime | None = None,
+    job_started_at: datetime | None = None,
+    restarts: list[str] | None = None,
+    worker_id: str = "test-worker",
+) -> None:
+    """Insert a worker heartbeat row, standing in for a running worker.
+
+    The tests below used to monkeypatch module globals. Now that the readiness
+    endpoint reads the database, writing a row is both closer to what actually
+    happens and a real exercise of the read path rather than a stand-in for it.
+    """
+    now = datetime.now(timezone.utc)
+    async with async_session() as session:
+        session.add(
+            WorkerHeartbeat(
+                worker_id=worker_id,
+                started_at=started_at or now,
+                last_loop_at=last_loop_at or now,
+                job_started_at=job_started_at,
+                restarts=restarts or [],
+            )
+        )
+        await session.commit()
 
 
 def _ago(seconds: float) -> datetime:
@@ -113,9 +124,8 @@ async def test_a_worker_that_never_started_is_not_a_failure(client):
     assert body["status"] == "ok"
 
 
-async def test_a_worker_whose_loop_stopped_turning_reports_503(client, monkeypatch):
-    monkeypatch.setattr(STARTED_MARKER, _ago(3600))
-    monkeypatch.setattr(STALE_MARKER, _ago(STALE_AFTER_SECONDS + 60))
+async def test_a_worker_whose_loop_stopped_turning_reports_503(client):
+    await _heartbeat(started_at=_ago(3600), last_loop_at=_ago(STALE_AFTER_SECONDS + 60))
 
     resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 503
@@ -127,24 +137,28 @@ async def test_a_worker_whose_loop_stopped_turning_reports_503(client, monkeypat
     assert body["database"] == {"ok": True}
 
 
-async def test_a_worker_inside_a_slow_job_is_healthy(client, monkeypatch):
+async def test_a_worker_inside_a_slow_job_is_healthy(client):
     """A marking run holding the loop for a minute is working, not dead. Judging
     liveness on a single "last seen" clock would page on every slow AI call."""
-    monkeypatch.setattr(STARTED_MARKER, _ago(3600))
-    monkeypatch.setattr(STALE_MARKER, _ago(STALE_AFTER_SECONDS + 60))
-    monkeypatch.setattr(IN_FLIGHT_MARKER, _ago(90))
+    await _heartbeat(
+        started_at=_ago(3600),
+        last_loop_at=_ago(STALE_AFTER_SECONDS + 60),
+        job_started_at=_ago(90),
+    )
 
     resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 200
     assert resp.json()["worker"]["state"] == "running"
 
 
-async def test_a_job_stuck_for_a_quarter_of_an_hour_reports_503(client, monkeypatch):
+async def test_a_job_stuck_for_a_quarter_of_an_hour_reports_503(client):
     """The other half of the same judgement: a job that has not moved in fifteen
     minutes is hung, and it blocks every job behind it."""
-    monkeypatch.setattr(STARTED_MARKER, _ago(3600))
-    monkeypatch.setattr(STALE_MARKER, _ago(10))
-    monkeypatch.setattr(IN_FLIGHT_MARKER, _ago(JOB_STALL_SECONDS + 60))
+    await _heartbeat(
+        started_at=_ago(3600),
+        last_loop_at=_ago(10),
+        job_started_at=_ago(JOB_STALL_SECONDS + 60),
+    )
 
     resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 503
@@ -187,7 +201,7 @@ async def _run_supervisor_until(
     every call site wants the same "it should have restarted by now" bound — and
     pushing it outward would repeat it at each one.
     """
-    task = asyncio.create_task(_supervised_worker())
+    task = asyncio.create_task(supervised_worker())
     try:
         await asyncio.wait_for(restarted.wait(), timeout=timeout)
     finally:
@@ -209,8 +223,8 @@ async def test_a_worker_that_raises_is_restarted(monkeypatch):
             restarted.set()
         raise RuntimeError("worker died")
 
-    monkeypatch.setattr("app.main.worker_loop", _dies)
-    monkeypatch.setattr("app.main.WORKER_RESTART_SECONDS", 0.01)
+    monkeypatch.setattr("app.workers.runner.worker_loop", _dies)
+    monkeypatch.setattr("app.workers.runner.WORKER_RESTART_SECONDS", 0.01)
 
     await _run_supervisor_until(restarted)
     assert calls["n"] > 1, "a dead worker must be restarted, not merely logged"
@@ -227,8 +241,8 @@ async def test_a_worker_that_returns_cleanly_is_also_restarted(monkeypatch):
         if calls["n"] > 1:
             restarted.set()
 
-    monkeypatch.setattr("app.main.worker_loop", _returns)
-    monkeypatch.setattr("app.main.WORKER_RESTART_SECONDS", 0.01)
+    monkeypatch.setattr("app.workers.runner.worker_loop", _returns)
+    monkeypatch.setattr("app.workers.runner.WORKER_RESTART_SECONDS", 0.01)
 
     await _run_supervisor_until(restarted)
     assert calls["n"] > 1
@@ -243,9 +257,9 @@ async def test_shutdown_still_stops_the_worker(monkeypatch):
         started.set()
         await asyncio.sleep(3600)
 
-    monkeypatch.setattr("app.main.worker_loop", _runs_forever)
+    monkeypatch.setattr("app.workers.runner.worker_loop", _runs_forever)
 
-    task = asyncio.create_task(_supervised_worker())
+    task = asyncio.create_task(supervised_worker())
     await asyncio.wait_for(started.wait(), timeout=1)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -326,7 +340,7 @@ async def test_a_job_that_fails_twice_is_marked_failed(client, monkeypatch):
 # --- Crash looping ----------------------------------------------------------
 
 
-async def test_a_crash_looping_worker_is_not_reported_healthy(client, monkeypatch):
+async def test_a_crash_looping_worker_is_not_reported_healthy(client):
     """The hole the supervisor opened while closing another one.
 
     worker_loop() re-stamps its liveness clock on entry, so a loop that raises
@@ -336,16 +350,14 @@ async def test_a_crash_looping_worker_is_not_reported_healthy(client, monkeypatc
     the condition the endpoint exists to expose.
     """
     now = datetime.now(timezone.utc)
-    monkeypatch.setattr(jobs, "_started_at", now - timedelta(seconds=60))
-    monkeypatch.setattr(jobs, "_last_loop_at", now)  # fresh, as a crash loop keeps it
-    monkeypatch.setattr(jobs, "_job_started_at", None)
-    monkeypatch.setattr(
-        jobs,
-        "_restart_times",
-        deque([now - timedelta(seconds=s) for s in (30, 20, 10)], maxlen=64),
+    await _heartbeat(
+        started_at=now - timedelta(seconds=60),
+        last_loop_at=now,  # fresh, as a crash loop keeps it
+        job_started_at=None,
+        restarts=[(now - timedelta(seconds=s)).isoformat() for s in (30, 20, 10)],
     )
 
-    status_ = jobs.worker_status()
+    status_ = await jobs.worker_status()
     assert status_.state == "crash_looping"
     assert status_.healthy is False
 
@@ -361,27 +373,33 @@ async def test_one_restart_is_the_supervisor_working_not_a_crash_loop():
     """A single restart is the supervisor doing its job. Reporting that as a
     failure would make the fix for RISK-4 page on its own success."""
     now = datetime.now(timezone.utc)
-    jobs.note_worker_restart(now)
-    assert jobs.worker_status(now).restarts_in_window == 1
-    assert jobs.worker_status(now).healthy is True
+    await _heartbeat(started_at=now, last_loop_at=now, restarts=[now.isoformat()])
+    status_ = await jobs.worker_status(now)
+    assert status_.restarts_in_window == 1
+    assert status_.healthy is True
 
 
-async def test_restarts_age_out_of_the_window(monkeypatch):
+async def test_restarts_age_out_of_the_window():
     """A worker that restarted three times last week is not crash looping now."""
     now = datetime.now(timezone.utc)
-    stale = now - timedelta(seconds=jobs.CRASH_LOOP_WINDOW_SECONDS + 60)
-    monkeypatch.setattr(jobs, "_started_at", now - timedelta(seconds=60))
-    monkeypatch.setattr(jobs, "_last_loop_at", now)
-    monkeypatch.setattr(jobs, "_restart_times", deque([stale, stale, stale], maxlen=64))
+    stale = (now - timedelta(seconds=jobs.CRASH_LOOP_WINDOW_SECONDS + 60)).isoformat()
+    await _heartbeat(
+        started_at=now - timedelta(seconds=60),
+        last_loop_at=now,
+        restarts=[stale, stale, stale],
+    )
 
-    status_ = jobs.worker_status(now)
+    status_ = await jobs.worker_status(now)
     assert status_.restarts_in_window == 0
     assert status_.state == "running"
 
 
 async def test_the_supervisor_records_each_restart(monkeypatch):
     """The counter is only useful if the supervisor actually feeds it."""
-    monkeypatch.setattr(jobs, "_restart_times", deque(maxlen=64))
+    # The supervisor only records a restart for a registered worker, which is
+    # what a real one is by the time it can be restarted at all.
+    await _heartbeat(worker_id=jobs.WORKER_ID)
+    monkeypatch.setattr(jobs, "_worker_registered", True)
     restarted = asyncio.Event()
     calls = {"n": 0}
 
@@ -391,11 +409,12 @@ async def test_the_supervisor_records_each_restart(monkeypatch):
             restarted.set()
         raise RuntimeError("worker died")
 
-    monkeypatch.setattr("app.main.worker_loop", _dies)
-    monkeypatch.setattr("app.main.WORKER_RESTART_SECONDS", 0.01)
+    monkeypatch.setattr("app.workers.runner.worker_loop", _dies)
+    monkeypatch.setattr("app.workers.runner.WORKER_RESTART_SECONDS", 0.01)
 
     await _run_supervisor_until(restarted)
-    assert len(jobs._restart_times) >= 1, "the supervisor must record its restarts"
+    status_ = await jobs.worker_status()
+    assert status_.restarts_in_window >= 1, "the supervisor must record its restarts"
 
 
 # --- Readiness does not hang ------------------------------------------------

@@ -3,7 +3,13 @@ import os
 # Configure the app for tests BEFORE any app module is imported.
 import tempfile
 
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+# SQLite in memory is the default and stays the default: the suite is fast,
+# needs no service, and QA-11 covers migrations separately. TEST_DATABASE_URL
+# overrides it for the handful of tests that are meaningless on SQLite — the
+# multi-worker claim tests need real `FOR UPDATE SKIP LOCKED`, which SQLite
+# silently drops (task 1.3, AV-82). Opt-in, so nothing changes unless a caller
+# deliberately asks for a real database.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 os.environ["REFRESH_COOKIE_SECURE"] = "false"

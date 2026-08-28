@@ -37,88 +37,16 @@ from app.api import (
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
-from app.services.extraction import extract_assignment, extract_past_paper
-from app.services.google_classroom import sync_classroom
-from app.services.marking import mark_submission
-from app.services.narrative import (
-    CLASS_NARRATIVE_JOB,
-    SWEEP_JOB,
-    ensure_narrative_sweep_scheduled,
-    generate_narrative,
-    sweep_parent_narratives,
-)
-from app.services.readiness import recompute_student
-from app.services.readiness_v2_ai import compute_readiness_v2
-from app.services.reports import generate_report
-from app.services.syllabus_extraction import extract_syllabus
-from app.workers.jobs import (
-    note_worker_restart,
-    register_handler,
-    worker_loop,
-    worker_status,
-)
+from app.services.narrative import ensure_narrative_sweep_scheduled
+from app.workers.handlers import register_all
+from app.workers.jobs import worker_status
+from app.workers.runner import supervised_worker
 
 log = logging.getLogger("api")
 
-register_handler("extract_assignment", extract_assignment)
-# A past paper is a full-paper classified: same extractor, same prompt.
-register_handler("extract_past_paper", extract_past_paper)
-register_handler("mark_submission", mark_submission)
-register_handler("recompute_readiness", recompute_student)
-# Readiness v2 is what the readiness UI/API serve (services/readiness_summary_v2.py),
-# falling back to v1 for any (student, subject) with no snapshot yet. Runs are
-# enqueued debounced per (student, subject) so a burst of auto-finalized
-# submissions costs one synthesis, not one each.
-register_handler("compute_readiness_v2", compute_readiness_v2)
-register_handler("generate_report", generate_report)
-register_handler("extract_syllabus", extract_syllabus)
-# Polling sync: imports courseWork/submissions from every course a tutor has
-# linked. Its router is unmounted (0.5, AV-58) so nothing enqueues this today,
-# but the handler stays registered: rows of type "sync_classroom" may still sit
-# in the jobs table from before the surface was hidden, and an unregistered
-# type fails them permanently rather than draining. Re-mounting the router in
-# api/classroom.py is all it takes to bring the surface back.
-register_handler("sync_classroom", sync_classroom)
-# The stored narrative (services/narrative.py). The class paragraph is enqueued
-# from the tail of the evidence build; the parent paragraph by a weekly sweep
-# that re-derives who is due and re-enqueues itself — never a self-perpetuating
-# per-student chain, whose schedule would die with one failed job row.
-register_handler(CLASS_NARRATIVE_JOB, generate_narrative)
-register_handler(SWEEP_JOB, sweep_parent_narratives)
-
-
-#: Pause before restarting a worker that died, so a failure that recurs
-#: immediately (a bad DB URL, say) logs at a readable rate instead of spinning.
-WORKER_RESTART_SECONDS = 5.0
-
-
-async def _supervised_worker() -> None:
-    """Keep the job worker running for the whole life of the process.
-
-    worker_loop() already survives any individual job failing, but nothing
-    survived the loop itself ending: the task was created and never looked at
-    again, so an exception escaping it left the API serving requests normally
-    with no background work happening at all and no signal that anything had
-    changed. Extraction, marking, readiness synthesis, reports and Classroom
-    sync all stop together, and the only visible symptom is homework that stays
-    "processing" forever (RISK-4).
-    """
-    while True:
-        try:
-            await worker_loop()
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 — supervising means surviving anything
-            log.exception("job worker died; restarting in %ss", WORKER_RESTART_SECONDS)
-        else:
-            # worker_loop() loops forever, so a clean return is itself a bug.
-            log.error("job worker returned unexpectedly; restarting in %ss", WORKER_RESTART_SECONDS)
-        # Counted, not just logged. worker_loop() re-stamps its liveness clock on
-        # entry, so without this a loop that raises immediately and restarts every
-        # few seconds reports `running` forever while completing no work — the one
-        # failure readiness exists to catch, hidden by the fix for the other one.
-        note_worker_restart()
-        await asyncio.sleep(WORKER_RESTART_SECONDS)
+# Registration moved to app/workers/handlers.py (task 1.3) so a standalone
+# worker can reach it without importing the API — see that module.
+register_all()
 
 
 @asynccontextmanager
@@ -136,14 +64,27 @@ async def lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001 — startup must survive a cold database
         log.exception("could not schedule the narrative sweep at startup")
 
-    worker = asyncio.create_task(_supervised_worker())
+    # Runs inside the API by default, which is the deployment today. Setting
+    # RUN_WORKER_IN_API=false is half of the cutover to a separate worker
+    # service (task 1.3) — the other half is actually running one. Flipping it
+    # alone stops all background work silently, which is why it is a
+    # deliberate setting rather than a default this change quietly alters.
+    worker = None
+    if get_settings().run_worker_in_api:
+        worker = asyncio.create_task(supervised_worker())
+    else:
+        log.warning(
+            "RUN_WORKER_IN_API=false — this process runs no job worker; "
+            "a separate worker service must be running or no background work happens"
+        )
     yield
-    worker.cancel()
-    # Awaiting the task we just cancelled is how shutdown waits for it to
-    # actually stop; the CancelledError that comes back is the acknowledgement,
-    # not a failure.
-    with contextlib.suppress(asyncio.CancelledError):
-        await worker
+    if worker is not None:
+        worker.cancel()
+        # Awaiting the task we just cancelled is how shutdown waits for it to
+        # actually stop; the CancelledError that comes back is the
+        # acknowledgement, not a failure.
+        with contextlib.suppress(asyncio.CancelledError):
+            await worker
 
 
 #: Sent on every API response. The API returns JSON and file downloads, never
@@ -284,7 +225,7 @@ def create_app() -> FastAPI:
             log.exception("readiness check could not reach the database")
             database = {"ok": False, "error": exc.__class__.__name__}
 
-        worker = worker_status()
+        worker = await worker_status()
         ok = database["ok"] and worker.healthy
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
