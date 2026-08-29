@@ -255,6 +255,9 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self.local = FixedWindowLimiter(limit=limit, window_seconds=window_seconds)
         self.degradation = _Degradation()
+        #: Until when the local counter may hold failures Redis never saw — set
+        #: whenever a `record()` fails to reach the store. See `is_limited`.
+        self._local_unsynced_until = 0.0
         self._store: RedisWindowStore | None = None
         self._store_url: str | None = None
 
@@ -329,20 +332,30 @@ class RateLimiter:
     async def is_limited(self, identifier: str, *, tenant: str | int | None = None) -> bool:
         """Whether `identifier` has already used up its allowance.
 
-        **Either store saying "limited" is limited.** Returning the Redis answer
-        alone would hand an attacker a fresh allowance the moment Redis
-        recovers: failures counted locally during an outage are never
-        backfilled, so Redis starts that identifier at zero while the local
-        counter already holds ten. OR-ing costs nothing in the healthy case —
-        `record()` writes both stores, so on one instance they agree — and in
-        the multi-instance case the local counter only ever holds a subset,
-        which can never be the more permissive answer.
+        Redis is authoritative when it answers — **except while the local
+        counter may hold failures Redis never saw.** Both halves of that matter,
+        and getting either wrong is a real defect:
+
+        - Trusting Redis unconditionally hands an attacker a fresh allowance the
+          moment Redis recovers. Failures counted during the outage are never
+          backfilled, so Redis starts that identifier at zero while the local
+          counter already holds ten.
+        - OR-ing the local counter unconditionally breaks `reset()`. A user who
+          fails twice on instance #1 and then signs in successfully through
+          instance #2 clears the shared counter and instance #1's own — but not
+          instance #1's copy, so that instance keeps them locked out for the
+          rest of the window. `reset()` exists precisely to stop that.
+
+        So the local counter is consulted only until `_local_unsynced_until`,
+        which a failed `record()` pushes one window into the future. That is
+        exactly as long as an unsynced failure could still matter, and no
+        longer: with no outage the deadline is never set and Redis alone
+        decides, which is what makes a cross-instance `reset()` work.
 
         The two stores bucket on different clocks (`monotonic` locally,
-        `time.time()` in Redis), so their window boundaries do not align and an
-        identifier can stay limited into the start of the next Redis window.
-        That is the conservative direction for a failed-login limit, and a
-        successful login clears both stores anyway.
+        `time.time()` in Redis), so within that window an identifier can stay
+        limited into the start of the next Redis window. Conservative, bounded,
+        and cleared by any successful login on the same instance.
         """
         key = self.key(identifier, tenant=tenant)
         now = time.time()
@@ -354,6 +367,8 @@ class RateLimiter:
                 self.degradation.record_failure(exc, purpose=self.purpose, now=now)
             else:
                 self.degradation.record_success()
+                if now >= self._local_unsynced_until:
+                    return limited
                 return limited or self.local.is_limited(key)
         return self.local.is_limited(key)
 
@@ -377,6 +392,7 @@ class RateLimiter:
         key = self.key(identifier, tenant=tenant)
         now = time.time()
         store = self._available(now)
+        reached_redis = False
         if store is not None:
             try:
                 await store.record(key)
@@ -384,6 +400,12 @@ class RateLimiter:
                 self.degradation.record_failure(exc, purpose=self.purpose, now=now)
             else:
                 self.degradation.record_success()
+                reached_redis = True
+        if not reached_redis and (store is not None or self._redis() is not None):
+            # This failure exists only in the local counter. Keep consulting it
+            # for one window — long enough to cover the counter it belongs to,
+            # short enough that it cannot outlive its own relevance.
+            self._local_unsynced_until = now + self.window_seconds
         self.local.record(key)
 
     async def reset(self, identifier: str, *, tenant: str | int | None = None) -> None:

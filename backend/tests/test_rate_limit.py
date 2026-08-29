@@ -278,11 +278,16 @@ async def test_a_recovered_redis_does_not_hand_back_a_fresh_allowance(monkeypatc
 
 
 async def test_a_reset_clears_both_stores(monkeypatch):
-    """The other side of the OR: once both stores can say 'limited', a
-    successful login has to clear both or the user stays locked out."""
+    """Once both stores can say 'limited', a successful login has to clear both
+    or the user stays locked out.
+
+    One shared fake, not a fresh one per call: a per-call fake makes every read
+    see an empty store, and the test then passes on the local counter while
+    proving nothing about Redis."""
     limiter = RateLimiter(purpose="login", limit=2, window_seconds=60)
-    monkeypatch.setattr(get_settings(), "redis_url", "redis://unreachable.invalid:6379/0")
-    monkeypatch.setattr(RedisWindowStore, "client", lambda self: InMemoryRedis())
+    shared = InMemoryRedis()
+    monkeypatch.setattr(get_settings(), "redis_url", "redis://shared.test:6379/0")
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: shared)
 
     for _ in range(2):
         await limiter.record("forgetful@example.com")
@@ -290,6 +295,47 @@ async def test_a_reset_clears_both_stores(monkeypatch):
 
     await limiter.reset("forgetful@example.com")
     assert await limiter.is_limited("forgetful@example.com") is False
+
+
+async def test_a_reset_on_another_instance_unlocks_this_one(monkeypatch):
+    """Regression, caught by CI against a real Redis: bounding the local-counter
+    OR is what keeps `reset()` working across instances.
+
+    A user fails twice on instance #1, then signs in successfully through
+    instance #2. Instance #1 must stop refusing them. When it ORed its local
+    counter unconditionally it did not, which is the lockout `reset()` exists to
+    prevent."""
+    shared = InMemoryRedis()
+    monkeypatch.setattr(get_settings(), "redis_url", "redis://shared.test:6379/0")
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: shared)
+    api_one = RateLimiter(purpose="login", limit=2, window_seconds=60)
+    api_two = RateLimiter(purpose="login", limit=2, window_seconds=60)
+
+    await api_one.record("forgetful@example.com")
+    await api_one.record("forgetful@example.com")
+    assert await api_two.is_limited("forgetful@example.com") is True
+
+    await api_two.reset("forgetful@example.com")
+
+    assert await api_one.is_limited("forgetful@example.com") is False
+
+
+async def test_local_counts_are_honoured_only_while_they_could_be_unsynced(monkeypatch):
+    """The bound itself. Failures that never reached Redis are enforced for one
+    window; a limiter that never missed a write defers to Redis immediately."""
+    shared = InMemoryRedis()
+    monkeypatch.setattr(get_settings(), "redis_url", "redis://shared.test:6379/0")
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: shared)
+    limiter = RateLimiter(purpose="login", limit=2, window_seconds=60)
+
+    # A healthy limiter never sets the deadline at all.
+    await limiter.record("healthy@example.com")
+    assert limiter._local_unsynced_until == 0.0
+
+    # One that could not reach Redis does.
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: BrokenRedis())
+    await limiter.record("outage@example.com")
+    assert limiter._local_unsynced_until > time.time()
 
 
 # --- /health/ready ---------------------------------------------------------
