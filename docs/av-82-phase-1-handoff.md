@@ -10,9 +10,9 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | Spec of record | `docs/avora-new-state-august-16.md` §"Phase 1 — Scale foundation" (~lines 937–1045) |
 | State as of | commit `a903f04` on the default branch (`claude/igcse-os-planning-q8be0t`) |
 | Handoff written | 2026-08-28 · updated 2026-08-29 (task 1.4) |
-| Migration head | `0027_worker_heartbeats` |
-| Tasks done | 1.1, 1.2, 1.3, 1.4 |
-| Tasks remaining | **1.5** (last, now unblocked) |
+| Migration head | `0028_job_claim_ownership` |
+| Tasks done | 1.1, 1.2, 1.3, 1.4, **1.5 (in review)** — Phase 1 complete on merge |
+| Tasks remaining | none |
 
 ---
 
@@ -24,9 +24,9 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | 1.2 | Object storage | **DONE** | #53 | `app/services/storage.py`, `app/api/file_responses.py` |
 | 1.3 | Worker as a separate process | **DONE** | #54 | `app/workers/*`, `app/models/workers.py`, migration `0027` |
 | 1.4 | Shared rate limiting on Redis | **DONE** | #55 | `app/services/rate_limit.py`, `tests/test_rate_limit.py`, CI `redis:7-alpine` service |
-| 1.5 | Two-instance correctness suite | **NOT STARTED** | — | — |
+| 1.5 | Two-instance correctness suite | **IN REVIEW** | — | `tests/test_two_instance.py`, `reclaim_orphaned_jobs()`, migration `0028` |
 
-1.2–1.4 are all merged, so **1.5 is the only remaining Phase 1 task** and is unblocked.
+All five tasks are built. **Phase 1 is complete once 1.5 merges.**
 
 ---
 
@@ -288,26 +288,74 @@ everywhere with no service. Teardown order is what makes this safe: `monkeypatch
 after the autouse fixture and therefore torn down before it, so `redis_url` is already reverted
 by the time the reset fixture asks whether a Redis store exists.
 
-## 6. Task 1.5 — Two-instance correctness suite (NEXT)
+## 6. Task 1.5 — Two-instance correctness suite (BUILT, in review)
 
 **Spec:** `docs/avora-new-state-august-16.md`, "1.5 — Two-instance correctness suite" (`AV-84`).
-A hard acceptance requirement. With API #1, API #2, Worker #1, Worker #2 running:
 
-- Upload through API #1, retrieve and process through API #2.
-- Failed logins spread across both APIs still trip one shared limit. *(1.4 built this;
-  `test_two_instances_share_one_limit` is the two-object version, 1.5 wants two real processes)*
-- One submission never produces two marking operations.
-- One weekly send produces one email, even when a worker is killed mid-job.
-- A worker killed halfway through a job recovers with no duplicate side effects.
+### What "two instances" means in this suite
 
-**Known gap this suite must close:** nothing currently re-queues an orphaned `running` job row.
-`backend/tests/test_worker_concurrency.py::test_a_job_left_running_by_a_killed_worker_is_visible`
-records present behaviour rather than asserting a recovery that does not exist. 1.5 covers the
-recovery case; 11.5 alerts on it.
+Not two processes. `backend/tests/test_two_instance.py` gives each simulated instance its **own
+copy of the process-local state an instance owns** — its storage backend object, its rate
+limiter, its worker identity — while pointing them at the **one shared store** they must agree
+through. That is where a scale-out bug lives: state a second instance cannot see. Two processes
+would cost a fixture harness and prove the same thing.
 
-Every constraint in §4 applies.
+Be honest about what that does *not* cover: it does not exercise two uvicorn processes, two
+event loops, or the real HTTP path across instances. `AV-85` already says the suite covers known
+cases rather than every read-modify-write, and 11.2 is the audit that closes the rest.
 
----
+### The five acceptance cases, and where each lives
+
+| Spec case | Test | Needs |
+|---|---|---|
+| Upload through API #1, retrieve through API #2 | `test_a_file_written_by_one_instance_is_readable_by_another` | MinIO |
+| …and the reason it is required | `test_two_local_backends_do_not_share_and_that_is_why_s3_is_required` | — |
+| Failed logins across both APIs trip one limit | `test_failed_logins_split_across_two_apis_trip_one_limit` | Redis |
+| One submission, never two marking operations | `test_one_job_produces_one_operation_under_four_workers` | Postgres |
+| One weekly send, even killed mid-job | `test_a_killed_sweep_does_not_double_send` | Postgres |
+| A killed worker recovers, no duplicate effects | `test_a_job_orphaned_by_a_dead_worker_is_requeued_and_runs` + 4 more | Postgres |
+
+### The known gap is closed — and it needed code, not a test
+
+`running` was the queue's one unrecoverable state. No path reconsidered it, so a worker killed
+mid-job left the row there permanently and the work simply stopped. Closing it needed:
+
+- **Migration `0028`** — `jobs.claimed_by` / `jobs.claimed_at`, plus `ix_jobs_status_claimed_at`
+  declared in the model too (`DB-12`). Nullable, **no backfill**: rows already `running` have no
+  claimant to name, and inventing one would attribute them to a worker that never held them.
+- **`reclaim_orphaned_jobs()`** in `workers/jobs.py`, run on worker startup (immediately after
+  `register_worker()`, the call that reaps the dead rows it reads the absence of — so a crashed
+  process is repaired by its own restart) and every `ORPHAN_SWEEP_INTERVAL_SECONDS` (300).
+
+**The predicate is a missing heartbeat row, never a stale one. Do not "improve" this to a
+staleness check.** `last_loop_at` is stamped *before* each claim, so a worker part-way through a
+slow marking call has a deliberately stale loop clock while being perfectly healthy. Requeueing
+on staleness hands its job to a second worker while the first still holds it — the duplicate
+execution this whole suite exists to prevent.
+`test_a_job_held_by_a_live_worker_is_never_reclaimed` pins it.
+
+`ORPHAN_RECLAIM_SECONDS = 2 * HEARTBEAT_REAP_SECONDS`, and that ordering is the safety argument:
+it covers the one case where a *live* worker can be row-less — a job in flight past the reap
+window, §3.4's accepted residual.
+
+An orphan with no attempts left is **failed**, not requeued: a row cycling
+running → pending → running forever is the stuck state this exists to end, wearing a new hat.
+
+Recovery re-runs a handler on a payload it may have partly processed. That is safe **only**
+because `BE-6` requires it. The idempotency rule is what buys the repair.
+
+### CI
+
+The `migrations` job gained `redis:7-alpine` and `bitnami/minio` alongside its Postgres, and a
+guarded step that **fails on any skip** — the strongest case yet for that guard, because this is
+the suite most likely to be cited as proof that scaling out is safe.
+
+`bitnami/minio`, not `minio/minio`: GitHub service containers cannot override a container's
+command, and the upstream image needs `server /data`. Bitnami's starts unattended and creates
+the bucket from `MINIO_DEFAULT_BUCKETS`.
+
+There was no local Postgres, Redis or Docker in the session that built this, so — as in 1.3 and
+1.4 — **CI is the only place this suite has executed.**
 
 ## 7. Environment and commands
 

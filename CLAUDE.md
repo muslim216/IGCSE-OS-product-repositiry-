@@ -251,7 +251,10 @@ Keep these loaded. Each cites the document holding its full reasoning.
   (`BE-3`)
 - **Every job handler must be safe to re-run on the same payload.** Delivery is at-least-once:
   the worker retries once, after a 60s backoff carried by `run_after` — the same field that
-  makes deliberate re-scheduling routine. `extract_assignment`
+  makes deliberate re-scheduling routine — **and since task 1.5 (`AV-84`) a job orphaned by a
+  worker that died mid-job is requeued too** (`reclaim_orphaned_jobs`, keyed on `claimed_by`
+  having no heartbeat row, never on a stale one). That recovery re-runs a handler on a payload
+  it may have partly processed, so `BE-6` is what makes it safe rather than a second bug. `extract_assignment`
   *replaces* the question list rather than appending; `mark_submission` updates existing
   `QuestionMark` drafts in place, **never overwrites a tutor-finalized mark**, and skips the AI
   call entirely when every question is already decided; `compute_readiness_v2` is deliberately

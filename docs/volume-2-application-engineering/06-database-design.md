@@ -194,11 +194,14 @@ cascades.
 
 **This is the finding worth reading twice.**
 
-Two models declare indexes in `__table_args__`: `jobs` (one) and `narratives` (three, added in
+Two models declare indexes in `__table_args__`: `jobs` (two) and `narratives` (three, added in
 0023 — `DB-12` applied going forward from that migration on, per `models/narrative.py`):
 
 ```python
-__table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)   # homework.py:312
+__table_args__ = (
+    Index("ix_jobs_status_run_after", "status", "run_after"),     # the claim query's
+    Index("ix_jobs_status_claimed_at", "status", "claimed_at"),   # the orphan sweep's (0028)
+)
 ```
 
 No column anywhere uses `index=True`.
@@ -291,6 +294,8 @@ matching the filename prefix and `down_revision` chained. One number is delibera
                                   0023_narratives
                                   0025_user_time_zone
                                   0026_drop_chat
+                                  0027_worker_heartbeats
+                                  0028_job_claim_ownership
 ```
 
 **0024 is deliberately absent.** It was reserved for task 0.3's `drop_chat`, written on a

@@ -96,6 +96,31 @@ HEARTBEAT_WRITE_TIMEOUT_SECONDS = 5.0
 #: Throttle for the loop clock; see HEARTBEAT_INTERVAL_SECONDS.
 _last_heartbeat_write: datetime | None = None
 
+#: How old a claim must be before the orphan sweep will look at it (task 1.5,
+#: AV-84). Deliberately **above** HEARTBEAT_REAP_SECONDS, and that ordering is
+#: the whole safety argument.
+#:
+#: The sweep's signal is "the claiming worker has no heartbeat row". A dead
+#: worker's row is reaped, so that reads correctly for the case this exists for.
+#: But `register_worker()` can also reap a *live* worker's row — one whose job
+#: has been in flight past HEARTBEAT_REAP_SECONDS, because at that point a job
+#: in flight is indistinguishable from a process that died holding one (§3.4's
+#: accepted residual). That worker is row-less until its next heartbeat write,
+#: which for a process inside a long job does not come until the job ends.
+#:
+#: Requeueing there would run a handler that is still running — the duplicate
+#: side effect this whole suite exists to prevent. Waiting twice the reap window
+#: means a claim is only ever reclaimed long past the point where anything
+#: legitimately holds a job.
+ORPHAN_RECLAIM_SECONDS = 2 * HEARTBEAT_REAP_SECONDS
+
+#: How often the orphan sweep runs. Rare on purpose: it is a repair path, not a
+#: control loop, and the rows it looks for are minted only by a process dying.
+ORPHAN_SWEEP_INTERVAL_SECONDS = 300.0
+
+#: Throttle for the orphan sweep; see ORPHAN_SWEEP_INTERVAL_SECONDS.
+_last_orphan_sweep: datetime | None = None
+
 
 async def _write_heartbeat(**fields) -> None:
     """Update this worker's row. Never raises.
@@ -439,6 +464,11 @@ async def process_one_job() -> bool:
             return False
         job.status = JobStatus.running
         job.attempts += 1
+        # Who holds this row, and since when (task 1.5, AV-84). Without it a
+        # process killed mid-job leaves `running` with nothing naming the worker
+        # that owed an answer, and no path anywhere reconsiders it.
+        job.claimed_by = WORKER_ID
+        job.claimed_at = datetime.now(timezone.utc)
         await session.commit()
         job_id, job_type, payload, attempts = job.id, job.type, job.payload, job.attempts
 
@@ -462,6 +492,11 @@ async def process_one_job() -> bool:
         async with async_session() as session:
             job = await session.get(Job, job_id)
             assert job is not None
+            # Cleared on every outcome below, including the retry: a pending row
+            # is held by nobody, and a stale claimant on one would make the
+            # orphan sweep reason about a worker that already let go.
+            job.claimed_by = None
+            job.claimed_at = None
             if error is None:
                 job.status = JobStatus.done
                 job.error = None
@@ -490,10 +525,116 @@ async def process_one_job() -> bool:
     return True
 
 
+async def _sweep_orphans_safely() -> None:
+    """`reclaim_orphaned_jobs`, but never fatal to the loop.
+
+    Same posture as `_write_heartbeat`: a worker that cannot run the repair is
+    still a worker that can do work, and a database blip must not take down job
+    processing to perform maintenance on it.
+    """
+    try:
+        await reclaim_orphaned_jobs()
+    except Exception:  # noqa: BLE001 — a repair pass must not stop the worker
+        log.exception("orphan sweep failed")
+
+
+async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
+    """Return jobs whose claiming worker is gone to `pending`. Returns how many.
+
+    The queue's one unrecoverable state, until task 1.5 (AV-84). `running` is
+    the status no retry path looks at: a worker killed mid-job left its row
+    there permanently, the work stopped, and the only trace was a number on
+    /health/ready that nothing watches.
+
+    **The predicate is "the claimant has no heartbeat row", not "its heartbeat
+    is stale".** That distinction is the difference between a repair and a
+    duplicate-execution bug. `last_loop_at` is stamped by `worker_loop` *before*
+    each claim, so a worker part-way through a slow marking call has a
+    deliberately stale loop clock — it is healthy and working. Requeueing on
+    staleness would hand its job to a second worker while the first still had
+    it. A missing row means the process is gone: a live worker always has one
+    and re-registers if its row is reaped (see `_write_heartbeat`).
+
+    `ORPHAN_RECLAIM_SECONDS` guards the one case where a live worker can be
+    row-less — a job in flight past the reap window — by waiting twice that
+    window before believing it.
+
+    Requeueing means a handler may run a second time on the same payload, which
+    is safe only because `BE-6` requires exactly that. The alternative is a job
+    that never finishes, so the idempotency requirement is what buys the repair.
+
+    Attempts are not incremented here: the claim already did that, so a row
+    orphaned at its last attempt fails rather than looping back into `running`
+    forever.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=ORPHAN_RECLAIM_SECONDS)
+    reclaimed = 0
+    async with async_session() as session:
+        orphans = (
+            await session.scalars(
+                select(Job)
+                .where(
+                    Job.status == JobStatus.running,
+                    Job.claimed_at.is_not(None),
+                    Job.claimed_at < cutoff,
+                )
+                # SKIP LOCKED for the same reason the claim query uses it: two
+                # workers may sweep at once, and neither should wait on the
+                # other to repair rows the loser would then re-examine.
+                .with_for_update(skip_locked=True)
+            )
+        ).all()
+        if not orphans:
+            return 0
+
+        live = set(
+            (
+                await session.scalars(
+                    select(WorkerHeartbeat.worker_id).where(
+                        WorkerHeartbeat.worker_id.in_(
+                            {o.claimed_by for o in orphans if o.claimed_by}
+                        )
+                    )
+                )
+            ).all()
+        )
+        for job in orphans:
+            if job.claimed_by is None or job.claimed_by in live:
+                continue
+            note = f"worker {job.claimed_by} disappeared while holding this job"
+            if job.attempts < MAX_ATTEMPTS:
+                job.status = JobStatus.pending
+                job.error = note
+            else:
+                # Out of attempts. Failing is the honest end: another run would
+                # be the third attempt on a job whose two claims both died, and
+                # a row that cycles running -> pending -> running forever is the
+                # stuck state this function exists to end, wearing a new hat.
+                job.status = JobStatus.failed
+                job.error = f"{note}; no attempts left"
+                log.error("job %s (%s) orphaned with no attempts left", job.id, job.type)
+            job.claimed_by = None
+            job.claimed_at = None
+            reclaimed += 1
+        await session.commit()
+
+    if reclaimed:
+        # ERROR, not INFO: reaching here means a worker died holding work.
+        # The repair worked, and the death is still the thing to look at.
+        log.error("requeued %s job(s) orphaned by a worker that disappeared", reclaimed)
+    return reclaimed
+
+
 async def worker_loop() -> None:
-    global _last_heartbeat_write
+    global _last_heartbeat_write, _last_orphan_sweep
     await register_worker()
     log.info("job worker started (worker_id=%s)", WORKER_ID)
+    # Immediately after registering, because that call is what reaps the dead
+    # worker rows this sweep reads the absence of. A process that crashed
+    # holding a job is therefore repaired by its own restart, which is the
+    # common case and the one worth healing without waiting out an interval.
+    await _sweep_orphans_safely()
     while True:
         # Retried, not attempted once: a database that is unreachable at
         # startup would otherwise leave this worker permanently unregistered.
@@ -515,6 +656,12 @@ async def worker_loop() -> None:
         ):
             await _write_heartbeat(last_loop_at=now)
             _last_heartbeat_write = now
+        if (
+            _last_orphan_sweep is None
+            or (now - _last_orphan_sweep).total_seconds() >= ORPHAN_SWEEP_INTERVAL_SECONDS
+        ):
+            await _sweep_orphans_safely()
+            _last_orphan_sweep = now
         try:
             worked = await process_one_job()
         except asyncio.CancelledError:

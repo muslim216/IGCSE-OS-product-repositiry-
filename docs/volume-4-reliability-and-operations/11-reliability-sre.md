@@ -182,6 +182,11 @@ The mechanism is described in §04. Its reliability properties:
   an `error` line with the job id, type, attempt count and message. Nothing pages anyone.
 - **A job that fails twice is terminal.** Status `failed`, error recorded, **no alert, no
   dead-letter queue, no metric, and no retry path except a manual re-enqueue.**
+- **A job orphaned by a dead worker is recovered** (task 1.5, `AV-84`). `running` used to be
+  the one status nothing reconsidered — a worker killed mid-job left the row there forever.
+  `reclaim_orphaned_jobs()` requeues a row whose `claimed_by` no longer has a heartbeat row,
+  on worker startup and every 300s thereafter, logging at `error` because the repair working
+  does not make a worker dying uninteresting. Still no alert: 11.5 owns that.
 
 ```mermaid
 flowchart LR

@@ -317,8 +317,15 @@ class JobStatus(str, enum.Enum):
 
 class Job(TimestampMixin, Base):
     __tablename__ = "jobs"
-    # The worker's claim query filters on exactly these two columns.
-    __table_args__ = (Index("ix_jobs_status_run_after", "status", "run_after"),)
+    __table_args__ = (
+        # The worker's claim query filters on exactly these two columns.
+        Index("ix_jobs_status_run_after", "status", "run_after"),
+        # The orphan sweep's: running rows claimed before a cutoff (task 1.5,
+        # AV-84). Declared here as well as in the migration, per DB-12 — four of
+        # the five older indexes exist only in migrations, so the test schema
+        # differs from production, and this one is not joining them.
+        Index("ix_jobs_status_claimed_at", "status", "claimed_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -333,6 +340,18 @@ class Job(TimestampMixin, Base):
     # coalesce bursts of readiness recomputations into one run (see
     # readiness_v2_ai.enqueue_readiness_v2_debounced).
     run_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Which worker holds this job, and since when (task 1.5, AV-84). Set on
+    # claim, cleared on every terminal outcome, so a non-NULL pair on a
+    # `running` row names the process that owes an answer for it. Without this
+    # a worker killed mid-job left a row stuck in `running` forever, invisible
+    # to every retry path — the queue's one unrecoverable state.
+    #
+    # `claimed_by` matches worker_heartbeats.worker_id but is deliberately NOT a
+    # foreign key: heartbeat rows are reaped, and the orphan sweep's whole
+    # signal is a claim whose worker row is *gone*. A FK would either forbid
+    # that reap or cascade the evidence away.
+    claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
     )

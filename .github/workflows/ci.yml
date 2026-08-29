@@ -189,6 +189,36 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # Task 1.5's two-instance suite needs all three shared stores, because
+      # each is one of RISK-1's links: the bucket for "upload through API #1,
+      # read through API #2", Redis for "failed logins across both APIs trip one
+      # limit", Postgres for everything about the queue.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      # bitnami/minio rather than minio/minio: GitHub service containers cannot
+      # override a container's command, and the upstream image needs
+      # `server /data`. Bitnami's starts unattended and creates the bucket from
+      # MINIO_DEFAULT_BUCKETS, which is the whole reason it is here.
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: avora-ci
+          MINIO_ROOT_PASSWORD: avora-ci-secret
+          MINIO_DEFAULT_BUCKETS: avora-test
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "mc ready local"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
       # config.py rewrites the bare scheme to postgresql+asyncpg:// on the way in,
       # so this is the same URL shape a hosting provider hands out.
@@ -241,6 +271,28 @@ jobs:
             | tee /tmp/worker-concurrency.log
           if grep -qE "skipped|no tests ran" /tmp/worker-concurrency.log; then
             echo "::error::concurrency tests skipped or not collected — they must actually run here"
+            exit 1
+          fi
+
+      # Task 1.5 (AV-84). The hard acceptance requirement for Phase 1, and the
+      # only place all three shared stores exist at once. Same skip guard as
+      # above, and for a stronger reason: this is the suite most likely to be
+      # cited as proof that scaling out is safe, so "it was green" must not be
+      # able to mean "it never ran".
+      - name: Two-instance correctness suite (Postgres + Redis + MinIO)
+        env:
+          TEST_REDIS_URL: redis://localhost:6379/0
+          TEST_S3_ENDPOINT_URL: http://localhost:9000
+          TEST_S3_BUCKET: avora-test
+          TEST_S3_REGION: us-east-1
+          TEST_S3_ACCESS_KEY_ID: avora-ci
+          TEST_S3_SECRET_ACCESS_KEY: avora-ci-secret
+        run: |
+          set -euo pipefail
+          TEST_DATABASE_URL="$DATABASE_URL" python -m pytest tests/test_two_instance.py -v -ra \
+            | tee /tmp/two-instance.log
+          if grep -qE "skipped|no tests ran" /tmp/two-instance.log; then
+            echo "::error::two-instance tests skipped or not collected — Postgres, Redis and MinIO must all be reachable"
             exit 1
           fi
 
