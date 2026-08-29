@@ -109,6 +109,7 @@ async def _clear_limiters():
     for limiter in ALL_LIMITERS:
         limiter.local._hits.clear()
         limiter.degradation = _Degradation()
+        limiter._local_unsynced.clear()
         url = (get_settings().redis_url or "").strip()
         if not url:
             continue
@@ -119,8 +120,23 @@ async def _clear_limiters():
         # tears each of those down, and the next checkout fails with
         # "Event loop is closed" from inside this fixture, which is the worst
         # possible place to read a traceback from.
+        # The module-global's own pool has to go too, not just be bypassed. The
+        # CI slice that sets REDIS_URL drives the login endpoint through
+        # `login_limiter`, which caches a real pool on the first test's event
+        # loop; `asyncio_default_fixture_loop_scope = "function"` closes that
+        # loop, and the next test's checkout fails with "Event loop is closed".
+        # Clearing the counters while leaving the pool cached would fix the
+        # counts and keep the crash.
+        with contextlib.suppress(Exception):
+            await limiter.close()
         store = RedisWindowStore(
-            url, limit=limiter.limit, window_seconds=limiter.window_seconds, timeout=1.0
+            url,
+            limit=limiter.limit,
+            window_seconds=limiter.window_seconds,
+            # The configured timeout, not a hardcoded one: an environment that
+            # raised it for a slow Redis would otherwise have cleanup time out
+            # and leak counters into the next test.
+            timeout=get_settings().redis_timeout_seconds,
         )
         try:
             client = store.client()

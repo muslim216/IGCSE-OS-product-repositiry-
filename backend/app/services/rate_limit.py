@@ -255,9 +255,12 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self.local = FixedWindowLimiter(limit=limit, window_seconds=window_seconds)
         self.degradation = _Degradation()
-        #: Until when the local counter may hold failures Redis never saw — set
-        #: whenever a `record()` fails to reach the store. See `is_limited`.
-        self._local_unsynced_until = 0.0
+        #: Per key, until when the local counter may hold failures Redis never
+        #: saw — set whenever a `record()` fails to reach the store. Per key and
+        #: not per limiter: one identifier's missed write must not make every
+        #: *other* identifier consult the local counter too, which would leave
+        #: an unrelated user 429ing after another instance reset them.
+        self._local_unsynced: dict[str, float] = {}
         self._store: RedisWindowStore | None = None
         self._store_url: str | None = None
 
@@ -346,11 +349,11 @@ class RateLimiter:
           instance #1's copy, so that instance keeps them locked out for the
           rest of the window. `reset()` exists precisely to stop that.
 
-        So the local counter is consulted only until `_local_unsynced_until`,
-        which a failed `record()` pushes one window into the future. That is
-        exactly as long as an unsynced failure could still matter, and no
-        longer: with no outage the deadline is never set and Redis alone
-        decides, which is what makes a cross-instance `reset()` work.
+        So the local counter is consulted only until this key's entry in
+        `_local_unsynced`, which a failed `record()` pushes one window into the
+        future. That is exactly as long as an unsynced failure could still
+        matter, and no longer: with no outage no deadline is ever set and Redis
+        alone decides, which is what makes a cross-instance `reset()` work.
 
         The two stores bucket on different clocks (`monotonic` locally,
         `time.time()` in Redis), so within that window an identifier can stay
@@ -367,7 +370,7 @@ class RateLimiter:
                 self.degradation.record_failure(exc, purpose=self.purpose, now=now)
             else:
                 self.degradation.record_success()
-                if now >= self._local_unsynced_until:
+                if now >= self._local_unsynced.get(key, 0.0):
                     return limited
                 return limited or self.local.is_limited(key)
         return self.local.is_limited(key)
@@ -405,17 +408,21 @@ class RateLimiter:
             # This failure exists only in the local counter. Keep consulting it
             # for one window — long enough to cover the counter it belongs to,
             # short enough that it cannot outlive its own relevance.
-            self._local_unsynced_until = now + self.window_seconds
+            self._local_unsynced[key] = now + self.window_seconds
+            self._prune_unsynced(now)
         self.local.record(key)
 
     async def reset(self, identifier: str, *, tenant: str | int | None = None) -> None:
         """Forget an identifier's failures, on both stores.
 
         Clearing only Redis would leave a user locked out by whichever instance
-        counted their fumbled attempts during an outage.
+        counted their fumbled attempts during an outage — and the unsynced
+        deadline goes with it, or the local counter would keep being consulted
+        for a key that has just been declared clear.
         """
         key = self.key(identifier, tenant=tenant)
         now = time.time()
+        self._local_unsynced.pop(key, None)
         store = self._available(now)
         if store is not None:
             try:
@@ -425,6 +432,15 @@ class RateLimiter:
             else:
                 self.degradation.record_success()
         self.local.reset(key)
+
+    def _prune_unsynced(self, now: float) -> None:
+        """Drop expired deadlines so a long outage against many identifiers does
+        not leave an entry per attempted username behind. Same reasoning, and
+        same threshold, as `FixedWindowLimiter._evict`."""
+        if len(self._local_unsynced) < 10_000:
+            return
+        for key in [k for k, until in self._local_unsynced.items() if until <= now]:
+            del self._local_unsynced[key]
 
     # -- introspection ------------------------------------------------------ #
 

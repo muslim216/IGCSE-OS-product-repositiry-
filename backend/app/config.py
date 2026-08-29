@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -179,10 +180,23 @@ class Settings(BaseSettings):
         # being defensible — and is also the only shape a hosting provider hands
         # out. Fail startup rather than let it work while leaking the credential.
         url = (self.redis_url or "").strip()
-        if not url or not url.startswith("redis://"):
+        if not url:
             return self
-        host = url.split("://", 1)[1].rsplit("@", 1)[-1].split("/", 1)[0].split(":", 1)[0]
-        if host in {"localhost", "127.0.0.1", "::1", ""} or "." not in host:
+        # urlsplit rather than string surgery: it lowercases the scheme (so
+        # `REDIS://` cannot slip past) and unwraps a bracketed IPv6 literal (so
+        # `redis://:pw@[2001:db8::1]:6379` does not parse as the host `[2001`
+        # and read as a dotless private name — which is a bypass of exactly the
+        # check below).
+        parts = urlsplit(url)
+        if parts.scheme != "redis":
+            return self
+        host = (parts.hostname or "").lower()
+        if host in {"localhost", "127.0.0.1", "::1", ""}:
+            return self
+        # A single-label host is a container/service name on a private network.
+        # Anything dotted is IPv4 or DNS, anything with a colon is IPv6 — both
+        # are off-box, which is where cleartext stops being defensible.
+        if "." not in host and ":" not in host:
             return self
         raise ValueError(
             f"REDIS_URL points off-box ({host}) over cleartext redis://. "

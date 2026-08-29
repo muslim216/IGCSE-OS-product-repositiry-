@@ -124,6 +124,7 @@ def broken_redis(monkeypatch):
         "redis://127.0.0.1:6379/0",
         "redis://redis:6379/0",  # a compose service name on a private network
         "rediss://:secret@shared-redis.example.com:6379/0",
+        "redis://[::1]:6379/0",  # loopback, bracketed
         "",
     ],
 )
@@ -136,6 +137,12 @@ def test_settings_accept_a_redis_url_that_cannot_leak_its_password(url):
     [
         "redis://:secret@shared-redis.example.com:6379/0",
         "redis://10.0.0.5:6379/0",
+        # A bracketed IPv6 literal is off-box too. Naive `split(":")` parsing
+        # read this as the host `[2001` — dotless, so it passed as a private
+        # service name and shipped the password in the clear.
+        "redis://:secret@[2001:db8::1]:6379/0",
+        # Scheme comparison must be case-insensitive.
+        "REDIS://:secret@shared-redis.example.com:6379/0",
     ],
 )
 def test_settings_reject_cleartext_redis_to_an_off_box_host(url):
@@ -320,22 +327,31 @@ async def test_a_reset_on_another_instance_unlocks_this_one(monkeypatch):
     assert await api_one.is_limited("forgetful@example.com") is False
 
 
-async def test_local_counts_are_honoured_only_while_they_could_be_unsynced(monkeypatch):
-    """The bound itself. Failures that never reached Redis are enforced for one
-    window; a limiter that never missed a write defers to Redis immediately."""
+async def test_one_identifiers_outage_does_not_lock_out_another(monkeypatch):
+    """The unsynced deadline is per key. Limiter-wide, one identifier's missed
+    write would make every *other* identifier consult the local counter too — so
+    an unrelated user stays 429'd after another instance has reset them."""
     shared = InMemoryRedis()
     monkeypatch.setattr(get_settings(), "redis_url", "redis://shared.test:6379/0")
-    monkeypatch.setattr(RedisWindowStore, "client", lambda self: shared)
-    limiter = RateLimiter(purpose="login", limit=2, window_seconds=60)
-
-    # A healthy limiter never sets the deadline at all.
-    await limiter.record("healthy@example.com")
-    assert limiter._local_unsynced_until == 0.0
-
-    # One that could not reach Redis does.
     monkeypatch.setattr(RedisWindowStore, "client", lambda self: BrokenRedis())
-    await limiter.record("outage@example.com")
-    assert limiter._local_unsynced_until > time.time()
+    api_one = RateLimiter(purpose="login", limit=2, window_seconds=60)
+    api_two = RateLimiter(purpose="login", limit=2, window_seconds=60)
+
+    # Redis is down: "unlucky" is counted locally only.
+    for _ in range(2):
+        await api_one.record("unlucky@example.com")
+
+    # Redis comes back. "bystander" fails twice against the shared counter,
+    # then signs in successfully through the other instance.
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: shared)
+    api_one.degradation.open_until = 0.0
+    for _ in range(2):
+        await api_one.record("bystander@example.com")
+    await api_two.reset("bystander@example.com")
+
+    assert await api_one.is_limited("bystander@example.com") is False
+    # ...while the identifier that actually went uncounted is still held.
+    assert await api_one.is_limited("unlucky@example.com") is True
 
 
 # --- /health/ready ---------------------------------------------------------

@@ -211,12 +211,23 @@ every organization, so there is no tenant to scope to until *after* the credenti
 Scoping it earlier would let an attacker mint a fresh allowance by guessing a tenant. The
 `tenant=` parameter exists for the limiters `RISK-12` will want.
 
-**`record()` writes both stores, always, and `is_limited()` ORs them.** A failure landing just
+**`record()` writes the local store always and Redis whenever it is available, and
+`is_limited()` consults the local counter for a key only while that key may hold a write Redis
+never saw.** A failure landing just
 before an outage must be visible to the store that takes over. Reading only the Redis answer
 would hand an attacker a fresh allowance the moment Redis recovers, because failures counted
 during the outage are **never backfilled** — Redis would start that identifier at zero while the
-local counter already held ten. Covered by
-`test_a_recovered_redis_does_not_hand_back_a_fresh_allowance`.
+local counter already held ten.
+
+**But OR-ing unconditionally is also wrong, and CI caught it.** A user who fails on instance #1
+and then signs in through instance #2 clears the shared counter and #2's local copy, never #1's
+— so #1 keeps refusing them, which is the lockout `reset()` exists to prevent. Hence
+`_local_unsynced`: a per-key deadline, set one window ahead by any `record()` that missed Redis,
+cleared by `reset()`. **Per key, not per limiter** — limiter-wide, one identifier's missed write
+made every other identifier consult the local counter, so an unrelated user stayed 429'd after
+being reset elsewhere. Covered by `test_a_recovered_redis_does_not_hand_back_a_fresh_allowance`,
+`test_a_reset_on_another_instance_unlocks_this_one` and
+`test_one_identifiers_outage_does_not_lock_out_another`.
 
 **The dual-write contract, stated plainly.** Failures counted while the breaker is open never
 reach Redis. The instance that saw them keeps enforcing them; the other instances never learn
