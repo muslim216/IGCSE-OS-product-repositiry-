@@ -350,9 +350,13 @@ The `migrations` job gained `redis:7-alpine` and `bitnami/minio` alongside its P
 guarded step that **fails on any skip** — the strongest case yet for that guard, because this is
 the suite most likely to be cited as proof that scaling out is safe.
 
-`bitnami/minio`, not `minio/minio`: GitHub service containers cannot override a container's
-command, and the upstream image needs `server /data`. Bitnami's starts unattended and creates
-the bucket from `MINIO_DEFAULT_BUCKETS`.
+**MinIO is a `docker run` step, not a `services:` entry**, and that is worth knowing before
+anyone "tidies" it back. Service containers cannot override a container's command, and
+`minio/minio` needs `server /data`. The obvious way round that — `bitnami/minio`, which starts
+unattended — **no longer publishes a `latest` tag**, so the first attempt died on
+`manifest unknown` before running a single test. `docker run` takes the command directly. The
+step polls `/minio/health/live` rather than sleeping a guess, then creates the bucket with the
+AWS CLI the runner already has.
 
 There was no local Postgres, Redis or Docker in the session that built this, so — as in 1.3 and
 1.4 — **CI is the only place this suite has executed.**

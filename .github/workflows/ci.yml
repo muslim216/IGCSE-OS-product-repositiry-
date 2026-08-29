@@ -202,23 +202,7 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      # bitnami/minio rather than minio/minio: GitHub service containers cannot
-      # override a container's command, and the upstream image needs
-      # `server /data`. Bitnami's starts unattended and creates the bucket from
-      # MINIO_DEFAULT_BUCKETS, which is the whole reason it is here.
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: avora-ci
-          MINIO_ROOT_PASSWORD: avora-ci-secret
-          MINIO_DEFAULT_BUCKETS: avora-test
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "mc ready local"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
+      # MinIO is NOT a service container — see the "Start MinIO" step below.
     env:
       # config.py rewrites the bare scheme to postgresql+asyncpg:// on the way in,
       # so this is the same URL shape a hosting provider hands out.
@@ -273,6 +257,34 @@ jobs:
             echo "::error::concurrency tests skipped or not collected — they must actually run here"
             exit 1
           fi
+
+      # A step rather than a `services:` entry, which is where the first attempt
+      # at this went wrong. Service containers cannot override a container's
+      # command, and minio/minio needs `server /data`; the obvious way round
+      # that — bitnami/minio, which starts unattended — no longer publishes a
+      # `latest` tag, so the job died on `manifest unknown` before running a
+      # single test. `docker run` takes the command directly and is the thing
+      # the runner can actually do.
+      - name: Start MinIO for the two-instance storage case
+        run: |
+          set -euo pipefail
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=avora-ci \
+            -e MINIO_ROOT_PASSWORD=avora-ci-secret \
+            minio/minio:latest server /data
+          # Poll the documented liveness endpoint rather than sleeping a guess:
+          # a fixed sleep is either flaky or slow, and this is the difference
+          # between the storage test running and the job failing on connect.
+          for _ in $(seq 1 40); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO is up"; break
+            fi
+            sleep 2
+          done
+          curl -fsS http://localhost:9000/minio/health/live >/dev/null
+          AWS_ACCESS_KEY_ID=avora-ci AWS_SECRET_ACCESS_KEY=avora-ci-secret \
+            aws --endpoint-url http://localhost:9000 --region us-east-1 \
+            s3 mb s3://avora-test
 
       # Task 1.5 (AV-84). The hard acceptance requirement for Phase 1, and the
       # only place all three shared stores exist at once. Same skip guard as
