@@ -138,8 +138,11 @@ class RedisWindowStore:
         return self._client
 
     def _window_key(self, key: str) -> str:
-        start = int(time.time() // self.window_seconds) * int(self.window_seconds)
-        return f"{key}:{start}"
+        # The bucket *number*, not the epoch second it starts at. Multiplying
+        # back out by `int(self.window_seconds)` made every sub-second window
+        # collapse to bucket 0 — the counter would then never roll over, only
+        # expire after inactivity.
+        return f"{key}:{int(time.time() // self.window_seconds)}"
 
     @property
     def _ttl_seconds(self) -> int:
@@ -267,6 +270,14 @@ class RateLimiter:
         credential is accepted, and pretending otherwise would let an attacker
         pick a fresh allowance by guessing a tenant.
 
+        **Known gap, pre-dating this module's Redis support:** the key is the
+        identifier the caller typed, and `api/auth.py` matches an account by
+        email *or* username. One account addressed both ways therefore gets two
+        counters and twice the allowance. Resolving to a user id first would
+        mean looking the account up before throttling, which reintroduces the
+        timing oracle `_dummy_hash()` exists to close. Recorded as a Known Gap
+        in §07 rather than fixed here.
+
         The identifier is hashed, not embedded. The counters are keyed by email
         address, and a Redis keyspace is readable by anything with the
         connection string, `KEYS`/`SCAN` included — a store that is explicitly
@@ -274,7 +285,11 @@ class RateLimiter:
         account. Debugging costs a hash of the address to match against.
         """
         digest = hashlib.sha256(identifier.encode()).hexdigest()[:32]
-        return f"avora:rl:{self.purpose}:{tenant if tenant is not None else 'global'}:{digest}"
+        # `tenant:` prefixed rather than interpolated bare, so a caller that
+        # passes the literal string "global" as a tenant cannot land on the
+        # unscoped counter and spend an allowance that is not theirs.
+        scope = "global" if tenant is None else f"tenant:{tenant}"
+        return f"avora:rl:{self.purpose}:{scope}:{digest}"
 
     # -- store resolution -------------------------------------------------- #
 
@@ -283,7 +298,10 @@ class RateLimiter:
 
         Re-reads `REDIS_URL` through `get_settings()` (`BE-15`) and rebuilds when
         it changes, so a test that swaps the setting is not answered by a client
-        pinned to the previous value.
+        pinned to the previous value. `get_settings()` is `lru_cache`d, so the
+        URL cannot actually change under a running process — the rebuild branch
+        exists for those tests, which close their own stores. Production's one
+        store is closed by `close_all_limiters()` in the app's lifespan.
         """
         url = (get_settings().redis_url or "").strip()
         if not url:
@@ -388,33 +406,66 @@ class RateLimiter:
 
     # -- introspection ------------------------------------------------------ #
 
-    def health(self) -> dict:
+    async def health(self) -> dict:
         """What `/health/ready` reports for this limiter.
+
+        **This probes, it does not merely remember.** Reporting only what past
+        logins happened to observe would call a freshly started instance healthy
+        while its configured Redis was refusing every connection — the alarm
+        would stay silent until the next login attempt, which on a quiet night
+        is hours. That is the invisible-dependency failure `RISK-4` already made
+        this codebase decide it cares about, so a configured store is pinged,
+        bounded by the same timeout every other call uses.
 
         `configured` and `degraded` are separate answers on purpose. No Redis at
         all is the documented single-instance mode and is not a fault; Redis
         configured and unreachable is one, and is the case that needs a human
         before the next credential-stuffing run finds N times the allowance.
 
-        `degraded` clears on the next *successful* call, not on a timer. An idle
-        instance therefore keeps reporting a degradation nothing has retried,
-        which is the safe direction to be wrong in: a stale alarm gets checked,
-        where a self-clearing one gets missed.
+        The ping deliberately does not touch the breaker in either direction. A
+        readiness check must not be able to degrade the login path, and a
+        successful ping does not mean the breaker's cooldown has elapsed — so an
+        open breaker still reports degraded, because logins genuinely are being
+        counted per-instance until it closes.
         """
         configured = bool((get_settings().redis_url or "").strip())
-        degraded = configured and self.degradation.degraded
+        if not configured:
+            return {
+                "purpose": self.purpose,
+                "backend": "in_process",
+                "configured": False,
+                "degraded": False,
+                "error": None,
+            }
+
+        error = self.degradation.last_error
+        reachable = False
+        store = self._redis()
+        if store is not None:
+            try:
+                await asyncio.wait_for(store.client().ping(), store.timeout)
+                reachable = True
+            except Exception as exc:  # noqa: BLE001 — the failure is the answer
+                error = exc.__class__.__name__
+
+        breaker_open = self.degradation.is_open(time.time())
+        degraded = not reachable or breaker_open
         return {
             "purpose": self.purpose,
-            "backend": "in_process" if (not configured or degraded) else "redis",
-            "configured": configured,
+            "backend": "in_process" if degraded else "redis",
+            "configured": True,
             "degraded": degraded,
-            "error": self.degradation.last_error if degraded else None,
-            "degraded_for_seconds": (
-                round(time.time() - self.degradation.since)
-                if degraded and self.degradation.since is not None
-                else None
-            ),
+            "error": error if degraded else None,
+            "reachable": reachable,
+            "breaker_open": breaker_open,
         }
+
+    async def close(self) -> None:
+        """Release the connection pool. Called from the app's lifespan."""
+        if self._store is not None:
+            await self._store.close()
+            self._store = None
+            self._store_url = None
 
 
 #: Failed logins allowed per identifier, per window.
@@ -435,7 +486,18 @@ login_limiter = RateLimiter(
 ALL_LIMITERS: list[RateLimiter] = [login_limiter]
 
 
-def rate_limit_health() -> dict:
+async def rate_limit_health() -> dict:
     """Every limiter's state, for `/health/ready`."""
-    reports = [limiter.health() for limiter in ALL_LIMITERS]
+    reports = [await limiter.health() for limiter in ALL_LIMITERS]
     return {"ok": not any(r["degraded"] for r in reports), "limiters": reports}
+
+
+async def close_all_limiters() -> None:
+    """Close every limiter's connection pool, on app shutdown.
+
+    Without this the process exits with an open asyncio pool and redis-py logs
+    an "unclosed client" warning — noise that trains an operator to ignore
+    shutdown logs, which is where a real failure would appear.
+    """
+    for limiter in ALL_LIMITERS:
+        await limiter.close()

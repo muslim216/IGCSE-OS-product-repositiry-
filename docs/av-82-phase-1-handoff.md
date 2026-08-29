@@ -12,7 +12,7 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | Handoff written | 2026-08-28 · updated 2026-08-29 (task 1.4) |
 | Migration head | `0027_worker_heartbeats` |
 | Tasks done | 1.1, 1.2, 1.3, **1.4 (in review)** |
-| Tasks remaining | **1.5** (last, now unblocked — 1.2–1.4 are all built) |
+| Tasks remaining | **1.5** (last; unblocked once 1.4 merges) |
 
 ---
 
@@ -26,7 +26,8 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | 1.4 | Shared rate limiting on Redis | **IN REVIEW** | — | `app/services/rate_limit.py`, `tests/test_rate_limit.py`, CI `redis:7-alpine` service |
 | 1.5 | Two-instance correctness suite | **NOT STARTED** | — | unblocked once 1.4 merges |
 
-1.5 requires 1.2–1.4 complete; with 1.4 in review that is the only remaining Phase 1 task.
+1.5 requires 1.2–1.4 complete. 1.4 is in review, so 1.5 is the only remaining Phase 1 task
+and starts when 1.4 merges.
 
 ---
 
@@ -45,7 +46,7 @@ Production reality — `VERIFIED` against the live API on 2026-08-28:
 | API instances | 1 | `render.yaml` — one `type: web`, no worker service |
 | Worker | in-process | `run_worker_in_api` defaults `True` (`backend/app/config.py`) |
 | Storage backend | `local` | `storage_backend` defaults `"local"` (`backend/app/config.py`) |
-| Rate-limit store | in-process | `redis_url` defaults `None`; `render.yaml` declares `REDIS_URL` but leaves it unset |
+| Rate-limit store | in-process *(operator-managed)* | `redis_url` defaults `None`, and `render.yaml` declares `REDIS_URL` as `sync: false` — dashboard-managed, so the file does **not** prove the deployed value. Confirm with `rate_limit.limiters[].configured` on `/health/ready` before relying on it. |
 | Liveness | `200` | `GET /api/v1/health` |
 | Readiness | `status: ok`, worker `running` | `GET /api/v1/health/ready` |
 | Migration `0027` | applied | readiness reads `worker_heartbeats` and answers |

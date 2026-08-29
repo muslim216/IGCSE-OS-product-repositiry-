@@ -301,8 +301,11 @@ Phase 11 concurrency audit (11.2, `AV-85`). Read each "unwind" below as availabl
    set `REDIS_URL` (task 1.4) and `RateLimiter` counts in Redis, so N instances share one
    limit. A configured Redis that stops answering degrades back to the in-process counter and
    raises an alarm rather than blocking logins (`SEC-29`, threat review F4). `render.yaml`
-   declares the key but leaves it unset — with one instance, the in-process counter *is* the
-   correct limit, and an unnecessary Redis can only take logins down.
+   declares the key but leaves it unset — with one instance the in-process counter *is* the
+   correct limit, so Redis would add a network hop on every login, a service to run and watch,
+   and a readiness signal that can go red, while changing nothing about the limit actually
+   enforced. It cannot take logins down (`SEC-29` guarantees the fallback), but it earns
+   nothing until there is a second instance.
 
 Until all three are switched on **and** 11.2 has audited the read-modify-writes the
 two-instance suite does not cover, **scaling out is a correctness change, not a configuration

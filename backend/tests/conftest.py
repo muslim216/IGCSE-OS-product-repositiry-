@@ -20,9 +20,12 @@ os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 os.environ["REFRESH_COOKIE_SECURE"] = "false"
 
+import contextlib
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.config import get_settings
 from app.db import engine
 from app.main import app
 from app.models import Base
@@ -101,21 +104,41 @@ async def _reset_login_limiter():
 
 
 async def _clear_limiters():
-    from app.services.rate_limit import ALL_LIMITERS, _Degradation
+    from app.services.rate_limit import ALL_LIMITERS, RedisWindowStore, _Degradation
 
     for limiter in ALL_LIMITERS:
         limiter.local._hits.clear()
         limiter.degradation = _Degradation()
-        store = limiter._redis()
-        if store is None:
+        url = (get_settings().redis_url or "").strip()
+        if not url:
             continue
-        # By namespace prefix, because the keys are hashed and there is no
-        # identifier list to delete by name. Scoped to this limiter's own
-        # prefix, never FLUSHDB: a developer pointing TEST_REDIS_URL at a Redis
-        # that holds anything else must not lose it.
-        client = store.client()
-        async for key in client.scan_iter(match=f"avora:rl:{limiter.purpose}:*", count=500):
-            await client.delete(key)
+        # A store built and closed inside this call, NOT `limiter._redis()`.
+        # That one caches its pool on a module-global limiter, so the pool would
+        # be created on the first test's event loop and reused by every later
+        # test on its own — `asyncio_default_fixture_loop_scope = "function"`
+        # tears each of those down, and the next checkout fails with
+        # "Event loop is closed" from inside this fixture, which is the worst
+        # possible place to read a traceback from.
+        store = RedisWindowStore(
+            url, limit=limiter.limit, window_seconds=limiter.window_seconds, timeout=1.0
+        )
+        try:
+            client = store.client()
+            # By namespace prefix, because the keys are hashed and there is no
+            # identifier list to delete by name. Scoped to this limiter's own
+            # prefix, never FLUSHDB: a developer pointing REDIS_URL at a Redis
+            # that holds anything else must not lose it.
+            async for key in client.scan_iter(match=f"avora:rl:{limiter.purpose}:*", count=500):
+                await client.delete(key)
+        except Exception:  # noqa: BLE001
+            # A stopped local Redis must not turn the whole suite red. The local
+            # counter and the breaker were already reset above, which is what
+            # isolates the tests that do not need Redis — mirroring the
+            # production limiter, which falls back rather than raising (F4).
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                await store.close()
 
 
 @pytest.fixture(autouse=True)

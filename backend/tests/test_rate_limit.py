@@ -18,6 +18,7 @@ real `redis:7-alpine` service and fails if these skip.
 
 import logging
 import os
+import time
 
 import pytest
 from pydantic import ValidationError
@@ -44,6 +45,10 @@ class BrokenRedis:
 
     def __init__(self) -> None:
         self.calls = 0
+
+    async def ping(self):
+        self.calls += 1
+        raise ConnectionError("redis is down")
 
     async def get(self, key):
         self.calls += 1
@@ -76,6 +81,9 @@ class InMemoryRedis:
 
     def __init__(self) -> None:
         self.store: dict[str, int] = {}
+
+    async def ping(self):
+        return True
 
     async def get(self, key):
         return self.store.get(key)
@@ -206,7 +214,7 @@ async def test_the_fallback_raises_an_alarm(broken_redis, caplog):
         for record in caplog.records
         if record.levelno >= logging.ERROR
     )
-    health = limiter.health()
+    health = await limiter.health()
     assert health["degraded"] is True
     assert health["backend"] == "in_process"
     assert health["error"] == "ConnectionError"
@@ -231,8 +239,13 @@ async def test_a_recovered_redis_is_used_again(monkeypatch):
     monkeypatch.setattr(get_settings(), "redis_url", "redis://unreachable.invalid:6379/0")
     monkeypatch.setattr(RedisWindowStore, "client", lambda self: BrokenRedis())
 
-    await limiter.record("victim@example.com")
+    # Enough failures to actually OPEN the breaker. One is not: below
+    # FAILURE_THRESHOLD the store is still being called, so a regression where
+    # an open breaker never reconnects would sail through.
+    for _ in range(limiter.degradation.FAILURE_THRESHOLD):
+        await limiter.record("victim@example.com")
     assert limiter.degradation.degraded is True
+    assert limiter.degradation.is_open(time.time()) is True
 
     healthy = InMemoryRedis()
     monkeypatch.setattr(RedisWindowStore, "client", lambda self: healthy)
@@ -240,7 +253,8 @@ async def test_a_recovered_redis_is_used_again(monkeypatch):
 
     await limiter.record("victim@example.com")
     assert limiter.degradation.degraded is False
-    assert limiter.health()["backend"] == "redis"
+    assert (await limiter.health())["backend"] == "redis"
+    assert healthy.store, "the recovered store must actually have been written to"
 
 
 async def test_a_recovered_redis_does_not_hand_back_a_fresh_allowance(monkeypatch):
@@ -281,9 +295,14 @@ async def test_a_reset_clears_both_stores(monkeypatch):
 # --- /health/ready ---------------------------------------------------------
 
 
-async def test_readiness_is_not_degraded_when_no_redis_is_configured(client):
+async def test_readiness_is_not_degraded_when_no_redis_is_configured(client, monkeypatch):
     """No Redis at all is the documented single-instance mode, not a fault. It
-    must not turn every deployment's readiness check red."""
+    must not turn every deployment's readiness check red.
+
+    `redis_url` is cleared explicitly rather than relied on being empty: CI runs
+    one slice of this suite with REDIS_URL set, and a test asserting the
+    unconfigured behaviour must assert it, not inherit it."""
+    monkeypatch.setattr(get_settings(), "redis_url", None)
     body = (await client.get("/api/v1/health/ready")).json()
 
     assert body["rate_limit"]["ok"] is True
@@ -311,6 +330,21 @@ async def test_readiness_reports_a_configured_redis_that_stopped_answering(
     assert body["status"] == "degraded"
     assert body["rate_limit"]["ok"] is False
     assert body["rate_limit"]["limiters"][0]["degraded"] is True
+
+
+async def test_readiness_probes_rather_than_remembering(client, broken_redis):
+    """A fresh instance has observed nothing. Reporting only past observations
+    would call a configured-but-refusing Redis healthy until the next login —
+    hours, on a quiet night. Readiness PINGs instead."""
+    assert broken_redis.calls == 0  # nothing has touched Redis yet
+
+    resp = await client.get("/api/v1/health/ready")
+
+    assert resp.status_code == 503
+    limiter = resp.json()["rate_limit"]["limiters"][0]
+    assert limiter["reachable"] is False
+    assert limiter["degraded"] is True
+    assert broken_redis.calls > 0, "readiness must actually probe"
 
 
 # --- The endpoint still throttles ------------------------------------------

@@ -152,6 +152,17 @@ jobs:
             exit 1
           fi
 
+      # The step above points *fresh* limiters at Redis. It never puts the
+      # module-global `login_limiter` there, so conftest's Redis-clearing branch
+      # — the fixture that stops counts leaking between tests — has no coverage:
+      # REDIS_URL is empty in every other run, and `_redis()` returns None.
+      # Setting REDIS_URL for one slice exercises that branch and runs the login
+      # endpoint itself against a real shared counter, end to end.
+      - name: Login throttling against a real shared counter
+        env:
+          REDIS_URL: redis://localhost:6379/0
+        run: python -m pytest tests/test_rate_limit.py tests/test_security_hardening.py -q
+
   migrations:
     name: Migrations up/down/up (Postgres)
     runs-on: ubuntu-latest

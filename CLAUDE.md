@@ -223,7 +223,8 @@ Keep these loaded. Each cites the document holding its full reasoning.
   `REDIS_URL` is unset in `render.yaml`: with one instance, in-process *is* the correct limit.
   **Redis is for rate-limit counters only** (`E18`) — Postgres stays the source of truth.
   A configured Redis that stops answering **falls back to the in-process counter and raises an
-  alarm** (ERROR log + `rate_limit.degraded` in `/health/ready`); it never blocks a login and
+  alarm** (ERROR log, and `/health/ready` PINGs Redis and reports
+  `rate_limit.limiters[].degraded` with a `503`); it never blocks a login and
   never leaves one uncounted. Keys are namespaced by purpose and tenant with the identifier
   hashed (`sha256(...)[:32]`). (`SEC-29`, `SEC-30`, threat review F4)
 

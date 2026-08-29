@@ -247,7 +247,9 @@ answers `503` — because a silent fallback is the same as no fallback. A circui
 after three consecutive failures so a sustained outage costs one timed-out call per 30s rather
 than two per login.
 
-Keys are `avora:rl:{purpose}:{tenant}:{sha256(identifier)[:32]}`. Namespaced by purpose and tenant so
+Keys are `avora:rl:{purpose}:{scope}:{sha256(identifier)[:32]}`, where `scope` is `global` or
+`tenant:{id}` — prefixed so a caller passing the literal string `"global"` as a tenant cannot
+land on the unscoped counter. Namespaced by purpose and tenant so
 one caller cannot consume or collide with another's allowance; the identifier is **hashed**
 because a Redis keyspace is readable by anything holding the connection string, and a store
 explicitly not the source of truth must not double as a roster of who has an account. Login's
@@ -584,6 +586,7 @@ Application containers run as a non-root user.
 | **No data retention or deletion policy**, and no subject-access or erasure path. | C2 data on minors is kept indefinitely with no defined basis or route to remove it. `RISK-9`. | `before scale` |
 | **No security logging.** Failed authorization, token revocation, and password resets are not recorded anywhere. | A compromise could not be reconstructed. Compounded by there being no request ids at all (§11). | `before scale` |
 | ~~**Login throttling is per-process.**~~ **Closed** by task 1.4 (`AV-83`): `RateLimiter` shares counters through Redis. Capability only — `REDIS_URL` is unset in `render.yaml`, so the live deployment is still per-process, which is correct at its one instance. | `RISK-1`'s third link. Setting `REDIS_URL` is part of the scale-out cutover gated on 11.2. | `closed (capability)` |
+| **One account can be addressed by two identifiers.** The counter is keyed on what the caller typed, and `api/auth.py` matches an account by email *or* username — so knowing both yields two counters and twice the allowance against one account. Pre-dates the Redis work (the in-process limiter keyed the same way). | Weakens `SEC-14` by a factor of two for any account whose username is guessable. Resolving to a user id before counting would mean looking the account up *before* throttling, reintroducing the timing oracle `_dummy_hash()` exists to close — so the fix is a canonicalization step, not a reordering. | `before scale` |
 | **Only login is rate limited.** AI-triggering endpoints are unbounded per user. (Chat was the other one, until task 0.3 deleted the surface, AV-57.) | A single account can drive arbitrary AI spend (`RISK-12`). | `before scale` |
 | **No MFA for tutor accounts.** | A tutor account holds every student's C2 data; password-only is the whole control. Deliberate for students, arguable for tutors. | `nice to have` |
 | **`JWT_SECRET` defaults to `"change-me-in-production"`.** Safe only because `render.yaml` generates one. | Any deployment not using the blueprint inherits a known signing key. | `before scale` |

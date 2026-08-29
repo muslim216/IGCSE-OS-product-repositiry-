@@ -38,7 +38,7 @@ from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
 from app.services.narrative import ensure_narrative_sweep_scheduled
-from app.services.rate_limit import rate_limit_health
+from app.services.rate_limit import close_all_limiters, rate_limit_health
 from app.workers.handlers import register_all
 from app.workers.jobs import WorkerStatus, worker_status
 from app.workers.runner import supervised_worker
@@ -86,6 +86,13 @@ async def lifespan(app: FastAPI):
         # acknowledgement, not a failure.
         with contextlib.suppress(asyncio.CancelledError):
             await worker
+
+    # Best-effort, and after the worker: a pool that will not close must not
+    # stop the process exiting, and shutdown is not the moment to raise.
+    try:
+        await close_all_limiters()
+    except Exception:  # noqa: BLE001 — shutdown must complete regardless
+        log.exception("could not close the rate limiter's Redis pool")
 
 
 #: Sent on every API response. The API returns JSON and file downloads, never
@@ -256,12 +263,15 @@ def create_app() -> FastAPI:
             database = {"ok": False, "error": exc.__class__.__name__}
 
         worker = await _worker_snapshot()
-        # Purely local state — no round trip, so no timeout needed. It reports
-        # a *configured* Redis that this instance cannot reach, which silently
-        # multiplies the effective login limit by the instance count (threat
-        # review F4). No Redis configured at all is the documented
-        # single-instance mode and is not degraded.
-        rate_limit = rate_limit_health()
+        # Bounded internally by the limiter's own REDIS_TIMEOUT_SECONDS, on the
+        # same reasoning as the two database reads above: an endpoint whose job
+        # is to give a straight answer must not hang. It PINGs rather than
+        # reporting what past logins happened to observe, so a fresh instance
+        # whose configured Redis is refusing connections says so immediately
+        # instead of at the next login attempt (threat review F4). No Redis
+        # configured at all is the documented single-instance mode, needs no
+        # round trip, and is not degraded.
+        rate_limit = await rate_limit_health()
         ok = database["ok"] and worker.healthy and rate_limit["ok"]
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

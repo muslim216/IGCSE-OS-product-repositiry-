@@ -49,7 +49,8 @@ services:
   # documented default. Start it on its own to run the Redis-backed rate-limit
   # tests locally:
   #   docker compose --profile full up -d redis
-  #   TEST_REDIS_URL=redis://localhost:6379/0 .venv/bin/python -m pytest tests/test_rate_limit.py
+  #   cd backend && TEST_REDIS_URL=redis://localhost:6379/0 \
+  #     .venv/bin/python -m pytest tests/test_rate_limit.py
   redis:
     image: redis:7-alpine
     profiles: ["full"]
