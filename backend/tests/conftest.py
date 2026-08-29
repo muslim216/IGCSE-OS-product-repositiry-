@@ -82,14 +82,40 @@ def signing_storage(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _reset_login_limiter():
-    """The failed-login counter is a process-global, so without this a test that
-    submits bad passwords would leak its count into every later test."""
-    from app.services.rate_limit import login_limiter
+async def _reset_login_limiter():
+    """The failed-login counters are process-globals, so without this a test that
+    submits bad passwords would leak its count into every later test.
 
-    login_limiter._hits.clear()
+    Resets *whichever store is active* (task 1.4, AV-83), not just the in-process
+    dict. A test running against a real Redis would otherwise carry its counts
+    into the next test through a store this fixture never touched, and a test
+    that tripped the breaker would leave every later limiter call degraded —
+    both of which fail somewhere other than where they were caused.
+
+    Async, so the Redis flush runs on the test's own loop rather than a loop this
+    fixture invented; the same reasoning as `_db_schema` below.
+    """
+    await _clear_limiters()
     yield
-    login_limiter._hits.clear()
+    await _clear_limiters()
+
+
+async def _clear_limiters():
+    from app.services.rate_limit import ALL_LIMITERS, _Degradation
+
+    for limiter in ALL_LIMITERS:
+        limiter.local._hits.clear()
+        limiter.degradation = _Degradation()
+        store = limiter._redis()
+        if store is None:
+            continue
+        # By namespace prefix, because the keys are hashed and there is no
+        # identifier list to delete by name. Scoped to this limiter's own
+        # prefix, never FLUSHDB: a developer pointing TEST_REDIS_URL at a Redis
+        # that holds anything else must not lose it.
+        client = store.client()
+        async for key in client.scan_iter(match=f"avora:rl:{limiter.purpose}:*", count=500):
+            await client.delete(key)
 
 
 @pytest.fixture(autouse=True)

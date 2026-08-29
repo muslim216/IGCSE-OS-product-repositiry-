@@ -38,6 +38,7 @@ from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
 from app.services.narrative import ensure_narrative_sweep_scheduled
+from app.services.rate_limit import rate_limit_health
 from app.workers.handlers import register_all
 from app.workers.jobs import WorkerStatus, worker_status
 from app.workers.runner import supervised_worker
@@ -224,10 +225,12 @@ def create_app() -> FastAPI:
         worker was completely invisible: the API kept serving, /health kept
         returning a hardcoded "ok", and marking had silently stopped (RISK-4).
 
-        503 means the database is unreachable, or the worker started and then
-        stopped turning. Under the test client the worker never starts at all
-        (ASGITransport does not run lifespan), which reports as `not_started`
-        and is not a failure — a test run is not a broken deployment.
+        503 means the database is unreachable, the worker started and then
+        stopped turning, or a configured Redis has stopped answering and login
+        throttling has silently degraded to per-instance (task 1.4, AV-83).
+        Under the test client the worker never starts at all (ASGITransport does
+        not run lifespan), which reports as `not_started` and is not a failure —
+        a test run is not a broken deployment.
         """
         database: dict = {"ok": False}
         queue: dict | None = None
@@ -253,7 +256,13 @@ def create_app() -> FastAPI:
             database = {"ok": False, "error": exc.__class__.__name__}
 
         worker = await _worker_snapshot()
-        ok = database["ok"] and worker.healthy
+        # Purely local state — no round trip, so no timeout needed. It reports
+        # a *configured* Redis that this instance cannot reach, which silently
+        # multiplies the effective login limit by the instance count (threat
+        # review F4). No Redis configured at all is the documented
+        # single-instance mode and is not degraded.
+        rate_limit = rate_limit_health()
+        ok = database["ok"] and worker.healthy and rate_limit["ok"]
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {
@@ -269,6 +278,7 @@ def create_app() -> FastAPI:
                 "last_restart_at": _iso(worker.last_restart_at),
             },
             "queue": queue,
+            "rate_limit": rate_limit,
         }
 
     for router in (

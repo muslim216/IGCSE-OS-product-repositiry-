@@ -8,11 +8,11 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 |---|---|
 | Phase | 1 — Scale foundation (`AV-82`) |
 | Spec of record | `docs/avora-new-state-august-16.md` §"Phase 1 — Scale foundation" (~lines 937–1045) |
-| State as of | commit `67c9b0c` on the default branch (`claude/igcse-os-planning-q8be0t`) |
-| Handoff written | 2026-08-28 |
+| State as of | branch `feat/av-83-1.4-redis-rate-limiting`, off commit `67c9b0c` |
+| Handoff written | 2026-08-28 · updated 2026-08-29 (task 1.4) |
 | Migration head | `0027_worker_heartbeats` |
-| Tasks done | 1.1, 1.2, 1.3 |
-| Tasks remaining | **1.4** (next, unblocked), **1.5** (last, gated on 1.2–1.4) |
+| Tasks done | 1.1, 1.2, 1.3, **1.4 (in review)** |
+| Tasks remaining | **1.5** (last, now unblocked — 1.2–1.4 are all built) |
 
 ---
 
@@ -23,11 +23,10 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | 1.1 | Architecture-impact report | **DONE** | #52 | `docs/av-82-architecture-impact-report.md` |
 | 1.2 | Object storage | **DONE** | #53 | `app/services/storage.py`, `app/api/file_responses.py` |
 | 1.3 | Worker as a separate process | **DONE** | #54 | `app/workers/*`, `app/models/workers.py`, migration `0027` |
-| 1.4 | Shared rate limiting on Redis | **NOT STARTED** | — | — |
-| 1.5 | Two-instance correctness suite | **NOT STARTED** | — | blocked on 1.4 |
+| 1.4 | Shared rate limiting on Redis | **IN REVIEW** | — | `app/services/rate_limit.py`, `tests/test_rate_limit.py`, CI `redis:7-alpine` service |
+| 1.5 | Two-instance correctness suite | **NOT STARTED** | — | unblocked once 1.4 merges |
 
-Per the spec's dependency column, 1.4 depends only on 1.1 and is therefore unblocked. 1.5
-requires 1.2–1.4 complete.
+1.5 requires 1.2–1.4 complete; with 1.4 in review that is the only remaining Phase 1 task.
 
 ---
 
@@ -44,14 +43,16 @@ Production reality — `VERIFIED` against the live API on 2026-08-28:
 | Fact | Value | Source |
 |---|---|---|
 | API instances | 1 | `render.yaml` — one `type: web`, no worker service |
-| Worker | in-process | `run_worker_in_api` defaults `True` (`backend/app/config.py:145`) |
-| Storage backend | `local` | `storage_backend` defaults `"local"` (`backend/app/config.py:120`) |
+| Worker | in-process | `run_worker_in_api` defaults `True` (`backend/app/config.py`) |
+| Storage backend | `local` | `storage_backend` defaults `"local"` (`backend/app/config.py`) |
+| Rate-limit store | in-process | `redis_url` defaults `None`; `render.yaml` declares `REDIS_URL` but leaves it unset |
 | Liveness | `200` | `GET /api/v1/health` |
 | Readiness | `status: ok`, worker `running` | `GET /api/v1/health/ready` |
 | Migration `0027` | applied | readiness reads `worker_heartbeats` and answers |
 
-**DO NOT**, as part of 1.4 or 1.5: deploy a second instance, add a worker service to
-`render.yaml`, or set `RUN_WORKER_IN_API=false`. That is Phase 11 work and 11.2 gates it.
+**DO NOT**, as part of 1.5: deploy a second instance, add a worker service to `render.yaml`,
+set `RUN_WORKER_IN_API=false`, or set `REDIS_URL` on the deployed service. That is Phase 11 work
+and 11.2 gates it.
 
 ---
 
@@ -172,59 +173,100 @@ executing.
 
 ---
 
-## 5. Task 1.4 — Shared rate limiting on Redis (NEXT)
+## 5. Task 1.4 — Shared rate limiting on Redis (BUILT, in review)
 
 **Spec:** `docs/avora-new-state-august-16.md`, "1.4 — Shared rate limiting on Redis" (`AV-83`,
-`E18`), plus threat review **F4** (`AV-97`).
+`E18`), plus threat review **F4** (`AV-97`). Rules added: `SEC-28`, `SEC-29` (§07).
 
-**Current state** — `VERIFIED`:
+### What was built
 
-- `backend/app/services/rate_limit.py:21` — `FixedWindowLimiter`, counters in
-  `_hits: dict[str, tuple[float, int]]`
-- `backend/app/services/rate_limit.py:71` — `login_limiter = FixedWindowLimiter(...)`, a
-  module-global
-- no `redis` dependency in `backend/pyproject.toml`
-- `backend/tests/conftest.py` has an autouse `_reset_login_limiter` fixture clearing
-  `login_limiter._hits`
+`backend/app/services/rate_limit.py` now holds three things instead of one:
 
-**Requirements:**
+- `FixedWindowLimiter` — **unchanged**, and still the process-local store. It is the fallback,
+  not dead code.
+- `RedisWindowStore` — the same fixed window with the window start baked into the key and a TTL
+  on every key, so rollover and cleanup are Redis's job. `record()` is `INCR` + `EXPIRE` in one
+  `MULTI/EXEC`; `EXPIRE` fires unconditionally because a first-hit-only `EXPIRE` that loses its
+  race leaks a key that would then throttle an identifier forever.
+- `RateLimiter` — the facade `api/auth.py` calls. Async (`BE-13`/`PERF-1`), picks the store per
+  call, falls back, and owns the breaker and the alarm.
 
-- Move counters to Redis. **Redis is for rate-limit counters only** — Postgres remains the source
-  of truth for all application state (`E18`). A second use of Redis gets its own decision.
-- Throttle **per identifier, not per IP** (`SEC-14`). The API sits behind a proxy; one shared
-  address means a global lockout. This is existing behaviour — preserve it.
-- **F4 fallback:** on Redis failure, fall back to the in-process counter **and raise an alarm**.
-  Never block logins wholesale (a self-inflicted outage an attacker triggers by degrading Redis)
-  and never leave them uncounted (a free credential-stuffing window). Degrading from global to
-  per-instance throttling is exactly today's behaviour.
-- **The fallback path needs its own test and its own alert.** A silent fallback is the same as no
-  fallback.
-- Namespace keys by purpose and tenant so one caller cannot consume or collide with another's
-  counter.
+`login_limiter` is now a `RateLimiter`; `api/auth.py`'s three call sites are `await`ed.
+`ALL_LIMITERS` + `rate_limit_health()` feed a new `rate_limit` block in `/api/v1/health/ready`.
 
-**Landmines specific to this codebase:**
+### Decisions a later agent should not re-litigate
 
-- `BE-13`/`PERF-1`: no blocking calls. Use an async Redis client — the worker shares the API event
-  loop.
-- `BE-15`: read configuration through `get_settings()`, never `os.environ`.
-- `AI-20`/`INF-9` precedent: a missing key degrades that surface with a clear message and never
-  blocks startup. Apply the same shape to a missing or unreachable Redis.
-- `QA-12`: ship the negative-case test.
-- `_reset_login_limiter` in conftest must reset whichever store is active, or counts leak between
-  tests.
-- CI has no Redis service. Either add one to the workflow, or have the tests exercise the fallback
-  plus a fake. Decide deliberately and record which, because "the test passed" must mean the Redis
-  path actually ran — see the SQLite lesson in §4.
+**Wall clock in Redis, monotonic in process.** `RedisWindowStore` buckets on `time.time()`.
+`time.monotonic()` has a per-process epoch, so two instances would bucket the same instant into
+different windows and each enforce its own — the exact defect the shared store exists to remove.
+The in-process fallback keeps `monotonic` because it is per-process by definition.
 
----
+**The identifier is hashed into the key** (`SEC-29`). A Redis keyspace is enumerable by anything
+holding the connection string; a store explicitly *not* the source of truth must not become a
+roster of who has an account.
 
-## 6. Task 1.5 — Two-instance correctness suite (AFTER 1.4)
+**Login's tenant is `global`.** The lookup in `api/auth.py` matches an email or username across
+every organization, so there is no tenant to scope to until *after* the credential is accepted.
+Scoping it earlier would let an attacker mint a fresh allowance by guessing a tenant. The
+`tenant=` parameter exists for the limiters `RISK-12` will want.
+
+**`record()` writes both stores, always.** A failure landing just before an outage must be
+visible to the store that takes over. Double-counting an identifier that is already failing to
+authenticate costs it nothing.
+
+**There is a circuit breaker** (3 consecutive failures → skip Redis for 30s). Without it every
+login during an outage pays the socket timeout twice before falling back, which turns a degraded
+dependency into a slow authentication endpoint for the whole outage — a smaller version of the
+outage F4 forbids. `record_success()` closes it, and there is a test that a recovered Redis is
+used again: the breaker is a pause, not a one-way door.
+
+**`/health/ready` answers 503 when a *configured* Redis is unreachable, and stays healthy when
+Redis is not configured at all.** No Redis is the documented single-instance mode. A configured
+Redis that stopped answering has silently multiplied the effective login allowance by the
+instance count, which has no other symptom — that is the alert F4 asks for. `/api/v1/health`
+(liveness, what Render's `healthCheckPath` polls) is untouched, so this cannot cause a restart
+loop.
+
+**Timeouts are bounded twice** — `socket_timeout`/`socket_connect_timeout` on the client and
+`asyncio.wait_for` on every call. `REDIS_TIMEOUT_SECONDS` defaults to `0.25` and a startup
+validator rejects anything outside `(0, 5]`: zero would make every call time out instantly and
+look exactly like a permanent outage, degrading to per-instance counting on a config typo.
+
+### CI decision — recorded deliberately, per §4
+
+**A real `redis:7-alpine` service was added to the `backend` job**, not a fake. The alternative
+was rejected for the reason SQLite was rejected in 1.3: a fake that never runs the real client
+passes while exercising nothing, and the green tick then gets cited as evidence.
+
+- `TEST_REDIS_URL` is set as job env — deliberately **not** `REDIS_URL`, which would put the
+  whole suite on Redis and make every test's login throttling depend on a service most of them
+  have no opinion about. `tests/test_rate_limit.py` points the limiter at it per test.
+- A guard step re-runs `tests/test_rate_limit.py -v -ra` and **fails on any skip**, the same
+  guard the multi-worker tests have in the `migrations` job.
+- `docker compose --profile full up -d redis` runs one locally. There was no Docker or local
+  Redis in the session that built this, so — exactly as with Postgres in 1.3 — **CI is the only
+  place the Redis path has executed. The three Redis tests are `UNVERIFIED` locally.**
+
+### Test-infrastructure notes
+
+`tests/conftest.py`'s `_reset_login_limiter` is now **async** and resets whichever store is
+active: the local dict, the `_Degradation` breaker state, and — when a limiter has a Redis store
+— its keys by namespace prefix via `SCAN`, never `FLUSHDB`. Async so the flush runs on the
+test's own loop rather than one the fixture invented, the same reasoning as `_db_schema`.
+
+The `broken_redis` fixture monkeypatches `RedisWindowStore.client`, so the fallback tests run
+everywhere with no service. Teardown order is what makes this safe: `monkeypatch` is set up
+after the autouse fixture and therefore torn down before it, so `redis_url` is already reverted
+by the time the reset fixture asks whether a Redis store exists.
+
+## 6. Task 1.5 — Two-instance correctness suite (NEXT)
 
 **Spec:** `docs/avora-new-state-august-16.md`, "1.5 — Two-instance correctness suite" (`AV-84`).
 A hard acceptance requirement. With API #1, API #2, Worker #1, Worker #2 running:
 
 - Upload through API #1, retrieve and process through API #2.
-- Failed logins spread across both APIs still trip one shared limit. *(needs 1.4)*
+- Failed logins spread across both APIs still trip one shared limit. *(1.4 built this;
+  `test_two_instances_share_one_limit` is the two-object version, 1.5 wants two real processes)*
 - One submission never produces two marking operations.
 - One weekly send produces one email, even when a worker is killed mid-job.
 - A worker killed halfway through a job recovers with no duplicate side effects.
@@ -337,7 +379,7 @@ environment variable overrides the valid keyring token.
 |---|---|---|
 | Uploads on a persistent local disk | **RESOLVED (capability)** | 1.2 — `StorageBackend` + S3 backend; `storage_backend` still defaults to `local` |
 | In-process worker | **RESOLVED (capability)** | 1.3 — `python -m app.workers`, DB-backed heartbeats; `run_worker_in_api` still defaults `True` |
-| In-process rate limiter | **OPEN** | 1.4 |
+| In-process rate limiter | **RESOLVED (capability)** | 1.4 — `RateLimiter` on Redis with an alarming fallback; `redis_url` still defaults unset |
 
-All three are capability, not deployment. Scaling out remains a correctness change gated on 11.2
-(`AV-85`).
+All three are capability, not deployment: `STORAGE_BACKEND=local`, `RUN_WORKER_IN_API=true`,
+`REDIS_URL` unset. Scaling out remains a correctness change gated on 11.2 (`AV-85`).

@@ -143,6 +143,21 @@ class Settings(BaseSettings):
     # means marking, extraction, readiness and reports all stop with no error
     # anywhere — /health/ready reports `not_started`, which is the signal.
     run_worker_in_api: bool = True
+
+    # --- Redis (rate-limit counters only) ---------------------------------
+    # Unset -> failed-login counters stay in process memory, which is correct at
+    # one instance and is the local/test mode. Set it and every instance shares
+    # one limit (task 1.4, AV-83). REDIS IS FOR RATE-LIMIT COUNTERS AND NOTHING
+    # ELSE (E18): Postgres stays the source of truth for application state, and
+    # a second use of Redis is its own decision. A configured-but-unreachable
+    # Redis degrades to the in-process counter and raises an alarm rather than
+    # blocking logins (threat review F4) — see services/rate_limit.py.
+    redis_url: str | None = None
+    # Deliberately sub-second: this bound sits in front of the login endpoint,
+    # and a sick Redis must cost a request milliseconds before falling back, not
+    # seconds. Two round trips per failed login, so the worst case a caller sees
+    # is twice this — and only until the breaker opens.
+    redis_timeout_seconds: float = 0.25
     cors_origins: str = "http://localhost:5173"
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
@@ -150,6 +165,16 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _redis_timeout_is_sane(self) -> "Settings":
+        # Zero or negative makes every Redis call time out instantly, which
+        # looks exactly like a permanent outage: the limiter would degrade to
+        # per-instance counting on a config typo and only say so in
+        # /health/ready. Fail startup instead.
+        if not 0 < self.redis_timeout_seconds <= 5:
+            raise ValueError("REDIS_TIMEOUT_SECONDS must be between 0 and 5")
+        return self
 
     @model_validator(mode="after")
     def _s3_backend_is_configured(self) -> "Settings":

@@ -218,8 +218,14 @@ Keep these loaded. Each cites the document holding its full reasoning.
   validate with `check_usable()` rather than constructing an `Invite` directly. (`SEC-12`,
   `SEC-13`)
 - **Failed logins are throttled per identifier, not per IP** — the API sits behind a proxy
-  where one shared address would mean a global lockout. The counter is in-process and correct
-  only while the API runs a single instance. (`SEC-14`)
+  where one shared address would mean a global lockout. (`SEC-14`)
+- **Counters live in Redis when `REDIS_URL` is set, in process memory when it is not.**
+  `REDIS_URL` is unset in `render.yaml`: with one instance, in-process *is* the correct limit.
+  **Redis is for rate-limit counters only** (`E18`) — Postgres stays the source of truth.
+  A configured Redis that stops answering **falls back to the in-process counter and raises an
+  alarm** (ERROR log + `rate_limit.degraded` in `/health/ready`); it never blocks a login and
+  never leaves one uncounted. Keys are namespaced by purpose and tenant with the identifier
+  hashed. (`SEC-28`, `SEC-29`, threat review F4)
 
 ### Uploads
 
@@ -383,9 +389,12 @@ Full detail in §01 and §04; this is orientation only.
   origin would not match `GOOGLE_REDIRECT_URI`, so Classroom would fail for anyone who landed
   on it while everything else appeared to work.
 
-**The API is pinned to a single instance** by three things at once — the uploads disk, the
-in-process worker, and the in-process rate limiter. Scaling out is a correctness change, not a
-configuration change (`RISK-1`, §08).
+**The API runs as a single instance**, and all three things that used to pin it there — the
+uploads disk, the in-process worker, the in-process rate limiter — now have a built unwind that
+is **deliberately switched off**: `STORAGE_BACKEND=local`, `RUN_WORKER_IN_API=true`, `REDIS_URL`
+unset. Phase 1 (`AV-82`) built multi-instance capability; the deployment stays at one instance
+until the Phase 11 concurrency audit (11.2, `AV-85`). Scaling out is still a correctness change,
+not a configuration change (`RISK-1`, §08).
 
 
 PLugins / ECC 

@@ -284,17 +284,29 @@ file that ships.
 Three independent things pin the API to one instance. They are listed in the order they must be
 unwound, because each later item is cheap once the earlier one is done.
 
-1. **The persistent disk.** `services/storage.py` writes to local disk; Render gives a
-   disk-mounted service one instance. **Unwind:** move storage to object storage. Paths are
-   already stored relative to `UPLOAD_DIR` precisely so this does not touch data.
-2. **The in-process worker.** Started in `main.py`'s `lifespan`, so it scales with the API and
-   dies with it. **Unwind:** move it to its own service. The claim query already uses
-   `FOR UPDATE SKIP LOCKED`, so multiple workers are safe today.
-3. **The in-process login limiter.** `services/rate_limit.py` is a process-global dict; with N
-   instances the effective limit is 10N. **Unwind:** move the counter to Postgres or Redis.
+All three now have a built unwind. **None of them is switched on**, which is deliberate: Phase 1
+(`AV-82`) built multi-instance *capability* and left the deployment at one instance until the
+Phase 11 concurrency audit (11.2, `AV-85`). Read each "unwind" below as available, not applied.
 
-Until all three are done, **scaling out is a correctness change, not a configuration change**.
-See `RISK-1`.
+1. **The persistent disk.** `services/storage.py` writes to local disk; Render gives a
+   disk-mounted service one instance. **Unwind:** `STORAGE_BACKEND=s3` (task 1.2). Paths are
+   stored relative to `UPLOAD_DIR` precisely so this does not touch data. `render.yaml` still
+   says `local`.
+2. **The in-process worker.** Started in `main.py`'s `lifespan`, so it scales with the API and
+   dies with it. **Unwind:** `RUN_WORKER_IN_API=false` plus an actual worker service running
+   `python -m app.workers` (task 1.3). The claim query already uses `FOR UPDATE SKIP LOCKED`,
+   so multiple workers are safe today. `run_worker_in_api` still defaults `True` and
+   `render.yaml` defines no worker service.
+3. **The in-process login limiter.** With N instances the effective limit is 10N. **Unwind:**
+   set `REDIS_URL` (task 1.4) and `RateLimiter` counts in Redis, so N instances share one
+   limit. A configured Redis that stops answering degrades back to the in-process counter and
+   raises an alarm rather than blocking logins (`SEC-28`, threat review F4). `render.yaml`
+   declares the key but leaves it unset — with one instance, the in-process counter *is* the
+   correct limit, and an unnecessary Redis can only take logins down.
+
+Until all three are switched on **and** 11.2 has audited the read-modify-writes the
+two-instance suite does not cover, **scaling out is a correctness change, not a configuration
+change**. See `RISK-1`.
 
 ---
 

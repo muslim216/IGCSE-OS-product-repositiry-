@@ -99,6 +99,27 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # The shared login limiter (task 1.4, AV-83) keeps its counters in Redis.
+    # Its fallback path needs no service and runs everywhere, but "counters are
+    # actually shared between two instances" cannot be proved against a fake —
+    # that is the same trap as running the multi-worker claim tests on SQLite,
+    # which silently drops FOR UPDATE SKIP LOCKED. So a real Redis runs here.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Read only by tests/test_rate_limit.py, which points the limiter at it
+      # per test. Deliberately NOT REDIS_URL: setting that would put the whole
+      # suite on Redis, where every test's login throttling would depend on a
+      # service most of them have no opinion about.
+      TEST_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
 
@@ -115,6 +136,21 @@ jobs:
       # module is imported, so this job needs no database service and no API key.
       - name: pytest
         run: python -m pytest -q
+
+      # The Redis-backed rate-limit tests skip themselves when TEST_REDIS_URL is
+      # unset, which is right for a laptop and wrong here: a skip in this job
+      # would be a green tick for the only tests that prove counters are shared
+      # across instances at all. Re-running the file alone costs a second and
+      # turns that skip into a failure. Same guard, same reasoning, as the
+      # multi-worker claim tests in the migrations job below.
+      - name: Redis-backed rate limit tests must actually run
+        run: |
+          set -euo pipefail
+          python -m pytest tests/test_rate_limit.py -v -ra | tee /tmp/rate-limit.log
+          if grep -qE "skipped|no tests ran" /tmp/rate-limit.log; then
+            echo "::error::rate limit tests skipped or not collected — TEST_REDIS_URL must reach a real Redis"
+            exit 1
+          fi
 
   migrations:
     name: Migrations up/down/up (Postgres)

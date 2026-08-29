@@ -50,10 +50,12 @@ export interface paths {
          *     worker was completely invisible: the API kept serving, /health kept
          *     returning a hardcoded "ok", and marking had silently stopped (RISK-4).
          *
-         *     503 means the database is unreachable, or the worker started and then
-         *     stopped turning. Under the test client the worker never starts at all
-         *     (ASGITransport does not run lifespan), which reports as `not_started`
-         *     and is not a failure — a test run is not a broken deployment.
+         *     503 means the database is unreachable, the worker started and then
+         *     stopped turning, or a configured Redis has stopped answering and login
+         *     throttling has silently degraded to per-instance (task 1.4, AV-83).
+         *     Under the test client the worker never starts at all (ASGITransport does
+         *     not run lifespan), which reports as `not_started` and is not a failure —
+         *     a test run is not a broken deployment.
          */
         get: operations["health_ready_api_v1_health_ready_get"];
         put?: never;
