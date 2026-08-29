@@ -20,9 +20,12 @@ os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 os.environ["REFRESH_COOKIE_SECURE"] = "false"
 
+import contextlib
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.config import get_settings
 from app.db import engine
 from app.main import app
 from app.models import Base
@@ -82,14 +85,76 @@ def signing_storage(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _reset_login_limiter():
-    """The failed-login counter is a process-global, so without this a test that
-    submits bad passwords would leak its count into every later test."""
-    from app.services.rate_limit import login_limiter
+async def _reset_login_limiter():
+    """The failed-login counters are process-globals, so without this a test that
+    submits bad passwords would leak its count into every later test.
 
-    login_limiter._hits.clear()
+    Resets *whichever store is active* (task 1.4, AV-83), not just the in-process
+    dict. A test running against a real Redis would otherwise carry its counts
+    into the next test through a store this fixture never touched, and a test
+    that tripped the breaker would leave every later limiter call degraded —
+    both of which fail somewhere other than where they were caused.
+
+    Async, so the Redis flush runs on the test's own loop rather than a loop this
+    fixture invented; the same reasoning as `_db_schema` below.
+    """
+    await _clear_limiters()
     yield
-    login_limiter._hits.clear()
+    await _clear_limiters()
+
+
+async def _clear_limiters():
+    from app.services.rate_limit import ALL_LIMITERS, RedisWindowStore, _Degradation
+
+    for limiter in ALL_LIMITERS:
+        limiter.local._hits.clear()
+        limiter.degradation = _Degradation()
+        limiter._local_unsynced.clear()
+        url = (get_settings().redis_url or "").strip()
+        if not url:
+            continue
+        # A store built and closed inside this call, NOT `limiter._redis()`.
+        # That one caches its pool on a module-global limiter, so the pool would
+        # be created on the first test's event loop and reused by every later
+        # test on its own — `asyncio_default_fixture_loop_scope = "function"`
+        # tears each of those down, and the next checkout fails with
+        # "Event loop is closed" from inside this fixture, which is the worst
+        # possible place to read a traceback from.
+        # The module-global's own pool has to go too, not just be bypassed. The
+        # CI slice that sets REDIS_URL drives the login endpoint through
+        # `login_limiter`, which caches a real pool on the first test's event
+        # loop; `asyncio_default_fixture_loop_scope = "function"` closes that
+        # loop, and the next test's checkout fails with "Event loop is closed".
+        # Clearing the counters while leaving the pool cached would fix the
+        # counts and keep the crash.
+        with contextlib.suppress(Exception):
+            await limiter.close()
+        store = RedisWindowStore(
+            url,
+            limit=limiter.limit,
+            window_seconds=limiter.window_seconds,
+            # The configured timeout, not a hardcoded one: an environment that
+            # raised it for a slow Redis would otherwise have cleanup time out
+            # and leak counters into the next test.
+            timeout=get_settings().redis_timeout_seconds,
+        )
+        try:
+            client = store.client()
+            # By namespace prefix, because the keys are hashed and there is no
+            # identifier list to delete by name. Scoped to this limiter's own
+            # prefix, never FLUSHDB: a developer pointing REDIS_URL at a Redis
+            # that holds anything else must not lose it.
+            async for key in client.scan_iter(match=f"avora:rl:{limiter.purpose}:*", count=500):
+                await client.delete(key)
+        except Exception:  # noqa: BLE001
+            # A stopped local Redis must not turn the whole suite red. The local
+            # counter and the breaker were already reset above, which is what
+            # isolates the tests that do not need Redis — mirroring the
+            # production limiter, which falls back rather than raising (F4).
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                await store.close()
 
 
 @pytest.fixture(autouse=True)

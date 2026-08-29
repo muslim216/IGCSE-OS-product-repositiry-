@@ -222,18 +222,44 @@ Invites are minted with `build_invite()` and validated with `check_usable()`. Co
 
 ### Login throttling
 
-`services/rate_limit.py` is a `FixedWindowLimiter`: **10 failed logins per identifier per 15
-minutes**, reset on success so a user who finally remembers their password is not still locked
-out.
+`services/rate_limit.py` enforces **10 failed logins per identifier per 15 minutes**, reset on
+success so a user who finally remembers their password is not still locked out.
 
 **Per identifier, not per IP** — deliberate, and the docstring explains it: the API sits behind
 Render's proxy, where one shared source address would mean a global lockout.
 
-The counter is an in-process dict. That is correct only while the API runs a single instance;
-scaled out, the effective limit multiplies by the instance count. It self-evicts stale windows
-above 10,000 keys so a long-running process cannot accumulate an entry per attempted username.
-The window is fixed rather than sliding — a burst straddling a boundary can briefly exceed the
-limit, accepted deliberately as the price of a plain dict.
+**Two stores, one policy** (task 1.4, AV-83). `RateLimiter` counts in Redis when `REDIS_URL` is
+set, so N instances enforce one limit rather than N copies of it, and in a process-local
+`FixedWindowLimiter` when it is not. **Redis holds rate-limit counters and nothing else**
+(`E18`) — Postgres remains the source of truth for application state, and a second use of Redis
+is its own decision.
+
+`REDIS_URL` is **unset in `render.yaml`**, deliberately: with one instance running, in-process
+counters *are* the correct limit, and a Redis nobody needs is a dependency that can only take
+logins down. Setting it belongs to the scale-out cutover gated on 11.2 (`AV-85`).
+
+**Redis is never an authentication dependency in either direction** (threat review F4, AV-97). A
+configured Redis that stops answering falls back to the in-process counter and raises an alarm:
+blocking every login would be an outage an attacker triggers by degrading Redis, and leaving
+failures uncounted would be a free credential-stuffing window. The fallback is loud on purpose —
+the first failure logs at ERROR and `/api/v1/health/ready` reports `rate_limit.degraded` and
+answers `503` — because a silent fallback is the same as no fallback. A circuit breaker opens
+after three consecutive failures so a sustained outage costs one timed-out call per 30s rather
+than two per login.
+
+Keys are `avora:rl:{purpose}:{scope}:{sha256(identifier)[:32]}`, where `scope` is `global` or
+`tenant:{id}` — prefixed so a caller passing the literal string `"global"` as a tenant cannot
+land on the unscoped counter. Namespaced by purpose and tenant so
+one caller cannot consume or collide with another's allowance; the identifier is **hashed**
+because a Redis keyspace is readable by anything holding the connection string, and a store
+explicitly not the source of truth must not double as a roster of who has an account. Login's
+tenant is `global`: the lookup in `api/auth.py` matches an email or username across every
+organization, so there is no tenant to scope to until after the credential is accepted.
+
+The in-process store self-evicts stale windows above 10,000 keys so a long-running process
+cannot accumulate an entry per attempted username; Redis keys carry a TTL instead. The window is
+fixed rather than sliding — a burst straddling a boundary can briefly exceed the limit, accepted
+deliberately as the price of a counter that is one `INCR`.
 
 Nothing else in the API is rate limited. (The chat daily message cap was the other one, until
 task 0.3 deleted the surface it capped, AV-57.)
@@ -447,6 +473,23 @@ Authentication failures are throttled per identifier, not per source address.
 *Rationale:* the API sits behind a proxy where one shared address would mean a global lockout —
 a denial-of-service dressed as a control.
 
+**`SEC-29` — MUST · Important · Active**
+A rate limiter whose shared store fails **falls back to counting in-process and raises an
+alarm**. It never blocks the request wholesale, and never lets the attempt go uncounted.
+*Rationale:* threat review F4 (`AV-97`). Blocking is an authentication outage an attacker
+triggers by degrading the store; not counting is a free credential-stuffing window. Degrading
+from one global limit to one per instance is the middle, and it is the behaviour that shipped
+before the store existed. The alarm is not optional — a silent fallback is the same as no
+fallback, so the path carries its own test and `/health/ready` reports it.
+
+**`SEC-30` — MUST · Important · Active**
+Rate-limit keys are namespaced by purpose and tenant, and the identifier is hashed rather than
+embedded.
+*Rationale:* namespacing stops one caller consuming or colliding with another's allowance. The
+hash keeps a store that is explicitly *not* the source of truth from becoming a readable roster
+of who has an account — a Redis keyspace is enumerable by anything holding the connection
+string.
+
 ### Uploads and files
 
 **`SEC-15` — MUST · Critical · Active**
@@ -542,7 +585,8 @@ Application containers run as a non-root user.
 | **The container runs as root** with no `.dockerignore`. | Breaks `SEC-28`; the build context also carries whatever is in the directory. | `before scale` |
 | **No data retention or deletion policy**, and no subject-access or erasure path. | C2 data on minors is kept indefinitely with no defined basis or route to remove it. `RISK-9`. | `before scale` |
 | **No security logging.** Failed authorization, token revocation, and password resets are not recorded anywhere. | A compromise could not be reconstructed. Compounded by there being no request ids at all (§11). | `before scale` |
-| **Login throttling is per-process.** Correct only at one instance. | Scaling out multiplies the effective limit by the instance count. The docstring names this precisely. `RISK-1`. | `before scale` |
+| ~~**Login throttling is per-process.**~~ **Closed** by task 1.4 (`AV-83`): `RateLimiter` shares counters through Redis. Capability only — `REDIS_URL` is unset in `render.yaml`, so the live deployment is still per-process, which is correct at its one instance. | `RISK-1`'s third link. Setting `REDIS_URL` is part of the scale-out cutover gated on 11.2. | `closed (capability)` |
+| **One account can be addressed by two identifiers.** The counter is keyed on what the caller typed, and `api/auth.py` matches an account by email *or* username — so knowing both yields two counters and twice the allowance against one account. Pre-dates the Redis work (the in-process limiter keyed the same way). | Weakens `SEC-14` by a factor of two for any account whose username is guessable. Resolving to a user id before counting would mean looking the account up *before* throttling, reintroducing the timing oracle `_dummy_hash()` exists to close — so the fix is a canonicalization step, not a reordering. | `before scale` |
 | **Only login is rate limited.** AI-triggering endpoints are unbounded per user. (Chat was the other one, until task 0.3 deleted the surface, AV-57.) | A single account can drive arbitrary AI spend (`RISK-12`). | `before scale` |
 | **No MFA for tutor accounts.** | A tutor account holds every student's C2 data; password-only is the whole control. Deliberate for students, arguable for tutors. | `nice to have` |
 | **`JWT_SECRET` defaults to `"change-me-in-production"`.** Safe only because `render.yaml` generates one. | Any deployment not using the blueprint inherits a known signing key. | `before scale` |

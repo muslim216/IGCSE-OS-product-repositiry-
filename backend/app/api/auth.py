@@ -120,7 +120,7 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
     # Render's proxy, so every request shares one source IP and an address-based
     # limit would lock out the whole platform instead of one attacker. Per
     # identifier is what actually stops guessing a single account's password.
-    if login_limiter.is_limited(identifier):
+    if await login_limiter.is_limited(identifier):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many failed sign-in attempts. Wait a few minutes and try again.",
@@ -133,10 +133,10 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
     )
     password_ok = verify_password(body.password, user.password_hash if user else _dummy_hash())
     if user is None or not password_ok:
-        login_limiter.record(identifier)
+        await login_limiter.record(identifier)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
 
-    login_limiter.reset(identifier)
+    await login_limiter.reset(identifier)
     tokens = _token_pair(user)
     _set_refresh_cookie(response, tokens.refresh_token)
     return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))

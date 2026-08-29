@@ -73,6 +73,23 @@ services:
       - key: S3_SECRET_ACCESS_KEY
         sync: false
 
+      # --- Shared rate limiting (task 1.4, AV-83) ------------------------
+      # Left unset here deliberately, exactly like STORAGE_BACKEND above: with
+      # one instance running, in-process counters ARE the correct limit, and a
+      # Redis nobody needs is a dependency that can only take logins down.
+      # Provision Redis and set this in the dashboard as part of the scale-out
+      # cutover, which is gated on the Phase 11 concurrency audit (11.2, AV-85)
+      # — not automatic from this key existing.
+      #
+      # REDIS IS FOR RATE-LIMIT COUNTERS AND NOTHING ELSE (E18). Postgres stays
+      # the source of truth for application state.
+      #
+      # Once set, watch /api/v1/health/ready: `rate_limit.degraded` true means
+      # the counters silently fell back to per-instance and the effective login
+      # allowance is now multiplied by the instance count (threat review F4).
+      - key: REDIS_URL
+        sync: false
+
       # --- AI providers -------------------------------------------------
       # Anthropic serves chat, reports, readiness synthesis and class briefs.
       - key: ANTHROPIC_API_KEY

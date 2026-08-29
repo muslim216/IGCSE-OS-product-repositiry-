@@ -43,6 +43,27 @@ services:
       timeout: 3s
       retries: 10
 
+  # Rate-limit counters, shared across API instances (task 1.4, AV-83). Opt-in
+  # via `--profile full` for the same reason as `minio`: REDIS_URL unset keeps
+  # the counters in process memory, which is correct at one instance and is the
+  # documented default. Start it on its own to run the Redis-backed rate-limit
+  # tests locally:
+  #   docker compose --profile full up -d redis
+  #   cd backend && TEST_REDIS_URL=redis://localhost:6379/0 \
+  #     .venv/bin/python -m pytest tests/test_rate_limit.py
+  redis:
+    image: redis:7-alpine
+    profiles: ["full"]
+    ports:
+      # Loopback only. An unqualified "6379:6379" publishes an unauthenticated
+      # Redis to anything that can reach this host.
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
     profiles: ["full"]
@@ -69,11 +90,22 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-igcse-dev}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-igcse-dev-secret}
+      # Empty by default, matching backend/.env.example: the login limiter
+      # falls back to its in-process counter, which is what a single container
+      # should be doing. Set REDIS_URL=redis://redis:6379/0 to exercise the
+      # shared path.
+      REDIS_URL: ${REDIS_URL:-}
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      # Deliberately NO `redis` entry, unlike `minio` below. REDIS_URL is empty
+      # by default, so the limiter's in-process fallback is the documented
+      # behaviour here — waiting on a Redis healthcheck would let a port
+      # conflict or an unhealthy container block the very path that exists to
+      # keep logins working without Redis. Start it yourself when you want it:
+      # `docker compose --profile full up -d redis`.
       minio:
         # Only meaningful under STORAGE_BACKEND=s3, but harmless otherwise and
         # cheaper than debugging a first upload that raced MinIO's startup.

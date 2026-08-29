@@ -24,6 +24,11 @@ dependencies = [
     # S3-compatible object storage (AWS S3, Cloudflare R2, MinIO). Imported
     # lazily inside S3Backend, so a local-storage deployment never loads it.
     "boto3>=1.34",
+    # Rate-limit counters shared across API instances. Imported lazily inside
+    # RedisWindowStore, so a deployment with no REDIS_URL never loads it.
+    # 5.0.1, not 5.0: `Redis.aclose()` (used by RedisWindowStore.close) only
+    # arrived in 5.0.1 — 5.0.0 exposes `close()` and raises AttributeError.
+    "redis>=5.0.1",
 ]
 
 [project.optional-dependencies]

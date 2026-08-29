@@ -29,7 +29,7 @@
     "/api/v1/health/ready": {
       "get": {
         "summary": "Health Ready",
-        "description": "Readiness: can this instance actually do its job right now?\n\nNothing in the platform polls this \u2014 it exists so that a human, or an\nexternal uptime check, can get a straight answer. Before it, a dead job\nworker was completely invisible: the API kept serving, /health kept\nreturning a hardcoded \"ok\", and marking had silently stopped (RISK-4).\n\n503 means the database is unreachable, or the worker started and then\nstopped turning. Under the test client the worker never starts at all\n(ASGITransport does not run lifespan), which reports as `not_started`\nand is not a failure \u2014 a test run is not a broken deployment.",
+        "description": "Readiness: can this instance actually do its job right now?\n\nNothing in the platform polls this \u2014 it exists so that a human, or an\nexternal uptime check, can get a straight answer. Before it, a dead job\nworker was completely invisible: the API kept serving, /health kept\nreturning a hardcoded \"ok\", and marking had silently stopped (RISK-4).\n\n503 means the database is unreachable, the worker started and then\nstopped turning, or a configured Redis has stopped answering and login\nthrottling has silently degraded to per-instance (task 1.4, AV-83).\nUnder the test client the worker never starts at all (ASGITransport does\nnot run lifespan), which reports as `not_started` and is not a failure \u2014\na test run is not a broken deployment.",
         "operationId": "health_ready_api_v1_health_ready_get",
         "responses": {
           "200": {

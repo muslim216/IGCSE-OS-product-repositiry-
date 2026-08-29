@@ -43,16 +43,26 @@ simultaneously:
    one instance. `services/storage.py` writes to local disk.
 2. The background job worker runs **inside the API process**, started in `main.py`'s
    `lifespan`.
-3. `services/rate_limit.py` is a process-global dict; with two instances, the login throttle
-   becomes per-instance and its effective limit doubles.
+3. `services/rate_limit.py` counts failed logins in a process-global dict **on the live
+   deployment**, because `REDIS_URL` is unset in `render.yaml`. With two instances the login
+   throttle becomes per-instance and its effective limit doubles. (Task 1.4 built the shared
+   Redis store that removes this; setting `REDIS_URL` is what switches it on, and that is part
+   of the mitigation below, not of the current state.)
 
 **Trigger:** sustained CPU or memory pressure on the single Render instance; or a
 requirement for zero-downtime deploys; or worker backlog that a single process cannot clear.
 
 **Mitigation:** the ordered sequence is documented in §08 — move storage to S3, move the
 worker to its own service (the job table already uses `FOR UPDATE SKIP LOCKED`, so multiple
-workers are safe), move the rate limiter to Postgres or Redis. **None is done.** The job
-queue's locking is the one part already built for it.
+workers are safe), move the rate limiter to Redis. **All three are now built and none is
+switched on** (Phase 1, `AV-82`: tasks 1.2, 1.3, 1.4). `STORAGE_BACKEND` still defaults to
+`local`, `RUN_WORKER_IN_API` still defaults `True`, and `REDIS_URL` is unset in `render.yaml`.
+
+That is the intended state, not an unfinished one. `AV-85` is explicit that Phase 1 builds
+capability and the deployment stays at one instance until the Phase 11 concurrency audit
+(11.2), because the two-instance correctness suite (1.5) covers the known cases rather than
+every read-modify-write in the codebase. **Flipping any of these three without 11.2 is the risk
+this entry describes, not its mitigation.**
 
 **Accepted because:** current volume is a single tutor's practice. The cost of the migration
 is bounded and the trigger is observable.
