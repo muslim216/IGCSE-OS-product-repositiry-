@@ -8,11 +8,11 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 |---|---|
 | Phase | 1 — Scale foundation (`AV-82`) |
 | Spec of record | `docs/avora-new-state-august-16.md` §"Phase 1 — Scale foundation" (~lines 937–1045) |
-| State as of | branch `feat/av-83-1.4-redis-rate-limiting`, off commit `67c9b0c` |
+| State as of | commit `a903f04` on the default branch (`claude/igcse-os-planning-q8be0t`) |
 | Handoff written | 2026-08-28 · updated 2026-08-29 (task 1.4) |
 | Migration head | `0027_worker_heartbeats` |
-| Tasks done | 1.1, 1.2, 1.3, **1.4 (in review)** |
-| Tasks remaining | **1.5** (last; unblocked once 1.4 merges) |
+| Tasks done | 1.1, 1.2, 1.3, 1.4 |
+| Tasks remaining | **1.5** (last, now unblocked) |
 
 ---
 
@@ -23,11 +23,10 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | 1.1 | Architecture-impact report | **DONE** | #52 | `docs/av-82-architecture-impact-report.md` |
 | 1.2 | Object storage | **DONE** | #53 | `app/services/storage.py`, `app/api/file_responses.py` |
 | 1.3 | Worker as a separate process | **DONE** | #54 | `app/workers/*`, `app/models/workers.py`, migration `0027` |
-| 1.4 | Shared rate limiting on Redis | **IN REVIEW** | — | `app/services/rate_limit.py`, `tests/test_rate_limit.py`, CI `redis:7-alpine` service |
-| 1.5 | Two-instance correctness suite | **NOT STARTED** | — | unblocked once 1.4 merges |
+| 1.4 | Shared rate limiting on Redis | **DONE** | #55 | `app/services/rate_limit.py`, `tests/test_rate_limit.py`, CI `redis:7-alpine` service |
+| 1.5 | Two-instance correctness suite | **NOT STARTED** | — | — |
 
-1.5 requires 1.2–1.4 complete. 1.4 is in review, so 1.5 is the only remaining Phase 1 task
-and starts when 1.4 merges.
+1.2–1.4 are all merged, so **1.5 is the only remaining Phase 1 task** and is unblocked.
 
 ---
 
@@ -174,7 +173,7 @@ executing.
 
 ---
 
-## 5. Task 1.4 — Shared rate limiting on Redis (BUILT, in review)
+## 5. Task 1.4 — Shared rate limiting on Redis (DONE, PR #55)
 
 **Spec:** `docs/avora-new-state-august-16.md`, "1.4 — Shared rate limiting on Redis" (`AV-83`,
 `E18`), plus threat review **F4** (`AV-97`). Rules added: `SEC-29`, `SEC-30` (§07).
@@ -267,9 +266,15 @@ passes while exercising nothing, and the green tick then gets cited as evidence.
   have no opinion about. `tests/test_rate_limit.py` points the limiter at it per test.
 - A guard step re-runs `tests/test_rate_limit.py -v -ra` and **fails on any skip**, the same
   guard the multi-worker tests have in the `migrations` job.
+- A second slice runs the login endpoint itself with `REDIS_URL` genuinely set, because the
+  guard step above only points *fresh* limiters at Redis and left conftest's Redis-clearing
+  branch with no coverage at all.
 - `docker compose --profile full up -d redis` runs one locally. There was no Docker or local
   Redis in the session that built this, so — exactly as with Postgres in 1.3 — **CI is the only
-  place the Redis path has executed. The three Redis tests are `UNVERIFIED` locally.**
+  place the Redis path has executed.**
+
+`VERIFIED` on the merge commit's run: the guarded step reported **31 passed, 0 skipped** and the
+`REDIS_URL` slice **44 passed**, both against the real `redis:7-alpine`.
 
 ### Test-infrastructure notes
 
