@@ -634,7 +634,14 @@ async def worker_loop() -> None:
     # worker rows this sweep reads the absence of. A process that crashed
     # holding a job is therefore repaired by its own restart, which is the
     # common case and the one worth healing without waiting out an interval.
+    #
+    # Stamping the throttle is part of the call, not bookkeeping after it: the
+    # loop below treats `None` as "never swept" and would run a second,
+    # identical pass on its first iteration. Harmless but pointless — a full
+    # scan of `running` rows on every worker boot to re-answer a question just
+    # answered.
     await _sweep_orphans_safely()
+    _last_orphan_sweep = datetime.now(timezone.utc)
     while True:
         # Retried, not attempted once: a database that is unreachable at
         # startup would otherwise leave this worker permanently unregistered.
