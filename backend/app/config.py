@@ -167,6 +167,29 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @model_validator(mode="after")
+    def _redis_is_encrypted_off_box(self) -> "Settings":
+        # A managed Redis URL carries its password inline, and `redis://` sends
+        # that AUTH in cleartext (CWE-319). `Redis.from_url` will happily do it,
+        # so the check has to be here.
+        #
+        # Loopback and single-label hosts are allowed: `redis://localhost` is a
+        # developer's own machine, and `redis://redis:6379` is a service name on
+        # a private container network (docker-compose.yml uses exactly that). A
+        # dotted host or a bare IP is off-box, which is where cleartext stops
+        # being defensible — and is also the only shape a hosting provider hands
+        # out. Fail startup rather than let it work while leaking the credential.
+        url = (self.redis_url or "").strip()
+        if not url or not url.startswith("redis://"):
+            return self
+        host = url.split("://", 1)[1].rsplit("@", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+        if host in {"localhost", "127.0.0.1", "::1", ""} or "." not in host:
+            return self
+        raise ValueError(
+            f"REDIS_URL points off-box ({host}) over cleartext redis://. "
+            "Use rediss:// so the password in the URL is not sent in the clear."
+        )
+
+    @model_validator(mode="after")
     def _redis_timeout_is_sane(self) -> "Settings":
         # Zero or negative makes every Redis call time out instantly, which
         # looks exactly like a permanent outage: the limiter would degrade to

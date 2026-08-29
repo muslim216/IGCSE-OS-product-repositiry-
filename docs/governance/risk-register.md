@@ -43,8 +43,11 @@ simultaneously:
    one instance. `services/storage.py` writes to local disk.
 2. The background job worker runs **inside the API process**, started in `main.py`'s
    `lifespan`.
-3. `services/rate_limit.py` is a process-global dict; with two instances, the login throttle
-   becomes per-instance and its effective limit doubles.
+3. `services/rate_limit.py` counts failed logins in a process-global dict **on the live
+   deployment**, because `REDIS_URL` is unset in `render.yaml`. With two instances the login
+   throttle becomes per-instance and its effective limit doubles. (Task 1.4 built the shared
+   Redis store that removes this; setting `REDIS_URL` is what switches it on, and that is part
+   of the mitigation below, not of the current state.)
 
 **Trigger:** sustained CPU or memory pressure on the single Render instance; or a
 requirement for zero-downtime deploys; or worker backlog that a single process cannot clear.

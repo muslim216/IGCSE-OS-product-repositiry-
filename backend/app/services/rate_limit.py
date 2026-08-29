@@ -309,7 +309,23 @@ class RateLimiter:
     # -- the limit --------------------------------------------------------- #
 
     async def is_limited(self, identifier: str, *, tenant: str | int | None = None) -> bool:
-        """Whether `identifier` has already used up its allowance."""
+        """Whether `identifier` has already used up its allowance.
+
+        **Either store saying "limited" is limited.** Returning the Redis answer
+        alone would hand an attacker a fresh allowance the moment Redis
+        recovers: failures counted locally during an outage are never
+        backfilled, so Redis starts that identifier at zero while the local
+        counter already holds ten. OR-ing costs nothing in the healthy case —
+        `record()` writes both stores, so on one instance they agree — and in
+        the multi-instance case the local counter only ever holds a subset,
+        which can never be the more permissive answer.
+
+        The two stores bucket on different clocks (`monotonic` locally,
+        `time.time()` in Redis), so their window boundaries do not align and an
+        identifier can stay limited into the start of the next Redis window.
+        That is the conservative direction for a failed-login limit, and a
+        successful login clears both stores anyway.
+        """
         key = self.key(identifier, tenant=tenant)
         now = time.time()
         store = self._available(now)
@@ -320,7 +336,7 @@ class RateLimiter:
                 self.degradation.record_failure(exc, purpose=self.purpose, now=now)
             else:
                 self.degradation.record_success()
-                return limited
+                return limited or self.local.is_limited(key)
         return self.local.is_limited(key)
 
     async def record(self, identifier: str, *, tenant: str | int | None = None) -> None:
@@ -331,6 +347,14 @@ class RateLimiter:
         the store that takes over, and the local copy is per-process and
         short-lived anyway — double-counting an identifier that is already
         failing to authenticate costs it nothing it did not ask for.
+
+        Accepted residual: failures counted while the breaker is open are
+        **never backfilled into Redis**. The instance that saw them keeps
+        enforcing them (`is_limited` ORs its local counter in), but the other
+        instances never learn about them, so throttling during an outage is
+        per-instance — which is the degradation F4 accepts, not a separate gap.
+        Backfilling would mean queueing writes against a store already known to
+        be failing, and replaying them into a window that has since rolled over.
         """
         key = self.key(identifier, tenant=tenant)
         now = time.time()

@@ -247,7 +247,7 @@ answers `503` — because a silent fallback is the same as no fallback. A circui
 after three consecutive failures so a sustained outage costs one timed-out call per 30s rather
 than two per login.
 
-Keys are `avora:rl:{purpose}:{tenant}:{sha256(identifier)}`. Namespaced by purpose and tenant so
+Keys are `avora:rl:{purpose}:{tenant}:{sha256(identifier)[:32]}`. Namespaced by purpose and tenant so
 one caller cannot consume or collide with another's allowance; the identifier is **hashed**
 because a Redis keyspace is readable by anything holding the connection string, and a store
 explicitly not the source of truth must not double as a roster of who has an account. Login's
@@ -471,7 +471,7 @@ Authentication failures are throttled per identifier, not per source address.
 *Rationale:* the API sits behind a proxy where one shared address would mean a global lockout —
 a denial-of-service dressed as a control.
 
-**`SEC-28` — MUST · Important · Active**
+**`SEC-29` — MUST · Important · Active**
 A rate limiter whose shared store fails **falls back to counting in-process and raises an
 alarm**. It never blocks the request wholesale, and never lets the attempt go uncounted.
 *Rationale:* threat review F4 (`AV-97`). Blocking is an authentication outage an attacker
@@ -480,7 +480,7 @@ from one global limit to one per instance is the middle, and it is the behaviour
 before the store existed. The alarm is not optional — a silent fallback is the same as no
 fallback, so the path carries its own test and `/health/ready` reports it.
 
-**`SEC-29` — MUST · Important · Active**
+**`SEC-30` — MUST · Important · Active**
 Rate-limit keys are namespaced by purpose and tenant, and the identifier is hashed rather than
 embedded.
 *Rationale:* namespacing stops one caller consuming or colliding with another's allowance. The

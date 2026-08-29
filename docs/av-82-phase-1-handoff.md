@@ -176,7 +176,7 @@ executing.
 ## 5. Task 1.4 — Shared rate limiting on Redis (BUILT, in review)
 
 **Spec:** `docs/avora-new-state-august-16.md`, "1.4 — Shared rate limiting on Redis" (`AV-83`,
-`E18`), plus threat review **F4** (`AV-97`). Rules added: `SEC-28`, `SEC-29` (§07).
+`E18`), plus threat review **F4** (`AV-97`). Rules added: `SEC-29`, `SEC-30` (§07).
 
 ### What was built
 
@@ -201,7 +201,7 @@ executing.
 different windows and each enforce its own — the exact defect the shared store exists to remove.
 The in-process fallback keeps `monotonic` because it is per-process by definition.
 
-**The identifier is hashed into the key** (`SEC-29`). A Redis keyspace is enumerable by anything
+**The identifier is hashed into the key** (`SEC-30`). A Redis keyspace is enumerable by anything
 holding the connection string; a store explicitly *not* the source of truth must not become a
 roster of who has an account.
 
@@ -210,9 +210,21 @@ every organization, so there is no tenant to scope to until *after* the credenti
 Scoping it earlier would let an attacker mint a fresh allowance by guessing a tenant. The
 `tenant=` parameter exists for the limiters `RISK-12` will want.
 
-**`record()` writes both stores, always.** A failure landing just before an outage must be
-visible to the store that takes over. Double-counting an identifier that is already failing to
-authenticate costs it nothing.
+**`record()` writes both stores, always, and `is_limited()` ORs them.** A failure landing just
+before an outage must be visible to the store that takes over. Reading only the Redis answer
+would hand an attacker a fresh allowance the moment Redis recovers, because failures counted
+during the outage are **never backfilled** — Redis would start that identifier at zero while the
+local counter already held ten. Covered by
+`test_a_recovered_redis_does_not_hand_back_a_fresh_allowance`.
+
+**The dual-write contract, stated plainly.** Failures counted while the breaker is open never
+reach Redis. The instance that saw them keeps enforcing them; the other instances never learn
+about them. Throttling during an outage is therefore per-instance — which *is* the degradation
+F4 accepts, not a separate gap. Backfilling was rejected: it means queueing writes against a
+store already known to be failing, then replaying them into a window that has since rolled over.
+Note also that the two stores bucket on different clocks (`monotonic` locally, `time.time()` in
+Redis), so an identifier can stay limited into the start of the next Redis window — conservative,
+and cleared by any successful login.
 
 **There is a circuit breaker** (3 consecutive failures → skip Redis for 30s). Without it every
 login during an outage pays the socket timeout twice before falling back, which turns a degraded

@@ -300,7 +300,7 @@ Phase 11 concurrency audit (11.2, `AV-85`). Read each "unwind" below as availabl
 3. **The in-process login limiter.** With N instances the effective limit is 10N. **Unwind:**
    set `REDIS_URL` (task 1.4) and `RateLimiter` counts in Redis, so N instances share one
    limit. A configured Redis that stops answering degrades back to the in-process counter and
-   raises an alarm rather than blocking logins (`SEC-28`, threat review F4). `render.yaml`
+   raises an alarm rather than blocking logins (`SEC-29`, threat review F4). `render.yaml`
    declares the key but leaves it unset — with one instance, the in-process counter *is* the
    correct limit, and an unnecessary Redis can only take logins down.
 

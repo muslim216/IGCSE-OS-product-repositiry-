@@ -225,7 +225,7 @@ Keep these loaded. Each cites the document holding its full reasoning.
   A configured Redis that stops answering **falls back to the in-process counter and raises an
   alarm** (ERROR log + `rate_limit.degraded` in `/health/ready`); it never blocks a login and
   never leaves one uncounted. Keys are namespaced by purpose and tenant with the identifier
-  hashed. (`SEC-28`, `SEC-29`, threat review F4)
+  hashed (`sha256(...)[:32]`). (`SEC-29`, `SEC-30`, threat review F4)
 
 ### Uploads
 

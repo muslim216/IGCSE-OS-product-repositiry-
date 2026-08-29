@@ -20,8 +20,9 @@ import logging
 import os
 
 import pytest
+from pydantic import ValidationError
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.services.rate_limit import (
     LOGIN_FAILURE_LIMIT,
     RateLimiter,
@@ -103,6 +104,47 @@ def broken_redis(monkeypatch):
     client = BrokenRedis()
     monkeypatch.setattr(RedisWindowStore, "client", lambda self: client)
     return client
+
+
+# --- Configuration ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://localhost:6379/0",
+        "redis://127.0.0.1:6379/0",
+        "redis://redis:6379/0",  # a compose service name on a private network
+        "rediss://:secret@shared-redis.example.com:6379/0",
+        "",
+    ],
+)
+def test_settings_accept_a_redis_url_that_cannot_leak_its_password(url):
+    Settings(redis_url=url, jwt_secret="x")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://:secret@shared-redis.example.com:6379/0",
+        "redis://10.0.0.5:6379/0",
+    ],
+)
+def test_settings_reject_cleartext_redis_to_an_off_box_host(url):
+    """CWE-319. A managed Redis URL carries its password inline, and `redis://`
+    sends that AUTH in the clear. Startup is the only place to catch it —
+    `Redis.from_url` will connect happily."""
+    with pytest.raises(ValidationError, match="cleartext"):
+        Settings(redis_url=url, jwt_secret="x")
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 30])
+def test_settings_reject_an_unusable_redis_timeout(timeout):
+    """Zero makes every call time out instantly, which is indistinguishable from
+    a permanent outage — the limiter would degrade to per-instance counting on a
+    config typo and say so only in /health/ready."""
+    with pytest.raises(ValidationError, match="REDIS_TIMEOUT_SECONDS"):
+        Settings(redis_timeout_seconds=timeout, jwt_secret="x")
 
 
 # --- Keys ------------------------------------------------------------------
@@ -199,6 +241,41 @@ async def test_a_recovered_redis_is_used_again(monkeypatch):
     await limiter.record("victim@example.com")
     assert limiter.degradation.degraded is False
     assert limiter.health()["backend"] == "redis"
+
+
+async def test_a_recovered_redis_does_not_hand_back_a_fresh_allowance(monkeypatch):
+    """Regression: failures counted during an outage are never backfilled into
+    Redis, so reading only the Redis answer after recovery would restart the
+    attacker at zero — the outage would *buy* a second full allowance."""
+    limiter = RateLimiter(purpose="login", limit=3, window_seconds=60)
+    monkeypatch.setattr(get_settings(), "redis_url", "redis://unreachable.invalid:6379/0")
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: BrokenRedis())
+
+    for _ in range(3):
+        await limiter.record("victim@example.com")
+    assert await limiter.is_limited("victim@example.com") is True
+
+    # Redis comes back, and knows nothing about those three failures.
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: InMemoryRedis())
+    limiter.degradation.open_until = 0.0
+
+    assert await limiter.is_limited("victim@example.com") is True
+    assert limiter.degradation.degraded is False
+
+
+async def test_a_reset_clears_both_stores(monkeypatch):
+    """The other side of the OR: once both stores can say 'limited', a
+    successful login has to clear both or the user stays locked out."""
+    limiter = RateLimiter(purpose="login", limit=2, window_seconds=60)
+    monkeypatch.setattr(get_settings(), "redis_url", "redis://unreachable.invalid:6379/0")
+    monkeypatch.setattr(RedisWindowStore, "client", lambda self: InMemoryRedis())
+
+    for _ in range(2):
+        await limiter.record("forgetful@example.com")
+    assert await limiter.is_limited("forgetful@example.com") is True
+
+    await limiter.reset("forgetful@example.com")
+    assert await limiter.is_limited("forgetful@example.com") is False
 
 
 # --- /health/ready ---------------------------------------------------------

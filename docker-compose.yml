@@ -99,10 +99,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        # Only meaningful once REDIS_URL is set, but harmless otherwise and
-        # cheaper than debugging a first login that raced Redis's startup.
-        condition: service_healthy
+      # Deliberately NO `redis` entry, unlike `minio` below. REDIS_URL is empty
+      # by default, so the limiter's in-process fallback is the documented
+      # behaviour here — waiting on a Redis healthcheck would let a port
+      # conflict or an unhealthy container block the very path that exists to
+      # keep logins working without Redis. Start it yourself when you want it:
+      # `docker compose --profile full up -d redis`.
       minio:
         # Only meaningful under STORAGE_BACKEND=s3, but harmless otherwise and
         # cheaper than debugging a first upload that raced MinIO's startup.
