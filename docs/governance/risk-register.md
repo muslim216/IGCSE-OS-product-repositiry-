@@ -65,7 +65,9 @@ every read-modify-write in the codebase. **Flipping any of these three without 1
 this entry describes, not its mitigation.**
 
 **Accepted because:** current volume is a single tutor's practice. The cost of the migration
-is bounded and the trigger is observable.
+is bounded and the trigger is observable. Task 1.5 (`AV-84`) adds the acceptance evidence:
+`backend/tests/test_two_instance.py` runs the five two-instance cases against a real Postgres,
+Redis and MinIO in CI, and fails the build if any of them skips.
 
 ---
 

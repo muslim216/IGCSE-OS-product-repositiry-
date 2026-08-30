@@ -176,7 +176,11 @@ when searching for it.
   `mark_submission`, `recompute_readiness`, `compute_readiness_v2`, `generate_report`,
   `extract_syllabus`, `sync_classroom`.
 - **Claim:** oldest pending job whose `run_after` is null or past, `ORDER BY Job.id LIMIT 1`,
-  `with_for_update(skip_locked=True)` — so multiple workers would be safe without change.
+  `with_for_update(skip_locked=True)` — so multiple workers are safe without change, which
+  `tests/test_worker_concurrency.py` and `tests/test_two_instance.py` both check against a real
+  Postgres. The claim also stamps `claimed_by` (this process's `WORKER_ID`) and `claimed_at`;
+  both are cleared on every terminal outcome, so a non-NULL pair on a `running` row names the
+  process that owes an answer for it.
 - **Execution:** the handler runs in its own session, which the worker commits.
 - **Failure:** `MAX_ATTEMPTS = 2`. A first failure returns the job to `pending`; a second
   marks it `failed`. The error is written to `Job.error` and logged with a traceback.
@@ -191,13 +195,37 @@ when searching for it.
 ```mermaid
 stateDiagram-v2
   [*] --> pending: enqueue()
-  pending --> running: claimed (run_after due)
+  pending --> running: claimed (run_after due)<br/>claimed_by = WORKER_ID
   running --> done: handler returns
   running --> pending: failed, attempts < 2 (run_after = now + 60s)
   running --> failed: failed, attempts = 2
+  running --> pending: claimant's heartbeat gone,<br/>claimed > 2h ago (orphan sweep)
+  running --> failed: orphaned with no attempts left
   done --> [*]
   failed --> [*]: logged at error, no alert, no retry
 ```
+
+**An orphaned `running` row is recovered** (task 1.5, `AV-84`). Until then `running` was the
+one status no path reconsidered: a worker killed mid-job left its row there permanently, the
+work stopped, and the only trace was a queue count nothing watches.
+`reclaim_orphaned_jobs()` returns such a row to `pending` — or to `failed` when its attempts
+are spent, so a row whose every claim died ends rather than cycling. It runs on worker startup,
+immediately after `register_worker()` (the call that reaps the dead worker rows it reads the
+absence of, so a crashed process is repaired by its own restart), and then every
+`ORPHAN_SWEEP_INTERVAL_SECONDS` (300).
+
+**The predicate is a missing heartbeat row, never a stale one**, and that distinction is the
+difference between a repair and a duplicate-execution bug. `last_loop_at` is stamped *before*
+each claim, so a worker part-way through a slow marking call has a deliberately stale loop
+clock while being perfectly healthy; requeueing on staleness would hand its job to a second
+worker while the first still held it. A missing row means the process is gone — a live worker
+always has one, and re-registers if its row is reaped. `ORPHAN_RECLAIM_SECONDS` is twice
+`HEARTBEAT_REAP_SECONDS` to cover the one case where a live worker can be row-less: a job in
+flight past the reap window (§3.4's accepted residual in the Phase 1 handoff).
+
+Recovery re-runs a handler on a payload it may have partly processed, which is safe **only**
+because `BE-6` requires exactly that. The idempotency rule is what buys the repair; without it
+the choice would be between a stuck job and a duplicated one.
 
 **A retry waits 60 seconds.** The `attempts < MAX_ATTEMPTS` branch sets
 `run_after = now + RETRY_BACKOFF_SECONDS` before returning the job to `pending`, so the second

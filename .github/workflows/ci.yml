@@ -189,6 +189,20 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # Task 1.5's two-instance suite needs all three shared stores, because
+      # each is one of RISK-1's links: the bucket for "upload through API #1,
+      # read through API #2", Redis for "failed logins across both APIs trip one
+      # limit", Postgres for everything about the queue.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      # MinIO is NOT a service container — see the "Start MinIO" step below.
     env:
       # config.py rewrites the bare scheme to postgresql+asyncpg:// on the way in,
       # so this is the same URL shape a hosting provider hands out.
@@ -241,6 +255,56 @@ jobs:
             | tee /tmp/worker-concurrency.log
           if grep -qE "skipped|no tests ran" /tmp/worker-concurrency.log; then
             echo "::error::concurrency tests skipped or not collected — they must actually run here"
+            exit 1
+          fi
+
+      # A step rather than a `services:` entry, which is where the first attempt
+      # at this went wrong. Service containers cannot override a container's
+      # command, and minio/minio needs `server /data`; the obvious way round
+      # that — bitnami/minio, which starts unattended — no longer publishes a
+      # `latest` tag, so the job died on `manifest unknown` before running a
+      # single test. `docker run` takes the command directly and is the thing
+      # the runner can actually do.
+      - name: Start MinIO for the two-instance storage case
+        run: |
+          set -euo pipefail
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=avora-ci \
+            -e MINIO_ROOT_PASSWORD=avora-ci-secret \
+            minio/minio:latest server /data
+          # Poll the documented liveness endpoint rather than sleeping a guess:
+          # a fixed sleep is either flaky or slow, and this is the difference
+          # between the storage test running and the job failing on connect.
+          for _ in $(seq 1 40); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO is up"; break
+            fi
+            sleep 2
+          done
+          curl -fsS http://localhost:9000/minio/health/live >/dev/null
+          AWS_ACCESS_KEY_ID=avora-ci AWS_SECRET_ACCESS_KEY=avora-ci-secret \
+            aws --endpoint-url http://localhost:9000 --region us-east-1 \
+            s3 mb s3://avora-test
+
+      # Task 1.5 (AV-84). The hard acceptance requirement for Phase 1, and the
+      # only place all three shared stores exist at once. Same skip guard as
+      # above, and for a stronger reason: this is the suite most likely to be
+      # cited as proof that scaling out is safe, so "it was green" must not be
+      # able to mean "it never ran".
+      - name: Two-instance correctness suite (Postgres + Redis + MinIO)
+        env:
+          TEST_REDIS_URL: redis://localhost:6379/0
+          TEST_S3_ENDPOINT_URL: http://localhost:9000
+          TEST_S3_BUCKET: avora-test
+          TEST_S3_REGION: us-east-1
+          TEST_S3_ACCESS_KEY_ID: avora-ci
+          TEST_S3_SECRET_ACCESS_KEY: avora-ci-secret
+        run: |
+          set -euo pipefail
+          TEST_DATABASE_URL="$DATABASE_URL" python -m pytest tests/test_two_instance.py -v -ra \
+            | tee /tmp/two-instance.log
+          if grep -qE "skipped|no tests ran" /tmp/two-instance.log; then
+            echo "::error::two-instance tests skipped or not collected — Postgres, Redis and MinIO must all be reachable"
             exit 1
           fi
 
