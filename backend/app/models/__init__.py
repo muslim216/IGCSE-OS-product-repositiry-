@@ -55,7 +55,7 @@ from app.models.readiness_v2 import (
 )
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
-from app.models.syllabus import Subject, SyllabusUpload, SyllabusUploadStatus, Topic
+from app.models.syllabus import Chapter, Subject, SyllabusUpload, SyllabusUploadStatus, Topic
 from app.models.users import User, UserRole
 from app.models.workers import WorkerHeartbeat
 
@@ -70,6 +70,7 @@ __all__ = [
     "AssignmentQuestion",
     "AssignmentStatus",
     "Base",
+    "Chapter",
     "Classified",
     "ClassroomCourseLink",
     "ClassroomWorkLink",
