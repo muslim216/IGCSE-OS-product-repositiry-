@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
 from app.models import Chapter, Subject, Topic
@@ -117,6 +118,61 @@ async def test_a_topic_with_no_chapter_is_valid():
 
         topic = await session.scalar(select(Topic).where(Topic.code == "1"))
         assert topic.chapter_id is None
+
+
+async def test_a_topic_cannot_be_filed_under_another_subjects_chapter():
+    """The foreign key is composite — (subject_id, chapter_id), not chapter_id.
+
+    A single-column FK validates only that the chapter exists, so a topic could
+    point at a chapter belonging to a different subject and a chapter rollup
+    would quietly sum across subjects. `ADR-0010` argues a table over `parent_id`
+    precisely to make that class of mistake unrepresentable; this is the same
+    argument one level down.
+
+    SQLite does not enforce foreign keys unless asked, and the suite does not ask
+    — so this test turns enforcement on for itself and back off afterwards,
+    because `conftest.py` shares one `StaticPool` connection across tests.
+    """
+    async with async_session() as session:
+        connection = await session.connection()
+        await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        try:
+            maths = Subject(
+                exam_board="Test Board",
+                code="T400",
+                name="Maths",
+                grade_scale="9-1",
+                grade_boundaries=[],
+            )
+            physics = Subject(
+                exam_board="Test Board",
+                code="T401",
+                name="Physics",
+                grade_scale="9-1",
+                grade_boundaries=[],
+            )
+            session.add_all([maths, physics])
+            await session.flush()
+
+            maths_chapter = Chapter(subject_id=maths.id, code="1", title="Number", position=1)
+            session.add(maths_chapter)
+            await session.flush()
+
+            # A physics topic pointing at the maths chapter.
+            session.add(
+                Topic(
+                    subject_id=physics.id,
+                    code="1",
+                    title="Forces",
+                    chapter_id=maths_chapter.id,
+                )
+            )
+            with pytest.raises(IntegrityError):
+                await session.flush()
+        finally:
+            await session.rollback()
+            connection = await session.connection()
+            await connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
 
 
 async def test_migration_backfill_promotes_root_topics_and_reparents_the_subtree():

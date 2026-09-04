@@ -5,6 +5,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -53,6 +54,10 @@ class Chapter(Base):
     __tablename__ = "chapters"
     __table_args__ = (
         UniqueConstraint("subject_id", "code"),
+        # Redundant against the primary key, and there so `topics` can point a
+        # composite foreign key at (subject_id, id) — which is what stops a topic
+        # being filed under another subject's chapter. See Topic.__table_args__.
+        UniqueConstraint("subject_id", "id", name="uq_chapters_subject_id_id"),
         # Every read of a chapter is "the chapters of this subject, in order" —
         # the plan's schedule, the review UI, the rollup. Declared here as well
         # as in migration 0029, per DB-12.
@@ -69,13 +74,35 @@ class Chapter(Base):
     weight: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
 
     subject: Mapped[Subject] = relationship(back_populates="chapters")
-    topics: Mapped[list["Topic"]] = relationship(back_populates="chapter")
+    # Read-only, on both sides. The composite foreign key shares `subject_id`
+    # with `Subject.topics`, so a writable relationship here would give two of
+    # them a claim on the same column and SQLAlchemy warns accordingly.
+    # `Topic.subject` owns `subject_id`; a topic joins a chapter by setting
+    # `chapter_id`, which is what the seed and migration 0029 both do.
+    topics: Mapped[list["Topic"]] = relationship(viewonly=True, order_by="Topic.code")
 
 
 class Topic(Base):
     __tablename__ = "topics"
     __table_args__ = (
         UniqueConstraint("subject_id", "code"),
+        # Composite, not a plain FK on chapter_id alone: the chapter a topic
+        # names must belong to the topic's own subject. A single-column FK
+        # validates only that the chapter exists, so nothing would stop a topic
+        # being filed under another subject's chapter — and a chapter rollup
+        # would then quietly sum across subjects. `ADR-0010`'s whole argument for
+        # a table over `parent_id` is making that class of mistake
+        # unrepresentable rather than merely discouraged; this is the same
+        # argument one level down.
+        #
+        # Both columns are in the constraint and `chapter_id` is nullable, so
+        # default MATCH SIMPLE skips the check entirely while chapter_id is NULL
+        # — which is exactly the "no chapter yet, until task 2.3" state.
+        ForeignKeyConstraint(
+            ["subject_id", "chapter_id"],
+            ["chapters.subject_id", "chapters.id"],
+            name="fk_topics_subject_id_chapter_id_chapters",
+        ),
         # The rollup reads a chapter's topics; so does every chapter-scoped
         # surface from Phase 6 on. Declared here as well as in 0029 (DB-12).
         Index("ix_topics_chapter_id", "chapter_id"),
@@ -88,12 +115,13 @@ class Topic(Base):
     # Nullable until syllabus extraction is chapter-first (task 2.3): a topic
     # drafted by today's flat extractor has no chapter to point at, and
     # inventing one would fabricate structure the tutor never approved (PROD-2).
-    chapter_id: Mapped[int | None] = mapped_column(ForeignKey("chapters.id"), nullable=True)
+    # The foreign key lives in __table_args__ as a composite with subject_id.
+    chapter_id: Mapped[int | None] = mapped_column(nullable=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     weight: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
 
     subject: Mapped[Subject] = relationship(back_populates="topics")
-    chapter: Mapped["Chapter | None"] = relationship(back_populates="topics")
+    chapter: Mapped["Chapter | None"] = relationship(viewonly=True)
 
 
 class SyllabusUploadStatus(str, enum.Enum):

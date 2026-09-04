@@ -58,17 +58,25 @@ def upgrade() -> None:
         sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("weight", sa.Float(), nullable=False, server_default="1.0"),
         sa.UniqueConstraint("subject_id", "code"),
+        # Redundant against the primary key, and there only so `topics` can aim a
+        # composite foreign key at (subject_id, id).
+        sa.UniqueConstraint("subject_id", "id", name="uq_chapters_subject_id_id"),
     )
     op.create_index("ix_chapters_subject_id_position", "chapters", ["subject_id", "position"])
 
+    # The foreign key is composite — (subject_id, chapter_id) -> chapters
+    # (subject_id, id) — so a topic cannot be filed under another subject's
+    # chapter. A plain FK on chapter_id alone validates only that the chapter
+    # exists, and a chapter rollup would then quietly sum across subjects.
+    # chapter_id is nullable and default MATCH SIMPLE skips the check while it is
+    # NULL, which is the "no chapter yet, until task 2.3" state.
     with op.batch_alter_table("topics", naming_convention=NAMING) as batch:
-        batch.add_column(
-            sa.Column(
-                "chapter_id",
-                sa.Integer(),
-                sa.ForeignKey("chapters.id", name="fk_topics_chapter_id_chapters"),
-                nullable=True,
-            )
+        batch.add_column(sa.Column("chapter_id", sa.Integer(), nullable=True))
+        batch.create_foreign_key(
+            "fk_topics_subject_id_chapter_id_chapters",
+            "chapters",
+            ["subject_id", "chapter_id"],
+            ["subject_id", "id"],
         )
     op.create_index("ix_topics_chapter_id", "topics", ["chapter_id"])
 
@@ -87,6 +95,13 @@ def promote_root_topics_to_chapters(conn: sa.engine.Connection) -> None:
         )
     ).fetchall()
 
+    # `position` here is row order, because row order is the only ordering a
+    # migration has — there is no JSON to read. `load_syllabus.py` assigns it
+    # from JSON node order instead, and the two agree today only because topics
+    # were inserted in JSON order. That is not a divergence to reconcile: the
+    # seed upserts chapters by code and rewrites `position` every run, so a
+    # re-seed is authoritative and corrects whatever this guessed. Nothing reads
+    # `position` before task 2.3 lands.
     position_in_subject: dict[int, int] = {}
     for root in roots:
         position_in_subject[root.subject_id] = position_in_subject.get(root.subject_id, 0) + 1
