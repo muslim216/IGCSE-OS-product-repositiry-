@@ -146,9 +146,8 @@ def _unique_constraint_named(conn, table: str, columns: set[str]) -> str | None:
 def downgrade() -> None:
     # Going back means subjects are global again and (exam_board, code) must be
     # unique across every tenant, so two tutors teaching the same specification
-    # would collide. Duplicates are removed lowest-id-wins before the constraint
-    # is restored — the same rows the upgrade path treats as disposable — and
-    # their topics and chapters go with them, in FK order.
+    # would collide. This refuses rather than choosing a survivor — see the
+    # RuntimeError below for why. With no collisions it is a clean reversal.
     conn = op.get_bind()
     duplicates = (
         "SELECT id FROM subjects WHERE id NOT IN ("
