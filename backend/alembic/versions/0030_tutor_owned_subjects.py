@@ -76,9 +76,29 @@ def upgrade() -> None:
         conn.execute(sa.text("DELETE FROM chapters"))
         conn.execute(sa.text("DELETE FROM subjects"))
     else:
+        # Prefer the organization that actually *teaches* the subject over a
+        # blanket assignment. Migration 0012 gave groups an organization but left
+        # `groups.subject_id` pointing at the shared rows, so that association is
+        # the only real evidence of ownership in the schema, and handing every
+        # subject to the lowest-numbered organization would 404 another tutor on
+        # a subject their own class uses.
+        #
+        # A subject taught by two organizations keeps one owner; the other loses
+        # access. Fully preserving that case means cloning the subject tree per
+        # organization and remapping groups, enrolments, papers, assignments,
+        # evidence and readiness rows — the twenty-table cascade rejected above,
+        # for rows `seed.demo` replaces wholesale. Recorded rather than silently
+        # handled: if this ever runs against a database with real shared
+        # subjects, that is the migration to write first.
         conn.execute(
-            sa.text("UPDATE subjects SET organization_id = :owner WHERE organization_id IS NULL"),
-            {"owner": owner},
+            sa.text(
+                "UPDATE subjects SET organization_id = COALESCE("
+                "  (SELECT MIN(g.organization_id) FROM groups g"
+                "     WHERE g.subject_id = subjects.id),"
+                "  :fallback) "
+                "WHERE organization_id IS NULL"
+            ),
+            {"fallback": owner},
         )
     conn.execute(sa.text("UPDATE subjects SET level = 'igcse' WHERE level IS NULL"))
 
@@ -134,9 +154,25 @@ def downgrade() -> None:
         "SELECT id FROM subjects WHERE id NOT IN ("
         "  SELECT MIN(id) FROM subjects GROUP BY exam_board, code)"
     )
-    conn.execute(sa.text(f"DELETE FROM topics WHERE subject_id IN ({duplicates})"))
-    conn.execute(sa.text(f"DELETE FROM chapters WHERE subject_id IN ({duplicates})"))
-    conn.execute(sa.text(f"DELETE FROM subjects WHERE id IN ({duplicates})"))
+    clashing = conn.execute(sa.text(f"SELECT COUNT(*) FROM ({duplicates}) d")).scalar() or 0
+    if clashing:
+        # Deleting them is not safe to do blind. `student_subjects.subject_id`,
+        # `question_topics.topic_id` and a dozen other foreign keys have no
+        # ON DELETE behaviour — cascades in this schema are ORM-level only (§06)
+        # — so a duplicate that any student is enrolled in, or any question is
+        # tagged against, fails the delete part-way and leaves the schema half
+        # migrated.
+        #
+        # Refusing beats corrupting. This is reachable only once two tutors have
+        # each created the same (exam_board, code), which is exactly what the
+        # upgrade exists to allow, so whoever hits it has real data and should
+        # decide which subject survives.
+        raise RuntimeError(
+            f"{clashing} subject(s) share an (exam_board, code) with another "
+            "organization's. Downgrading restores a globally unique constraint "
+            "they cannot all satisfy. Merge or delete the duplicates by hand "
+            "first — this migration will not choose for you."
+        )
 
     with op.batch_alter_table("subjects", naming_convention=NAMING) as batch:
         batch.drop_constraint("uq_subjects_organization_id_exam_board_code", type_="unique")

@@ -147,3 +147,41 @@ async def test_a_parent_with_no_children_sees_no_subjects(client, tutor, subject
         await session.commit()
 
         assert await visible_subject_ids(session, unlinked) == set()
+
+
+async def test_a_student_cannot_read_grade_boundaries_for_a_subject_they_are_not_taught(
+    client, tutor, subject, group
+):  # noqa: F811
+    """`GET /subjects/{id}/grade-boundaries` is reachable by every role.
+
+    An organization check is wrong on this route in both directions: too
+    permissive, because a student in the tutor's organization is not necessarily
+    enrolled in every subject the tutor owns; and too strict, because an invited
+    student keeps their original organization. Visibility is by enrolment
+    (`SEC-8`). Reported by cubic/CodeRabbit on PR #58 as IDOR (CWE-639).
+    """
+    async with async_session() as session:
+        unrelated = await make_subject(session, code="4NOPE", name="Not taught")
+        await session.commit()
+        unrelated_id = unrelated.id
+
+    created = await client.post(
+        f"/api/v1/groups/{group['id']}/students",
+        json={"name": "Pupil", "username": "pupil02", "password": "password123"},
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+    login = await client.post(
+        "/api/v1/auth/login", json={"identifier": "pupil02", "password": "password123"}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+
+    # Same organization as their tutor, but not enrolled in this subject.
+    denied = await client.get(f"/api/v1/subjects/{unrelated_id}/grade-boundaries", headers=headers)
+    assert denied.status_code == 404, denied.text
+
+    # The subject they *are* taught stays readable.
+    allowed = await client.get(
+        f"/api/v1/subjects/{subject['id']}/grade-boundaries", headers=headers
+    )
+    assert allowed.status_code == 200, allowed.text

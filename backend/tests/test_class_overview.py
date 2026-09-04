@@ -33,7 +33,10 @@ BOUNDARIES = [
 
 
 @pytest.fixture
-async def subject_id():
+async def subject_id(tutor):  # depends on `tutor` so the organization exists first:
+    # without it pytest may build the subject before any account, and
+    # `subject_defaults` would fall back to creating a second organization
+    # the tutor is not in — every `owned_subject` lookup then 404s.
     async with async_session() as session:
         subject = Subject(
             **await subject_defaults(session),

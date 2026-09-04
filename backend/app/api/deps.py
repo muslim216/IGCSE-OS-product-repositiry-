@@ -133,3 +133,25 @@ async def owned_subject(db: AsyncSession, subject_id: int, user: User) -> Subjec
     if subject is None or subject.organization_id != user.organization_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
     return subject
+
+
+async def visible_subject(db: AsyncSession, subject_id: int, user: User) -> Subject:
+    """A subject this caller may *see*, or 404 — for routes any role can reach.
+
+    `owned_subject` is wrong on both sides for a mixed-role route. It is too
+    permissive, letting a student read a subject in their organization that they
+    are not enrolled in; and too strict, because a student invited into a second
+    tutor's group keeps their original organization, so an organization check
+    404s them on a subject they are actively being taught (`SEC-8`).
+
+    Scoping goes through `visible_subject_ids`, which answers per role: tutors by
+    organization, students by enrolment, parents by their children's enrolment.
+    """
+    from app.services.subjects import visible_subject_ids
+
+    if subject_id not in await visible_subject_ids(db, user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    subject = await db.get(Subject, subject_id)
+    if subject is None:  # pragma: no cover - id came from the visibility query
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    return subject
