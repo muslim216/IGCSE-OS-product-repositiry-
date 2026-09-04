@@ -17,14 +17,39 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 
+class SubjectLevel(str, enum.Enum):
+    """The qualification a subject is taught for (AV-7).
+
+    Three levels, and nothing in the product may assume the IGCSE one. There is
+    deliberately **no default**: a subject's level is the tutor's to state, and
+    defaulting to `igcse` is precisely the assumption `AV-7` forbids.
+    """
+
+    igcse = "igcse"
+    o_level = "o_level"
+    a_level = "a_level"
+
+
 class Subject(Base):
     __tablename__ = "subjects"
-    __table_args__ = (UniqueConstraint("exam_board", "code"),)
+    # Was UniqueConstraint("exam_board", "code") — globally unique, because
+    # subjects themselves were global. Two tutors may now each teach the same
+    # specification, so identity is unique per tenant (AV-6, task 2.2). The
+    # constraint doubles as the index for the organization filter every subject
+    # query now carries, `organization_id` being its leading column.
+    __table_args__ = (UniqueConstraint("organization_id", "exam_board", "code"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # PROD-3/DB-2: every top-level aggregate carries its tenant. A subject is
+    # owned by the tutor who created it and is private to that account (AV-6);
+    # before task 2.2 these were global rows shared by every organization.
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     exam_board: Mapped[str] = mapped_column(String(64), nullable=False)
     code: Mapped[str] = mapped_column(String(16), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    level: Mapped[SubjectLevel] = mapped_column(
+        Enum(SubjectLevel, native_enum=False, length=16), nullable=False
+    )
     # "9-1" (Edexcel IGCSE) or "A*-E" (Cambridge O Level)
     grade_scale: Mapped[str] = mapped_column(String(16), nullable=False)
     # Ordered list of {"grade": "9", "min": 90} — readiness % → predicted grade.
@@ -149,7 +174,10 @@ class SyllabusUpload(TimestampMixin, Base):
         nullable=False,
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # AI-drafted (and tutor-editable) syllabus data: exam_board, code, name,
-    # grade_scale, grade_boundaries, topics — same shape as seed/syllabus/*.json.
+    # AI-drafted (and tutor-editable) syllabus data, validated by
+    # `schemas.syllabus.SyllabusDraft`: exam_board, code, name, level,
+    # grade_scale, grade_boundaries, topics. It used to be described as "the same
+    # shape as seed/syllabus/*.json"; those files were the five built-in
+    # syllabuses and task 2.2 deleted them (AV-8), so the schema is the shape now.
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id"), nullable=True)

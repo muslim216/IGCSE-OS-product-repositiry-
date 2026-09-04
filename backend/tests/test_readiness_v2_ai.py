@@ -24,6 +24,7 @@ from app.services.readiness_v2_ai import (
     _weighted_reference_score,
     compute_readiness_v2,
 )
+from tests.factories import subject_defaults
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -94,6 +95,7 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
     # once a subject has topics) reports "no data".
     async with async_session() as session:
         empty_subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4XX1",
             name="Empty Subject",

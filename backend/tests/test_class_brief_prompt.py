@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from app.services.ai import AiProvider, AiResponse
 from app.services.prompts import get_prompt
+from tests.factories import subject_defaults
 
 
 def test_class_brief_system_prompt_is_not_empty():
@@ -27,6 +28,7 @@ async def _make_group(client, tutor):
 
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",

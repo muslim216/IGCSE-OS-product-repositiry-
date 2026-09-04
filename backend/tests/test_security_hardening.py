@@ -17,6 +17,7 @@ from app.models import Invite, Submission, SubmissionFile, User
 from app.services.invites import consume
 from app.services.rate_limit import LOGIN_FAILURE_LIMIT, FixedWindowLimiter
 from app.workers.jobs import process_one_job
+from tests.factories import subject_for_tutor
 from tests.test_homework import PDF_BYTES, PNG_BYTES, group, student, subject  # noqa: F401
 from tests.test_past_papers import (  # noqa: F401
     _extraction_double,
@@ -93,10 +94,13 @@ async def test_students_cannot_see_another_organizations_past_papers(
     """Subjects are global, so matching a past paper on subject alone would show
     every student every tutor's uploads. Scope is (organization, subject)."""
     monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    async with async_session() as session:
+        rival_subject_id = (await subject_for_tutor(session, "rival@example.com")).id
+        await session.commit()
     rival = await client.post(
         "/api/v1/past-papers",
         data={
-            "subject_id": str(subject["id"]),
+            "subject_id": str(rival_subject_id),
             "session_label": "Rival Mock 2027",
             "paper_number": "Paper 9",
         },

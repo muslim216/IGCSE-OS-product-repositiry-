@@ -14,6 +14,7 @@ import pytest
 
 from app.models import EvidenceSource
 from app.services.readiness import SOURCE_WEIGHTS, EvidencePoint, compute_topic
+from tests.factories import subject_defaults
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     group,
     student,
@@ -181,6 +182,7 @@ async def test_a_tutor_cannot_seed_a_topic_from_a_subject_they_do_not_teach(
 
     async with async_session() as session:
         other = Subject(
+            **await subject_defaults(session),
             exam_board="Cambridge",
             code="5054",
             name="Physics",

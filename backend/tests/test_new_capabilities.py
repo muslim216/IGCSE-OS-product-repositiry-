@@ -6,12 +6,14 @@ import pytest
 from app.db import async_session
 from app.models import Subject, Topic
 from app.workers.jobs import process_one_job
+from tests.factories import subject_defaults, subject_for_tutor
 
 
 @pytest.fixture
 async def world(client, tutor):
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -116,10 +118,13 @@ async def test_unrelated_student_cannot_see_resources(client, tutor, world):
         "/api/v1/auth/register/tutor",
         json={"name": "Other", "email": "other@example.com", "password": "password123"},
     )
+    async with async_session() as session:
+        other_subject_id = (await subject_for_tutor(session, "other@example.com")).id
+        await session.commit()
     other_group = (
         await client.post(
             "/api/v1/groups",
-            json={"name": "Other group", "subject_id": world["subject_id"]},
+            json={"name": "Other group", "subject_id": other_subject_id},
             headers={"Authorization": f"Bearer {other_tutor.json()['tokens']['access_token']}"},
         )
     ).json()

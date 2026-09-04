@@ -18,6 +18,7 @@ from app.services.grade_boundaries import (
     set_org_boundaries,
 )
 from app.services.grades import predict_grade
+from tests.factories import subject_defaults
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     group,
     student,
@@ -216,12 +217,16 @@ async def test_an_unusable_boundary_list_is_rejected(client, tutor, subject, ban
 
 
 @pytest.fixture
-async def blank_subject():
+async def blank_subject(tutor):  # depends on `tutor` so the organization exists first:
+    # without it pytest may build the subject before any account, and
+    # `subject_defaults` would fall back to creating a second organization
+    # the tutor is not in — every `owned_subject` lookup then 404s.
     from app.db import async_session
     from app.models import Subject
 
     async with async_session() as session:
         s = Subject(
+            **await subject_defaults(session),
             exam_board="Cambridge",
             code="5070",
             name="Chemistry O Level",

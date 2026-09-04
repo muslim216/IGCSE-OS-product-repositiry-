@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession, assert_tutor
+from app.api.deps import CurrentUser, DbSession, assert_tutor, owned_subject
 from app.models import (
     Group,
     GroupMember,
@@ -206,9 +206,7 @@ async def enroll_subject(
     student_id: int, body: StudentSubjectCreate, db: DbSession, user: CurrentUser
 ) -> StudentSubjectOut:
     student = await _tutor_student(db, user, student_id)
-    subject = await db.get(Subject, body.subject_id)
-    if subject is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    subject = await owned_subject(db, body.subject_id, user)
     existing = await db.scalar(
         select(StudentSubject).where(
             StudentSubject.student_id == student.id, StudentSubject.subject_id == subject.id

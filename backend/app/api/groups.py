@@ -3,14 +3,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.analytics import group_analytics
-from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor, owned_subject
 from app.models import (
     AiFeature,
     Group,
     GroupMember,
     InviteKind,
     ScheduleSlot,
-    Subject,
     User,
     UserRole,
 )
@@ -47,9 +46,7 @@ async def _owned_group(db, user: User, group_id: int) -> Group:
 
 @router.post("", response_model=GroupOut, status_code=status.HTTP_201_CREATED)
 async def create_group(body: GroupCreate, db: DbSession, user: TutorUser) -> GroupOut:
-    subject = await db.get(Subject, body.subject_id)
-    if subject is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    subject = await owned_subject(db, body.subject_id, user)
     group = Group(
         organization_id=user.organization_id,
         tutor_id=user.id,

@@ -29,6 +29,7 @@ from app.models import (
     User,
 )
 from app.workers.jobs import process_one_job
+from tests.factories import subject_defaults
 
 PDF_BYTES = b"%PDF-1.4 fake classroom pdf"
 
@@ -70,6 +71,7 @@ async def subject(client, tutor):
 
     async with async_session() as session:
         s = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",

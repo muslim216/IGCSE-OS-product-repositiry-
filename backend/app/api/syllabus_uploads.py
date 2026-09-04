@@ -117,8 +117,12 @@ async def retry_syllabus_extraction(
 
 @router.post("/{upload_id}/apply", response_model=SyllabusUploadDetail)
 async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> SyllabusUploadDetail:
-    """Create (or update) the real Subject + Topic tree from the reviewed
-    draft. Idempotent on (exam_board, code), same as the seed loader."""
+    """Create (or update) the real Subject + Topic tree from the reviewed draft.
+
+    Idempotent on (organization, exam_board, code) — the tenant is part of a
+    subject's identity since task 2.2, so re-applying updates *this* tutor's
+    subject and never another tenant's.
+    """
     upload = await _owned_upload(db, user, upload_id)
     if upload.status == SyllabusUploadStatus.applied:
         raise HTTPException(status.HTTP_409_CONFLICT, "This syllabus has already been applied")
@@ -126,12 +130,31 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No syllabus draft to apply yet")
     draft = SyllabusDraft.model_validate(upload.draft)
 
+    if draft.level is None:
+        # AV-7: nothing may assume an IGCSE-shaped world, and PROD-2 forbids
+        # inventing a value to fill a gap. The tutor reviews the draft before
+        # applying it, so asking is cheap; guessing is a wrong label on every
+        # screen that shows the subject.
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Choose a level (IGCSE, O Level or A Level) before applying this syllabus",
+        )
+
     subject = await db.scalar(
-        select(Subject).where(Subject.exam_board == draft.exam_board, Subject.code == draft.code)
+        select(Subject).where(
+            Subject.organization_id == user.organization_id,
+            Subject.exam_board == draft.exam_board,
+            Subject.code == draft.code,
+        )
     )
     if subject is None:
-        subject = Subject(exam_board=draft.exam_board, code=draft.code)
+        subject = Subject(
+            organization_id=user.organization_id,
+            exam_board=draft.exam_board,
+            code=draft.code,
+        )
         db.add(subject)
+    subject.level = draft.level
     subject.name = draft.name
     subject.grade_scale = draft.grade_scale
     # A syllabus document usually does not print its grade boundaries — they are
@@ -139,12 +162,16 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     # returns none. Where the document did state boundaries, those win.
     #
     # When it did not, fall back to the standard split for the scale ONLY to seed
-    # a subject that has none. Subjects are global and keyed on (exam_board,
-    # code), so a second organization re-uploading the same syllabus reuses the
-    # existing row — and overwriting its boundaries with generic defaults would
-    # change fallback predicted grades for every other tenant (Qodo, SEC-8). An
-    # existing subject's boundaries are therefore left untouched; a tutor who
-    # wants their own values sets them through the org-scoped editor.
+    # a subject that has none.
+    #
+    # This used to be a cross-tenant concern: subjects were global and keyed on
+    # (exam_board, code), so a second organization re-uploading the same syllabus
+    # reused the existing row, and overwriting its boundaries with generic
+    # defaults changed fallback predicted grades for every other tenant (Qodo,
+    # SEC-8). Task 2.2 made subjects tenant-owned, so that specific leak is gone.
+    # The behaviour stays because the *other* reason still holds: a tutor who has
+    # entered real boundaries must not have them replaced by a generic split just
+    # because they re-uploaded the syllabus document.
     extracted = [b.model_dump() for b in draft.grade_boundaries]
     subject.grade_boundaries = (
         extracted or subject.grade_boundaries or defaults_for_scale(draft.grade_scale)

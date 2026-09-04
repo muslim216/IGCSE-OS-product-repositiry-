@@ -9,8 +9,8 @@ re-mounting the router is all it takes to bring it back.
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
-from app.models import KnowledgeEntry, Subject, User, UserRole
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor, owned_subject
+from app.models import KnowledgeEntry, User, UserRole
 from app.schemas.knowledge import KnowledgeEntryCreate, KnowledgeEntryOut, KnowledgeEntryUpdate
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -39,8 +39,8 @@ async def _owned_entry(db: DbSession, user: User, entry_id: int) -> KnowledgeEnt
 async def create_entry(
     body: KnowledgeEntryCreate, db: DbSession, user: TutorUser
 ) -> KnowledgeEntryOut:
-    if body.subject_id is not None and await db.get(Subject, body.subject_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    if body.subject_id is not None:
+        await owned_subject(db, body.subject_id, user)
     entry = KnowledgeEntry(
         organization_id=user.organization_id,
         tutor_id=user.id,
@@ -71,8 +71,8 @@ async def update_entry(
     entry_id: int, body: KnowledgeEntryUpdate, db: DbSession, user: CurrentUser
 ) -> KnowledgeEntryOut:
     entry = await _owned_entry(db, user, entry_id)
-    if body.subject_id is not None and await db.get(Subject, body.subject_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    if body.subject_id is not None:
+        await owned_subject(db, body.subject_id, user)
     entry.kind = body.kind
     entry.title = body.title
     entry.body = body.body

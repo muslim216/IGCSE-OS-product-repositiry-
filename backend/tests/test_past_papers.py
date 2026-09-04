@@ -15,6 +15,7 @@ from app.models import (
     SubmissionStatus,
 )
 from app.workers.jobs import process_one_job
+from tests.factories import subject_defaults
 from tests.test_homework import PDF_BYTES, PNG_BYTES, group, student, subject  # noqa: F401
 
 
@@ -322,6 +323,7 @@ async def test_a_student_only_sees_papers_for_subjects_they_take(
 
     async with async_session() as session:
         other = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4PH1",
             name="Physics",

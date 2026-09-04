@@ -3,14 +3,13 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession, TutorUser
+from app.api.deps import CurrentUser, DbSession, TutorUser, owned_subject
 from app.api.file_responses import signed_or_proxied_file
 from app.models import (
     Assignment,
     AssignmentStatus,
     Classified,
     GroupMember,
-    Subject,
     User,
     UserRole,
 )
@@ -29,9 +28,7 @@ async def upload_classified(
     file: Annotated[UploadFile, File()],
     mark_scheme: Annotated[UploadFile | None, File()] = None,
 ) -> ClassifiedOut:
-    subject = await db.get(Subject, subject_id)
-    if subject is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    subject = await owned_subject(db, subject_id, user)
     path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     classified = Classified(
         organization_id=user.organization_id,

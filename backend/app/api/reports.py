@@ -5,13 +5,12 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession, require_role
+from app.api.deps import CurrentUser, DbSession, owned_subject, require_role
 from app.api.readiness import visible_subject_ids
 from app.models import (
     Report,
     ReportAudience,
     ReportStatus,
-    Subject,
     User,
     UserRole,
 )
@@ -56,9 +55,7 @@ async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> R
 
     subject_name = "All subjects"
     if body.subject_id is not None:
-        subject = await db.get(Subject, body.subject_id)
-        if subject is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+        subject = await owned_subject(db, body.subject_id, user)
         subject_name = subject.name
 
     title = f"{subject_name} — {audience.value} report ({datetime.now(timezone.utc):%d %b %Y})"

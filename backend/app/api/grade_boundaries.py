@@ -13,10 +13,9 @@ The organization comes from the authenticated tutor and never from the path
 (PROD-4 / SEC-7); the role gate is a signature dependency (SEC-11 / BE-17).
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
-from app.api.deps import CurrentUser, DbSession, TutorUser
-from app.models import Subject
+from app.api.deps import CurrentUser, DbSession, TutorUser, owned_subject, visible_subject
 from app.schemas.grade_boundaries import GradeBoundariesIn, GradeBoundariesOut
 from app.services.grade_boundaries import (
     defaults_for_scale,
@@ -26,13 +25,6 @@ from app.services.grade_boundaries import (
 )
 
 router = APIRouter(prefix="/subjects", tags=["grade-boundaries"])
-
-
-async def _subject(db, subject_id: int) -> Subject:
-    subject = await db.get(Subject, subject_id)
-    if subject is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
-    return subject
 
 
 @router.get("/{subject_id}/grade-boundaries", response_model=GradeBoundariesOut)
@@ -47,7 +39,10 @@ async def read_grade_boundaries(
     has confirmed, and nothing at all. PROD-8 requires the middle one to be
     labelled as unconfirmed wherever it is shown.
     """
-    subject = await _subject(db, subject_id)
+    # Every role reaches this route, so visibility is by enrolment rather than
+    # by organization: a student must not read boundaries for a subject they are
+    # not taught, and must not be refused one they are (SEC-8).
+    subject = await visible_subject(db, subject_id, user)
     boundaries = await resolve_grade_boundaries(db, user.organization_id, subject)
     if boundaries:
         # Ask directly whether the org set its own values rather than inferring
@@ -90,7 +85,7 @@ async def write_grade_boundaries(
     until they are next computed, which is the honest record of what the engine
     said at the time.
     """
-    subject = await _subject(db, subject_id)
+    subject = await owned_subject(db, subject_id, user)
     await set_org_boundaries(
         db,
         user.organization_id,
