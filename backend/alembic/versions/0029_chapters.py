@@ -123,6 +123,15 @@ def promote_root_topics_to_chapters(conn: sa.engine.Connection) -> None:
             {"chapter_id": chapter_id, "id": root.id},
         )
 
+    # `p.subject_id = topics.subject_id` is load-bearing, not belt-and-braces.
+    # Nothing constrains `topics.parent_id` to the same subject, so a row whose
+    # parent lives in another subject would otherwise inherit that subject's
+    # chapter — and the composite foreign key added above would then reject it,
+    # failing the upgrade. Render runs `alembic upgrade head` before uvicorn, so
+    # a migration that aborts is an API that never starts. Such a row keeps
+    # `chapter_id = NULL` instead, which is a legal state and an honest one: its
+    # chapter genuinely is not known (`PROD-2`).
+    #
     # ponytail: one UPDATE per level of the tree rather than a recursive CTE.
     # Portable across Postgres and SQLite with no dialect branch, and the deepest
     # syllabus in seed/syllabus/*.json is two levels, so this runs twice. If a
@@ -133,10 +142,11 @@ def promote_root_topics_to_chapters(conn: sa.engine.Connection) -> None:
         result = conn.execute(
             sa.text(
                 "UPDATE topics SET chapter_id = "
-                "(SELECT p.chapter_id FROM topics p WHERE p.id = topics.parent_id) "
+                "(SELECT p.chapter_id FROM topics p WHERE p.id = topics.parent_id "
+                " AND p.subject_id = topics.subject_id) "
                 "WHERE chapter_id IS NULL AND parent_id IS NOT NULL "
-                "AND (SELECT p.chapter_id FROM topics p WHERE p.id = topics.parent_id) "
-                "IS NOT NULL"
+                "AND (SELECT p.chapter_id FROM topics p WHERE p.id = topics.parent_id "
+                "     AND p.subject_id = topics.subject_id) IS NOT NULL"
             )
         )
         if not result.rowcount:

@@ -175,6 +175,50 @@ async def test_a_topic_cannot_be_filed_under_another_subjects_chapter():
             await connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
 
 
+async def test_migration_backfill_leaves_a_cross_subject_child_unchaptered():
+    """A parent in another subject must not drag its chapter across.
+
+    Nothing constrains `topics.parent_id` to the same subject. If the backfill
+    copied such a parent's chapter, the composite foreign key would reject the
+    row and abort the upgrade — and Render runs `alembic upgrade head` before
+    uvicorn, so an aborted migration is an API that never starts. The row keeps
+    `chapter_id = NULL`, which is legal and honest.
+    """
+    async with async_session() as session:
+        maths = Subject(
+            exam_board="Test Board",
+            code="T500",
+            name="Maths",
+            grade_scale="9-1",
+            grade_boundaries=[],
+        )
+        physics = Subject(
+            exam_board="Test Board",
+            code="T501",
+            name="Physics",
+            grade_scale="9-1",
+            grade_boundaries=[],
+        )
+        session.add_all([maths, physics])
+        await session.flush()
+
+        maths_root = Topic(subject_id=maths.id, code="1", title="Number")
+        session.add(maths_root)
+        await session.flush()
+        # A physics topic parented to a maths topic. Nothing forbids this.
+        session.add(Topic(subject_id=physics.id, code="9", title="Stray", parent_id=maths_root.id))
+        await session.commit()
+
+        connection = await session.connection()
+        await connection.run_sync(_load_migration().promote_root_topics_to_chapters)
+        await session.commit()
+
+        session.expire_all()
+        by_code = {t.code: t for t in (await session.scalars(select(Topic))).all()}
+        assert by_code["1"].chapter_id is not None
+        assert by_code["9"].chapter_id is None
+
+
 async def test_migration_backfill_promotes_root_topics_and_reparents_the_subtree():
     """Migration 0029's backfill, run against rows it actually has to move."""
     async with async_session() as session:
