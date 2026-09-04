@@ -1,6 +1,6 @@
 """Create demo accounts and a demo group for manual testing.
 
-Usage (from backend/): python -m seed.load_syllabus && python -m seed.demo
+Usage (from backend/): python -m seed.demo
 
 Accounts created (password for all: demo1234):
   tutor:   demo-tutor@example.com
@@ -23,6 +23,7 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    Chapter,
     Classified,
     Evidence,
     EvidenceSource,
@@ -45,6 +46,7 @@ from app.models import (
     ResourceKind,
     ScheduleSlot,
     Subject,
+    SubjectLevel,
     Submission,
     SubmissionFile,
     SubmissionStatus,
@@ -68,6 +70,109 @@ FAKE_PDF_BYTES = (
 )
 
 
+#: The demo tutor's own syllabus. Small on purpose — enough chapters and topics
+#: for the evidence, lesson and assessment fixtures below, and no more. It is
+#: data, not a built-in: `AV-8` deleted the five shared syllabuses, so nothing
+#: ships a subject except the account that creates one.
+CHEMISTRY = {
+    "exam_board": "Edexcel IGCSE",
+    "code": "4CH1",
+    "name": "Chemistry",
+    "level": SubjectLevel.igcse,
+    "grade_scale": "9-1",
+    "grade_boundaries": [
+        {"grade": "9", "min": 90},
+        {"grade": "8", "min": 80},
+        {"grade": "7", "min": 70},
+        {"grade": "6", "min": 60},
+        {"grade": "5", "min": 50},
+        {"grade": "4", "min": 40},
+        {"grade": "3", "min": 30},
+        {"grade": "2", "min": 20},
+        {"grade": "1", "min": 10},
+        {"grade": "U", "min": 0},
+    ],
+    "chapters": [
+        {
+            "code": "1",
+            "title": "Principles of chemistry",
+            "weight": 1.4,
+            "topics": [
+                {"code": "1.1", "title": "States of matter"},
+                {"code": "1.2", "title": "Atoms, elements and compounds"},
+                {"code": "1.3", "title": "Ionic bonding"},
+            ],
+        },
+        {
+            "code": "2",
+            "title": "Inorganic chemistry",
+            "topics": [
+                {"code": "2.1", "title": "Group 1 and Group 7"},
+                {"code": "2.2", "title": "Acids, bases and salts"},
+                {"code": "2.3", "title": "Reactivity series"},
+            ],
+        },
+        {
+            "code": "3",
+            "title": "Physical chemistry",
+            "topics": [
+                {"code": "3.1", "title": "Energetics"},
+                {"code": "3.2", "title": "Rates of reaction"},
+                {"code": "3.3", "title": "Electrolysis"},
+            ],
+        },
+    ],
+}
+
+
+async def build_subject(session, *, organization_id: int, data: dict) -> Subject:
+    """Create a Subject with its chapters and topics, owned by one organization.
+
+    Chapter-first, matching the tree `AV-9` settled: a chapter contains topics,
+    and marks and readiness attach to the topics. Topics here are leaves — the
+    old seed loader made each chapter a topic *as well*, which migration 0029
+    preserved only so existing demo evidence survived that phase. Nothing needs
+    to carry that forward into subjects built from scratch.
+
+    Shared with `tests/test_chapters.py` rather than duplicated there, so the
+    tree the tests assert on is the tree the demo actually builds.
+    """
+    subject = Subject(
+        organization_id=organization_id,
+        exam_board=data["exam_board"],
+        code=data["code"],
+        name=data["name"],
+        level=data["level"],
+        grade_scale=data["grade_scale"],
+        grade_boundaries=data["grade_boundaries"],
+    )
+    session.add(subject)
+    await session.flush()
+
+    for position, node in enumerate(data["chapters"], start=1):
+        chapter = Chapter(
+            subject_id=subject.id,
+            code=node["code"],
+            title=node["title"],
+            position=position,
+            weight=node.get("weight", 1.0),
+        )
+        session.add(chapter)
+        await session.flush()
+        for topic in node["topics"]:
+            session.add(
+                Topic(
+                    subject_id=subject.id,
+                    chapter_id=chapter.id,
+                    code=topic["code"],
+                    title=topic["title"],
+                    weight=topic.get("weight", 1.0),
+                )
+            )
+    await session.flush()
+    return subject
+
+
 async def main() -> None:
     async with async_session() as session:
         existing = await session.scalar(select(User).where(User.email == "demo-tutor@example.com"))
@@ -75,14 +180,16 @@ async def main() -> None:
             print("demo data already present — nothing to do")
             return
 
-        subject = await session.scalar(select(Subject).where(Subject.code == "4CH1"))
-        if subject is None:
-            raise SystemExit("Run `python -m seed.load_syllabus` first")
-
         pw = hash_password(PASSWORD)
         org = Organization(name="Demo Tutor's Organization")
         session.add(org)
         await session.flush()
+
+        # The demo builds its own subject (AV-8, task 2.2). There are no built-in
+        # syllabuses any more: subjects belong to the tutor who created them, so a
+        # seed that installed five global ones would be seeding a shape the
+        # product no longer has.
+        subject = await build_subject(session, organization_id=org.id, data=CHEMISTRY)
 
         tutor = User(
             email="demo-tutor@example.com",
@@ -173,7 +280,7 @@ async def main() -> None:
             )
         ).all()
         if not topics:
-            raise SystemExit("Subject 4CH1 has no topics — check seed/syllabus data")
+            raise SystemExit("Demo subject has no topics — check CHEMISTRY above")
 
         students = [student1, student2]
         now = datetime.now(timezone.utc)

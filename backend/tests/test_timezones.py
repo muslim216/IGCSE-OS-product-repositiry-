@@ -19,6 +19,7 @@ from app.services.timezones import (
     now_in,
     today_weekday,
 )
+from tests.factories import subject_defaults
 
 # ---- Validation: the value comes from a browser ----
 
@@ -147,6 +148,7 @@ async def test_a_student_cannot_change_the_organization_timezone(client, tutor):
     """QA-12: the negative case. This setting moves a whole roster's "today"."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4MA1",
             name="Maths",
@@ -189,6 +191,7 @@ async def test_today_lessons_uses_org_timezone(client, tutor, monkeypatch):
     local midnight UTC gets wrong."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -261,6 +264,7 @@ async def test_a_student_can_set_their_own_timezone_but_not_the_organizations(cl
     """AV-67's whole point: the override is deliberately NOT tutor-gated."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4MA2",
             name="Maths B",
@@ -346,6 +350,7 @@ async def test_today_lessons_follows_the_tutors_own_zone_over_the_organizations(
     person who set it. This is the read side of AV-67."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4PH1",
             name="Physics",

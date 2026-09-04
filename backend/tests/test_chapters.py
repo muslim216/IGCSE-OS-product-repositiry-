@@ -1,6 +1,6 @@
-"""Subject -> Chapter -> Topic, and the two paths that build it (task 2.1, AV-9).
+"""Subject -> Chapter -> Topic, and the paths that build it (tasks 2.1/2.2, AV-9).
 
-The migration's backfill is tested here rather than left to CI's migrations job.
+The migration backfill is tested here rather than left to CI's migrations job.
 That job runs `upgrade head` against an **empty** Postgres, so the reparenting
 loop never touches a row there — it would report green on a backfill that
 silently did nothing. `RISK-3` is the named, already-realised failure of trusting
@@ -8,7 +8,6 @@ a migration nobody exercised.
 """
 
 import importlib.util
-import json
 from pathlib import Path
 
 import pytest
@@ -16,36 +15,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
-from app.models import Chapter, Subject, Topic
-from seed.load_syllabus import load_file
+from app.models import Chapter, Organization, Subject, SubjectLevel, Topic
+from seed.demo import CHEMISTRY, build_subject
 
 MIGRATION = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0029_chapters.py"
-
-SYLLABUS = {
-    "exam_board": "Test Board",
-    "code": "T100",
-    "name": "Testing",
-    "grade_scale": "9-1",
-    "grade_boundaries": [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
-    "topics": [
-        {
-            "code": "1",
-            "title": "Number",
-            "weight": 2.0,
-            "children": [
-                {"code": "1.1", "title": "Integers"},
-                # Third level: proves the reparenting reaches below the topics a
-                # chapter directly owns, which is what `E1` keeps parent_id for.
-                {
-                    "code": "1.2",
-                    "title": "Powers",
-                    "children": [{"code": "1.2.1", "title": "Roots"}],
-                },
-            ],
-        },
-        {"code": "2", "title": "Algebra", "children": [{"code": "2.1", "title": "Expressions"}]},
-    ],
-}
 
 
 def _load_migration():
@@ -55,46 +28,56 @@ def _load_migration():
     return module
 
 
-@pytest.fixture
-def syllabus_file(tmp_path: Path) -> Path:
-    path = tmp_path / "test_t100.json"
-    path.write_text(json.dumps(SYLLABUS))
-    return path
+async def _org(session, name: str = "Test Org") -> Organization:
+    org = Organization(name=name)
+    session.add(org)
+    await session.flush()
+    return org
 
 
-async def test_seed_promotes_top_level_nodes_to_chapters(syllabus_file: Path):
+async def _subject(session, org: Organization, code: str, name: str = "Testing") -> Subject:
+    subject = Subject(
+        organization_id=org.id,
+        exam_board="Test Board",
+        code=code,
+        name=name,
+        level=SubjectLevel.igcse,
+        grade_scale="9-1",
+        grade_boundaries=[],
+    )
+    session.add(subject)
+    await session.flush()
+    return subject
+
+
+async def test_the_demo_subject_is_built_chapter_first():
+    """`seed/demo.py` builds the tree the product now has (AV-8, AV-9).
+
+    Replaces the old `load_syllabus` seeding test: the five built-in syllabuses
+    and their loader were deleted in task 2.2, so the assertion moves to the path
+    that replaced them rather than being dropped (`E26`).
+    """
     async with async_session() as session:
-        await load_file(session, syllabus_file)
+        org = await _org(session)
+        subject = await build_subject(session, organization_id=org.id, data=CHEMISTRY)
         await session.commit()
+
+        assert subject.organization_id == org.id
+        assert subject.level is SubjectLevel.igcse
 
         chapters = (await session.scalars(select(Chapter).order_by(Chapter.position))).all()
-        assert [(c.code, c.title, c.position) for c in chapters] == [
-            ("1", "Number", 1),
-            ("2", "Algebra", 2),
-        ]
-        assert chapters[0].weight == 2.0
+        assert [(c.code, c.position) for c in chapters] == [("1", 1), ("2", 2), ("3", 3)]
+        assert chapters[0].weight == 1.4
 
-        by_code = {t.code: t for t in (await session.scalars(select(Topic))).all()}
-        # Every topic in the subtree points at its chapter, at any depth.
-        chapter_one = chapters[0].id
-        assert by_code["1"].chapter_id == chapter_one
-        assert by_code["1.1"].chapter_id == chapter_one
-        assert by_code["1.2.1"].chapter_id == chapter_one
-        assert by_code["2.1"].chapter_id == chapters[1].id
-        # The root topic is kept, not moved: demo evidence hangs off it.
-        assert by_code["1"].parent_id is None
-        assert by_code["1.2.1"].parent_id == by_code["1.2"].id
-
-
-async def test_seed_reload_does_not_duplicate_chapters(syllabus_file: Path):
-    async with async_session() as session:
-        await load_file(session, syllabus_file)
-        await session.commit()
-        await load_file(session, syllabus_file)
-        await session.commit()
-
-        chapters = (await session.scalars(select(Chapter))).all()
-        assert len(chapters) == 2
+        topics = (await session.scalars(select(Topic).order_by(Topic.code))).all()
+        # Every topic is a leaf under a chapter — no root topic doubles as one,
+        # which is what migration 0029 had to preserve for the old seeds.
+        assert len(topics) == 9
+        assert all(t.chapter_id is not None for t in topics)
+        assert all(t.parent_id is None for t in topics)
+        by_chapter = {c.id: c.code for c in chapters}
+        assert by_chapter[topics[0].chapter_id] == "1"
+        assert by_chapter[topics[-1].chapter_id] == "3"
 
 
 async def test_a_topic_with_no_chapter_is_valid():
@@ -104,15 +87,8 @@ async def test_a_topic_with_no_chapter_is_valid():
     fabricate structure the tutor never approved (`PROD-2`).
     """
     async with async_session() as session:
-        subject = Subject(
-            exam_board="Test Board",
-            code="T200",
-            name="Unchaptered",
-            grade_scale="9-1",
-            grade_boundaries=[],
-        )
-        session.add(subject)
-        await session.flush()
+        org = await _org(session)
+        subject = await _subject(session, org, "T200", "Unchaptered")
         session.add(Topic(subject_id=subject.id, code="1", title="Loose"))
         await session.commit()
 
@@ -137,22 +113,9 @@ async def test_a_topic_cannot_be_filed_under_another_subjects_chapter():
         connection = await session.connection()
         await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         try:
-            maths = Subject(
-                exam_board="Test Board",
-                code="T400",
-                name="Maths",
-                grade_scale="9-1",
-                grade_boundaries=[],
-            )
-            physics = Subject(
-                exam_board="Test Board",
-                code="T401",
-                name="Physics",
-                grade_scale="9-1",
-                grade_boundaries=[],
-            )
-            session.add_all([maths, physics])
-            await session.flush()
+            org = await _org(session)
+            maths = await _subject(session, org, "T400", "Maths")
+            physics = await _subject(session, org, "T401", "Physics")
 
             maths_chapter = Chapter(subject_id=maths.id, code="1", title="Number", position=1)
             session.add(maths_chapter)
@@ -185,22 +148,9 @@ async def test_migration_backfill_leaves_a_cross_subject_child_unchaptered():
     `chapter_id = NULL`, which is legal and honest.
     """
     async with async_session() as session:
-        maths = Subject(
-            exam_board="Test Board",
-            code="T500",
-            name="Maths",
-            grade_scale="9-1",
-            grade_boundaries=[],
-        )
-        physics = Subject(
-            exam_board="Test Board",
-            code="T501",
-            name="Physics",
-            grade_scale="9-1",
-            grade_boundaries=[],
-        )
-        session.add_all([maths, physics])
-        await session.flush()
+        org = await _org(session)
+        maths = await _subject(session, org, "T500", "Maths")
+        physics = await _subject(session, org, "T501", "Physics")
 
         maths_root = Topic(subject_id=maths.id, code="1", title="Number")
         session.add(maths_root)
@@ -222,15 +172,8 @@ async def test_migration_backfill_leaves_a_cross_subject_child_unchaptered():
 async def test_migration_backfill_promotes_root_topics_and_reparents_the_subtree():
     """Migration 0029's backfill, run against rows it actually has to move."""
     async with async_session() as session:
-        subject = Subject(
-            exam_board="Test Board",
-            code="T300",
-            name="Pre-chapter",
-            grade_scale="9-1",
-            grade_boundaries=[],
-        )
-        session.add(subject)
-        await session.flush()
+        org = await _org(session)
+        subject = await _subject(session, org, "T300", "Pre-chapter")
 
         root = Topic(subject_id=subject.id, code="1", title="Number", weight=2.0)
         other_root = Topic(subject_id=subject.id, code="2", title="Algebra")
@@ -252,7 +195,6 @@ async def test_migration_backfill_promotes_root_topics_and_reparents_the_subtree
             ("1", 1, 2.0),
             ("2", 2, 1.0),
         ]
-
         number_id, algebra_id = chapters[0].id, chapters[1].id
 
         # The backfill wrote through the raw connection, so the identity map is

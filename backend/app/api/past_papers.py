@@ -20,7 +20,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser
+from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, owned_subject
 from app.api.file_responses import signed_or_proxied_file
 from app.models import (
     SETTLED_STATUSES,
@@ -128,9 +128,7 @@ async def upload_past_paper(
     total_marks: Annotated[int | None, Form()] = None,
     duration_minutes: Annotated[int | None, Form()] = None,
 ) -> PastPaperOut:
-    subject = await db.get(Subject, subject_id)
-    if subject is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    subject = await owned_subject(db, subject_id, user)
     # The mark scheme is a required part of the form, so FastAPI rejects a
     # missing file before we get here — this catches an empty upload.
     if not mark_scheme.filename:

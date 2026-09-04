@@ -37,6 +37,7 @@ from app.services.narrative import (
     sweep_parent_narratives,
 )
 from app.workers.jobs import process_one_job
+from tests.factories import subject_defaults
 
 
 @pytest.fixture
@@ -73,6 +74,7 @@ async def world(client, tutor):
     """A tutor with one class, one enrolled student, and one piece of evidence."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",

@@ -18,6 +18,7 @@ from app.services.grade_boundaries import (
     set_org_boundaries,
 )
 from app.services.grades import predict_grade
+from tests.factories import subject_defaults
 from tests.test_homework import (  # noqa: F401 - shared fixtures
     group,
     student,
@@ -222,6 +223,7 @@ async def blank_subject():
 
     async with async_session() as session:
         s = Subject(
+            **await subject_defaults(session),
             exam_board="Cambridge",
             code="5070",
             name="Chemistry O Level",

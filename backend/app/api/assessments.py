@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
-from app.api.deps import DbSession, StudentUser, TutorUser
+from app.api.deps import DbSession, StudentUser, TutorUser, owned_subject
 from app.models import (
     Assessment,
     AssessmentScore,
@@ -48,9 +48,7 @@ async def _tutor_teaches(db, tutor_id: int, student_id: int, subject_id: int) ->
 async def create_assessment(
     body: AssessmentCreate, db: DbSession, user: TutorUser
 ) -> AssessmentOut:
-    subject = await db.get(Subject, body.subject_id)
-    if subject is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    subject = await owned_subject(db, body.subject_id, user)
 
     assessment = Assessment(
         tutor_id=user.id,

@@ -21,6 +21,7 @@ from app.models import (
     TopicReadiness,
 )
 from app.services.readiness_summary import DIRECTION_NOISE_BAND, trend_direction
+from tests.factories import subject_defaults
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -71,6 +72,7 @@ def test_direction_is_net_not_last_tick():
 async def world(client, tutor):
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4PH1",
             name="Physics",

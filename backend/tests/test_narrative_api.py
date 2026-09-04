@@ -21,12 +21,14 @@ from app.models import (
     User,
     UserRole,
 )
+from tests.factories import subject_defaults, subject_for_tutor
 
 
 @pytest.fixture
 async def world(client, tutor):
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -177,7 +179,11 @@ async def test_parent_cannot_read_another_orgs_narrative_returns_404(client, wor
     ).json()
     other_headers = {"Authorization": f"Bearer {other_tutor['tokens']['access_token']}"}
     async with async_session() as session:
-        subject_id = await session.scalar(select(Subject.id))
+        # The rival needs a subject in their own organization: since task 2.2 a
+        # subject belongs to one tenant, so reusing the first tutor's returns
+        # 404 — which is what this test asserts further down, not a shortcut.
+        subject_id = (await subject_for_tutor(session, "t2@example.com")).id
+        await session.commit()
     other_group = (
         await client.post(
             "/api/v1/groups",

@@ -5,6 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.models.syllabus import Subject
 from app.models.users import User, UserRole
 from app.security import decode_token
 
@@ -109,3 +110,26 @@ async def require_student(user: CurrentUser) -> User:
 #: any route loses its gate.
 TutorUser = Annotated[User, Depends(require_tutor)]
 StudentUser = Annotated[User, Depends(require_student)]
+
+
+async def owned_subject(db: AsyncSession, subject_id: int, user: User) -> Subject:
+    """A subject in the caller's own organization, or 404.
+
+    Subjects became tenant-owned in task 2.2 (AV-6). Every one of the ten
+    routers that resolves a caller-supplied `subject_id` needs the same two
+    conditions, and writing them ten times is how the eleventh gets one of them
+    wrong — the same argument `require_role` makes about role gates (RISK-7).
+
+    **404, not 403** (`API-7`, `SEC-9`): integer keys are enumerable, and a 403
+    would confirm that a subject with that id exists in someone else's account.
+    The two cases are deliberately indistinguishable to the caller.
+
+    Tutor-facing only. A student may be taught a subject outside their own
+    organization — an invite to a second tutor's group does not move them — so
+    student-reachable routes use `services.subjects.visible_subject_ids`
+    instead, which scopes by enrolment (`SEC-8`).
+    """
+    subject = await db.get(Subject, subject_id)
+    if subject is None or subject.organization_id != user.organization_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    return subject

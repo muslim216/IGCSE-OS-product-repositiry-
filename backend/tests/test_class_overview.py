@@ -19,6 +19,7 @@ from app.models import (
     Topic,
     TopicReadiness,
 )
+from tests.factories import subject_defaults
 
 BOUNDARIES = [
     {"grade": "9", "min": 90},
@@ -35,6 +36,7 @@ BOUNDARIES = [
 async def subject_id():
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",

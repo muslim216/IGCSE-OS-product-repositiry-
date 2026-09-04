@@ -1,6 +1,7 @@
 import pytest
 
 from app.services.groups import class_health
+from tests.factories import subject_defaults
 
 
 @pytest.fixture
@@ -11,6 +12,7 @@ async def subject_id(client, tutor):
 
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -433,6 +435,7 @@ async def test_class_health_ignores_topics_from_a_different_subject(
 
     async with async_session() as session:
         other_subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4PH1",
             name="Physics",

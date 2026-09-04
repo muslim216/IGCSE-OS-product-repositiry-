@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import AiFeature, AiUsageEvent
 from app.workers.jobs import process_one_job
+from tests.factories import subject_defaults
 
 PDF_BYTES = b"%PDF-1.4 fake test syllabus pdf"
 
@@ -14,6 +15,7 @@ async def fake_extraction(session, upload):
         "code": "4XX1",
         "name": "Test Subject",
         "grade_scale": "9-1",
+        "level": "igcse",
         "grade_boundaries": [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         "topics": [
             {
@@ -65,6 +67,7 @@ async def test_extraction_records_ai_usage(client, tutor, monkeypatch, fake_ai):
         code="4XX1",
         name="Test Subject",
         grade_scale="9-1",
+        level="igcse",
         grade_boundaries=[],
         topics=[{"code": "1", "title": "Section one", "weight": 1.0, "children": []}],
     )
@@ -130,6 +133,7 @@ async def test_apply_upserts_existing_subject_by_exam_board_and_code(
             "code": "4XX1",
             "name": "Test Subject",
             "grade_scale": "9-1",
+            "level": "igcse",
             "grade_boundaries": [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
             "topics": [
                 {"code": "1", "title": "Section one (revised)", "weight": 1.0, "children": []},
@@ -184,6 +188,7 @@ async def test_reapply_with_no_boundaries_keeps_the_existing_global_ones(
             "code": "4XX1",
             "name": "Test Subject",
             "grade_scale": "9-1",
+            "level": "igcse",
             "grade_boundaries": [],  # the document did not state them
             "topics": [{"code": "1", "title": "Section one", "weight": 1.0, "children": []}],
         }
@@ -226,6 +231,7 @@ async def test_apply_seeds_default_boundaries_when_a_new_subject_has_none(
             "code": "0620",
             "name": "IGCSE Chemistry",
             "grade_scale": "9-1",
+            "level": "igcse",
             "grade_boundaries": [],
             "topics": [{"code": "1", "title": "States of matter", "weight": 1.0, "children": []}],
         }
@@ -297,6 +303,7 @@ async def test_student_cannot_upload_syllabus(client, tutor):
 
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4ZZ1",
             name="Placeholder",

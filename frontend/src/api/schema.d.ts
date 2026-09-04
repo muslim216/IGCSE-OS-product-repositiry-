@@ -1902,8 +1902,11 @@ export interface paths {
         put?: never;
         /**
          * Apply Syllabus
-         * @description Create (or update) the real Subject + Topic tree from the reviewed
-         *     draft. Idempotent on (exam_board, code), same as the seed loader.
+         * @description Create (or update) the real Subject + Topic tree from the reviewed draft.
+         *
+         *     Idempotent on (organization, exam_board, code) — the tenant is part of a
+         *     subject's identity since task 2.2, so re-applying updates *this* tutor's
+         *     subject and never another tenant's.
          */
         post: operations["apply_syllabus_api_v1_syllabus_uploads__upload_id__apply_post"];
         delete?: never;
@@ -3491,6 +3494,16 @@ export interface components {
             /** Marks */
             marks: components["schemas"]["StudentMarkRow"][];
         };
+        /**
+         * SubjectLevel
+         * @description The qualification a subject is taught for (AV-7).
+         *
+         *     Three levels, and nothing in the product may assume the IGCSE one. There is
+         *     deliberately **no default**: a subject's level is the tutor's to state, and
+         *     defaulting to `igcse` is precisely the assumption `AV-7` forbids.
+         * @enum {string}
+         */
+        SubjectLevel: "igcse" | "o_level" | "a_level";
         /** SubjectOut */
         SubjectOut: {
             /** Id */
@@ -3640,6 +3653,7 @@ export interface components {
             code: string;
             /** Name */
             name: string;
+            level?: components["schemas"]["SubjectLevel"] | null;
             /** Grade Scale */
             grade_scale: string;
             /** Grade Boundaries */
@@ -3655,6 +3669,7 @@ export interface components {
             code: string;
             /** Name */
             name: string;
+            level?: components["schemas"]["SubjectLevel"] | null;
             /** Grade Scale */
             grade_scale: string;
             /** Grade Boundaries */

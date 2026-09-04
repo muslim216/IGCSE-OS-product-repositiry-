@@ -20,12 +20,14 @@ from app.models import (
     Topic,
     TopicReadiness,
 )
+from tests.factories import subject_defaults
 
 
 @pytest.fixture
 async def subject_id():
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -141,6 +143,7 @@ async def test_a_subject_without_boundaries_is_flagged_not_defaulted(client, tut
     surface offer "Set them →" instead of silently showing nothing."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="CIE",
             code="0620",
             name="Bare",

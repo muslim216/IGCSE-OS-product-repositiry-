@@ -20,6 +20,7 @@ from app.models import (
     User,
 )
 from app.services.averaging import MarkRow, average_marked_work, subject_averaging
+from tests.factories import subject_defaults
 
 # ---- The pure mean ----
 
@@ -76,6 +77,7 @@ async def world(client, tutor):
     """A subject, a group, and a student enrolled in it."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4MA1",
             name="Maths",
@@ -253,6 +255,7 @@ async def test_other_subjects_do_not_contribute(client, tutor, world):
     """A second subject's marked work stays out of this subject's average."""
     async with async_session() as session:
         other = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",

@@ -5276,7 +5276,7 @@
           "syllabus"
         ],
         "summary": "Apply Syllabus",
-        "description": "Create (or update) the real Subject + Topic tree from the reviewed\ndraft. Idempotent on (exam_board, code), same as the seed loader.",
+        "description": "Create (or update) the real Subject + Topic tree from the reviewed draft.\n\nIdempotent on (organization, exam_board, code) \u2014 the tenant is part of a\nsubject's identity since task 2.2, so re-applying updates *this* tutor's\nsubject and never another tenant's.",
         "operationId": "apply_syllabus_api_v1_syllabus_uploads__upload_id__apply_post",
         "security": [
           {
@@ -9973,6 +9973,16 @@
         ],
         "title": "StudentSubmissionView"
       },
+      "SubjectLevel": {
+        "type": "string",
+        "enum": [
+          "igcse",
+          "o_level",
+          "a_level"
+        ],
+        "title": "SubjectLevel",
+        "description": "The qualification a subject is taught for (AV-7).\n\nThree levels, and nothing in the product may assume the IGCSE one. There is\ndeliberately **no default**: a subject's level is the tutor's to state, and\ndefaulting to `igcse` is precisely the assumption `AV-7` forbids."
+      },
       "SubjectOut": {
         "properties": {
           "id": {
@@ -10397,6 +10407,16 @@
             "type": "string",
             "title": "Name"
           },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "grade_scale": {
             "type": "string",
             "title": "Grade Scale"
@@ -10440,6 +10460,16 @@
           "name": {
             "type": "string",
             "title": "Name"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubjectLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "grade_scale": {
             "type": "string",

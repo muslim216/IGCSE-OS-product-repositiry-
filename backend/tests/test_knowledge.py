@@ -18,6 +18,7 @@ from app.main import app as production_app
 from app.main import create_app
 from app.models import AiFeature, AiUsageEvent, User
 from app.services.knowledge import build_tutor_context
+from tests.factories import subject_defaults
 
 
 @pytest.fixture
@@ -111,6 +112,7 @@ async def test_subject_scoped_filtering(client, tutor):
 
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -153,6 +155,7 @@ async def test_build_tutor_context_compiles_entries(client, tutor):
 
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",
@@ -249,6 +252,7 @@ async def test_ai_usage_forbidden_for_students(client, tutor):
 
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4CH1",
             name="Chemistry",

@@ -18,6 +18,7 @@ from app.models import (
     User,
 )
 from app.services.groups import summaries
+from tests.factories import subject_defaults
 
 
 @pytest.fixture
@@ -25,6 +26,7 @@ async def world(client, tutor):
     """A subject with two topics, a class, and one enrolled student."""
     async with async_session() as session:
         subject = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4PH1",
             name="Physics",
@@ -140,6 +142,7 @@ async def test_another_subjects_evidence_does_not_count(client, tutor, world):
     """Evidence in a subject this class does not teach says nothing about it."""
     async with async_session() as session:
         other = Subject(
+            **await subject_defaults(session),
             exam_board="Edexcel IGCSE",
             code="4BI1",
             name="Biology",
