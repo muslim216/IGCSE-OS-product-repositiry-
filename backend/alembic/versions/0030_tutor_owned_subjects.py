@@ -82,17 +82,45 @@ def upgrade() -> None:
         )
     conn.execute(sa.text("UPDATE subjects SET level = 'igcse' WHERE level IS NULL"))
 
+    # The old constraint's name has to be *discovered*, not assumed. It was
+    # created unnamed by migration 0002, so each backend named it itself:
+    # Postgres calls it `subjects_exam_board_code_key`, while SQLite has no name
+    # for it at all until batch mode rebuilds the table and applies NAMING.
+    # Hard-coding the convention name passes on SQLite and fails on Postgres with
+    # `constraint ... does not exist` — `RISK-3` exactly, and how this migration
+    # first failed CI.
+    old_unique = _unique_constraint_named(op.get_bind(), "subjects", {"exam_board", "code"})
+
     with op.batch_alter_table("subjects", naming_convention=NAMING) as batch:
         batch.alter_column("organization_id", existing_type=sa.Integer(), nullable=False)
         batch.alter_column("level", existing_type=sa.String(length=16), nullable=False)
         # Global identity gives way to per-tenant identity: two tutors may each
         # teach Edexcel 4MA1. The new constraint also serves as the index for the
         # organization filter, `organization_id` being its leading column.
-        batch.drop_constraint("uq_subjects_exam_board_code", type_="unique")
+        # Falls back to the convention name for SQLite, where the constraint is
+        # nameless until this very rebuild assigns it one from NAMING. Dropping
+        # it must still happen there: batch mode carries every reflected
+        # constraint into the new table, so leaving it would keep subjects
+        # globally unique on (exam_board, code) and stop two tutors teaching the
+        # same specification — the thing this task exists to allow.
+        batch.drop_constraint(old_unique or "uq_subjects_exam_board_code", type_="unique")
         batch.create_unique_constraint(
             "uq_subjects_organization_id_exam_board_code",
             ["organization_id", "exam_board", "code"],
         )
+
+
+def _unique_constraint_named(conn, table: str, columns: set[str]) -> str | None:
+    """The database's own name for the unique constraint over `columns`.
+
+    Returns None when the backend reports no name — SQLite, for an inline
+    `UNIQUE (...)`. The caller then falls back to the NAMING convention name,
+    which is what batch mode assigns while rebuilding the table.
+    """
+    for constraint in sa.inspect(conn).get_unique_constraints(table):
+        if set(constraint["column_names"]) == columns:
+            return constraint["name"] or None
+    return None
 
 
 def downgrade() -> None:
