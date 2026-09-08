@@ -40,7 +40,9 @@ function stub(initial: Record<number, string> = {}, options: { hold?: number } =
         if (!known)
           return new Response(JSON.stringify({ detail: "no such subject" }), { status: 404 });
         if (method === "PUT") {
-          const rules = JSON.parse(String(init?.body)).rules as string;
+          // The API trims before storing, so whitespace-only rules come back as
+          // no rules at all — the case this stub has to be faithful about.
+          const rules = (JSON.parse(String(init?.body)).rules as string).trim();
           saved.push({ subject, rules });
           state[subject] = rules;
         }
@@ -170,4 +172,22 @@ test("a refetch does not overwrite what the tutor has typed", async () => {
   );
 
   expect(screen.getByDisplayValue("Half-written new rules")).toBeTruthy();
+});
+
+test("saving whitespace-only rules leaves the box cleared, not still full of spaces", async () => {
+  // The server normalizes whitespace to no rules at all. The per-subject
+  // hydration guard ignores query updates, so without adopting the save's own
+  // response the editor kept showing the discarded whitespace with Save still
+  // enabled (cubic).
+  const { saved } = stub({ 7: "Stored rules." });
+  renderPage();
+
+  const box = (await screen.findByDisplayValue("Stored rules.")) as HTMLTextAreaElement;
+  fireEvent.change(box, { target: { value: "   \n  " } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(saved).toHaveLength(1));
+  await waitFor(() => expect(box.value).toBe(""));
+  expect(await screen.findByText(/Nothing set for this subject/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 });

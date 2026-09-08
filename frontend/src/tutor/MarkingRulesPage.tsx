@@ -4,7 +4,6 @@ import { listSubjects } from "../api/groups";
 import { getMarkingRules, saveMarkingRules, MAX_MARKING_RULES } from "../api/markingRules";
 import { ApiError } from "../api/client";
 import { EmptyState, useToast } from "../components/ui";
-import { ABSENT } from "../lib/labels";
 
 /**
  * The AI marking agreement — the marking rules a tutor writes once for a
@@ -22,7 +21,12 @@ import { ABSENT } from "../lib/labels";
 function LoadFailed({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex items-center gap-3">
-      <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
+      {/* Not `ABSENT.loadFailed`: that copy says to refresh the page, which is
+          the advice this control exists to replace (cubic). The shared string
+          stays as it is for the surfaces that offer no retry. */}
+      <p className="text-sm text-ink-500">
+        That did not load. This is usually temporary — try again in a moment.
+      </p>
       <button
         onClick={onRetry}
         className="rounded-md border border-line-control px-3 py-1.5 text-sm text-ink-700 hover:border-line-strong"
@@ -65,6 +69,12 @@ export default function MarkingRulesPage() {
     mutationFn: () => saveMarkingRules(selected!, draft),
     onMutate: () => setError(null),
     onSuccess: (saved) => {
+      // The server normalizes — whitespace-only rules come back cleared — and a
+      // save is an explicit action, so the box adopts what was actually stored.
+      // The per-subject hydration guard deliberately ignores query updates, so
+      // without this the editor would keep showing the whitespace it just
+      // discarded, with Save still enabled (cubic).
+      setDraft(saved.rules);
       queryClient.invalidateQueries({ queryKey: ["marking-rules", selected] });
       showToast(saved.configured ? "Marking rules saved." : "Marking rules cleared.");
     },
