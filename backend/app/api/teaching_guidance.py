@@ -22,7 +22,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 
 from app.api.deps import DbSession, TutorUser, owned_subject
-from app.api.file_responses import signed_or_proxied_file
+from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import Subject
 from app.schemas.teaching_guidance import TeachingGuidanceOut
 from app.services import storage
@@ -123,28 +123,6 @@ async def upload_teaching_guidance(
     if previous and previous != path:
         await _discard(previous, why="replaced")
     return _out(subject)
-
-
-#: What the download actually returns. Without it FastAPI documents a JSON body
-#: for a route that answers with PDF or image bytes, and a generated client is
-#: entitled to try decoding it as JSON (CodeRabbit). The set mirrors
-#: `storage.ALLOWED_MIMES` plus the fallback the handler uses when a row's mime
-#: is missing.
-FILE_RESPONSES: dict[int | str, dict] = {
-    200: {
-        "content": {
-            mime: {"schema": {"type": "string", "format": "binary"}}
-            for mime in (
-                "application/pdf",
-                "image/jpeg",
-                "image/png",
-                "image/webp",
-                "application/octet-stream",
-            )
-        },
-        "description": "The stored document.",
-    }
-}
 
 
 @router.get(

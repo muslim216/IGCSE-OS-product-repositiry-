@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, TutorUser, owned_subject
-from app.api.file_responses import signed_or_proxied_file
+from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import (
     Assignment,
     AssignmentStatus,
@@ -83,7 +83,7 @@ async def _can_view_classified(db, user: User, classified: Classified) -> bool:
     return row is not None
 
 
-@router.get("/{classified_id}/file")
+@router.get("/{classified_id}/file", response_class=Response, responses=FILE_RESPONSES)
 async def download_classified(classified_id: int, db: DbSession, user: CurrentUser) -> Response:
     classified = await db.get(Classified, classified_id)
     if classified is None or not await _can_view_classified(db, user, classified):
@@ -95,7 +95,7 @@ async def download_classified(classified_id: int, db: DbSession, user: CurrentUs
     )
 
 
-@router.get("/{classified_id}/mark-scheme")
+@router.get("/{classified_id}/mark-scheme", response_class=Response, responses=FILE_RESPONSES)
 async def download_mark_scheme(classified_id: int, db: DbSession, user: CurrentUser) -> Response:
     classified = await db.get(Classified, classified_id)
     if classified is None or classified.mark_scheme_path is None:

@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, TutorUser
-from app.api.file_responses import signed_or_proxied_file
+from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import Group, GroupMember, GroupResource, ResourceKind, User, UserRole
 from app.schemas.resources import ResourceOut
 from app.services import storage
@@ -109,7 +109,7 @@ async def list_resources(
     return [_out(r) for r in rows]
 
 
-@router.get("/resources/{resource_id}/file")
+@router.get("/resources/{resource_id}/file", response_class=Response, responses=FILE_RESPONSES)
 async def download_resource_file(resource_id: int, db: DbSession, user: CurrentUser) -> Response:
     resource = await db.get(GroupResource, resource_id)
     if resource is None or resource.file_path is None:
