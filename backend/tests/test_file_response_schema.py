@@ -7,6 +7,7 @@ that (CodeRabbit, PR #61). This is the check that stops the next one being added
 that way, since nothing else would fail.
 """
 
+import ast
 import pathlib
 
 import pytest
@@ -39,47 +40,75 @@ def test_a_file_route_declares_binary_and_not_json(spec, path):
     assert content["application/pdf"]["schema"] == {"type": "string", "format": "binary"}
 
 
-def test_a_module_that_serves_files_also_declares_them():
-    """The list above only guards while it is complete, and a new download route
-    would not be on it.
+#: The two helpers in `api/file_responses.py` that write a file to the response.
+SERVERS = {"proxied_file", "signed_or_proxied_file"}
 
-    Checked at the source level rather than by walking `app.routes`: the routers
-    live under a mounted sub-application, so the top-level route list does not
-    contain them and a walk that finds nothing would pass silently — which is
-    how the first version of this test failed open.
+
+def _serving_handlers() -> list[tuple[str, str, bool]]:
+    """Every handler that serves a stored file, and whether its own decorator
+    declares `responses=FILE_RESPONSES`.
+
+    Parsed, not grepped. Counting occurrences in the text compares aggregates:
+    a helper named in a comment inflates one side, an extra declaration on an
+    unrelated route hides a missing one on a real route, and a handler that
+    calls the helper twice fails a module that is correct (cubic). The AST
+    answers the question actually being asked — *this* route, *its* decorator —
+    and ignores comments and docstrings by construction.
+
+    An attribute call (`file_responses.proxied_file(...)`) is matched on the
+    attribute name, so the guard does not depend on how the module imports it.
     """
     api = pathlib.Path(__file__).resolve().parents[1] / "app" / "api"
-    serving_modules = set()
+    found: list[tuple[str, str, bool]] = []
     for module in sorted(api.glob("*.py")):
         if module.name == "file_responses.py":
             continue
-        source = module.read_text()
-        # Detected by the **call**, not the import: an alias, a parenthesised
-        # multiline import or attribute access (`file_responses.proxied_file(`)
-        # all evade a check on the import's shape, and a module that evades
-        # detection passes by not being looked at (cubic).
-        if "proxied_file(" not in source:
-            continue
-        serving_modules.add(module.name)
-        # Count the declarations against the *call sites*, not merely that the
-        # name appears: importing `FILE_RESPONSES` and forgetting it on one of
-        # two decorators is exactly the regression this guards, and a presence
-        # check passes straight through it (CodeRabbit).
-        #
-        # `proxied_file(` matches both helpers — `signed_or_proxied_file(`
-        # contains it — and never the import line, which has no parenthesis.
-        calls = source.count("proxied_file(")
-        declared = source.count("responses=FILE_RESPONSES")
-        assert declared >= calls, (
-            f"{module.name} serves a stored file from {calls} route(s) but declares "
-            f"{declared} of them — the rest advertise application/json for binary bytes"
-        )
+        tree = ast.parse(module.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+                continue
+            called = {
+                call.func.attr
+                if isinstance(call.func, ast.Attribute)
+                else getattr(call.func, "id", "")
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call)
+            }
+            if not called & SERVERS:
+                continue
+            declares = any(
+                any(
+                    kw.arg == "responses"
+                    and isinstance(kw.value, ast.Name)
+                    and kw.value.id == "FILE_RESPONSES"
+                    for kw in decorator.keywords
+                )
+                for decorator in node.decorator_list
+                if isinstance(decorator, ast.Call)
+            )
+            found.append((module.name, node.name, declares))
+    return found
 
-    # If this ever empties, the detection broke rather than the modules.
-    assert serving_modules >= {
-        "classifieds.py",
-        "past_papers.py",
-        "resources.py",
-        "submissions.py",
-        "teaching_guidance.py",
-    }, serving_modules
+
+def test_every_route_that_serves_a_file_declares_it_on_its_own_decorator():
+    """The parametrized check above covers the routes that exist today. This is
+    what catches the *next* one added without the declaration, since nothing
+    else would fail."""
+    handlers = _serving_handlers()
+    undeclared = [f"{mod}::{fn}" for mod, fn, declares in handlers if not declares]
+    assert not undeclared, (
+        f"{undeclared} serve a stored file but do not carry `responses=FILE_RESPONSES`, "
+        f"so they advertise application/json for binary bytes"
+    )
+
+
+def test_the_detection_itself_still_works():
+    """A guard that finds nothing passes silently, which is how the first
+    version of this test failed open: it walked `app.routes`, which does not
+    contain the mounted sub-application's routes.
+
+    One handler per path in `FILE_ROUTES`, so the two halves of this file cannot
+    drift apart without one of them failing.
+    """
+    handlers = _serving_handlers()
+    assert len(handlers) == len(FILE_ROUTES), sorted(f"{m}::{f}" for m, f, _ in handlers)
