@@ -140,6 +140,14 @@ export default function AssignmentCreatePage() {
     // The mark-scheme input only renders while a paper is chosen, so a leftover
     // one would be invisible — and would attach to whatever paper came next.
     setMarkScheme(null);
+    // Same argument, and it matters more here: the chapter and the notes
+    // describe *this paper*, and swapping the file after typing them would
+    // quietly carry marking instructions written about one booklet onto
+    // another. Retyping them is an annoyance; inheriting them steers a mark
+    // (cubic). Clearing the reuse selection above does not reach these — the
+    // hydration effect below only fires when the chosen id changes.
+    setChapterId("");
+    setNotes("");
   }
 
   function onDrop(e: DragEvent) {

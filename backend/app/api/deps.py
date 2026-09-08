@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models.syllabus import Chapter, Subject
 from app.models.users import User, UserRole
+from app.schemas.homework import MAX_CLASSIFIED_NOTES, clean_notes
 from app.security import decode_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -158,6 +159,24 @@ async def resolve_chapter(db: AsyncSession, chapter_id: int | None, subject_id: 
     if chapter is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Chapter not found")
     return chapter
+
+
+def form_notes(raw: str | None) -> str | None:
+    """A multipart `notes` field, trimmed and then bounded. `None` if empty.
+
+    Not `Form(max_length=...)`: that measures the **raw** value, so a full-length
+    body with a trailing newline is a 422 for something that would store fine —
+    and the JSON path trims first, so the two entry points would disagree about
+    the same text (cubic, CodeRabbit). Trimming only ever shortens, so measuring
+    afterwards cannot be used to slip past the cap.
+    """
+    notes = clean_notes(raw)
+    if notes is not None and len(notes) > MAX_CLASSIFIED_NOTES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Notes are longer than {MAX_CLASSIFIED_NOTES} characters",
+        )
+    return notes
 
 
 async def visible_subject(db: AsyncSession, subject_id: int, user: User) -> Subject:

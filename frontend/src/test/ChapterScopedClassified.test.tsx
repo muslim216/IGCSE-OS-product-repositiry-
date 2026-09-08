@@ -223,3 +223,35 @@ test("an untouched booklet is not rewritten", async () => {
   await waitFor(() => expect(calls).toHaveLength(1));
   expect(calls[0].path).toBe("/api/v1/assignments");
 });
+
+test("swapping the file does not carry the old paper's chapter and notes over", async () => {
+  const { calls } = stub();
+  renderPage();
+  dropFile();
+  await openDetails();
+
+  fireEvent.change(await screen.findByLabelText(/Chapter this paper belongs to/), {
+    target: { value: "21" },
+  });
+  fireEvent.change(screen.getByLabelText(/Marking notes for this paper/), {
+    target: { value: "Bonding-specific guidance." },
+  });
+
+  // A different booklet. Notes written about the first one would steer the
+  // marking of this one, so they must not survive the swap.
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, {
+    target: { files: [new File(["%PDF-1.4"], "states.pdf", { type: "application/pdf" })] },
+  });
+
+  expect((screen.getByLabelText(/Chapter this paper belongs to/) as HTMLSelectElement).value).toBe(
+    "",
+  );
+  expect((screen.getByLabelText(/Marking notes for this paper/) as HTMLTextAreaElement).value).toBe(
+    "",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Set homework" }));
+  await waitFor(() => expect(calls).toHaveLength(1));
+  expect(calls[0].body).toEqual({ chapter_id: null, notes: null });
+});

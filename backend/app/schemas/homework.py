@@ -53,10 +53,15 @@ class ClassifiedUpdate(BaseModel):
 
     Not a partial patch: the form holds both fields, so sending both is honest
     about what is being written and needs no unset-versus-null machinery.
+
+    **Both fields are required**, with no defaults. A default would materialize
+    for an omitted field and the handler would write it, so `{"notes": "..."}`
+    would silently clear the chapter — a full replacement that reads like a
+    partial one is the worst of both (cubic). Omitting either is a 422.
     """
 
-    chapter_id: int | None = None
-    notes: str = Field(default="", max_length=MAX_CLASSIFIED_NOTES)
+    chapter_id: int | None
+    notes: str = Field(max_length=MAX_CLASSIFIED_NOTES)
 
     @field_validator("notes", mode="before")
     @classmethod

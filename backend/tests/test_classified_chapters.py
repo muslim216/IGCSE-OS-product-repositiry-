@@ -8,6 +8,8 @@ booklet may be filed, the bound on the notes, the tenancy, and the fact that no
 prompt has quietly started using them.
 """
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
@@ -193,6 +195,87 @@ async def test_the_cap_is_measured_after_trimming(client, tutor, subject):
     assert resp.json()["notes"] == "x" * MAX_CLASSIFIED_NOTES
 
 
+@pytest.mark.parametrize("route", ["classifieds", "assignments"])
+async def test_the_multipart_cap_is_measured_after_trimming_too(client, tutor, subject, route):
+    """`Form(max_length=...)` measures the raw value, so a full-length body with
+    a trailing newline was a 422 for something the JSON path stores happily —
+    the two entry points must not disagree about the same text (cubic,
+    CodeRabbit)."""
+    notes = "x" * MAX_CLASSIFIED_NOTES + "\n  "
+    if route == "classifieds":
+        resp = await client.post(
+            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
+        )
+    else:
+        group = await client.post(
+            "/api/v1/groups",
+            json={"name": "Chem Y10", "subject_id": subject["id"]},
+            headers=tutor["headers"],
+        )
+        resp = await client.post(
+            "/api/v1/assignments/upload",
+            data={"group_id": str(group.json()["id"]), "notes": notes},
+            files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
+            headers=tutor["headers"],
+        )
+    assert resp.status_code == 201, resp.text
+
+    async with async_session() as session:
+        assert await session.scalar(select(Classified.notes)) == "x" * MAX_CLASSIFIED_NOTES
+
+
+@pytest.mark.parametrize("route", ["classifieds", "assignments"])
+async def test_the_multipart_cap_still_refuses_a_note_over_the_limit(client, tutor, subject, route):
+    """Trimming only ever shortens, so measuring afterwards cannot be used to
+    slip past the cap — which is the thing worth proving about moving the check
+    off `Form(max_length=...)`."""
+    notes = "x" * (MAX_CLASSIFIED_NOTES + 1)
+    if route == "classifieds":
+        resp = await client.post(
+            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
+        )
+    else:
+        group = await client.post(
+            "/api/v1/groups",
+            json={"name": "Chem Y10", "subject_id": subject["id"]},
+            headers=tutor["headers"],
+        )
+        resp = await client.post(
+            "/api/v1/assignments/upload",
+            data={"group_id": str(group.json()["id"]), "notes": notes},
+            files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
+            headers=tutor["headers"],
+        )
+    assert resp.status_code == 422, resp.text
+
+    async with async_session() as session:
+        assert (await session.scalars(select(Classified))).all() == []
+
+
+@pytest.mark.parametrize("body", [{"notes": "just the notes"}, {"chapter_id": None}])
+async def test_a_partial_patch_is_refused_rather_than_clearing_the_other_field(
+    client, tutor, subject, body
+):
+    """This route is a full replacement of the pair. Schema defaults would
+    materialize for the omitted field and the handler would write them, so
+    sending only the notes would silently unfile the booklet (cubic)."""
+    classified_id = await _a_classified(client, tutor, subject)
+    await client.patch(
+        f"/api/v1/classifieds/{classified_id}",
+        json={"chapter_id": subject["chapters"][0], "notes": NOTES},
+        headers=tutor["headers"],
+    )
+
+    resp = await client.patch(
+        f"/api/v1/classifieds/{classified_id}", json=body, headers=tutor["headers"]
+    )
+    assert resp.status_code == 422, resp.text
+
+    async with async_session() as session:
+        stored = (await session.scalars(select(Classified))).one()
+    assert (stored.chapter_id, stored.notes) == (subject["chapters"][0], NOTES)
+
+
 async def _a_classified(client, tutor, subject) -> int:
     created = await client.post(
         "/api/v1/classifieds", **_upload(subject["id"]), headers=tutor["headers"]
@@ -308,16 +391,48 @@ async def test_setting_homework_refuses_a_chapter_from_another_subject(client, t
         assert (await session.scalars(select(Classified))).all() == []
 
 
-async def test_nothing_marks_with_chapter_notes_yet(client, tutor, subject):
+# Modules that legitimately touch a `notes` attribute today: the two ends of
+# this task's own write path, and the tutor-notes feature, which has its own
+# unrelated `notes` and predates all of this.
+NOTES_READERS_ALLOWED = {"assignments.py", "student_crm.py"}
+
+
+def test_nothing_reads_a_booklet_s_notes_yet():
     """Task 3.2's assembler (E16) is the single function that will read these,
-    under AV-76's precedence. Until then no prompt does, and this is what fails
-    if one starts quietly — the same guard the subject's rules carry."""
+    under AV-76's precedence. Until then nothing does, and this is what fails
+    when something starts.
+
+    Asserting on the *code that reads the field*, not on the prompt template.
+    The obvious guard — "chapter_notes" is not a substring of `prompts.MARKING`
+    — fails open, because 3.2 injects the notes at request time from a service
+    rather than by editing the template, so it would still pass on the very
+    change it claims to catch (cubic).
+
+    Deliberately broad: any `.notes` or `notes=` anywhere under `services/` or
+    `workers/` trips it, wherever the assembler ends up living. A new and
+    unrelated `notes` trips it too — that is the cost of a sentinel that cannot
+    be walked around, and the fix is to read this docstring and extend the
+    allowlist on purpose.
+    """
+    import ast
+
+    app = Path(__file__).resolve().parents[1] / "app"
+    found: list[str] = []
+    for path in sorted([*(app / "services").rglob("*.py"), *(app / "workers").rglob("*.py")]):
+        if path.name in NOTES_READERS_ALLOWED:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(node, ast.Attribute) and node.attr == "notes") or (
+                isinstance(node, ast.keyword) and node.arg == "notes"
+            ):
+                found.append(f"{path.name}:{node.lineno}")
+    assert found == [], f"something now reads a booklet's notes: {found}"
+
+
+def test_the_marking_prompt_has_not_moved_underneath_that_guard():
+    """The version pin is the second half of it. `AI-7` requires a bump whenever
+    the prompt text changes meaningfully, so 3.2 cannot add the notes to the
+    marking prompt without touching this line too."""
     from app.services import prompts
 
-    await client.post(
-        "/api/v1/classifieds",
-        **_upload(subject["id"], notes=NOTES),
-        headers=tutor["headers"],
-    )
-    assert "chapter_notes" not in prompts.MARKING
     assert prompts.PROMPTS["marking"].version == "v3"

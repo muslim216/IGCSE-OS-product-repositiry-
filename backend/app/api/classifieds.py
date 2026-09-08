@@ -3,7 +3,14 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession, TutorUser, owned_subject, resolve_chapter
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    TutorUser,
+    form_notes,
+    owned_subject,
+    resolve_chapter,
+)
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import (
     Assignment,
@@ -13,12 +20,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.homework import (
-    MAX_CLASSIFIED_NOTES,
-    ClassifiedOut,
-    ClassifiedUpdate,
-    clean_notes,
-)
+from app.schemas.homework import ClassifiedOut, ClassifiedUpdate, clean_notes
 from app.services import storage
 
 router = APIRouter(prefix="/classifieds", tags=["classifieds"])
@@ -36,7 +38,7 @@ async def upload_classified(
     # carries that chapter's marking notes (AV-21). Both optional: a subject
     # whose syllabus was never extracted chapter-first has no chapter to name.
     chapter_id: Annotated[int | None, Form()] = None,
-    notes: Annotated[str | None, Form(max_length=MAX_CLASSIFIED_NOTES)] = None,
+    notes: Annotated[str | None, Form()] = None,
 ) -> ClassifiedOut:
     subject = await owned_subject(db, subject_id, user)
     # Before the upload is written: a rejected chapter must not leave a stored
@@ -52,7 +54,7 @@ async def upload_classified(
         file_name=name,
         file_mime=mime,
         chapter_id=chapter,
-        notes=clean_notes(notes),
+        notes=form_notes(notes),
     )
     if mark_scheme is not None:
         ms_path, ms_name, ms_mime = await storage.save_upload(

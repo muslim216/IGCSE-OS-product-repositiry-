@@ -6739,8 +6739,7 @@
           "notes": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 4000
+                "type": "string"
               },
               {
                 "type": "null"
@@ -6899,8 +6898,7 @@
           "notes": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 4000
+                "type": "string"
               },
               {
                 "type": "null"
@@ -7390,13 +7388,16 @@
           "notes": {
             "type": "string",
             "maxLength": 4000,
-            "title": "Notes",
-            "default": ""
+            "title": "Notes"
           }
         },
         "type": "object",
+        "required": [
+          "chapter_id",
+          "notes"
+        ],
         "title": "ClassifiedUpdate",
-        "description": "A full replacement of the pair the chapter-notes editor owns.\n\nNot a partial patch: the form holds both fields, so sending both is honest\nabout what is being written and needs no unset-versus-null machinery."
+        "description": "A full replacement of the pair the chapter-notes editor owns.\n\nNot a partial patch: the form holds both fields, so sending both is honest\nabout what is being written and needs no unset-versus-null machinery.\n\n**Both fields are required**, with no defaults. A default would materialize\nfor an omitted field and the handler would write it, so `{\"notes\": \"...\"}`\nwould silently clear the chapter \u2014 a full replacement that reads like a\npartial one is the worst of both (cubic). Omitting either is a 422."
       },
       "CrmHomeworkItem": {
         "properties": {
