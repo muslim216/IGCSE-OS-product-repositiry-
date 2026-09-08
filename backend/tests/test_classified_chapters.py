@@ -16,6 +16,7 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import Chapter, Classified
 from app.schemas.homework import MAX_CLASSIFIED_NOTES
+from app.services import storage
 from tests.factories import make_subject, other_org_subject
 
 PDF_BYTES = b"%PDF-1.4 fake test pdf"
@@ -250,6 +251,43 @@ async def test_the_multipart_cap_still_refuses_a_note_over_the_limit(client, tut
 
     async with async_session() as session:
         assert (await session.scalars(select(Classified))).all() == []
+
+
+@pytest.mark.parametrize("route", ["classifieds", "assignments"])
+async def test_an_over_long_note_is_refused_before_the_file_is_written(
+    client, tutor, subject, route, monkeypatch
+):
+    """A rejection after the upload is stored leaves a file no row references —
+    invisible, so never cleaned up, and a caller can repeat the request (cubic).
+    Both the chapter check and the notes check therefore run first."""
+    saved: list[str] = []
+    real = storage.save_upload
+
+    async def _record(*args, **kwargs):
+        saved.append("written")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "save_upload", _record)
+
+    notes = "x" * (MAX_CLASSIFIED_NOTES + 1)
+    if route == "classifieds":
+        resp = await client.post(
+            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
+        )
+    else:
+        group = await client.post(
+            "/api/v1/groups",
+            json={"name": "Chem Y10", "subject_id": subject["id"]},
+            headers=tutor["headers"],
+        )
+        resp = await client.post(
+            "/api/v1/assignments/upload",
+            data={"group_id": str(group.json()["id"]), "notes": notes},
+            files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
+            headers=tutor["headers"],
+        )
+    assert resp.status_code == 422, resp.text
+    assert saved == []
 
 
 @pytest.mark.parametrize("body", [{"notes": "just the notes"}, {"chapter_id": None}])

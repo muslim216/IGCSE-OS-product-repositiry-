@@ -41,9 +41,11 @@ async def upload_classified(
     notes: Annotated[str | None, Form()] = None,
 ) -> ClassifiedOut:
     subject = await owned_subject(db, subject_id, user)
-    # Before the upload is written: a rejected chapter must not leave a stored
-    # file behind that no row will ever reference.
+    # Both checks run before the upload is written. A rejection afterwards
+    # leaves a stored file no row will ever reference — invisible, and so never
+    # cleaned up — and a caller can repeat a rejected request (cubic).
     chapter = await resolve_chapter(db, chapter_id, subject.id)
+    cleaned_notes = form_notes(notes)
     path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     classified = Classified(
         organization_id=user.organization_id,
@@ -54,7 +56,7 @@ async def upload_classified(
         file_name=name,
         file_mime=mime,
         chapter_id=chapter,
-        notes=form_notes(notes),
+        notes=cleaned_notes,
     )
     if mark_scheme is not None:
         ms_path, ms_name, ms_mime = await storage.save_upload(

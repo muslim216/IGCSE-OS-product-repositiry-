@@ -172,8 +172,15 @@ def form_notes(raw: str | None) -> str | None:
     """
     notes = clean_notes(raw)
     if notes is not None and len(notes) > MAX_CLASSIFIED_NOTES:
+        # `_ENTITY`, not the newer `_CONTENT`, which Starlette added in 0.48 and
+        # deprecated this one for. `pyproject.toml` floors fastapi at 0.115,
+        # which resolves an older Starlette where `_CONTENT` does not exist —
+        # this branch would then raise AttributeError and answer 500 (cubic).
+        # It is also the constant the five other explicit 422s here use. The
+        # deprecation warning is the cost of the floor; raising the floor is a
+        # dependency change, not a lint fix.
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"Notes are longer than {MAX_CLASSIFIED_NOTES} characters",
         )
     return notes
