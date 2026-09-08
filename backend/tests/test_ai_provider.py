@@ -35,12 +35,16 @@ def test_get_prompt_rejects_an_unknown_surface():
 
 
 def test_default_routing_splits_providers_by_surface():
-    """The shipped defaults: bulk document work on Gemini, everything else on
-    Anthropic. Chat routed here too before 0.3 deleted it (AV-57) along with
-    the surface itself — there is nothing left to assert."""
+    """The shipped defaults: bulk document transcription on Gemini, everything
+    else on Anthropic. Chat routed here too before 0.3 deleted it (AV-57) along
+    with the surface itself — there is nothing left to assert.
+
+    Syllabus moved to Anthropic in task 2.3 (AV-124): drafting a chapter tree is
+    a structure-and-judgement job, not transcription, and the chapter-first
+    prompt is written against the model it will actually run on."""
     assert resolve_surface("marking")[0] is AiProvider.gemini
     assert resolve_surface("extraction")[0] is AiProvider.gemini
-    assert resolve_surface("syllabus")[0] is AiProvider.gemini
+    assert resolve_surface("syllabus")[0] is AiProvider.anthropic
     assert resolve_surface("reports")[0] is AiProvider.anthropic
     assert resolve_surface("readiness")[0] is AiProvider.anthropic
 

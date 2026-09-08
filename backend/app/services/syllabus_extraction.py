@@ -1,21 +1,23 @@
 """AI extraction: read an uploaded syllabus document and draft the subject's
-topic tree (with weights and grade boundaries) for a tutor to review before
-it's applied as a real Subject the platform can assign homework and track
-readiness against."""
+chapter tree (chapters, each holding its markable topics) for a tutor to review
+before it's applied as a real Subject the platform can assign homework and track
+readiness against.
+
+Chapter-first since task 2.3 (AV-9, AV-10): a chapter is what the teaching plan
+schedules and what a classified belongs to, so the draft has to carry it.
+
+Grade boundaries left the draft in the same change: a syllabus document publishes
+a specification, not a series' boundaries, so a model asked for them was guessing.
+They are tutor-entered (task 2.4, AV-11)."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AiFeature, SyllabusUpload, SyllabusUploadStatus, User
+from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
 from app.services import storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
-
-
-class ExtractedGradeBoundary(BaseModel):
-    grade: str = Field(description="Grade label, e.g. '9', 'A*', 'U'")
-    min: int = Field(description="Minimum overall percentage for this grade")
 
 
 class ExtractedTopic(BaseModel):
@@ -29,16 +31,31 @@ class ExtractedTopic(BaseModel):
     children: list[ExtractedTopic] = Field(default_factory=list)
 
 
+class ExtractedChapter(BaseModel):
+    code: str = Field(description="Chapter/unit number exactly as printed, e.g. '1'")
+    title: str = Field(description="Chapter title")
+    topics: list[ExtractedTopic] = Field(
+        description="The markable topics in this chapter, in syllabus order"
+    )
+
+
 class SyllabusExtractionResult(BaseModel):
     exam_board: str = Field(
         description="Exam board name, e.g. 'Edexcel IGCSE', 'Cambridge O Level'"
     )
     code: str = Field(description="Official syllabus/specification code, e.g. '4CH1', '5070'")
     name: str = Field(description="Subject name, e.g. 'Chemistry'")
+    # AV-7 forbids assuming an IGCSE-shaped world, and PROD-2 forbids inventing a
+    # value to fill a gap — so this is read off the document or left None for the
+    # tutor to state during review. Apply refuses a draft that still has none.
+    level: SubjectLevel | None = Field(
+        default=None,
+        description="The qualification this syllabus is for, ONLY if the document states it. "
+        "Leave null if it does not — never guess.",
+    )
     grade_scale: str = Field(description="'9-1' or 'A*-E' etc., as used by this syllabus")
-    grade_boundaries: list[ExtractedGradeBoundary]
-    topics: list[ExtractedTopic] = Field(
-        description="The full topic tree in syllabus order, nesting sub-topics under their section"
+    chapters: list[ExtractedChapter] = Field(
+        description="The syllabus's chapters/units in order, each holding its own topics"
     )
 
 
@@ -63,7 +80,7 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
     content.append(
         {
             "type": "text",
-            "text": "Extract the full topic tree from this syllabus document.",
+            "text": "Extract the full chapter tree from this syllabus document.",
         }
     )
 
@@ -84,7 +101,7 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
         feature=AiFeature.extraction,
     )
     result = require_parsed(response)
-    if not result.topics:
-        raise ValueError("No topics were found in the document")
+    if not result.chapters:
+        raise ValueError("No chapters were found in the document")
 
     upload.draft = result.model_dump()

@@ -7,6 +7,8 @@ import {
   retrySyllabusExtraction,
   updateSyllabusDraft,
   uploadSyllabus,
+  type SubjectLevel,
+  type SyllabusChapterDraft,
   type SyllabusTopicDraft,
 } from "../api/syllabusUpload";
 import { ApiError } from "../api/client";
@@ -14,7 +16,7 @@ import { ApiError } from "../api/client";
 const STATUS_LABEL: Record<string, string> = {
   extracting: "AI is reading the syllabus…",
   extraction_failed: "Extraction failed",
-  review: "Review the topic tree, then apply",
+  review: "Review the chapters, then apply",
   applied: "Applied",
 };
 
@@ -52,8 +54,8 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
     <form onSubmit={onSubmit} className="rounded-lg border bg-white p-4">
       <h3 className="font-medium text-slate-800">Upload a syllabus</h3>
       <p className="mt-1 text-sm text-slate-500">
-        Upload the exam board's syllabus PDF and the AI drafts the full topic tree — review and edit
-        it, then apply it to make the subject available for groups and homework.
+        Upload the exam board's syllabus PDF and the AI drafts the chapters and their topics —
+        review and edit them, then apply it to make the subject available for groups and homework.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div>
@@ -87,11 +89,18 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
   );
 }
 
+const LEVELS: { value: SubjectLevel; label: string }[] = [
+  { value: "igcse", label: "IGCSE" },
+  { value: "o_level", label: "O Level" },
+  { value: "a_level", label: "A Level" },
+];
+
 interface FlatRow {
   path: number[];
   node: SyllabusTopicDraft;
 }
 
+/** A chapter's topics with their sub-topics, depth carried by `path.length`. */
 function flatten(topics: SyllabusTopicDraft[], prefix: number[] = []): FlatRow[] {
   return topics.flatMap((node, i) => {
     const path = [...prefix, i];
@@ -147,12 +156,20 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
   if (!upload) return <p className="text-red-600">Not found.</p>;
   const editable = upload.status === "review" || upload.status === "extraction_failed";
 
-  function setTopicField(path: number[], patch: Partial<SyllabusTopicDraft>) {
-    if (!upload!.draft) return;
+  const draft = upload.draft;
+  const topicCount = draft?.chapters.reduce((n, c) => n + flatten(c.topics).length, 0) ?? 0;
+
+  function setChapterField(index: number, patch: Partial<SyllabusChapterDraft>) {
+    if (!draft) return;
     saveDraft.mutate({
-      ...upload!.draft,
-      topics: updateAtPath(upload!.draft.topics, path, patch),
+      ...draft,
+      chapters: draft.chapters.map((c, i) => (i === index ? { ...c, ...patch } : c)),
     });
+  }
+
+  function setTopicField(chapter: number, path: number[], patch: Partial<SyllabusTopicDraft>) {
+    if (!draft) return;
+    setChapterField(chapter, { topics: updateAtPath(draft.chapters[chapter].topics, path, patch) });
   }
 
   return (
@@ -171,8 +188,8 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
 
       {upload.status === "extracting" && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          The AI is reading the syllabus and drafting the topic tree — this can take a minute for
-          long documents. The page refreshes automatically.
+          The AI is reading the syllabus and drafting the chapters — this can take a minute for long
+          documents. The page refreshes automatically.
         </div>
       )}
 
@@ -188,34 +205,68 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
         </div>
       )}
 
-      {upload.draft && (
+      {draft && (
         <section className="rounded-lg border bg-white p-4">
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-5">
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                 Exam board
               </p>
-              <p className="text-sm text-slate-700">{upload.draft.exam_board}</p>
+              <p className="text-sm text-slate-700">{draft.exam_board}</p>
             </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Code</p>
-              <p className="text-sm text-slate-700">{upload.draft.code}</p>
+              <p className="text-sm text-slate-700">{draft.code}</p>
             </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Subject</p>
-              <p className="text-sm text-slate-700">{upload.draft.name}</p>
+              <p className="text-sm text-slate-700">{draft.name}</p>
             </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
                 Grade scale
               </p>
-              <p className="text-sm text-slate-700">{upload.draft.grade_scale}</p>
+              <p className="text-sm text-slate-700">{draft.grade_scale}</p>
+            </div>
+            <div>
+              <label
+                htmlFor="syllabus-level"
+                className="block text-xs font-medium uppercase tracking-wide text-slate-500"
+              >
+                Level
+              </label>
+              {editable ? (
+                <select
+                  id="syllabus-level"
+                  className="mt-0.5 rounded border border-slate-300 px-1.5 py-1 text-sm"
+                  value={draft.level ?? ""}
+                  onChange={(e) =>
+                    saveDraft.mutate({ ...draft, level: e.target.value as SubjectLevel })
+                  }
+                >
+                  {/* The document may not state a level, and nothing guesses one
+                      for the tutor (AV-7, PROD-2) — so "not set" is a real
+                      option to sit in, and applying refuses until it is set. */}
+                  <option value="" disabled>
+                    Choose a level
+                  </option>
+                  {LEVELS.map((l) => (
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-slate-700">
+                  {LEVELS.find((l) => l.value === draft.level)?.label ?? "Not set"}
+                </p>
+              )}
             </div>
           </div>
 
           <div className="mt-4 flex items-center justify-between">
             <h3 className="font-medium text-slate-800">
-              Topic tree ({flatten(upload.draft.topics).length} topics)
+              {draft.chapters.length} chapters, {topicCount} topics
             </h3>
             {editable && (
               <button
@@ -229,60 +280,110 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
           </div>
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-          <table className="mt-3 w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-slate-500">
-                <th className="py-1.5 pr-2 font-medium">Code</th>
-                <th className="py-1.5 pr-2 font-medium">Title</th>
-                <th className="py-1.5 font-medium">Weight</th>
-              </tr>
-            </thead>
-            <tbody>
-              {flatten(upload.draft.topics).map(({ path, node }) => (
-                <tr key={path.join(".")} className="border-b align-top">
-                  <td
-                    className="py-1.5 pr-2"
-                    style={{ paddingLeft: `${(path.length - 1) * 16}px` }}
-                  >
-                    {editable ? (
+          <div className="mt-3 space-y-4">
+            {draft.chapters.map((chapter, chapterIndex) => (
+              <div key={chapterIndex} className="rounded-md border border-slate-200">
+                <div className="flex items-center gap-2 border-b bg-slate-50 px-3 py-2">
+                  {editable ? (
+                    <>
+                      <label className="sr-only" htmlFor={`chapter-code-${chapterIndex}`}>
+                        Chapter code
+                      </label>
                       <input
-                        className="w-20 rounded border border-slate-300 px-1.5 py-1"
-                        value={node.code}
-                        onChange={(e) => setTopicField(path, { code: e.target.value })}
+                        id={`chapter-code-${chapterIndex}`}
+                        className="w-20 rounded border border-slate-300 px-1.5 py-1 text-sm"
+                        value={chapter.code}
+                        onChange={(e) => setChapterField(chapterIndex, { code: e.target.value })}
                       />
-                    ) : (
-                      node.code
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
+                      <label className="sr-only" htmlFor={`chapter-title-${chapterIndex}`}>
+                        Chapter title
+                      </label>
                       <input
-                        className="w-full rounded border border-slate-300 px-1.5 py-1"
-                        value={node.title}
-                        onChange={(e) => setTopicField(path, { title: e.target.value })}
+                        id={`chapter-title-${chapterIndex}`}
+                        className="w-full rounded border border-slate-300 px-1.5 py-1 text-sm font-medium"
+                        value={chapter.title}
+                        onChange={(e) => setChapterField(chapterIndex, { title: e.target.value })}
                       />
-                    ) : (
-                      node.title
-                    )}
-                  </td>
-                  <td className="py-1.5">
-                    {editable ? (
-                      <input
-                        type="number"
-                        step={0.1}
-                        min={0.1}
-                        className="w-20 rounded border border-slate-300 px-1.5 py-1"
-                        value={node.weight}
-                        onChange={(e) => setTopicField(path, { weight: Number(e.target.value) })}
-                      />
-                    ) : (
-                      node.weight
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    </>
+                  ) : (
+                    <p className="text-sm font-medium text-slate-800">
+                      {chapter.code} {chapter.title}
+                    </p>
+                  )}
+                </div>
+
+                {chapter.topics.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">No topics in this chapter.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-slate-500">
+                        <th className="py-1.5 pl-3 pr-2 font-medium">Code</th>
+                        <th className="py-1.5 pr-2 font-medium">Topic</th>
+                        <th className="py-1.5 pr-3 font-medium">Weight</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {flatten(chapter.topics).map(({ path, node }) => (
+                        <tr key={path.join(".")} className="border-b align-top last:border-0">
+                          <td
+                            className="py-1.5 pr-2 pl-3"
+                            style={{ paddingLeft: `${12 + (path.length - 1) * 16}px` }}
+                          >
+                            {editable ? (
+                              <input
+                                aria-label="Topic code"
+                                className="w-20 rounded border border-slate-300 px-1.5 py-1"
+                                value={node.code}
+                                onChange={(e) =>
+                                  setTopicField(chapterIndex, path, { code: e.target.value })
+                                }
+                              />
+                            ) : (
+                              node.code
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-2">
+                            {editable ? (
+                              <input
+                                aria-label="Topic title"
+                                className="w-full rounded border border-slate-300 px-1.5 py-1"
+                                value={node.title}
+                                onChange={(e) =>
+                                  setTopicField(chapterIndex, path, { title: e.target.value })
+                                }
+                              />
+                            ) : (
+                              node.title
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-3">
+                            {editable ? (
+                              <input
+                                type="number"
+                                aria-label="Topic weight"
+                                step={0.1}
+                                min={0.1}
+                                className="w-20 rounded border border-slate-300 px-1.5 py-1"
+                                value={node.weight}
+                                onChange={(e) =>
+                                  setTopicField(chapterIndex, path, {
+                                    weight: Number(e.target.value),
+                                  })
+                                }
+                              />
+                            ) : (
+                              node.weight
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            ))}
+          </div>
         </section>
       )}
     </div>
@@ -302,8 +403,8 @@ export default function SyllabusUploadPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Syllabuses</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Upload additional exam board syllabuses beyond the built-in set — the AI drafts the topic
-          tree for you to review before it powers readiness tracking and homework.
+          Upload an exam board syllabus and the AI drafts its chapters and topics for you to review
+          before they power teaching plans, readiness tracking and homework.
         </p>
       </div>
 
