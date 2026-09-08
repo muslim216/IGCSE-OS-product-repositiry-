@@ -40,6 +40,7 @@ export default function TeachingGuidancePage() {
 
   const upload = useMutation({
     mutationFn: () => uploadTeachingGuidance(selected!, file!),
+    onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teaching-guidance", selected] });
       setFile(null);
@@ -50,12 +51,17 @@ export default function TeachingGuidancePage() {
 
   const remove = useMutation({
     mutationFn: () => deleteTeachingGuidance(selected!),
+    onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teaching-guidance", selected] });
       showToast("Teaching guidance removed.");
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
+
+  // Replace and Remove write the same one document, so letting both run leaves
+  // the result to whichever commits last (cubic). One at a time.
+  const busy = upload.isPending || remove.isPending;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -70,7 +76,12 @@ export default function TeachingGuidancePage() {
       </div>
     );
   }
-  if (subjects.isError || !subjects.data || subjects.data.length === 0) {
+  // "Could not load" and "you have none" are different facts and must not
+  // render alike (PROD-2) — the first is a retry, the second is a next step.
+  if (subjects.isError || !subjects.data) {
+    return <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>;
+  }
+  if (subjects.data.length === 0) {
     return (
       <EmptyState
         title="No subjects yet."
@@ -85,15 +96,22 @@ export default function TeachingGuidancePage() {
         <h2 className="font-display text-xl font-semibold text-ink-900">Teaching guidance</h2>
         <p className="mt-1 max-w-prose text-sm text-ink-500">
           Your scheme of work for a subject — the order you teach it in and how long each chapter
-          takes. Kept beside the syllabus and read when your teaching plan is built. One document
-          per subject; uploading again replaces it.
+          takes. Kept beside the syllabus, ready for the teaching plan to weigh chapters by when
+          that arrives; nothing reads it yet. One document per subject; uploading again replaces it.
         </p>
       </div>
 
       <select
         aria-label="Subject"
         value={selected ?? ""}
-        onChange={(e) => setSubjectId(Number(e.target.value))}
+        onChange={(e) => {
+          // A file chosen for Chemistry must not be uploaded to Biology: the
+          // form posts `selected`, which has just changed (cubic, CodeRabbit).
+          // The input itself is remounted by the key below.
+          setFile(null);
+          setError(null);
+          setSubjectId(Number(e.target.value));
+        }}
         className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
       >
         {subjects.data.map((s) => (
@@ -123,7 +141,7 @@ export default function TeachingGuidancePage() {
               <AuthFileLink path={teachingGuidanceFilePath(selected!)} label="Open" />
               <button
                 onClick={() => remove.mutate()}
-                disabled={remove.isPending}
+                disabled={busy}
                 className="rounded-md border border-line-control px-3 py-1.5 text-sm text-ink-700 hover:border-line-strong disabled:opacity-40"
               >
                 {remove.isPending ? "Removing…" : "Remove"}
@@ -131,10 +149,7 @@ export default function TeachingGuidancePage() {
             </div>
           ) : (
             // Absent is stated, never drawn as an empty row (PROD-2, UX-19).
-            <p className="text-sm text-ink-500">
-              No teaching guidance for this subject yet. Your plan will be built from the syllabus
-              alone until you add one.
-            </p>
+            <p className="text-sm text-ink-500">No teaching guidance for this subject yet.</p>
           )}
 
           <form
@@ -146,6 +161,10 @@ export default function TeachingGuidancePage() {
                 {guidance.data.uploaded ? "Replace it" : "Upload a document"}
               </label>
               <input
+                // Remounted on a subject change and after a successful upload,
+                // which is what clears the browser's own filename display —
+                // resetting React state alone leaves it reading the old file.
+                key={`${selected}-${guidance.data.uploaded_at ?? "none"}`}
                 id="guidance-file"
                 type="file"
                 accept="application/pdf,image/*"
@@ -155,7 +174,7 @@ export default function TeachingGuidancePage() {
             </div>
             <button
               type="submit"
-              disabled={!file || upload.isPending}
+              disabled={!file || busy}
               className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
             >
               {upload.isPending ? "Uploading…" : guidance.data.uploaded ? "Replace" : "Upload"}

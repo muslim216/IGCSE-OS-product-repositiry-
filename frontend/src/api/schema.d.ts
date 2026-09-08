@@ -1939,6 +1939,11 @@ export interface paths {
          *     that no longer exists; this order can at worst leave an unreferenced object
          *     behind, which the storage orphan sweep collects and which nobody can reach
          *     in the meantime.
+         *
+         *     The three failure paths are each handled rather than left to bubble
+         *     (cubic): a commit that fails takes the *new* object with it and leaves the
+         *     old document in force, and neither cleanup delete can turn the outcome into
+         *     a 500 the client would retry against a write that already happened.
          */
         put: operations["upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"];
         post?: never;
@@ -7660,13 +7665,17 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The stored document. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "application/octet-stream": string;
                 };
             };
             /** @description Validation Error */

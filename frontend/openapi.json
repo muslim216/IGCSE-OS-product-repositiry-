@@ -5370,7 +5370,7 @@
           "teaching-guidance"
         ],
         "summary": "Upload Teaching Guidance",
-        "description": "Store (or replace) this subject's guidance document.\n\n`PUT`, not `POST`: there is one document per subject and uploading again\nreplaces it, which is the verb's meaning rather than a second row.\n\nThe old object is deleted **after** the row is committed. The other order\nloses the file if the commit then fails, leaving a subject pointing at a key\nthat no longer exists; this order can at worst leave an unreferenced object\nbehind, which the storage orphan sweep collects and which nobody can reach\nin the meantime.",
+        "description": "Store (or replace) this subject's guidance document.\n\n`PUT`, not `POST`: there is one document per subject and uploading again\nreplaces it, which is the verb's meaning rather than a second row.\n\nThe old object is deleted **after** the row is committed. The other order\nloses the file if the commit then fails, leaving a subject pointing at a key\nthat no longer exists; this order can at worst leave an unreferenced object\nbehind, which the storage orphan sweep collects and which nobody can reach\nin the meantime.\n\nThe three failure paths are each handled rather than left to bubble\n(cubic): a commit that fails takes the *new* object with it and leaves the\nold document in force, and neither cleanup delete can turn the outcome into\na 500 the client would retry against a write that already happened.",
         "operationId": "upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put",
         "security": [
           {
@@ -5493,10 +5493,37 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful Response",
+            "description": "The stored document.",
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },

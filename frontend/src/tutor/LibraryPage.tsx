@@ -46,7 +46,7 @@ const CONTENT: Shelf[] = [
   {
     to: "/tutor/teaching-guidance",
     label: "Teaching guidance",
-    hint: "Your scheme of work per subject — what the teaching plan is built around.",
+    hint: "Your scheme of work per subject, kept for the teaching plan to use.",
     icon: ClipboardList,
   },
   {

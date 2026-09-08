@@ -247,3 +247,53 @@ async def test_guidance_is_scoped_to_its_own_subject(client, tutor):
             ).all()
         }
     assert rows == {chem_id: "chem.pdf", bio_id: "bio.pdf"}
+
+
+async def test_a_long_filename_is_bounded_before_it_reaches_the_column(client, tutor, subject_id):
+    """The client's filename is metadata (SEC-16) and unbounded. Storing it raw
+    failed at commit *after* the object was written, orphaning it (cubic)."""
+    resp = await client.put(
+        f"/api/v1/subjects/{subject_id}/teaching-guidance",
+        files={"file": (f"{'a' * 400}.pdf", PDF, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    async with async_session() as session:
+        stored = (await session.get(Subject, subject_id)).guidance_name
+    assert stored is not None
+    assert len(stored) <= 255
+
+    served = await client.get(
+        f"/api/v1/subjects/{subject_id}/teaching-guidance/file", headers=tutor["headers"]
+    )
+    assert served.status_code == 200
+
+
+async def test_a_cleanup_failure_does_not_fail_a_committed_replacement(
+    client, tutor, subject_id, monkeypatch
+):
+    """The row is committed by the time the old object is deleted. A storage
+    backend that will not delete must not turn that into a 500 the client
+    retries — the orphan is unreachable and the sweep collects it (cubic)."""
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/teaching-guidance",
+        files=upload_files(),
+        headers=tutor["headers"],
+    )
+
+    async def exploding_delete(key: str) -> None:
+        raise RuntimeError("object store is down")
+
+    monkeypatch.setattr("app.api.teaching_guidance.storage.delete_file", exploding_delete)
+    resp = await client.put(
+        f"/api/v1/subjects/{subject_id}/teaching-guidance",
+        files=upload_files(PDF2, "revised.pdf"),
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["file_name"] == "revised.pdf"
+
+    served = await client.get(
+        f"/api/v1/subjects/{subject_id}/teaching-guidance/file", headers=tutor["headers"]
+    )
+    assert served.content == PDF2

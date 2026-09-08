@@ -12,38 +12,46 @@ const SUBJECTS = [
   { id: 7, exam_board: "Edexcel IGCSE", code: "4CH1", name: "Chemistry", grade_scale: "9-1" },
 ];
 
+/** A stub with server state, not a fixed answer per verb.
+ *
+ * Every mutation invalidates the query and the component re-reads through GET,
+ * so a GET that ignores what PUT and DELETE did cannot express the flow this
+ * page is: with a document on file, Remove would still show it (cubic). The
+ * subject id is a capture so a request to the wrong subject 404s and surfaces
+ * as a failure rather than as silence. */
 function stub(uploaded: boolean) {
-  const puts: string[] = [];
+  const calls: { method: string; subject: number }[] = [];
+  let onFile = uploaded;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), "http://localhost").pathname;
       const method = (init?.method ?? "GET").toUpperCase();
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
-      const state = (on: boolean) => ({
+      const state = () => ({
         subject_id: 7,
         subject_name: "Chemistry",
-        uploaded: on,
-        file_name: on ? "scheme-of-work.pdf" : null,
-        file_mime: on ? "application/pdf" : null,
-        uploaded_at: on ? "2026-09-01T10:00:00Z" : null,
+        uploaded: onFile,
+        file_name: onFile ? "scheme-of-work.pdf" : null,
+        file_mime: onFile ? "application/pdf" : null,
+        uploaded_at: onFile ? "2026-09-01T10:00:00Z" : null,
       });
+      const guidance = /^\/api\/v1\/subjects\/(\d+)\/teaching-guidance$/.exec(path);
 
       if (method === "GET" && path === "/api/v1/subjects") return json(SUBJECTS);
-      if (method === "GET" && path === "/api/v1/subjects/7/teaching-guidance")
-        return json(state(uploaded || puts.length > 0));
-      if (method === "PUT" && path === "/api/v1/subjects/7/teaching-guidance") {
-        puts.push(path);
-        return json(state(true));
+      if (guidance) {
+        const subject = Number(guidance[1]);
+        if (method !== "GET") calls.push({ method, subject });
+        if (method === "PUT") onFile = true;
+        if (method === "DELETE") onFile = false;
+        return json(state());
       }
-      if (method === "DELETE" && path === "/api/v1/subjects/7/teaching-guidance")
-        return json(state(false));
       return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
         status: 404,
       });
     }),
   );
-  return puts;
+  return calls;
 }
 
 function renderPage() {
@@ -78,7 +86,7 @@ test("a document on file is named, openable and replaceable", async () => {
 });
 
 test("uploading sends one PUT and shows the stored document", async () => {
-  const puts = stub(false);
+  const calls = stub(false);
   renderPage();
 
   const input = (await screen.findByLabelText("Upload a document")) as HTMLInputElement;
@@ -87,6 +95,17 @@ test("uploading sends one PUT and shows the stored document", async () => {
   });
   fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 
-  await waitFor(() => expect(puts).toHaveLength(1));
+  await waitFor(() => expect(calls).toEqual([{ method: "PUT", subject: 7 }]));
   expect(await screen.findByText("scheme-of-work.pdf")).toBeTruthy();
+});
+
+test("removing a document leaves the absent state, not the old one", async () => {
+  const calls = stub(true);
+  renderPage();
+
+  fireEvent.click(await screen.findByText("Remove"));
+
+  await waitFor(() => expect(calls).toEqual([{ method: "DELETE", subject: 7 }]));
+  expect(await screen.findByText(/No teaching guidance for this subject yet/)).toBeTruthy();
+  expect(screen.queryByText("scheme-of-work.pdf")).toBeNull();
 });
