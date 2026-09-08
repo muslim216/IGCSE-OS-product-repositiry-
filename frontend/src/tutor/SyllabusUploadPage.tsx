@@ -251,7 +251,12 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
           <p className="font-medium">Extraction failed: {upload.error}</p>
           <button
             onClick={() => retry.mutate()}
-            className="mt-2 rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700"
+            // Re-running extraction replaces the draft, so it must not be
+            // reachable while an edit is still in flight — for that window the
+            // status has not flipped to `review` yet and this button is still
+            // on screen (cubic).
+            disabled={retry.isPending || saveDraft.isPending}
+            className="mt-2 rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700 disabled:opacity-40"
           >
             Retry extraction
           </button>
