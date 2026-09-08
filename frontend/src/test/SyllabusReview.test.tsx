@@ -36,14 +36,16 @@ const DRAFT = {
   ],
 };
 
-function stub() {
+function stub(status = "review") {
   const puts: unknown[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), "http://localhost").pathname;
       const method = (init?.method ?? "GET").toUpperCase();
-      const upload = { id: 1, title: "Chemistry 4CH1", file_name: "s.pdf", status: "review" };
+      // The API flips a failed upload to `review` once the tutor edits the
+      // draft, exactly as `edit_draft` does.
+      const upload = { id: 1, title: "Chemistry 4CH1", file_name: "s.pdf", status };
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
       if (method === "GET" && path === "/api/v1/syllabus-uploads")
@@ -61,6 +63,8 @@ function stub() {
         puts.push(sent);
         return json({
           ...upload,
+          // edit_draft flips a failed extraction to `review` on save.
+          status: "review",
           error: null,
           subject_id: null,
           created_at: "2026-06-01",
@@ -75,7 +79,7 @@ function stub() {
   return puts;
 }
 
-async function openDraft() {
+async function openDraft(expectSummary = "2 chapters, 4 topics") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -83,7 +87,7 @@ async function openDraft() {
     </QueryClientProvider>,
   );
   fireEvent.click(await screen.findByText("Chemistry 4CH1"));
-  await screen.findByText("2 chapters, 4 topics");
+  await screen.findByText(expectSummary);
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -143,4 +147,22 @@ test("a second edit does not drop the first", async () => {
   const sent = puts[1] as typeof DRAFT;
   expect(sent.chapters[0].title).toBe("Principles");
   expect(sent.chapters[0].topics[0].title).toBe("States");
+});
+
+test("editing a failed extraction clears the retry button", async () => {
+  // A cache still reading `extraction_failed` after the edit succeeded leaves
+  // "Retry extraction" on screen — one click from re-running the AI over the
+  // tutor's own corrections (cubic).
+  const puts = stub("extraction_failed");
+  await openDraft();
+  expect(screen.getByText("Retry extraction")).toBeTruthy();
+
+  fireEvent.change(screen.getByDisplayValue("Principles of chemistry"), {
+    target: { value: "Principles" },
+  });
+
+  await waitFor(() => expect(puts).toHaveLength(1));
+  await waitFor(() => expect(screen.queryByText("Retry extraction")).toBeNull());
+  // The tutor's edit is still on screen, not replaced by the server echo.
+  expect(screen.getByDisplayValue("Principles")).toBeTruthy();
 });

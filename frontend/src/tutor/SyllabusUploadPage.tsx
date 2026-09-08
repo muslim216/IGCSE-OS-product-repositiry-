@@ -142,15 +142,35 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
     // landing before the first response drops the first edit, and a slow
     // response overwriting a newer one. The inputs stay controlled by query
     // data, never copied into useState (FE-6). A failed save resyncs.
-    onMutate: (draft) =>
+    onMutate: (draft) => {
+      // A refetch already in flight would otherwise land after this and
+      // reinstate the server's older draft, so the next edit is built from it
+      // and reverts this one (cubic). Deliberately not awaited: the cache write
+      // below has to happen in this tick, because the next keystroke's handler
+      // reads it back before React has re-rendered. Cancelling is synchronous
+      // enough — an in-flight fetch can only commit on a later microtask, by
+      // which time this query is already cancelled.
+      void queryClient.cancelQueries({ queryKey: ["syllabus-upload", id] });
       queryClient.setQueryData(["syllabus-upload", id], (old?: SyllabusUploadDetail) =>
         old ? { ...old, draft } : old,
+      );
+    },
+    // Take the server's metadata but keep whatever draft the cache now holds —
+    // the response carries the draft as it was when this request was sent, and
+    // a later keystroke may already have moved past it. Status matters:
+    // editing a failed extraction flips it to `review`, and a cache still
+    // reading `extraction_failed` leaves "Retry extraction" on screen, one
+    // click away from re-running the AI over the tutor's edits (cubic).
+    onSuccess: (saved) =>
+      queryClient.setQueryData(["syllabus-upload", id], (old?: SyllabusUploadDetail) =>
+        old ? { ...saved, draft: old.draft } : saved,
       ),
     onError: (err) => {
       setError(err instanceof ApiError ? err.message : String(err));
       queryClient.invalidateQueries({ queryKey: ["syllabus-upload", id] });
     },
   });
+
   const retry = useMutation({
     mutationFn: () => retrySyllabusExtraction(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["syllabus-upload", id] }),
