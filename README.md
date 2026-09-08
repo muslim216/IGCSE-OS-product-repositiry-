@@ -26,7 +26,7 @@ New engineers should read `docs/README.md` first; it carries a reading order.
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Routed per surface: Gemini for marking/extraction/syllabus, Anthropic for reports/readiness/class briefs/narrative |
+| AI | Routed per surface: Gemini for marking/extraction, Anthropic for syllabus, reports, readiness, class briefs and narrative |
 | Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development
@@ -85,8 +85,8 @@ merged into it does not deploy, however green its tests are.
 
    | Variable | Needed for |
    | --- | --- |
-   | `ANTHROPIC_API_KEY` | reports, readiness synthesis, class briefs, narrative |
-   | `GEMINI_API_KEY` | marking, question extraction, syllabus extraction |
+   | `ANTHROPIC_API_KEY` | syllabus extraction, reports, readiness synthesis, class briefs, narrative |
+   | `GEMINI_API_KEY` | marking, question extraction |
    | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
    | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
    | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; the surface is unmounted (0.5, AV-58) so these currently have no effect — leave unset |
@@ -138,8 +138,8 @@ All backend settings come from environment variables (see `backend/.env.example`
 |---|---|
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
-| `ANTHROPIC_API_KEY` | Reports, readiness synthesis, class briefs, narrative |
-| `GEMINI_API_KEY` | Marking, question extraction, syllabus extraction — the homework pipeline |
+| `ANTHROPIC_API_KEY` | Syllabus extraction, reports, readiness synthesis, class briefs, narrative |
+| `GEMINI_API_KEY` | Marking, question extraction — the homework pipeline |
 | `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
 | `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
@@ -186,7 +186,7 @@ The core-loop MVP (plus parents & reports) is complete. Built in phases, each
 runnable end-to-end:
 
 - [x] **A — Scaffolding:** auth (tutor signup, email/username login, JWT, roles), deploy config
-- [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, syllabus seeds (Edexcel 4MA1/4CH1/4BI1, Cambridge 5070/5090)
+- [x] **B — Groups, syllabus & lessons:** invites, tutor-created student accounts, parent linking, timetable, tutor-uploaded syllabuses (the five built-in seeds were deleted in task 2.2, AV-8 — a subject now belongs to the account that creates it)
 - [x] **C — Homework lifecycle:** classified upload → AI question extraction → student submission → AI marking draft → tutor side-by-side review → finalize
 - [x] **D — Readiness Engine:** evidence, topic readiness + predicted grades, mock/observation entry, student & tutor dashboards, analytics, agreement rate
 - [x] ~~**E — AI tutor chat:** streaming mentor grounded in the student's readiness/workload, anti-cheating guardrails, daily message cap~~ — deleted in 0.3 (AV-57); the platform is not an AI tutor by design
@@ -201,9 +201,13 @@ admin console, Stripe subscriptions, S3 storage, email delivery, mobile app.
 
 ```bash
 cd backend
-python -m seed.load_syllabus   # loads the five subject topic trees
-python -m seed.demo            # optional: demo tutor/student/parent accounts
+python -m seed.demo   # demo tutor/student/parent accounts, with their own subject
 ```
+
+There is no syllabus seed loader any more: task 2.2 (`AV-8`) deleted the five built-in
+syllabuses, so in the running product a subject exists only where a tutor created one — by
+uploading that syllabus and applying it. `seed.demo` is the exception and builds its subject
+directly, because a demo dataset cannot wait for a PDF to be extracted.
 
 `seed.demo` (idempotent — safe to re-run) creates a tutor, two students, and a parent with a
 full working dataset so every dashboard has real data on first login: ~90 days of evidence
@@ -223,4 +227,7 @@ default tutor preferences. Sign in as `demo-tutor@example.com` / `demo1234`.
 | `GET /api/v1/assignments/attention` | tutor | Homework tab's "needs attention" list |
 | `POST /api/v1/assignments` | tutor | `classified_id` is now optional — omit it to create homework without a PDF booklet |
 | `POST /api/v1/reports/generate` | tutor/admin only now | Students and parents can view but no longer generate reports |
-| `POST /api/v1/syllabus-uploads` (+ `GET`, `GET /{id}`, `PUT /{id}/draft`, `POST /{id}/retry`, `POST /{id}/apply`) | tutor | Syllabuses tab — upload any exam board's syllabus PDF, the AI drafts the topic tree, the tutor reviews/edits it, then applies it as a new Subject (alongside the 5 built-in syllabuses) available for groups and homework |
+| `POST /api/v1/syllabus-uploads` (+ `GET`, `GET /{id}`, `PUT /{id}/draft`, `POST /{id}/retry`, `POST /{id}/apply`) | tutor | Syllabuses tab — upload any exam board's syllabus PDF, the AI drafts the chapter tree — chapters holding their topics (2.3, AV-9) — the tutor reviews/edits both levels and states the qualification level, then applies it as a Subject owned by their account and available for groups and homework |
+| `GET/PUT /api/v1/subjects/{id}/grade-boundaries` | tutor writes, every role reads | What percentage earns each grade. The only source of a predicted grade since task 2.4 (`AV-11`) — a subject with none set gets no predicted grade rather than one mapped through a shipped default. One surface still lags: `GET /api/v1/readiness/v2/students/{id}` returns the grade stored on the snapshot without re-checking that boundaries still exist |
+| `GET/PUT/DELETE /api/v1/subjects/{id}/teaching-guidance` (+ `GET .../file`) | tutor | Library — the scheme of work kept beside the syllabus (2.5, `AV-10`). Stored and served; the teaching plan reads it in a later phase |
+| `GET/PUT /api/v1/subjects/{id}/marking-rules` | tutor | Library's "AI marking agreement" (2.6, `AV-75`) — how work in a subject should be marked, in the tutor's words. Describes **how** the AI marks, never **when a mark counts** |

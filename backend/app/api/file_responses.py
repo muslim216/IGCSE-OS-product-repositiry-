@@ -39,6 +39,35 @@ _disposition = storage.content_disposition
 _NO_STORE = "no-store, private"
 
 
+#: What a file route actually returns, for the OpenAPI schema.
+#:
+#: FastAPI documents a JSON body for any route it cannot see returning something
+#: else, so without this every download here advertised `application/json` for
+#: PDF and image bytes — and a generated client is entitled to try decoding that
+#: (CodeRabbit, PR #61). Pair it with `response_class=Response` on the decorator,
+#: which is what removes the default JSON entry rather than adding to it:
+#:
+#:     @router.get("/x/file", response_class=Response, responses=FILE_RESPONSES)
+#:
+#: The types mirror `storage.ALLOWED_MIMES`, plus the `application/octet-stream`
+#: fallback the handlers use when a row's stored mime is missing.
+FILE_RESPONSES: dict[int | str, dict] = {
+    200: {
+        "content": {
+            mime: {"schema": {"type": "string", "format": "binary"}}
+            for mime in (
+                "application/pdf",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "application/octet-stream",
+            )
+        },
+        "description": "The stored file.",
+    }
+}
+
+
 async def proxied_file(key: str, *, mime: str, filename: str) -> Response:
     """Return the bytes through the API. Use when the authorization check must
     run on every single view.

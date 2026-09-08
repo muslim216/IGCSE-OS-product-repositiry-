@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, assert_tutor
-from app.api.file_responses import proxied_file
+from app.api.file_responses import FILE_RESPONSES, proxied_file
 from app.models import (
     SETTLED_STATUSES,
     Assignment,
@@ -588,7 +588,11 @@ async def submission_detail(
     )
 
 
-@router.get("/submissions/{submission_id}/files/{file_id}")
+@router.get(
+    "/submissions/{submission_id}/files/{file_id}",
+    response_class=Response,
+    responses=FILE_RESPONSES,
+)
 async def submission_file(
     submission_id: int, file_id: int, db: DbSession, user: CurrentUser
 ) -> Response:

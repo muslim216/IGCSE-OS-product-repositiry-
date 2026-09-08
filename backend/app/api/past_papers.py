@@ -21,7 +21,7 @@ from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, owned_subject
-from app.api.file_responses import signed_or_proxied_file
+from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import (
     SETTLED_STATUSES,
     Group,
@@ -223,7 +223,7 @@ async def past_paper_detail(
     )
 
 
-@router.get("/{past_paper_id}/booklet")
+@router.get("/{past_paper_id}/booklet", response_class=Response, responses=FILE_RESPONSES)
 async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUser) -> Response:
     """The question paper — readable by enrolled students so they can sit it."""
     paper = await _visible_paper(db, user, past_paper_id)
@@ -238,7 +238,7 @@ async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUse
     )
 
 
-@router.get("/{past_paper_id}/mark-scheme")
+@router.get("/{past_paper_id}/mark-scheme", response_class=Response, responses=FILE_RESPONSES)
 async def past_paper_mark_scheme(past_paper_id: int, db: DbSession, user: TutorUser) -> Response:
     """Tutor-only — handing this to a student would defeat the exercise."""
     paper = await _visible_paper(db, user, past_paper_id)
