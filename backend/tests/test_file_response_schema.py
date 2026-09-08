@@ -43,38 +43,80 @@ def test_a_file_route_declares_binary_and_not_json(spec, path):
 #: The two helpers in `api/file_responses.py` that write a file to the response.
 SERVERS = {"proxied_file", "signed_or_proxied_file"}
 
+#: Decorator methods that make a function a route.
+HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
-def _serving_handlers() -> list[tuple[str, str, bool]]:
-    """Every handler that serves a stored file, and whether its own decorator
-    declares `responses=FILE_RESPONSES`.
 
-    Parsed, not grepped. Counting occurrences in the text compares aggregates:
-    a helper named in a comment inflates one side, an extra declaration on an
-    unrelated route hides a missing one on a real route, and a handler that
-    calls the helper twice fails a module that is correct (cubic). The AST
-    answers the question actually being asked — *this* route, *its* decorator —
-    and ignores comments and docstrings by construction.
+def _server_names(tree: ast.Module) -> set[str]:
+    """The local names in this module that refer to a serving helper.
 
-    An attribute call (`file_responses.proxied_file(...)`) is matched on the
-    attribute name, so the guard does not depend on how the module imports it.
+    An `as` alias would walk straight past a name check, so the import is
+    resolved rather than assumed (cubic). Attribute calls
+    (`file_responses.proxied_file(...)`) are matched on the attribute instead and
+    need no entry here.
+    """
+    names = set(SERVERS)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("file_responses"):
+            names |= {alias.asname or alias.name for alias in node.names if alias.name in SERVERS}
+    return names
+
+
+def _calls_a_server(node: ast.AST, local_names: set[str]) -> bool:
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call):
+            continue
+        if isinstance(call.func, ast.Attribute):
+            if call.func.attr in SERVERS:
+                return True
+        elif getattr(call.func, "id", "") in local_names:
+            return True
+    return False
+
+
+def _route_decorators(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Call]:
+    """The `@router.get(...)`-shaped decorators on a function, if any."""
+    return [
+        d
+        for d in node.decorator_list
+        if isinstance(d, ast.Call)
+        and isinstance(d.func, ast.Attribute)
+        and d.func.attr in HTTP_METHODS
+    ]
+
+
+def _scan() -> tuple[list[tuple[str, str, bool]], list[str]]:
+    """Route handlers that serve a stored file, and any *non-route* function that
+    does.
+
+    Parsed, not grepped. Counting occurrences in the text compares aggregates: a
+    helper named in a comment inflates one side, an extra declaration on an
+    unrelated route hides a missing one on a real route, and a handler calling
+    the helper twice fails a module that is correct (cubic). The AST answers the
+    question actually being asked — *this* route, *its* decorator — and ignores
+    comments and docstrings by construction.
+
+    Only router-decorated functions are judged as routes. A private wrapper that
+    serves a file on a route's behalf has no decorator to check, so it comes back
+    separately and fails loudly rather than being scored as if it were a route,
+    or silently taking its callers' coverage with it (cubic).
     """
     api = pathlib.Path(__file__).resolve().parents[1] / "app" / "api"
-    found: list[tuple[str, str, bool]] = []
+    routes: list[tuple[str, str, bool]] = []
+    wrappers: list[str] = []
     for module in sorted(api.glob("*.py")):
         if module.name == "file_responses.py":
             continue
         tree = ast.parse(module.read_text())
+        local_names = _server_names(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
                 continue
-            called = {
-                call.func.attr
-                if isinstance(call.func, ast.Attribute)
-                else getattr(call.func, "id", "")
-                for call in ast.walk(node)
-                if isinstance(call, ast.Call)
-            }
-            if not called & SERVERS:
+            if not _calls_a_server(node, local_names):
+                continue
+            decorators = _route_decorators(node)
+            if not decorators:
+                wrappers.append(f"{module.name}::{node.name}")
                 continue
             declares = any(
                 any(
@@ -83,18 +125,17 @@ def _serving_handlers() -> list[tuple[str, str, bool]]:
                     and kw.value.id == "FILE_RESPONSES"
                     for kw in decorator.keywords
                 )
-                for decorator in node.decorator_list
-                if isinstance(decorator, ast.Call)
+                for decorator in decorators
             )
-            found.append((module.name, node.name, declares))
-    return found
+            routes.append((module.name, node.name, declares))
+    return routes, wrappers
 
 
 def test_every_route_that_serves_a_file_declares_it_on_its_own_decorator():
     """The parametrized check above covers the routes that exist today. This is
     what catches the *next* one added without the declaration, since nothing
     else would fail."""
-    handlers = _serving_handlers()
+    handlers, _ = _scan()
     undeclared = [f"{mod}::{fn}" for mod, fn, declares in handlers if not declares]
     assert not undeclared, (
         f"{undeclared} serve a stored file but do not carry `responses=FILE_RESPONSES`, "
@@ -110,5 +151,10 @@ def test_the_detection_itself_still_works():
     One handler per path in `FILE_ROUTES`, so the two halves of this file cannot
     drift apart without one of them failing.
     """
-    handlers = _serving_handlers()
+    handlers, wrappers = _scan()
+    assert not wrappers, (
+        f"{wrappers} serve a stored file outside a route handler. This guard only inspects "
+        f"router-decorated functions, so a wrapper hides the routes that delegate to it — "
+        f"teach the guard about it rather than deleting this assertion"
+    )
     assert len(handlers) == len(FILE_ROUTES), sorted(f"{m}::{f}" for m, f, _ in handlers)
