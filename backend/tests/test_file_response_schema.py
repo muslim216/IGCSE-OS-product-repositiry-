@@ -48,19 +48,32 @@ def test_a_module_that_serves_files_also_declares_them():
     contain them and a walk that finds nothing would pass silently — which is
     how the first version of this test failed open.
     """
-    servers = ("proxied_file", "signed_or_proxied_file")
     api = pathlib.Path(__file__).resolve().parents[1] / "app" / "api"
     serving_modules = set()
     for module in sorted(api.glob("*.py")):
         if module.name == "file_responses.py":
             continue
         source = module.read_text()
-        if any(f"import {fn}" in source or f", {fn}" in source for fn in servers):
-            serving_modules.add(module.name)
-            assert "FILE_RESPONSES" in source, (
-                f"{module.name} serves stored files but never declares them — its download "
-                f"route(s) will advertise application/json for binary bytes"
-            )
+        # Detected by the **call**, not the import: an alias, a parenthesised
+        # multiline import or attribute access (`file_responses.proxied_file(`)
+        # all evade a check on the import's shape, and a module that evades
+        # detection passes by not being looked at (cubic).
+        if "proxied_file(" not in source:
+            continue
+        serving_modules.add(module.name)
+        # Count the declarations against the *call sites*, not merely that the
+        # name appears: importing `FILE_RESPONSES` and forgetting it on one of
+        # two decorators is exactly the regression this guards, and a presence
+        # check passes straight through it (CodeRabbit).
+        #
+        # `proxied_file(` matches both helpers — `signed_or_proxied_file(`
+        # contains it — and never the import line, which has no parenthesis.
+        calls = source.count("proxied_file(")
+        declared = source.count("responses=FILE_RESPONSES")
+        assert declared >= calls, (
+            f"{module.name} serves a stored file from {calls} route(s) but declares "
+            f"{declared} of them — the rest advertise application/json for binary bytes"
+        )
 
     # If this ever empties, the detection broke rather than the modules.
     assert serving_modules >= {
