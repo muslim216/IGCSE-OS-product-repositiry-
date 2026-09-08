@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listSubjects } from "../api/groups";
-import { getGradeBoundaries, saveGradeBoundaries, type GradeBand } from "../api/gradeBoundaries";
+import {
+  getGradeBoundaries,
+  saveGradeBoundaries,
+  type GradeBand,
+  type GradeBoundaries,
+} from "../api/gradeBoundaries";
 import { EmptyState, useToast } from "../components/ui";
 import { ABSENT } from "../lib/labels";
 
@@ -19,10 +24,16 @@ import { ABSENT } from "../lib/labels";
  * and is never told a number is theirs when it is not.
  */
 
-function sourceNote(source: "organization" | "subject" | "none"): string {
-  if (source === "organization") return "Your organisation's boundaries.";
-  if (source === "subject") return "The standard boundaries for this syllabus — not yet confirmed.";
-  return "Nothing set yet. These are the published standard boundaries — not yet confirmed.";
+function sourceNote(data: GradeBoundaries): string {
+  if (data.source === "organization") return "Your organisation's boundaries.";
+  // One source since task 2.4: until these are saved there is no predicted
+  // grade for this subject anywhere, so say so rather than implying the
+  // defaults below are already in force. Only two scales ship a published
+  // split, so the unset case has to answer for both — claiming pre-filled
+  // standards for a scale that has none contradicts the list right below it.
+  if (data.boundaries.length === 0)
+    return "Nothing set yet, so this subject has no predicted grades.";
+  return "Nothing set yet, so this subject has no predicted grades. These are the published standard boundaries — save them to use them.";
 }
 
 export default function GradeBoundariesPage() {
@@ -113,7 +124,7 @@ export default function GradeBoundariesPage() {
         <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
       ) : (
         <>
-          <p className="text-sm text-ink-500">{sourceNote(boundaries.data.source)}</p>
+          <p className="text-sm text-ink-500">{sourceNote(boundaries.data)}</p>
 
           {draft.length === 0 ? (
             <p className="text-sm text-ink-500">

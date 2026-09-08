@@ -15,7 +15,6 @@ from app.models import (
 )
 from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
 from app.services import storage
-from app.services.grade_boundaries import defaults_for_scale
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
@@ -155,7 +154,6 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
             Subject.code == draft.code,
         )
     )
-    is_new_subject = subject is None
     if subject is None:
         subject = Subject(
             organization_id=user.organization_id,
@@ -166,17 +164,12 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     subject.level = draft.level
     subject.name = draft.name
     subject.grade_scale = draft.grade_scale
-    # The draft no longer carries grade boundaries (task 2.3): a syllabus document
-    # publishes a specification, not a series' boundaries, so asking a model for
-    # them was asking it to guess. Task 2.4 makes the tutor-entered table the only
-    # source; until then a *new* subject still needs a working predicted grade, so
-    # it is seeded with the scale's standard split. An existing subject is never
-    # touched — not even one whose boundaries are an empty list, which is a tutor
-    # having cleared them, not a gap to fill with an inferred split presented as
-    # stored (cubic, PROD-2). Re-uploading the document must never change what a
-    # tutor entered.
-    if is_new_subject:
-        subject.grade_boundaries = defaults_for_scale(draft.grade_scale)
+    # Nothing here writes grade boundaries. The draft stopped carrying them in
+    # 2.3 (a syllabus document publishes a specification, not a series'
+    # boundaries), and 2.4 made the tutor-entered `GradeBoundary` table the only
+    # source: the editor offers the published split for this scale pre-filled and
+    # it counts once the tutor saves it. Seeding it here instead would make a
+    # guess indistinguishable from their own figures (AV-11, PROD-2, PROD-8).
     await db.flush()
 
     chapters = {

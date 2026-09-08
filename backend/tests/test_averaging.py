@@ -82,12 +82,6 @@ async def world(client, tutor):
             code="4MA1",
             name="Maths",
             grade_scale="9-1",
-            grade_boundaries=[
-                {"grade": "9", "min": 90},
-                {"grade": "7", "min": 70},
-                {"grade": "4", "min": 40},
-                {"grade": "U", "min": 0},
-            ],
         )
         session.add(subject)
         await session.commit()
@@ -260,7 +254,6 @@ async def test_other_subjects_do_not_contribute(client, tutor, world):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(other)
         await session.commit()

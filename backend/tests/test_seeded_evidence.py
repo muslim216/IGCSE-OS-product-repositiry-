@@ -187,7 +187,6 @@ async def test_a_tutor_cannot_seed_a_topic_from_a_subject_they_do_not_teach(
             code="5054",
             name="Physics",
             grade_scale="A*-E",
-            grade_boundaries=[{"grade": "A*", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(other)
         await session.flush()

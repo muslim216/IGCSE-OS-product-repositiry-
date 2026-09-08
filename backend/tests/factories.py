@@ -8,6 +8,7 @@ that stays one edit next time rather than twenty-five.
 from sqlalchemy import select
 
 from app.models import Organization, Subject, SubjectLevel
+from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 
 
 async def org_id(session) -> int:
@@ -27,13 +28,20 @@ async def org_id(session) -> int:
     return org.id
 
 
-async def make_subject(session, *, organization_id: int | None = None, **kwargs) -> Subject:
-    """A Subject with the columns every test needs and none of them care about."""
+async def make_subject(
+    session,
+    *,
+    organization_id: int | None = None,
+    grade_boundaries: list[dict] | None = None,
+    **kwargs,
+) -> Subject:
+    """A Subject with the columns every test needs and none of them care about,
+    plus its organization's grade boundaries."""
+    bands = grade_boundaries
     kwargs.setdefault("exam_board", "Edexcel IGCSE")
     kwargs.setdefault("code", "4CH1")
     kwargs.setdefault("name", "Chemistry")
     kwargs.setdefault("grade_scale", "9-1")
-    kwargs.setdefault("grade_boundaries", [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}])
     kwargs.setdefault("level", SubjectLevel.igcse)
     subject = Subject(
         organization_id=organization_id if organization_id is not None else await org_id(session),
@@ -41,6 +49,17 @@ async def make_subject(session, *, organization_id: int | None = None, **kwargs)
     )
     session.add(subject)
     await session.flush()
+    # Grade boundaries are org-scoped rows since task 2.4 (AV-11), and a subject
+    # without them has no predicted grade anywhere — correct behaviour, but not
+    # what most tests are about. Set them here so `make_subject` still returns a
+    # subject whose grades work; a test about the *absence* asks for it with
+    # `grade_boundaries=[]`.
+    await set_org_boundaries(
+        session,
+        subject.organization_id,
+        subject.id,
+        defaults_for_scale(kwargs["grade_scale"]) if bands is None else bands,
+    )
     return subject
 
 

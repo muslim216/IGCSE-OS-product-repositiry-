@@ -328,7 +328,6 @@ async def test_a_student_only_sees_papers_for_subjects_they_take(
             code="4PH1",
             name="Physics",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}],
         )
         session.add(other)
         await session.commit()

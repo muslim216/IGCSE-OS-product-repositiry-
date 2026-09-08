@@ -57,6 +57,7 @@ from app.models import (
 )
 from app.security import hash_password
 from app.services import storage
+from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 from app.services.readiness import recompute_student
 
 PASSWORD = "demo1234"
@@ -80,18 +81,6 @@ CHEMISTRY = {
     "name": "Chemistry",
     "level": SubjectLevel.igcse,
     "grade_scale": "9-1",
-    "grade_boundaries": [
-        {"grade": "9", "min": 90},
-        {"grade": "8", "min": 80},
-        {"grade": "7", "min": 70},
-        {"grade": "6", "min": 60},
-        {"grade": "5", "min": 50},
-        {"grade": "4", "min": 40},
-        {"grade": "3", "min": 30},
-        {"grade": "2", "min": 20},
-        {"grade": "1", "min": 10},
-        {"grade": "U", "min": 0},
-    ],
     "chapters": [
         {
             "code": "1",
@@ -126,7 +115,8 @@ CHEMISTRY = {
 
 
 async def build_subject(session, *, organization_id: int, data: dict) -> Subject:
-    """Create a Subject with its chapters and topics, owned by one organization.
+    """Create a Subject with its chapters, topics and grade boundaries, owned by
+    one organization.
 
     Chapter-first, matching the tree `AV-9` settled: a chapter contains topics,
     and marks and readiness attach to the topics. Topics here are leaves — the
@@ -144,10 +134,18 @@ async def build_subject(session, *, organization_id: int, data: dict) -> Subject
         name=data["name"],
         level=data["level"],
         grade_scale=data["grade_scale"],
-        grade_boundaries=data["grade_boundaries"],
     )
     session.add(subject)
     await session.flush()
+
+    # Grade boundaries are org-scoped rows, not a column on the subject, and
+    # nothing writes them on a tutor's behalf (task 2.4, AV-11). The demo tutor
+    # is standing in for one who set them, so the seed does what that tutor's
+    # save would do — otherwise every predicted grade in the demo reads "—",
+    # which is correct behaviour and a useless demo.
+    await set_org_boundaries(
+        session, organization_id, subject.id, defaults_for_scale(data["grade_scale"])
+    )
 
     for position, node in enumerate(data["chapters"], start=1):
         chapter = Chapter(

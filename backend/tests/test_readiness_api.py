@@ -10,6 +10,7 @@ from app.models import (
     Subject,
     Topic,
 )
+from app.services.grade_boundaries import set_org_boundaries
 from app.workers.jobs import process_one_job
 from tests.factories import subject_defaults
 
@@ -24,18 +25,25 @@ async def world(client, tutor):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[
-                {"grade": "9", "min": 90},
-                {"grade": "7", "min": 70},
-                {"grade": "4", "min": 40},
-                {"grade": "U", "min": 0},
-            ],
         )
         session.add(subject)
         await session.flush()
         t1 = Topic(subject_id=subject.id, code="1.3", title="Atomic structure", weight=1.0)
         t2 = Topic(subject_id=subject.id, code="1.6", title="Ionic bonding", weight=2.0)
         session.add_all([t1, t2])
+        # Grade boundaries are org-scoped rows since task 2.4 (AV-11), not a
+        # column on the subject. Same four bands this fixture always used.
+        await set_org_boundaries(
+            session,
+            subject.organization_id,
+            subject.id,
+            [
+                {"grade": "9", "min": 90},
+                {"grade": "7", "min": 70},
+                {"grade": "4", "min": 40},
+                {"grade": "U", "min": 0},
+            ],
+        )
         await session.commit()
         subject_id, t1_id, t2_id = subject.id, t1.id, t2.id
 

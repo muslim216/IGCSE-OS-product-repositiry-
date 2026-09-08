@@ -11,7 +11,6 @@ from app.models import (
     AiSynthesisStatus,
     FactorConfidence,
     FactorEvaluation,
-    GradeBoundary,
     Job,
     JobStatus,
     ReadinessFactor,
@@ -19,6 +18,7 @@ from app.models import (
     ReadinessWeights,
     User,
 )
+from app.services.grade_boundaries import set_org_boundaries
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -326,32 +326,27 @@ async def test_a_student_sees_their_own_v2_readiness(client, tutor, world):  # n
 
 
 async def test_band_uses_the_boundaries_that_produced_the_grade(client, tutor, world):  # noqa: F811
-    """The band is the grade's index, so it must be read from the same ordered
-    list the grade was mapped through — the org override when one exists, not
-    the global Subject default.
+    """The band is the grade's *index* in the organization's ordered list, so it
+    moves when the list does.
 
-    The fixture subject's list is [9, 7, 4, U], where "4" is index 2 and bands
-    on_track. This organization's own list is six grades deep, putting "4" at
-    index 5, where it bands at_risk. Reading the wrong list is a different
-    colour, not a rounding difference."""
+    The fixture's list is [9, 7, 4, U], where "4" is index 2 and bands on_track.
+    Replacing it with a six-grade list puts "4" at index 5, where it bands
+    at_risk — a different colour, not a rounding difference."""
     async with async_session() as session:
         tutor_user = await session.get(User, tutor["user"]["id"])
-        for label, minimum in [
-            ("9", 85.0),
-            ("8", 75.0),
-            ("7", 65.0),
-            ("6", 55.0),
-            ("5", 45.0),
-            ("4", 0.0),
-        ]:
-            session.add(
-                GradeBoundary(
-                    organization_id=tutor_user.organization_id,
-                    subject_id=world["subject_id"],
-                    grade_label=label,
-                    min_percentage=minimum,
-                )
-            )
+        await set_org_boundaries(
+            session,
+            tutor_user.organization_id,
+            world["subject_id"],
+            [
+                {"grade": "9", "min": 85.0},
+                {"grade": "8", "min": 75.0},
+                {"grade": "7", "min": 65.0},
+                {"grade": "6", "min": 55.0},
+                {"grade": "5", "min": 45.0},
+                {"grade": "4", "min": 0.0},
+            ],
+        )
         await session.commit()
 
     # predicted_grade "4" is index 5 of the org's six-grade list -> at_risk.
@@ -364,13 +359,24 @@ async def test_band_uses_the_boundaries_that_produced_the_grade(client, tutor, w
     assert subject["status"] == "at_risk"
 
 
-async def test_band_falls_back_to_the_subject_list_without_an_org_override(client, tutor, world):  # noqa: F811
-    """No org rows: the same grade bands against the subject's own list, where
-    "4" is index 2 of [9, 7, 4, U] and is on_track."""
+async def test_no_boundaries_means_no_band_at_all(client, tutor, world):  # noqa: F811
+    """Task 2.4 (AV-11) removed the second source, so an organization with no
+    boundaries has nothing to take a grade's index from.
+
+    The snapshot keeps the grade it was synthesized with, which is the honest
+    record of what the engine said, but the surface shows neither it nor a band:
+    there is nothing left for either to map through, and a grade on screen that
+    no current numbers stand behind is what PROD-2 forbids.
+    """
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        await set_org_boundaries(session, tutor_user.organization_id, world["subject_id"], [])
+        await session.commit()
+
     await _write_snapshot(world, predicted_grade="4")
     resp = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
     subject = resp.json()["subjects"][0]
-    assert subject["predicted_grade"] == "4"
-    assert subject["status"] == "on_track"
+    assert subject["predicted_grade"] is None
+    assert subject["status"] is None

@@ -17,6 +17,7 @@ from app.models import (
     Subject,
     User,
 )
+from app.services.grade_boundaries import set_org_boundaries
 from app.services.readiness_v2_ai import (
     DEFAULT_WEIGHTS,
     ReadinessSynthesis,
@@ -100,7 +101,6 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
             code="4XX1",
             name="Empty Subject",
             grade_scale="9-1",
-            grade_boundaries=[],
         )
         session.add(empty_subject)
         await session.commit()
@@ -350,3 +350,66 @@ async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
         assert snapshot.status == AiSynthesisStatus.ready
         assert snapshot.score != 5.0  # the contradicting score was not persisted as-is
         assert abs(snapshot.score - (reference - 10.0)) < 1e-6  # pulled to the tolerance edge
+
+
+async def test_synthesis_without_boundaries_stores_no_predicted_grade(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    """`predict_grade` returns "—" for an empty list, and an em dash is not a
+    grade to store beside a score.
+
+    Since task 2.4 (AV-11) the organization's rows are the only source, so a
+    subject with none has nothing to map a score through: the column is nullable
+    and the absence is recorded as one rather than as a dash every surface would
+    then have to special-case (PROD-2).
+    """
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await set_org_boundaries(session, tutor_user.organization_id, world["subject_id"], [])
+        assessment = Assessment(
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            title="Mock",
+            type=AssessmentType.mock,
+            date=date.today(),
+        )
+        session.add(assessment)
+        await session.flush()
+        session.add(
+            AssessmentScore(
+                assessment_id=assessment.id,
+                student_id=world["student_id"],
+                topic_id=world["topic1"],
+                marks=10,
+                max_marks=20,
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete",
+        fake_ai(
+            ReadinessSynthesis(
+                score=45.0,
+                weak_topics=[],
+                rationale="Only one weak assessment so far.",
+                recommended_revision="Sit a past paper and re-test the weak topic.",
+            )
+        ),
+    )
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+
+    async with async_session() as session:
+        snapshot = (
+            await session.scalars(
+                select(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
+            )
+        ).one()
+    assert snapshot.status == AiSynthesisStatus.ready
+    assert snapshot.score == 45.0
+    # The score is real; the grade is absent, not "—".
+    assert snapshot.predicted_grade is None

@@ -22,6 +22,7 @@ from app.models import (
     User,
 )
 from app.services.ai import record_usage, text_complete
+from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context
 
@@ -48,6 +49,7 @@ AUDIENCE_GUIDANCE = {
 
 async def build_report_facts(session: AsyncSession, student: User, subject_ids: list[int]) -> str:
     lines: list[str] = [f"Student: {student.name}"]
+    all_boundaries = await org_boundaries(session, student.organization_id)
     for subject_id in subject_ids:
         subject = await session.get(Subject, subject_id)
         if subject is None:
@@ -76,8 +78,16 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
             / sum(topics[r.topic_id].weight for r in confident),
             1,
         )
-        grade = predict_grade(overall, subject.grade_boundaries)
-        lines.append(f"Overall readiness: {overall}% (estimated grade: {grade})")
+        # One source since 2.4 (AV-11): no boundaries set means no predicted
+        # grade in the report either — the sentence drops rather than carrying a
+        # dash a model would then have to explain (PROD-2).
+        boundaries = boundaries_for(all_boundaries, subject)
+        grade = predict_grade(overall, boundaries) if boundaries else None
+        lines.append(
+            f"Overall readiness: {overall}% (estimated grade: {grade})"
+            if grade
+            else f"Overall readiness: {overall}% (no grade boundaries set for this subject)"
+        )
 
         strong = sorted(confident, key=lambda r: r.score, reverse=True)[:3]
         weak = sorted((r for r in confident if r.score <= 60), key=lambda r: r.score)[:5]

@@ -35,13 +35,10 @@ def grade_band(grade: str | None, grade_boundaries: list[dict]) -> str | None:
     from the list — an absent band is shown as absent, never defaulted to a
     colour (PROD-2).
 
-    RISK-5: two boundary sources exist — the global Subject.grade_boundaries and
-    the org-scoped GradeBoundary override read by the v2 engine. This function
-    reads the grade *ordering* from whichever list the caller passes (today
-    always Subject.grade_boundaries). The two sources share the same grade
-    labels for a subject, so the position — and therefore the band — is the same
-    whichever the grade was predicted against; only the percentage cut-offs
-    differ. Converging the two sources is out of scope for this change.
+    The ordering comes from whichever list the caller passes, and since task 2.4
+    (`AV-11`) there is only one list to pass: the organization's own rows. An
+    organization that has set none gets no grade to band in the first place —
+    `predict_grade` returns "—" — so the absent case is reached from both ends.
     """
     if grade is None or not grade_boundaries:
         return None

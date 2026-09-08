@@ -1,12 +1,13 @@
 """The grade-boundary editor's contract."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class GradeBand(BaseModel):
     grade: str = Field(min_length=1, max_length=16)
-    # The lowest percentage that earns this grade. `min` mirrors the key already
-    # used in Subject.grade_boundaries so one shape serves both sources.
+    # The lowest percentage that earns this grade.
     min: float = Field(ge=0, le=100)
 
 
@@ -42,10 +43,14 @@ class GradeBoundariesOut(BaseModel):
     subject_name: str
     grade_scale: str
     # Where this list came from:
-    #   "organization" — this tutor's own numbers
-    #   "subject"      — the global default shipped with the syllabus
-    #   "none"         — nothing is set; the list below is a published starting
+    #   "organization" — this organization's own numbers, and what every
+    #                    predicted grade in the product is mapped through
+    #   "none"         — nothing is set, so there is no predicted grade for this
+    #                    subject anywhere; the list below is a published starting
     #                    point that has not been confirmed and must be labelled
     #                    as such wherever it is shown (PROD-8)
-    source: str
+    #
+    # The third value, "subject", went with the global Subject.grade_boundaries
+    # column in task 2.4 (AV-11).
+    source: Literal["organization", "none"]
     boundaries: list[GradeBand]

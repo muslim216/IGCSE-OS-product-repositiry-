@@ -354,7 +354,9 @@ async def _synthesize_subject(
     reference_score = _weighted_reference_score(factor_rows, weights)
     score = _enforce_factor_score_constraint(result.score, reference_score)
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
-    grade = predict_grade(score, boundaries)
+    # No boundaries means no grade — not "—" stored as though it were one. The
+    # column is nullable for exactly this (AV-11, PROD-2).
+    grade = predict_grade(score, boundaries) if boundaries else None
 
     valid_topic_ids = {
         row.topic_id for row in factor_rows if row.factor == ReadinessFactor.topic_mastery

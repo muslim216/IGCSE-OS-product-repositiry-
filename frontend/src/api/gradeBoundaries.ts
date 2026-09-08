@@ -1,22 +1,14 @@
 import { api } from "./client";
+import type { components } from "./schema";
 
-/** Mirrors backend/app/schemas/grade_boundaries.py. */
-export interface GradeBand {
-  grade: string;
-  /** The lowest percentage that earns this grade. */
-  min: number;
-}
-
-export interface GradeBoundaries {
-  subject_id: number;
-  subject_name: string;
-  grade_scale: string;
-  /** "organization" — this tutor's own numbers; "subject" — the global default
-      shipped with the syllabus; "none" — nothing set, and the list below is an
-      unconfirmed published starting point that must be labelled as such. */
-  source: "organization" | "subject" | "none";
-  boundaries: GradeBand[];
-}
+// FE-4: aliases of the generated schema, never hand-written interfaces. The
+// third source, "subject", went with the global Subject.grade_boundaries column
+// in task 2.4 — `source` is now "organization" (this org's own numbers, and what
+// every predicted grade is mapped through) or "none" (nothing set, so there is
+// no predicted grade for this subject and the list below is an unconfirmed
+// published starting point that must be labelled as such).
+export type GradeBand = components["schemas"]["GradeBand"];
+export type GradeBoundaries = components["schemas"]["GradeBoundariesOut"];
 
 export const getGradeBoundaries = (subjectId: number) =>
   api<GradeBoundaries>(`/api/v1/subjects/${subjectId}/grade-boundaries`);

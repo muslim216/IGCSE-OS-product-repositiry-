@@ -52,8 +52,11 @@ class Subject(Base):
     )
     # "9-1" (Edexcel IGCSE) or "A*-E" (Cambridge O Level)
     grade_scale: Mapped[str] = mapped_column(String(16), nullable=False)
-    # Ordered list of {"grade": "9", "min": 90} — readiness % → predicted grade.
-    grade_boundaries: Mapped[list] = mapped_column(JSON, nullable=False)
+    # No `grade_boundaries` column: task 2.4 (AV-11) made the org-scoped
+    # `GradeBoundary` table the only source and migration 0031 dropped this one,
+    # copying what it held into that table. Two sources that could disagree about
+    # the same subject's grades were `RISK-5`; a subject with no rows there has
+    # no predicted grade at all, which is the intended behaviour (PROD-2).
 
     topics: Mapped[list["Topic"]] = relationship(
         back_populates="subject", cascade="all, delete-orphan"

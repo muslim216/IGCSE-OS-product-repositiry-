@@ -117,7 +117,6 @@ async def test_subject_scoped_filtering(client, tutor):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -160,7 +159,6 @@ async def test_build_tutor_context_compiles_entries(client, tutor):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -257,7 +255,6 @@ async def test_ai_usage_forbidden_for_students(client, tutor):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()

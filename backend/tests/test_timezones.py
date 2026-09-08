@@ -153,7 +153,6 @@ async def test_a_student_cannot_change_the_organization_timezone(client, tutor):
             code="4MA1",
             name="Maths",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -196,7 +195,6 @@ async def test_today_lessons_uses_org_timezone(client, tutor, monkeypatch):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -269,7 +267,6 @@ async def test_a_student_can_set_their_own_timezone_but_not_the_organizations(cl
             code="4MA2",
             name="Maths B",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -355,7 +352,6 @@ async def test_today_lessons_follows_the_tutors_own_zone_over_the_organizations(
             code="4PH1",
             name="Physics",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()

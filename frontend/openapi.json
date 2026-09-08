@@ -1380,7 +1380,7 @@
           "grade-boundaries"
         ],
         "summary": "Read Grade Boundaries",
-        "description": "What this organization's grades are currently mapped through, and where\nthat list came from.\n\n`source` travels with the list because the three cases are different facts\nand must not render alike: a tutor's own numbers, a published default nobody\nhas confirmed, and nothing at all. PROD-8 requires the middle one to be\nlabelled as unconfirmed wherever it is shown.",
+        "description": "What this organization's grades are mapped through, and whether it is set.\n\n`source` travels with the list because the two cases are different facts and\nmust not render alike: the tutor's own numbers, and a published starting\npoint nobody has confirmed. `PROD-8` requires the second to be labelled as\nunconfirmed wherever it is shown.",
         "operationId": "read_grade_boundaries_api_v1_subjects__subject_id__grade_boundaries_get",
         "security": [
           {
@@ -6899,6 +6899,10 @@
           },
           "source": {
             "type": "string",
+            "enum": [
+              "organization",
+              "none"
+            ],
             "title": "Source"
           },
           "boundaries": {
