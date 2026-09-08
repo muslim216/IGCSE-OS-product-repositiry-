@@ -1,7 +1,9 @@
 import enum
+from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    DateTime,
     Enum,
     Float,
     ForeignKey,
@@ -52,6 +54,24 @@ class Subject(Base):
     )
     # "9-1" (Edexcel IGCSE) or "A*-E" (Cambridge O Level)
     grade_scale: Mapped[str] = mapped_column(String(16), nullable=False)
+    # The teaching guidance / scheme of work: the *second* per-subject setup
+    # document (`AV-10`, task 2.5), beside the syllabus itself. Phase 6 reads it
+    # to judge which chapters are harder or slower and weights the plan's time
+    # accordingly (`AV-14`); nothing consumes it before then, so it is stored
+    # and served, not parsed.
+    #
+    # Four nullable columns rather than a table: one document per subject,
+    # replaced rather than versioned, with no processing state of its own — the
+    # thing that makes `SyllabusUpload` a table. `guidance_path` is the object
+    # key; the other three are what a download needs to be honest about what it
+    # is handing back. All four are set and cleared together.
+    guidance_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    guidance_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    guidance_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    guidance_uploaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # No `grade_boundaries` column: task 2.4 (AV-11) made the org-scoped
     # `GradeBoundary` table the only source and migration 0031 dropped this one,
     # copying what it held into that table. Two sources that could disagree about

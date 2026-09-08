@@ -5318,6 +5318,201 @@
         }
       }
     },
+    "/api/v1/subjects/{subject_id}/teaching-guidance": {
+      "get": {
+        "tags": [
+          "teaching-guidance"
+        ],
+        "summary": "Read Teaching Guidance",
+        "description": "What is on file, or that nothing is. Never a 404 for \"not uploaded\" \u2014 the\nsubject exists either way, and the surface needs to say which.",
+        "operationId": "read_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingGuidanceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "teaching-guidance"
+        ],
+        "summary": "Upload Teaching Guidance",
+        "description": "Store (or replace) this subject's guidance document.\n\n`PUT`, not `POST`: there is one document per subject and uploading again\nreplaces it, which is the verb's meaning rather than a second row.\n\nThe old object is deleted **after** the row is committed. The other order\nloses the file if the commit then fails, leaving a subject pointing at a key\nthat no longer exists; this order can at worst leave an unreferenced object\nbehind, which the storage orphan sweep collects and which nobody can reach\nin the meantime.",
+        "operationId": "upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingGuidanceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "teaching-guidance"
+        ],
+        "summary": "Delete Teaching Guidance",
+        "description": "Remove the document. Idempotent: deleting when there is nothing on file\nis the state the caller asked for, not an error.",
+        "operationId": "delete_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeachingGuidanceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/subjects/{subject_id}/teaching-guidance/file": {
+      "get": {
+        "tags": [
+          "teaching-guidance"
+        ],
+        "summary": "Download Teaching Guidance",
+        "operationId": "download_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_file_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/today": {
       "get": {
         "tags": [
@@ -6355,6 +6550,20 @@
           "file"
         ],
         "title": "Body_upload_syllabus_api_v1_syllabus_uploads_post"
+      },
+      "Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"
       },
       "ClassBrief": {
         "properties": {
@@ -10711,6 +10920,64 @@
           "created_at"
         ],
         "title": "SyllabusUploadOut"
+      },
+      "TeachingGuidanceOut": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "uploaded": {
+            "type": "boolean",
+            "title": "Uploaded"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "file_mime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Mime"
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "subject_name",
+          "uploaded"
+        ],
+        "title": "TeachingGuidanceOut",
+        "description": "What is on file for a subject \u2014 or that nothing is.\n\n`uploaded` is explicit rather than inferred from a null filename: absence is\na state the surface renders as absence (\"no guidance uploaded yet\"), never\nas an empty row that looks like a broken one (`PROD-2`, `UX-19`)."
       },
       "TodayView": {
         "properties": {
