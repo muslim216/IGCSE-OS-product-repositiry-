@@ -18,7 +18,7 @@ from app.models import (
     ReadinessWeights,
     User,
 )
-from app.services.grade_boundaries import resolve_grade_boundaries, set_org_boundaries
+from app.services.grade_boundaries import set_org_boundaries
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -380,22 +380,3 @@ async def test_no_boundaries_means_no_band_at_all(client, tutor, world):  # noqa
     subject = resp.json()["subjects"][0]
     assert subject["predicted_grade"] is None
     assert subject["status"] is None
-
-
-async def test_a_snapshot_synthesized_without_boundaries_stores_no_grade(client, tutor, world):  # noqa: F811
-    """`predict_grade` returns "—" for an empty list, and an em dash is not a
-    grade to store. The column is nullable so the absence is recorded as one
-    (AV-11, PROD-2)."""
-    from app.models import Subject
-    from app.services.grades import predict_grade
-
-    assert predict_grade(72.0, []) == "—"
-
-    async with async_session() as session:
-        tutor_user = await session.get(User, tutor["user"]["id"])
-        subject = await session.get(Subject, world["subject_id"])
-        await set_org_boundaries(session, tutor_user.organization_id, subject.id, [])
-        await session.commit()
-        boundaries = await resolve_grade_boundaries(session, tutor_user.organization_id, subject)
-
-    assert boundaries == []

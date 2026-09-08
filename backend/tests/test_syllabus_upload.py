@@ -242,9 +242,18 @@ async def test_apply_upserts_existing_subject_by_exam_board_and_code(
         topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
 
     # Upsert by code, in place: one chapter row, retitled — not a second "1".
-    assert len(chapters) == 2  # chapter 2 from the first draft is left alone
+    assert {c.code for c in chapters} == {"1", "2"}  # chapter 2 is left alone
     assert next(c for c in chapters if c.code == "1").title == "Section one (revised)"
     assert next(t for t in topics if t.code == "1.1").title == "Sub-topic A (revised)"
+
+    # The whole topology, not just the rows the draft mentioned. A topic the
+    # corrected draft dropped ("1.2" and its child) is **kept**, deliberately:
+    # marks, mistakes and evidence attach to a topic id, so deleting one because
+    # a re-uploaded PDF stopped listing it would silently discard a student's
+    # record of work against it. A tutor removing a concept for real is a
+    # deletion they ask for, not a side effect of re-uploading a document
+    # (cubic asked which behaviour this is — this is the answer, pinned).
+    assert {t.code for t in topics} == {"1.1", "1.2", "1.2.1", "2.1"}
 
 
 async def test_apply_sets_no_grade_boundaries(client, tutor, uploaded):
