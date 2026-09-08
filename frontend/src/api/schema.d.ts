@@ -903,6 +903,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subjects/{subject_id}/marking-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Marking Rules */
+        get: operations["read_marking_rules_api_v1_subjects__subject_id__marking_rules_get"];
+        /**
+         * Write Marking Rules
+         * @description Replace this subject's rules. Saving an empty body clears them.
+         *
+         *     Clearing is a real action, not an edge case: these rules are the one
+         *     onboarding step a tutor may skip (`AV-87`), so "I do not want any" has to be
+         *     reachable from the editor and has to survive. Stored as NULL rather than an
+         *     empty string so the two states cannot drift apart in the column.
+         */
+        put: operations["write_marking_rules_api_v1_subjects__subject_id__marking_rules_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/groups": {
         parameters: {
             query?: never;
@@ -2820,6 +2846,22 @@ export interface components {
             final_marks?: number | null;
             /** Final Feedback */
             final_feedback?: string | null;
+        };
+        /** MarkingRulesIn */
+        MarkingRulesIn: {
+            /** Rules */
+            rules: string;
+        };
+        /** MarkingRulesOut */
+        MarkingRulesOut: {
+            /** Subject Id */
+            subject_id: number;
+            /** Subject Name */
+            subject_name: string;
+            /** Rules */
+            rules: string;
+            /** Configured */
+            configured: boolean;
         };
         /** MyAssessmentScore */
         MyAssessmentScore: {
@@ -5745,6 +5787,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonObservationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_marking_rules_api_v1_subjects__subject_id__marking_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkingRulesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_marking_rules_api_v1_subjects__subject_id__marking_rules_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkingRulesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkingRulesOut"];
                 };
             };
             /** @description Validation Error */

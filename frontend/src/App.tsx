@@ -41,6 +41,7 @@ import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
 import MocksPage from "./tutor/MocksPage";
+import MarkingRulesPage from "./tutor/MarkingRulesPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
 import TeachingGuidancePage from "./tutor/TeachingGuidancePage";
 import SettingsPage from "./tutor/SettingsPage";
@@ -111,6 +112,7 @@ export default function App() {
           <Route path="/tutor/boundaries" element={<GradeBoundariesPage />} />
           <Route path="/tutor/syllabuses" element={<SyllabusUploadPage />} />
           <Route path="/tutor/teaching-guidance" element={<TeachingGuidancePage />} />
+          <Route path="/tutor/marking-rules" element={<MarkingRulesPage />} />
           <Route path="/tutor/preferences" element={<PreferencesPage />} />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
