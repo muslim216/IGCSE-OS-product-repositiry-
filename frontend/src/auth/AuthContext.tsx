@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { getStoredTokens, storeTokens, type AuthResponse, type User } from "../api/client";
+import { useQueryClient } from "@tanstack/react-query";
 import { fetchMe, logout } from "../api/auth";
 
 interface AuthState {
@@ -43,6 +44,12 @@ interface AuthState {
 const AuthContext = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Server data is cached per query key, and no key carries an identity — a
+  // second sign-in on the same device would otherwise render the previous
+  // user's subjects, classes and marking rules from cache until each query
+  // refetched (CodeRabbit, CWE-524). Clearing here rather than scoping every
+  // key: one place cannot be forgotten, and a key added later inherits it.
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   // A ref, not state: it only needs to be current when signIn/signOut's own
@@ -60,20 +67,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const signIn = useCallback((auth: AuthResponse) => {
-    epochRef.current += 1;
-    storeTokens(auth.tokens);
-    setUser(auth.user);
-  }, []);
+  const signIn = useCallback(
+    (auth: AuthResponse) => {
+      epochRef.current += 1;
+      // Before the tokens, so nothing can render the outgoing identity's data
+      // against the incoming one's session.
+      queryClient.clear();
+      storeTokens(auth.tokens);
+      setUser(auth.user);
+    },
+    [queryClient],
+  );
 
   const signOut = useCallback(() => {
     epochRef.current += 1;
+    queryClient.clear();
     logout().catch(() => {
       // best-effort: cookie may already be gone
     });
     storeTokens(null);
     setUser(null);
-  }, []);
+  }, [queryClient]);
 
   // Functional update, matched on id and epoch: the decision has to be made
   // against the state at the moment it applies, not the state captured when

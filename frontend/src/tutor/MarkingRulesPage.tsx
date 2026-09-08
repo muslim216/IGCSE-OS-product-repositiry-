@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listSubjects } from "../api/groups";
 import { getMarkingRules, saveMarkingRules, MAX_MARKING_RULES } from "../api/markingRules";
@@ -16,6 +16,23 @@ import { ABSENT } from "../lib/labels";
  * context assembler is a later phase — so the copy says so rather than
  * promising an effect the product does not have (`PROD-1`).
  */
+/** A load failure with a way out of it. Telling someone something broke and
+ *  leaving them to reload the whole page is a dead end for what is usually a
+ *  transient error (cubic). */
+function LoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
+      <button
+        onClick={onRetry}
+        className="rounded-md border border-line-control px-3 py-1.5 text-sm text-ink-700 hover:border-line-strong"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 export default function MarkingRulesPage() {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
@@ -33,8 +50,15 @@ export default function MarkingRulesPage() {
   // stored — the server's answer stays in TanStack Query (FE-6).
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Seeded once per subject, not on every query update. A refetch — a window
+  // regaining focus is enough — would otherwise copy the stored text over
+  // whatever the tutor has typed and not yet saved (CodeRabbit).
+  const hydratedFor = useRef<number | null>(null);
   useEffect(() => {
-    if (rules.data) setDraft(rules.data.rules);
+    if (rules.data && hydratedFor.current !== rules.data.subject_id) {
+      hydratedFor.current = rules.data.subject_id;
+      setDraft(rules.data.rules);
+    }
   }, [rules.data]);
 
   const save = useMutation({
@@ -57,7 +81,7 @@ export default function MarkingRulesPage() {
   // "Could not load" and "you have none" are different facts (PROD-2): a retry
   // and a next step.
   if (subjects.isError || !subjects.data) {
-    return <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>;
+    return <LoadFailed onRetry={() => subjects.refetch()} />;
   }
   if (subjects.data.length === 0) {
     return (
@@ -107,13 +131,16 @@ export default function MarkingRulesPage() {
         ))}
       </select>
 
-      {/* The draft is only safe to save once the loaded rules are the selected
-          subject's: between a switch and its response, `draft` still holds the
-          previous subject's text, and saving then writes it to the new one. */}
+      {/* The editor appears only once the loaded rules are the selected
+          subject's. The query key carries the subject, so a switch already
+          moves to a loading state with no data — this second condition is
+          defence in depth for the day someone adds `placeholderData:
+          keepPreviousData` and the previous subject's text starts showing
+          under the new subject's id. */}
       {rules.isLoading || (rules.data && rules.data.subject_id !== selected) ? (
         <span aria-hidden className="block h-40 w-full animate-pulse rounded bg-surface-muted" />
       ) : rules.isError || !rules.data ? (
-        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
+        <LoadFailed onRetry={() => rules.refetch()} />
       ) : (
         <section className="space-y-3">
           <label htmlFor="marking-rules" className="block text-sm font-medium text-ink-700">

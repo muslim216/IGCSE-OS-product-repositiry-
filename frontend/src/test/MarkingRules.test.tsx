@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import MarkingRulesPage from "../tutor/MarkingRulesPage";
+import type { MarkingRules } from "../api/markingRules";
 
 /* The AI marking agreement (2.6, AV-75/AV-111). What has to hold on screen:
    an unset subject says so rather than looking unfinished, a draft belongs to
@@ -13,9 +14,16 @@ const SUBJECTS = [
   { id: 8, exam_board: "Edexcel IGCSE", code: "4BI1", name: "Biology", grade_scale: "9-1" },
 ];
 
-function stub(initial: Record<number, string> = {}) {
+function stub(initial: Record<number, string> = {}, options: { hold?: number } = {}) {
   const saved: { subject: number; rules: string }[] = [];
   const state = { ...initial };
+  /** Requests for this subject never resolve, which is the window between
+   *  switching subject and its rules arriving. */
+  const held = options.hold;
+  /** Change what the server holds, as another session would. */
+  const setStored = (subject: number, rules: string) => {
+    state[subject] = rules;
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -27,6 +35,7 @@ function stub(initial: Record<number, string> = {}) {
       if (method === "GET" && path === "/api/v1/subjects") return json(SUBJECTS);
       if (match) {
         const subject = Number(match[1]);
+        if (subject === held) return new Promise<Response>(() => {});
         const known = SUBJECTS.find((s) => s.id === subject);
         if (!known)
           return new Response(JSON.stringify({ detail: "no such subject" }), { status: 404 });
@@ -48,7 +57,7 @@ function stub(initial: Record<number, string> = {}) {
       });
     }),
   );
-  return saved;
+  return { saved, setStored };
 }
 
 function renderPage() {
@@ -85,7 +94,7 @@ test("the page does not claim to decide when a mark counts, or that marking read
 });
 
 test("saving sends the draft for the selected subject", async () => {
-  const saved = stub();
+  const { saved } = stub();
   renderPage();
 
   const box = await screen.findByLabelText("Marking rules for Chemistry");
@@ -109,19 +118,56 @@ test("switching subject loads that subject's own rules, never the other's draft"
   expect(await screen.findByText(/Nothing set for this subject/)).toBeTruthy();
 });
 
-test("a draft cannot be saved onto the subject it was not typed for", async () => {
-  // The window between switching subject and its rules arriving: `draft` still
-  // holds the previous subject's text, and the editor must not be savable until
-  // what is loaded matches what is selected.
-  const saved = stub({ 7: "Chemistry rules.", 8: "Biology rules." });
+test("mid-switch, there is nothing to save and no text from the old subject", async () => {
+  // Biology's request never resolves, so this sits in the window between
+  // selecting it and its rules arriving. Chemistry's text and the Save button
+  // must both be gone: a click there would write one subject's rules onto
+  // another.
+  //
+  // What makes that true is the query key carrying the subject — cubic was
+  // right that this cannot fail with the `subject_id !== selected` condition
+  // removed, and the honest reading is that the condition is defence in depth,
+  // not the mechanism. The behaviour is still worth pinning: it is what breaks
+  // if someone makes this query keep previous data across the switch.
+  const { saved } = stub({ 7: "Chemistry rules.", 8: "Biology rules." }, { hold: 8 });
   renderPage();
 
   await screen.findByDisplayValue("Chemistry rules.");
   fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "8" } });
-  await screen.findByDisplayValue("Biology rules.");
 
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  // Nothing to save — the loaded rules and the draft agree — and certainly not
-  // Chemistry's text under Biology's id.
+  await waitFor(() => expect(screen.queryByDisplayValue("Chemistry rules.")).toBeNull());
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   expect(saved).toEqual([]);
+});
+
+test("a refetch does not overwrite what the tutor has typed", async () => {
+  // A window regaining focus is enough to refetch. Copying the stored text in
+  // again would discard unsaved edits mid-sentence (CodeRabbit).
+  const { setStored } = stub({ 7: "Stored rules." });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MarkingRulesPage />
+    </QueryClientProvider>,
+  );
+
+  const box = await screen.findByDisplayValue("Stored rules.");
+  fireEvent.change(box, { target: { value: "Half-written new rules" } });
+
+  // The stored text changes under them, as a second session would change it.
+  // Without the guard the effect copies it straight over the draft.
+  setStored(7, "Rules edited in another tab.");
+  await act(async () => {
+    await client.refetchQueries({ queryKey: ["marking-rules", 7] });
+  });
+  // The new value has reached the cache, so any effect that hydrates from it
+  // has had its chance — without the guard the textarea now reads the server's
+  // text instead of the tutor's.
+  await waitFor(() =>
+    expect((client.getQueryData(["marking-rules", 7]) as MarkingRules).rules).toBe(
+      "Rules edited in another tab.",
+    ),
+  );
+
+  expect(screen.getByDisplayValue("Half-written new rules")).toBeTruthy();
 });

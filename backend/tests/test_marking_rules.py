@@ -235,3 +235,16 @@ async def test_nothing_marks_with_them_yet(client, tutor, subject_id):
     )
     assert "marking_rules" not in prompts.MARKING
     assert prompts.PROMPTS["marking"].version == "v3"
+
+
+async def test_the_cap_is_measured_after_trimming(client, tutor, subject_id):
+    """Trailing whitespace must not push a body that would store fine over the
+    limit — trimming only shortens, so the cap cannot be bypassed either
+    (cubic)."""
+    resp = await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": "x" * MAX_MARKING_RULES + "\n  "},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["rules"]) == MAX_MARKING_RULES

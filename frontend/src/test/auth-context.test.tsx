@@ -5,6 +5,7 @@
  * the write, decides whether the answer still applies.
  */
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AuthProvider, useApplyUser, useAuth } from "../auth/AuthContext";
 import type { AuthResponse, User } from "../api/client";
@@ -48,11 +49,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The provider clears the query cache on every sign-in and sign-out, so it
+// reads the client from context the way it does in main.tsx.
+let queryClient: QueryClient;
+
 async function mounted() {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <AuthProvider>
-      <Probe />
-    </AuthProvider>,
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    </QueryClientProvider>,
   );
   await waitFor(() => expect(screen.getByTestId("who")).toHaveTextContent("Alice"));
 }
@@ -110,4 +118,36 @@ test("a write from before a sign-out/sign-back-in cycle is ignored even for the 
 
   expect(screen.getByTestId("who")).toHaveTextContent("Alice");
   expect(screen.getByTestId("who")).not.toHaveTextContent("Stale Rename");
+});
+
+/* Cached server data outliving the session it was fetched in. No query key
+   carries an identity, so a second sign-in on the same device would render the
+   previous user's subjects, classes and marking rules from cache until each
+   query refetched (CodeRabbit, CWE-524). */
+
+test("signing out empties the query cache", async () => {
+  await mounted();
+  queryClient.setQueryData(["subjects"], [{ id: 1, name: "Chemistry" }]);
+  queryClient.setQueryData(["marking-rules", 1], { rules: "Alice's rules." });
+
+  act(() => ctx.signOut());
+
+  expect(queryClient.getQueryData(["subjects"])).toBeUndefined();
+  expect(queryClient.getQueryData(["marking-rules", 1])).toBeUndefined();
+});
+
+test("signing in as someone else does not show the previous session's data", async () => {
+  await mounted();
+  queryClient.setQueryData(["subjects"], [{ id: 1, name: "Alice's Chemistry" }]);
+
+  const bob = { ...alice, id: 2, name: "Bob", email: "bob@example.com" } as User;
+  act(() =>
+    ctx.signIn({
+      user: bob,
+      tokens: { access_token: "t2", token_type: "bearer" },
+    } as unknown as AuthResponse),
+  );
+
+  await waitFor(() => expect(screen.getByTestId("who")).toHaveTextContent("Bob"));
+  expect(queryClient.getQueryData(["subjects"])).toBeUndefined();
 });

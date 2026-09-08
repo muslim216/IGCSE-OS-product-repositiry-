@@ -16,16 +16,22 @@ MAX_MARKING_RULES = 8000
 class MarkingRulesIn(BaseModel):
     rules: str = Field(max_length=MAX_MARKING_RULES)
 
-    @field_validator("rules")
+    @field_validator("rules", mode="before")
     @classmethod
-    def _trimmed(cls, value: str) -> str:
+    def _trimmed(cls, value: object) -> object:
         """Whitespace-only input is no rules at all.
 
         Storing "   " would make `marking_rules` truthy, so Phase 3 would paste
         an empty instruction block into every marking prompt for the subject and
         the editor would report rules that say nothing.
+
+        `mode="before"`, so the length cap below measures the *trimmed* text.
+        Trimming only ever shortens a string, so the cap cannot be bypassed —
+        but measuring the raw value rejected 7,999 characters with a trailing
+        newline, which is a confusing 422 for a body that would have stored
+        fine (cubic).
         """
-        return value.strip()
+        return value.strip() if isinstance(value, str) else value
 
 
 class MarkingRulesOut(BaseModel):
