@@ -102,3 +102,62 @@ async def test_v2_endpoint_access_control(client, tutor, world):
         f"/api/v1/readiness/v2/students/{world['student_id']}", headers=other_headers
     )
     assert resp.status_code == 404
+
+
+async def test_a_grade_is_hidden_once_the_boundaries_behind_it_are_gone(client, tutor, world):  # noqa: F811
+    """`/readiness/v2` returns the grade stored on the snapshot, and until now
+    returned it whether or not anything still stood behind it.
+
+    Task 2.4 (`AV-11`) made the organization's boundaries the only source of a
+    predicted grade and taught `/readiness/*` to show none when there are none —
+    but missed this second surface, so clearing them left the old grade visible
+    here (cubic, PR #63). The snapshot keeps its value either way: that is the
+    honest record of what the engine said, and the grade comes back if the
+    boundaries do.
+    """
+    from app.models import ReadinessSnapshot, User
+    from app.services.grade_boundaries import set_org_boundaries
+    from tests.test_readiness_cutover import _write_snapshot
+
+    await _write_snapshot(world, predicted_grade="7")
+    async with async_session() as session:
+        org_id = (await session.get(User, tutor["user"]["id"])).organization_id
+
+    async def shown():
+        resp = await client.get(
+            f"/api/v1/readiness/v2/students/{world['student_id']}", headers=tutor["headers"]
+        )
+        assert resp.status_code == 200, resp.text
+        subject = next(s for s in resp.json()["subjects"] if s["subject_id"] == world["subject_id"])
+        return subject["predicted_grade"], subject["score"]
+
+    # The `world` fixture sets this organization's boundaries, so the grade shows.
+    assert await shown() == ("7", 72.0)
+
+    async with async_session() as session:
+        await set_org_boundaries(session, org_id, world["subject_id"], [])
+        await session.commit()
+
+    # Nothing stands behind it now: the grade is absent, the score is not.
+    assert await shown() == (None, 72.0)
+
+    async with async_session() as session:
+        stored = await session.scalar(
+            select(ReadinessSnapshot).where(
+                ReadinessSnapshot.student_id == world["student_id"],
+                ReadinessSnapshot.subject_id == world["subject_id"],
+            )
+        )
+        # Suppressed on the way out, never erased on the way in.
+        assert stored.predicted_grade == "7"
+
+    async with async_session() as session:
+        await set_org_boundaries(
+            session,
+            org_id,
+            world["subject_id"],
+            [{"grade": "7", "min": 70}, {"grade": "U", "min": 0}],
+        )
+        await session.commit()
+
+    assert await shown() == ("7", 72.0)
