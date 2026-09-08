@@ -9,7 +9,9 @@ import {
   uploadSyllabus,
   type SubjectLevel,
   type SyllabusChapterDraft,
+  type SyllabusDraft,
   type SyllabusTopicDraft,
+  type SyllabusUploadDetail,
 } from "../api/syllabusUpload";
 import { ApiError } from "../api/client";
 
@@ -132,10 +134,22 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const saveDraft = useMutation({
-    mutationFn: (draft: NonNullable<typeof detail.data>["draft"]) =>
-      updateSyllabusDraft(id, draft!),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["syllabus-upload", id] }),
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    mutationFn: (draft: SyllabusDraft) => updateSyllabusDraft(id, draft),
+    // Every edit PUTs the whole draft, and each one is built from what the
+    // cache holds — so the cache has to carry the previous keystroke before
+    // the next one reads it. Writing it here rather than waiting for the
+    // response also stops the two hazards CodeRabbit named: a second edit
+    // landing before the first response drops the first edit, and a slow
+    // response overwriting a newer one. The inputs stay controlled by query
+    // data, never copied into useState (FE-6). A failed save resyncs.
+    onMutate: (draft) =>
+      queryClient.setQueryData(["syllabus-upload", id], (old?: SyllabusUploadDetail) =>
+        old ? { ...old, draft } : old,
+      ),
+    onError: (err) => {
+      setError(err instanceof ApiError ? err.message : String(err));
+      queryClient.invalidateQueries({ queryKey: ["syllabus-upload", id] });
+    },
   });
   const retry = useMutation({
     mutationFn: () => retrySyllabusExtraction(id),
@@ -159,17 +173,36 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const draft = upload.draft;
   const topicCount = draft?.chapters.reduce((n, c) => n + flatten(c.topics).length, 0) ?? 0;
 
+  /** The draft as of the last edit, not as of this render.
+   *
+   * `onMutate` writes each edit into the cache synchronously, but React has not
+   * re-rendered by the time the next keystroke's handler runs, so the `draft`
+   * in this closure can already be one edit behind. Every PUT carries the whole
+   * draft, so building one from that stale copy silently reverts the previous
+   * edit (CodeRabbit). Read the cache instead. */
+  function latestDraft(): SyllabusDraft | null {
+    return (
+      queryClient.getQueryData<SyllabusUploadDetail>(["syllabus-upload", id])?.draft ??
+      draft ??
+      null
+    );
+  }
+
   function setChapterField(index: number, patch: Partial<SyllabusChapterDraft>) {
-    if (!draft) return;
+    const current = latestDraft();
+    if (!current) return;
     saveDraft.mutate({
-      ...draft,
-      chapters: draft.chapters.map((c, i) => (i === index ? { ...c, ...patch } : c)),
+      ...current,
+      chapters: current.chapters.map((c, i) => (i === index ? { ...c, ...patch } : c)),
     });
   }
 
   function setTopicField(chapter: number, path: number[], patch: Partial<SyllabusTopicDraft>) {
-    if (!draft) return;
-    setChapterField(chapter, { topics: updateAtPath(draft.chapters[chapter].topics, path, patch) });
+    const current = latestDraft();
+    if (!current) return;
+    setChapterField(chapter, {
+      topics: updateAtPath(current.chapters[chapter].topics, path, patch),
+    });
   }
 
   return (
@@ -229,37 +262,46 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
               <p className="text-sm text-slate-700">{draft.grade_scale}</p>
             </div>
             <div>
-              <label
-                htmlFor="syllabus-level"
-                className="block text-xs font-medium uppercase tracking-wide text-slate-500"
-              >
-                Level
-              </label>
               {editable ? (
-                <select
-                  id="syllabus-level"
-                  className="mt-0.5 rounded border border-slate-300 px-1.5 py-1 text-sm"
-                  value={draft.level ?? ""}
-                  onChange={(e) =>
-                    saveDraft.mutate({ ...draft, level: e.target.value as SubjectLevel })
-                  }
-                >
-                  {/* The document may not state a level, and nothing guesses one
+                <>
+                  <label
+                    htmlFor="syllabus-level"
+                    className="block text-xs font-medium uppercase tracking-wide text-slate-500"
+                  >
+                    Level
+                  </label>
+                  <select
+                    id="syllabus-level"
+                    className="mt-0.5 rounded border border-slate-300 px-1.5 py-1 text-sm"
+                    value={draft.level ?? ""}
+                    onChange={(e) => {
+                      const current = latestDraft();
+                      if (current)
+                        saveDraft.mutate({ ...current, level: e.target.value as SubjectLevel });
+                    }}
+                  >
+                    {/* The document may not state a level, and nothing guesses one
                       for the tutor (AV-7, PROD-2) — so "not set" is a real
                       option to sit in, and applying refuses until it is set. */}
-                  <option value="" disabled>
-                    Choose a level
-                  </option>
-                  {LEVELS.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
+                    <option value="" disabled>
+                      Choose a level
                     </option>
-                  ))}
-                </select>
+                    {LEVELS.map((l) => (
+                      <option key={l.value} value={l.value}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </>
               ) : (
-                <p className="text-sm text-slate-700">
-                  {LEVELS.find((l) => l.value === draft.level)?.label ?? "Not set"}
-                </p>
+                <>
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Level
+                  </p>
+                  <p className="text-sm text-slate-700">
+                    {LEVELS.find((l) => l.value === draft.level)?.label ?? "Not set"}
+                  </p>
+                </>
               )}
             </div>
           </div>
@@ -271,7 +313,11 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
             {editable && (
               <button
                 onClick={() => apply.mutate()}
-                disabled={apply.isPending}
+                // Also while a draft save is in flight: a tutor who picks a
+                // level and clicks straight through would otherwise send apply
+                // before the level reaches the server, and be told to choose
+                // the level they just chose (cubic).
+                disabled={apply.isPending || saveDraft.isPending}
                 className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
               >
                 {apply.isPending ? "Applying…" : "Apply — make available for groups"}
@@ -281,6 +327,10 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
           <div className="mt-3 space-y-4">
+            {/* Keyed by index deliberately, against the usual rule: a chapter's
+                code is what the tutor is editing, so keying on it would change
+                the key on every keystroke and pull focus out of the input. The
+                list is never reordered or filtered here. */}
             {draft.chapters.map((chapter, chapterIndex) => (
               <div key={chapterIndex} className="rounded-md border border-slate-200">
                 <div className="flex items-center gap-2 border-b bg-slate-50 px-3 py-2">

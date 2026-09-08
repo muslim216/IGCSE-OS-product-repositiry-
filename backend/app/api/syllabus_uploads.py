@@ -155,6 +155,7 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
             Subject.code == draft.code,
         )
     )
+    is_new_subject = subject is None
     if subject is None:
         subject = Subject(
             organization_id=user.organization_id,
@@ -170,9 +171,11 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     # them was asking it to guess. Task 2.4 makes the tutor-entered table the only
     # source; until then a *new* subject still needs a working predicted grade, so
     # it is seeded with the scale's standard split. An existing subject is never
-    # touched — a tutor who entered real boundaries must not lose them by
-    # re-uploading the document.
-    if not subject.grade_boundaries:
+    # touched — not even one whose boundaries are an empty list, which is a tutor
+    # having cleared them, not a gap to fill with an inferred split presented as
+    # stored (cubic, PROD-2). Re-uploading the document must never change what a
+    # tutor entered.
+    if is_new_subject:
         subject.grade_boundaries = defaults_for_scale(draft.grade_scale)
     await db.flush()
 
@@ -217,6 +220,19 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         await db.flush()
         for node in drafted.topics:
             await upsert(node, chapter.id, None)
+
+    # A later draft may omit a chapter an earlier one created, and nothing here
+    # deletes it. Left alone it would keep a position the new draft has just
+    # reassigned, and two chapters sharing a position make `order_by(position)`
+    # arbitrary (Gitar). They sort after everything the tutor just approved, in
+    # their previous relative order.
+    drafted_codes = {c.code for c in draft.chapters}
+    stale = sorted(
+        (c for code, c in chapters.items() if code not in drafted_codes),
+        key=lambda c: (c.position, c.code),
+    )
+    for offset, chapter in enumerate(stale, start=len(draft.chapters) + 1):
+        chapter.position = offset
 
     upload.status = SyllabusUploadStatus.applied
     upload.subject_id = subject.id

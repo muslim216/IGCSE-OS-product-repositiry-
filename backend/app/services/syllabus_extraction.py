@@ -103,5 +103,11 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
     result = require_parsed(response)
     if not result.chapters:
         raise ValueError("No chapters were found in the document")
+    # Chapters alone are not a syllabus: marks, mistakes and readiness all
+    # attach at topic level, so a chapter-only draft applies cleanly into a
+    # subject nothing can ever be tracked against. The flat extractor rejected
+    # an empty topic list for the same reason (cubic).
+    if not any(chapter.topics for chapter in result.chapters):
+        raise ValueError("No topics were found in the document")
 
     upload.draft = result.model_dump()

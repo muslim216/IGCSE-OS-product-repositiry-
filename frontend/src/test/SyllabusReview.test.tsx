@@ -106,7 +106,7 @@ test("editing a topic keeps it in its chapter", async () => {
     target: { value: "Acids, bases and salts" },
   });
 
-  await waitFor(() => expect(puts.length).toBe(1));
+  await waitFor(() => expect(puts).toHaveLength(1));
   const sent = puts[0] as typeof DRAFT;
   expect(sent.chapters[1].topics[0].title).toBe("Acids, bases and salts");
   expect(sent.chapters[0].topics[0].title).toBe("States of matter");
@@ -121,6 +121,26 @@ test("a level the document never stated is the tutor's to set", async () => {
   expect(select.value).toBe("");
 
   fireEvent.change(select, { target: { value: "a_level" } });
-  await waitFor(() => expect(puts.length).toBe(1));
+  await waitFor(() => expect(puts).toHaveLength(1));
   expect((puts[0] as typeof DRAFT).level).toBe("a_level");
+});
+
+test("a second edit does not drop the first", async () => {
+  const puts = stub();
+  await openDraft();
+
+  // Two fields edited back to back. Each PUT sends the whole draft, so if it is
+  // built from data that has not caught up, the second silently reverts the
+  // first (CodeRabbit).
+  fireEvent.change(screen.getByDisplayValue("Principles of chemistry"), {
+    target: { value: "Principles" },
+  });
+  fireEvent.change(screen.getByDisplayValue("States of matter"), {
+    target: { value: "States" },
+  });
+
+  await waitFor(() => expect(puts).toHaveLength(2));
+  const sent = puts[1] as typeof DRAFT;
+  expect(sent.chapters[0].title).toBe("Principles");
+  expect(sent.chapters[0].topics[0].title).toBe("States");
 });

@@ -316,7 +316,9 @@ async def test_edit_draft_before_apply(client, tutor, uploaded):
     )
     subject_id = apply_resp.json()["subject_id"]
     async with async_session() as session:
-        chapter = await session.scalar(select(Chapter).where(Chapter.subject_id == subject_id))
+        chapter = await session.scalar(
+            select(Chapter).where(Chapter.subject_id == subject_id, Chapter.code == "1")
+        )
     assert chapter.title == "Section one (tutor corrected)"
     topics = await client.get(f"/api/v1/subjects/{subject_id}/topics", headers=tutor["headers"])
     assert any(t["title"] == "Sub-topic A (tutor corrected)" for t in topics.json())
@@ -436,3 +438,105 @@ async def test_a_repeated_code_in_the_draft_merges_instead_of_failing(client, tu
         topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
     assert [(c.code, c.title) for c in chapters] == [("1", "Also chapter one")]
     assert [(t.code, t.title) for t in topics] == [("1.1", "A again")]
+
+
+async def test_a_chapter_dropped_by_a_later_draft_sorts_after_the_new_ones(
+    client, tutor, uploaded, monkeypatch
+):
+    """Nothing deletes a chapter a later draft omits, so it must not keep a
+    position the new draft just handed to a different chapter — two rows sharing
+    one makes `order_by(position)` arbitrary (Gitar)."""
+    first = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first.json()["subject_id"]
+
+    # The second draft keeps chapter 2 and drops chapter 1, so 2 takes position 1.
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(
+            draft_of(
+                chapters=[
+                    {
+                        "code": "2",
+                        "title": "Section two",
+                        "topics": [{"code": "2.1", "title": "Sub-topic C", "children": []}],
+                    }
+                ]
+            )
+        ),
+    )
+    second_id = await upload_pdf(client, tutor, title="Chapter 1 dropped", name="dropped.pdf")
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+
+    async with async_session() as session:
+        chapters = (
+            await session.scalars(
+                select(Chapter).where(Chapter.subject_id == subject_id).order_by(Chapter.position)
+            )
+        ).all()
+    assert [(c.code, c.position) for c in chapters] == [("2", 1), ("1", 2)]
+
+
+async def test_a_draft_with_chapters_but_no_topics_is_rejected(client, tutor, monkeypatch, fake_ai):
+    """Chapters alone are not a syllabus — marks, mistakes and readiness attach
+    at topic level, so a chapter-only draft would apply into a subject nothing
+    can be tracked against (cubic)."""
+    from app.services.syllabus_extraction import SyllabusExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction.structured_complete",
+        fake_ai(
+            SyllabusExtractionResult(
+                exam_board="Edexcel IGCSE",
+                code="4XX1",
+                name="Test Subject",
+                grade_scale="9-1",
+                level="igcse",
+                chapters=[{"code": "1", "title": "Section one", "topics": []}],
+            )
+        ),
+    )
+    resp = await client.post(
+        "/api/v1/syllabus-uploads",
+        data={"title": "Chapters only"},
+        files={"file": ("empty.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    upload_id = resp.json()["id"]
+    await process_one_job()
+    await process_one_job()
+
+    detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
+    assert detail.json()["status"] == "extraction_failed"
+    assert "No topics" in detail.json()["error"]
+
+
+async def test_reapply_never_seeds_boundaries_a_tutor_cleared(client, tutor, uploaded, monkeypatch):
+    """An empty boundary list is a tutor's decision, not a gap. Filling it with
+    the scale's generic split on re-apply would show inferred numbers as though
+    the tutor had entered them (cubic, PROD-2)."""
+    from app.models import Subject
+
+    first = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first.json()["subject_id"]
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        subject.grade_boundaries = []
+        await session.commit()
+
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
+    second_id = await upload_pdf(client, tutor, title="Same syllabus", name="again.pdf")
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+    assert subject.grade_boundaries == []
