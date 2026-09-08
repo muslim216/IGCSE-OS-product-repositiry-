@@ -39,7 +39,10 @@ function stub(uploaded: boolean) {
       const guidance = /^\/api\/v1\/subjects\/(\d+)\/teaching-guidance$/.exec(path);
 
       if (method === "GET" && path === "/api/v1/subjects") return json(SUBJECTS);
-      if (guidance) {
+      // Only the fixture subject exists. A request for any other id has to 404
+      // here, or the stub cannot show a cross-subject write as the failure it
+      // would be (cubic).
+      if (guidance && Number(guidance[1]) === 7) {
         const subject = Number(guidance[1]);
         if (method !== "GET") calls.push({ method, subject });
         if (method === "PUT") onFile = true;

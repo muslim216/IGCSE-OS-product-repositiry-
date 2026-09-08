@@ -107,7 +107,15 @@ async def upload_teaching_guidance(
     try:
         await db.commit()
     except Exception:
-        await db.rollback()
+        # The rollback is best-effort for the same reason the deletes are: if it
+        # raises, that error would replace the commit's — the one worth seeing —
+        # and skip the cleanup below, leaving the object orphaned as well
+        # (cubic). The session is discarded at the end of the request either
+        # way.
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001 — the commit error is the one to raise
+            log.exception("could not roll back after a failed teaching-guidance commit")
         # The row never changed, so the old document is still in force and it is
         # the *new* object that now references nothing.
         await _discard(path, why="commit failed")

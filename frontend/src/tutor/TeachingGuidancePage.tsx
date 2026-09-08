@@ -54,6 +54,9 @@ export default function TeachingGuidancePage() {
     onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teaching-guidance", selected] });
+      // The input is remounted by its key, but the file behind it would survive
+      // — an empty-looking form that uploads on the next click (cubic).
+      setFile(null);
       showToast("Teaching guidance removed.");
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
@@ -103,6 +106,10 @@ export default function TeachingGuidancePage() {
 
       <select
         aria-label="Subject"
+        // Locked while a write is in flight: the mutation captured the subject
+        // it started on, so switching underneath it refreshes the wrong one and
+        // clears a selection the tutor has just made (cubic).
+        disabled={busy}
         value={selected ?? ""}
         onChange={(e) => {
           // A file chosen for Chemistry must not be uploaded to Biology: the
@@ -167,6 +174,7 @@ export default function TeachingGuidancePage() {
                 key={`${selected}-${guidance.data.uploaded_at ?? "none"}`}
                 id="guidance-file"
                 type="file"
+                disabled={busy}
                 accept="application/pdf,image/*"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 className="mt-1 text-sm"
