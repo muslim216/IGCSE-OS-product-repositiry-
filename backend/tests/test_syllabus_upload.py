@@ -200,103 +200,39 @@ async def test_apply_refuses_a_draft_with_no_level(client, tutor, monkeypatch):
     assert subject.level is SubjectLevel.a_level
 
 
-async def test_apply_upserts_existing_subject_by_exam_board_and_code(
-    client, tutor, uploaded, monkeypatch
-):
-    """Uploading a second, corrected syllabus for the same exam_board+code
-    should update the existing subject's chapters and topics rather than
-    creating a duplicate."""
-    first_apply = await client.post(
-        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
-    )
-    subject_id = first_apply.json()["subject_id"]
+async def test_apply_sets_no_grade_boundaries(client, tutor, uploaded):
+    """Applying a syllabus creates no boundaries and no predicted grade.
 
-    monkeypatch.setattr(
-        "app.services.syllabus_extraction._run_extraction",
-        extraction_returning(
-            draft_of(
-                chapters=[
-                    {
-                        "code": "1",
-                        "title": "Section one (revised)",
-                        "topics": [
-                            {"code": "1.1", "title": "Sub-topic A (revised)", "children": []}
-                        ],
-                    }
-                ]
-            )
-        ),
-    )
-    second_id = await upload_pdf(client, tutor, title="Test syllabus v2", name="syllabus2.pdf")
-
-    apply2 = await client.post(
-        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
-    )
-    assert apply2.status_code == 200
-    assert apply2.json()["subject_id"] == subject_id
-
-    async with async_session() as session:
-        chapters = (
-            await session.scalars(select(Chapter).where(Chapter.subject_id == subject_id))
-        ).all()
-        topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
-
-    # Upsert by code, in place: one chapter row, retitled — not a second "1".
-    assert len(chapters) == 2  # chapter 2 from the first draft is left alone
-    assert next(c for c in chapters if c.code == "1").title == "Section one (revised)"
-    assert next(t for t in topics if t.code == "1.1").title == "Sub-topic A (revised)"
-
-
-async def test_reapply_keeps_the_subjects_existing_boundaries(client, tutor, uploaded, monkeypatch):
-    """Grade boundaries are no longer extracted (task 2.3) — a syllabus document
-    publishes a specification, not a series' boundaries. Re-applying must not
-    replace a tutor's entered boundaries with the scale's generic split."""
-    from app.models import Subject
-
-    first = await client.post(
-        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
-    )
-    subject_id = first.json()["subject_id"]
-    async with async_session() as session:
-        subject = await session.get(Subject, subject_id)
-        subject.grade_boundaries = [{"grade": "9", "min": 88}, {"grade": "U", "min": 0}]
-        await session.commit()
-
-    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
-    second_id = await upload_pdf(client, tutor, title="Same syllabus again", name="syllabus3.pdf")
-    apply2 = await client.post(
-        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
-    )
-    assert apply2.status_code == 200
-
-    async with async_session() as session:
-        subject = await session.get(Subject, subject_id)
-    assert subject.grade_boundaries == [{"grade": "9", "min": 88}, {"grade": "U", "min": 0}]
-
-
-async def test_apply_seeds_default_boundaries_for_a_new_subject(client, tutor, monkeypatch):
-    """A brand-new subject still gets working predicted grades from the scale's
-    standard split — the cold-start value the fallback exists for, until 2.4
-    makes the tutor-entered table the only source."""
-    from app.models import Subject
+    The org-scoped table is the only source since task 2.4 (AV-11), and nothing
+    writes it on a tutor's behalf: a published split seeded here would be
+    indistinguishable from figures they entered (PROD-2, PROD-8). The editor
+    offers it pre-filled, labelled unconfirmed, and it counts once they save.
+    """
+    from app.models import GradeBoundary
     from app.services.grade_boundaries import defaults_for_scale
 
-    monkeypatch.setattr(
-        "app.services.syllabus_extraction._run_extraction",
-        extraction_returning(
-            draft_of(chapters=CHAPTERS, code="0620", exam_board="Cambridge"),
-        ),
-    )
-    upload_id = await upload_pdf(client, tutor, title="New subject", name="new.pdf")
     applied = await client.post(
-        f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
     )
     subject_id = applied.json()["subject_id"]
 
     async with async_session() as session:
-        subject = await session.get(Subject, subject_id)
-    assert subject.grade_boundaries == defaults_for_scale("9-1")
-    assert subject.grade_boundaries  # not empty
+        rows = (
+            await session.scalars(
+                select(GradeBoundary).where(GradeBoundary.subject_id == subject_id)
+            )
+        ).all()
+    assert rows == []
+
+    read = await client.get(
+        f"/api/v1/subjects/{subject_id}/grade-boundaries", headers=tutor["headers"]
+    )
+    body = read.json()
+    assert body["source"] == "none"
+    # Offered, not stored — the published starting point for the scale.
+    assert body["boundaries"] == [
+        {"grade": b["grade"], "min": b["min"]} for b in defaults_for_scale("9-1")
+    ]
 
 
 async def test_edit_draft_before_apply(client, tutor, uploaded):
@@ -357,7 +293,6 @@ async def test_student_cannot_upload_syllabus(client, tutor):
             code="4ZZ1",
             name="Placeholder",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -513,30 +448,3 @@ async def test_a_draft_with_chapters_but_no_topics_is_rejected(client, tutor, mo
     detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
     assert detail.json()["status"] == "extraction_failed"
     assert "No topics" in detail.json()["error"]
-
-
-async def test_reapply_never_seeds_boundaries_a_tutor_cleared(client, tutor, uploaded, monkeypatch):
-    """An empty boundary list is a tutor's decision, not a gap. Filling it with
-    the scale's generic split on re-apply would show inferred numbers as though
-    the tutor had entered them (cubic, PROD-2)."""
-    from app.models import Subject
-
-    first = await client.post(
-        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
-    )
-    subject_id = first.json()["subject_id"]
-    async with async_session() as session:
-        subject = await session.get(Subject, subject_id)
-        subject.grade_boundaries = []
-        await session.commit()
-
-    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
-    second_id = await upload_pdf(client, tutor, title="Same syllabus", name="again.pdf")
-    apply2 = await client.post(
-        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
-    )
-    assert apply2.status_code == 200
-
-    async with async_session() as session:
-        subject = await session.get(Subject, subject_id)
-    assert subject.grade_boundaries == []

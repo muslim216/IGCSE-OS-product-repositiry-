@@ -43,7 +43,6 @@ async def _subject(session, org: Organization, code: str, name: str = "Testing")
         name=name,
         level=SubjectLevel.igcse,
         grade_scale="9-1",
-        grade_boundaries=[],
     )
     session.add(subject)
     await session.flush()

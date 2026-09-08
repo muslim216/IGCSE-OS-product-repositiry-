@@ -147,9 +147,16 @@ class PastPaperAttempt(TimestampMixin, Base):
 
 
 class GradeBoundary(Base):
-    """Per-organization grade boundaries, manually entered by the tutor per
-    subject at onboarding (editable in Settings) — overrides the shared
-    Subject.grade_boundaries default used by the v1 engine."""
+    """Per-organization grade boundaries, entered by the tutor per subject and
+    editable in Settings.
+
+    **The only source of a predicted grade** since task 2.4 (`AV-11`): the
+    `Subject.grade_boundaries` column this used to override is dropped, and a
+    subject with no rows here has no predicted grade anywhere rather than one
+    mapped through a shipped default (`PROD-2`, `PROD-6`).
+
+    Org-scoped, not subject-scoped, because two tutors in one organization share
+    these numbers and no tenant may ever move another's (`SEC-8`)."""
 
     __tablename__ = "grade_boundaries"
     __table_args__ = (UniqueConstraint("organization_id", "subject_id", "grade_label"),)

@@ -25,6 +25,7 @@ from app.schemas.readiness import (
     WeakTopic,
 )
 from app.services.averaging import subject_averaging
+from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
 
 # Topics at or below this score (with enough confidence) are surfaced as weak.
@@ -207,6 +208,11 @@ async def build_summary(
     db: AsyncSession, student: User, subject_ids: list[int]
 ) -> StudentReadinessSummary:
     subjects_out: list[SubjectReadiness] = []
+    # One query for every subject in the loop. Since task 2.4 this is the only
+    # source of a predicted grade: a subject the organization has set no
+    # boundaries for gets no grade and no band, never one mapped through numbers
+    # nobody entered (AV-11, PROD-2).
+    all_boundaries = await org_boundaries(db, student.organization_id)
     for subject_id in subject_ids:
         subject = await db.get(Subject, subject_id)
         if subject is None:
@@ -253,14 +259,15 @@ async def build_summary(
                 )
 
         overall = round(weighted_sum / weight_total, 1) if weight_total > 0 else None
-        grade = predict_grade(overall, subject.grade_boundaries) if overall is not None else None
-        status = grade_band(grade, subject.grade_boundaries)
+        boundaries = boundaries_for(all_boundaries, subject)
+        grade = predict_grade(overall, boundaries) if overall is not None and boundaries else None
+        status = grade_band(grade, boundaries)
         # Same boundary list as the predicted grade above, so the two grades are
         # comparable — which is the only reason showing both is useful (§3.3).
         averaging = await subject_averaging(db, student.id, subject_id)
         averaging_grade = (
-            predict_grade(averaging.score, subject.grade_boundaries)
-            if averaging.score is not None
+            predict_grade(averaging.score, boundaries)
+            if averaging.score is not None and boundaries
             else None
         )
         # No score means no arrow: a direction beside "not enough data yet"

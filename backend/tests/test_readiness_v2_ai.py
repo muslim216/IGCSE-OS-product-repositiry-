@@ -100,7 +100,6 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
             code="4XX1",
             name="Empty Subject",
             grade_scale="9-1",
-            grade_boundaries=[],
         )
         session.add(empty_subject)
         await session.commit()

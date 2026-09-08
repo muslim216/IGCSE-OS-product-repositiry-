@@ -135,15 +135,17 @@ async def _subject_from_snapshot(
         if isinstance(w, dict) and w.get("topic_id") in topics
     ]
 
-    # Band and averaging both map through the boundaries this organization's
-    # predicted grade was built from, not the global Subject default. The
-    # snapshot's predicted_grade was mapped through resolve_grade_boundaries at
-    # synthesis time, and nothing constrains an org's grade_label set to match
-    # the subject's — an org list of [9, 7, 4, U] puts "4" at index 2 where the
-    # subject's ten-grade list puts it at index 5. Reading the wrong list is a
-    # different band, not a rounding difference, and predicted-beside-averaging
-    # only means something if both used the same list. (RISK-5 proper — the two
-    # sources disagreeing on cut-offs — is still open and out of scope here.)
+    # Band and averaging both map through the same list the snapshot's
+    # predicted_grade was built from at synthesis time. Since task 2.4 (AV-11)
+    # that is the only list there is — the global Subject.grade_boundaries column
+    # is gone, closing the half of RISK-5 where two sources disagreed about one
+    # subject's cut-offs. The half that remains is the v1/v2 engines answering
+    # different surfaces, which is not this.
+    #
+    # Reading a *different* list would still be a different band, not a rounding
+    # difference: nothing constrains one org's grade_label set to another's, and
+    # [9, 7, 4, U] puts "4" at index 2 where a ten-grade list puts it at index 5.
+    # Predicted-beside-averaging only means something if both used the same one.
     boundaries = await resolve_grade_boundaries(db, student.organization_id, subject)
     averaging = await subject_averaging(db, student.id, subject.id)
     averaging_grade = (

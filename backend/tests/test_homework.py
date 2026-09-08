@@ -30,7 +30,6 @@ async def subject(client, tutor):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(s)
         await session.flush()

@@ -1,23 +1,26 @@
-"""Where a subject's grade boundaries come from, and in what order.
+"""Where a subject's grade boundaries come from — one source, and this module.
 
-Two sources exist and always have: the global `Subject.grade_boundaries`, shared
-by every organization, and the org-scoped `GradeBoundary` table. Until now
-nothing wrote the second one, so the precedence documented on the model was a
-claim about a code path that could not be exercised. This module is the one
-place that resolves them, and the one place that writes the override.
+**The org-scoped `GradeBoundary` table is the only source** (`AV-11`, task 2.4).
+`Subject.grade_boundaries` used to sit behind it as a global default and is gone:
+the column is dropped, and with it `RISK-5`'s two-sources-disagreeing problem.
 
-**The write target is `GradeBoundary`, never `Subject`.** `Subject` carries no
-`organization_id` (models/syllabus.py) — every tenant teaches the same Chemistry
-row. A tutor-gated write to `Subject.grade_boundaries` would therefore move every
-other organization's predicted grades, which is the precise failure SEC-8 exists
-to prevent. There is deliberately no endpoint that can reach that column.
+The consequence is deliberate. **A subject whose organization has set no
+boundaries has no predicted grade** — every surface shows the absence and the
+control that fixes it, never a grade mapped through numbers nobody entered
+(`PROD-2`, `PROD-6`). Nothing in the product invents one.
 
-**Defaults are offered, never backfilled.** A tutor who deliberately left
-boundaries empty must not find them filled in, so nothing here writes to a
-subject that already has an answer, and `defaults_for_scale` is a suggestion the
-editor pre-fills rather than a value written on their behalf (PROD-8: an
-unconfirmed default is labelled as one).
+**Defaults are offered, never written.** `defaults_for_scale` is what the editor
+pre-fills so a new tutor is not made to type ten numbers before anything works;
+it is labelled unconfirmed wherever shown (`PROD-8`) and becomes real only when
+the tutor saves it. Writing it on their behalf would make a published guess
+indistinguishable from their own figures.
+
+Scoping is per organization because boundaries are per organization: a subject is
+owned by one tenant since task 2.2, but two tutors sharing an organization share
+these numbers, and no tenant may ever move another's (`SEC-8`).
 """
+
+from collections import defaultdict
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,22 +73,19 @@ def defaults_for_scale(grade_scale: str) -> list[dict]:
 async def resolve_grade_boundaries(
     session: AsyncSession, organization_id: int, subject: Subject
 ) -> list[dict]:
-    """The organization's override if it has one, the global default otherwise.
+    """This organization's boundaries for the subject, highest grade first.
 
-    This is *the* precedence rule, and it is now true rather than descriptive:
-    with a writer for `GradeBoundary` it is reachable, and
-    `test_org_override_takes_precedence_over_global_default` exercises it.
+    An empty list means nothing is set, and every caller must render that as
+    absent rather than mapping a score through it — `predict_grade` returns "—"
+    and `grade_band` returns `None` for exactly this case.
 
-    Every read path shares it — readiness_v2_ai maps the predicted grade through
-    this list at synthesis time, and readiness_summary_v2 bands that grade and
-    maps the averaging grade through the same one. Nothing constrains an
-    organization's grade_label set to match the subject's, so an org list of
-    [9, 7, 4, U] puts "4" at index 2 where a ten-grade subject list puts it at
-    index 5: reading the wrong list is a different band, not a rounding
-    difference, and predicted-beside-averaging only means anything if both used
-    the same list.
+    Every read path shares this one list, which is what makes a predicted grade
+    and an averaging grade comparable: nothing constrains one list's grade labels
+    to match another's, so [9, 7, 4, U] puts "4" at index 2 where a ten-grade
+    list puts it at index 5. Reading a different list is a different band, not a
+    rounding difference.
     """
-    org_boundaries = (
+    rows = (
         await session.scalars(
             select(GradeBoundary).where(
                 GradeBoundary.organization_id == organization_id,
@@ -93,30 +93,44 @@ async def resolve_grade_boundaries(
             )
         )
     ).all()
-    if org_boundaries:
-        ordered = sorted(org_boundaries, key=lambda b: b.min_percentage, reverse=True)
-        return [{"grade": b.grade_label, "min": b.min_percentage} for b in ordered]
-    return subject.grade_boundaries
+    return _as_bands(rows)
 
 
-async def has_org_boundaries(session: AsyncSession, organization_id: int, subject_id: int) -> bool:
-    """Whether this organization has set its own boundaries for the subject.
+def _as_bands(rows) -> list[dict]:
+    """Boundary rows as the ordered {grade, min} list every consumer expects.
 
-    The read endpoint labels the source with this rather than comparing the
-    resolved list's object identity to `subject.grade_boundaries`. That identity
-    trick only worked because resolve_grade_boundaries happened to return the
-    subject's own list object unchanged in the no-override case; any future
-    change that copied or re-serialized it would silently mislabel a global
-    default as the organization's own confirmed values (Qodo). This asks the
-    question directly.
+    Sorted here rather than in the query: `predict_grade` walks the list top to
+    bottom and returns the first grade the score meets, so an unordered list
+    does not fail — it returns the wrong grade.
     """
-    row = await session.scalar(
-        select(GradeBoundary.id).where(
-            GradeBoundary.organization_id == organization_id,
-            GradeBoundary.subject_id == subject_id,
+    return [
+        {"grade": b.grade_label, "min": b.min_percentage}
+        for b in sorted(rows, key=lambda b: b.min_percentage, reverse=True)
+    ]
+
+
+async def org_boundaries(session: AsyncSession, organization_id: int) -> dict[int, list[dict]]:
+    """Every boundary this organization has set, keyed by subject, in one query.
+
+    The aggregate surfaces (today, the v1 summary, reports) walk several subjects
+    at once; calling `resolve_grade_boundaries` per subject would reintroduce the
+    per-row round trip those aggregates exist to remove.
+    """
+    by_subject: dict[int, list] = defaultdict(list)
+    for row in (
+        await session.scalars(
+            select(GradeBoundary).where(GradeBoundary.organization_id == organization_id)
         )
-    )
-    return row is not None
+    ).all():
+        by_subject[row.subject_id].append(row)
+    return {subject_id: _as_bands(rows) for subject_id, rows in by_subject.items()}
+
+
+def boundaries_for(by_subject: dict[int, list[dict]], subject: Subject | None) -> list[dict]:
+    """One subject's bands out of an `org_boundaries()` map — empty if unset."""
+    if subject is None:
+        return []
+    return by_subject.get(subject.id, [])
 
 
 async def set_org_boundaries(

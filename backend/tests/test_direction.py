@@ -77,7 +77,6 @@ async def world(client, tutor):
             code="4PH1",
             name="Physics",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.flush()

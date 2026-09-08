@@ -16,14 +16,12 @@ from sqlalchemy.orm import selectinload
 
 from app.models import (
     Assignment,
-    GradeBoundary,
     Group,
     GroupMember,
     Organization,
     PastPaper,
     ReadinessHistory,
     ScheduleSlot,
-    Subject,
     Submission,
     Topic,
     TopicReadiness,
@@ -37,6 +35,7 @@ from app.schemas.today import (
     ClassWeakTopic,
     TodayView,
 )
+from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
 from app.services.groups import class_health, review_queue_predicate, weighted_learner_scores
 from app.services.groups import summaries as group_summaries
@@ -58,33 +57,6 @@ async def tutor_groups(db: AsyncSession, tutor_id: int) -> Sequence[Group]:
             .order_by(Group.created_at)
         )
     ).all()
-
-
-async def org_boundaries(db: AsyncSession, organization_id: int) -> dict[int, list[dict]]:
-    """Every organization grade-boundary override, keyed by subject, in one query.
-
-    Calling resolve_grade_boundaries() per class would reintroduce exactly the
-    per-class round trip these aggregates exist to remove. The precedence it
-    implements is preserved by `boundaries_for()`: the organization's override if
-    it has one, the global Subject default otherwise (RISK-5).
-    """
-    overrides: dict[int, list[dict]] = defaultdict(list)
-    for row in (
-        await db.scalars(
-            select(GradeBoundary).where(GradeBoundary.organization_id == organization_id)
-        )
-    ).all():
-        overrides[row.subject_id].append({"grade": row.grade_label, "min": row.min_percentage})
-    return {
-        subject_id: sorted(bands, key=lambda b: b["min"], reverse=True)
-        for subject_id, bands in overrides.items()
-    }
-
-
-def boundaries_for(overrides: dict[int, list[dict]], subject: Subject | None) -> list[dict]:
-    if subject is None:
-        return []
-    return overrides.get(subject.id) or subject.grade_boundaries or []
 
 
 async def pending_review_count(db: AsyncSession, organization_id: int) -> int:

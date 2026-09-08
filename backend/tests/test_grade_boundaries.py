@@ -1,11 +1,14 @@
-"""Grade boundaries: the defaults, the editor, and the precedence between them.
+"""Grade boundaries: the defaults, the editor, and the one source they come from.
 
-The cross-tenant case is the one that matters. `Subject` has no
-`organization_id`, so the obvious implementation — let a tutor edit
-`Subject.grade_boundaries` — silently moves every other organization's predicted
-grades. `test_org_a_boundary_edit_does_not_change_org_b_predicted_grades` is the
-test that must fail against that implementation, and it is why the write target
-is the org-scoped table.
+Task 2.4 (`AV-11`) removed the second source. There is no
+`Subject.grade_boundaries` column any more, so a subject an organization has not
+set has **no predicted grade at all** rather than one mapped through a shipped
+default — `test_an_unset_subject_has_no_predicted_grade` is the test that pins
+that, and `PROD-2` is why it must stay true.
+
+The cross-tenant case still matters, and now for the table alone:
+`test_org_a_boundary_edit_does_not_change_org_b_predicted_grades` must fail
+against any implementation that stores a subject's boundaries anywhere shared.
 """
 
 import pytest
@@ -24,9 +27,6 @@ from tests.test_homework import (  # noqa: F401 - shared fixtures
     student,
     subject,
 )
-
-#: What the shared `subject` fixture ships as its global default.
-GLOBAL = [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}]
 
 
 @pytest.fixture
@@ -91,10 +91,7 @@ def test_defaults_are_copied_so_a_caller_cannot_mutate_the_shared_table():
 # ---- the editor ----
 
 
-async def test_boundary_write_targets_the_org_scoped_table_not_subject(client, tutor, subject):
-    from app.db import async_session
-    from app.models import Subject
-
+async def test_a_boundary_edit_writes_org_scoped_rows(client, tutor, subject):
     resp = await client.put(
         f"/api/v1/subjects/{subject['id']}/grade-boundaries",
         json={"boundaries": [{"grade": "9", "min": 80}, {"grade": "U", "min": 0}]},
@@ -103,11 +100,6 @@ async def test_boundary_write_targets_the_org_scoped_table_not_subject(client, t
     assert resp.status_code == 200, resp.text
     assert resp.json()["source"] == "organization"
 
-    async with async_session() as session:
-        stored = await session.get(Subject, subject["id"])
-        # The global default is untouched — nothing may write it.
-        assert stored.grade_boundaries == GLOBAL
-
     rows = await _org_rows(subject["id"])
     assert {(r.grade_label, r.min_percentage) for r in rows} == {("9", 80.0), ("U", 0.0)}
 
@@ -115,7 +107,9 @@ async def test_boundary_write_targets_the_org_scoped_table_not_subject(client, t
 async def test_org_a_boundary_edit_does_not_change_org_b_predicted_grades(
     client, tutor, other_tutor, subject
 ):
-    """The cross-tenant case. Subjects are global; boundaries must not be."""
+    """The cross-tenant case. Boundaries are per organization, and one tenant's
+    edit must never reach another's grades — the whole reason this table exists
+    rather than a column somewhere shared (SEC-8)."""
     from app.db import async_session
     from app.models import Subject, User
 
@@ -133,20 +127,27 @@ async def test_org_a_boundary_edit_does_not_change_org_b_predicted_grades(
         a_bands = await resolve_grade_boundaries(session, a.organization_id, stored)
         b_bands = await resolve_grade_boundaries(session, b.organization_id, stored)
 
-    # 60% is a 9 under A's edited boundaries and a U under the untouched global
-    # default that B still reads.
+    # 60% is a 9 under A's boundaries. B has none — and gets no grade, not a
+    # grade off someone else's list and not one off a shipped default.
     assert predict_grade(60.0, a_bands) == "9"
-    assert predict_grade(60.0, b_bands) == "U"
+    assert b_bands == []
+    assert predict_grade(60.0, b_bands) == "—"
 
 
-async def test_org_override_takes_precedence_over_global_default(client, tutor, subject):
+async def test_an_unset_subject_has_no_predicted_grade(client, tutor, subject):
+    """One source since 2.4: nothing stands behind a grade for a subject whose
+    organization has not set boundaries, so the product shows none (PROD-2).
+
+    The published split for the scale is *offered* by the editor and counts only
+    once the tutor saves it.
+    """
     from app.db import async_session
     from app.models import Subject, User
 
     async with async_session() as session:
         stored = await session.get(Subject, subject["id"])
         user = await session.get(User, tutor["user"]["id"])
-        assert await resolve_grade_boundaries(session, user.organization_id, stored) == GLOBAL
+        assert await resolve_grade_boundaries(session, user.organization_id, stored) == []
 
         await set_org_boundaries(
             session,
@@ -178,7 +179,7 @@ async def test_a_second_edit_replaces_rather_than_accumulates(client, tutor, sub
         f"/api/v1/subjects/{subject['id']}/grade-boundaries", headers=tutor["headers"]
     )
     assert [b["grade"] for b in body.json()["boundaries"]] == ["9", "U"]
-    assert len(await _org_rows(subject["id"])) == 2
+    assert len(await _org_rows(subject["id"])) == 2  # not 3 — replaced, not merged
 
 
 async def test_student_cannot_call_the_endpoint(client, tutor, subject, student):
@@ -231,7 +232,6 @@ async def blank_subject(tutor):  # depends on `tutor` so the organization exists
             code="5070",
             name="Chemistry O Level",
             grade_scale="A*-E",
-            grade_boundaries=[],
         )
         session.add(s)
         await session.commit()
@@ -255,14 +255,9 @@ async def test_an_unset_subject_offers_the_published_default_as_unconfirmed(
 
 
 async def test_reading_an_unset_subject_writes_nothing(client, tutor, blank_subject):
-    """A tutor who deliberately left boundaries empty must not find them filled
-    in because someone opened the page."""
-    from app.db import async_session
-    from app.models import Subject
-
+    """A tutor who has not set boundaries must not find them filled in because
+    someone opened the page — an offered default that wrote itself would be
+    indistinguishable from their own figures (PROD-8)."""
     await client.get(f"/api/v1/subjects/{blank_subject}/grade-boundaries", headers=tutor["headers"])
 
-    async with async_session() as session:
-        stored = await session.get(Subject, blank_subject)
-        assert stored.grade_boundaries == []
     assert await _org_rows(blank_subject) == []

@@ -611,13 +611,12 @@ export interface paths {
         };
         /**
          * Read Grade Boundaries
-         * @description What this organization's grades are currently mapped through, and where
-         *     that list came from.
+         * @description What this organization's grades are mapped through, and whether it is set.
          *
-         *     `source` travels with the list because the three cases are different facts
-         *     and must not render alike: a tutor's own numbers, a published default nobody
-         *     has confirmed, and nothing at all. PROD-8 requires the middle one to be
-         *     labelled as unconfirmed wherever it is shown.
+         *     `source` travels with the list because the two cases are different facts and
+         *     must not render alike: the tutor's own numbers, and a published starting
+         *     point nobody has confirmed. `PROD-8` requires the second to be labelled as
+         *     unconfirmed wherever it is shown.
          */
         get: operations["read_grade_boundaries_api_v1_subjects__subject_id__grade_boundaries_get"];
         /**
@@ -2481,8 +2480,11 @@ export interface components {
             subject_name: string;
             /** Grade Scale */
             grade_scale: string;
-            /** Source */
-            source: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "organization" | "none";
             /** Boundaries */
             boundaries: components["schemas"]["GradeBand"][];
         };

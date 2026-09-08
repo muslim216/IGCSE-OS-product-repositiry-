@@ -17,7 +17,6 @@ async def subject_id(client, tutor):
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
         )
         session.add(subject)
         await session.commit()
@@ -440,7 +439,6 @@ async def test_class_health_ignores_topics_from_a_different_subject(
             code="4PH1",
             name="Physics",
             grade_scale="9-1",
-            grade_boundaries=[],
         )
         session.add(other_subject)
         await session.commit()

@@ -44,7 +44,6 @@ async def subject_id(tutor):  # depends on `tutor` so the organization exists fi
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=BOUNDARIES,
         )
         session.add(subject)
         await session.flush()

@@ -20,6 +20,7 @@ from app.models import (
     Topic,
     TopicReadiness,
 )
+from app.services.grade_boundaries import set_org_boundaries
 from tests.factories import subject_defaults
 
 
@@ -35,7 +36,17 @@ async def subject_id(tutor):  # depends on `tutor` so the organization exists fi
             code="4CH1",
             name="Chemistry",
             grade_scale="9-1",
-            grade_boundaries=[
+        )
+        session.add(subject)
+        await session.flush()
+        session.add(Topic(subject_id=subject.id, code="1.3", title="Atoms", weight=1.0))
+        # Org-scoped rows since task 2.4 (AV-11); same bands this fixture always
+        # used. The "Bare" subject below deliberately gets none.
+        await set_org_boundaries(
+            session,
+            subject.organization_id,
+            subject.id,
+            [
                 {"grade": "9", "min": 90},
                 {"grade": "8", "min": 80},
                 {"grade": "7", "min": 70},
@@ -44,9 +55,6 @@ async def subject_id(tutor):  # depends on `tutor` so the organization exists fi
                 {"grade": "U", "min": 0},
             ],
         )
-        session.add(subject)
-        await session.flush()
-        session.add(Topic(subject_id=subject.id, code="1.3", title="Atoms", weight=1.0))
         await session.commit()
         return subject.id
 
@@ -151,7 +159,6 @@ async def test_a_subject_without_boundaries_is_flagged_not_defaulted(client, tut
             code="0620",
             name="Bare",
             grade_scale="9-1",
-            grade_boundaries=[],
         )
         session.add(subject)
         await session.flush()
