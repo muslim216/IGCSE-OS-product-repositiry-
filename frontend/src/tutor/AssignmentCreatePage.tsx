@@ -1,9 +1,16 @@
-import { useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileUp } from "lucide-react";
 import { getGroup } from "../api/groups";
-import { createAssignment, listClassifieds, uploadAssignment } from "../api/homework";
+import {
+  MAX_CLASSIFIED_NOTES,
+  createAssignment,
+  listClassifieds,
+  updateClassified,
+  uploadAssignment,
+} from "../api/homework";
+import { listChapters } from "../api/syllabus";
 import { ApiError } from "../api/client";
 
 const ACCEPT = "application/pdf,image/*,.heic,.heif";
@@ -27,6 +34,15 @@ export default function AssignmentCreatePage() {
     queryFn: () => listClassifieds(subjectId),
     enabled: subjectId !== undefined,
   });
+  // A booklet belongs to the chapter the tutor is starting (AV-20). A subject
+  // whose syllabus was never extracted chapter-first has none, and the picker
+  // simply does not render — nothing here invents structure the tutor never
+  // approved (PROD-2).
+  const chapters = useQuery({
+    queryKey: ["chapters", subjectId],
+    queryFn: () => listChapters(subjectId!),
+    enabled: subjectId !== undefined,
+  });
 
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -34,7 +50,33 @@ export default function AssignmentCreatePage() {
   const [showDetails, setShowDetails] = useState(false);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
   const [form, setForm] = useState({ title: "", instructions: "", due_at: "", question_range: "" });
+  // The booklet's chapter and its marking notes (AV-20, AV-21). They describe
+  // the paper, not this piece of homework, so on the reuse path they are the
+  // chosen booklet's existing values and saving them is an edit of it.
+  const [chapterId, setChapterId] = useState<number | "">("");
+  const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const reused = reuseId === "" ? undefined : classifieds.data?.find((c) => c.id === reuseId);
+  // Seeded from the chosen booklet, and cleared when the choice is cleared.
+  // Keyed on the id rather than the row so a background refetch of the list
+  // cannot overwrite what the tutor has typed since (the same guard the
+  // marking-rules editor needs, for the same reason).
+  const hydratedFor = useRef<number | "">("");
+  useEffect(() => {
+    if (hydratedFor.current === reuseId) return;
+    if (reuseId === "") {
+      hydratedFor.current = "";
+      setChapterId("");
+      setNotes("");
+    } else if (reused) {
+      hydratedFor.current = reuseId;
+      setChapterId(reused.chapter_id ?? "");
+      setNotes(reused.notes ?? "");
+    }
+    // A chosen id whose row has not arrived yet is left unhydrated on purpose,
+    // so the render that does have it seeds the fields.
+  }, [reuseId, reused]);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -50,14 +92,27 @@ export default function AssignmentCreatePage() {
           instructions,
           due_at,
           question_range,
+          chapter_id: chapterId === "" ? null : chapterId,
+          notes,
         });
       }
       if (reuseId !== "") {
-        const chosen = classifieds.data?.find((c) => c.id === reuseId);
+        // Save the booklet's chapter and notes first, and only when they have
+        // actually changed: they are marking context the AI will act on, so a
+        // correction must land before work is set from it. Ordered this way on
+        // purpose — homework created against stale notes would be marked
+        // against them.
+        if (reused && ((reused.chapter_id ?? "") !== chapterId || (reused.notes ?? "") !== notes)) {
+          await updateClassified(reuseId, {
+            chapter_id: chapterId === "" ? null : chapterId,
+            notes,
+          });
+          queryClient.invalidateQueries({ queryKey: ["classifieds", subjectId] });
+        }
         return createAssignment({
           group_id: gid,
           classified_id: reuseId as number,
-          title: form.title || chosen?.title || "Homework",
+          title: form.title || reused?.title || "Homework",
           instructions,
           due_at,
           question_range,
@@ -193,6 +248,50 @@ export default function AssignmentCreatePage() {
           </button>
           {showDetails && (
             <div className="space-y-3 border-t border-line px-4 py-4">
+              {(file || reuseId !== "") && chapters.data && chapters.data.length > 0 && (
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs font-medium text-ink-500">
+                    Chapter this paper belongs to
+                  </span>
+                  <select
+                    className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                    value={chapterId}
+                    onChange={(e) =>
+                      setChapterId(e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                  >
+                    <option value="">Not set</option>
+                    {chapters.data.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {(file || reuseId !== "") && (
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs font-medium text-ink-500">
+                    Marking notes for this paper
+                  </span>
+                  <textarea
+                    className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                    rows={3}
+                    maxLength={MAX_CLASSIFIED_NOTES}
+                    placeholder="Anything unusual about how work from this paper should be marked"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                  {/* Says what it does and what it does not: these notes never
+                      reach when a mark counts (AV-25), and nothing marks with
+                      them until task 3.2 — so the copy does not promise an
+                      effect the product does not have yet (PROD-1). */}
+                  <span className="mt-1 block text-xs text-ink-500">
+                    Kept with the paper and reused every time you set work from it. The official
+                    mark scheme always wins. Marking does not read these yet.
+                  </span>
+                </label>
+              )}
               <label className="block text-sm">
                 <span className="mb-1 block text-xs font-medium text-ink-500">
                   Title (defaults to the file name)

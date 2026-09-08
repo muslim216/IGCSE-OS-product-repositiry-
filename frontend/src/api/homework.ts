@@ -1,13 +1,18 @@
 import { api, apiUrl, getStoredTokens } from "./client";
+import type { components } from "./schema";
 import type { Topic } from "./syllabus";
 
-export interface Classified {
-  id: number;
-  subject_id: number;
-  title: string;
-  file_name: string;
-  mark_scheme_name: string | null;
-}
+/** A booklet of past-paper questions, uploaded once and reused. Chapter-scoped
+ *  since task 3.1 (`AV-20`), and carrying that chapter's marking notes
+ *  (`AV-21`) — the layer of `AV-76`'s precedence directly below the official
+ *  mark scheme. Aliased from the generated schema rather than hand-mirrored
+ *  (`FE-4`). */
+export type Classified = components["schemas"]["ClassifiedOut"];
+
+/** Mirrors `MAX_CLASSIFIED_NOTES` in backend/app/schemas/homework.py, which is
+ *  the control — this one is so the tutor sees the limit while typing rather
+ *  than as a rejected save. */
+export const MAX_CLASSIFIED_NOTES = 4000;
 
 export interface Question {
   id: number;
@@ -180,19 +185,16 @@ export interface StudentSubmissionView {
 export const listClassifieds = (subjectId?: number) =>
   api<Classified[]>(`/api/v1/classifieds${subjectId ? `?subject_id=${subjectId}` : ""}`);
 
-export function uploadClassified(payload: {
-  title: string;
-  subject_id: number;
-  file: File;
-  mark_scheme: File | null;
-}) {
-  const form = new FormData();
-  form.append("title", payload.title);
-  form.append("subject_id", String(payload.subject_id));
-  form.append("file", payload.file);
-  if (payload.mark_scheme) form.append("mark_scheme", payload.mark_scheme);
-  return api<Classified>("/api/v1/classifieds", { method: "POST", body: form });
-}
+/** Re-file a booklet under a chapter and rewrite its marking notes. A full
+ *  replacement of that pair, not a partial patch — the editor holds both. */
+export const updateClassified = (
+  classifiedId: number,
+  payload: { chapter_id: number | null; notes: string },
+) =>
+  api<Classified>(`/api/v1/classifieds/${classifiedId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 
 /** One request: upload a paper and set it as homework. Only the group and the
     file are required — the title falls back to the file name server-side. */
@@ -204,6 +206,8 @@ export function uploadAssignment(payload: {
   instructions?: string;
   due_at?: string | null;
   question_range?: string | null;
+  chapter_id?: number | null;
+  notes?: string;
 }) {
   const form = new FormData();
   form.append("group_id", String(payload.group_id));
@@ -213,6 +217,8 @@ export function uploadAssignment(payload: {
   if (payload.instructions) form.append("instructions", payload.instructions);
   if (payload.due_at) form.append("due_at", payload.due_at);
   if (payload.question_range) form.append("question_range", payload.question_range);
+  if (payload.chapter_id) form.append("chapter_id", String(payload.chapter_id));
+  if (payload.notes) form.append("notes", payload.notes);
   return api<AssignmentDetail>("/api/v1/assignments/upload", { method: "POST", body: form });
 }
 

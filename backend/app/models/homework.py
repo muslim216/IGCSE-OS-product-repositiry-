@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -23,6 +24,26 @@ class Classified(TimestampMixin, Base):
     """A topic-compiled past-paper question booklet a tutor uploads and reuses."""
 
     __tablename__ = "classifieds"
+    __table_args__ = (
+        # Composite, not a plain FK on chapter_id: the chapter a classified
+        # names must belong to the classified's own subject. `topics` carries
+        # the identical key for the identical reason (see its __table_args__) —
+        # a single-column FK proves only that the chapter exists, so nothing
+        # would stop a booklet being filed under another subject's chapter and
+        # its notes then being fed into a mark for a different syllabus.
+        #
+        # chapter_id is nullable and default MATCH SIMPLE skips the check while
+        # it is NULL — every classified uploaded before task 3.1.
+        ForeignKeyConstraint(
+            ["subject_id", "chapter_id"],
+            ["chapters.subject_id", "chapters.id"],
+            name="fk_classifieds_subject_id_chapter_id_chapters",
+        ),
+        # "the classifieds of this chapter" is the read every chapter-scoped
+        # surface makes, from the upload flow on. Declared here as well as in
+        # migration 0034, per DB-12.
+        Index("ix_classifieds_chapter_id", "chapter_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
@@ -36,6 +57,17 @@ class Classified(TimestampMixin, Base):
     mark_scheme_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # The chapter this booklet belongs to (AV-20). Nullable: every classified
+    # that predates task 3.1 has none, and a subject whose syllabus was never
+    # extracted has no chapters to point at. The foreign key is composite with
+    # subject_id and lives in __table_args__.
+    chapter_id: Mapped[int | None] = mapped_column(nullable=True)
+    # Chapter-specific marking notes (AV-21) — free text the tutor writes about
+    # how work from this booklet should be marked. This is AV-76's "chapter
+    # notes" layer: below the official mark scheme, which it can never relax,
+    # and above the subject's own rules. Nothing reads it until task 3.2's
+    # context assembler.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AssignmentStatus(str, enum.Enum):

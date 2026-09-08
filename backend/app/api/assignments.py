@@ -5,7 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor, resolve_chapter
 from app.models import (
     Assignment,
     AssignmentQuestion,
@@ -22,12 +22,14 @@ from app.models import (
 )
 from app.schemas.groups import TopicOut
 from app.schemas.homework import (
+    MAX_CLASSIFIED_NOTES,
     AssignmentAttention,
     AssignmentCreate,
     AssignmentDetail,
     AssignmentOut,
     QuestionIn,
     QuestionOut,
+    clean_notes,
 )
 from app.services.assignments import create_from_upload
 from app.workers.jobs import enqueue
@@ -158,6 +160,8 @@ async def create_assignment_with_paper(
     instructions: Annotated[str | None, Form()] = None,
     due_at: Annotated[datetime | None, Form()] = None,
     question_range: Annotated[str | None, Form()] = None,
+    chapter_id: Annotated[int | None, Form()] = None,
+    notes: Annotated[str | None, Form(max_length=MAX_CLASSIFIED_NOTES)] = None,
 ) -> AssignmentDetail:
     """Upload a question paper and set it as homework in one request.
 
@@ -180,6 +184,11 @@ async def create_assignment_with_paper(
         instructions=instructions,
         due_at=due_at,
         question_range=question_range,
+        # Checked against the group's subject before anything is written: the
+        # composite key on `classifieds` would otherwise fail deep inside the
+        # service with the upload already on disk.
+        chapter_id=await resolve_chapter(db, chapter_id, group.subject_id),
+        notes=clean_notes(notes),
     )
     return _detail_stub(assignment)
 

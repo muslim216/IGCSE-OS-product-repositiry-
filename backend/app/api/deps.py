@@ -2,10 +2,11 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models.syllabus import Subject
+from app.models.syllabus import Chapter, Subject
 from app.models.users import User, UserRole
 from app.security import decode_token
 
@@ -133,6 +134,30 @@ async def owned_subject(db: AsyncSession, subject_id: int, user: User) -> Subjec
     if subject is None or subject.organization_id != user.organization_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
     return subject
+
+
+async def resolve_chapter(db: AsyncSession, chapter_id: int | None, subject_id: int) -> int | None:
+    """A chapter id that belongs to this subject, or 404. `None` passes through.
+
+    `classifieds` and `topics` both key their chapter with a composite foreign
+    key on `(subject_id, chapter_id)`, so the wrong pairing is already
+    unstorable — but a constraint violation surfaces as a 500, and on the upload
+    path it would fire with the file already written to disk. Chapter ids are
+    enumerable too, so a chapter in another tenant's subject must look exactly
+    like one that does not exist (`API-7`, `SEC-9`).
+
+    The subject is the caller's responsibility to authorize first — through
+    `owned_subject` above, or by taking it off a row that has already been
+    authorized. This function only proves the chapter is *inside* it.
+    """
+    if chapter_id is None:
+        return None
+    chapter = await db.scalar(
+        select(Chapter.id).where(Chapter.id == chapter_id, Chapter.subject_id == subject_id)
+    )
+    if chapter is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Chapter not found")
+    return chapter
 
 
 async def visible_subject(db: AsyncSession, subject_id: int, user: User) -> Subject:
