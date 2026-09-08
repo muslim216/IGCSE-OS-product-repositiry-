@@ -42,6 +42,7 @@ import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
 import MocksPage from "./tutor/MocksPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
+import TeachingGuidancePage from "./tutor/TeachingGuidancePage";
 import SettingsPage from "./tutor/SettingsPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
 
@@ -109,6 +110,7 @@ export default function App() {
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
           <Route path="/tutor/boundaries" element={<GradeBoundariesPage />} />
           <Route path="/tutor/syllabuses" element={<SyllabusUploadPage />} />
+          <Route path="/tutor/teaching-guidance" element={<TeachingGuidancePage />} />
           <Route path="/tutor/preferences" element={<PreferencesPage />} />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />

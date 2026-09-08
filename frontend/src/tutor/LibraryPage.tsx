@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   BookOpen,
+  ClipboardList,
   FileText,
   Gauge,
   PenLine,
@@ -41,6 +42,12 @@ const CONTENT: Shelf[] = [
     label: "Syllabuses",
     hint: "Upload a syllabus to build its topic tree.",
     icon: BookOpen,
+  },
+  {
+    to: "/tutor/teaching-guidance",
+    label: "Teaching guidance",
+    hint: "Your scheme of work per subject, kept for the teaching plan to use.",
+    icon: ClipboardList,
   },
   {
     to: "/tutor/readiness",

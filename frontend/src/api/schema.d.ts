@@ -1914,6 +1914,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subjects/{subject_id}/teaching-guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Teaching Guidance
+         * @description What is on file, or that nothing is. Never a 404 for "not uploaded" — the
+         *     subject exists either way, and the surface needs to say which.
+         */
+        get: operations["read_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_get"];
+        /**
+         * Upload Teaching Guidance
+         * @description Store (or replace) this subject's guidance document.
+         *
+         *     `PUT`, not `POST`: there is one document per subject and uploading again
+         *     replaces it, which is the verb's meaning rather than a second row.
+         *
+         *     The old object is deleted **after** the row is committed. The other order
+         *     loses the file if the commit then fails, leaving a subject pointing at a key
+         *     that no longer exists; this order can at worst leave an unreferenced object
+         *     behind, which the storage orphan sweep collects and which nobody can reach
+         *     in the meantime.
+         *
+         *     The three failure paths are each handled rather than left to bubble
+         *     (cubic): a commit that fails takes the *new* object with it and leaves the
+         *     old document in force, and neither cleanup delete can turn the outcome into
+         *     a 500 the client would retry against a write that already happened.
+         */
+        put: operations["upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"];
+        post?: never;
+        /**
+         * Delete Teaching Guidance
+         * @description Remove the document. Idempotent: deleting when there is nothing on file
+         *     is the state the caller asked for, not an error.
+         */
+        delete: operations["delete_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/subjects/{subject_id}/teaching-guidance/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Teaching Guidance */
+        get: operations["download_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/today": {
         parameters: {
             query?: never;
@@ -2267,6 +2328,11 @@ export interface components {
         Body_upload_syllabus_api_v1_syllabus_uploads_post: {
             /** Title */
             title: string;
+            /** File */
+            file: string;
+        };
+        /** Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put */
+        Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put: {
             /** File */
             file: string;
         };
@@ -3766,6 +3832,28 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /**
+         * TeachingGuidanceOut
+         * @description What is on file for a subject — or that nothing is.
+         *
+         *     `uploaded` is explicit rather than inferred from a null filename: absence is
+         *     a state the surface renders as absence ("no guidance uploaded yet"), never
+         *     as an empty row that looks like a broken one (`PROD-2`, `UX-19`).
+         */
+        TeachingGuidanceOut: {
+            /** Subject Id */
+            subject_id: number;
+            /** Subject Name */
+            subject_name: string;
+            /** Uploaded */
+            uploaded: boolean;
+            /** File Name */
+            file_name?: string | null;
+            /** File Mime */
+            file_mime?: string | null;
+            /** Uploaded At */
+            uploaded_at?: string | null;
         };
         /**
          * TodayView
@@ -7456,6 +7544,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SyllabusUploadDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingGuidanceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingGuidanceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachingGuidanceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "application/octet-stream": string;
                 };
             };
             /** @description Validation Error */
