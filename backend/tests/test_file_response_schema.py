@@ -43,8 +43,21 @@ def test_a_file_route_declares_binary_and_not_json(spec, path):
 #: The two helpers in `api/file_responses.py` that write a file to the response.
 SERVERS = {"proxied_file", "signed_or_proxied_file"}
 
-#: Decorator methods that make a function a route.
-HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+#: Decorator methods that make a function a route. `api_route` and the verbs
+#: this app does not use today are included deliberately: a route registered
+#: with one of them would otherwise be misread as a helper and fail the guard
+#: while being perfectly correct (cubic).
+HTTP_METHODS = {
+    "api_route",
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "trace",
+}
 
 
 def _server_names(tree: ast.Module) -> set[str]:
