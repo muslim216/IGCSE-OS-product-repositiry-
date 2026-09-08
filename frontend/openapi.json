@@ -2510,6 +2510,109 @@
         }
       }
     },
+    "/api/v1/subjects/{subject_id}/marking-rules": {
+      "get": {
+        "tags": [
+          "marking-rules"
+        ],
+        "summary": "Read Marking Rules",
+        "operationId": "read_marking_rules_api_v1_subjects__subject_id__marking_rules_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkingRulesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "marking-rules"
+        ],
+        "summary": "Write Marking Rules",
+        "description": "Replace this subject's rules. Saving an empty body clears them.\n\nClearing is a real action, not an edge case: these rules are the one\nonboarding step a tutor may skip (`AV-87`), so \"I do not want any\" has to be\nreachable from the editor and has to survive. Stored as NULL rather than an\nempty string so the two states cannot drift apart in the column.",
+        "operationId": "write_marking_rules_api_v1_subjects__subject_id__marking_rules_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkingRulesIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkingRulesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/groups": {
       "get": {
         "tags": [
@@ -7937,6 +8040,48 @@
           "question_id"
         ],
         "title": "MarkUpdate"
+      },
+      "MarkingRulesIn": {
+        "properties": {
+          "rules": {
+            "type": "string",
+            "maxLength": 8000,
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rules"
+        ],
+        "title": "MarkingRulesIn"
+      },
+      "MarkingRulesOut": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "rules": {
+            "type": "string",
+            "title": "Rules"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "subject_name",
+          "rules",
+          "configured"
+        ],
+        "title": "MarkingRulesOut"
       },
       "MyAssessmentScore": {
         "properties": {

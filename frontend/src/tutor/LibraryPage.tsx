@@ -6,6 +6,7 @@ import {
   Gauge,
   PenLine,
   Ruler,
+  Scale,
   Settings as SettingsIcon,
   SlidersHorizontal,
   type LucideIcon,
@@ -58,6 +59,12 @@ const CONTENT: Shelf[] = [
 ];
 
 const SETTINGS: Shelf[] = [
+  {
+    to: "/tutor/marking-rules",
+    label: "AI marking agreement",
+    hint: "How you want work in a subject marked, in your own words.",
+    icon: Scale,
+  },
   {
     to: "/tutor/boundaries",
     label: "Grade boundaries",

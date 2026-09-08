@@ -72,6 +72,21 @@ class Subject(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # The tutor's own marking rules for this subject — the "AI marking
+    # agreement" (`AV-75`, `AV-111`, task 2.6). Free text, in their words,
+    # written once and applying to every chapter, classified and piece of work
+    # in the subject. **In addition to** board, level and chapter notes, never
+    # instead of them, and there is deliberately no account-wide layer (`AV-75`).
+    #
+    # Describes **how** the AI marks, never **when a mark counts** — `AV-25`'s
+    # auto-finalize rule is untouched by whatever is written here.
+    #
+    # Phase 3's context assembler is what consumes it, under `AV-76`'s
+    # precedence (mark scheme → chapter notes → subject rules → board and
+    # level); nothing reads it before then. Nullable because it is the one
+    # onboarding step a tutor may skip (`AV-87`).
+    marking_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # No `grade_boundaries` column: task 2.4 (AV-11) made the org-scoped
     # `GradeBoundary` table the only source and migration 0031 dropped this one,
     # copying what it held into that table. Two sources that could disagree about
