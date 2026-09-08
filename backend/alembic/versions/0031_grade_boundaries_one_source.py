@@ -18,10 +18,12 @@ editor offers the published split for its scale and it counts once the tutor
 saves it.
 
 `downgrade()` re-creates the column and refills it from each subject's own
-organization's rows, so up → down → up is lossless for the single-organization
-case this schema has ever had. A subject whose boundaries differ *between* two
-organizations cannot round-trip into one JSON column — that is the whole reason
-the column is going.
+organization's rows, so up → down → up round-trips the single-organization case
+this schema has ever had. Two exceptions, both only reachable from data the
+editor cannot produce: a subject whose boundaries differ *between* two
+organizations cannot fit in one JSON column — the whole reason the column is
+going — and a grade label longer than `grade_label`'s 16 characters is truncated
+on the way in (`GradeBand` caps at 16, so nothing a tutor saved can hit this).
 
 `batch_alter_table` with 0020's naming convention, per `DB-17`.
 
@@ -60,7 +62,24 @@ def _bands(raw) -> list[dict]:
             raw = json.loads(raw)
         except ValueError:
             return []
-    return [b for b in raw or [] if isinstance(b, dict) and "grade" in b and "min" in b]
+    # `json.loads("42")` is an int, and iterating one raises rather than
+    # migrating (CodeRabbit). Anything that is not a list of bands is no
+    # boundaries, which is what the docstring already promised.
+    if not isinstance(raw, list):
+        return []
+    bands = []
+    for b in raw:
+        if not isinstance(b, dict) or "grade" not in b or "min" not in b:
+            continue
+        try:
+            minimum = float(b["min"])
+        except (TypeError, ValueError):
+            # A band whose cut-off is not a number ("90%", None) is not a band.
+            # Skipping it keeps the promise above; letting float() raise inside
+            # the loop would abort the whole migration (cubic).
+            continue
+        bands.append({"grade": b["grade"], "min": minimum})
+    return bands
 
 
 def upgrade() -> None:
@@ -94,7 +113,7 @@ def upgrade() -> None:
                     "org": row.organization_id,
                     "subject": row.id,
                     "label": label,
-                    "min": float(band["min"]),
+                    "min": band["min"],
                 },
             )
 

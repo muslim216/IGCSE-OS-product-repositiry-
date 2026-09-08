@@ -200,6 +200,53 @@ async def test_apply_refuses_a_draft_with_no_level(client, tutor, monkeypatch):
     assert subject.level is SubjectLevel.a_level
 
 
+async def test_apply_upserts_existing_subject_by_exam_board_and_code(
+    client, tutor, uploaded, monkeypatch
+):
+    """Uploading a second, corrected syllabus for the same exam_board+code
+    should update the existing subject's chapters and topics rather than
+    creating a duplicate."""
+    first_apply = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first_apply.json()["subject_id"]
+
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(
+            draft_of(
+                chapters=[
+                    {
+                        "code": "1",
+                        "title": "Section one (revised)",
+                        "topics": [
+                            {"code": "1.1", "title": "Sub-topic A (revised)", "children": []}
+                        ],
+                    }
+                ]
+            )
+        ),
+    )
+    second_id = await upload_pdf(client, tutor, title="Test syllabus v2", name="syllabus2.pdf")
+
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+    assert apply2.json()["subject_id"] == subject_id
+
+    async with async_session() as session:
+        chapters = (
+            await session.scalars(select(Chapter).where(Chapter.subject_id == subject_id))
+        ).all()
+        topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+
+    # Upsert by code, in place: one chapter row, retitled — not a second "1".
+    assert len(chapters) == 2  # chapter 2 from the first draft is left alone
+    assert next(c for c in chapters if c.code == "1").title == "Section one (revised)"
+    assert next(t for t in topics if t.code == "1.1").title == "Sub-topic A (revised)"
+
+
 async def test_apply_sets_no_grade_boundaries(client, tutor, uploaded):
     """Applying a syllabus creates no boundaries and no predicted grade.
 

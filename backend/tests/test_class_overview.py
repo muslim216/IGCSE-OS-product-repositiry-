@@ -21,16 +21,6 @@ from app.models import (
 )
 from tests.factories import subject_defaults
 
-BOUNDARIES = [
-    {"grade": "9", "min": 90},
-    {"grade": "8", "min": 80},
-    {"grade": "7", "min": 70},
-    {"grade": "6", "min": 60},
-    {"grade": "5", "min": 50},
-    {"grade": "4", "min": 40},
-    {"grade": "U", "min": 0},
-]
-
 
 @pytest.fixture
 async def subject_id(tutor):  # depends on `tutor` so the organization exists first:

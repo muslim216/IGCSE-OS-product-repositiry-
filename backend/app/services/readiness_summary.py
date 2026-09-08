@@ -208,10 +208,10 @@ async def build_summary(
     db: AsyncSession, student: User, subject_ids: list[int]
 ) -> StudentReadinessSummary:
     subjects_out: list[SubjectReadiness] = []
-    # One query for every subject in the loop. Since task 2.4 this is the only
-    # source of a predicted grade: a subject the organization has set no
-    # boundaries for gets no grade and no band, never one mapped through numbers
-    # nobody entered (AV-11, PROD-2).
+    # One query covering every subject below, rather than one per subject in the
+    # loop. Since task 2.4 this is the only source of a predicted grade: a
+    # subject the organization has set no boundaries for gets no grade and no
+    # band, never one mapped through numbers nobody entered (AV-11, PROD-2).
     all_boundaries = await org_boundaries(db, student.organization_id)
     for subject_id in subject_ids:
         subject = await db.get(Subject, subject_id)

@@ -160,7 +160,14 @@ async def _subject_from_snapshot(
         exam_board=subject.exam_board,
         grade_scale=subject.grade_scale,
         score=snapshot.score,
-        predicted_grade=snapshot.predicted_grade,
+        # A snapshot keeps the grade it was synthesized with, but the surface
+        # only shows one while the organization still has boundaries to stand
+        # behind it: clearing them means there is nothing the grade maps
+        # through any more, and a stale one on screen is exactly the number
+        # PROD-2 forbids. The stored value is untouched — it is the honest
+        # record of what the engine said — and comes back if they set
+        # boundaries again.
+        predicted_grade=snapshot.predicted_grade if boundaries else None,
         status=grade_band(snapshot.predicted_grade, boundaries),
         averaging_score=averaging.score,
         averaging_grade=averaging_grade,

@@ -18,7 +18,7 @@ from app.models import (
     ReadinessWeights,
     User,
 )
-from app.services.grade_boundaries import set_org_boundaries
+from app.services.grade_boundaries import resolve_grade_boundaries, set_org_boundaries
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -363,9 +363,10 @@ async def test_no_boundaries_means_no_band_at_all(client, tutor, world):  # noqa
     """Task 2.4 (AV-11) removed the second source, so an organization with no
     boundaries has nothing to take a grade's index from.
 
-    The snapshot keeps the grade it was synthesized with — that is the honest
-    record of what the engine said — but the band is absent rather than
-    defaulted to a colour (PROD-2).
+    The snapshot keeps the grade it was synthesized with, which is the honest
+    record of what the engine said, but the surface shows neither it nor a band:
+    there is nothing left for either to map through, and a grade on screen that
+    no current numbers stand behind is what PROD-2 forbids.
     """
     async with async_session() as session:
         tutor_user = await session.get(User, tutor["user"]["id"])
@@ -377,5 +378,24 @@ async def test_no_boundaries_means_no_band_at_all(client, tutor, world):  # noqa
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
     subject = resp.json()["subjects"][0]
-    assert subject["predicted_grade"] == "4"
+    assert subject["predicted_grade"] is None
     assert subject["status"] is None
+
+
+async def test_a_snapshot_synthesized_without_boundaries_stores_no_grade(client, tutor, world):  # noqa: F811
+    """`predict_grade` returns "—" for an empty list, and an em dash is not a
+    grade to store. The column is nullable so the absence is recorded as one
+    (AV-11, PROD-2)."""
+    from app.models import Subject
+    from app.services.grades import predict_grade
+
+    assert predict_grade(72.0, []) == "—"
+
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        subject = await session.get(Subject, world["subject_id"])
+        await set_org_boundaries(session, tutor_user.organization_id, subject.id, [])
+        await session.commit()
+        boundaries = await resolve_grade_boundaries(session, tutor_user.organization_id, subject)
+
+    assert boundaries == []
