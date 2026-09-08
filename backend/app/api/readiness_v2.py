@@ -102,6 +102,20 @@ async def student_readiness_v2(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     subject_ids = await visible_subject_ids(db, user, student_id)
     # One query for every subject below, rather than one per snapshot.
+    #
+    # Keyed on the **student's** organization, which is the one the grade was
+    # mapped through: `readiness_v2_ai` synthesises it with
+    # `resolve_grade_boundaries(session, student.organization_id, subject)` and
+    # `readiness_summary_v2` reads it back the same way. A student may be
+    # enrolled in a subject owned by a second organization (`visible_subject_ids`
+    # scopes by enrolment, not tenancy), and keying on the *subject's* owner
+    # would then validate the grade against a list it was never mapped through —
+    # showing a "7" that the boundaries on screen do not produce (cubic proposed
+    # exactly that).
+    #
+    # Which organization's boundaries should apply to a student taught by two is
+    # a real product question, and an open one. It is not answered here, and
+    # answering it means changing synthesis first.
     all_boundaries = await org_boundaries(db, student.organization_id)
     subjects_out = []
     for subject_id in subject_ids or []:
