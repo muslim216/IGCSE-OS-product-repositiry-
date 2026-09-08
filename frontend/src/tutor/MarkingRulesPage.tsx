@@ -4,6 +4,7 @@ import { listSubjects } from "../api/groups";
 import { getMarkingRules, saveMarkingRules, MAX_MARKING_RULES } from "../api/markingRules";
 import { ApiError } from "../api/client";
 import { EmptyState, useToast } from "../components/ui";
+import { ABSENT } from "../lib/labels";
 
 /**
  * The AI marking agreement — the marking rules a tutor writes once for a
@@ -21,12 +22,10 @@ import { EmptyState, useToast } from "../components/ui";
 function LoadFailed({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex items-center gap-3">
-      {/* Not `ABSENT.loadFailed`: that copy says to refresh the page, which is
-          the advice this control exists to replace (cubic). The shared string
-          stays as it is for the surfaces that offer no retry. */}
-      <p className="text-sm text-ink-500">
-        That did not load. This is usually temporary — try again in a moment.
-      </p>
+      {/* `loadFailedRetry`, not `loadFailed`: the latter says to refresh the
+          page, which is the advice this control exists to replace. Both live in
+          labels.ts so neither condition ends up with two wordings. */}
+      <p className="text-sm text-ink-500">{ABSENT.loadFailedRetry}</p>
       <button
         onClick={onRetry}
         className="rounded-md border border-line-control px-3 py-1.5 text-sm text-ink-700 hover:border-line-strong"

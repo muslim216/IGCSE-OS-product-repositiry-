@@ -58,4 +58,9 @@ export const ABSENT = {
   updating: "Updating…",
   aiUnavailable: "Guidance is unavailable right now.",
   loadFailed: "This is usually temporary — refresh the page to try again.",
+  // For a surface that offers its own retry control: the wording above sends
+  // the reader to the browser's refresh button, which is exactly what such a
+  // control replaces. Two wordings because there are two conditions, not
+  // because one condition drifted (cubic).
+  loadFailedRetry: "That did not load. This is usually temporary.",
 } as const;
