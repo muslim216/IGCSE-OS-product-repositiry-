@@ -4,7 +4,15 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
-from app.models import Subject, SyllabusUpload, SyllabusUploadStatus, Topic, User, UserRole
+from app.models import (
+    Chapter,
+    Subject,
+    SyllabusUpload,
+    SyllabusUploadStatus,
+    Topic,
+    User,
+    UserRole,
+)
 from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
 from app.services import storage
 from app.services.grade_boundaries import defaults_for_scale
@@ -89,8 +97,8 @@ async def get_syllabus_upload(
 async def edit_draft(
     upload_id: int, body: SyllabusDraft, db: DbSession, user: CurrentUser
 ) -> SyllabusUploadDetail:
-    """Let the tutor correct the AI's draft (topic names, codes, weights, grade
-    boundaries) before it's applied as a real subject."""
+    """Let the tutor correct the AI's draft (chapter and topic names, codes,
+    weights, the level) before it's applied as a real subject."""
     upload = await _owned_upload(db, user, upload_id)
     if upload.status == SyllabusUploadStatus.applied:
         raise HTTPException(status.HTTP_409_CONFLICT, "This syllabus has already been applied")
@@ -117,7 +125,7 @@ async def retry_syllabus_extraction(
 
 @router.post("/{upload_id}/apply", response_model=SyllabusUploadDetail)
 async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> SyllabusUploadDetail:
-    """Create (or update) the real Subject + Topic tree from the reviewed draft.
+    """Create (or update) the real Subject + Chapter + Topic tree from the reviewed draft.
 
     Idempotent on (organization, exam_board, code) — the tenant is part of a
     subject's identity since task 2.2, so re-applying updates *this* tutor's
@@ -147,6 +155,7 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
             Subject.code == draft.code,
         )
     )
+    is_new_subject = subject is None
     if subject is None:
         subject = Subject(
             organization_id=user.organization_id,
@@ -157,46 +166,73 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     subject.level = draft.level
     subject.name = draft.name
     subject.grade_scale = draft.grade_scale
-    # A syllabus document usually does not print its grade boundaries — they are
-    # published per series, not per specification — so the extraction commonly
-    # returns none. Where the document did state boundaries, those win.
-    #
-    # When it did not, fall back to the standard split for the scale ONLY to seed
-    # a subject that has none.
-    #
-    # This used to be a cross-tenant concern: subjects were global and keyed on
-    # (exam_board, code), so a second organization re-uploading the same syllabus
-    # reused the existing row, and overwriting its boundaries with generic
-    # defaults changed fallback predicted grades for every other tenant (Qodo,
-    # SEC-8). Task 2.2 made subjects tenant-owned, so that specific leak is gone.
-    # The behaviour stays because the *other* reason still holds: a tutor who has
-    # entered real boundaries must not have them replaced by a generic split just
-    # because they re-uploaded the syllabus document.
-    extracted = [b.model_dump() for b in draft.grade_boundaries]
-    subject.grade_boundaries = (
-        extracted or subject.grade_boundaries or defaults_for_scale(draft.grade_scale)
-    )
+    # The draft no longer carries grade boundaries (task 2.3): a syllabus document
+    # publishes a specification, not a series' boundaries, so asking a model for
+    # them was asking it to guess. Task 2.4 makes the tutor-entered table the only
+    # source; until then a *new* subject still needs a working predicted grade, so
+    # it is seeded with the scale's standard split. An existing subject is never
+    # touched — not even one whose boundaries are an empty list, which is a tutor
+    # having cleared them, not a gap to fill with an inferred split presented as
+    # stored (cubic, PROD-2). Re-uploading the document must never change what a
+    # tutor entered.
+    if is_new_subject:
+        subject.grade_boundaries = defaults_for_scale(draft.grade_scale)
     await db.flush()
 
+    chapters = {
+        c.code: c
+        for c in (await db.scalars(select(Chapter).where(Chapter.subject_id == subject.id))).all()
+    }
     existing = {
         t.code: t
         for t in (await db.scalars(select(Topic).where(Topic.subject_id == subject.id))).all()
     }
 
-    async def upsert(node, parent_id: int | None) -> None:
+    async def upsert(node, chapter_id: int, parent_id: int | None) -> None:
         topic = existing.get(node.code)
         if topic is None:
             topic = Topic(subject_id=subject.id, code=node.code)
             db.add(topic)
+            existing[node.code] = topic
         topic.title = node.title
+        topic.chapter_id = chapter_id
         topic.parent_id = parent_id
         topic.weight = node.weight
         await db.flush()
         for child in node.children:
-            await upsert(child, topic.id)
+            await upsert(child, chapter_id, topic.id)
 
-    for node in draft.topics:
-        await upsert(node, None)
+    for position, drafted in enumerate(draft.chapters, start=1):
+        chapter = chapters.get(drafted.code)
+        if chapter is None:
+            chapter = Chapter(subject_id=subject.id, code=drafted.code)
+            db.add(chapter)
+        # Registered by code so a draft that repeats one — the codes are
+        # tutor-editable free text — merges into that chapter, exactly as a
+        # repeated topic code does, instead of a second INSERT tripping the
+        # (subject_id, code) unique constraint with a 500.
+        chapters[drafted.code] = chapter
+        chapter.title = drafted.title
+        # Teaching order comes from the draft's order, which the tutor can
+        # rearrange during review — not from `code`, since a tutor may teach
+        # chapter 4 before chapter 3.
+        chapter.position = position
+        await db.flush()
+        for node in drafted.topics:
+            await upsert(node, chapter.id, None)
+
+    # A later draft may omit a chapter an earlier one created, and nothing here
+    # deletes it. Left alone it would keep a position the new draft has just
+    # reassigned, and two chapters sharing a position make `order_by(position)`
+    # arbitrary (Gitar). They sort after everything the tutor just approved, in
+    # their previous relative order.
+    drafted_codes = {c.code for c in draft.chapters}
+    stale = sorted(
+        (c for code, c in chapters.items() if code not in drafted_codes),
+        key=lambda c: (c.position, c.code),
+    )
+    for offset, chapter in enumerate(stale, start=len(draft.chapters) + 1):
+        chapter.position = offset
 
     upload.status = SyllabusUploadStatus.applied
     upload.subject_id = subject.id

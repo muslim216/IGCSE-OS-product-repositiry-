@@ -1863,8 +1863,8 @@ export interface paths {
         get?: never;
         /**
          * Edit Draft
-         * @description Let the tutor correct the AI's draft (topic names, codes, weights, grade
-         *     boundaries) before it's applied as a real subject.
+         * @description Let the tutor correct the AI's draft (chapter and topic names, codes,
+         *     weights, the level) before it's applied as a real subject.
          */
         put: operations["edit_draft_api_v1_syllabus_uploads__upload_id__draft_put"];
         post?: never;
@@ -1902,7 +1902,7 @@ export interface paths {
         put?: never;
         /**
          * Apply Syllabus
-         * @description Create (or update) the real Subject + Topic tree from the reviewed draft.
+         * @description Create (or update) the real Subject + Chapter + Topic tree from the reviewed draft.
          *
          *     Idempotent on (organization, exam_board, code) — the tenant is part of a
          *     subject's identity since task 2.2, so re-applying updates *this* tutor's
@@ -2485,13 +2485,6 @@ export interface components {
             source: string;
             /** Boundaries */
             boundaries: components["schemas"]["GradeBand"][];
-        };
-        /** GradeBoundaryIn */
-        GradeBoundaryIn: {
-            /** Grade */
-            grade: string;
-            /** Min */
-            min: number;
         };
         /** GroupCreate */
         GroupCreate: {
@@ -3645,6 +3638,30 @@ export interface components {
             /** Total Max */
             total_max: number;
         };
+        /** SyllabusChapterIn */
+        "SyllabusChapterIn-Input": {
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /**
+             * Topics
+             * @default []
+             */
+            topics: components["schemas"]["SyllabusTopicIn-Input"][];
+        };
+        /** SyllabusChapterIn */
+        "SyllabusChapterIn-Output": {
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /**
+             * Topics
+             * @default []
+             */
+            topics: components["schemas"]["SyllabusTopicIn-Output"][];
+        };
         /** SyllabusDraft */
         "SyllabusDraft-Input": {
             /** Exam Board */
@@ -3656,10 +3673,8 @@ export interface components {
             level?: components["schemas"]["SubjectLevel"] | null;
             /** Grade Scale */
             grade_scale: string;
-            /** Grade Boundaries */
-            grade_boundaries: components["schemas"]["GradeBoundaryIn"][];
-            /** Topics */
-            topics: components["schemas"]["SyllabusTopicIn-Input"][];
+            /** Chapters */
+            chapters: components["schemas"]["SyllabusChapterIn-Input"][];
         };
         /** SyllabusDraft */
         "SyllabusDraft-Output": {
@@ -3672,10 +3687,8 @@ export interface components {
             level?: components["schemas"]["SubjectLevel"] | null;
             /** Grade Scale */
             grade_scale: string;
-            /** Grade Boundaries */
-            grade_boundaries: components["schemas"]["GradeBoundaryIn"][];
-            /** Topics */
-            topics: components["schemas"]["SyllabusTopicIn-Output"][];
+            /** Chapters */
+            chapters: components["schemas"]["SyllabusChapterIn-Output"][];
         };
         /** SyllabusTopicIn */
         "SyllabusTopicIn-Input": {

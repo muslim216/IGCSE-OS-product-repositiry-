@@ -5171,7 +5171,7 @@
           "syllabus"
         ],
         "summary": "Edit Draft",
-        "description": "Let the tutor correct the AI's draft (topic names, codes, weights, grade\nboundaries) before it's applied as a real subject.",
+        "description": "Let the tutor correct the AI's draft (chapter and topic names, codes,\nweights, the level) before it's applied as a real subject.",
         "operationId": "edit_draft_api_v1_syllabus_uploads__upload_id__draft_put",
         "security": [
           {
@@ -5276,7 +5276,7 @@
           "syllabus"
         ],
         "summary": "Apply Syllabus",
-        "description": "Create (or update) the real Subject + Topic tree from the reviewed draft.\n\nIdempotent on (organization, exam_board, code) \u2014 the tenant is part of a\nsubject's identity since task 2.2, so re-applying updates *this* tutor's\nsubject and never another tenant's.",
+        "description": "Create (or update) the real Subject + Chapter + Topic tree from the reviewed draft.\n\nIdempotent on (organization, exam_board, code) \u2014 the tenant is part of a\nsubject's identity since task 2.2, so re-applying updates *this* tutor's\nsubject and never another tenant's.",
         "operationId": "apply_syllabus_api_v1_syllabus_uploads__upload_id__apply_post",
         "security": [
           {
@@ -6918,24 +6918,6 @@
           "boundaries"
         ],
         "title": "GradeBoundariesOut"
-      },
-      "GradeBoundaryIn": {
-        "properties": {
-          "grade": {
-            "type": "string",
-            "title": "Grade"
-          },
-          "min": {
-            "type": "integer",
-            "title": "Min"
-          }
-        },
-        "type": "object",
-        "required": [
-          "grade",
-          "min"
-        ],
-        "title": "GradeBoundaryIn"
       },
       "GroupCreate": {
         "properties": {
@@ -10393,6 +10375,58 @@
         ],
         "title": "SubmissionSummary"
       },
+      "SyllabusChapterIn-Input": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/SyllabusTopicIn-Input"
+            },
+            "type": "array",
+            "title": "Topics",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "title"
+        ],
+        "title": "SyllabusChapterIn"
+      },
+      "SyllabusChapterIn-Output": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/SyllabusTopicIn-Output"
+            },
+            "type": "array",
+            "title": "Topics",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "title"
+        ],
+        "title": "SyllabusChapterIn"
+      },
       "SyllabusDraft-Input": {
         "properties": {
           "exam_board": {
@@ -10421,19 +10455,12 @@
             "type": "string",
             "title": "Grade Scale"
           },
-          "grade_boundaries": {
+          "chapters": {
             "items": {
-              "$ref": "#/components/schemas/GradeBoundaryIn"
+              "$ref": "#/components/schemas/SyllabusChapterIn-Input"
             },
             "type": "array",
-            "title": "Grade Boundaries"
-          },
-          "topics": {
-            "items": {
-              "$ref": "#/components/schemas/SyllabusTopicIn-Input"
-            },
-            "type": "array",
-            "title": "Topics"
+            "title": "Chapters"
           }
         },
         "type": "object",
@@ -10442,8 +10469,7 @@
           "code",
           "name",
           "grade_scale",
-          "grade_boundaries",
-          "topics"
+          "chapters"
         ],
         "title": "SyllabusDraft"
       },
@@ -10475,19 +10501,12 @@
             "type": "string",
             "title": "Grade Scale"
           },
-          "grade_boundaries": {
+          "chapters": {
             "items": {
-              "$ref": "#/components/schemas/GradeBoundaryIn"
+              "$ref": "#/components/schemas/SyllabusChapterIn-Output"
             },
             "type": "array",
-            "title": "Grade Boundaries"
-          },
-          "topics": {
-            "items": {
-              "$ref": "#/components/schemas/SyllabusTopicIn-Output"
-            },
-            "type": "array",
-            "title": "Topics"
+            "title": "Chapters"
           }
         },
         "type": "object",
@@ -10496,8 +10515,7 @@
           "code",
           "name",
           "grade_scale",
-          "grade_boundaries",
-          "topics"
+          "chapters"
         ],
         "title": "SyllabusDraft"
       },

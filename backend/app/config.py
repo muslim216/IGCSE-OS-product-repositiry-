@@ -44,7 +44,10 @@ class Settings(BaseSettings):
     ai_marking_model: str = ""
     ai_extraction_provider: str = "gemini"
     ai_extraction_model: str = ""
-    ai_syllabus_provider: str = "gemini"
+    # Anthropic since task 2.3 (AV-124): the chapter-tree prompt is a
+    # structure-and-judgement job, not bulk transcription, and the model left
+    # blank inherits `anthropic_model` above.
+    ai_syllabus_provider: str = "anthropic"
     ai_syllabus_model: str = ""
     ai_reports_provider: str = "anthropic"
     ai_reports_model: str = ""

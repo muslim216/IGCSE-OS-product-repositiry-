@@ -15,7 +15,12 @@ dependencies = [
     "python-multipart>=0.0.9",
     "PyJWT>=2.8",
     "bcrypt>=4.1",
-    "anthropic>=0.40",
+    # Floor is the structured-output API, not the client: services/ai.py's
+    # structured_complete calls `client.messages.parse`, which 0.40 does not
+    # have — a fresh install resolving the old floor broke every Anthropic
+    # structured surface with an AttributeError before sending a request
+    # (CodeRabbit). 0.125 is the version this is verified against.
+    "anthropic>=0.125",
     "google-genai>=1.0",
     "httpx>=0.27",
     "cryptography>=42",

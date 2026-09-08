@@ -2,48 +2,75 @@ import pytest
 from sqlalchemy import select
 
 from app.db import async_session
-from app.models import AiFeature, AiUsageEvent
+from app.models import AiFeature, AiUsageEvent, Chapter, Topic
 from app.workers.jobs import process_one_job
 from tests.factories import subject_defaults
 
 PDF_BYTES = b"%PDF-1.4 fake test syllabus pdf"
 
 
-async def fake_extraction(session, upload):
-    upload.draft = {
-        "exam_board": "Edexcel IGCSE",
-        "code": "4XX1",
+def draft_of(*, chapters, level="igcse", code="4XX1", exam_board="Edexcel IGCSE"):
+    return {
+        "exam_board": exam_board,
+        "code": code,
         "name": "Test Subject",
         "grade_scale": "9-1",
-        "level": "igcse",
-        "grade_boundaries": [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
-        "topics": [
-            {
-                "code": "1",
-                "title": "Section one",
-                "weight": 1.0,
-                "children": [
-                    {"code": "1.1", "title": "Sub-topic A", "weight": 1.0, "children": []},
-                    {"code": "1.2", "title": "Sub-topic B", "weight": 2.0, "children": []},
-                ],
-            }
-        ],
+        "level": level,
+        "chapters": chapters,
     }
+
+
+CHAPTERS = [
+    {
+        "code": "1",
+        "title": "Section one",
+        "topics": [
+            {"code": "1.1", "title": "Sub-topic A", "weight": 1.0, "children": []},
+            {
+                "code": "1.2",
+                "title": "Sub-topic B",
+                "weight": 2.0,
+                "children": [
+                    {"code": "1.2.1", "title": "Detail", "weight": 1.0, "children": []},
+                ],
+            },
+        ],
+    },
+    {
+        "code": "2",
+        "title": "Section two",
+        "topics": [{"code": "2.1", "title": "Sub-topic C", "weight": 1.0, "children": []}],
+    },
+]
+
+
+async def fake_extraction(session, upload):
+    upload.draft = draft_of(chapters=CHAPTERS)
+
+
+def extraction_returning(draft):
+    async def _run(session, upload):
+        upload.draft = draft
+
+    return _run
+
+
+async def upload_pdf(client, tutor, title="Test syllabus", name="syllabus.pdf"):
+    resp = await client.post(
+        "/api/v1/syllabus-uploads",
+        data={"title": title},
+        files={"file": (name, PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True
+    return resp.json()["id"]
 
 
 @pytest.fixture
 async def uploaded(client, tutor, monkeypatch):
     monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
-    resp = await client.post(
-        "/api/v1/syllabus-uploads",
-        data={"title": "Test syllabus"},
-        files={"file": ("syllabus.pdf", PDF_BYTES, "application/pdf")},
-        headers=tutor["headers"],
-    )
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "extracting"
-    assert await process_one_job() is True
-    return resp.json()["id"]
+    return await upload_pdf(client, tutor)
 
 
 async def test_upload_and_extract_flow(client, tutor, uploaded):
@@ -52,7 +79,9 @@ async def test_upload_and_extract_flow(client, tutor, uploaded):
     body = detail.json()
     assert body["status"] == "review"
     assert body["draft"]["code"] == "4XX1"
-    assert body["draft"]["topics"][0]["children"][1]["title"] == "Sub-topic B"
+    assert [c["code"] for c in body["draft"]["chapters"]] == ["1", "2"]
+    assert body["draft"]["chapters"][0]["topics"][1]["title"] == "Sub-topic B"
+    assert body["draft"]["chapters"][0]["topics"][1]["children"][0]["code"] == "1.2.1"
 
 
 async def test_extraction_records_ai_usage(client, tutor, monkeypatch, fake_ai):
@@ -68,8 +97,13 @@ async def test_extraction_records_ai_usage(client, tutor, monkeypatch, fake_ai):
         name="Test Subject",
         grade_scale="9-1",
         level="igcse",
-        grade_boundaries=[],
-        topics=[{"code": "1", "title": "Section one", "weight": 1.0, "children": []}],
+        chapters=[
+            {
+                "code": "1",
+                "title": "Section one",
+                "topics": [{"code": "1.1", "title": "A", "weight": 1.0, "children": []}],
+            }
+        ],
     )
     monkeypatch.setattr("app.services.syllabus_extraction.structured_complete", fake_ai(result))
     resp = await client.post(
@@ -91,23 +125,39 @@ async def test_extraction_records_ai_usage(client, tutor, monkeypatch, fake_ai):
     assert events[0].tutor_id == tutor["user"]["id"]
 
 
-async def test_apply_creates_subject_and_topic_tree(client, tutor, uploaded):
+async def test_apply_creates_chapters_with_their_topics(client, tutor, uploaded):
     resp = await client.post(f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "applied"
-    assert body["subject_id"] is not None
+    subject_id = body["subject_id"]
+    assert subject_id is not None
 
     subjects = await client.get("/api/v1/subjects", headers=tutor["headers"])
     match = next(s for s in subjects.json() if s["code"] == "4XX1")
     assert match["name"] == "Test Subject"
-    assert match["exam_board"] == "Edexcel IGCSE"
 
-    topics = await client.get(f"/api/v1/subjects/{match['id']}/topics", headers=tutor["headers"])
-    codes = {t["code"] for t in topics.json()}
-    assert codes == {"1", "1.1", "1.2"}
-    child = next(t for t in topics.json() if t["code"] == "1.2")
-    assert child["title"] == "Sub-topic B"
+    async with async_session() as session:
+        chapters = (
+            await session.scalars(
+                select(Chapter).where(Chapter.subject_id == subject_id).order_by(Chapter.position)
+            )
+        ).all()
+        topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+
+    assert [(c.code, c.title, c.position) for c in chapters] == [
+        ("1", "Section one", 1),
+        ("2", "Section two", 2),
+    ]
+    by_code = {t.code: t for t in topics}
+    assert set(by_code) == {"1.1", "1.2", "1.2.1", "2.1"}
+    # Every topic hangs off a chapter — the whole point of 2.3. A sub-topic
+    # belongs to its parent's chapter, not to a chapter of its own.
+    assert by_code["1.1"].chapter_id == chapters[0].id
+    assert by_code["1.2.1"].chapter_id == chapters[0].id
+    assert by_code["1.2.1"].parent_id == by_code["1.2"].id
+    assert by_code["2.1"].chapter_id == chapters[1].id
+    assert by_code["1.1"].parent_id is None
 
     # Applying twice is rejected — not silently re-applied.
     again = await client.post(
@@ -116,92 +166,69 @@ async def test_apply_creates_subject_and_topic_tree(client, tutor, uploaded):
     assert again.status_code == 409
 
 
+async def test_apply_refuses_a_draft_with_no_level(client, tutor, monkeypatch):
+    """AV-7: no screen may assume IGCSE, and PROD-2 forbids inventing the value.
+    A document that never stated its qualification leaves `level` null, and the
+    tutor states it during review."""
+    from app.models import Subject, SubjectLevel
+
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(draft_of(chapters=CHAPTERS, level=None)),
+    )
+    upload_id = await upload_pdf(client, tutor, title="No level stated")
+
+    refused = await client.post(
+        f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
+    )
+    assert refused.status_code == 422
+
+    detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
+    draft = detail.json()["draft"]
+    draft["level"] = "a_level"
+    saved = await client.put(
+        f"/api/v1/syllabus-uploads/{upload_id}/draft", json=draft, headers=tutor["headers"]
+    )
+    assert saved.status_code == 200
+
+    applied = await client.post(
+        f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
+    )
+    assert applied.status_code == 200
+    async with async_session() as session:
+        subject = await session.get(Subject, applied.json()["subject_id"])
+    assert subject.level is SubjectLevel.a_level
+
+
 async def test_apply_upserts_existing_subject_by_exam_board_and_code(
     client, tutor, uploaded, monkeypatch
 ):
     """Uploading a second, corrected syllabus for the same exam_board+code
-    should update the existing subject's topics rather than creating a
-    duplicate — matching the idempotent seed-loader behaviour."""
+    should update the existing subject's chapters and topics rather than
+    creating a duplicate."""
     first_apply = await client.post(
         f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
     )
     subject_id = first_apply.json()["subject_id"]
 
-    async def fake_extraction_v2(session, upload):
-        upload.draft = {
-            "exam_board": "Edexcel IGCSE",
-            "code": "4XX1",
-            "name": "Test Subject",
-            "grade_scale": "9-1",
-            "level": "igcse",
-            "grade_boundaries": [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}],
-            "topics": [
-                {"code": "1", "title": "Section one (revised)", "weight": 1.0, "children": []},
-            ],
-        }
-
-    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction_v2)
-    resp = await client.post(
-        "/api/v1/syllabus-uploads",
-        data={"title": "Test syllabus v2"},
-        files={"file": ("syllabus2.pdf", PDF_BYTES, "application/pdf")},
-        headers=tutor["headers"],
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(
+            draft_of(
+                chapters=[
+                    {
+                        "code": "1",
+                        "title": "Section one (revised)",
+                        "topics": [
+                            {"code": "1.1", "title": "Sub-topic A (revised)", "children": []}
+                        ],
+                    }
+                ]
+            )
+        ),
     )
-    second_id = resp.json()["id"]
-    assert await process_one_job() is True
+    second_id = await upload_pdf(client, tutor, title="Test syllabus v2", name="syllabus2.pdf")
 
-    apply2 = await client.post(
-        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
-    )
-    assert apply2.status_code == 200
-    assert apply2.json()["subject_id"] == subject_id
-
-    # Upsert-by-code updates the matching topic in place; like the seed loader,
-    # it never deletes topics omitted from a later draft.
-    topics = await client.get(f"/api/v1/subjects/{subject_id}/topics", headers=tutor["headers"])
-    updated = next(t for t in topics.json() if t["code"] == "1")
-    assert updated["title"] == "Section one (revised)"
-
-
-async def test_reapply_with_no_boundaries_keeps_the_existing_global_ones(
-    client, tutor, uploaded, monkeypatch
-):
-    """A re-upload whose extraction found no boundaries must not overwrite the
-    subject's existing boundaries.
-
-    Subjects are global and keyed on (exam_board, code), so a second upload —
-    including one from another organization — reuses the same row. Blanking it,
-    or replacing it with generic defaults, would change fallback predicted grades
-    for every tenant that relies on it (Qodo, SEC-8).
-    """
-    from app.db import async_session
-    from app.models import Subject
-
-    first = await client.post(
-        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
-    )
-    subject_id = first.json()["subject_id"]
-
-    async def fake_no_boundaries(session, upload):
-        upload.draft = {
-            "exam_board": "Edexcel IGCSE",
-            "code": "4XX1",
-            "name": "Test Subject",
-            "grade_scale": "9-1",
-            "level": "igcse",
-            "grade_boundaries": [],  # the document did not state them
-            "topics": [{"code": "1", "title": "Section one", "weight": 1.0, "children": []}],
-        }
-
-    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_no_boundaries)
-    resp = await client.post(
-        "/api/v1/syllabus-uploads",
-        data={"title": "Same syllabus, no boundaries"},
-        files={"file": ("syllabus3.pdf", PDF_BYTES, "application/pdf")},
-        headers=tutor["headers"],
-    )
-    second_id = resp.json()["id"]
-    assert await process_one_job() is True
     apply2 = await client.post(
         f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
     )
@@ -209,42 +236,58 @@ async def test_reapply_with_no_boundaries_keeps_the_existing_global_ones(
     assert apply2.json()["subject_id"] == subject_id
 
     async with async_session() as session:
+        chapters = (
+            await session.scalars(select(Chapter).where(Chapter.subject_id == subject_id))
+        ).all()
+        topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+
+    # Upsert by code, in place: one chapter row, retitled — not a second "1".
+    assert len(chapters) == 2  # chapter 2 from the first draft is left alone
+    assert next(c for c in chapters if c.code == "1").title == "Section one (revised)"
+    assert next(t for t in topics if t.code == "1.1").title == "Sub-topic A (revised)"
+
+
+async def test_reapply_keeps_the_subjects_existing_boundaries(client, tutor, uploaded, monkeypatch):
+    """Grade boundaries are no longer extracted (task 2.3) — a syllabus document
+    publishes a specification, not a series' boundaries. Re-applying must not
+    replace a tutor's entered boundaries with the scale's generic split."""
+    from app.models import Subject
+
+    first = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first.json()["subject_id"]
+    async with async_session() as session:
         subject = await session.get(Subject, subject_id)
-    # Untouched — still the first apply's boundaries, neither blanked nor
-    # replaced with the scale's generic defaults.
-    assert subject.grade_boundaries == [{"grade": "9", "min": 90}, {"grade": "U", "min": 0}]
+        subject.grade_boundaries = [{"grade": "9", "min": 88}, {"grade": "U", "min": 0}]
+        await session.commit()
+
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
+    second_id = await upload_pdf(client, tutor, title="Same syllabus again", name="syllabus3.pdf")
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+    assert subject.grade_boundaries == [{"grade": "9", "min": 88}, {"grade": "U", "min": 0}]
 
 
-async def test_apply_seeds_default_boundaries_when_a_new_subject_has_none(
-    client, tutor, monkeypatch
-):
-    """A brand-new subject whose document stated no boundaries still gets working
-    predicted grades from the scale's standard split — the cold-start value the
-    fallback exists for (spec §7.1)."""
-    from app.db import async_session
+async def test_apply_seeds_default_boundaries_for_a_new_subject(client, tutor, monkeypatch):
+    """A brand-new subject still gets working predicted grades from the scale's
+    standard split — the cold-start value the fallback exists for, until 2.4
+    makes the tutor-entered table the only source."""
     from app.models import Subject
     from app.services.grade_boundaries import defaults_for_scale
 
-    async def fake_new_no_boundaries(session, upload):
-        upload.draft = {
-            "exam_board": "Cambridge",
-            "code": "0620",
-            "name": "IGCSE Chemistry",
-            "grade_scale": "9-1",
-            "level": "igcse",
-            "grade_boundaries": [],
-            "topics": [{"code": "1", "title": "States of matter", "weight": 1.0, "children": []}],
-        }
-
-    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_new_no_boundaries)
-    resp = await client.post(
-        "/api/v1/syllabus-uploads",
-        data={"title": "New subject, no boundaries"},
-        files={"file": ("new.pdf", PDF_BYTES, "application/pdf")},
-        headers=tutor["headers"],
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(
+            draft_of(chapters=CHAPTERS, code="0620", exam_board="Cambridge"),
+        ),
     )
-    upload_id = resp.json()["id"]
-    assert await process_one_job() is True
+    upload_id = await upload_pdf(client, tutor, title="New subject", name="new.pdf")
     applied = await client.post(
         f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
     )
@@ -259,20 +302,26 @@ async def test_apply_seeds_default_boundaries_when_a_new_subject_has_none(
 async def test_edit_draft_before_apply(client, tutor, uploaded):
     detail = await client.get(f"/api/v1/syllabus-uploads/{uploaded}", headers=tutor["headers"])
     draft = detail.json()["draft"]
-    draft["topics"][0]["title"] = "Section one (tutor corrected)"
+    draft["chapters"][0]["title"] = "Section one (tutor corrected)"
+    draft["chapters"][0]["topics"][0]["title"] = "Sub-topic A (tutor corrected)"
 
     resp = await client.put(
         f"/api/v1/syllabus-uploads/{uploaded}/draft", json=draft, headers=tutor["headers"]
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["draft"]["topics"][0]["title"] == "Section one (tutor corrected)"
+    assert resp.json()["draft"]["chapters"][0]["title"] == "Section one (tutor corrected)"
 
     apply_resp = await client.post(
         f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
     )
     subject_id = apply_resp.json()["subject_id"]
+    async with async_session() as session:
+        chapter = await session.scalar(
+            select(Chapter).where(Chapter.subject_id == subject_id, Chapter.code == "1")
+        )
+    assert chapter.title == "Section one (tutor corrected)"
     topics = await client.get(f"/api/v1/subjects/{subject_id}/topics", headers=tutor["headers"])
-    assert any(t["title"] == "Section one (tutor corrected)" for t in topics.json())
+    assert any(t["title"] == "Sub-topic A (tutor corrected)" for t in topics.json())
 
 
 async def test_extraction_fails_gracefully_without_api_key(client, tutor):
@@ -288,7 +337,8 @@ async def test_extraction_fails_gracefully_without_api_key(client, tutor):
 
     detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
     assert detail.json()["status"] == "extraction_failed"
-    assert "GEMINI_API_KEY" in detail.json()["error"]
+    # Anthropic, not Gemini, since task 2.3 flipped `ai_syllabus_provider`.
+    assert "ANTHROPIC_API_KEY" in detail.json()["error"]
 
     retry = await client.post(
         f"/api/v1/syllabus-uploads/{upload_id}/retry", headers=tutor["headers"]
@@ -298,7 +348,6 @@ async def test_extraction_fails_gracefully_without_api_key(client, tutor):
 
 
 async def test_student_cannot_upload_syllabus(client, tutor):
-    from app.db import async_session
     from app.models import Subject
 
     async with async_session() as session:
@@ -349,3 +398,145 @@ async def test_other_tutor_cannot_see_upload(client, uploaded):
     headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
     resp = await client.get(f"/api/v1/syllabus-uploads/{uploaded}", headers=headers)
     assert resp.status_code == 404
+
+
+async def test_a_repeated_code_in_the_draft_merges_instead_of_failing(client, tutor, monkeypatch):
+    """Chapter and topic codes are tutor-editable free text, so a draft can
+    arrive with the same code twice. `(subject_id, code)` is unique on both
+    tables, so a second INSERT would surface as a 500 — the second occurrence
+    updates the first row instead."""
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(
+            draft_of(
+                chapters=[
+                    {
+                        "code": "1",
+                        "title": "First",
+                        "topics": [{"code": "1.1", "title": "A", "children": []}],
+                    },
+                    {
+                        "code": "1",
+                        "title": "Also chapter one",
+                        "topics": [{"code": "1.1", "title": "A again", "children": []}],
+                    },
+                ]
+            )
+        ),
+    )
+    upload_id = await upload_pdf(client, tutor, title="Duplicate codes", name="dupes.pdf")
+    applied = await client.post(
+        f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
+    )
+    assert applied.status_code == 200, applied.text
+    subject_id = applied.json()["subject_id"]
+
+    async with async_session() as session:
+        chapters = (
+            await session.scalars(select(Chapter).where(Chapter.subject_id == subject_id))
+        ).all()
+        topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+    assert [(c.code, c.title) for c in chapters] == [("1", "Also chapter one")]
+    assert [(t.code, t.title) for t in topics] == [("1.1", "A again")]
+
+
+async def test_a_chapter_dropped_by_a_later_draft_sorts_after_the_new_ones(
+    client, tutor, uploaded, monkeypatch
+):
+    """Nothing deletes a chapter a later draft omits, so it must not keep a
+    position the new draft just handed to a different chapter — two rows sharing
+    one makes `order_by(position)` arbitrary (Gitar)."""
+    first = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first.json()["subject_id"]
+
+    # The second draft keeps chapter 2 and drops chapter 1, so 2 takes position 1.
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(
+            draft_of(
+                chapters=[
+                    {
+                        "code": "2",
+                        "title": "Section two",
+                        "topics": [{"code": "2.1", "title": "Sub-topic C", "children": []}],
+                    }
+                ]
+            )
+        ),
+    )
+    second_id = await upload_pdf(client, tutor, title="Chapter 1 dropped", name="dropped.pdf")
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+
+    async with async_session() as session:
+        chapters = (
+            await session.scalars(
+                select(Chapter).where(Chapter.subject_id == subject_id).order_by(Chapter.position)
+            )
+        ).all()
+    assert [(c.code, c.position) for c in chapters] == [("2", 1), ("1", 2)]
+
+
+async def test_a_draft_with_chapters_but_no_topics_is_rejected(client, tutor, monkeypatch, fake_ai):
+    """Chapters alone are not a syllabus — marks, mistakes and readiness attach
+    at topic level, so a chapter-only draft would apply into a subject nothing
+    can be tracked against (cubic)."""
+    from app.services.syllabus_extraction import SyllabusExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction.structured_complete",
+        fake_ai(
+            SyllabusExtractionResult(
+                exam_board="Edexcel IGCSE",
+                code="4XX1",
+                name="Test Subject",
+                grade_scale="9-1",
+                level="igcse",
+                chapters=[{"code": "1", "title": "Section one", "topics": []}],
+            )
+        ),
+    )
+    resp = await client.post(
+        "/api/v1/syllabus-uploads",
+        data={"title": "Chapters only"},
+        files={"file": ("empty.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    upload_id = resp.json()["id"]
+    await process_one_job()
+    await process_one_job()
+
+    detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
+    assert detail.json()["status"] == "extraction_failed"
+    assert "No topics" in detail.json()["error"]
+
+
+async def test_reapply_never_seeds_boundaries_a_tutor_cleared(client, tutor, uploaded, monkeypatch):
+    """An empty boundary list is a tutor's decision, not a gap. Filling it with
+    the scale's generic split on re-apply would show inferred numbers as though
+    the tutor had entered them (cubic, PROD-2)."""
+    from app.models import Subject
+
+    first = await client.post(
+        f"/api/v1/syllabus-uploads/{uploaded}/apply", headers=tutor["headers"]
+    )
+    subject_id = first.json()["subject_id"]
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        subject.grade_boundaries = []
+        await session.commit()
+
+    monkeypatch.setattr("app.services.syllabus_extraction._run_extraction", fake_extraction)
+    second_id = await upload_pdf(client, tutor, title="Same syllabus", name="again.pdf")
+    apply2 = await client.post(
+        f"/api/v1/syllabus-uploads/{second_id}/apply", headers=tutor["headers"]
+    )
+    assert apply2.status_code == 200
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+    assert subject.grade_boundaries == []

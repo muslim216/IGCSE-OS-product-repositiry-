@@ -1,39 +1,16 @@
 import { api } from "./client";
+import type { components } from "./schema";
 
-export interface GradeBoundary {
-  grade: string;
-  min: number;
-}
-
-export interface SyllabusTopicDraft {
-  code: string;
-  title: string;
-  weight: number;
-  children: SyllabusTopicDraft[];
-}
-
-export interface SyllabusDraft {
-  exam_board: string;
-  code: string;
-  name: string;
-  grade_scale: string;
-  grade_boundaries: GradeBoundary[];
-  topics: SyllabusTopicDraft[];
-}
-
-export interface SyllabusUpload {
-  id: number;
-  title: string;
-  file_name: string;
-  status: "extracting" | "extraction_failed" | "review" | "applied";
-  error: string | null;
-  subject_id: number | null;
-  created_at: string;
-}
-
-export interface SyllabusUploadDetail extends SyllabusUpload {
-  draft: SyllabusDraft | null;
-}
+// FE-4: aliases of the generated schema, never hand-written interfaces — the
+// draft's shape is the backend's `SyllabusDraft` and drifts silently otherwise.
+// Input/Output split exists only because the draft has defaulted fields; the
+// editor round-trips what the server sent, so it works in Input's terms.
+export type SyllabusTopicDraft = components["schemas"]["SyllabusTopicIn-Input"];
+export type SyllabusChapterDraft = components["schemas"]["SyllabusChapterIn-Input"];
+export type SyllabusDraft = components["schemas"]["SyllabusDraft-Input"];
+export type SubjectLevel = components["schemas"]["SubjectLevel"];
+export type SyllabusUpload = components["schemas"]["SyllabusUploadOut"];
+export type SyllabusUploadDetail = components["schemas"]["SyllabusUploadDetail"];
 
 export const listSyllabusUploads = () => api<SyllabusUpload[]>("/api/v1/syllabus-uploads");
 export const getSyllabusUpload = (id: number) =>

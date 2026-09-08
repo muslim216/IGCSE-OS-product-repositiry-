@@ -91,11 +91,12 @@ services:
         sync: false
 
       # --- AI providers -------------------------------------------------
-      # Anthropic serves chat, reports, readiness synthesis and class briefs.
+      # Anthropic serves reports, readiness synthesis, class briefs, narratives
+      # and — since task 2.3 — syllabus extraction.
       - key: ANTHROPIC_API_KEY
         sync: false
-      # Gemini serves the bulk document work: marking, question extraction and
-      # syllabus extraction. Without this key those three surfaces fail with a
+      # Gemini serves the bulk document transcription: marking and question
+      # extraction. Without this key those two surfaces fail with a
       # clear "not configured" error while the rest of the app keeps working —
       # but that is the core homework pipeline, so set it before going live.
       - key: GEMINI_API_KEY
@@ -106,14 +107,15 @@ services:
         sync: false
 
       # Per-surface routing. Restated here (rather than left to config.py's
-      # defaults) so these three can be flipped to `anthropic` from the
-      # dashboard to stage without a Gemini key, with no code change.
+      # defaults) so these can be flipped to `anthropic` from the dashboard to
+      # stage without a Gemini key, with no code change. Syllabus is already
+      # there — task 2.3 moved it (AV-124) with the chapter-tree prompt.
       - key: AI_MARKING_PROVIDER
         value: gemini
       - key: AI_EXTRACTION_PROVIDER
         value: gemini
       - key: AI_SYLLABUS_PROVIDER
-        value: gemini
+        value: anthropic
 
       # Per-token prices for ai_usage_events.cost_usd, as JSON, keyed by model
       # id. Unset means calls record an unknown cost and report as
@@ -121,8 +123,8 @@ services:
       #
       # The ids in backend/.env.example are AV-124's targets — claude-opus-5 and
       # claude-sonnet-5 — priced ahead of the routing flip (task 3.2). Read the
-      # three PROVIDER lines above before expecting a total: marking, extraction
-      # and syllabus still route to Gemini here, and gemini-2.5-pro is not in
+      # three PROVIDER lines above before expecting a total: marking and
+      # extraction still route to Gemini here, and gemini-2.5-pro is not in
       # that table, so those calls stay unpriced until the flip lands. That is
       # the intended reading of the number, not a gap to paper over with a
       # guessed Gemini rate.
