@@ -196,29 +196,36 @@ async def test_the_cap_is_measured_after_trimming(client, tutor, subject):
     assert resp.json()["notes"] == "x" * MAX_CLASSIFIED_NOTES
 
 
+async def _post_notes(client, tutor, subject, route: str, notes: str):
+    """Upload a paper with these notes, through whichever multipart route.
+
+    Both create a `Classified`, so both have to agree about the notes — writing
+    each test twice is how they stop agreeing.
+    """
+    if route == "classifieds":
+        return await client.post(
+            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
+        )
+    group = await client.post(
+        "/api/v1/groups",
+        json={"name": "Chem Y10", "subject_id": subject["id"]},
+        headers=tutor["headers"],
+    )
+    return await client.post(
+        "/api/v1/assignments/upload",
+        data={"group_id": str(group.json()["id"]), "notes": notes},
+        files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+
+
 @pytest.mark.parametrize("route", ["classifieds", "assignments"])
 async def test_the_multipart_cap_is_measured_after_trimming_too(client, tutor, subject, route):
     """`Form(max_length=...)` measures the raw value, so a full-length body with
     a trailing newline was a 422 for something the JSON path stores happily —
     the two entry points must not disagree about the same text (cubic,
     CodeRabbit)."""
-    notes = "x" * MAX_CLASSIFIED_NOTES + "\n  "
-    if route == "classifieds":
-        resp = await client.post(
-            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
-        )
-    else:
-        group = await client.post(
-            "/api/v1/groups",
-            json={"name": "Chem Y10", "subject_id": subject["id"]},
-            headers=tutor["headers"],
-        )
-        resp = await client.post(
-            "/api/v1/assignments/upload",
-            data={"group_id": str(group.json()["id"]), "notes": notes},
-            files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
-            headers=tutor["headers"],
-        )
+    resp = await _post_notes(client, tutor, subject, route, "x" * MAX_CLASSIFIED_NOTES + "\n  ")
     assert resp.status_code == 201, resp.text
 
     async with async_session() as session:
@@ -226,40 +233,17 @@ async def test_the_multipart_cap_is_measured_after_trimming_too(client, tutor, s
 
 
 @pytest.mark.parametrize("route", ["classifieds", "assignments"])
-async def test_the_multipart_cap_still_refuses_a_note_over_the_limit(client, tutor, subject, route):
-    """Trimming only ever shortens, so measuring afterwards cannot be used to
-    slip past the cap — which is the thing worth proving about moving the check
-    off `Form(max_length=...)`."""
-    notes = "x" * (MAX_CLASSIFIED_NOTES + 1)
-    if route == "classifieds":
-        resp = await client.post(
-            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
-        )
-    else:
-        group = await client.post(
-            "/api/v1/groups",
-            json={"name": "Chem Y10", "subject_id": subject["id"]},
-            headers=tutor["headers"],
-        )
-        resp = await client.post(
-            "/api/v1/assignments/upload",
-            data={"group_id": str(group.json()["id"]), "notes": notes},
-            files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
-            headers=tutor["headers"],
-        )
-    assert resp.status_code == 422, resp.text
-
-    async with async_session() as session:
-        assert (await session.scalars(select(Classified))).all() == []
-
-
-@pytest.mark.parametrize("route", ["classifieds", "assignments"])
-async def test_an_over_long_note_is_refused_before_the_file_is_written(
+async def test_an_over_long_note_is_refused_before_anything_is_stored(
     client, tutor, subject, route, monkeypatch
 ):
-    """A rejection after the upload is stored leaves a file no row references —
-    invisible, so never cleaned up, and a caller can repeat the request (cubic).
-    Both the chapter check and the notes check therefore run first."""
+    """Trimming only ever shortens, so measuring afterwards cannot be used to
+    slip past the cap — the thing worth proving about moving the check off
+    `Form(max_length=...)`.
+
+    And the refusal lands *before* `storage.save_upload`: a rejection afterwards
+    leaves a file no row references — invisible, so never cleaned up, and a
+    caller can repeat the request (cubic).
+    """
     saved: list[str] = []
     real = storage.save_upload
 
@@ -269,25 +253,12 @@ async def test_an_over_long_note_is_refused_before_the_file_is_written(
 
     monkeypatch.setattr(storage, "save_upload", _record)
 
-    notes = "x" * (MAX_CLASSIFIED_NOTES + 1)
-    if route == "classifieds":
-        resp = await client.post(
-            "/api/v1/classifieds", **_upload(subject["id"], notes=notes), headers=tutor["headers"]
-        )
-    else:
-        group = await client.post(
-            "/api/v1/groups",
-            json={"name": "Chem Y10", "subject_id": subject["id"]},
-            headers=tutor["headers"],
-        )
-        resp = await client.post(
-            "/api/v1/assignments/upload",
-            data={"group_id": str(group.json()["id"]), "notes": notes},
-            files={"file": ("paper.pdf", PDF_BYTES, "application/pdf")},
-            headers=tutor["headers"],
-        )
+    resp = await _post_notes(client, tutor, subject, route, "x" * (MAX_CLASSIFIED_NOTES + 1))
     assert resp.status_code == 422, resp.text
     assert saved == []
+
+    async with async_session() as session:
+        assert (await session.scalars(select(Classified))).all() == []
 
 
 @pytest.mark.parametrize("body", [{"notes": "just the notes"}, {"chapter_id": None}])
