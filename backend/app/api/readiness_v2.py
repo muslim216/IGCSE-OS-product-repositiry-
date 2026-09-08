@@ -20,6 +20,7 @@ from app.schemas.readiness_v2 import (
     StudentReadinessV2Summary,
     WeakTopicOut,
 )
+from app.services.grade_boundaries import boundaries_for, org_boundaries
 
 router = APIRouter(prefix="/readiness/v2", tags=["readiness-v2"])
 
@@ -38,7 +39,10 @@ async def _latest_snapshot(
 
 
 async def _snapshot_out(
-    db: AsyncSession, snapshot: ReadinessSnapshot, subject: Subject
+    db: AsyncSession,
+    snapshot: ReadinessSnapshot,
+    subject: Subject,
+    boundaries: list[dict],
 ) -> ReadinessSnapshotOut:
     factor_rows = (
         await db.scalars(
@@ -58,7 +62,17 @@ async def _snapshot_out(
         subject_name=subject.name,
         status=snapshot.status.value,
         score=snapshot.score,
-        predicted_grade=snapshot.predicted_grade,
+        # The stored grade is shown only while the organization still has
+        # boundaries to stand behind it. Clearing them leaves nothing for the
+        # grade to have been mapped through, and a grade no current numbers
+        # support is exactly what `PROD-2` forbids — `AV-11` made that table the
+        # only source in task 2.4, and this surface was missed then.
+        #
+        # The snapshot itself is untouched: it is the honest record of what the
+        # engine said at synthesis time, and the grade reappears if boundaries
+        # are set again. `services/readiness_summary_v2.py` does the same thing
+        # for `/readiness/*`, which is the surface the product actually serves.
+        predicted_grade=snapshot.predicted_grade if boundaries else None,
         weak_topics=[WeakTopicOut(**w) for w in snapshot.weak_topics],
         rationale=snapshot.rationale,
         recommended_revision=snapshot.recommended_revision,
@@ -87,6 +101,8 @@ async def student_readiness_v2(
     if student is None or student.role != UserRole.student:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     subject_ids = await visible_subject_ids(db, user, student_id)
+    # One query for every subject below, rather than one per snapshot.
+    all_boundaries = await org_boundaries(db, student.organization_id)
     subjects_out = []
     for subject_id in subject_ids or []:
         subject = await db.get(Subject, subject_id)
@@ -95,7 +111,9 @@ async def student_readiness_v2(
         snapshot = await _latest_snapshot(db, student_id, subject_id)
         if snapshot is None:
             continue
-        subjects_out.append(await _snapshot_out(db, snapshot, subject))
+        subjects_out.append(
+            await _snapshot_out(db, snapshot, subject, boundaries_for(all_boundaries, subject))
+        )
     return StudentReadinessV2Summary(
         student_id=student.id, student_name=student.name, subjects=subjects_out
     )
