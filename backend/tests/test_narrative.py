@@ -684,7 +684,11 @@ def test_narrative_settings_have_the_documented_defaults():
     assert settings.narrative_parent_max_age_days == 7
     assert settings.narrative_sweep_interval_hours == 24
     assert settings.ai_narrative_provider == "anthropic"
-    assert settings.ai_narrative_model == ""
+    # Pinned to Sonnet in task 3.2 (AV-124) rather than left blank: the narrative
+    # is a report-shaped paragraph written from data the platform already
+    # computed, and a pin is what stops a later `anthropic_model` bump silently
+    # moving it back onto Opus.
+    assert settings.ai_narrative_model == "claude-sonnet-5"
 
 
 async def test_sweep_reenqueue_honours_the_configured_interval(monkeypatch):

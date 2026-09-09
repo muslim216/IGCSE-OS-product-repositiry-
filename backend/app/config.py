@@ -28,37 +28,57 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 30
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-4-8"
-    # Google Gemini — the second AI provider. Unset -> every surface routed to
-    # gemini fails with a clear "not configured" error, exactly like
-    # ANTHROPIC_API_KEY does today; the rest of the app keeps working.
+    #: The default every surface inherits when its own model is left blank, and
+    #: the one line that moves the four Opus surfaces at once (task 3.2, AV-124).
+    anthropic_model: str = "claude-opus-5"
+    # Google Gemini. **No surface routes here as of task 3.2** (AV-124) — these
+    # two settings and the client in services/ai.py are kept, unused, because
+    # the plan says to keep them: retiring a provider is a routing decision, and
+    # deleting the code path in the same change would make going back a rewrite
+    # rather than a config edit. Unset -> any surface pointed back at gemini
+    # fails with a clear "not configured" error; the rest of the app keeps
+    # working.
     gemini_api_key: str | None = None
     # Placeholder default. The real model id is owner-supplied: set GEMINI_MODEL
     # in the environment. Never hardcode a marketing name here.
     gemini_model: str = "gemini-2.5-pro"
     # Per-surface model routing (see services/ai.py resolve_surface). Provider
     # is "anthropic" or "gemini"; leaving the model blank uses that provider's
-    # default model above. Marking/extraction default to Gemini (bulk document
-    # work), chat to a cheap Anthropic model, reports/readiness to Opus.
-    ai_marking_provider: str = "gemini"
+    # default model above.
+    #
+    # Task 3.2 retired Gemini from every surface **in one change** (AV-124),
+    # rather than letting each task flip the surface it happened to touch — a
+    # half-migrated table here is worse than the Gemini routing it replaces,
+    # because nothing signals which surfaces have already moved.
+    #
+    # Two shapes below, and the difference is deliberate. A **blank** model
+    # inherits `anthropic_model`, so the four Opus surfaces — marking,
+    # extraction, syllabus, readiness — move together whenever that default
+    # moves. An **explicit** model pins a surface that diverges on purpose, and
+    # a pin has to be edited by hand to change. Blank is not "unset": it is a
+    # statement that this surface follows the default.
+    ai_marking_provider: str = "anthropic"
     ai_marking_model: str = ""
-    ai_extraction_provider: str = "gemini"
+    ai_extraction_provider: str = "anthropic"
     ai_extraction_model: str = ""
     # Anthropic since task 2.3 (AV-124): the chapter-tree prompt is a
     # structure-and-judgement job, not bulk transcription, and the model left
     # blank inherits `anthropic_model` above.
     ai_syllabus_provider: str = "anthropic"
     ai_syllabus_model: str = ""
+    # Sonnet, pinned: prose written from data the platform already computed, not
+    # a judgement about a student's work. Pinned rather than blank so a later
+    # bump of `anthropic_model` does not silently move it back onto Opus.
     ai_reports_provider: str = "anthropic"
-    ai_reports_model: str = ""
+    ai_reports_model: str = "claude-sonnet-5"
     ai_readiness_provider: str = "anthropic"
     ai_readiness_model: str = ""
     ai_class_brief_provider: str = "anthropic"
-    ai_class_brief_model: str = ""
-    # The stored narrative (services/narrative.py) — a report-shaped paragraph,
-    # so it routes to Opus by default like reports.
+    ai_class_brief_model: str = "claude-sonnet-5"
+    # The stored narrative (services/narrative.py) is a report-shaped paragraph,
+    # so it is pinned to Sonnet with reports and the class brief.
     ai_narrative_provider: str = "anthropic"
-    ai_narrative_model: str = ""
+    ai_narrative_model: str = "claude-sonnet-5"
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather

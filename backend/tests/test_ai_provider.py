@@ -34,19 +34,50 @@ def test_get_prompt_rejects_an_unknown_surface():
         get_prompt("not-a-surface")
 
 
-def test_default_routing_splits_providers_by_surface():
-    """The shipped defaults: bulk document transcription on Gemini, everything
-    else on Anthropic. Chat routed here too before 0.3 deleted it (AV-57) along
-    with the surface itself — there is nothing left to assert.
+#: The surfaces that leave their model blank and therefore inherit
+#: `anthropic_model` — the one line that moves all four at once.
+DEFAULT_MODEL_SURFACES = ("marking", "extraction", "syllabus", "readiness")
+#: The surfaces pinned to an explicit model because they diverge on purpose.
+PINNED_MODEL_SURFACES = ("reports", "class_brief", "narrative")
 
-    Syllabus moved to Anthropic in task 2.3 (AV-124): drafting a chapter tree is
-    a structure-and-judgement job, not transcription, and the chapter-first
-    prompt is written against the model it will actually run on."""
-    assert resolve_surface("marking")[0] is AiProvider.gemini
-    assert resolve_surface("extraction")[0] is AiProvider.gemini
-    assert resolve_surface("syllabus")[0] is AiProvider.anthropic
-    assert resolve_surface("reports")[0] is AiProvider.anthropic
-    assert resolve_surface("readiness")[0] is AiProvider.anthropic
+
+def test_no_surface_routes_to_gemini_any_more():
+    """AV-124, task 3.2. The retirement had to happen in one change rather than
+    surface by surface, because a half-migrated routing table is worse than the
+    Gemini routing it replaces — nothing signals which surfaces have moved.
+
+    So the assertion is exhaustive by construction: every registered surface,
+    not a list someone has to remember to extend. The Gemini client and its two
+    settings are deliberately kept (unused) in case a surface is ever pointed
+    back, which is why this test is the thing standing between "kept" and
+    "quietly still in use"."""
+    for surface in SURFACES:
+        assert resolve_surface(surface)[0] is AiProvider.anthropic, surface
+
+
+def test_the_blank_model_surfaces_move_with_the_anthropic_default(monkeypatch):
+    """Blank is not "unset": it means follow `anthropic_model`. This is what
+    makes the next model bump one line rather than seven."""
+    monkeypatch.setattr(get_settings(), "anthropic_model", "claude-test")
+    for surface in DEFAULT_MODEL_SURFACES:
+        assert resolve_surface(surface) == (AiProvider.anthropic, "claude-test"), surface
+
+
+def test_the_pinned_surfaces_do_not_move_with_it(monkeypatch):
+    """Reports, the class brief and the narrative are prose written from data
+    the platform already computed, not a judgement about a student's work — so
+    they are pinned to Sonnet. Pinned rather than blank precisely so a later
+    bump of `anthropic_model` cannot silently drag them back onto Opus."""
+    monkeypatch.setattr(get_settings(), "anthropic_model", "claude-test")
+    for surface in PINNED_MODEL_SURFACES:
+        assert resolve_surface(surface) == (AiProvider.anthropic, "claude-sonnet-5"), surface
+
+
+def test_every_surface_belongs_to_exactly_one_of_those_two_groups():
+    """Exhaustive by subtraction, so a surface added later is covered the day it
+    is added rather than quietly escaping both assertions above."""
+    assert set(DEFAULT_MODEL_SURFACES) | set(PINNED_MODEL_SURFACES) == set(SURFACES)
+    assert not set(DEFAULT_MODEL_SURFACES) & set(PINNED_MODEL_SURFACES)
 
 
 def test_chat_surface_no_longer_exists():
@@ -83,14 +114,19 @@ def test_surface_model_falls_back_to_the_providers_default(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_model", "claude-test")
     assert resolve_surface("reports") == (AiProvider.anthropic, "claude-test")
 
+    # The Gemini branch of the fallback, still exercised: no surface routes
+    # there by default any more (AV-124), but the code path is deliberately
+    # kept, and kept code that nothing tests is how "we can point it back"
+    # turns out to be false the day someone tries.
+    monkeypatch.setattr(settings, "ai_marking_provider", "gemini")
     monkeypatch.setattr(settings, "ai_marking_model", "")
     monkeypatch.setattr(settings, "gemini_model", "gemini-test")
     assert resolve_surface("marking") == (AiProvider.gemini, "gemini-test")
 
 
 def test_explicit_surface_model_overrides_the_default(monkeypatch):
-    monkeypatch.setattr(get_settings(), "ai_marking_model", "gemini-pinned")
-    assert resolve_surface("marking")[1] == "gemini-pinned"
+    monkeypatch.setattr(get_settings(), "ai_marking_model", "claude-pinned")
+    assert resolve_surface("marking")[1] == "claude-pinned"
 
 
 def test_resolve_surface_rejects_unknown_surface_and_provider(monkeypatch):

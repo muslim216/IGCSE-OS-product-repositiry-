@@ -95,25 +95,29 @@ services:
       # and — since task 2.3 — syllabus extraction.
       - key: ANTHROPIC_API_KEY
         sync: false
-      # Gemini serves the bulk document transcription: marking and question
-      # extraction. Without this key those two surfaces fail with a
-      # clear "not configured" error while the rest of the app keeps working —
-      # but that is the core homework pipeline, so set it before going live.
+      # **Not needed.** Task 3.2 retired Gemini from every surface (AV-124), so
+      # no key here means nothing degrades. Both settings and the client are
+      # kept, unused, so pointing a surface back is a dashboard edit rather than
+      # a rewrite — set this only if you do that.
       - key: GEMINI_API_KEY
         sync: false
-      # The default in config.py is an owner-supplied placeholder. Set the real
-      # model id your account has access to rather than inheriting it.
+      # The default in config.py is an owner-supplied placeholder. Only relevant
+      # if a surface is pointed back at Gemini.
       - key: GEMINI_MODEL
         sync: false
 
-      # Per-surface routing. Restated here (rather than left to config.py's
-      # defaults) so these can be flipped to `anthropic` from the dashboard to
-      # stage without a Gemini key, with no code change. Syllabus is already
-      # there — task 2.3 moved it (AV-124) with the chapter-tree prompt.
+      # Per-surface routing, restated here rather than left to config.py so a
+      # surface can be moved from the dashboard without a code change.
+      #
+      # **These values win over config.py.** Task 3.2 flipped the defaults in
+      # config.py to `anthropic`; had these two lines been left saying `gemini`,
+      # the retirement would have been a no-op on the deployed service while
+      # every test and the local default said it had happened. The test
+      # `tests/test_render_routing.py` now fails if the two files disagree.
       - key: AI_MARKING_PROVIDER
-        value: gemini
+        value: anthropic
       - key: AI_EXTRACTION_PROVIDER
-        value: gemini
+        value: anthropic
       - key: AI_SYLLABUS_PROVIDER
         value: anthropic
 
@@ -121,13 +125,13 @@ services:
       # id. Unset means calls record an unknown cost and report as
       # unpriced_call_count — never a fabricated $0 (AI-17).
       #
-      # The ids in backend/.env.example are AV-124's targets — claude-opus-5 and
-      # claude-sonnet-5 — priced ahead of the routing flip (task 3.2). Read the
-      # three PROVIDER lines above before expecting a total: marking and
-      # extraction still route to Gemini here, and gemini-2.5-pro is not in
-      # that table, so those calls stay unpriced until the flip lands. That is
-      # the intended reading of the number, not a gap to paper over with a
-      # guessed Gemini rate.
+      # The ids in backend/.env.example are what every surface now resolves to:
+      # claude-opus-5 for marking, extraction, syllabus and readiness, and
+      # claude-sonnet-5 for reports, the class brief and the narrative. Task 3.2
+      # landed the flip, so there is no longer an unpriced Gemini remainder —
+      # **but the deployed value is whatever was typed into the dashboard.** If
+      # it still prices only claude-opus-4-8, every call after this deploy
+      # records cost_usd = NULL and reports as unpriced. Re-paste it.
       #
       # Deliberately `sync: false` — a price is not a fact about this codebase,
       # it is a fact about the account's contract on the day it is read, and it

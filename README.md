@@ -26,7 +26,7 @@ New engineers should read `docs/README.md` first; it carries a reading order.
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Routed per surface: Gemini for marking/extraction, Anthropic for syllabus, reports, readiness, class briefs and narrative |
+| AI | Claude on every surface (`AV-124`, task 3.2): Opus 5 for marking, question extraction, syllabus and readiness; Sonnet 5 for reports, class briefs and the narrative. The Gemini client is kept but unrouted |
 | Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development
@@ -85,18 +85,18 @@ merged into it does not deploy, however green its tests are.
 
    | Variable | Needed for |
    | --- | --- |
-   | `ANTHROPIC_API_KEY` | syllabus extraction, reports, readiness synthesis, class briefs, narrative |
-   | `GEMINI_API_KEY` | marking, question extraction |
-   | `GEMINI_MODEL` | the real Gemini model id your account has access to — the code default is a placeholder |
+   | `ANTHROPIC_API_KEY` | every AI surface — marking, question extraction, syllabus, readiness, reports, class briefs, narrative |
+   | `GEMINI_API_KEY` / `GEMINI_MODEL` | nothing. No surface routes to Gemini since task 3.2 (`AV-124`); leave unset unless you point one back |
    | `AI_MODEL_PRICING` | cost analytics; `{}` is valid and reports calls as unpriced |
    | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Classroom; the surface is unmounted (0.5, AV-58) so these currently have no effect — leave unset |
 
    `JWT_SECRET` and `GOOGLE_TOKEN_ENCRYPTION_KEY` are generated automatically.
    Every AI surface degrades gracefully when its provider key is missing, so a partial
-   deploy still runs — but marking and extraction default to Gemini, so without
-   `GEMINI_API_KEY` the homework pipeline fails. To stage without a Gemini key, set
-   `AI_MARKING_PROVIDER`, `AI_EXTRACTION_PROVIDER` and `AI_SYLLABUS_PROVIDER` to
-   `anthropic`.
+   deploy still runs — but every surface now routes to Anthropic, so without
+   `ANTHROPIC_API_KEY` no AI works at all. Set `AI_MODEL_PRICING` from
+   `backend/.env.example` at the same time: the value in the dashboard is not synced
+   from the repo, and one that still prices only `claude-opus-4-8` reports every call
+   as unpriced.
 4. **Uploads need the persistent disk.** The blueprint mounts one at `/data` and sets
    `UPLOAD_DIR=/data/uploads`. Uploaded booklets, mark schemes and submissions are stored
    on the filesystem with only their relative paths in the database, so without the disk
@@ -138,9 +138,9 @@ All backend settings come from environment variables (see `backend/.env.example`
 |---|---|
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
-| `ANTHROPIC_API_KEY` | Syllabus extraction, reports, readiness synthesis, class briefs, narrative |
-| `GEMINI_API_KEY` | Marking, question extraction — the homework pipeline |
-| `GEMINI_MODEL` | The Gemini model id your account has; the code default is a placeholder |
+| `ANTHROPIC_API_KEY` | Every AI surface. Without it, nothing AI-driven works |
+| `ANTHROPIC_MODEL` | Optional. Defaults to `claude-opus-5`; the four unpinned surfaces follow it |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Unused since task 3.2 (`AV-124`) — no surface routes to Gemini |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
 | `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; the surface is unmounted (0.5, AV-58), so these currently have no effect |

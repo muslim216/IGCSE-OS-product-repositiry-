@@ -253,7 +253,9 @@ async def test_marking_without_an_api_key_fails_gracefully(
     async with async_session() as session:
         submission = await session.scalar(select(Submission))
         assert submission.status == SubmissionStatus.ai_failed
-        assert "GEMINI_API_KEY" in submission.ai_error
+        # Anthropic since task 3.2 (AV-124) — a past-paper attempt goes through
+        # the same marking surface, so it names the same key.
+        assert "ANTHROPIC_API_KEY" in submission.ai_error
 
 
 async def test_a_student_cannot_log_the_same_paper_twice_once_marked(
