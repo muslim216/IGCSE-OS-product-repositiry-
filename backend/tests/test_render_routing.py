@@ -21,7 +21,7 @@ machinery than the file warrants.
 import re
 from pathlib import Path
 
-from app.config import get_settings
+from app.config import Settings
 from app.services.ai import SURFACES
 
 RENDER_YAML = Path(__file__).resolve().parents[2] / "render.yaml"
@@ -62,12 +62,37 @@ def test_every_provider_render_pins_is_a_real_surface():
     )
 
 
+def _config_default(surface: str) -> str:
+    """config.py's *declared* default for a surface's provider.
+
+    Read off the field rather than through `get_settings()`, which layers `.env`
+    and the process environment on top. This test is about whether two files in
+    the repository agree; a developer with `AI_MARKING_PROVIDER` exported in
+    their shell would otherwise fail it — or, worse, pass it — for a reason that
+    has nothing to do with either file (cubic).
+    """
+    return Settings.model_fields[f"ai_{surface}_provider"].default
+
+
+def test_every_surface_defaults_to_anthropic_in_config_py():
+    """The hermetic half of AV-124's retirement.
+
+    `test_no_surface_routes_to_gemini_any_more` asserts the same thing through
+    `resolve_surface`, which is the behaviour that matters — but it reads live
+    settings, so it proves nothing about the committed defaults on a machine
+    with overrides set. This one cannot be influenced by an environment at all,
+    and it covers all seven surfaces rather than only the three render.yaml
+    happens to restate (cubic).
+    """
+    on_gemini = [s for s in SURFACES if _config_default(s) != "anthropic"]
+    assert not on_gemini, f"{on_gemini} still default to a non-Anthropic provider in config.py"
+
+
 def test_render_yaml_and_config_py_agree_on_every_pinned_surface():
-    settings = get_settings()
     disagree = {
-        surface: (pinned, getattr(settings, f"ai_{surface}_provider"))
+        surface: (pinned, _config_default(surface))
         for surface, pinned in _render_providers().items()
-        if pinned != getattr(settings, f"ai_{surface}_provider")
+        if pinned != _config_default(surface)
     }
     assert not disagree, (
         f"render.yaml and config.py disagree about {sorted(disagree)} "
