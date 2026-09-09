@@ -413,23 +413,38 @@ def test_the_marking_context_is_the_only_thing_that_reads_a_booklet_s_notes():
     import ast
 
     app = Path(__file__).resolve().parents[1] / "app"
-    #: `assignments.py` writes the field, `student_crm.py` has its own unrelated
-    #: `notes`, and `marking_context.py` is the one function allowed to read a
-    #: booklet's (`E16`).
-    allowed = {"assignments.py", "student_crm.py", "marking_context.py"}
+    #: Whole-file exemptions, and only for files with nothing to do with a
+    #: booklet's notes: `assignments.py` *writes* the field on creation, and
+    #: `student_crm.py` has its own unrelated `notes` (TutorNote).
+    exempt_files = {"assignments.py", "student_crm.py"}
+    #: `marking_context.py` is **not** exempt as a file. `E16` says one
+    #: *function* owns the precedence, so only that function's own line range is
+    #: allowed — a second reader added elsewhere in the same module is exactly
+    #: the drift the rule forbids, and a file-level exemption would wave it
+    #: through (cubic).
+    assembler = app / "services" / "marking_context.py"
+    tree = ast.parse(assembler.read_text())
+    allowed_lines: range = range(0)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "build_marking_context":
+            allowed_lines = range(node.lineno, (node.end_lineno or node.lineno) + 1)
+    assert allowed_lines, "build_marking_context has been renamed or removed"
+
     found: list[str] = []
     for path in sorted([*(app / "services").rglob("*.py"), *(app / "workers").rglob("*.py")]):
-        if path.name in allowed:
+        if path.name in exempt_files:
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             if (isinstance(node, ast.Attribute) and node.attr == "notes") or (
                 isinstance(node, ast.keyword) and node.arg == "notes"
             ):
+                if path == assembler and node.lineno in allowed_lines:
+                    continue
                 found.append(f"{path.name}:{node.lineno}")
     assert found == [], (
-        f"{found} now read a booklet's notes outside the marking-context assembler. "
+        f"{found} now read a booklet's notes outside `build_marking_context`. "
         "Precedence spread across call sites is precedence that drifts (E16) — route "
-        "it through build_marking_context, or extend the allowlist deliberately."
+        "it through the assembler, or extend the exemption deliberately."
     )
 
 

@@ -17,7 +17,7 @@ adds a fifth layer or reorders a string.
 import pytest
 
 from app.db import async_session
-from app.models import Classified, SubjectLevel
+from app.models import Classified, SubjectLevel, User, UserRole
 from app.services import prompts
 from app.services.marking_context import (
     CHAPTER_NOTES_LABEL,
@@ -36,9 +36,22 @@ async def _sources(*, notes: str | None = None, rules: str | None = None) -> Mar
     async with async_session() as session:
         subject = await make_subject(session, code="4CH1", name="Chemistry")
         subject.marking_rules = rules
+        # A real user row, not `tutor_id=1`. The suite runs on SQLite with
+        # foreign keys off, so a dangling id passes here and fails on Postgres —
+        # which is `RISK-3`, the failure that has actually happened in this
+        # repository (cubic).
+        tutor = User(
+            organization_id=subject.organization_id,
+            email="context-tutor@example.com",
+            name="Context Tutor",
+            password_hash="x",
+            role=UserRole.tutor,
+        )
+        session.add(tutor)
+        await session.flush()
         classified = Classified(
             organization_id=subject.organization_id,
-            tutor_id=1,
+            tutor_id=tutor.id,
             subject_id=subject.id,
             title="Bonding classified",
             file_path="x",
@@ -85,16 +98,29 @@ def test_the_prompt_puts_the_tutor_above_the_mark_scheme():
     absolute. Asserting on the prompt text is the only place it is checkable at
     all, so it is checked here rather than nowhere.
     """
-    assert "The tutor's rules outrank the official mark scheme." in prompts.MARKING
-    assert "chapter notes beat [2] subject rules" in prompts.MARKING
+    assert "The tutor's rules therefore outrank the official mark scheme." in prompts.MARKING
+    assert "[1] chapter notes beat [2] subject rules" in prompts.MARKING
+    # The ranking is stated once and separately from the section numbering, so
+    # a scheme-versus-exam-board conflict has one answer rather than two (cubic).
+    assert (
+        "[1] chapter notes, then [2] subject rules, then [3] the official mark scheme, "
+        "then [4] general exam-board convention" in prompts.MARKING
+    )
+    assert "The numbering is not the ranking." in prompts.MARKING
 
 
 def test_the_prompt_requires_the_departure_to_be_reported():
     """The other half of the owner's decision: the marks are awarded the tutor's
     way **and the contradiction is recorded**. Without this the reversal would be
     invisible — a tutor would never learn their rule had overruled the board."""
-    assert "you MUST" in prompts.MARKING
-    assert "scheme_conflict" in prompts.MARKING
+    # The specific clause, not just any "MUST" — the prompt has several, so a
+    # loose match would survive deleting exactly this requirement (cubic).
+    assert (
+        "Whenever a tutor rule changes a mark away from what the scheme alone would give, "
+        "you MUST say so in scheme_conflict for that question" in prompts.MARKING
+    )
+    # And it must not leak to the student through the field that does reach them.
+    assert "Never put the conflict in feedback." in prompts.MARKING
 
 
 def test_the_marking_prompt_version_was_bumped():

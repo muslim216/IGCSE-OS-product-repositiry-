@@ -412,7 +412,14 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             # Whitespace-only is no report at all, and a re-mark replaces it
             # rather than accumulating (BE-6): a mark drafted again after the
             # tutor edited their rules must not still carry the old departure.
-            mark.scheme_conflict = (draft.scheme_conflict or "").strip() or None
+            #
+            # Gated on a scheme actually being in front of the model. With no
+            # scheme attached there is nothing for a tutor rule to contradict,
+            # so a `scheme_conflict` on such a question would be the model
+            # asserting a fact about a document it never saw — recorded as
+            # though true, and shown to the tutor as a real departure (cubic).
+            reported = (draft.scheme_conflict or "").strip() or None
+            mark.scheme_conflict = reported if scheme_backed(q) else None
 
         confident = mark.ai_confidence in AUTO_FINALIZE_CONFIDENCE
         if scheme_backed(q) and confident and mark.ai_marks is not None:

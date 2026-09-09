@@ -545,6 +545,13 @@ async def test_the_student_is_never_told_their_mark_departed_from_the_scheme(
                         confidence="high",
                         scheme_conflict="The scheme said 0; the tutor's rule said 2.",
                     ),
+                    QuestionMarkDraft(
+                        number="2",
+                        transcription="Electrostatic attraction between ions.",
+                        proposed_marks=3,
+                        feedback="Clear.",
+                        confidence="unsure",
+                    ),
                 ]
             )
         ),
@@ -565,10 +572,87 @@ async def test_the_student_is_never_told_their_mark_departed_from_the_scheme(
     theirs = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     assert "The scheme said 0; the tutor's rule said 2." in theirs.text
 
+    # And the student has to actually be looking at marks. Q2 has no scheme, so
+    # the submission sits in the review queue and the student sees nothing at
+    # all until the tutor signs it off — a state in which "the conflict is not
+    # in the response" is true of an empty response and proves nothing (cubic).
+    marks = theirs.json()["marks"]
+    await client.put(
+        f"/api/v1/submissions/{sid}/marks",
+        json=[
+            {"question_id": m["question_id"], "final_marks": m["max_marks"], "final_feedback": "ok"}
+            for m in marks
+        ],
+        headers=tutor["headers"],
+    )
+    assert (
+        await client.post(f"/api/v1/submissions/{sid}/finalize", headers=tutor["headers"])
+    ).status_code == 200
+
     mine = await client.get(f"/api/v1/assignments/{aid}/my-submission", headers=student["headers"])
     assert mine.status_code == 200, mine.text
+    assert mine.json()["marks"], "the student must be looking at marks for this to prove anything"
     assert "scheme_conflict" not in mine.text
     assert "tutor's rule" not in mine.text
+
+
+async def test_a_conflict_is_not_recorded_where_no_mark_scheme_was_attached(
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
+):
+    """With no scheme in front of the model there is nothing for a tutor rule to
+    contradict, so a `scheme_conflict` on such a question would be the model
+    asserting a fact about a document it never saw — stored as true, and shown
+    to the tutor as a real departure (cubic).
+
+    Q2 in this fixture is `has_mark_scheme=false`, and the model is made to
+    report a conflict on it anyway, which is exactly the shape that has to be
+    dropped rather than trusted.
+    """
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete",
+        fake_ai(
+            MarkingResult(
+                questions=[
+                    QuestionMarkDraft(
+                        number="1",
+                        transcription="Isotopes differ in neutrons.",
+                        proposed_marks=2,
+                        feedback="Good.",
+                        confidence="high",
+                        scheme_conflict="A real departure, on a question that has a scheme.",
+                    ),
+                    QuestionMarkDraft(
+                        number="2",
+                        transcription="Electrostatic attraction.",
+                        proposed_marks=3,
+                        feedback="Clear.",
+                        confidence="unsure",
+                        scheme_conflict="The scheme said otherwise — but there is no scheme.",
+                    ),
+                ]
+            )
+        ),
+    )
+
+    aid = published_assignment["id"]
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    detail = await client.get(
+        f"/api/v1/submissions/{subs.json()[0]['id']}", headers=tutor["headers"]
+    )
+    by_number = {m["number"]: m for m in detail.json()["marks"]}
+    # Kept where a scheme was actually there...
+    assert by_number["1"]["scheme_conflict"] == "A real departure, on a question that has a scheme."
+    # ...and dropped where one was not.
+    assert by_number["2"]["scheme_conflict"] is None
 
 
 async def test_a_re_mark_replaces_a_stale_conflict_rather_than_keeping_it(

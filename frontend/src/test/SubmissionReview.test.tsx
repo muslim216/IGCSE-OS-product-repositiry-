@@ -234,22 +234,37 @@ test("a mark the tutor's rule took off the mark scheme says so, and still counts
      who never sees this has no way to learn that a rule they wrote is marking
      their students differently from the exam they will sit — so it is shown,
      and it is deliberately not a review prompt. */
-  stubSubmission([
-    mark({
-      question_id: 1,
-      final_marks: 2,
-      auto_finalized: true,
-      needs_review: false,
-      scheme_conflict:
-        "The scheme awarded nothing without the final answer; your rule awards method marks.",
-    }),
-  ]);
+  stubSubmission(
+    [
+      mark({
+        question_id: 1,
+        final_marks: 2,
+        auto_finalized: true,
+        needs_review: false,
+        scheme_conflict:
+          "The scheme awarded nothing without the final answer; your rule awards method marks.",
+      }),
+    ],
+    [],
+    // The submission status has to match the mark: a mark that auto-finalized
+    // inside a submission still reported as needs_review is a state the API
+    // never produces, and testing against it proves nothing about the real one
+    // (cubic).
+    "auto_finalized",
+  );
   renderPage();
 
   expect(await screen.findByText(/Marked by your rule, not the mark scheme/)).toBeTruthy();
   expect(screen.getByText(/awards method marks/)).toBeTruthy();
-  // Counted, not queued: the departure must not read as something to action.
+  expect(screen.getByText("Marked automatically")).toBeTruthy();
+  // Counted, not queued. "Counted" is driven by auto_finalized; whether the
+  // tutor is being asked to do something is driven by needs_review, so both
+  // have to be asserted or a conflict quietly entering the review queue passes
+  // this test (cubic).
   expect(screen.getByText("Counted")).toBeTruthy();
+  expect(
+    screen.getByText(/Every mark was made confidently — nothing needs your decision/),
+  ).toBeTruthy();
 });
 
 test("an ordinary mark says nothing about the mark scheme", async () => {

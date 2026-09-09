@@ -224,11 +224,15 @@ async def test_marking_now_reads_them_and_av_25_is_still_untouched(client, tutor
     """Task 2.6 shipped this asserting *nothing* read the rules yet. Task 3.2's
     assembler (`E16`) does, so it is turned round rather than deleted.
 
-    The half that has not changed is the one worth keeping a test on. `AV-111`:
-    these rules describe **how** the AI marks, never **when a mark counts**.
-    Nothing a tutor writes here reaches auto-finalization — that is still
-    scheme-backed and confident (`AV-25`, `AI-11`), and the owner's reversal of
-    `AV-76` did not touch it.
+    The half that has not changed is the *gate*, and it is worth being precise
+    about what that means now. A tutor rule can absolutely change a mark, and
+    that changed mark still auto-finalizes — the owner's reversal of `AV-76`
+    settled that. What these rules cannot do is change **whether** a mark is
+    eligible to finalize at all: that still requires an official scheme actually
+    attached and confident output (`AV-25`, `AI-11`, `ADR-0009`). A tutor who
+    writes "mark everything generously" changes marks; they do not turn an
+    unschemed or low-confidence question into one that counts without them
+    (cubic).
     """
     from app.services.marking_context import MarkingContextSources, build_marking_context
 
