@@ -34,6 +34,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.homework import (
+    MAX_TYPED_ANSWER,
     MarkHistoryEntry,
     MarkRow,
     MarkUpdate,
@@ -118,7 +119,20 @@ async def submit_work(
     db: DbSession,
     user: StudentUser,
     files: Annotated[list[UploadFile] | None, File()] = None,
-    typed_answer: Annotated[str | None, Form()] = None,
+    # No `max_length=`: it validates the **raw** value, so a full-length answer
+    # with a trailing newline would be a 422 for text that stores fine.
+    # `form_typed_answer` trims first and then bounds. The cap is stated in the
+    # description so the contract still tells a client what it is, even though
+    # it is no longer a machine-readable constraint (cubic).
+    typed_answer: Annotated[
+        str | None,
+        Form(
+            description=(
+                f"The student's answers as text. At most {MAX_TYPED_ANSWER} characters "
+                "after leading and trailing whitespace is trimmed."
+            )
+        ),
+    ] = None,
 ) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None or assignment.status != AssignmentStatus.published:

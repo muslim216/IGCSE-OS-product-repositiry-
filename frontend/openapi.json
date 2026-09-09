@@ -6863,7 +6863,8 @@
                 "type": "null"
               }
             ],
-            "title": "Typed Answer"
+            "title": "Typed Answer",
+            "description": "The student's answers as text. At most 20000 characters after leading and trailing whitespace is trimmed."
           }
         },
         "type": "object",
