@@ -86,6 +86,18 @@ class Subject(Base):
     # level); nothing reads it before then. Nullable because it is the one
     # onboarding step a tutor may skip (`AV-87`).
     marking_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the marking prompt is actually given (task 3.2c, owner's instruction:
+    # the subject's rules are summarised and the AI uses the summary). The
+    # tutor's full text above stays the thing they own and edit.
+    #
+    # Null is a working state, not a gap: `build_marking_context` falls back to
+    # the full text when this is absent, so the window between a save and the
+    # job finishing is correct rather than one in which the rules silently do
+    # not apply. Writing `marking_rules` clears this in the same statement, so a
+    # summary is absent or current, never stale — deliberately no fingerprint to
+    # compare, because "clear and rebuild" cannot drift the way "compare and
+    # decide" can.
+    marking_rules_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # No `grade_boundaries` column: task 2.4 (AV-11) made the org-scoped
     # `GradeBoundary` table the only source and migration 0031 dropped this one,

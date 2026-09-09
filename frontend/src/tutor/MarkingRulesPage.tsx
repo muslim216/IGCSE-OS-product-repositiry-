@@ -183,6 +183,37 @@ export default function MarkingRulesPage() {
               </p>
             )}
           </div>
+          {/* PROD-7: the tutor has final authority over everything the AI
+              produces, and since 3.2c a model sits between them and their own
+              instructions. Showing the condensed form is how they can tell a
+              rule went missing — the alternative is finding out from a mark. */}
+          {rules.data.configured && (
+            <details className="rounded-md border border-line bg-surface-muted p-3">
+              <summary className="cursor-pointer text-sm text-ink-700">
+                What marking actually reads
+              </summary>
+              {rules.data.summary ? (
+                <>
+                  <pre className="mt-2 max-w-prose whitespace-pre-wrap font-sans text-sm text-ink-700">
+                    {rules.data.summary}
+                  </pre>
+                  <p className="mt-2 max-w-prose text-xs text-ink-500">
+                    Your rules, shortened by AI so they fit in every marking request. Edit the box
+                    above if anything is missing — this is rebuilt each time you save.
+                  </p>
+                </>
+              ) : (
+                // Absent is a real, correct state — not an error and not a
+                // spinner to wait on. Marking uses the full text meanwhile
+                // (PROD-2: say what is true rather than showing nothing).
+                <p className="mt-2 max-w-prose text-sm text-ink-500">
+                  Not shortened yet — marking is using your full text above. This usually takes a
+                  moment after saving.
+                </p>
+              )}
+            </details>
+          )}
+
           {tooLong && (
             <p className="text-sm text-red-600">
               That is longer than {MAX_MARKING_RULES.toLocaleString()} characters — trim it to the

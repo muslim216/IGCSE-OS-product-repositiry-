@@ -24,6 +24,8 @@ from fastapi import APIRouter
 from app.api.deps import DbSession, TutorUser, owned_subject
 from app.models import Subject
 from app.schemas.marking_rules import MarkingRulesIn, MarkingRulesOut
+from app.services.marking_rules import SUMMARISE_JOB
+from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/subjects", tags=["marking-rules"])
 
@@ -34,6 +36,7 @@ def _out(subject: Subject) -> MarkingRulesOut:
         subject_name=subject.name,
         rules=subject.marking_rules or "",
         configured=bool(subject.marking_rules),
+        summary=subject.marking_rules_summary,
     )
 
 
@@ -55,5 +58,12 @@ async def write_marking_rules(
     """
     subject = await owned_subject(db, subject_id, user)
     subject.marking_rules = body.rules or None
+    # Cleared in the same transaction as the write, so the summary is absent or
+    # current and never stale (task 3.2c). Until the job lands,
+    # `build_marking_context` falls back to the full text — marking stays
+    # correct, it just costs more.
+    subject.marking_rules_summary = None
+    if subject.marking_rules:
+        await enqueue(db, SUMMARISE_JOB, {"subject_id": subject.id, "tutor_id": user.id})
     await db.commit()
     return _out(subject)

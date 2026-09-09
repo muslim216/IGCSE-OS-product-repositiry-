@@ -14,7 +14,11 @@ const SUBJECTS = [
   { id: 8, exam_board: "Edexcel IGCSE", code: "4BI1", name: "Biology", grade_scale: "9-1" },
 ];
 
-function stub(initial: Record<number, string> = {}, options: { hold?: number } = {}) {
+function stub(
+  initial: Record<number, string> = {},
+  options: { hold?: number; summaries?: Record<number, string> } = {},
+) {
+  const summaries = options.summaries ?? {};
   const saved: { subject: number; rules: string }[] = [];
   const state = { ...initial };
   /** Requests for this subject never resolve, which is the window between
@@ -52,6 +56,7 @@ function stub(initial: Record<number, string> = {}, options: { hold?: number } =
           subject_name: known.name,
           rules,
           configured: rules.length > 0,
+          summary: summaries[subject] ?? null,
         });
       }
       return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
@@ -190,4 +195,31 @@ test("saving whitespace-only rules leaves the box cleared, not still full of spa
   await waitFor(() => expect(box.value).toBe(""));
   expect(await screen.findByText(/Nothing set for this subject/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+});
+
+test("the tutor can see the shortened form marking actually reads", async () => {
+  /* PROD-7: a model now sits between the tutor and their own instructions
+     (3.2c), so the condensed form has to be visible — otherwise a rule lost in
+     summarisation is discovered from a mark. */
+  stub(
+    { 7: "Award method marks. Units cost one mark." },
+    {
+      summaries: { 7: "- Award method marks.\n- Units cost one mark." },
+    },
+  );
+  renderPage();
+
+  fireEvent.click(await screen.findByText("What marking actually reads"));
+  expect(screen.getByText(/- Award method marks\./)).toBeTruthy();
+  expect(screen.getByText(/shortened by AI so they fit/)).toBeTruthy();
+});
+
+test("no summary yet says marking is using the full text, not that something failed", async () => {
+  /* Absent is a real state, not an error and not a spinner: the job has not run
+     and marking is correctly using the full rules meanwhile (PROD-2). */
+  stub({ 7: "Award method marks." });
+  renderPage();
+
+  fireEvent.click(await screen.findByText("What marking actually reads"));
+  expect(screen.getByText(/marking is using your full text above/)).toBeTruthy();
 });

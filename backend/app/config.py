@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     # so it is pinned to Sonnet with reports and the class brief.
     ai_narrative_provider: str = "anthropic"
     ai_narrative_model: str = "claude-sonnet-5"
+    # Condensing a tutor's marking rules (task 3.2c): a short summarisation of
+    # text a human wrote, not a judgement about a student's work. Pinned to
+    # Sonnet with the other prose surfaces, and for the same reason — a later
+    # bump of `anthropic_model` must not silently move it onto Opus.
+    ai_marking_rules_provider: str = "anthropic"
+    ai_marking_rules_model: str = "claude-sonnet-5"
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
