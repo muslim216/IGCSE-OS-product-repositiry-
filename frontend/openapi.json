@@ -4863,7 +4863,6 @@
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "multipart/form-data": {
               "schema": {
@@ -6841,18 +6840,34 @@
       "Body_submit_work_api_v1_assignments__assignment_id__submissions_post": {
         "properties": {
           "files": {
-            "items": {
-              "type": "string",
-              "contentMediaType": "application/octet-stream"
-            },
-            "type": "array",
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Files"
+          },
+          "typed_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typed Answer",
+            "description": "The student's answers as text. At most 20000 characters after leading and trailing whitespace is trimmed."
           }
         },
         "type": "object",
-        "required": [
-          "files"
-        ],
         "title": "Body_submit_work_api_v1_assignments__assignment_id__submissions_post"
       },
       "Body_upload_classified_api_v1_classifieds_post": {
@@ -11067,6 +11082,16 @@
             "type": "array",
             "title": "Files"
           },
+          "typed_answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypedAnswerOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "marks": {
             "items": {
               "$ref": "#/components/schemas/MarkRow"
@@ -11886,6 +11911,32 @@
           "password"
         ],
         "title": "TutorSignupRequest"
+      },
+      "TypedAnswerOut": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "flag_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "flag_reason"
+        ],
+        "title": "TypedAnswerOut",
+        "description": "A student's typed answer as the tutor sees it (`AV-73`, task 3.3)."
       },
       "UpcomingScheduleSlot": {
         "properties": {

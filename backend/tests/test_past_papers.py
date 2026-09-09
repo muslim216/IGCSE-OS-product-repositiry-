@@ -15,8 +15,8 @@ from app.models import (
     SubmissionStatus,
 )
 from app.workers.jobs import process_one_job
+from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import subject_defaults
-from tests.test_homework import PDF_BYTES, PNG_BYTES, group, student, subject  # noqa: F401
 
 
 def _extraction_double(fake_ai):

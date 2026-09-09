@@ -22,11 +22,6 @@ from app.services.grade_boundaries import (
 )
 from app.services.grades import predict_grade
 from tests.factories import subject_defaults
-from tests.test_homework import (  # noqa: F401 - shared fixtures
-    group,
-    student,
-    subject,
-)
 
 
 @pytest.fixture

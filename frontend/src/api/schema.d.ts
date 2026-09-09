@@ -2378,7 +2378,12 @@ export interface components {
         /** Body_submit_work_api_v1_assignments__assignment_id__submissions_post */
         Body_submit_work_api_v1_assignments__assignment_id__submissions_post: {
             /** Files */
-            files: string[];
+            files?: string[] | null;
+            /**
+             * Typed Answer
+             * @description The student's answers as text. At most 20000 characters after leading and trailing whitespace is trimmed.
+             */
+            typed_answer?: string | null;
         };
         /** Body_upload_classified_api_v1_classifieds_post */
         Body_upload_classified_api_v1_classifieds_post: {
@@ -3816,6 +3821,7 @@ export interface components {
             submitted_at: string;
             /** Files */
             files: components["schemas"]["SubmissionFileOut"][];
+            typed_answer?: components["schemas"]["TypedAnswerOut"] | null;
             /** Marks */
             marks: components["schemas"]["MarkRow"][];
         };
@@ -4124,6 +4130,16 @@ export interface components {
             password: string;
             /** Timezone */
             timezone?: string | null;
+        };
+        /**
+         * TypedAnswerOut
+         * @description A student's typed answer as the tutor sees it (`AV-73`, task 3.3).
+         */
+        TypedAnswerOut: {
+            /** Text */
+            text: string;
+            /** Flag Reason */
+            flag_reason: string | null;
         };
         /** UpcomingScheduleSlot */
         UpcomingScheduleSlot: {
@@ -7378,7 +7394,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "multipart/form-data": components["schemas"]["Body_submit_work_api_v1_assignments__assignment_id__submissions_post"];
             };

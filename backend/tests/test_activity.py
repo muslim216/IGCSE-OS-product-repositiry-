@@ -2,16 +2,9 @@
 read/unread table."""
 
 from app.workers.jobs import process_one_job
+from tests.conftest import PNG_BYTES
 
 # Reuse the homework fixtures rather than rebuilding a tutor/group/student.
-from tests.test_homework import (  # noqa: F401
-    PNG_BYTES,
-    classified,
-    group,
-    published_assignment,
-    student,
-    subject,
-)
 
 
 def marked_by_ai(fake_ai, monkeypatch):

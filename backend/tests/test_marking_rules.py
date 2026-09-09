@@ -259,7 +259,7 @@ async def test_marking_now_reads_them_and_av_25_is_still_untouched(client, tutor
     # defines would look like a check and be one only about itself.
     from app.services import prompts
 
-    assert prompts.PROMPTS["marking"].version == "v4"
+    assert prompts.PROMPTS["marking"].version == "v5"
 
 
 async def test_the_cap_is_measured_after_trimming(client, tutor, subject_id):

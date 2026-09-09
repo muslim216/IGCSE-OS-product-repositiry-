@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models.syllabus import Chapter, Subject
 from app.models.users import User, UserRole
-from app.schemas.homework import MAX_CLASSIFIED_NOTES, clean_notes
+from app.schemas.homework import MAX_CLASSIFIED_NOTES, MAX_TYPED_ANSWER, clean_notes
 from app.security import decode_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -161,6 +161,32 @@ async def resolve_chapter(db: AsyncSession, chapter_id: int | None, subject_id: 
     return chapter
 
 
+def _bounded_form_text(raw: str | None, limit: int, too_long: str) -> str | None:
+    """A multipart free-text field, trimmed and then bounded. `None` if empty.
+
+    Not `Form(max_length=...)`: that measures the **raw** value, so a
+    full-length body with a trailing newline is a 422 for something that would
+    store fine — and any JSON path for the same field trims first, so the two
+    entry points would disagree about identical text. Trimming only ever
+    shortens, so measuring afterwards cannot slip past the cap.
+    """
+    text = clean_notes(raw)
+    if text is not None and len(text) > limit:
+        # `_ENTITY`, not the newer `_CONTENT`, which Starlette added in 0.48 and
+        # deprecated this one for. `pyproject.toml` floors fastapi at 0.115,
+        # which resolves an older Starlette where `_CONTENT` does not exist —
+        # this branch would then raise AttributeError and answer 500 (cubic).
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, too_long)
+    return text
+
+
+def form_typed_answer(raw: str | None) -> str | None:
+    """A student's typed answer (`AV-73`), trimmed then bounded."""
+    return _bounded_form_text(
+        raw, MAX_TYPED_ANSWER, f"Your answer is longer than {MAX_TYPED_ANSWER} characters"
+    )
+
+
 def form_notes(raw: str | None) -> str | None:
     """A multipart `notes` field, trimmed and then bounded. `None` if empty.
 
@@ -170,20 +196,13 @@ def form_notes(raw: str | None) -> str | None:
     the same text (cubic, CodeRabbit). Trimming only ever shortens, so measuring
     afterwards cannot be used to slip past the cap.
     """
-    notes = clean_notes(raw)
-    if notes is not None and len(notes) > MAX_CLASSIFIED_NOTES:
-        # `_ENTITY`, not the newer `_CONTENT`, which Starlette added in 0.48 and
-        # deprecated this one for. `pyproject.toml` floors fastapi at 0.115,
-        # which resolves an older Starlette where `_CONTENT` does not exist —
-        # this branch would then raise AttributeError and answer 500 (cubic).
-        # It is also the constant the five other explicit 422s here use. The
-        # deprecation warning is the cost of the floor; raising the floor is a
-        # dependency change, not a lint fix.
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"Notes are longer than {MAX_CLASSIFIED_NOTES} characters",
-        )
-    return notes
+    # The whole sentence, not a label slotted into a template: "Notes" is plural
+    # and "Your answer" is not, and a shared template made one of them
+    # ungrammatical — and silently changed an error detail clients already see
+    # (cubic).
+    return _bounded_form_text(
+        raw, MAX_CLASSIFIED_NOTES, f"Notes are longer than {MAX_CLASSIFIED_NOTES} characters"
+    )
 
 
 async def visible_subject(db: AsyncSession, subject_id: int, user: User) -> Subject:

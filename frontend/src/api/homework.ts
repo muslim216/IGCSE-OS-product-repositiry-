@@ -42,6 +42,10 @@ export interface Assignment {
   submission_count: number;
 }
 
+/** A student's typed answer as the tutor sees it (`AV-73`). Carries the
+    deterministic scan's verdict, which the student's own view does not. */
+export type TypedAnswer = components["schemas"]["TypedAnswerOut"];
+
 export interface AssignmentDetail {
   id: number;
   group_id: number;
@@ -164,6 +168,9 @@ export interface SubmissionDetail {
   ai_error: string | null;
   submitted_at: string;
   files: SubmissionFileInfo[];
+  /** Present only when the student typed rather than (or as well as)
+      photographing. Null otherwise. */
+  typed_answer: TypedAnswer | null;
   marks: MarkRow[];
 }
 
@@ -270,9 +277,17 @@ export const myAssignments = () => api<StudentAssignment[]>("/api/v1/me/assignme
 export const mySubmission = (assignmentId: number) =>
   api<StudentSubmissionView>(`/api/v1/assignments/${assignmentId}/my-submission`);
 
-export function submitWork(assignmentId: number, files: File[]) {
+/** Mirrors `MAX_TYPED_ANSWER` in backend/app/schemas/homework.py, which is the
+    control — this one is so the student sees the limit while typing rather than
+    as a rejected submission. */
+export const MAX_TYPED_ANSWER = 20000;
+
+/** Photos, typed text, or both (`AV-73`). Neither is not a submission, and the
+    server says so. */
+export function submitWork(assignmentId: number, files: File[], typedAnswer = "") {
   const form = new FormData();
   for (const f of files) form.append("files", f);
+  if (typedAnswer.trim()) form.append("typed_answer", typedAnswer);
   return api<StudentSubmissionView>(`/api/v1/assignments/${assignmentId}/submissions`, {
     method: "POST",
     body: form,

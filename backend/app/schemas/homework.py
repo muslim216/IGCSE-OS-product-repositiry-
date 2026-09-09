@@ -15,6 +15,15 @@ from app.schemas.groups import TopicOut
 #: marking policy. Enforced server-side; a frontend limit is a courtesy.
 MAX_CLASSIFIED_NOTES = 4000
 
+#: Hard cap on a typed answer (`AV-73`, task 3.3).
+#:
+#: Handwriting is self-limiting; typing is not, and the whole text goes into the
+#: marking prompt. 20,000 characters is roughly five thousand tokens — several
+#: pages of genuine exam answers, and far short of a payload written to bury the
+#: system prompt under length. Enforced server-side; the editor's own limit is a
+#: courtesy.
+MAX_TYPED_ANSWER = 20000
+
 
 def clean_notes(value: str | None) -> str | None:
     """Whitespace-only notes are no notes at all — stored as NULL.
@@ -197,6 +206,16 @@ class MarkRow(BaseModel):
     remark_reason: str | None = None
 
 
+class TypedAnswerOut(BaseModel):
+    """A student's typed answer as the tutor sees it (`AV-73`, task 3.3)."""
+
+    text: str
+    #: What the deterministic pre-marking scan matched (`AV-93`), or null when it
+    #: found nothing. Its presence is why every mark on this submission is
+    #: waiting for the tutor rather than counting.
+    flag_reason: str | None
+
+
 class SubmissionFileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -228,6 +247,10 @@ class SubmissionDetail(BaseModel):
     ai_error: str | None
     submitted_at: datetime
     files: list[SubmissionFileOut]
+    #: Present only when the student typed rather than (or as well as)
+    #: photographing. Tutor-facing: it carries the scan's verdict, which is not
+    #: something to show the student.
+    typed_answer: TypedAnswerOut | None = None
     marks: list[MarkRow]
 
 
