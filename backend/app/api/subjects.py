@@ -2,8 +2,8 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.models import Subject, Topic
-from app.schemas.groups import SubjectOut, TopicOut
+from app.models import Chapter, Subject, Topic
+from app.schemas.groups import ChapterOut, SubjectOut, TopicOut
 from app.services.subjects import visible_subject_ids
 
 router = APIRouter(prefix="/subjects", tags=["subjects"])
@@ -39,3 +39,26 @@ async def list_topics(subject_id: int, db: DbSession, user: CurrentUser) -> list
         await db.scalars(select(Topic).where(Topic.subject_id == subject_id).order_by(Topic.id))
     ).all()
     return [TopicOut.model_validate(t) for t in topics]
+
+
+@router.get("/{subject_id}/chapters", response_model=list[ChapterOut])
+async def list_chapters(subject_id: int, db: DbSession, user: CurrentUser) -> list[ChapterOut]:
+    """This subject's chapters, in teaching order.
+
+    Same visibility rule and same 404 as `/topics` above: a subject in another
+    account is indistinguishable from one that does not exist (`API-7`,
+    `SEC-9`). A subject whose syllabus was never extracted chapter-first
+    legitimately has none, and an empty list is that answer — not an error and
+    not something to invent structure for (`PROD-2`).
+
+    Ordered by `position`, which is teaching order and is deliberately not
+    derived from `code`: a tutor may teach chapter 4 before chapter 3.
+    """
+    if subject_id not in await visible_subject_ids(db, user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Subject not found")
+    chapters = (
+        await db.scalars(
+            select(Chapter).where(Chapter.subject_id == subject_id).order_by(Chapter.position)
+        )
+    ).all()
+    return [ChapterOut.model_validate(c) for c in chapters]

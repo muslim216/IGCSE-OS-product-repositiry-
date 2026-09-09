@@ -568,6 +568,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/classifieds/{classified_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Classified
+         * @description Re-file a booklet under a chapter, and edit its notes.
+         *
+         *     Notes are marking context the AI will act on (`AV-21`), so write-once at
+         *     upload would mean a tutor who mistyped them has to re-upload the booklet to
+         *     correct what the marker is told. The subject's rules and the teaching
+         *     guidance are both editable for the same reason.
+         */
+        patch: operations["update_classified_api_v1_classifieds__classified_id__patch"];
+        trace?: never;
+    };
     "/api/v1/classifieds/{classified_id}/file": {
         parameters: {
             query?: never;
@@ -1647,6 +1672,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subjects/{subject_id}/chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Chapters
+         * @description This subject's chapters, in teaching order.
+         *
+         *     Same visibility rule and same 404 as `/topics` above: a subject in another
+         *     account is indistinguishable from one that does not exist (`API-7`,
+         *     `SEC-9`). A subject whose syllabus was never extracted chapter-first
+         *     legitimately has none, and an empty list is that answer — not an error and
+         *     not something to invent structure for (`PROD-2`).
+         *
+         *     Ordered by `position`, which is teaching order and is deliberately not
+         *     derived from `code`: a tutor may teach chapter 4 before chapter 3.
+         */
+        get: operations["list_chapters_api_v1_subjects__subject_id__chapters_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assignments/{assignment_id}/submissions": {
         parameters: {
             query?: never;
@@ -2288,6 +2342,10 @@ export interface components {
             due_at?: string | null;
             /** Question Range */
             question_range?: string | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** Body_create_resource_api_v1_groups__group_id__resources_post */
         Body_create_resource_api_v1_groups__group_id__resources_post: {
@@ -2332,6 +2390,10 @@ export interface components {
             file: string;
             /** Mark Scheme */
             mark_scheme?: string | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
+            /** Notes */
+            notes?: string | null;
         };
         /** Body_upload_past_paper_api_v1_past_papers_post */
         Body_upload_past_paper_api_v1_past_papers_post: {
@@ -2361,6 +2423,17 @@ export interface components {
         Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put: {
             /** File */
             file: string;
+        };
+        /** ChapterOut */
+        ChapterOut: {
+            /** Id */
+            id: number;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /** Position */
+            position: number;
         };
         /** ClassBrief */
         ClassBrief: {
@@ -2499,6 +2572,31 @@ export interface components {
             file_name: string;
             /** Mark Scheme Name */
             mark_scheme_name: string | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+        };
+        /**
+         * ClassifiedUpdate
+         * @description A full replacement of the pair the chapter-notes editor owns.
+         *
+         *     Not a partial patch: the form holds both fields, so sending both is honest
+         *     about what is being written and needs no unset-versus-null machinery.
+         *
+         *     **Both fields are required**, with no defaults. A default would materialize
+         *     for an omitted field and the handler would write it, so `{"notes": "..."}`
+         *     would silently clear the chapter — a full replacement that reads like a
+         *     partial one is the worst of both (cubic). Omitting either is a 422.
+         */
+        ClassifiedUpdate: {
+            /** Chapter Id */
+            chapter_id: number | null;
+            /** Notes */
+            notes: string;
         };
         /** CrmHomeworkItem */
         CrmHomeworkItem: {
@@ -5007,6 +5105,41 @@ export interface operations {
             };
         };
     };
+    update_classified_api_v1_classifieds__classified_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                classified_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClassifiedUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassifiedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     download_classified_api_v1_classifieds__classified_id__file_get: {
         parameters: {
             query?: never;
@@ -7157,6 +7290,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TopicOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_chapters_api_v1_subjects__subject_id__chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChapterOut"][];
                 };
             };
             /** @description Validation Error */

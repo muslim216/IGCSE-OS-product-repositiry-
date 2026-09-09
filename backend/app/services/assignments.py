@@ -30,6 +30,8 @@ async def create_from_upload(
     instructions: str | None = None,
     due_at: datetime | None = None,
     question_range: str | None = None,
+    chapter_id: int | None = None,
+    notes: str | None = None,
 ) -> Assignment:
     """Store the paper and set it as homework. Commits on success.
 
@@ -52,6 +54,13 @@ async def create_from_upload(
             file_path=path,
             file_name=name,
             file_mime=mime,
+            # The chapter the tutor is teaching, and that chapter's marking
+            # notes (AV-20, AV-21). The caller has already checked the chapter
+            # belongs to the group's subject — the composite foreign key would
+            # otherwise turn a mismatch into a 500 here, after the file is
+            # already on disk.
+            chapter_id=chapter_id,
+            notes=notes,
         )
         if mark_scheme is not None:
             ms_path, ms_name, ms_mime = await storage.save_upload(

@@ -1,8 +1,30 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.groups import TopicOut
+
+#: Hard cap on a classified's chapter notes.
+#:
+#: These notes go into the marking prompt for every submission made against
+#: this booklet (task 3.2's context assembler), so their length is a cost paid
+#: per mark, and an unbounded field sitting in an instruction position is an
+#: unbounded attack surface — the plan's own security criterion for `AV-76`.
+#: Shorter than the subject's rules (`MAX_MARKING_RULES`, 8000) because this is
+#: the narrow layer: what is unusual about *this booklet*, not the tutor's whole
+#: marking policy. Enforced server-side; a frontend limit is a courtesy.
+MAX_CLASSIFIED_NOTES = 4000
+
+
+def clean_notes(value: str | None) -> str | None:
+    """Whitespace-only notes are no notes at all — stored as NULL.
+
+    "   " would make `notes` truthy, so the assembler would paste an empty
+    instruction block into every marking prompt for this booklet, and a surface
+    would report notes that say nothing. Used by the multipart upload route as
+    well as by the schema below, so the two entry points cannot disagree.
+    """
+    return (value or "").strip() or None
 
 
 class ClassifiedOut(BaseModel):
@@ -13,6 +35,44 @@ class ClassifiedOut(BaseModel):
     title: str
     file_name: str
     mark_scheme_name: str | None
+    #: The chapter this booklet belongs to (`AV-20`). Null for anything
+    #: uploaded before task 3.1, and for a subject with no extracted chapters.
+    chapter_id: int | None = None
+    #: Chapter-specific marking notes (`AV-21`). Empty string rather than null:
+    #: an editor binds a textarea to it and "no notes" is a finished state.
+    notes: str = ""
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _notes_never_null(cls, value: object) -> object:
+        return value or ""
+
+
+class ClassifiedUpdate(BaseModel):
+    """A full replacement of the pair the chapter-notes editor owns.
+
+    Not a partial patch: the form holds both fields, so sending both is honest
+    about what is being written and needs no unset-versus-null machinery.
+
+    **Both fields are required**, with no defaults. A default would materialize
+    for an omitted field and the handler would write it, so `{"notes": "..."}`
+    would silently clear the chapter — a full replacement that reads like a
+    partial one is the worst of both (cubic). Omitting either is a 422.
+    """
+
+    chapter_id: int | None
+    notes: str = Field(max_length=MAX_CLASSIFIED_NOTES)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _trimmed(cls, value: object) -> object:
+        """`mode="before"`, so the cap above measures the *trimmed* text.
+
+        Trimming only ever shortens, so the cap cannot be bypassed — but
+        measuring the raw value rejects a full-length body with a trailing
+        newline, which is a confusing 422 for something that would store fine.
+        """
+        return value.strip() if isinstance(value, str) else value
 
 
 class AssignmentCreate(BaseModel):

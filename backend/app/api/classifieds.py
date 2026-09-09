@@ -3,7 +3,14 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession, TutorUser, owned_subject
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    TutorUser,
+    form_notes,
+    owned_subject,
+    resolve_chapter,
+)
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import (
     Assignment,
@@ -13,7 +20,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.homework import ClassifiedOut
+from app.schemas.homework import ClassifiedOut, ClassifiedUpdate, clean_notes
 from app.services import storage
 
 router = APIRouter(prefix="/classifieds", tags=["classifieds"])
@@ -27,8 +34,18 @@ async def upload_classified(
     subject_id: Annotated[int, Form()],
     file: Annotated[UploadFile, File()],
     mark_scheme: Annotated[UploadFile | None, File()] = None,
+    # A classified belongs to the chapter the tutor is starting (AV-20), and
+    # carries that chapter's marking notes (AV-21). Both optional: a subject
+    # whose syllabus was never extracted chapter-first has no chapter to name.
+    chapter_id: Annotated[int | None, Form()] = None,
+    notes: Annotated[str | None, Form()] = None,
 ) -> ClassifiedOut:
     subject = await owned_subject(db, subject_id, user)
+    # Both checks run before the upload is written. A rejection afterwards
+    # leaves a stored file no row will ever reference — invisible, and so never
+    # cleaned up — and a caller can repeat a rejected request (cubic).
+    chapter = await resolve_chapter(db, chapter_id, subject.id)
+    cleaned_notes = form_notes(notes)
     path, name, mime = await storage.save_upload(file, organization_id=user.organization_id)
     classified = Classified(
         organization_id=user.organization_id,
@@ -38,6 +55,8 @@ async def upload_classified(
         file_path=path,
         file_name=name,
         file_mime=mime,
+        chapter_id=chapter,
+        notes=cleaned_notes,
     )
     if mark_scheme is not None:
         ms_path, ms_name, ms_mime = await storage.save_upload(
@@ -64,6 +83,28 @@ async def list_classifieds(
         query = query.where(Classified.subject_id == subject_id)
     rows = (await db.scalars(query)).all()
     return [ClassifiedOut.model_validate(c) for c in rows]
+
+
+@router.patch("/{classified_id}", response_model=ClassifiedOut)
+async def update_classified(
+    classified_id: int, body: ClassifiedUpdate, db: DbSession, user: TutorUser
+) -> ClassifiedOut:
+    """Re-file a booklet under a chapter, and edit its notes.
+
+    Notes are marking context the AI will act on (`AV-21`), so write-once at
+    upload would mean a tutor who mistyped them has to re-upload the booklet to
+    correct what the marker is told. The subject's rules and the teaching
+    guidance are both editable for the same reason.
+    """
+    classified = await db.get(Classified, classified_id)
+    # Ownership of a booklet is the tutor who uploaded it — the same rule the
+    # download routes below apply. A row in another account is a 404 (API-7).
+    if classified is None or (classified.tutor_id != user.id and user.role != UserRole.admin):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    classified.chapter_id = await resolve_chapter(db, body.chapter_id, classified.subject_id)
+    classified.notes = clean_notes(body.notes)
+    await db.commit()
+    return ClassifiedOut.model_validate(classified)
 
 
 async def _can_view_classified(db, user: User, classified: Classified) -> bool:

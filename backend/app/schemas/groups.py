@@ -25,6 +25,18 @@ class TopicOut(BaseModel):
     weight: float
 
 
+class ChapterOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    title: str
+    #: Teaching order within the subject, tutor-controlled and not derived from
+    #: `code` — a tutor may teach chapter 4 before chapter 3. Sent so a picker
+    #: can present chapters in the order they are taught.
+    position: int
+
+
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     subject_id: int

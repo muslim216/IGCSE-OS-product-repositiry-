@@ -1284,6 +1284,64 @@
         }
       }
     },
+    "/api/v1/classifieds/{classified_id}": {
+      "patch": {
+        "tags": [
+          "classifieds"
+        ],
+        "summary": "Update Classified",
+        "description": "Re-file a booklet under a chapter, and edit its notes.\n\nNotes are marking context the AI will act on (`AV-21`), so write-once at\nupload would mean a tutor who mistyped them has to re-upload the booklet to\ncorrect what the marker is told. The subject's rules and the teaching\nguidance are both editable for the same reason.",
+        "operationId": "update_classified_api_v1_classifieds__classified_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "classified_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Classified Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassifiedUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassifiedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/classifieds/{classified_id}/file": {
       "get": {
         "tags": [
@@ -4729,6 +4787,58 @@
         }
       }
     },
+    "/api/v1/subjects/{subject_id}/chapters": {
+      "get": {
+        "tags": [
+          "subjects"
+        ],
+        "summary": "List Chapters",
+        "description": "This subject's chapters, in teaching order.\n\nSame visibility rule and same 404 as `/topics` above: a subject in another\naccount is indistinguishable from one that does not exist (`API-7`,\n`SEC-9`). A subject whose syllabus was never extracted chapter-first\nlegitimately has none, and an empty list is that answer \u2014 not an error and\nnot something to invent structure for (`PROD-2`).\n\nOrdered by `position`, which is teaching order and is deliberately not\nderived from `code`: a tutor may teach chapter 4 before chapter 3.",
+        "operationId": "list_chapters_api_v1_subjects__subject_id__chapters_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChapterOut"
+                  },
+                  "title": "Response List Chapters Api V1 Subjects  Subject Id  Chapters Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/assignments/{assignment_id}/submissions": {
       "post": {
         "tags": [
@@ -6614,6 +6724,28 @@
               }
             ],
             "title": "Question Range"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
           }
         },
         "type": "object",
@@ -6751,6 +6883,28 @@
               }
             ],
             "title": "Mark Scheme"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
           }
         },
         "type": "object",
@@ -6856,6 +7010,34 @@
           "file"
         ],
         "title": "Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"
+      },
+      "ChapterOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "title",
+          "position"
+        ],
+        "title": "ChapterOut"
       },
       "ClassBrief": {
         "properties": {
@@ -7162,6 +7344,22 @@
               }
             ],
             "title": "Mark Scheme Name"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes",
+            "default": ""
           }
         },
         "type": "object",
@@ -7173,6 +7371,33 @@
           "mark_scheme_name"
         ],
         "title": "ClassifiedOut"
+      },
+      "ClassifiedUpdate": {
+        "properties": {
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "notes"
+        ],
+        "title": "ClassifiedUpdate",
+        "description": "A full replacement of the pair the chapter-notes editor owns.\n\nNot a partial patch: the form holds both fields, so sending both is honest\nabout what is being written and needs no unset-versus-null machinery.\n\n**Both fields are required**, with no defaults. A default would materialize\nfor an omitted field and the handler would write it, so `{\"notes\": \"...\"}`\nwould silently clear the chapter \u2014 a full replacement that reads like a\npartial one is the worst of both (cubic). Omitting either is a 422."
       },
       "CrmHomeworkItem": {
         "properties": {
