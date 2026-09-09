@@ -277,6 +277,20 @@ class QuestionMark(Base):
     # for marks drafted before AI output versioning.
     ai_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ai_prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Where a tutor's rule changed this mark away from what the official mark
+    # scheme alone would give, one sentence naming what the scheme required and
+    # which rule was followed instead (task 3.2, AV-76 as the owner revised it).
+    #
+    # Null is the ordinary case — no tutor rule changed this mark — and must not
+    # be read as "not checked" (PROD-2). Free text, not a flag: a boolean tells
+    # a tutor that something happened and nothing about what, and the whole
+    # point of recording it is that they can see the effect of what they wrote.
+    #
+    # This does NOT set needs_review. A mark that followed the tutor's rule
+    # still auto-finalizes if it is otherwise scheme-backed and confident — the
+    # tutor's rule is the authority, so nothing waits for a human (owner's
+    # decision, 9 Sep 2026). AV-25's other half is untouched.
+    scheme_conflict: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The AI wasn't confident enough for its mark to stand on its own (no
     # official mark-scheme coverage, or low confidence) — a tutor must look.
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

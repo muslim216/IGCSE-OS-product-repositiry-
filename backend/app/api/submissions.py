@@ -500,6 +500,7 @@ async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
             final_marks=m.final_marks if m else None,
             final_feedback=m.final_feedback if m else None,
             overridden=m.overridden if m else False,
+            scheme_conflict=m.scheme_conflict if m else None,
             needs_review=m.needs_review if m else False,
             auto_finalized=m.auto_finalized if m else False,
             remark_requested=m.id in open_remarks if m else False,

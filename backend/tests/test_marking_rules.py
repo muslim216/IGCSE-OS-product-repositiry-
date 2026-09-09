@@ -220,21 +220,43 @@ async def test_rules_do_not_leak_into_the_subject_list(client, tutor, subject_id
     assert all("marking_rules" not in s for s in listed)
 
 
-async def test_nothing_marks_with_them_yet(client, tutor, subject_id):
-    """AV-25 is untouched by AV-111: these rules describe *how* the AI marks,
-    never *when a mark counts*. Phase 3's assembler (E16) is the single function
-    that will read them, under AV-76's precedence — until then no prompt does,
-    and this test is what fails if one starts quietly.
+async def test_marking_now_reads_them_and_av_25_is_still_untouched(client, tutor, subject_id):
+    """Task 2.6 shipped this asserting *nothing* read the rules yet. Task 3.2's
+    assembler (`E16`) does, so it is turned round rather than deleted.
+
+    The half that has not changed is the *gate*, and it is worth being precise
+    about what that means now. A tutor rule can absolutely change a mark, and
+    that changed mark still auto-finalizes — the owner's reversal of `AV-76`
+    settled that. What these rules cannot do is change **whether** a mark is
+    eligible to finalize at all: that still requires an official scheme actually
+    attached and confident output (`AV-25`, `AI-11`, `ADR-0009`). A tutor who
+    writes "mark everything generously" changes marks; they do not turn an
+    unschemed or low-confidence question into one that counts without them
+    (cubic).
     """
-    from app.services import prompts
+    from app.services.marking_context import MarkingContextSources, build_marking_context
 
     await client.put(
         f"/api/v1/subjects/{subject_id}/marking-rules",
         json={"rules": RULES},
         headers=tutor["headers"],
     )
-    assert "marking_rules" not in prompts.MARKING
-    assert prompts.PROMPTS["marking"].version == "v3"
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        context = await build_marking_context(
+            session, MarkingContextSources(subject=subject, classified=None)
+        )
+    assert RULES in context
+
+    # AI-7: the prompt changed meaningfully when it started reading these, so
+    # the version had to move with it. AV-25 itself is not asserted here — the
+    # auto-finalize gate reads the scheme attachment and the model's confidence,
+    # neither of which this text touches, and `test_homework.py` is where that
+    # gate is actually exercised. An assertion here over a constant this file
+    # defines would look like a check and be one only about itself.
+    from app.services import prompts
+
+    assert prompts.PROMPTS["marking"].version == "v4"
 
 
 async def test_the_cap_is_measured_after_trimming(client, tutor, subject_id):

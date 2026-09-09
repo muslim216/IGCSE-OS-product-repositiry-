@@ -180,6 +180,16 @@ class MarkRow(BaseModel):
     final_marks: int | None
     final_feedback: str | None
     overridden: bool
+    #: Where a tutor rule changed this mark away from what the official mark
+    #: scheme alone would give — what the scheme required, and which rule was
+    #: followed instead (task 3.2, `AV-76` as the owner revised it). Null is the
+    #: ordinary case: no tutor rule changed this mark.
+    #:
+    #: **Tutor-only.** `MarkRow` is served by two routes and both go through
+    #: `_tutor_submission`; the student's own view is `StudentMarkRow`, which
+    #: deliberately does not carry this. "Your tutor's rule got you a mark the
+    #: exam board would not have" is not a thing to tell a student.
+    scheme_conflict: str | None = None
     # Why this row is (or isn't) in the tutor's review queue.
     needs_review: bool = False
     auto_finalized: bool = False

@@ -2918,6 +2918,8 @@ export interface components {
             final_feedback: string | null;
             /** Overridden */
             overridden: boolean;
+            /** Scheme Conflict */
+            scheme_conflict?: string | null;
             /**
              * Needs Review
              * @default false

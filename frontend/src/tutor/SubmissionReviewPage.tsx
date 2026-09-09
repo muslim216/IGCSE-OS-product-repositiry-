@@ -346,6 +346,18 @@ function QuestionCard({
         </div>
       )}
 
+      {mark.scheme_conflict && (
+        // The tutor's rule beat the official mark scheme here (AV-76, as the
+        // owner revised it). The mark stands and counts — this is not a review
+        // prompt — but a tutor who never sees this has no way to learn that a
+        // rule they wrote is quietly marking their students differently from
+        // the exam they will actually sit. Shown, never blocking.
+        <div className="mt-2 rounded border border-warn-700 bg-warn-100 p-2 text-sm text-ink-900">
+          <span className="font-medium">Marked by your rule, not the mark scheme.</span>{" "}
+          {mark.scheme_conflict}
+        </div>
+      )}
+
       {mark.ai_transcription && (
         <div className="mt-2 rounded bg-surface-muted p-2 text-sm text-ink-700">
           <span className="font-medium text-ink-500">AI read:</span> {mark.ai_transcription}
