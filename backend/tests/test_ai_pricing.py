@@ -78,7 +78,7 @@ def _repo_settings() -> Settings:
     environment variables, which forces each one back to config.py's default
     regardless of what the process environment holds. Verified: exporting
     `ANTHROPIC_MODEL`/`GEMINI_MODEL` before running this still resolves to
-    `claude-opus-4-8` / `gemini-2.5-pro`."""
+    `claude-opus-5` / `gemini-2.5-pro`."""
     overrides = {name: Settings.model_fields[name].default for name in _MODEL_SETTINGS}
     return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
@@ -131,10 +131,10 @@ def test_the_models_av_124_routes_to_are_priced():
         )
 
 
-def test_the_anthropic_default_is_priced_before_the_routing_flip():
-    """Until 3.2 bumps anthropic_model, every surface with a blank per-surface
-    model resolves to whatever it currently is. Leaving that unpriced would
-    blind the interim window."""
+def test_the_anthropic_default_is_priced():
+    """Every surface with a blank per-surface model resolves to
+    `anthropic_model` — four of the seven since task 3.2. Leaving it unpriced
+    would blind most of the product's spend at once."""
     prices = _example_pricing()
     default = _repo_settings().anthropic_model
     assert default in prices, (

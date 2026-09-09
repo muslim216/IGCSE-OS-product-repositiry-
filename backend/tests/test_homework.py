@@ -268,7 +268,9 @@ async def test_no_pdf_assignment_marking_guard_runs_before_ai_call(client, tutor
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     # Fails at the AI call (no API key), not at the classified lookup — the guard worked.
     assert subs.json()[0]["status"] == "ai_failed"
-    assert "GEMINI_API_KEY" in detail.json()["ai_error"]
+    # ANTHROPIC, not GEMINI: marking moved to Anthropic in task 3.2 (AV-124), so
+    # the key the message tells an operator to set moved with it.
+    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
 
 
 async def test_no_pdf_assignment_marking_does_not_crash(client, tutor, student, group, monkeypatch):
@@ -412,7 +414,7 @@ async def test_marking_fails_gracefully_without_api_key(
     assert subs.json()[0]["status"] == "ai_failed"
     sid = subs.json()[0]["id"]
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
-    assert "GEMINI_API_KEY" in detail.json()["ai_error"]
+    assert "ANTHROPIC_API_KEY" in detail.json()["ai_error"]
 
     # The tutor can still mark manually and finalize.
     marks = detail.json()["marks"]
