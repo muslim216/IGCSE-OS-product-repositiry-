@@ -70,10 +70,7 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "reports": AiFeature.report,
     "readiness": AiFeature.readiness,
     "class_brief": AiFeature.report,
-    # Metered as marking: it exists only to make a marking call cheaper, so its
-    # cost belongs in the bucket it is spent on behalf of. AiFeature is the
-    # billing-facing grouping, the surface is the routing key.
-    "marking_rules": AiFeature.marking,
+    "marking_rules": AiFeature.marking_rules,
     # The stored narrative is a report-shaped paragraph, so it shares that bucket.
     "narrative": AiFeature.report,
 }

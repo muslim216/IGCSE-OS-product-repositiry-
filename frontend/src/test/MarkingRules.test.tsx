@@ -44,6 +44,11 @@ function stub(
         if (!known)
           return new Response(JSON.stringify({ detail: "no such subject" }), { status: 404 });
         if (method === "PUT") {
+          // The API clears the summary in the same transaction as the write and
+          // rebuilds it in a job, so a stub that keeps serving the old one hides
+          // exactly the stale-summary behaviour this page has to get right
+          // (cubic).
+          delete summaries[subject];
           // The API trims before storing, so whitespace-only rules come back as
           // no rules at all — the case this stub has to be faithful about.
           const rules = (JSON.parse(String(init?.body)).rules as string).trim();
@@ -87,7 +92,7 @@ test("an unset subject says so, and says leaving it empty is fine", async () => 
   expect(screen.getByText(/Leaving it empty is fine/)).toBeTruthy();
 });
 
-test("the page does not claim to decide when a mark counts, or that marking reads it", async () => {
+test("the page does not claim to decide when a mark counts, and is honest that marking reads it", async () => {
   stub();
   renderPage();
 
@@ -97,7 +102,10 @@ test("the page does not claim to decide when a mark counts, or that marking read
   // and ancestors match a textContent test too.
   const paragraphs = Array.from(document.querySelectorAll("p")).map((p) => p.textContent ?? "");
   expect(paragraphs.some((t) => /never.*when.*a mark counts/is.test(t))).toBe(true);
-  expect(paragraphs.some((t) => /does not read them yet/i.test(t))).toBe(true);
+  // Since task 3.2 marking *does* read them, so the old "not yet" line would be
+  // an understatement — PROD-1 cuts both ways.
+  expect(paragraphs.some((t) => /does not read them yet/i.test(t))).toBe(false);
+  expect(paragraphs.some((t) => /reads\s+them on every piece of work/i.test(t))).toBe(true);
 });
 
 test("saving sends the draft for the selected subject", async () => {
@@ -195,6 +203,26 @@ test("saving whitespace-only rules leaves the box cleared, not still full of spa
   await waitFor(() => expect(box.value).toBe(""));
   expect(await screen.findByText(/Nothing set for this subject/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+});
+
+test("saving new rules drops the old shortened form rather than showing it against them", async () => {
+  /* The stale-summary case: the API clears it on write and a job rebuilds it,
+     so between the two the page must say the full text is in use — not keep
+     displaying a summary of rules that no longer exist (cubic). */
+  stub({ 7: "Award method marks." }, { summaries: { 7: "- Award method marks." } });
+  renderPage();
+
+  fireEvent.click(await screen.findByText("What marking actually reads"));
+  expect(screen.getByText(/- Award method marks\./)).toBeTruthy();
+
+  const box = screen.getByLabelText("Marking rules for Chemistry");
+  fireEvent.change(box, { target: { value: "Never award method marks." } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() =>
+    expect(screen.getByText(/marking is using your full text above/)).toBeTruthy(),
+  );
+  expect(screen.queryByText(/- Award method marks\./)).toBeNull();
 });
 
 test("the tutor can see the shortened form marking actually reads", async () => {

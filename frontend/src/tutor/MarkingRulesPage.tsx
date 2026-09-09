@@ -12,9 +12,10 @@ import { ABSENT } from "../lib/labels";
  *
  * Two things this screen must never imply. It does not decide **when a mark
  * counts**: auto-finalization stays scheme-backed and confident whatever is
- * written here (`AV-25`). And nothing marks with these yet — the marking
- * context assembler is a later phase — so the copy says so rather than
- * promising an effect the product does not have (`PROD-1`).
+ * written here (`AV-25`). Marking *does* read them since task 3.2 — through
+ * the context assembler, in the condensed form shown below — so the copy no
+ * longer says otherwise (`PROD-1` cuts both ways: a page that understates its
+ * effect is as wrong as one that overstates it).
  */
 /** A load failure with a way out of it. Telling someone something broke and
  *  leaving them to reload the whole page is a dead end for what is usually a
@@ -47,6 +48,15 @@ export default function MarkingRulesPage() {
     queryKey: ["marking-rules", selected],
     queryFn: () => getMarkingRules(selected!),
     enabled: selected !== null,
+    // The summary is written by a background job, so the save response never
+    // carries it. Without this the panel sits on "not shortened yet" until the
+    // page is remounted, which reads as a failure rather than as a wait
+    // (cubic). Polling stops the moment there is a summary, or when there are
+    // no rules to summarise.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.configured && !data.summary ? 3000 : false;
+    },
   });
 
   // The draft the tutor is typing, which is a different thing from what is
@@ -116,8 +126,8 @@ export default function MarkingRulesPage() {
         </p>
         <p className="mt-2 max-w-prose text-sm text-ink-500">
           These rules describe <strong>how</strong> work is marked, never <strong>when</strong> a
-          mark counts — that stays as it is, and nothing you write here changes it. Marking does not
-          read them yet; they are stored ready for when it does.
+          mark counts — that stays as it is, and nothing you write here changes it. Marking reads
+          them on every piece of work in this subject, in the shortened form below.
         </p>
       </div>
 

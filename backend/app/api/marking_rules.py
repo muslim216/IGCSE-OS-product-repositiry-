@@ -63,6 +63,7 @@ async def write_marking_rules(
     # `build_marking_context` falls back to the full text — marking stays
     # correct, it just costs more.
     subject.marking_rules_summary = None
+    subject.marking_rules_summary_of = None
     if subject.marking_rules:
         await enqueue(db, SUMMARISE_JOB, {"subject_id": subject.id, "tutor_id": user.id})
     await db.commit()

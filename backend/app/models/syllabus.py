@@ -93,11 +93,23 @@ class Subject(Base):
     # Null is a working state, not a gap: `build_marking_context` falls back to
     # the full text when this is absent, so the window between a save and the
     # job finishing is correct rather than one in which the rules silently do
-    # not apply. Writing `marking_rules` clears this in the same statement, so a
-    # summary is absent or current, never stale — deliberately no fingerprint to
-    # compare, because "clear and rebuild" cannot drift the way "compare and
-    # decide" can.
+    # not apply.
     marking_rules_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SHA-256 of the rules `marking_rules_summary` was built from.
+    #
+    # An earlier revision of this comment claimed clearing the summary on write
+    # made staleness impossible and that no fingerprint was needed. That was
+    # wrong: the job reads the rules, awaits a model call, then writes, so a
+    # save landing inside that gap leaves the older summary committed after it —
+    # and the newer job then sees a non-null summary and returns early, forever
+    # (cubic). This is the compare-and-swap that closes it. The job writes only
+    # if the rules still hash to what it summarised, and skips only if the hash
+    # already matches, so a duplicate delivery is free and a superseded one is
+    # discarded.
+    #
+    # Also set when a summarisation legitimately produces nothing, so that
+    # answer is remembered rather than re-bought on every redelivery.
+    marking_rules_summary_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # No `grade_boundaries` column: task 2.4 (AV-11) made the org-scoped
     # `GradeBoundary` table the only source and migration 0031 dropped this one,

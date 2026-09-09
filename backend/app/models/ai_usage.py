@@ -18,6 +18,14 @@ class AiFeature(str, enum.Enum):
     report = "report"
     extraction = "extraction"
     readiness = "readiness"
+    # Condensing a tutor's marking rules (task 3.2c). Its own bucket rather than
+    # folded into `marking`, even though it exists only to make marking cheaper:
+    # nothing records the *surface* on a usage row, so the bucket is the only
+    # grouping there is, and "did summarising pay for itself" is a question that
+    # needs the two numbers apart (cubic). Nothing branches on this enum, so
+    # adding a member is safe (DB-5, DB-6, ADR-0007) — check that again before
+    # adding the next one.
+    marking_rules = "marking_rules"
 
 
 class AiUsageEvent(Base):
