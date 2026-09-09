@@ -51,6 +51,12 @@ SURFACES = (
     "readiness",
     "class_brief",
     "narrative",
+    # Condenses a tutor's marking rules into what the marking prompt is given
+    # (task 3.2c). A separate surface rather than a mode of "marking" because it
+    # is routed, priced and metered as its own call — and because `AI-2` says a
+    # call site names a surface, and "summarise these rules" is not "mark this
+    # work".
+    "marking_rules",
 )
 
 # Which ai_usage_events.feature bucket each surface meters into. Several
@@ -64,6 +70,7 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "reports": AiFeature.report,
     "readiness": AiFeature.readiness,
     "class_brief": AiFeature.report,
+    "marking_rules": AiFeature.marking_rules,
     # The stored narrative is a report-shaped paragraph, so it shares that bucket.
     "narrative": AiFeature.report,
 }

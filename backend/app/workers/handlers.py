@@ -15,6 +15,7 @@ which is the direction `BE-1` allows.
 from app.services.extraction import extract_assignment, extract_past_paper
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
+from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
 from app.services.narrative import (
     CLASS_NARRATIVE_JOB,
     SWEEP_JOB,
@@ -35,6 +36,10 @@ def register_all() -> None:
     # A past paper is a full-paper classified: same extractor, same prompt.
     register_handler("extract_past_paper", extract_past_paper)
     register_handler("mark_submission", mark_submission)
+    # Condenses a subject's marking rules into what the marking prompt is given
+    # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,
+    # because it does nothing when a summary is already present.
+    register_handler(SUMMARISE_JOB, summarise_marking_rules)
     register_handler("recompute_readiness", recompute_student)
     # Readiness v2 is what the readiness UI/API serve
     # (services/readiness_summary_v2.py), falling back to v1 for any

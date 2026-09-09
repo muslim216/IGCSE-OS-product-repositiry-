@@ -44,3 +44,9 @@ class MarkingRulesOut(BaseModel):
     #: Whether anything is actually set, so a surface can say "not set" without
     #: inferring it from an empty string (`PROD-2`).
     configured: bool
+    #: The condensed form marking is actually given (task 3.2c), or null while
+    #: it is still being written — and null is also what a failed summarisation
+    #: leaves, in which case marking uses the full text above. Shown to the
+    #: tutor because a model now sits between them and their own instructions,
+    #: and `PROD-7` gives them final authority over what it produced.
+    summary: str | None = None

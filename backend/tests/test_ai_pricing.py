@@ -53,6 +53,7 @@ _MODEL_SETTINGS = (
     "ai_readiness_model",
     "ai_class_brief_model",
     "ai_narrative_model",
+    "ai_marking_rules_model",
 )
 
 

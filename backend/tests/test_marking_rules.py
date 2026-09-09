@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import Subject
 from app.schemas.marking_rules import MAX_MARKING_RULES
+from app.workers.jobs import process_one_job
 from tests.factories import make_subject, other_org_subject
 
 RULES = "Award method marks even when the final answer is wrong. Units are worth a mark."
@@ -38,6 +39,8 @@ async def test_a_subject_starts_with_no_rules(client, tutor, subject_id):
         "subject_name": "Chemistry",
         "rules": "",
         "configured": False,
+        # No rules, so nothing to summarise and nothing marking would read.
+        "summary": None,
     }
 
 
@@ -270,3 +273,306 @@ async def test_the_cap_is_measured_after_trimming(client, tutor, subject_id):
     )
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["rules"]) == MAX_MARKING_RULES
+
+
+# --- 3.2c: the summary marking actually reads -------------------------------
+
+SUMMARY_LINES = ["Award method marks even when the final answer is wrong.", "Units cost one mark."]
+
+
+def _summariser(lines):
+    from app.services.marking_rules import MarkingRulesSummary
+
+    return MarkingRulesSummary(rules=lines)
+
+
+async def test_saving_rules_queues_a_summary_and_clears_the_old_one(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """The summary is what marking is given (task 3.2c). Clearing it in the same
+    transaction as the write is what makes it absent-or-current rather than
+    stale — there is deliberately no fingerprint to compare."""
+    monkeypatch.setattr(
+        "app.services.marking_rules.structured_complete", fake_ai(_summariser(SUMMARY_LINES))
+    )
+    saved = await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    # Not yet: the job has not run, and the response says so honestly.
+    assert saved.json()["summary"] is None
+
+    assert await process_one_job() is True
+
+    read = await client.get(
+        f"/api/v1/subjects/{subject_id}/marking-rules", headers=tutor["headers"]
+    )
+    assert read.json()["summary"] == "\n".join(f"- {line}" for line in SUMMARY_LINES)
+    # The tutor's own text is untouched — the summary is a second field, not a
+    # rewrite of what they wrote.
+    assert read.json()["rules"] == RULES
+
+
+async def test_marking_reads_the_summary_once_there_is_one(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    from app.services.marking_context import MarkingContextSources, build_marking_context
+
+    monkeypatch.setattr(
+        "app.services.marking_rules.structured_complete", fake_ai(_summariser(SUMMARY_LINES))
+    )
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        context = await build_marking_context(
+            session, MarkingContextSources(subject=subject, classified=None)
+        )
+    assert SUMMARY_LINES[0] in context
+    assert RULES not in context
+
+
+async def test_before_the_job_runs_marking_uses_the_full_text(client, tutor, subject_id):
+    """The window between saving and summarising has to mark correctly, at cost
+    — not be a period in which the tutor's rules silently do not apply."""
+    from app.services.marking_context import MarkingContextSources, build_marking_context
+
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        context = await build_marking_context(
+            session, MarkingContextSources(subject=subject, classified=None)
+        )
+    assert RULES in context
+
+
+async def test_editing_the_rules_invalidates_the_summary(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """The failure this guards is the worst one available here: marking a class
+    against the rules the tutor *used* to have, with the page showing the ones
+    they have now."""
+    from app.services.marking_context import MarkingContextSources, build_marking_context
+
+    monkeypatch.setattr(
+        "app.services.marking_rules.structured_complete", fake_ai(_summariser(SUMMARY_LINES))
+    )
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    assert await process_one_job() is True
+
+    rewritten = "Never award method marks. The final answer is everything."
+    edited = await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": rewritten},
+        headers=tutor["headers"],
+    )
+    assert edited.json()["summary"] is None
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        context = await build_marking_context(
+            session, MarkingContextSources(subject=subject, classified=None)
+        )
+    assert rewritten in context
+    assert SUMMARY_LINES[0] not in context
+
+
+async def test_an_empty_summary_leaves_the_full_text_in_place(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """An empty result is the model finding no marking instructions in text the
+    tutor believed was marking instructions. Storing it would delete their rules
+    from every marking prompt on the model's say-so."""
+    from app.services.marking_context import MarkingContextSources, build_marking_context
+
+    monkeypatch.setattr("app.services.marking_rules.structured_complete", fake_ai(_summariser([])))
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        assert subject.marking_rules_summary is None
+        context = await build_marking_context(
+            session, MarkingContextSources(subject=subject, classified=None)
+        )
+    assert RULES in context
+
+
+async def test_clearing_the_rules_queues_nothing(client, tutor, subject_id, monkeypatch, fake_ai):
+    """Nothing to summarise, so no billed call — and the job queue is where an
+    empty save would otherwise leave a permanent no-op."""
+    monkeypatch.setattr(
+        "app.services.marking_rules.structured_complete", fake_ai(_summariser(SUMMARY_LINES))
+    )
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": ""},
+        headers=tutor["headers"],
+    )
+    assert await process_one_job() is False
+
+
+async def test_re_running_the_job_does_not_pay_for_a_second_call(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """BE-6: delivery is at-least-once. A duplicate must be free, not a second
+    billed summarisation that could also differ from the first."""
+    from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
+
+    calls: list[int] = []
+
+    def _counting(parsed):
+        inner = fake_ai(parsed)
+
+        async def _call(**kwargs):
+            calls.append(1)
+            return await inner(**kwargs)
+
+        return _call
+
+    monkeypatch.setattr(
+        "app.services.marking_rules.structured_complete", _counting(_summariser(SUMMARY_LINES))
+    )
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    assert await process_one_job() is True
+    assert len(calls) == 1
+
+    async with async_session() as session:
+        await summarise_marking_rules(
+            session, {"subject_id": subject_id, "tutor_id": tutor["user"]["id"]}
+        )
+    assert len(calls) == 1, "a re-delivered job paid for a second summarisation"
+    assert SUMMARISE_JOB  # the registered type, used by the endpoint above
+
+
+async def test_a_save_during_summarisation_does_not_leave_a_stale_summary(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """The race 3.2c originally shipped with (cubic).
+
+    Clearing the summary on write is not enough on its own: the job reads the
+    rules, awaits the model, then writes. A save landing inside that gap used to
+    leave the *older* summary committed after it, and the newer job then saw a
+    non-null summary and returned early — stale forever, marking a class against
+    rules the tutor had replaced, with the page showing the new ones.
+
+    Here the save happens *during* the model call, which is the only moment the
+    bug is reachable.
+    """
+    from app.services.marking_rules import summarise_marking_rules
+
+    rewritten = "Never award method marks."
+
+    async def _slow_call(**kwargs):
+        # The tutor saves while the model is working.
+        await client.put(
+            f"/api/v1/subjects/{subject_id}/marking-rules",
+            json={"rules": rewritten},
+            headers=tutor["headers"],
+        )
+        return await fake_ai(_summariser(SUMMARY_LINES))(**kwargs)
+
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    monkeypatch.setattr("app.services.marking_rules.structured_complete", _slow_call)
+    async with async_session() as session:
+        await summarise_marking_rules(
+            session, {"subject_id": subject_id, "tutor_id": tutor["user"]["id"]}
+        )
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        assert subject.marking_rules == rewritten
+        # The superseded result is discarded, not committed over the new rules.
+        assert subject.marking_rules_summary is None
+        assert subject.marking_rules_summary_of is None
+
+
+async def test_the_job_for_the_new_rules_is_not_skipped_by_a_leftover_summary(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """The second half of the same bug: even with a stale summary present, the
+    job for the current rules must still run. Keyed on the rules' fingerprint,
+    not on "is there a summary already"."""
+    from app.services.marking_rules import fingerprint, summarise_marking_rules
+
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    # Simulate the leftover a slow predecessor would have committed.
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        subject.marking_rules_summary = "- A summary of rules nobody has any more."
+        subject.marking_rules_summary_of = fingerprint("some older rules")
+        await session.commit()
+
+    monkeypatch.setattr(
+        "app.services.marking_rules.structured_complete", fake_ai(_summariser(SUMMARY_LINES))
+    )
+    async with async_session() as session:
+        await summarise_marking_rules(
+            session, {"subject_id": subject_id, "tutor_id": tutor["user"]["id"]}
+        )
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        assert SUMMARY_LINES[0] in (subject.marking_rules_summary or "")
+        assert subject.marking_rules_summary_of == fingerprint(RULES)
+
+
+async def test_an_empty_result_is_remembered_rather_than_re_bought(
+    client, tutor, subject_id, monkeypatch, fake_ai
+):
+    """The fingerprint is written even when the summary is not, so "there is
+    nothing here to summarise" costs one call rather than one per redelivery."""
+    from app.services.marking_rules import summarise_marking_rules
+
+    calls: list[int] = []
+
+    async def _counting(**kwargs):
+        calls.append(1)
+        return await fake_ai(_summariser([]))(**kwargs)
+
+    monkeypatch.setattr("app.services.marking_rules.structured_complete", _counting)
+    await client.put(
+        f"/api/v1/subjects/{subject_id}/marking-rules",
+        json={"rules": RULES},
+        headers=tutor["headers"],
+    )
+    assert await process_one_job() is True
+    async with async_session() as session:
+        await summarise_marking_rules(
+            session, {"subject_id": subject_id, "tutor_id": tutor["user"]["id"]}
+        )
+    assert len(calls) == 1
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+    assert subject.marking_rules_summary is None  # still the full text in the prompt

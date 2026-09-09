@@ -8470,6 +8470,17 @@
           "configured": {
             "type": "boolean",
             "title": "Configured"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
           }
         },
         "type": "object",

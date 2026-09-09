@@ -86,6 +86,30 @@ class Subject(Base):
     # level); nothing reads it before then. Nullable because it is the one
     # onboarding step a tutor may skip (`AV-87`).
     marking_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the marking prompt is actually given (task 3.2c, owner's instruction:
+    # the subject's rules are summarised and the AI uses the summary). The
+    # tutor's full text above stays the thing they own and edit.
+    #
+    # Null is a working state, not a gap: `build_marking_context` falls back to
+    # the full text when this is absent, so the window between a save and the
+    # job finishing is correct rather than one in which the rules silently do
+    # not apply.
+    marking_rules_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SHA-256 of the rules `marking_rules_summary` was built from.
+    #
+    # An earlier revision of this comment claimed clearing the summary on write
+    # made staleness impossible and that no fingerprint was needed. That was
+    # wrong: the job reads the rules, awaits a model call, then writes, so a
+    # save landing inside that gap leaves the older summary committed after it —
+    # and the newer job then sees a non-null summary and returns early, forever
+    # (cubic). This is the compare-and-swap that closes it. The job writes only
+    # if the rules still hash to what it summarised, and skips only if the hash
+    # already matches, so a duplicate delivery is free and a superseded one is
+    # discarded.
+    #
+    # Also set when a summarisation legitimately produces nothing, so that
+    # answer is remembered rather than re-bought on every redelivery.
+    marking_rules_summary_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # No `grade_boundaries` column: task 2.4 (AV-11) made the org-scoped
     # `GradeBoundary` table the only source and migration 0031 dropped this one,

@@ -38,7 +38,7 @@ def test_get_prompt_rejects_an_unknown_surface():
 #: `anthropic_model` — the one line that moves all four at once.
 DEFAULT_MODEL_SURFACES = ("marking", "extraction", "syllabus", "readiness")
 #: The surfaces pinned to an explicit model because they diverge on purpose.
-PINNED_MODEL_SURFACES = ("reports", "class_brief", "narrative")
+PINNED_MODEL_SURFACES = ("reports", "class_brief", "narrative", "marking_rules")
 
 
 def test_no_surface_routes_to_gemini_any_more():

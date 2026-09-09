@@ -100,12 +100,18 @@ async def build_marking_context(session: AsyncSession, sources: MarkingContextSo
         )
 
     # 2. Subject rules — the tutor's standing policy for everything in the
-    #    subject. 3.2c replaces this with a stored summary; the layer and its
-    #    position do not change, only what fills it.
+    #    subject, in whichever form 3.2c left it.
     if sources.subject is not None and sources.subject.marking_rules:
+        # The summary when there is one, the tutor's full text when there is
+        # not (task 3.2c). The fallback is what makes the window between a save
+        # and the summarisation job finishing correct rather than a period in
+        # which the rules silently do not apply — and it is what a permanently
+        # failing summarisation degrades to, at a cost, instead of dropping
+        # them. Never stale: writing the rules clears the summary.
+        rules = sources.subject.marking_rules_summary or sources.subject.marking_rules
         blocks.append(
             f"--- [2] {SUBJECT_RULES_LABEL} (written by the tutor, applies to "
-            f"every piece of work in this subject) ---\n{sources.subject.marking_rules}"
+            f"every piece of work in this subject) ---\n{rules}"
         )
 
     # 4. Exam board and level (AV-24). Numbered [4] on purpose: [3] is the

@@ -2962,6 +2962,8 @@ export interface components {
             rules: string;
             /** Configured */
             configured: boolean;
+            /** Summary */
+            summary?: string | null;
         };
         /** MyAssessmentScore */
         MyAssessmentScore: {
