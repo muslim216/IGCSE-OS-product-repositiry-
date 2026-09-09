@@ -127,7 +127,8 @@ export default function SubmitHomeworkPage() {
                   disabled={submit.isPending || (files.length === 0 && typed.trim() === "")}
                   className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {submit.isPending ? "Uploading…" : "Submit work"}
+                  {/* Channel-neutral: typed-only work uploads nothing (cubic). */}
+                  {submit.isPending ? "Submitting…" : "Submit work"}
                 </button>
               </form>
             </>

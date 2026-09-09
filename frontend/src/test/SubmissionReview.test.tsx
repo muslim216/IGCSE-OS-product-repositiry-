@@ -100,10 +100,14 @@ function stubSubmission(
       if (detail) return json(submissionBody(marks, Number(detail[1]), status, typed));
 
       const saved = route(/^\/api\/v1\/submissions\/(\d+)\/marks$/, "PUT");
-      if (saved) return json(submissionBody(marks, Number(saved[1]), status));
+      // `typed` threaded through here too: in production `save_marks` returns
+      // the whole SubmissionDetail, so a stub that dropped it would make the
+      // typed-answer panel vanish after a save and diverge from real behaviour
+      // (cubic).
+      if (saved) return json(submissionBody(marks, Number(saved[1]), status, typed));
 
       const finalized = route(/^\/api\/v1\/submissions\/(\d+)\/finalize$/, "POST");
-      if (finalized) return json(submissionBody(marks, Number(finalized[1]), "finalized"));
+      if (finalized) return json(submissionBody(marks, Number(finalized[1]), "finalized", typed));
 
       if (route(/^\/api\/v1\/submissions\/\d+\/marks\/\d+\/history$/, "GET")) return json([]);
 

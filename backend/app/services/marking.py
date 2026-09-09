@@ -158,22 +158,25 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
     )
     has_booklet = booklet is not None
     has_mark_scheme = mark_scheme is not None
+    # "the student's answers", not "handwritten answer pages": since task 3.3 a
+    # submission may be typed, photographed or both, and telling the model to
+    # mark handwritten pages that are not there is a contradiction it has to
+    # resolve on its own (cubic).
     if has_booklet:
         intro = (
             "The documents above are: (1) the question booklet, "
             + ("(2) the mark scheme, " if has_mark_scheme else "")
-            + "followed by the student's handwritten answer pages."
+            + "followed by the student's answers."
         )
     elif has_mark_scheme:
         intro = (
-            "The document above is the mark scheme, followed by the student's handwritten "
-            "answer pages. No question booklet is attached — mark from the question list "
-            "below."
+            "The document above is the mark scheme, followed by the student's answers. No "
+            "question booklet is attached — mark from the question list below."
         )
     else:
         intro = (
             "No question booklet is attached to this assignment — mark from the question "
-            "list below and the student's handwritten answer pages above only."
+            "list below and the student's answers above only."
         )
     return _MarkingSource(
         questions=questions,
@@ -245,13 +248,13 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         numbered = ", ".join(f"({n + 1}) {name}" for n, name in enumerate(attached))
         intro = (
             f"The documents above are {paper.session_label} {paper.paper_number}: "
-            f"{numbered}, followed by the student's handwritten answer pages."
+            f"{numbered}, followed by the student's answers."
         )
     else:
         intro = (
             f"Neither the question paper nor the mark scheme for {paper.session_label} "
             f"{paper.paper_number} is attached — mark from the question list below and "
-            "the student's handwritten answer pages above only."
+            "the student's answers above only."
         )
     return _MarkingSource(
         questions=questions,

@@ -6857,8 +6857,7 @@
           "typed_answer": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 20000
+                "type": "string"
               },
               {
                 "type": "null"

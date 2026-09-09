@@ -5,7 +5,14 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, assert_tutor
+from app.api.deps import (
+    CurrentUser,
+    DbSession,
+    StudentUser,
+    TutorUser,
+    assert_tutor,
+    form_typed_answer,
+)
 from app.api.file_responses import FILE_RESPONSES, proxied_file
 from app.models import (
     SETTLED_STATUSES,
@@ -27,7 +34,6 @@ from app.models import (
     UserRole,
 )
 from app.schemas.homework import (
-    MAX_TYPED_ANSWER,
     MarkHistoryEntry,
     MarkRow,
     MarkUpdate,
@@ -112,7 +118,7 @@ async def submit_work(
     db: DbSession,
     user: StudentUser,
     files: Annotated[list[UploadFile] | None, File()] = None,
-    typed_answer: Annotated[str | None, Form(max_length=MAX_TYPED_ANSWER)] = None,
+    typed_answer: Annotated[str | None, Form()] = None,
 ) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None or assignment.status != AssignmentStatus.published:
@@ -126,7 +132,7 @@ async def submit_work(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     # Either channel, or both: a student may type most of an answer and
     # photograph the working (AV-73). Neither is not a submission.
-    typed = (typed_answer or "").strip() or None
+    typed = form_typed_answer(typed_answer)
     if not files and typed is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

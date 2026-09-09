@@ -242,12 +242,14 @@ async def group(client, tutor, subject):
         json={"name": "Chem Y10", "subject_id": subject["id"]},
         headers=tutor["headers"],
     )
+    assert resp.status_code == 201, resp.text
     return resp.json()
 
 
 @pytest.fixture
 async def student(client, tutor, group):
     invite = await client.post(f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"])
+    assert invite.status_code == 201, invite.text
     resp = await client.post(
         "/api/v1/auth/register/student",
         json={
@@ -257,6 +259,10 @@ async def student(client, tutor, group):
             "password": "password123",
         },
     )
+    # Asserted, like its siblings below: a setup step that fails silently here
+    # surfaces as a KeyError three frames away in whichever test happened to
+    # use it (cubic).
+    assert resp.status_code == 201, resp.text
     data = resp.json()
     return {
         "user": data["user"],

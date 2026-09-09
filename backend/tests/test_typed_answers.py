@@ -231,6 +231,23 @@ async def test_a_typed_answer_longer_than_the_cap_is_refused(client, typed_setup
     assert resp.status_code == 422
 
 
+async def test_the_cap_is_measured_after_trimming(client, typed_setup):
+    """`Form(max_length=...)` measures the raw value, so a full-length answer
+    with a trailing newline was a 422 for text that would store fine — the same
+    bug the classified notes had, repeated (cubic). Trimming only shortens, so
+    the cap still cannot be slipped past."""
+    resp = await client.post(
+        f"/api/v1/assignments/{typed_setup['aid']}/submissions",
+        data={"typed_answer": "x" * MAX_TYPED_ANSWER + "\n  "},
+        headers=typed_setup["student"]["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+
+    async with async_session() as session:
+        stored = (await session.scalars(select(Submission))).one()
+    assert stored.typed_answer == "x" * MAX_TYPED_ANSWER
+
+
 async def test_the_student_sees_no_marks_until_the_tutor_signs_off(client, typed_setup):
     """`AV-92`: no feedback while a student is still working. There is no
     in-progress feedback surface and none may be built — a student who could
