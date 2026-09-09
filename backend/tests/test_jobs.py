@@ -17,16 +17,8 @@ from app.models import (
 )
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.workers.jobs import enqueue, process_one_job
-from tests.test_homework import (  # noqa: F401 - shared fixtures
-    PNG_BYTES,
-    classified,
-    fake_extraction,
-    fake_marking,
-    group,
-    published_assignment,
-    student,
-    subject,
-)
+from tests.conftest import PNG_BYTES, fake_extraction
+from tests.test_homework import fake_marking  # noqa: F401 - shared fixtures
 
 
 async def test_a_future_dated_job_is_not_claimed_until_it_is_due(client):

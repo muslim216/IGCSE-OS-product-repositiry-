@@ -13,7 +13,6 @@ from app.db import async_session
 from app.models import User, UserRole
 from app.services.subjects import visible_subject_ids
 from tests.factories import make_subject, org_id, subject_for_tutor
-from tests.test_homework import group, subject  # noqa: F401 - shared fixtures
 
 
 async def _rival(client, email: str = "rival@example.com"):

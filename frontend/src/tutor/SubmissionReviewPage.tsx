@@ -268,6 +268,26 @@ export default function SubmissionReviewPage() {
 
         {/* Right: AI reading + tutor's editable marks, question by question */}
         <div className="space-y-3">
+          {s.typed_answer && (
+            <section className="rounded-lg border border-line bg-surface p-3">
+              {s.typed_answer.flag_reason && (
+                // AV-93's scan fired. Every mark here is waiting on the tutor
+                // regardless of how confident the AI was, so say why — a queue
+                // with no explanation trains people to clear it.
+                <p className="mb-2 rounded border border-warn-700 bg-warn-100 p-2 text-sm text-ink-900">
+                  <span className="font-medium">
+                    This typed answer contains text addressed to the marker.
+                  </span>{" "}
+                  Nothing here was marked automatically. Matched: {s.typed_answer.flag_reason}
+                </p>
+              )}
+              <h3 className="text-sm font-medium text-ink-700">What the student typed</h3>
+              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-sm text-ink-700">
+                {s.typed_answer.text}
+              </pre>
+            </section>
+          )}
+
           <h3 className="text-sm font-medium text-ink-700">
             {reviewCount > 0
               ? `${reviewCount} of ${s.marks.length} marks need your decision`

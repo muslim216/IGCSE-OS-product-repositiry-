@@ -23,11 +23,6 @@ from fastapi.routing import APIRoute
 
 from app.api.deps import get_current_user, require_student, require_tutor
 from app.main import app
-from tests.test_homework import (  # noqa: F401 - shared fixtures
-    group,
-    student,
-    subject,
-)
 
 #: Everything reachable without a token. Registration and login cannot require
 #: one, refresh carries its own httpOnly cookie instead, the invite lookup is

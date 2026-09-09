@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import AiFeature, AiUsageEvent, Chapter, Topic
 from app.workers.jobs import process_one_job
+from tests.conftest import fake_extraction
 from tests.factories import subject_defaults
 
 PDF_BYTES = b"%PDF-1.4 fake test syllabus pdf"

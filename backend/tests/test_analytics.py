@@ -10,14 +10,6 @@ from datetime import datetime, timezone
 
 from app.db import async_session
 from app.models import QuestionMark, Submission, SubmissionStatus
-from tests.test_homework import (  # noqa: F401 - shared fixtures
-    classified,
-    fake_extraction,
-    group,
-    published_assignment,
-    student,
-    subject,
-)
 
 
 async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(

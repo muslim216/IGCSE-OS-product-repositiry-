@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -27,6 +27,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.homework import (
+    MAX_TYPED_ANSWER,
     MarkHistoryEntry,
     MarkRow,
     MarkUpdate,
@@ -39,9 +40,11 @@ from app.schemas.homework import (
     SubmissionDetail,
     SubmissionFileOut,
     SubmissionSummary,
+    TypedAnswerOut,
 )
 from app.services import storage
 from app.services.groups import review_queue_predicate
+from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
 from app.workers.jobs import enqueue
 
@@ -108,7 +111,8 @@ async def submit_work(
     assignment_id: int,
     db: DbSession,
     user: StudentUser,
-    files: Annotated[list[UploadFile], File()],
+    files: Annotated[list[UploadFile] | None, File()] = None,
+    typed_answer: Annotated[str | None, Form(max_length=MAX_TYPED_ANSWER)] = None,
 ) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None or assignment.status != AssignmentStatus.published:
@@ -120,8 +124,14 @@ async def submit_work(
     )
     if member is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
-    if not files:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
+    # Either channel, or both: a student may type most of an answer and
+    # photograph the working (AV-73). Neither is not a submission.
+    typed = (typed_answer or "").strip() or None
+    if not files and typed is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Add your answers — upload a photo or type them in",
+        )
 
     submission = await db.scalar(
         select(Submission)
@@ -147,7 +157,16 @@ async def submit_work(
         submission.submitted_at = datetime.now(timezone.utc)
         await db.flush()
 
-    for position, upload in enumerate(files):
+    # Replaced, never merged with what a previous attempt typed — the same rule
+    # the files above follow. A resubmission is the whole answer again.
+    submission.typed_answer = typed
+    # The deterministic scan (AV-93), run here rather than in the handler: it is
+    # a pure function over text that is already in hand, and running it at the
+    # point of submission means the verdict is stored before anything is queued,
+    # so a marking run cannot start against an unscanned answer.
+    submission.typed_flag_reason = scan_typed_answer(typed).reason
+
+    for position, upload in enumerate(files or []):
         path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
         db.add(
             SubmissionFile(
@@ -585,6 +604,11 @@ async def submission_detail(
         ai_error=submission.ai_error,
         submitted_at=submission.submitted_at,
         files=[SubmissionFileOut.model_validate(f) for f in submission.files],
+        typed_answer=(
+            TypedAnswerOut(text=submission.typed_answer, flag_reason=submission.typed_flag_reason)
+            if submission.typed_answer
+            else None
+        ),
         marks=await _mark_rows(db, submission),
     )
 

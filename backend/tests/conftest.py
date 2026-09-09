@@ -28,9 +28,11 @@ from httpx import ASGITransport, AsyncClient
 from app.config import get_settings
 from app.db import engine
 from app.main import app
-from app.models import Base
+from app.models import AssignmentQuestion, Base, QuestionTopic, Topic
 from app.services import storage
 from app.services.ai import AiProvider, AiResponse
+from app.workers.jobs import process_one_job
+from tests.factories import subject_defaults
 
 #: Whether this run is against the disposable in-memory SQLite. Guards the
 #: destructive schema teardown in `_db_schema`, which must never drop tables in
@@ -196,3 +198,134 @@ async def tutor(client):
         # Not in the JSON body (SEC-2) — only ever available from the cookie.
         "refresh_token": resp.cookies.get("igcse_refresh"),
     }
+
+
+# ---------------------------------------------------------------------------
+# The homework pipeline's fixture chain.
+#
+# Shared here rather than in one test module, on the same reasoning as `fake_ai`
+# above: three files now build a published assignment to submit against
+# (test_homework.py, test_typed_answers.py, and the marking tests), and a copy
+# per file is how they stop agreeing about what "a published assignment" is.
+# ---------------------------------------------------------------------------
+
+PDF_BYTES = b"%PDF-1.4 fake test pdf"
+PNG_BYTES = b"\x89PNG\r\n\x1a\n fake test png"
+
+
+@pytest.fixture
+async def subject(client, tutor):
+    from app.db import async_session
+    from app.models import Subject
+
+    async with async_session() as session:
+        s = Subject(
+            **await subject_defaults(session),
+            exam_board="Edexcel IGCSE",
+            code="4CH1",
+            name="Chemistry",
+            grade_scale="9-1",
+        )
+        session.add(s)
+        await session.flush()
+        t1 = Topic(subject_id=s.id, code="1.3", title="Atomic structure")
+        t2 = Topic(subject_id=s.id, code="1.6", title="Ionic bonding")
+        session.add_all([t1, t2])
+        await session.commit()
+        return {"id": s.id, "topic1": t1.id, "topic2": t2.id}
+
+
+@pytest.fixture
+async def group(client, tutor, subject):
+    resp = await client.post(
+        "/api/v1/groups",
+        json={"name": "Chem Y10", "subject_id": subject["id"]},
+        headers=tutor["headers"],
+    )
+    return resp.json()
+
+
+@pytest.fixture
+async def student(client, tutor, group):
+    invite = await client.post(f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"])
+    resp = await client.post(
+        "/api/v1/auth/register/student",
+        json={
+            "invite_code": invite.json()["code"],
+            "name": "Sara",
+            "email": "sara@example.com",
+            "password": "password123",
+        },
+    )
+    data = resp.json()
+    return {
+        "user": data["user"],
+        "headers": {"Authorization": f"Bearer {data['tokens']['access_token']}"},
+    }
+
+
+@pytest.fixture
+async def classified(client, tutor, subject):
+    resp = await client.post(
+        "/api/v1/classifieds",
+        data={"title": "Atomic structure classified", "subject_id": str(subject["id"])},
+        files={
+            "file": ("classified.pdf", PDF_BYTES, "application/pdf"),
+            "mark_scheme": ("ms.pdf", PDF_BYTES, "application/pdf"),
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def fake_extraction(subject):
+    async def _fake(session, assignment):
+        q1 = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=0,
+            number="1",
+            text_summary="Define an isotope",
+            max_marks=2,
+            has_mark_scheme=True,
+        )
+        q2 = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=1,
+            number="2",
+            text_summary="Explain ionic bonding in NaCl",
+            max_marks=4,
+            has_mark_scheme=False,
+        )
+        session.add_all([q1, q2])
+        await session.flush()
+        session.add(QuestionTopic(question_id=q1.id, topic_id=subject["topic1"]))
+        session.add(QuestionTopic(question_id=q2.id, topic_id=subject["topic2"]))
+
+    return _fake
+
+
+@pytest.fixture
+async def published_assignment(client, tutor, group, classified, subject, monkeypatch):
+    monkeypatch.setattr("app.services.extraction._run_extraction", fake_extraction(subject))
+    resp = await client.post(
+        "/api/v1/assignments",
+        json={
+            "group_id": group["id"],
+            "classified_id": classified["id"],
+            "title": "HW1 — Atomic structure",
+            "question_range": "Q1-2",
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assignment = resp.json()
+    assert assignment["status"] == "extracting"
+    assert await process_one_job() is True
+
+    # Successful extraction publishes automatically — students aren't blocked
+    # on the tutor coming back for a second pass.
+    detail = await client.get(f"/api/v1/assignments/{assignment['id']}", headers=tutor["headers"])
+    assert detail.json()["status"] == "published"
+    assert len(detail.json()["questions"]) == 2
+    return detail.json()

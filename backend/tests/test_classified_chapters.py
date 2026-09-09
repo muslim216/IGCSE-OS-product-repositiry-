@@ -455,4 +455,4 @@ def test_the_marking_prompt_moved_when_it_started_reading_them():
     which the mark scheme was absolute."""
     from app.services import prompts
 
-    assert prompts.PROMPTS["marking"].version == "v4"
+    assert prompts.PROMPTS["marking"].version == "v5"

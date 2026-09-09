@@ -1,7 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { mySubmission, requestRemark, submitWork, type StudentMarkRow } from "../api/homework";
+import {
+  MAX_TYPED_ANSWER,
+  mySubmission,
+  requestRemark,
+  submitWork,
+  type StudentMarkRow,
+} from "../api/homework";
 import { ApiError } from "../api/client";
 
 export default function SubmitHomeworkPage() {
@@ -16,12 +22,14 @@ export default function SubmitHomeworkPage() {
   });
 
   const [files, setFiles] = useState<File[]>([]);
+  const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const submit = useMutation({
-    mutationFn: () => submitWork(id, files),
+    mutationFn: () => submitWork(id, files, typed),
     onSuccess: () => {
       setFiles([]);
+      setTyped("");
       queryClient.invalidateQueries({ queryKey: ["my-submission", id] });
       queryClient.invalidateQueries({ queryKey: ["my-assignments"] });
     },
@@ -31,7 +39,8 @@ export default function SubmitHomeworkPage() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (files.length) submit.mutate();
+    // Either channel, or both (AV-73) — the server enforces the same rule.
+    if (files.length || typed.trim()) submit.mutate();
   }
 
   if (view.isLoading) return <p className="text-slate-500">Loading…</p>;
@@ -77,8 +86,8 @@ export default function SubmitHomeworkPage() {
                 </div>
               )}
               <p className="mt-2 text-sm text-slate-500">
-                Take clear photos or a scan of your handwritten answers (JPG, PNG or PDF). Upload
-                every page in order.
+                Take clear photos or a scan of your handwritten answers (JPG, PNG or PDF), upload
+                every page in order — or type your answers below. You can do both.
               </p>
               <form onSubmit={onSubmit} className="mt-4 space-y-3">
                 <input
@@ -93,10 +102,29 @@ export default function SubmitHomeworkPage() {
                     {files.length} file{files.length === 1 ? "" : "s"} selected
                   </p>
                 )}
+                <label className="block text-sm">
+                  <span className="mb-1 block text-slate-600">Or type your answers</span>
+                  <textarea
+                    rows={10}
+                    maxLength={MAX_TYPED_ANSWER}
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
+                    placeholder={"1. ...\n2. ..."}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </label>
+                {/* AV-92: marks and feedback appear only after the tutor signs
+                    off, and there is deliberately no in-progress feedback here.
+                    Saying so is better than a student wondering whether typing
+                    more will show them something. */}
+                <p className="text-xs text-slate-500">
+                  You'll see your marks once your tutor has finished — nothing is shown while you're
+                  still working.
+                </p>
                 {error && <p className="text-sm text-red-600">{error}</p>}
                 <button
                   type="submit"
-                  disabled={submit.isPending || files.length === 0}
+                  disabled={submit.isPending || (files.length === 0 && typed.trim() === "")}
                   className="rounded-md bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {submit.isPending ? "Uploading…" : "Submit work"}

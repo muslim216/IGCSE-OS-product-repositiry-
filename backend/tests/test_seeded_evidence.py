@@ -15,11 +15,6 @@ import pytest
 from app.models import EvidenceSource
 from app.services.readiness import SOURCE_WEIGHTS, EvidencePoint, compute_topic
 from tests.factories import subject_defaults
-from tests.test_homework import (  # noqa: F401 - shared fixtures
-    group,
-    student,
-    subject,
-)
 
 NOW = datetime(2026, 6, 15, tzinfo=timezone.utc)
 

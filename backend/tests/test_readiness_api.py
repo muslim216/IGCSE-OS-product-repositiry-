@@ -12,6 +12,7 @@ from app.models import (
 )
 from app.services.grade_boundaries import set_org_boundaries
 from app.workers.jobs import process_one_job
+from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import subject_defaults
 
 
@@ -119,7 +120,7 @@ async def test_mock_entry_produces_readiness_and_grade(client, tutor, world):
 
 async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypatch):
     from app.models import AssignmentQuestion, QuestionTopic
-    from tests.test_homework import PDF_BYTES, PNG_BYTES, fake_marking
+    from tests.test_homework import fake_marking  # noqa: F401 - shared fixtures
 
     # Build a published assignment via a fake extraction tied to this subject.
     async def fake_extraction(session, assignment):

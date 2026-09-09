@@ -203,6 +203,20 @@ class Submission(TimestampMixin, Base):
         nullable=False,
     )
     ai_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The student's answers as text rather than photographed pages (AV-73, task
+    # 3.3). Both may be present: a student can type most of it and photograph
+    # the working. Untrusted input to the marking prompt exactly as page content
+    # is — more so, because typed text is perfect-fidelity and unbounded in a
+    # way handwriting is not.
+    typed_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the deterministic pre-marking scan found (AV-93, services/
+    # injection_scan.py). Null means the scan found nothing — *or* that there
+    # was no typed answer to scan; `typed_answer` is what tells those apart.
+    #
+    # A hit sets needs_review on every mark in the submission and the AI's
+    # confidence is not consulted, so the cheapest attacks cost a tutor's glance
+    # rather than a mark that counts.
+    typed_flag_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
