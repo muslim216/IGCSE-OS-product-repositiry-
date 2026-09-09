@@ -35,6 +35,7 @@ from app.models import (
     PastPaperAttempt,
     PastPaperQuestion,
     QuestionMark,
+    Subject,
     Submission,
     SubmissionStatus,
 )
@@ -42,6 +43,7 @@ from app.services import storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
+from app.services.marking_context import MarkingContextSources, build_marking_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.workers.jobs import enqueue
@@ -63,6 +65,14 @@ class QuestionMarkDraft(BaseModel):
     confidence: Literal["high", "medium", "low", "unsure"] = Field(
         description="Marking confidence; 'unsure' whenever no official mark scheme covers "
         "the question, regardless of how clear the answer is"
+    )
+    scheme_conflict: str | None = Field(
+        default=None,
+        description=(
+            "One sentence naming what the official mark scheme required and which tutor "
+            "rule was followed instead, whenever a tutor rule changed this mark away from "
+            "what the scheme alone would give. Null when no tutor rule changed the mark."
+        ),
     )
 
 
@@ -100,6 +110,11 @@ class _MarkingSource:
     tutor_id: int
     subject_id: int
     is_past_paper: bool
+    # AV-76's layers. `subject` carries the tutor's marking rules and the exam
+    # board and level (AV-24); `classified` carries the chapter notes and is
+    # None for a past paper, which is not a booklet a tutor annotated.
+    subject: Subject | None
+    classified: Classified | None
 
 
 async def _homework_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
@@ -169,6 +184,8 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         tutor_id=group.tutor_id,
         subject_id=group.subject_id,
         is_past_paper=False,
+        subject=await session.get(Subject, group.subject_id),
+        classified=classified,
     )
 
 
@@ -245,6 +262,10 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         tutor_id=paper.tutor_id,
         subject_id=paper.subject_id,
         is_past_paper=True,
+        subject=await session.get(Subject, paper.subject_id),
+        # A past paper is the board's own document, not a booklet the tutor
+        # compiled and annotated, so there are no chapter notes to apply.
+        classified=None,
     )
 
 
@@ -327,13 +348,21 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     )
 
     kb_context = await build_tutor_context(session, source.tutor_id, source.subject_id)
+    # AV-76's layers, assembled in exactly one place (E16). Cached with the
+    # knowledge base below: both are per-tutor/per-subject, so marking a class
+    # against the same booklet reuses the prefix rather than re-sending it per
+    # student.
+    marking_context = await build_marking_context(
+        session,
+        MarkingContextSources(subject=source.subject, classified=source.classified),
+    )
 
     response = await structured_complete(
         surface="marking",
         content=content,
         output_format=MarkingResult,
         max_tokens=32000,
-        extra_system=[kb_context] if kb_context else [],
+        extra_system=[block for block in (marking_context, kb_context) if block],
         cache_extra_system=True,
     )
     await record_usage(
@@ -367,6 +396,9 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             mark.ai_transcription = "The AI did not return a result for this question."
             mark.ai_marks = None
             mark.ai_confidence = MarkConfidence.unsure
+            # No draft means no departure to report, and a stale one from a
+            # previous run would be attached to a mark that no longer exists.
+            mark.scheme_conflict = None
         else:
             mark.ai_transcription = draft.transcription
             mark.ai_feedback = draft.feedback
@@ -377,6 +409,10 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
                 if draft.proposed_marks is not None
                 else None
             )
+            # Whitespace-only is no report at all, and a re-mark replaces it
+            # rather than accumulating (BE-6): a mark drafted again after the
+            # tutor edited their rules must not still carry the old departure.
+            mark.scheme_conflict = (draft.scheme_conflict or "").strip() or None
 
         confident = mark.ai_confidence in AUTO_FINALIZE_CONFIDENCE
         if scheme_backed(q) and confident and mark.ai_marks is not None:

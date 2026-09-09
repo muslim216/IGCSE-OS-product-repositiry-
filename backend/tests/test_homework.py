@@ -1,6 +1,8 @@
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
+from app.db import async_session
 from app.models import (
     Assignment,
     AssignmentQuestion,
@@ -8,9 +10,11 @@ from app.models import (
     MarkConfidence,
     QuestionMark,
     QuestionTopic,
+    Submission,
     SubmissionFile,
     Topic,
 )
+from app.services.marking import _run_marking
 from app.workers.jobs import process_one_job
 from tests.factories import subject_defaults
 
@@ -466,6 +470,159 @@ async def test_resubmission_resets_marking(
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
     assert len(subs.json()) == 1
     assert subs.json()[0]["status"] == "submitted"
+
+
+async def test_a_tutor_rule_that_overrode_the_scheme_is_recorded_and_still_counts(
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
+):
+    """Task 3.2, AV-76 as the owner revised it on 9 Sep 2026.
+
+    Two halves, and the second is the one that could quietly not happen: the
+    tutor's rule wins **and the contradiction is recorded**. A mark that
+    departed from the scheme still auto-finalizes — the tutor's rule is the
+    authority, so nothing waits for a human — which means the record is the
+    only signal a tutor ever gets that their rule is overruling the board.
+    """
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    conflict = "The scheme awarded no marks without the final answer; the tutor's rule awards method marks."
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete",
+        fake_ai(
+            MarkingResult(
+                questions=[
+                    QuestionMarkDraft(
+                        number="1",
+                        transcription="Isotopes differ in neutrons.",
+                        proposed_marks=2,
+                        feedback="Method was right throughout.",
+                        confidence="high",
+                        scheme_conflict=conflict,
+                    ),
+                ]
+            )
+        ),
+    )
+
+    aid = published_assignment["id"]
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    sid = subs.json()[0]["id"]
+    detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    q1 = next(m for m in detail.json()["marks"] if m["number"] == "1")
+
+    assert q1["scheme_conflict"] == conflict
+    # Still counted: the departure does not send it to the review queue.
+    assert q1["auto_finalized"] is True
+    assert q1["needs_review"] is False
+    assert q1["final_marks"] == 2
+
+
+async def test_the_student_is_never_told_their_mark_departed_from_the_scheme(
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
+):
+    """ "Your tutor's rule got you a mark the exam board would not have" is not a
+    thing to tell a student. `MarkRow` carries it and is tutor-gated;
+    `StudentMarkRow` is a different schema and deliberately does not."""
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete",
+        fake_ai(
+            MarkingResult(
+                questions=[
+                    QuestionMarkDraft(
+                        number="1",
+                        transcription="Isotopes differ in neutrons.",
+                        proposed_marks=2,
+                        feedback="Good.",
+                        confidence="high",
+                        scheme_conflict="The scheme said 0; the tutor's rule said 2.",
+                    ),
+                ]
+            )
+        ),
+    )
+
+    aid = published_assignment["id"]
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    # Prove the value exists before asserting the student cannot see it —
+    # otherwise this passes just as happily against code that never recorded one.
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    sid = subs.json()[0]["id"]
+    theirs = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    assert "The scheme said 0; the tutor's rule said 2." in theirs.text
+
+    mine = await client.get(f"/api/v1/assignments/{aid}/my-submission", headers=student["headers"])
+    assert mine.status_code == 200, mine.text
+    assert "scheme_conflict" not in mine.text
+    assert "tutor's rule" not in mine.text
+
+
+async def test_a_re_mark_replaces_a_stale_conflict_rather_than_keeping_it(
+    client, tutor, student, published_assignment, monkeypatch, fake_ai
+):
+    """BE-6: handlers are re-run on the same payload. A mark drafted again after
+    the tutor edited their rules must not still carry the departure the old
+    rules caused."""
+    from app.services.marking import MarkingResult, QuestionMarkDraft
+
+    def _result(conflict):
+        return MarkingResult(
+            questions=[
+                QuestionMarkDraft(
+                    number="1",
+                    transcription="Isotopes differ in neutrons.",
+                    proposed_marks=1,
+                    feedback="ok",
+                    confidence="low",  # low, so nothing finalizes and a re-mark can land
+                    scheme_conflict=conflict,
+                ),
+            ]
+        )
+
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete", fake_ai(_result("An old departure."))
+    )
+    aid = published_assignment["id"]
+    await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert await process_one_job() is True
+
+    subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
+    sid = subs.json()[0]["id"]
+    # The stale value has to actually be there, or "it is gone afterwards"
+    # passes against code that never recorded one in the first place.
+    first = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    assert (
+        next(m for m in first.json()["marks"] if m["number"] == "1")["scheme_conflict"]
+        == "An old departure."
+    )
+
+    async with async_session() as session:
+        submission = await session.get(Submission, sid, options=[selectinload(Submission.files)])
+        monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_result(None)))
+        await _run_marking(session, submission)
+        await session.commit()
+
+    detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
+    q1 = next(m for m in detail.json()["marks"] if m["number"] == "1")
+    assert q1["scheme_conflict"] is None
 
 
 async def test_ai_marking_clamps_marks_and_enforces_mark_scheme_rule(

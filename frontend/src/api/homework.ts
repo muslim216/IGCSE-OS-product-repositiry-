@@ -94,6 +94,12 @@ export interface MarkRow {
   final_marks: number | null;
   final_feedback: string | null;
   overridden: boolean;
+  /** Where a tutor rule changed this mark away from what the official mark
+      scheme alone would give — what the scheme required, and which rule was
+      followed instead (task 3.2, `AV-76` as the owner revised it). Null is the
+      ordinary case. Tutor-only: `StudentMarkRow` deliberately has no such
+      field. */
+  scheme_conflict: string | null;
   /** Why this row is (or isn't) waiting on the tutor. */
   needs_review: boolean;
   auto_finalized: boolean;

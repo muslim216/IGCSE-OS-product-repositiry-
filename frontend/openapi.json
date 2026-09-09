@@ -8348,6 +8348,17 @@
             "type": "boolean",
             "title": "Overridden"
           },
+          "scheme_conflict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme Conflict"
+          },
           "needs_review": {
             "type": "boolean",
             "title": "Needs Review",

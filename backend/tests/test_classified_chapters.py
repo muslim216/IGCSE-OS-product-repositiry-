@@ -400,48 +400,44 @@ async def test_setting_homework_refuses_a_chapter_from_another_subject(client, t
         assert (await session.scalars(select(Classified))).all() == []
 
 
-# Modules that legitimately touch a `notes` attribute today: the two ends of
-# this task's own write path, and the tutor-notes feature, which has its own
-# unrelated `notes` and predates all of this.
-NOTES_READERS_ALLOWED = {"assignments.py", "student_crm.py"}
+def test_the_marking_context_is_the_only_thing_that_reads_a_booklet_s_notes():
+    """Task 3.1 shipped a guard asserting *nothing* read these — `E16` says the
+    marking context is assembled in exactly one function, so this is that guard
+    turned round now that 3.2 has built it.
 
-
-def test_nothing_reads_a_booklet_s_notes_yet():
-    """Task 3.2's assembler (E16) is the single function that will read these,
-    under AV-76's precedence. Until then nothing does, and this is what fails
-    when something starts.
-
-    Asserting on the *code that reads the field*, not on the prompt template.
-    The obvious guard — "chapter_notes" is not a substring of `prompts.MARKING`
-    — fails open, because 3.2 injects the notes at request time from a service
-    rather than by editing the template, so it would still pass on the very
-    change it claims to catch (cubic).
-
-    Deliberately broad: any `.notes` or `notes=` anywhere under `services/` or
-    `workers/` trips it, wherever the assembler ends up living. A new and
-    unrelated `notes` trips it too — that is the cost of a sentinel that cannot
-    be walked around, and the fix is to read this docstring and extend the
-    allowlist on purpose.
+    Still exhaustive by subtraction: any `.notes` or `notes=` under `services/`
+    or `workers/` outside the allowlist trips it, so a second reader appearing
+    somewhere else fails rather than quietly becoming a second source of
+    precedence — which is the whole thing `E16` exists to prevent.
     """
     import ast
 
     app = Path(__file__).resolve().parents[1] / "app"
+    #: `assignments.py` writes the field, `student_crm.py` has its own unrelated
+    #: `notes`, and `marking_context.py` is the one function allowed to read a
+    #: booklet's (`E16`).
+    allowed = {"assignments.py", "student_crm.py", "marking_context.py"}
     found: list[str] = []
     for path in sorted([*(app / "services").rglob("*.py"), *(app / "workers").rglob("*.py")]):
-        if path.name in NOTES_READERS_ALLOWED:
+        if path.name in allowed:
             continue
         for node in ast.walk(ast.parse(path.read_text())):
             if (isinstance(node, ast.Attribute) and node.attr == "notes") or (
                 isinstance(node, ast.keyword) and node.arg == "notes"
             ):
                 found.append(f"{path.name}:{node.lineno}")
-    assert found == [], f"something now reads a booklet's notes: {found}"
+    assert found == [], (
+        f"{found} now read a booklet's notes outside the marking-context assembler. "
+        "Precedence spread across call sites is precedence that drifts (E16) — route "
+        "it through build_marking_context, or extend the allowlist deliberately."
+    )
 
 
-def test_the_marking_prompt_has_not_moved_underneath_that_guard():
-    """The version pin is the second half of it. `AI-7` requires a bump whenever
-    the prompt text changes meaningfully, so 3.2 cannot add the notes to the
-    marking prompt without touching this line too."""
+def test_the_marking_prompt_moved_when_it_started_reading_them():
+    """The other half. Task 3.1 pinned v3 to catch the notes reaching the prompt
+    without `AI-7`'s version bump; 3.2 made that change, so the pin moves with
+    it rather than being deleted — a deployment still on v3 marks by the rule in
+    which the mark scheme was absolute."""
     from app.services import prompts
 
-    assert prompts.PROMPTS["marking"].version == "v3"
+    assert prompts.PROMPTS["marking"].version == "v4"
