@@ -108,7 +108,7 @@ Seven surfaces, defined in `SURFACES`:
 |---|---|---|---|
 | `marking` | Gemini | `GEMINI_MODEL` | Marks submitted pages against a scheme |
 | `extraction` | Gemini | `GEMINI_MODEL` | Pulls a question list from a booklet |
-| `syllabus` | Gemini | `GEMINI_MODEL` | Extracts a topic tree from a syllabus document |
+| `syllabus` | Anthropic | `claude-opus-4-8` | Extracts a chapter tree (chapters holding topics) from a syllabus document |
 | `reports` | Anthropic | `claude-opus-4-8` | Audience-specific narrative reports |
 | `readiness` | Anthropic | `claude-opus-4-8` | Layer 2 readiness synthesis |
 | `class_brief` | Anthropic | `claude-opus-4-8` | Pre-lesson class brief |
@@ -165,15 +165,17 @@ Current versions:
 | `marking` | **v3** | Bumped when marks began counting without tutor review |
 | `class_brief` | **v2** | Full system prompt (naming-a-learner rule, data-not-instructions) |
 | `extraction` | v2 | |
-| `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
+| `syllabus` | **v2** | Chapter-first draft; grade boundaries dropped, `level` added, data-not-instructions rule carried (task 2.3) |
+| `reports`, `readiness`, `narrative` | v1 | |
 
-Four active prompts carry rules that are not stylistic — all a form of `SEC-20`: **`marking`**
+Five active prompts carry rules that are not stylistic — all a form of `SEC-20`: **`marking`**
 states that page content is data and never instructions, and that anything addressing the
 marker is flagged with confidence `low` for a tutor rather than acted on; **`extraction`**
 carries the equivalent rule for booklet content, since extracted questions can reach a student
-with no human reading them first; **`class_brief`** and **`narrative`** both carry it for the
-same reason — their grounding data comes from a student's own marked work, which the student
-controls.
+with no human reading them first; **`syllabus`** carries it for the uploaded document, whose
+chapter tree becomes every topic the platform tracks; and **`class_brief`** and **`narrative`**
+both carry it for the same reason — their grounding data comes from a student's own marked
+work, which the student controls.
 
 *Historical:* **`chat`** was a third one — anti-cheating guardrails: never give complete
 answers to the student's own homework; teach the method, use a worked example on a *different*

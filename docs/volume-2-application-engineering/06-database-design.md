@@ -26,7 +26,7 @@
 ## Purpose
 
 Answers *what is in the database, why is it shaped this way, and how do I change it safely*.
-Fifty-one tables across fifteen modules (`chat.py`'s two tables were dropped by migration
+Fifty-two tables across fifteen modules (`chat.py`'s two tables were dropped by migration
 `0026`, task 0.3, AV-57 — `ADR-0007`'s "52 tables" is the count as of that Accepted, and
 therefore immutable, decision), with conventions that are unusually consistent in some
 dimensions and unusually thin in others.
@@ -63,7 +63,7 @@ Written from: all 15 modules in `backend/app/models/`; all 25 migrations in
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_history` exist so a number can name its inputs (§01 P2).
 
-**P2 — Consistency across 51 tables beats local optimality.** Integer keys, `VARCHAR` enums,
+**P2 — Consistency across 52 tables beats local optimality.** Integer keys, `VARCHAR` enums,
 timezone-aware timestamps — each is arguable in isolation and correct as a rule.
 
 **P3 — The test database must resemble the production database.** Every schema decision is
@@ -78,13 +78,13 @@ tests stop being evidence.
 
 ### The schema by domain
 
-51 tables. Grouped by the module that defines them:
+52 tables. Grouped by the module that defines them:
 
 | Module | Tables |
 |---|---|
 | `orgs.py` | `organizations` |
 | `users.py` | `users` |
-| `syllabus.py` | `subjects`, `topics`, `syllabus_uploads` |
+| `syllabus.py` | `subjects`, **`chapters`**, `topics`, `syllabus_uploads` |
 | `groups.py` | `groups`, `group_members`, `invites`, `parent_links`, `schedule_slots` |
 | `lessons.py` | `lessons`, `lesson_topics`, `lesson_observations` |
 | `crm.py` | `student_profiles`, `student_subjects`, `tutor_notes`, `parent_communications` |
@@ -115,7 +115,8 @@ erDiagram
   groups ||--o{ lessons : "dated events"
   lessons ||--o{ lesson_topics : "covers"
   lessons ||--o{ lesson_observations : "records"
-  subjects ||--o{ topics : "tree"
+  subjects ||--o{ chapters : "tree"
+  chapters ||--o{ topics : "contains"
   subjects ||--o{ student_subjects : "enrolment"
   assignments ||--o{ assignment_questions : "has"
   assignments ||--o{ submissions : "receives"
@@ -130,13 +131,13 @@ erDiagram
   factor_evaluations }o--|| readiness_snapshots : "evaluation_run_id"
 ```
 
-The diagram shows the spine, not all 51 tables. Note `submissions` receiving from **both**
+The diagram shows the spine, not all 52 tables. Note `submissions` receiving from **both**
 `assignments` and `past_papers` — the polymorphism from `ADR-0004`.
 
 ### Conventions
 
 **Primary keys.** Uniformly `id: Mapped[int] = mapped_column(primary_key=True)` — integer
-autoincrement on all 51 tables. **No UUIDs anywhere.** The one UUID-shaped value,
+autoincrement on all 52 tables. **No UUIDs anywhere.** The one UUID-shaped value,
 `evaluation_run_id: Mapped[str] = mapped_column(String(36))` on `factor_evaluations` and
 `readiness_snapshots`, is a correlation key, not a primary key.
 
@@ -175,8 +176,9 @@ further and is a plain `String(16)`, so adding an AI provider never touches the 
 `ADR-0007`.
 
 **JSON columns** are generic `sqlalchemy.JSON`, never `JSONB`, for SQLite parity:
-`jobs.payload`, `subjects.grade_boundaries`, `syllabus_uploads.draft`,
-`factor_evaluations.detail`, `readiness_snapshots.weak_topics`.
+`jobs.payload`, `syllabus_uploads.draft`, `factor_evaluations.detail`,
+`readiness_snapshots.weak_topics`. (`subjects.grade_boundaries` was one until task 2.4 dropped
+it — migration `0031`; the org-scoped `grade_boundaries` table is now the only source.)
 
 **Soft deletes: none.** No `deleted_at`, `is_deleted`, or archive flag anywhere in
 `backend/app/` — verified by search. Deletion is `await db.delete(row)`, relying on ORM
@@ -194,8 +196,9 @@ cascades.
 
 **This is the finding worth reading twice.**
 
-Two models declare indexes in `__table_args__`: `jobs` (two) and `narratives` (three, added in
-0023 — `DB-12` applied going forward from that migration on, per `models/narrative.py`):
+Four models declare indexes in `__table_args__`: `jobs` (two), `narratives` (three, added in
+0023 — `DB-12` applied going forward from that migration on, per `models/narrative.py`), and
+`chapters` and `topics` (one each, added in 0029):
 
 ```python
 __table_args__ = (
@@ -206,7 +209,7 @@ __table_args__ = (
 
 No column anywhere uses `index=True`.
 
-The migrations create **eight** in total:
+The migrations create **eleven** in total:
 
 | Index | Table and columns | Migration | In the model? |
 |---|---|---|---|
@@ -218,6 +221,9 @@ The migrations create **eight** in total:
 | `ix_narratives_org` | `narratives(organization_id)` | 0023 | Yes |
 | `ix_narratives_org_group` | `narratives(organization_id, group_id, id)` | 0023 | Yes |
 | `ix_narratives_org_student` | `narratives(organization_id, student_id, id)` | 0023 | Yes |
+| `ix_jobs_status_claimed_at` | `jobs(status, claimed_at)` | 0028 | Yes |
+| `ix_chapters_subject_id_position` | `chapters(subject_id, position)` | 0029 | Yes |
+| `ix_topics_chapter_id` | `topics(chapter_id)` | 0029 | Yes |
 
 **Four of the original five exist only in migrations** — the narratives set (0023) is the first
 to follow `DB-12` and is declared in both places. The consequences of the older gap are still
@@ -247,9 +253,11 @@ columns are not indexed** — Postgres does not index them automatically, so joi
 | `submissions(assignment_id, student_id)` and `submissions(past_paper_id, student_id)` | One submission per student per piece of work, for each polymorphic branch |
 | `question_marks(submission_id, question_id)` and `(submission_id, past_paper_question_id)` | One mark per question per submission |
 | `subjects(exam_board, code)` | Exam board is part of subject identity |
-| `topics(subject_id, code)`, `lesson_topics(lesson_id, topic_id)`, `question_topics(question_id, topic_id)` | Join-table integrity |
+| `chapters(subject_id, code)`, `topics(subject_id, code)` | A code is unique within its subject, at each level of the tree |
+| `chapters(subject_id, id)` | Redundant against the primary key, and there only as the target of `topics(subject_id, chapter_id)` — the **composite** foreign key that stops a topic being filed under another subject's chapter. `chapter_id` is nullable, so `MATCH SIMPLE` skips the check until a chapter is assigned (`ADR-0010`) |
+| `lesson_topics(lesson_id, topic_id)`, `question_topics(question_id, topic_id)` | Join-table integrity |
 | `group_members(group_id, student_id)`, `parent_links(parent_id, student_id)`, `student_subjects(student_id, subject_id)` | No duplicate membership |
-| `grade_boundaries(organization_id, subject_id, grade_label)` | One boundary per grade per subject per organization |
+| `grade_boundaries(organization_id, subject_id, grade_label)` | One boundary per grade per subject per organization — and since task 2.4 (`0031`) the only place a predicted grade comes from |
 | `classroom_course_links(google_account_id, classroom_course_id)`, `classroom_work_links(course_link_id, classroom_coursework_id)` | What makes Classroom re-sync idempotent |
 
 Column-level `unique=True`: `users.email`, `users.username`, `invites.code`,
@@ -257,9 +265,9 @@ Column-level `unique=True`: `users.email`, `users.username`, `invites.code`,
 `student_profiles.student_id`, `google_accounts.tutor_id`, `classroom_course_links.group_id`,
 `classroom_work_links.assignment_id`.
 
-**Cascades are ORM-level only.** Nine relationships declare `cascade="all, delete-orphan"`
+**Cascades are ORM-level only.** Ten relationships declare `cascade="all, delete-orphan"`
 (`Assignment.questions`, `AssignmentQuestion.topics`, `Submission.files`, `Submission.marks`,
-`Subject.topics`, `Group.members`, `Group.schedule_slots`, `GoogleAccount.course_links`,
+`Subject.topics`, `Subject.chapters`, `Group.members`, `Group.schedule_slots`, `GoogleAccount.course_links`,
 `ClassroomCourseLink.work_links`).
 
 **No ForeignKey anywhere declares `ondelete=`** — verified by search across both `models/` and
@@ -362,7 +370,7 @@ automatically, because hosting providers hand out the bare scheme.
 
 **`DB-1` — MUST · Important · Active**
 New tables use an integer autoincrement primary key named `id`.
-*Rationale:* consistency across 51 tables; see `governance/non-goals.md` for why not UUIDs,
+*Rationale:* consistency across 52 tables; see `governance/non-goals.md` for why not UUIDs,
 including the enumerability that `API-7` then has to handle.
 
 **`DB-2` — MUST · Critical · Active**

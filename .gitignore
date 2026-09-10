@@ -31,3 +31,6 @@ frontend/tsconfig.tsbuildinfo
 graphify-out/
 
 
+
+# A separate checkout of the strix tool, with its own .git — never part of this repo.
+strix/

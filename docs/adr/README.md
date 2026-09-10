@@ -87,6 +87,7 @@ The observable condition that should reopen this decision.
 | [0007](0007-varchar-enums.md) | Enums are stored as VARCHAR, not native database enums | Accepted | §06 |
 | [0008](0008-split-token-storage.md) | Access token in memory, refresh token in an httpOnly cookie | Accepted | §07, §03 |
 | [0009](0009-trust-first-auto-finalized-marking.md) | Confident, scheme-backed marks auto-finalize | Accepted | §09, §01 |
+| [0010](0010-chapter-is-a-table.md) | A chapter is its own table, not a parent topic | Accepted | §06, §01 |
 
 ## Retroactive ADRs
 

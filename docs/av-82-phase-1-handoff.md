@@ -8,10 +8,10 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 |---|---|
 | Phase | 1 — Scale foundation (`AV-82`) |
 | Spec of record | `docs/avora-new-state-august-16.md` §"Phase 1 — Scale foundation" (~lines 937–1045) |
-| State as of | commit `a903f04` on the default branch (`claude/igcse-os-planning-q8be0t`) |
-| Handoff written | 2026-08-28 · updated 2026-08-29 (task 1.4) |
+| State as of | PR #56 merged — **Phase 1 complete** |
+| Handoff written | 2026-08-28 · updated 2026-08-30 (task 1.5 merged) |
 | Migration head | `0028_job_claim_ownership` |
-| Tasks done | 1.1, 1.2, 1.3, 1.4, **1.5 (in review)** — Phase 1 complete on merge |
+| Tasks done | **1.1, 1.2, 1.3, 1.4, 1.5 — all five. Phase 1 is complete.** |
 | Tasks remaining | none |
 
 ---
@@ -24,9 +24,11 @@ unverified is marked `UNVERIFIED`. Do not upgrade an `UNVERIFIED` claim without 
 | 1.2 | Object storage | **DONE** | #53 | `app/services/storage.py`, `app/api/file_responses.py` |
 | 1.3 | Worker as a separate process | **DONE** | #54 | `app/workers/*`, `app/models/workers.py`, migration `0027` |
 | 1.4 | Shared rate limiting on Redis | **DONE** | #55 | `app/services/rate_limit.py`, `tests/test_rate_limit.py`, CI `redis:7-alpine` service |
-| 1.5 | Two-instance correctness suite | **IN REVIEW** | — | `tests/test_two_instance.py`, `reclaim_orphaned_jobs()`, migration `0028` |
+| 1.5 | Two-instance correctness suite | **DONE** | #56 | `tests/test_two_instance.py`, `reclaim_orphaned_jobs()`, migration `0028` |
 
-All five tasks are built. **Phase 1 is complete once 1.5 merges.**
+All five tasks are built and merged. **Phase 1 is complete** (30 Aug). The programme moves to
+**Phase 2 — Subjects, chapters, syllabus**; see [`docs/avora-plan-handoff.md`](avora-plan-handoff.md)
+for where the whole plan stands and what this phase still owes (two ADRs).
 
 ---
 
@@ -50,9 +52,9 @@ Production reality — `VERIFIED` against the live API on 2026-08-28:
 | Readiness | `status: ok`, worker `running` | `GET /api/v1/health/ready` |
 | Migration `0027` | applied | readiness reads `worker_heartbeats` and answers |
 
-**DO NOT**, as part of 1.5: deploy a second instance, add a worker service to `render.yaml`,
-set `RUN_WORKER_IN_API=false`, or set `REDIS_URL` on the deployed service. That is Phase 11 work
-and 11.2 gates it.
+**DO NOT**, in any phase before 11.2: deploy a second instance, add a worker service to
+`render.yaml`, set `RUN_WORKER_IN_API=false`, or set `REDIS_URL` on the deployed service. That is
+Phase 11 work and 11.2 gates it.
 
 ---
 
@@ -139,9 +141,11 @@ safe. The spec says do not rewrite it. It has not been rewritten and must not be
 
 ---
 
-## 4. Test-infrastructure constraints — read before writing 1.5
+## 4. Test-infrastructure constraints — read before writing a concurrency test
 
-1.5 will hit every one of these. They cost real debugging time in 1.3.
+1.5 hit every one of these, and they cost real debugging time in 1.3 before that. Any future test
+that touches Postgres, the worker or a shared store will hit them again — 11.2's concurrency audit
+most of all.
 
 **SQLite silently drops `FOR UPDATE SKIP LOCKED`.** No error, no warning. A concurrency test on
 SQLite exercises a query with no locking in it, passes, and proves nothing — worse than no test,
@@ -288,7 +292,7 @@ everywhere with no service. Teardown order is what makes this safe: `monkeypatch
 after the autouse fixture and therefore torn down before it, so `redis_url` is already reverted
 by the time the reset fixture asks whether a Redis store exists.
 
-## 6. Task 1.5 — Two-instance correctness suite (BUILT, in review)
+## 6. Task 1.5 — Two-instance correctness suite (DONE, PR #56)
 
 **Spec:** `docs/avora-new-state-august-16.md`, "1.5 — Two-instance correctness suite" (`AV-84`).
 

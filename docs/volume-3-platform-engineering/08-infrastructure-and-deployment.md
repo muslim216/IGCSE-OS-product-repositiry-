@@ -195,9 +195,9 @@ change in the CSP. Prefer the rewrite.
 
 The `full` profile has two configuration defects, both of which produce confusing symptoms:
 
-- It passes `ANTHROPIC_API_KEY` but **not `GEMINI_API_KEY`**. Marking, extraction, and syllabus
-  extraction default to Gemini, so the entire homework pipeline fails there while the
-  Anthropic-routed surfaces (reports, readiness, class brief, narrative) work.
+- It passes `ANTHROPIC_API_KEY` but **not `GEMINI_API_KEY`**. Marking and question extraction
+  default to Gemini, so the entire homework pipeline fails there while the Anthropic-routed
+  surfaces (syllabus, reports, readiness, class brief, narrative) work.
 - It does not set `REFRESH_COOKIE_SECURE`, which **defaults to `true`**. Over plain-HTTP
   localhost the browser drops the refresh cookie, so sessions silently expire after 30 minutes
   with no error.
@@ -226,7 +226,7 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | unset | `sync: false` | `class_brief` is the one on-demand call and surfaces `AIUnavailableError`'s "not configured" message to the caller directly; reports and readiness synthesis run as background jobs and instead persist `status="failed"` on the row (§11); narrative runs as background jobs (marking-triggered class narratives and the weekly parent sweep) and logs a warning, leaving the surface in its absent state (§11) |
 | `ANTHROPIC_MODEL` | `claude-opus-4-8` | default | — |
-| `GEMINI_API_KEY` | unset | `sync: false` | **The homework pipeline fails** — marking, extraction, syllabus all default to Gemini |
+| `GEMINI_API_KEY` | unset | `sync: false` | **The homework pipeline fails** — marking and extraction default to Gemini (syllabus moved to Anthropic in task 2.3) |
 | `GEMINI_MODEL` | `gemini-2.5-pro` (**placeholder**) | `sync: false` | An owner-supplied value; the default is explicitly not a real commitment |
 | `AI_MARKING_PROVIDER` / `_MODEL` | `gemini` / `""` | `gemini` | Restated in `render.yaml` so it can be flipped to `anthropic` from the dashboard with no code change |
 | `AI_EXTRACTION_PROVIDER` / `_MODEL` | `gemini` / `""` | `gemini` | as above |

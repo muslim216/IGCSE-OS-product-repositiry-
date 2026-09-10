@@ -130,10 +130,13 @@ Four classes. This is net-new — no classification existed before this document
 | **C1 — Secret** | `JWT_SECRET`, `GOOGLE_TOKEN_ENCRYPTION_KEY`, API keys, database credentials, stored Google refresh tokens | Never in the repository, never in logs, never in an API response. Encrypted at rest where stored in the database. Rotation procedure in §14. |
 | **C2 — Sensitive personal (minors)** | Student names, academic records, readiness scores, mistakes, tutor notes, images of student handwriting, parent contact details | Access requires an explicit authorization decision. Never in logs, never in an error message, never sent to a third party except the AI providers under `AI-*` rules. |
 | **C3 — Internal** | Assignments, classifieds, past papers, mark schemes, Knowledge Base entries, organization settings | Organization-scoped. Mark schemes are tutor-only. |
-| **C4 — Public** | Syllabus topic trees, subject metadata, the landing page | Shared across organizations by design. |
+| **C4 — Public** | The landing page | Shared across organizations by design. |
 
-**The five built-in syllabuses are C4 and deliberately global**, which is precisely why
-scoping by subject alone leaks C3 across tenants — see `SEC-8`.
+**Subjects and their chapter/topic trees are no longer C4.** Task 2.2 (`AV-6`) gave `subjects`
+an `organization_id` and deleted the five built-in syllabuses, so a subject — and every chapter
+and topic under it — is C3, owned by the account that uploaded the syllabus. `SEC-8` still
+stands and is now belt-and-braces rather than the only guard: scope student-visible material by
+*(organization, subject)*, never subject alone.
 
 ### Authentication
 
