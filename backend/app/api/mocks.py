@@ -71,13 +71,12 @@ async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = Fals
     that subject to, including ones who never sat it. `SEC-8`'s reason for
     scoping past papers on the pair applies here a step further in.
 
-    `for_update` takes a row lock, and the two callers that pass it are the two
-    that must not interleave: reassigning a mock's group checks that nothing has
-    been submitted, and sitting one creates exactly that submission. Unlocked,
-    a student submitting between the tutor's check and commit leaves the mock
-    pointed at a class its submissions do not belong to — and the 409 that
-    exists to prevent it reports success. Reads do not pass it; a lock on the
-    paper download would serialise a whole class opening the same exam.
+    `for_update` takes a row lock. Only `assign_mock_group` passes it here;
+    `sit_mock` takes the same lock itself, late, once its uploads are already
+    written — the two must not interleave (one checks that nothing has been
+    submitted, the other creates exactly that submission) but holding the lock
+    across a student's file I/O would make a whole class queue behind whoever
+    submitted first. Reads never pass it.
 
     On SQLite `with_for_update()` is a no-op, so the suite cannot demonstrate
     this and only Postgres actually enforces it (`RISK-3`).
@@ -374,7 +373,7 @@ async def sit_mock(
     files: Annotated[list[UploadFile] | None, File()] = None,
     typed_answer: Annotated[str | None, Form()] = None,
 ) -> MockSubmissionOut:
-    mock = await _visible_mock(db, user, mock_id, for_update=True)
+    mock = await _visible_mock(db, user, mock_id)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     # Either channel, or both — the same rule homework follows since AV-73.
@@ -385,7 +384,25 @@ async def sit_mock(
             "Add your answers — upload a photo or type them in",
         )
 
-    submission, settled = await open_attempt(db, MOCK, mock.id, user.id)
+    # Uploads are written to storage BEFORE the row lock below, deliberately.
+    # A whole class sits a mock at once, and holding `FOR UPDATE` on the single
+    # `mocks` row across every student's file I/O would make them queue behind
+    # one another for the length of an upload. Nothing here touches the mock.
+    saved = [
+        await storage.save_upload(upload, organization_id=user.organization_id)
+        for upload in files or []
+    ]
+
+    # The lock starts here and covers only the check-and-insert. It is what
+    # makes `assign_mock_group`'s 409 real: without it a submission can land
+    # between that handler's check and its commit, leaving the mock pointed at a
+    # class its submissions do not belong to. Re-read under the lock rather than
+    # reusing `mock` above, since the tutor may have changed it in between.
+    locked = await db.get(Mock, mock_id, with_for_update=True)
+    if locked is None or locked.status != MockStatus.published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+
+    submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
     if settled:
         raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
 
@@ -394,8 +411,7 @@ async def sit_mock(
     # before anything is queued and no marking run can start unscanned.
     submission.typed_flag_reason = scan_typed_answer(typed).reason
 
-    for position, upload in enumerate(files or []):
-        path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
+    for position, (path, name, mime) in enumerate(saved):
         db.add(
             SubmissionFile(
                 submission_id=submission.id,

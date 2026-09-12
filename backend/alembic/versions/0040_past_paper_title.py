@@ -66,9 +66,12 @@ def downgrade() -> None:
         raise RuntimeError(
             f"{rows} past paper(s) have no session label or paper number yet — their "
             "extraction has not finished. Downgrading past 0040 would have to invent "
-            "those values, which `PROD-2` forbids. Wait for extraction to finish, or "
-            "delete the unextracted papers (they have no marks against them), then "
-            "run this again."
+            "those values, which `PROD-2` forbids.\n\n"
+            "Wait for extraction to finish, which fills both. Deleting the rows is NOT "
+            "a safe shortcut: a student can log an attempt against a paper while it is "
+            "still extracting, so any of them may already carry past_paper_attempts, "
+            "submissions and question_marks. Check those before removing anything — the "
+            "foreign keys will either block the delete or take a student's work with it."
         )
 
     with op.batch_alter_table("past_papers", naming_convention=NAMING) as batch:

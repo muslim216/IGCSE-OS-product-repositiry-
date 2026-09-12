@@ -663,3 +663,44 @@ async def test_re_extraction_never_renames_a_paper_that_already_has_a_name(
             )
         ).all()
         assert len(rows) == 1
+
+
+async def test_re_extraction_leaves_a_marked_question_list_alone(
+    client,
+    student,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The past-paper half of the same guard — see the mock arm's twin.
+
+    Skipping only the delete lets extraction insert a second question list
+    beside the first, so the paper ends up holding every question twice. The
+    handler has to abandon the job outright.
+    """
+    monkeypatch.setattr(
+        "app.services.marking.structured_complete",
+        _marking_double(fake_ai, confidence="low"),
+    )
+    await _log_attempt(client, student, past_paper["id"])
+    assert await process_one_job() is True  # marking, which writes QuestionMarks
+
+    from app.services.extraction import extract_past_paper
+
+    async with async_session() as session:
+        before = (
+            await session.scalars(
+                select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper["id"])
+            )
+        ).all()
+        assert len(before) == 2
+        # No AI double installed: reaching the model would mean the guard let
+        # the job through, and the call would fail this test loudly.
+        await extract_past_paper(session, {"past_paper_id": past_paper["id"]})
+        await session.commit()
+        after = (
+            await session.scalars(
+                select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper["id"])
+            )
+        ).all()
+        assert [q.id for q in after] == [q.id for q in before]

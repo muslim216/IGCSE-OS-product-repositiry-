@@ -807,3 +807,47 @@ async def test_assigning_a_group_after_a_student_has_sat_the_mock_gets_409(
         headers=tutor["headers"],
     )
     assert resp.status_code == 409, resp.text
+
+
+async def test_re_extraction_leaves_a_marked_question_list_alone(
+    client, student, mock_paper, monkeypatch, fake_ai
+):
+    """The guard in `_clear_mock_questions` has to abandon the whole job, not
+    just skip the delete.
+
+    Once a student has been marked against this question list, re-running
+    extraction — which an orphan reclaim does on its own (`BE-6`) — must not
+    delete the rows `question_marks` points at, because on Postgres that is an
+    FK violation that fails the job for good. Skipping only the delete is worse
+    than useless though: extraction carries on and inserts a *second* list
+    beside the first, so the tutor's review screen shows every question twice.
+    This asserts the list is untouched and the handler returns cleanly.
+    """
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
+    resp = await client.post(
+        f"/api/v1/mocks/{mock_paper['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True  # marking, which writes QuestionMarks
+
+    from app.services.extraction import extract_mock
+
+    async with async_session() as session:
+        before = (
+            await session.scalars(
+                select(MockQuestion).where(MockQuestion.mock_id == mock_paper["id"])
+            )
+        ).all()
+        assert len(before) == 2
+        # No AI double is installed: reaching the model at all would mean the
+        # guard let the job through, and the call would fail the test loudly.
+        await extract_mock(session, {"mock_id": mock_paper["id"]})
+        await session.commit()
+        after = (
+            await session.scalars(
+                select(MockQuestion).where(MockQuestion.mock_id == mock_paper["id"])
+            )
+        ).all()
+        assert [q.id for q in after] == [q.id for q in before]
