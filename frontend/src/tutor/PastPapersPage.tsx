@@ -10,6 +10,26 @@ import { listSubjects } from "../api/groups";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
 
+type PaperRow = NonNullable<Awaited<ReturnType<typeof listPastPapers>>>[number];
+
+/** The one status line a paper gets — never two.
+ *
+ * Written as early returns rather than nested ternaries because the ordering
+ * *is* the rule: a failed paper keeps the name "Untitled paper" and a question
+ * count of zero, since the AI reads the name and the questions in the same pass
+ * and failing loses both. Those are the same two signals the in-progress state
+ * has, so a shape that can evaluate more than one branch tells a tutor it is
+ * still working when it has already given up — which it did, until this was a
+ * single exclusive branch.
+ */
+function statusLine(p: PaperRow): string {
+  if (p.extraction_error) return `Couldn't read this paper: ${p.extraction_error}`;
+  if (p.question_count > 0) {
+    return `${p.question_count} questions${p.total_marks ? ` · ${p.total_marks} marks` : ""}`;
+  }
+  return "Reading the questions out of the paper…";
+}
+
 export default function PastPapersPage() {
   const queryClient = useQueryClient();
   const papers = useQuery({
@@ -136,18 +156,8 @@ export default function PastPapersPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="font-medium text-slate-800">{p.display_title}</div>
-                  {/* One status line, never two. A failed paper keeps the name
-                      "Untitled paper" — the AI reads the name and the questions
-                      in the same pass, so failing loses both — and showing
-                      "Reading the questions…" beside the failure told a tutor it
-                      was still working when it had already given up. The error
-                      wins the branch outright. */}
                   <div className="text-ink-500" aria-live="polite">
-                    {p.extraction_error
-                      ? `Couldn't read this paper: ${p.extraction_error}`
-                      : p.question_count > 0
-                        ? `${p.question_count} questions${p.total_marks ? ` · ${p.total_marks} marks` : ""}`
-                        : "Reading the questions out of the paper…"}
+                    {statusLine(p)}
                     {p.duration_minutes ? ` · ${p.duration_minutes} min` : ""}
                   </div>
                 </div>
