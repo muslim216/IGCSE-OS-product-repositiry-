@@ -1121,6 +1121,135 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Mocks */
+        get: operations["list_mocks_api_v1_mocks_get"];
+        put?: never;
+        /** Create Mock */
+        post: operations["create_mock_api_v1_mocks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Mocks
+         * @description Every published mock set to a group this student is in.
+         */
+        get: operations["my_mocks_api_v1_mocks_mine_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Mock */
+        get: operations["get_mock_api_v1_mocks__mock_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}/paper": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mock Paper
+         * @description The question paper — readable by the students sitting it.
+         */
+        get: operations["mock_paper_api_v1_mocks__mock_id__paper_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}/mark-scheme": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mock Mark Scheme
+         * @description Tutor-only — handing this to a student would defeat the exercise.
+         */
+        get: operations["mock_mark_scheme_api_v1_mocks__mock_id__mark_scheme_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sit Mock */
+        post: operations["sit_mock_api_v1_mocks__mock_id__submissions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mocks/{mock_id}/my-submission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Mock Submission */
+        get: operations["my_mock_submission_api_v1_mocks__mock_id__my_submission_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups/{group_id}/narrative": {
         parameters: {
             query?: never;
@@ -2242,6 +2371,11 @@ export interface components {
             /** Max Marks */
             max_marks: number;
         };
+        /**
+         * AssessmentType
+         * @enum {string}
+         */
+        AssessmentType: "mock" | "test";
         /** AssignmentAttention */
         AssignmentAttention: {
             /** Assignment Id */
@@ -2347,6 +2481,27 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** Body_create_mock_api_v1_mocks_post */
+        Body_create_mock_api_v1_mocks_post: {
+            /** Subject Id */
+            subject_id: number;
+            /** Title */
+            title: string;
+            /** Paper */
+            paper: string;
+            /** Mark Scheme */
+            mark_scheme?: string | null;
+            /** Group Id */
+            group_id?: number | null;
+            /** @default mock */
+            type: components["schemas"]["AssessmentType"];
+            /** Sat On */
+            sat_on?: string | null;
+            /** Total Marks */
+            total_marks?: number | null;
+            /** Duration Minutes */
+            duration_minutes?: number | null;
+        };
         /** Body_create_resource_api_v1_groups__group_id__resources_post */
         Body_create_resource_api_v1_groups__group_id__resources_post: {
             /** Kind */
@@ -2374,6 +2529,13 @@ export interface components {
             timed: boolean;
             /** Time Taken Minutes */
             time_taken_minutes?: number | null;
+        };
+        /** Body_sit_mock_api_v1_mocks__mock_id__submissions_post */
+        Body_sit_mock_api_v1_mocks__mock_id__submissions_post: {
+            /** Files */
+            files?: string[] | null;
+            /** Typed Answer */
+            typed_answer?: string | null;
         };
         /** Body_submit_work_api_v1_assignments__assignment_id__submissions_post */
         Body_submit_work_api_v1_assignments__assignment_id__submissions_post: {
@@ -2970,6 +3132,111 @@ export interface components {
             /** Summary */
             summary?: string | null;
         };
+        /** MockDetail */
+        MockDetail: {
+            /** Id */
+            id: number;
+            /** Subject Id */
+            subject_id: number;
+            /** Group Id */
+            group_id: number | null;
+            /** Title */
+            title: string;
+            type: components["schemas"]["AssessmentType"];
+            /** Sat On */
+            sat_on: string | null;
+            status: components["schemas"]["MockStatus"];
+            /** Total Marks */
+            total_marks: number | null;
+            /** Duration Minutes */
+            duration_minutes: number | null;
+            /** Paper Name */
+            paper_name: string;
+            /** Mark Scheme Name */
+            mark_scheme_name?: string | null;
+            /** Extraction Error */
+            extraction_error?: string | null;
+            /**
+             * Question Count
+             * @default 0
+             */
+            question_count: number;
+            /**
+             * Questions
+             * @default []
+             */
+            questions: components["schemas"]["MockQuestionOut"][];
+        };
+        /** MockOut */
+        MockOut: {
+            /** Id */
+            id: number;
+            /** Subject Id */
+            subject_id: number;
+            /** Group Id */
+            group_id: number | null;
+            /** Title */
+            title: string;
+            type: components["schemas"]["AssessmentType"];
+            /** Sat On */
+            sat_on: string | null;
+            status: components["schemas"]["MockStatus"];
+            /** Total Marks */
+            total_marks: number | null;
+            /** Duration Minutes */
+            duration_minutes: number | null;
+            /** Paper Name */
+            paper_name: string;
+            /** Mark Scheme Name */
+            mark_scheme_name?: string | null;
+            /** Extraction Error */
+            extraction_error?: string | null;
+            /**
+             * Question Count
+             * @default 0
+             */
+            question_count: number;
+        };
+        /** MockQuestionOut */
+        MockQuestionOut: {
+            /** Id */
+            id: number;
+            /** Number */
+            number: string;
+            /** Text Summary */
+            text_summary: string;
+            /** Max Marks */
+            max_marks: number;
+            /** Has Mark Scheme */
+            has_mark_scheme: boolean;
+        };
+        /**
+         * MockStatus
+         * @enum {string}
+         */
+        MockStatus: "extracting" | "extraction_failed" | "published" | "closed";
+        /** MockSubmissionOut */
+        MockSubmissionOut: {
+            /** Submission Id */
+            submission_id: number;
+            /** Mock Id */
+            mock_id: number;
+            /** Title */
+            title: string;
+            /** Subject Name */
+            subject_name: string;
+            /** Status */
+            status: string;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            /** Raw Marks */
+            raw_marks?: number | null;
+            /** Max Marks */
+            max_marks?: number | null;
+        };
         /** MyAssessmentScore */
         MyAssessmentScore: {
             /** Assessment Id */
@@ -3447,6 +3714,8 @@ export interface components {
             assignment_id: number | null;
             /** Past Paper Id */
             past_paper_id?: number | null;
+            /** Mock Id */
+            mock_id?: number | null;
             /** Assignment Title */
             assignment_title: string;
             /** Student Id */
@@ -3804,6 +4073,8 @@ export interface components {
             assignment_id: number | null;
             /** Past Paper Id */
             past_paper_id?: number | null;
+            /** Mock Id */
+            mock_id?: number | null;
             /** Assignment Title */
             assignment_title: string;
             /** Student Id */
@@ -6220,6 +6491,257 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_mocks_api_v1_mocks_get: {
+        parameters: {
+            query?: {
+                subject_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_mock_api_v1_mocks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_mock_api_v1_mocks_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_mocks_api_v1_mocks_mine_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockOut"][];
+                };
+            };
+        };
+    };
+    get_mock_api_v1_mocks__mock_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mock_paper_api_v1_mocks__mock_id__paper_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mock_mark_scheme_api_v1_mocks__mock_id__mark_scheme_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sit_mock_api_v1_mocks__mock_id__submissions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_sit_mock_api_v1_mocks__mock_id__submissions_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockSubmissionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_mock_submission_api_v1_mocks__mock_id__my_submission_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockSubmissionOut"] | null;
                 };
             };
             /** @description Validation Error */

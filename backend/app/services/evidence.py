@@ -1,7 +1,8 @@
 """Turn finalized academic events into readiness evidence rows.
 
-Only finalized homework and entered assessment/observation data become
-evidence — nothing provisional (like an AI draft) ever influences readiness.
+Only finalized work — homework, past papers and mocks — plus entered
+assessment/observation data becomes evidence; nothing provisional (like an AI
+draft) ever influences readiness.
 """
 
 from collections.abc import Sequence
@@ -12,15 +13,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
-    AssignmentQuestion,
     Evidence,
-    EvidenceSource,
-    PastPaperQuestion,
-    PastPaperQuestionTopic,
     QuestionMark,
-    QuestionTopic,
     Submission,
 )
+from app.services.submission_kind import kind_of
 
 
 async def build_homework_evidence(session: AsyncSession, submission: Submission) -> set[int]:
@@ -29,51 +26,32 @@ async def build_homework_evidence(session: AsyncSession, submission: Submission)
     set of affected topic ids. Idempotent: replaces prior evidence for this
     submission if it is re-finalized.
 
-    Handles both kinds of submission — homework and past paper — since both are
-    Submission/QuestionMark rows. A past paper's marks are recorded under the
-    past_paper evidence source, which the engine weighs more heavily than
-    homework (see readiness.SOURCE_WEIGHTS)."""
-    is_past_paper = submission.past_paper_id is not None
-    rows: Sequence[Any]
-    if is_past_paper:
-        rows = (
-            await session.execute(
-                select(QuestionMark, PastPaperQuestion)
-                .join(
-                    PastPaperQuestion,
-                    PastPaperQuestion.id == QuestionMark.past_paper_question_id,
-                )
-                .where(QuestionMark.submission_id == submission.id)
-            )
-        ).all()
-    else:
-        rows = (
-            await session.execute(
-                select(QuestionMark, AssignmentQuestion)
-                .join(AssignmentQuestion, AssignmentQuestion.id == QuestionMark.question_id)
-                .where(QuestionMark.submission_id == submission.id)
-            )
-        ).all()
+    Handles every kind of submission — homework, past paper and mock — since all
+    three are Submission/QuestionMark rows. Which question and topic tables to
+    read, and which evidence source the marks become, come from
+    submission_kind.kind_of rather than from a branch written here: a past
+    paper's marks weigh more than homework's and a mock's more again (see
+    readiness.SOURCE_WEIGHTS)."""
+    kind = kind_of(submission)
+    question_model = kind.question_model
+    rows: Sequence[Any] = (
+        await session.execute(
+            select(QuestionMark, question_model)
+            .join(question_model, question_model.id == getattr(QuestionMark, kind.mark_fk))
+            .where(QuestionMark.submission_id == submission.id)
+        )
+    ).all()
 
     # topic_id -> [got_marks, max_marks]
     totals: dict[int, list[int]] = {}
     for mark, question in rows:
         if mark.final_marks is None:
             continue
-        if is_past_paper:
-            topic_ids = (
-                await session.scalars(
-                    select(PastPaperQuestionTopic.topic_id).where(
-                        PastPaperQuestionTopic.question_id == question.id
-                    )
-                )
-            ).all()
-        else:
-            topic_ids = (
-                await session.scalars(
-                    select(QuestionTopic.topic_id).where(QuestionTopic.question_id == question.id)
-                )
-            ).all()
+        topic_ids = (
+            await session.scalars(
+                select(kind.topic_model.topic_id).where(kind.topic_model.question_id == question.id)
+            )
+        ).all()
         for topic_id in topic_ids:
             bucket = totals.setdefault(topic_id, [0, 0])
             bucket[0] += mark.final_marks
@@ -90,9 +68,7 @@ async def build_homework_evidence(session: AsyncSession, submission: Submission)
             Evidence(
                 student_id=submission.student_id,
                 topic_id=topic_id,
-                source_type=(
-                    EvidenceSource.past_paper if is_past_paper else EvidenceSource.homework
-                ),
+                source_type=kind.evidence_source,
                 score_pct=round(got / mx * 100, 1),
                 max_marks=mx,
                 occurred_at=occurred,

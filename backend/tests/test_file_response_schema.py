@@ -19,6 +19,8 @@ from app.main import app
 FILE_ROUTES = [
     "/api/v1/classifieds/{classified_id}/file",
     "/api/v1/classifieds/{classified_id}/mark-scheme",
+    "/api/v1/mocks/{mock_id}/mark-scheme",
+    "/api/v1/mocks/{mock_id}/paper",
     "/api/v1/past-papers/{past_paper_id}/booklet",
     "/api/v1/past-papers/{past_paper_id}/mark-scheme",
     "/api/v1/resources/{resource_id}/file",

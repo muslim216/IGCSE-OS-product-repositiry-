@@ -31,6 +31,8 @@ from app.models import (
     Classified,
     Group,
     MarkConfidence,
+    Mock,
+    MockQuestion,
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
@@ -46,6 +48,13 @@ from app.services.knowledge import build_tutor_context
 from app.services.marking_context import MarkingContextSources, build_marking_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
+from app.services.submission_kind import (
+    HOMEWORK,
+    MOCK,
+    PAST_PAPER,
+    SubmissionKind,
+    kind_of,
+)
 from app.workers.jobs import enqueue
 
 # Confidence levels good enough for a scheme-backed mark to stand without a
@@ -109,7 +118,9 @@ class _MarkingSource:
     organization_id: int
     tutor_id: int
     subject_id: int
-    is_past_paper: bool
+    # Which arm of Submission this is, and with it the question tables, the
+    # QuestionMark column and the evidence source. See services/submission_kind.
+    kind: SubmissionKind
     # AV-76's layers. `subject` carries the tutor's marking rules and the exam
     # board and level (AV-24); `classified` carries the chapter notes and is
     # None for a past paper, which is not a booklet a tutor annotated.
@@ -186,7 +197,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         organization_id=group.organization_id,
         tutor_id=group.tutor_id,
         subject_id=group.subject_id,
-        is_past_paper=False,
+        kind=HOMEWORK,
         subject=await session.get(Subject, group.subject_id),
         classified=classified,
     )
@@ -264,7 +275,7 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         organization_id=paper.organization_id,
         tutor_id=paper.tutor_id,
         subject_id=paper.subject_id,
-        is_past_paper=True,
+        kind=PAST_PAPER,
         subject=await session.get(Subject, paper.subject_id),
         # A past paper is the board's own document, not a booklet the tutor
         # compiled and annotated, so there are no chapter notes to apply.
@@ -272,12 +283,81 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
     )
 
 
-async def _run_marking(session: AsyncSession, submission: Submission) -> None:
-    source = (
-        await _past_paper_source(session, submission)
-        if submission.past_paper_id is not None
-        else await _homework_source(session, submission)
+async def _mock_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
+    """A mock is the tutor's own paper: their question list, their optional
+    scheme, their subject rules. Unlike a past paper it is not the board's
+    document, and unlike homework it has no classified behind it — so there are
+    no chapter notes, and AV-76's precedence runs from the scheme to the subject
+    rules with the chapter layer absent."""
+    mock = await session.get(Mock, submission.mock_id)
+    assert mock is not None
+    questions = list(
+        (
+            await session.scalars(
+                select(MockQuestion)
+                .where(MockQuestion.mock_id == mock.id)
+                .order_by(MockQuestion.position)
+            )
+        ).all()
     )
+    if not questions:
+        raise ValueError("This mock's questions haven't been extracted yet — try again shortly")
+    # Same rule as the other two branches: the sentence names only what is
+    # actually attached, because a model told it has a scheme it cannot see can
+    # report a mark as scheme-backed and auto-finalize it (AI-11, ADR-0009).
+    booklet = (
+        (await storage.read_file(mock.paper_path), mock.paper_mime)
+        if mock.paper_path and mock.paper_mime
+        else None
+    )
+    mark_scheme = (
+        (await storage.read_file(mock.mark_scheme_path), mock.mark_scheme_mime)
+        if mock.mark_scheme_path and mock.mark_scheme_mime
+        else None
+    )
+    attached = [
+        name
+        for name, present in (
+            ("the question paper", booklet is not None),
+            ("the official mark scheme", mark_scheme is not None),
+        )
+        if present
+    ]
+    if attached:
+        numbered = ", ".join(f"({n + 1}) {name}" for n, name in enumerate(attached))
+        intro = (
+            f"The documents above are {mock.title}, a mock exam: {numbered}, "
+            "followed by the student's answers."
+        )
+    else:
+        intro = (
+            f"Neither the question paper nor the mark scheme for {mock.title} is attached — "
+            "mark from the question list below and the student's answers above only."
+        )
+    return _MarkingSource(
+        questions=questions,
+        booklet=booklet,
+        mark_scheme=mark_scheme,
+        intro=intro,
+        organization_id=mock.organization_id,
+        tutor_id=mock.tutor_id,
+        subject_id=mock.subject_id,
+        kind=MOCK,
+        subject=await session.get(Subject, mock.subject_id),
+        classified=None,
+    )
+
+
+async def _run_marking(session: AsyncSession, submission: Submission) -> None:
+    # The one place the arm is chosen. kind_of owns the discriminator; this maps
+    # it to the loader that flattens the arm into a _MarkingSource, after which
+    # nothing below branches on what is being marked.
+    builders = {
+        HOMEWORK: _homework_source,
+        PAST_PAPER: _past_paper_source,
+        MOCK: _mock_source,
+    }
+    source = await builders[kind_of(submission)](session, submission)
     questions = source.questions
     files = sorted(submission.files, key=lambda f: f.position)
     # Either channel is a submission (AV-73, task 3.3) — this is the line that
@@ -292,7 +372,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     # finalized there is nothing left to ask the AI.
     # Keyed by whichever question column this kind of submission uses.
     existing_marks = {
-        (m.past_paper_question_id if source.is_past_paper else m.question_id): m
+        getattr(m, source.kind.mark_fk): m
         for m in (
             await session.scalars(
                 select(QuestionMark).where(QuestionMark.submission_id == submission.id)
@@ -408,10 +488,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             continue  # the tutor has already ruled on this one
         if mark is None:
             mark = QuestionMark(submission_id=submission.id)
-            if source.is_past_paper:
-                mark.past_paper_question_id = q.id
-            else:
-                mark.question_id = q.id
+            setattr(mark, source.kind.mark_fk, q.id)
             session.add(mark)
             existing_marks[q.id] = mark
         mark.ai_model = response.model

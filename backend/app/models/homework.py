@@ -186,11 +186,16 @@ class Submission(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("assignment_id", "student_id"),
         UniqueConstraint("past_paper_id", "student_id"),
+        UniqueConstraint("mock_id", "student_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id"), nullable=True)
     past_paper_id: Mapped[int | None] = mapped_column(ForeignKey("past_papers.id"), nullable=True)
+    # The third arm (task 3.4, AV-26). A mock is set, sat and marked on its own
+    # terms rather than as homework with a flag, so it gets its own key here
+    # instead of bending `assignment_id` to mean two things.
+    mock_id: Mapped[int | None] = mapped_column(ForeignKey("mocks.id"), nullable=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # Past papers only, and self-declared: the platform can't measure how long
     # a student took or whether they really sat it under timed conditions.
@@ -268,12 +273,16 @@ class QuestionMark(Base):
     __table_args__ = (
         UniqueConstraint("submission_id", "question_id"),
         UniqueConstraint("submission_id", "past_paper_question_id"),
+        UniqueConstraint("submission_id", "mock_question_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), nullable=False)
     question_id: Mapped[int | None] = mapped_column(
         ForeignKey("assignment_questions.id"), nullable=True
+    )
+    mock_question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mock_questions.id"), nullable=True
     )
     past_paper_question_id: Mapped[int | None] = mapped_column(
         ForeignKey("past_paper_questions.id"), nullable=True

@@ -12,6 +12,10 @@ from app.models import (
     AssignmentStatus,
     Classified,
     Group,
+    Mock,
+    MockQuestion,
+    MockQuestionTopic,
+    MockStatus,
     PastPaper,
     PastPaperQuestion,
     PastPaperQuestionTopic,
@@ -262,3 +266,106 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
                 session.add(PastPaperQuestionTopic(question_id=question.id, topic_id=topic.id))
     if paper.total_marks is None:
         paper.total_marks = sum(max(1, q.max_marks) for q in result.questions)
+
+
+async def extract_mock(session: AsyncSession, payload: dict) -> None:
+    """Job handler: pull the question list out of a mock paper (task 3.4, AV-26).
+
+    Same shape as extract_past_paper — a mock is a tutor's own full paper, so it
+    reuses the extraction prompt and the same replace-don't-append idempotency
+    rule (`BE-6`). Unlike a past paper it carries a status, because a mock is not
+    visible to the students it is set for until extraction has produced
+    something to sit."""
+    mock_id = payload["mock_id"]
+    mock = await session.get(Mock, mock_id)
+    if mock is None:
+        return
+    await _clear_mock_questions(session, mock.id)
+    try:
+        await _run_mock_extraction(session, mock)
+        mock.status = MockStatus.published
+        mock.extraction_error = None
+    except Exception as exc:
+        mock.status = MockStatus.extraction_failed
+        mock.extraction_error = str(exc) or exc.__class__.__name__
+        await session.commit()
+        raise
+
+
+async def _clear_mock_questions(session: AsyncSession, mock_id: int) -> None:
+    existing = (
+        await session.scalars(select(MockQuestion).where(MockQuestion.mock_id == mock_id))
+    ).all()
+    if not existing:
+        return
+    await session.execute(
+        delete(MockQuestionTopic).where(MockQuestionTopic.question_id.in_([q.id for q in existing]))
+    )
+    await session.execute(delete(MockQuestion).where(MockQuestion.mock_id == mock_id))
+
+
+async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:
+    topics = (await session.scalars(select(Topic).where(Topic.subject_id == mock.subject_id))).all()
+    topic_list = "\n".join(f"- {t.code}: {t.title}" for t in topics)
+
+    content: list[dict] = [file_block(await storage.read_file(mock.paper_path), mock.paper_mime)]
+    if mock.mark_scheme_path and mock.mark_scheme_mime:
+        content.append(
+            file_block(await storage.read_file(mock.mark_scheme_path), mock.mark_scheme_mime)
+        )
+    content.append(
+        {
+            "type": "text",
+            "text": (
+                f"This is {mock.title}, a mock exam paper"
+                + (f" worth {mock.total_marks} marks" if mock.total_marks else "")
+                + ". Extract every question in it, in order.\n\n"
+                f"Syllabus topics for this subject:\n{topic_list}\n\n"
+                "Return the full question list."
+            ),
+        }
+    )
+
+    kb_context = await build_tutor_context(session, mock.tutor_id, mock.subject_id)
+    response = await structured_complete(
+        surface="extraction",
+        content=content,
+        output_format=ExtractionResult,
+        max_tokens=16000,
+        extra_system=[kb_context] if kb_context else [],
+    )
+    await record_usage(
+        session,
+        response,
+        organization_id=mock.organization_id,
+        tutor_id=mock.tutor_id,
+        student_id=None,
+        feature=AiFeature.extraction,
+    )
+    result = require_parsed(response)
+    if not result.questions:
+        raise ValueError("No questions were found in the mock paper")
+
+    topic_by_code = {t.code: t for t in topics}
+    for position, q in enumerate(result.questions):
+        question = MockQuestion(
+            mock_id=mock.id,
+            position=position,
+            number=q.number[:16],
+            text_summary=q.text_summary,
+            max_marks=max(1, q.max_marks),
+            # A mock's scheme is optional, so coverage is per-question from the
+            # extractor and only means anything when a scheme was attached at
+            # all — _mock_source ANDs the two before a mark may auto-finalize.
+            has_mark_scheme=q.has_mark_scheme,
+            ai_model=response.model,
+            ai_prompt_version=response.prompt_version,
+        )
+        session.add(question)
+        await session.flush()
+        for code in q.topic_codes:
+            topic = topic_by_code.get(code)
+            if topic is not None:
+                session.add(MockQuestionTopic(question_id=question.id, topic_id=topic.id))
+    if mock.total_marks is None:
+        mock.total_marks = sum(max(1, q.max_marks) for q in result.questions)

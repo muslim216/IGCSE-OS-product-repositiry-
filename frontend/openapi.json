@@ -3018,6 +3018,443 @@
         ]
       }
     },
+    "/api/v1/mocks": {
+      "post": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Create Mock",
+        "operationId": "create_mock_api_v1_mocks_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_mock_api_v1_mocks_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MockOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "List Mocks",
+        "operationId": "list_mocks_api_v1_mocks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MockOut"
+                  },
+                  "title": "Response List Mocks Api V1 Mocks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/mine": {
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "My Mocks",
+        "description": "Every published mock set to a group this student is in.",
+        "operationId": "my_mocks_api_v1_mocks_mine_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MockOut"
+                  },
+                  "type": "array",
+                  "title": "Response My Mocks Api V1 Mocks Mine Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/mocks/{mock_id}": {
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Get Mock",
+        "operationId": "get_mock_api_v1_mocks__mock_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MockDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/{mock_id}/paper": {
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Mock Paper",
+        "description": "The question paper \u2014 readable by the students sitting it.",
+        "operationId": "mock_paper_api_v1_mocks__mock_id__paper_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored file.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/{mock_id}/mark-scheme": {
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Mock Mark Scheme",
+        "description": "Tutor-only \u2014 handing this to a student would defeat the exercise.",
+        "operationId": "mock_mark_scheme_api_v1_mocks__mock_id__mark_scheme_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored file.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/{mock_id}/submissions": {
+      "post": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Sit Mock",
+        "operationId": "sit_mock_api_v1_mocks__mock_id__submissions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_sit_mock_api_v1_mocks__mock_id__submissions_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MockSubmissionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mocks/{mock_id}/my-submission": {
+      "get": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "My Mock Submission",
+        "operationId": "my_mock_submission_api_v1_mocks__mock_id__my_submission_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MockSubmissionOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response My Mock Submission Api V1 Mocks  Mock Id  My Submission Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{group_id}/narrative": {
       "get": {
         "tags": [
@@ -6339,6 +6776,14 @@
         ],
         "title": "AssessmentScoreIn"
       },
+      "AssessmentType": {
+        "type": "string",
+        "enum": [
+          "mock",
+          "test"
+        ],
+        "title": "AssessmentType"
+      },
       "AssignmentAttention": {
         "properties": {
           "assignment_id": {
@@ -6754,6 +7199,93 @@
         ],
         "title": "Body_create_assignment_with_paper_api_v1_assignments_upload_post"
       },
+      "Body_create_mock_api_v1_mocks_post": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "paper": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Paper"
+          },
+          "mark_scheme": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Scheme"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AssessmentType",
+            "default": "mock"
+          },
+          "sat_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sat On"
+          },
+          "total_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Marks"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "title",
+          "paper"
+        ],
+        "title": "Body_create_mock_api_v1_mocks_post"
+      },
       "Body_create_resource_api_v1_groups__group_id__resources_post": {
         "properties": {
           "kind": {
@@ -6836,6 +7368,38 @@
           "attempted_at"
         ],
         "title": "Body_log_attempt_api_v1_past_papers__past_paper_id__attempts_post"
+      },
+      "Body_sit_mock_api_v1_mocks__mock_id__submissions_post": {
+        "properties": {
+          "files": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Files"
+          },
+          "typed_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typed Answer"
+          }
+        },
+        "type": "object",
+        "title": "Body_sit_mock_api_v1_mocks__mock_id__submissions_post"
       },
       "Body_submit_work_api_v1_assignments__assignment_id__submissions_post": {
         "properties": {
@@ -8507,6 +9071,342 @@
         ],
         "title": "MarkingRulesOut"
       },
+      "MockDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AssessmentType"
+          },
+          "sat_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sat On"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MockStatus"
+          },
+          "total_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Marks"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "paper_name": {
+            "type": "string",
+            "title": "Paper Name"
+          },
+          "mark_scheme_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Scheme Name"
+          },
+          "extraction_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Error"
+          },
+          "question_count": {
+            "type": "integer",
+            "title": "Question Count",
+            "default": 0
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/MockQuestionOut"
+            },
+            "type": "array",
+            "title": "Questions",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subject_id",
+          "group_id",
+          "title",
+          "type",
+          "sat_on",
+          "status",
+          "total_marks",
+          "duration_minutes",
+          "paper_name"
+        ],
+        "title": "MockDetail"
+      },
+      "MockOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "type": {
+            "$ref": "#/components/schemas/AssessmentType"
+          },
+          "sat_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sat On"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MockStatus"
+          },
+          "total_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Marks"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
+          },
+          "paper_name": {
+            "type": "string",
+            "title": "Paper Name"
+          },
+          "mark_scheme_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Scheme Name"
+          },
+          "extraction_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Error"
+          },
+          "question_count": {
+            "type": "integer",
+            "title": "Question Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subject_id",
+          "group_id",
+          "title",
+          "type",
+          "sat_on",
+          "status",
+          "total_marks",
+          "duration_minutes",
+          "paper_name"
+        ],
+        "title": "MockOut"
+      },
+      "MockQuestionOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "number": {
+            "type": "string",
+            "title": "Number"
+          },
+          "text_summary": {
+            "type": "string",
+            "title": "Text Summary"
+          },
+          "max_marks": {
+            "type": "integer",
+            "title": "Max Marks"
+          },
+          "has_mark_scheme": {
+            "type": "boolean",
+            "title": "Has Mark Scheme"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "number",
+          "text_summary",
+          "max_marks",
+          "has_mark_scheme"
+        ],
+        "title": "MockQuestionOut"
+      },
+      "MockStatus": {
+        "type": "string",
+        "enum": [
+          "extracting",
+          "extraction_failed",
+          "published",
+          "closed"
+        ],
+        "title": "MockStatus"
+      },
+      "MockSubmissionOut": {
+        "properties": {
+          "submission_id": {
+            "type": "integer",
+            "title": "Submission Id"
+          },
+          "mock_id": {
+            "type": "integer",
+            "title": "Mock Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "raw_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Marks"
+          },
+          "max_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Marks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submission_id",
+          "mock_id",
+          "title",
+          "subject_name",
+          "status",
+          "submitted_at"
+        ],
+        "title": "MockSubmissionOut"
+      },
       "MyAssessmentScore": {
         "properties": {
           "assessment_id": {
@@ -9929,6 +10829,17 @@
             ],
             "title": "Past Paper Id"
           },
+          "mock_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mock Id"
+          },
           "assignment_title": {
             "type": "string",
             "title": "Assignment Title"
@@ -11042,6 +11953,17 @@
               }
             ],
             "title": "Past Paper Id"
+          },
+          "mock_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mock Id"
           },
           "assignment_title": {
             "type": "string",

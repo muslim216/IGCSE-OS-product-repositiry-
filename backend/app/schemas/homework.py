@@ -237,9 +237,10 @@ class SubmissionSummary(BaseModel):
 
 class SubmissionDetail(BaseModel):
     id: int
-    # Exactly one is set: homework or a past paper.
+    # Exactly one is set: homework, a past paper or a mock.
     assignment_id: int | None
     past_paper_id: int | None = None
+    mock_id: int | None = None
     assignment_title: str
     student_id: int
     student_name: str
@@ -288,9 +289,10 @@ class ReviewQueueItem(BaseModel):
     """One submission waiting on the tutor — the whole marking workload."""
 
     submission_id: int
-    # Exactly one is set: the work is homework or a past paper.
+    # Exactly one is set: the work is homework, a past paper or a mock.
     assignment_id: int | None
     past_paper_id: int | None = None
+    mock_id: int | None = None
     assignment_title: str
     student_id: int
     student_name: str
