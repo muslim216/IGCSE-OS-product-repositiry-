@@ -338,6 +338,11 @@ class MarkOverrideAudit(Base):
 
     __tablename__ = "mark_override_audit"
 
+    # Declared here as well as in migration 0019_auto_marking_review_queue.py — the test schema is built
+    # from `Base.metadata`, so an index that lives only in a migration makes the
+    # suite run against a different shape than production (`DB-12`).
+    __table_args__ = (Index("ix_mark_override_audit_question_mark_id", "question_mark_id"),)
+
     id: Mapped[int] = mapped_column(primary_key=True)
     question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
     old_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)

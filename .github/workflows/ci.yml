@@ -232,6 +232,16 @@ jobs:
       - name: Upgrade to head again
         run: python -m alembic upgrade head
 
+      # The suite never runs a migration (QA-11, RISK-3 above), so a migration
+      # that disagrees with its own model — a column the model never mapped, a
+      # constraint only one side declares — passes every local and CI test and
+      # only breaks on a real INSERT in production. This is the check for that
+      # class of bug: compare_metadata (Alembic's own autogenerate diff) run
+      # against the schema the three steps above just built, versus
+      # Base.metadata (the BE-3 barrel). Any real difference fails the job.
+      - name: "Schema drift: migrations vs models (RISK-3)"
+        run: python -m scripts.check_schema_drift
+
       # The multi-worker claim tests (task 1.3, AV-82) run here rather than in
       # the `backend` job because that one forces SQLite, which silently DROPS
       # `FOR UPDATE SKIP LOCKED` — no error, no warning. Running them there
@@ -260,18 +270,28 @@ jobs:
 
       # A step rather than a `services:` entry, which is where the first attempt
       # at this went wrong. Service containers cannot override a container's
-      # command, and minio/minio needs `server /data`; the obvious way round
-      # that — bitnami/minio, which starts unattended — no longer publishes a
-      # `latest` tag, so the job died on `manifest unknown` before running a
-      # single test. `docker run` takes the command directly and is the thing
-      # the runner can actually do.
+      # command, and minio needs `server /data`; the obvious way round that —
+      # bitnami/minio, which starts unattended — no longer publishes a `latest`
+      # tag, so the job died on `manifest unknown` before running a single test.
+      # `docker run` takes the command directly and is the thing the runner can
+      # actually do.
+      #
+      # Pulled from quay.io and PINNED to a release tag. Both previous outages
+      # here were the same root cause: a floating tag on a registry we do not
+      # control. `minio/minio:latest` on Docker Hub started answering
+      # `pull access denied ... may require 'docker login'` (anonymous pulls are
+      # no longer served), which fails the whole job at `docker run` — exit 125,
+      # before any test runs, and with nothing wrong in the repo. quay.io is
+      # MinIO's own registry and serves anonymous pulls; the pin means a future
+      # upstream change breaks us on the day we choose to bump it, not on an
+      # unrelated PR.
       - name: Start MinIO for the two-instance storage case
         run: |
           set -euo pipefail
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER=avora-ci \
             -e MINIO_ROOT_PASSWORD=avora-ci-secret \
-            minio/minio:latest server /data
+            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
           # Poll the documented liveness endpoint rather than sleeping a guess:
           # a fixed sleep is either flaky or slow, and this is the difference
           # between the storage test running and the job failing on connect.
