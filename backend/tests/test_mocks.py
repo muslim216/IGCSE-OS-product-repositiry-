@@ -344,6 +344,29 @@ async def test_mocks_require_a_token(client, mock_paper):
 # --- the tutor's review path ------------------------------------------------
 
 
+async def _mark_every_question_and_finalize(client, tutor, submission_id):
+    """Tutor path from an AI-drafted submission to a finalized one.
+
+    Four tests need a mock whose marks have actually counted, and the sequence
+    is the same every time: read the review screen, set a final mark on every
+    question, sign it off.
+    """
+    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
+    assert detail.status_code == 200, detail.text
+    rows = detail.json()["marks"]
+    saved = await client.put(
+        f"/api/v1/submissions/{submission_id}/marks",
+        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
+        headers=tutor["headers"],
+    )
+    assert saved.status_code == 200, saved.text
+    done = await client.post(
+        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
+    )
+    assert done.status_code == 200, done.text
+    return rows
+
+
 async def test_the_tutor_can_review_and_finalize_a_mock_submission(
     client, tutor, student, subject, group, monkeypatch, fake_ai
 ):
@@ -467,14 +490,7 @@ async def test_a_student_can_see_and_contest_a_marked_mock(
     mock_id, submission_id = await _sat_and_marked(
         client, tutor, student, subject, group, monkeypatch, fake_ai
     )
-    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
-    rows = detail.json()["marks"]
-    saved = await client.put(
-        f"/api/v1/submissions/{submission_id}/marks",
-        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
-        headers=tutor["headers"],
-    )
-    assert saved.status_code == 200, saved.text
+    rows = await _mark_every_question_and_finalize(client, tutor, submission_id)
 
     # The tutor's audit trail for a mock mark.
     history = await client.get(
@@ -482,11 +498,6 @@ async def test_a_student_can_see_and_contest_a_marked_mock(
         headers=tutor["headers"],
     )
     assert history.status_code == 200, history.text
-
-    done = await client.post(
-        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
-    )
-    assert done.status_code == 200, done.text
 
     feed = await client.get("/api/v1/me/activity", headers=student["headers"])
     assert feed.status_code == 200, feed.text
@@ -609,17 +620,7 @@ async def test_a_mock_can_be_resat_until_its_marks_have_counted(
         ).all()
 
     assert await process_one_job() is True
-    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
-    rows = detail.json()["marks"]
-    await client.put(
-        f"/api/v1/submissions/{submission_id}/marks",
-        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
-        headers=tutor["headers"],
-    )
-    done = await client.post(
-        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
-    )
-    assert done.status_code == 200, done.text
+    await _mark_every_question_and_finalize(client, tutor, submission_id)
 
     closed = await client.post(
         f"/api/v1/mocks/{mock_id}/submissions",
@@ -641,17 +642,7 @@ async def test_a_marked_mock_counts_toward_the_averaging_grade(
     mock_id, submission_id = await _sat_and_marked(
         client, tutor, student, subject, group, monkeypatch, fake_ai
     )
-    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
-    rows = detail.json()["marks"]
-    await client.put(
-        f"/api/v1/submissions/{submission_id}/marks",
-        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
-        headers=tutor["headers"],
-    )
-    done = await client.post(
-        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
-    )
-    assert done.status_code == 200, done.text
+    rows = await _mark_every_question_and_finalize(client, tutor, submission_id)
 
     async with async_session() as session:
         marked = await fetch_marked_rows(session, student["user"]["id"], subject["id"])
