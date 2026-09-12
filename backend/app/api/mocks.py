@@ -46,7 +46,13 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.mock import MockDetail, MockOut, MockQuestionOut, MockSubmissionOut
+from app.schemas.mock import (
+    MockAssignGroup,
+    MockDetail,
+    MockOut,
+    MockQuestionOut,
+    MockSubmissionOut,
+)
 from app.services import storage
 from app.services.attempts import open_attempt
 from app.services.injection_scan import scan_typed_answer
@@ -56,7 +62,7 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/mocks", tags=["mocks"])
 
 
-async def _visible_mock(db, user: User, mock_id: int) -> Mock:
+async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = False) -> Mock:
     """A tutor sees the mocks they set; a student sees a mock set to a group
     they are actually in.
 
@@ -64,8 +70,18 @@ async def _visible_mock(db, user: User, mock_id: int) -> Mock:
     so subject-level scoping would show it to every student the tutor teaches
     that subject to, including ones who never sat it. `SEC-8`'s reason for
     scoping past papers on the pair applies here a step further in.
+
+    `for_update` takes a row lock. Only `assign_mock_group` passes it here;
+    `sit_mock` takes the same lock itself, late, once its uploads are already
+    written — the two must not interleave (one checks that nothing has been
+    submitted, the other creates exactly that submission) but holding the lock
+    across a student's file I/O would make a whole class queue behind whoever
+    submitted first. Reads never pass it.
+
+    On SQLite `with_for_update()` is a no-op, so the suite cannot demonstrate
+    this and only Postgres actually enforces it (`RISK-3`).
     """
-    mock = await db.get(Mock, mock_id)
+    mock = await db.get(Mock, mock_id, with_for_update=for_update)
     if mock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     if user.role == UserRole.admin:
@@ -136,6 +152,16 @@ async def _owned_group(db, group_id: int, user: User) -> Group:
     return group
 
 
+def _group_teaches_subject(group: Group, subject_id: int) -> None:
+    """The one definition of "this class studies this subject" — create_mock and
+    the group-assignment PATCH both enforce it and must not each restate it."""
+    if group.subject_id != subject_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "That class doesn't study this subject",
+        )
+
+
 @router.post("", response_model=MockOut, status_code=status.HTTP_201_CREATED)
 async def create_mock(
     db: DbSession,
@@ -153,11 +179,7 @@ async def create_mock(
     subject = await owned_subject(db, subject_id, user)
     if group_id is not None:
         group = await _owned_group(db, group_id, user)
-        if group.subject_id != subject.id:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "That class doesn't study this subject",
-            )
+        _group_teaches_subject(group, subject.id)
     if not paper.filename:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -253,6 +275,35 @@ async def get_mock(mock_id: int, db: DbSession, user: CurrentUser) -> MockDetail
     )
 
 
+@router.patch("/{mock_id}", response_model=MockOut)
+async def assign_mock_group(
+    mock_id: int,
+    body: MockAssignGroup,
+    db: DbSession,
+    user: TutorUser,
+) -> MockOut:
+    """Set the group for a mock created without one (see `models/mocks.py` on
+    why `group_id` is nullable). Locked once a student has sat it — re-pointing
+    a mock at a different class would leave submissions belonging to students
+    who are no longer its audience.
+    """
+    mock = await _visible_mock(db, user, mock_id, for_update=True)
+    group = await _owned_group(db, body.group_id, user)
+    _group_teaches_subject(group, mock.subject_id)
+    existing_submission = await db.scalar(
+        select(Submission.id).where(Submission.mock_id == mock.id).limit(1)
+    )
+    if existing_submission is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This mock already has submissions — its class can't be changed",
+        )
+    mock.group_id = group.id
+    await db.commit()
+    counts = await _question_counts(db, [mock.id])
+    return _out(mock, counts.get(mock.id, 0), for_tutor=True)
+
+
 @router.get("/{mock_id}/paper", response_class=Response, responses=FILE_RESPONSES)
 async def mock_paper(mock_id: int, db: DbSession, user: CurrentUser) -> Response:
     """The question paper — readable by the students sitting it."""
@@ -310,6 +361,18 @@ async def _submission_out(db, mock: Mock, submission: Submission) -> MockSubmiss
     )
 
 
+async def _discard(saved: list[tuple[str, str, str]]) -> None:
+    """Remove uploads written for a submission that was then rejected.
+
+    They are written before the row lock so a class does not serialise behind
+    one another's file I/O, which means every path that rejects after that point
+    owns their cleanup — an object with no row pointing at it is invisible and
+    can never be found again.
+    """
+    for path, _name, _mime in saved:
+        await storage.delete_file(path)
+
+
 @router.post(
     "/{mock_id}/submissions",
     response_model=MockSubmissionOut,
@@ -333,17 +396,52 @@ async def sit_mock(
             "Add your answers — upload a photo or type them in",
         )
 
-    submission, settled = await open_attempt(db, MOCK, mock.id, user.id)
-    if settled:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
+    # Uploads are written to storage BEFORE the row lock below, deliberately.
+    # A whole class sits a mock at once, and holding `FOR UPDATE` on the single
+    # `mocks` row across every student's file I/O would make them queue behind
+    # one another for the length of an upload. Nothing here touches the mock.
+    saved = [
+        await storage.save_upload(upload, organization_id=user.organization_id)
+        for upload in files or []
+    ]
+
+    # The lock starts here and covers only the check-and-insert. It is what
+    # makes `assign_mock_group`'s 409 real: without it a submission can land
+    # between that handler's check and its commit, leaving the mock pointed at a
+    # class its submissions do not belong to.
+    #
+    # The visibility check is re-run in full under the lock, not just the status
+    # — the tutor may have moved the mock to another group while this student's
+    # upload was being written, and `_visible_mock` is what tests membership. A
+    # status-only recheck would accept a submission from a student who is no
+    # longer in the mock's class.
+    # Every rejection inside the locked region goes through one handler, so no
+    # path can forget the cleanup — `_visible_mock` raises 404 itself when this
+    # student is no longer in the mock's class, which is the case a per-branch
+    # `_discard` call silently missed.
+    #
+    # The rollback comes first and matters: it releases the row lock, so the
+    # storage deletes that follow do not hold a whole class behind them. Nothing
+    # here has written a row worth keeping — that is what makes discarding the
+    # transaction outright the right move rather than a blunt one.
+    try:
+        locked = await _visible_mock(db, user, mock_id, for_update=True)
+        if locked.status != MockStatus.published:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+        submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
+        if settled:
+            raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
+    except HTTPException:
+        await db.rollback()
+        await _discard(saved)
+        raise
 
     submission.typed_answer = typed
     # The deterministic scan (AV-93), run at submission so the verdict is stored
     # before anything is queued and no marking run can start unscanned.
     submission.typed_flag_reason = scan_typed_answer(typed).reason
 
-    for position, upload in enumerate(files or []):
-        path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
+    for position, (path, name, mime) in enumerate(saved):
         db.add(
             SubmissionFile(
                 submission_id=submission.id,

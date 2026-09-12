@@ -1173,7 +1173,14 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Assign Mock Group
+         * @description Set the group for a mock created without one (see `models/mocks.py` on
+         *     why `group_id` is nullable). Locked once a student has sat it — re-pointing
+         *     a mock at a different class would leave submissions belonging to students
+         *     who are no longer its audience.
+         */
+        patch: operations["assign_mock_group_api_v1_mocks__mock_id__patch"];
         trace?: never;
     };
     "/api/v1/mocks/{mock_id}/paper": {
@@ -2566,10 +2573,6 @@ export interface components {
         Body_upload_past_paper_api_v1_past_papers_post: {
             /** Subject Id */
             subject_id: number;
-            /** Session Label */
-            session_label: string;
-            /** Paper Number */
-            paper_number: string;
             /** Booklet */
             booklet: string;
             /** Mark Scheme */
@@ -3132,6 +3135,14 @@ export interface components {
             /** Summary */
             summary?: string | null;
         };
+        /**
+         * MockAssignGroup
+         * @description PATCH body for /mocks/{mock_id}: the only field that route can set.
+         */
+        MockAssignGroup: {
+            /** Group Id */
+            group_id: number;
+        };
         /** MockDetail */
         MockDetail: {
             /** Id */
@@ -3383,10 +3394,12 @@ export interface components {
             submission_id: number;
             /** Past Paper Id */
             past_paper_id: number;
+            /** Title */
+            title: string;
             /** Session Label */
-            session_label: string;
+            session_label: string | null;
             /** Paper Number */
-            paper_number: string;
+            paper_number: string | null;
             /** Subject Name */
             subject_name: string;
             /** Status */
@@ -3413,10 +3426,14 @@ export interface components {
             id: number;
             /** Subject Id */
             subject_id: number;
+            /** Title */
+            title: string | null;
+            /** Display Title */
+            display_title: string;
             /** Session Label */
-            session_label: string;
+            session_label: string | null;
             /** Paper Number */
-            paper_number: string;
+            paper_number: string | null;
             /** Total Marks */
             total_marks: number | null;
             /** Duration Minutes */
@@ -3444,10 +3461,14 @@ export interface components {
             id: number;
             /** Subject Id */
             subject_id: number;
+            /** Title */
+            title: string | null;
+            /** Display Title */
+            display_title: string;
             /** Session Label */
-            session_label: string;
+            session_label: string | null;
             /** Paper Number */
-            paper_number: string;
+            paper_number: string | null;
             /** Total Marks */
             total_marks: number | null;
             /** Duration Minutes */
@@ -6606,6 +6627,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MockDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_mock_group_api_v1_mocks__mock_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MockAssignGroup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockOut"];
                 };
             };
             /** @description Validation Error */

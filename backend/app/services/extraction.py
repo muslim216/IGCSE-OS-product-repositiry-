@@ -42,6 +42,23 @@ class ExtractionResult(BaseModel):
     questions: list[ExtractedQuestion]
 
 
+class PastPaperExtractionResult(ExtractionResult):
+    """Extraction result for a full past paper — same question list, plus the
+    paper's own identity read off the document (the tutor no longer types it,
+    task S3a)."""
+
+    title: str = Field(
+        description="The paper's full name exactly as printed on the document, e.g. "
+        "'Cambridge IGCSE Physics 0625/41 Paper 4 Theory (Extended) October/November 2026'"
+    )
+    session_label: str = Field(
+        description="The exam session printed on the paper, e.g. 'October/November 2026'"
+    )
+    paper_number: str = Field(
+        description="The paper/component number printed on the paper, e.g. 'Paper 4'"
+    )
+
+
 async def _clear_questions(session: AsyncSession, assignment_id: int) -> None:
     existing = (
         await session.scalars(
@@ -170,7 +187,8 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
     paper = await session.get(PastPaper, past_paper_id)
     if paper is None or paper.booklet_path is None:
         return
-    await _clear_past_paper_questions(session, paper.id)
+    if not await _clear_past_paper_questions(session, paper.id):
+        return
     try:
         await _run_past_paper_extraction(session, paper)
         paper.extraction_error = None
@@ -180,22 +198,40 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
         raise
 
 
-async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int) -> None:
+async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int) -> bool:
+    """Empty the question list so extraction can rebuild it.
+
+    Returns False when the list is settled and must not be rebuilt — the caller
+    has to abandon the whole job then, not just skip the delete. Returning None
+    and letting extraction run on regardless is the bug this signature exists to
+    make impossible: the delete is skipped but the insert is not, so the paper
+    ends up holding two question lists.
+    """
     existing = (
         await session.scalars(
             select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper_id)
         )
     ).all()
     if not existing:
-        return
+        return True
+    question_ids = [q.id for q in existing]
+    # Once anyone has been marked against this question list it is settled: a
+    # re-run (an orphan reclaim, `BE-6`) must not delete rows `question_marks`
+    # points at — on Postgres that is an FK violation that fails the job for
+    # good — and must not add a second list beside it either.
+    if await session.scalar(
+        select(QuestionMark.id)
+        .where(QuestionMark.past_paper_question_id.in_(question_ids))
+        .limit(1)
+    ):
+        return False
     await session.execute(
-        delete(PastPaperQuestionTopic).where(
-            PastPaperQuestionTopic.question_id.in_([q.id for q in existing])
-        )
+        delete(PastPaperQuestionTopic).where(PastPaperQuestionTopic.question_id.in_(question_ids))
     )
     await session.execute(
         delete(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper_id)
     )
+    return True
 
 
 async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) -> None:
@@ -217,7 +253,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
         {
             "type": "text",
             "text": (
-                f"This is {paper.session_label} {paper.paper_number}, a full past paper"
+                "This is a full past paper"
                 + (f" worth {paper.total_marks} marks" if paper.total_marks else "")
                 + ". Extract every question in it, in order.\n\n"
                 f"Syllabus topics for this subject:\n{topic_list}\n\n"
@@ -229,7 +265,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
     response = await structured_complete(
         surface="extraction",
         content=content,
-        output_format=ExtractionResult,
+        output_format=PastPaperExtractionResult,
         max_tokens=16000,
     )
     if paper.tutor_id is not None:
@@ -244,6 +280,29 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
     result = require_parsed(response)
     if not result.questions:
         raise ValueError("No questions were found in the past paper")
+    # Clamped to the column widths, the same way `q.number[:16]` is three lines
+    # below. Nothing bounds what a model reads off a document, and an over-long
+    # value does not fail cleanly: the assignment is flushed inside the question
+    # loop, so Postgres raises there, the transaction aborts, and the `commit()`
+    # that would have recorded `extraction_error` for the tutor raises too. The
+    # paper then sits "Untitled paper" for good with nothing explaining why.
+    # SQLite does not enforce VARCHAR length, so no test would ever show it
+    # (`RISK-3`).
+    # Written once, on the run that first names the paper, and never again.
+    #
+    # A plain overwrite is idempotent against the same payload, which is all
+    # `BE-6` asks for — but it is not idempotent against a *tutor edit*, and
+    # that is the state task 3.5 creates: a booklet's papers are named by the
+    # AI, corrected by the tutor, and only then do their question lists get
+    # extracted. That second job would land here and overwrite the correction
+    # with a fresh read of a file holding a dozen papers — frequently wrong as
+    # well as unwanted, with no audit row. `PROD-7` gives the tutor final
+    # authority over everything the AI produces, and `mark_submission` already
+    # takes this exact posture: it never overwrites a tutor-finalized mark.
+    if paper.title is None:
+        paper.title = result.title[:255]
+        paper.session_label = result.session_label[:64]
+        paper.paper_number = result.paper_number[:32]
 
     topic_by_code = {t.code: t for t in topics}
     for position, q in enumerate(result.questions):
@@ -281,7 +340,8 @@ async def extract_mock(session: AsyncSession, payload: dict) -> None:
     mock = await session.get(Mock, mock_id)
     if mock is None:
         return
-    await _clear_mock_questions(session, mock.id)
+    if not await _clear_mock_questions(session, mock.id):
+        return
     try:
         await _run_mock_extraction(session, mock)
         mock.status = MockStatus.published
@@ -293,24 +353,28 @@ async def extract_mock(session: AsyncSession, payload: dict) -> None:
         raise
 
 
-async def _clear_mock_questions(session: AsyncSession, mock_id: int) -> None:
+async def _clear_mock_questions(session: AsyncSession, mock_id: int) -> bool:
+    """As `_clear_past_paper_questions` — False means the list is settled and
+    the caller must abandon the job rather than rebuild it."""
     existing = (
         await session.scalars(select(MockQuestion).where(MockQuestion.mock_id == mock_id))
     ).all()
     if not existing:
-        return
+        return True
     question_ids = [q.id for q in existing]
     # Once anyone has been marked against this question list it is settled: a
     # re-run (an orphan reclaim, `BE-6`) must not delete rows `question_marks`
-    # points at. On Postgres that is an FK violation that fails the job for good.
+    # points at — on Postgres that is an FK violation that fails the job for
+    # good — and must not add a second list beside it either.
     if await session.scalar(
         select(QuestionMark.id).where(QuestionMark.mock_question_id.in_(question_ids)).limit(1)
     ):
-        return
+        return False
     await session.execute(
         delete(MockQuestionTopic).where(MockQuestionTopic.question_id.in_(question_ids))
     )
     await session.execute(delete(MockQuestion).where(MockQuestion.mock_id == mock_id))
+    return True
 
 
 async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:

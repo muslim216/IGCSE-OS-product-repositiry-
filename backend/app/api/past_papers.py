@@ -13,6 +13,7 @@ Two rules specific to past papers:
 - **The mark scheme is tutor-only.** Students can read the question booklet.
 """
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
 
@@ -94,17 +95,30 @@ async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
 
 
-async def _out(db, paper: PastPaper, *, for_tutor: bool) -> PastPaperOut:
-    count = (
-        await db.scalar(
-            select(func.count(PastPaperQuestion.id)).where(
-                PastPaperQuestion.past_paper_id == paper.id
-            )
-        )
-    ) or 0
+async def _question_counts(db, past_paper_ids: Sequence[int]) -> dict[int, int]:
+    """Question counts for a page of papers in one round trip, not one per row.
+
+    The same shape as `_question_counts` in `api/mocks.py`, added here when the
+    tutor's list grew a 3s poll while any paper is mid-extraction: the per-row
+    count that cost one extra query per page load now costs one per paper every
+    three seconds, for as long as the extraction job runs.
+    """
+    if not past_paper_ids:
+        return {}
+    rows = await db.execute(
+        select(PastPaperQuestion.past_paper_id, func.count(PastPaperQuestion.id))
+        .where(PastPaperQuestion.past_paper_id.in_(past_paper_ids))
+        .group_by(PastPaperQuestion.past_paper_id)
+    )
+    return dict(rows.all())
+
+
+def _out(paper: PastPaper, count: int, *, for_tutor: bool) -> PastPaperOut:
     return PastPaperOut(
         id=paper.id,
         subject_id=paper.subject_id,
+        title=paper.title,
+        display_title=paper.display_title,
         session_label=paper.session_label,
         paper_number=paper.paper_number,
         total_marks=paper.total_marks,
@@ -121,8 +135,6 @@ async def upload_past_paper(
     db: DbSession,
     user: TutorUser,
     subject_id: Annotated[int, Form()],
-    session_label: Annotated[str, Form(min_length=1, max_length=64)],
-    paper_number: Annotated[str, Form(min_length=1, max_length=32)],
     booklet: Annotated[UploadFile, File()],
     mark_scheme: Annotated[UploadFile, File()],
     total_marks: Annotated[int | None, Form()] = None,
@@ -148,8 +160,6 @@ async def upload_past_paper(
         organization_id=user.organization_id,
         tutor_id=user.id,
         subject_id=subject.id,
-        session_label=session_label,
-        paper_number=paper_number,
         total_marks=total_marks,
         duration_minutes=duration_minutes,
         booklet_path=booklet_path,
@@ -163,7 +173,9 @@ async def upload_past_paper(
     await db.flush()
     await enqueue(db, "extract_past_paper", {"past_paper_id": paper.id})
     await db.commit()
-    return await _out(db, paper, for_tutor=True)
+    # Extraction was only just enqueued, so the count is 0 by construction —
+    # no point asking the database.
+    return _out(paper, 0, for_tutor=True)
 
 
 @router.get("", response_model=list[PastPaperOut])
@@ -191,7 +203,8 @@ async def list_past_papers(
     if subject_id is not None:
         query = query.where(PastPaper.subject_id == subject_id)
     papers = (await db.scalars(query.order_by(PastPaper.id.desc()))).all()
-    return [await _out(db, p, for_tutor=for_tutor) for p in papers]
+    counts = await _question_counts(db, [p.id for p in papers])
+    return [_out(p, counts.get(p.id, 0), for_tutor=for_tutor) for p in papers]
 
 
 @router.get("/{past_paper_id}", response_model=PastPaperDetail)
@@ -200,7 +213,9 @@ async def past_paper_detail(
 ) -> PastPaperDetail:
     paper = await _visible_paper(db, user, past_paper_id)
     for_tutor = user.role in (UserRole.tutor, UserRole.admin)
-    base = await _out(db, paper, for_tutor=for_tutor)
+    base = _out(
+        paper, (await _question_counts(db, [paper.id])).get(paper.id, 0), for_tutor=for_tutor
+    )
     questions = (
         await db.scalars(
             select(PastPaperQuestion)
@@ -263,6 +278,7 @@ async def _attempt_out(db, submission: Submission) -> PastPaperAttemptOut:
     return PastPaperAttemptOut(
         submission_id=submission.id,
         past_paper_id=paper.id,
+        title=paper.display_title,
         session_label=paper.session_label,
         paper_number=paper.paper_number,
         subject_name=subject.name if subject else "",

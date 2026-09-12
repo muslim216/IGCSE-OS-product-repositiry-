@@ -3196,6 +3196,62 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Assign Mock Group",
+        "description": "Set the group for a mock created without one (see `models/mocks.py` on\nwhy `group_id` is nullable). Locked once a student has sat it \u2014 re-pointing\na mock at a different class would leave submissions belonging to students\nwho are no longer its audience.",
+        "operationId": "assign_mock_group_api_v1_mocks__mock_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MockAssignGroup"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MockOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/mocks/{mock_id}/paper": {
@@ -7500,18 +7556,6 @@
             "type": "integer",
             "title": "Subject Id"
           },
-          "session_label": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Session Label"
-          },
-          "paper_number": {
-            "type": "string",
-            "maxLength": 32,
-            "minLength": 1,
-            "title": "Paper Number"
-          },
           "booklet": {
             "type": "string",
             "contentMediaType": "application/octet-stream",
@@ -7548,8 +7592,6 @@
         "type": "object",
         "required": [
           "subject_id",
-          "session_label",
-          "paper_number",
           "booklet",
           "mark_scheme"
         ],
@@ -9071,6 +9113,20 @@
         ],
         "title": "MarkingRulesOut"
       },
+      "MockAssignGroup": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id"
+        ],
+        "title": "MockAssignGroup",
+        "description": "PATCH body for /mocks/{mock_id}: the only field that route can set."
+      },
       "MockDetail": {
         "properties": {
           "id": {
@@ -9803,12 +9859,30 @@
             "type": "integer",
             "title": "Past Paper Id"
           },
-          "session_label": {
+          "title": {
             "type": "string",
+            "title": "Title"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Label"
           },
           "paper_number": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Paper Number"
           },
           "subject_name": {
@@ -9878,6 +9952,7 @@
         "required": [
           "submission_id",
           "past_paper_id",
+          "title",
           "session_label",
           "paper_number",
           "subject_name",
@@ -9899,12 +9974,41 @@
             "type": "integer",
             "title": "Subject Id"
           },
-          "session_label": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "display_title": {
             "type": "string",
+            "title": "Display Title"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Label"
           },
           "paper_number": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Paper Number"
           },
           "total_marks": {
@@ -9980,6 +10084,8 @@
         "required": [
           "id",
           "subject_id",
+          "title",
+          "display_title",
           "session_label",
           "paper_number",
           "total_marks",
@@ -9998,12 +10104,41 @@
             "type": "integer",
             "title": "Subject Id"
           },
-          "session_label": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "display_title": {
             "type": "string",
+            "title": "Display Title"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Session Label"
           },
           "paper_number": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Paper Number"
           },
           "total_marks": {
@@ -10071,6 +10206,8 @@
         "required": [
           "id",
           "subject_id",
+          "title",
+          "display_title",
           "session_label",
           "paper_number",
           "total_marks",

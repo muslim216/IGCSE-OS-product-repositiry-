@@ -583,7 +583,7 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
                     if assignment
                     else mock.title
                     if mock
-                    else f"{past_paper.session_label} {past_paper.paper_number}"
+                    else past_paper.display_title
                 ),
                 student_id=student.id,
                 student_name=student.name,
@@ -603,7 +603,7 @@ async def submission_detail(
     student = await db.get(User, submission.student_id)
     if submission.past_paper_id is not None:
         paper = await db.get(PastPaper, submission.past_paper_id)
-        title = f"{paper.session_label} {paper.paper_number}"
+        title = paper.display_title
     elif submission.mock_id is not None:
         mock = await db.get(Mock, submission.mock_id)
         title = mock.title

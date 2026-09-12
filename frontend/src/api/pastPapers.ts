@@ -1,45 +1,16 @@
 import { api } from "./client";
+import type { components } from "./schema";
 
-export interface PastPaperQuestion {
-  id: number;
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  has_mark_scheme: boolean;
-}
-
-export interface PastPaper {
-  id: number;
-  subject_id: number;
-  session_label: string;
-  paper_number: string;
-  total_marks: number | null;
-  duration_minutes: number | null;
-  booklet_name: string | null;
-  /** Tutors only — students never receive the mark scheme's name or file. */
-  mark_scheme_name: string | null;
-  extraction_error: string | null;
-  question_count: number;
-}
-
-export interface PastPaperDetail extends PastPaper {
-  questions: PastPaperQuestion[];
-}
-
-export interface PastPaperAttempt {
-  submission_id: number;
-  past_paper_id: number;
-  session_label: string;
-  paper_number: string;
-  subject_name: string;
-  status: string;
-  timed: boolean;
-  time_taken_minutes: number | null;
-  attempted_at: string | null;
-  submitted_at: string;
-  raw_marks: number | null;
-  max_marks: number | null;
-}
+/** Aliased from the generated schema rather than hand-mirrored (`FE-4`).
+ *
+ *  The AI names the paper at extraction time, so `title` is **null** until that
+ *  has run — as are `session_label` and `paper_number`. Render `display_title`,
+ *  which is the same value with the server's "Untitled paper" fallback already
+ *  applied; read `title` only where you need to know whether a real name exists
+ *  yet, such as a form that writes one back. */
+export type PastPaper = components["schemas"]["PastPaperOut"];
+export type PastPaperDetail = components["schemas"]["PastPaperDetail"];
+export type PastPaperAttempt = components["schemas"]["PastPaperAttemptOut"];
 
 export const listPastPapers = (subjectId?: number) =>
   api<PastPaper[]>(`/api/v1/past-papers${subjectId ? `?subject_id=${subjectId}` : ""}`);
@@ -48,8 +19,6 @@ export const getPastPaper = (id: number) => api<PastPaperDetail>(`/api/v1/past-p
 
 export function uploadPastPaper(payload: {
   subject_id: number;
-  session_label: string;
-  paper_number: string;
   booklet: File;
   /** Required: a full paper's marks can't rest on the AI's judgement alone. */
   mark_scheme: File;
@@ -58,8 +27,6 @@ export function uploadPastPaper(payload: {
 }) {
   const form = new FormData();
   form.append("subject_id", String(payload.subject_id));
-  form.append("session_label", payload.session_label);
-  form.append("paper_number", payload.paper_number);
   form.append("booklet", payload.booklet);
   form.append("mark_scheme", payload.mark_scheme);
   if (payload.total_marks) form.append("total_marks", String(payload.total_marks));

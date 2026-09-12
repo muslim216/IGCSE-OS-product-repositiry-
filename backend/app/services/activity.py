@@ -37,7 +37,7 @@ def _work_title(
     if assignment is not None:
         return assignment.title
     if past_paper is not None:
-        return f"{past_paper.session_label} {past_paper.paper_number}"
+        return past_paper.display_title
     if mock is not None:
         return mock.title
     return "Work"

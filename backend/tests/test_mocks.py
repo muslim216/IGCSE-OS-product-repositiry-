@@ -647,3 +647,271 @@ async def test_a_marked_mock_counts_toward_the_averaging_grade(
     async with async_session() as session:
         marked = await fetch_marked_rows(session, student["user"]["id"], subject["id"])
     assert [r.submission_id for r in marked] == [submission_id] * len(rows)
+
+
+# --- assigning a group after creation (S2, AV-116) --------------------------
+
+
+async def test_a_tutor_can_assign_a_group_after_the_mock_is_created(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """`Mock.group_id` is nullable precisely so this can happen later — the PATCH
+    is the only way out of the state `test_a_mock_with_no_group_is_invisible_to_
+    every_student` proves is otherwise permanent."""
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    created = await client.post(
+        "/api/v1/mocks",
+        data={"subject_id": str(subject["id"]), "title": "Unassigned mock"},
+        files={"paper": ("mock.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+    assert await process_one_job() is True
+
+    mine_before = await client.get("/api/v1/mocks/mine", headers=student["headers"])
+    assert created.json()["id"] not in [m["id"] for m in mine_before.json()]
+
+    patched = await client.patch(
+        f"/api/v1/mocks/{created.json()['id']}",
+        json={"group_id": group["id"]},
+        headers=tutor["headers"],
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["group_id"] == group["id"]
+
+    mine_after = await client.get("/api/v1/mocks/mine", headers=student["headers"])
+    assert created.json()["id"] in [m["id"] for m in mine_after.json()]
+
+
+async def test_assigning_a_group_another_tutor_gets_404(client, mock_paper, group):
+    """API-7/SEC-9: another tutor's PATCH on this mock must look like the mock
+    doesn't exist, not like it exists and isn't theirs."""
+    reg = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Other", "email": "other-assign@example.com", "password": "password123"},
+    )
+    assert reg.status_code == 201, reg.text
+    headers = {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"}
+    resp = await client.patch(
+        f"/api/v1/mocks/{mock_paper['id']}",
+        json={"group_id": group["id"]},
+        headers=headers,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+async def test_assigning_a_group_a_student_gets_403(client, student, mock_paper, group):
+    """BE-17/SEC-11: the role gate is `TutorUser` in the signature."""
+    resp = await client.patch(
+        f"/api/v1/mocks/{mock_paper['id']}",
+        json={"group_id": group["id"]},
+        headers=student["headers"],
+    )
+    assert resp.status_code == 403
+
+
+async def test_assigning_a_group_owned_by_another_tutor_gets_404(client, tutor, subject):
+    """`_owned_group` is reused as-is: a class that isn't this tutor's is 404,
+    same as every other route that resolves a group_id."""
+    from app.db import async_session
+    from tests.factories import subject_for_tutor
+
+    reg = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Rival", "email": "rival@example.com", "password": "password123"},
+    )
+    assert reg.status_code == 201, reg.text
+    rival_headers = {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"}
+    async with async_session() as session:
+        rival_subject = await subject_for_tutor(session, "rival@example.com")
+        await session.commit()
+        rival_subject_id = rival_subject.id
+    rival_group = await client.post(
+        "/api/v1/groups",
+        json={"name": "Rival group", "subject_id": rival_subject_id},
+        headers=rival_headers,
+    )
+    assert rival_group.status_code == 201, rival_group.text
+
+    created = await client.post(
+        "/api/v1/mocks",
+        data={"subject_id": str(subject["id"]), "title": "Needs a group"},
+        files={"paper": ("mock.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+
+    resp = await client.patch(
+        f"/api/v1/mocks/{created.json()['id']}",
+        json={"group_id": rival_group.json()["id"]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 404, resp.text
+
+
+async def test_assigning_a_group_studying_a_different_subject_gets_422(client, tutor, subject):
+    """The same condition `create_mock` enforces at create time, reused rather
+    than restated (one definition, per the spec)."""
+    from app.db import async_session
+    from tests.factories import make_subject
+
+    async with async_session() as session:
+        physics = await make_subject(session, code="4PH1", name="Physics")
+        await session.commit()
+        physics_id = physics.id
+    other_group = await client.post(
+        "/api/v1/groups",
+        json={"name": "Physics Y10", "subject_id": physics_id},
+        headers=tutor["headers"],
+    )
+    assert other_group.status_code == 201, other_group.text
+
+    created = await client.post(
+        "/api/v1/mocks",
+        data={"subject_id": str(subject["id"]), "title": "Chem mock"},
+        files={"paper": ("mock.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+
+    resp = await client.patch(
+        f"/api/v1/mocks/{created.json()['id']}",
+        json={"group_id": other_group.json()["id"]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_assigning_a_group_after_a_student_has_sat_the_mock_gets_409(
+    client, tutor, student, mock_paper, subject
+):
+    """Once a student has sat it the group is frozen — re-pointing the mock
+    would leave that submission belonging to a student no longer its audience."""
+    sat = await client.post(
+        f"/api/v1/mocks/{mock_paper['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert sat.status_code == 201, sat.text
+
+    other_group = await client.post(
+        "/api/v1/groups",
+        json={"name": "Chem Y11", "subject_id": subject["id"]},
+        headers=tutor["headers"],
+    )
+    assert other_group.status_code == 201, other_group.text
+
+    resp = await client.patch(
+        f"/api/v1/mocks/{mock_paper['id']}",
+        json={"group_id": other_group.json()["id"]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 409, resp.text
+
+
+async def test_re_extraction_leaves_a_marked_question_list_alone(
+    client, student, mock_paper, monkeypatch, fake_ai
+):
+    """The guard in `_clear_mock_questions` has to abandon the whole job, not
+    just skip the delete.
+
+    Once a student has been marked against this question list, re-running
+    extraction — which an orphan reclaim does on its own (`BE-6`) — must not
+    delete the rows `question_marks` points at, because on Postgres that is an
+    FK violation that fails the job for good. Skipping only the delete is worse
+    than useless though: extraction carries on and inserts a *second* list
+    beside the first, so the tutor's review screen shows every question twice.
+    This asserts the list is untouched and the handler returns cleanly.
+    """
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
+    resp = await client.post(
+        f"/api/v1/mocks/{mock_paper['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True  # marking, which writes QuestionMarks
+
+    from app.services.extraction import extract_mock
+
+    async with async_session() as session:
+        before = (
+            await session.scalars(
+                select(MockQuestion).where(MockQuestion.mock_id == mock_paper["id"])
+            )
+        ).all()
+        assert len(before) == 2
+        # The `mock_paper` fixture's extraction double is still patched in (the
+        # monkeypatch is function-scoped), so a regressed guard would NOT fail
+        # on the model call — it would quietly succeed and insert a second list.
+        # The id comparison below is what catches that, which is why it compares
+        # ids rather than a count: two identical lists have twice the rows but
+        # the same length per question number.
+        await extract_mock(session, {"mock_id": mock_paper["id"]})
+        await session.commit()
+        after = (
+            await session.scalars(
+                select(MockQuestion).where(MockQuestion.mock_id == mock_paper["id"])
+            )
+        ).all()
+        assert [q.id for q in after] == [q.id for q in before]
+
+
+async def test_a_student_removed_from_the_class_mid_upload_cannot_finish_sitting(
+    client, student, mock_paper, group, monkeypatch
+):
+    """Visibility is re-checked under the row lock, not only at the top.
+
+    Uploads are written before the lock so a class does not serialise behind
+    each other's file I/O, and that opens a window: the tutor can move the mock
+    to another group, or drop this student, while the upload is in flight. A
+    recheck that tested only `status` would accept the submission anyway and
+    file a student's work under a class they are not in.
+
+    The removal happens *inside* `save_upload` deliberately. Doing it before the
+    request would be caught by the check at the top of the handler, and the test
+    would pass whether the recheck under the lock existed or not.
+    """
+    from app.models import GroupMember
+    from app.services import storage as storage_module
+
+    real_save = storage_module.save_upload
+
+    async def save_then_drop_the_student(upload, **kwargs):
+        result = await real_save(upload, **kwargs)
+        async with async_session() as session:
+            member = await session.scalar(
+                select(GroupMember).where(
+                    GroupMember.group_id == group["id"],
+                    GroupMember.student_id == student["user"]["id"],
+                )
+            )
+            assert member is not None
+            await session.delete(member)
+            await session.commit()
+        return result
+
+    monkeypatch.setattr("app.api.mocks.storage.save_upload", save_then_drop_the_student)
+
+    discarded: list[str] = []
+
+    async def record_delete(key: str) -> None:
+        discarded.append(key)
+
+    monkeypatch.setattr("app.api.mocks.storage.delete_file", record_delete)
+
+    resp = await client.post(
+        f"/api/v1/mocks/{mock_paper['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    # 404, not 403 — the mock's existence is not theirs to learn (`API-7`).
+    assert resp.status_code == 404, resp.text
+    async with async_session() as session:
+        assert (
+            await session.scalar(select(Submission).where(Submission.mock_id == mock_paper["id"]))
+        ) is None
+    # And the upload written before the lock is cleaned up. Asserting only the
+    # rejection would pass while leaving a file on disk that nothing references
+    # and that nothing can ever find again.
+    assert len(discarded) == 1

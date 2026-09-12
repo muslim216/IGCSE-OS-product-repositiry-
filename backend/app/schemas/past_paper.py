@@ -14,8 +14,23 @@ class PastPaperQuestionOut(BaseModel):
 class PastPaperOut(BaseModel):
     id: int
     subject_id: int
-    session_label: str
-    paper_number: str
+    # `title` is what extraction actually read off the document, and is null
+    # until it has run. `display_title` is that with the "Untitled paper"
+    # fallback applied.
+    #
+    # Both are on the wire deliberately. A single non-null `title` carrying the
+    # fallback would make "not read yet" indistinguishable from "a paper
+    # genuinely called that" — and task 3.5's review screen is a round-trip
+    # form, so an unedited row would write the literal string "Untitled paper"
+    # back into the column, which is the fabricated value `PROD-2` exists to
+    # prevent. Anything that only displays reads `display_title`; anything that
+    # edits reads `title`.
+    title: str | None
+    display_title: str
+    # AI-filled alongside `title`; the tutor no longer types either, so both
+    # are absent on a paper whose extraction hasn't run yet.
+    session_label: str | None
+    paper_number: str | None
     total_marks: int | None
     duration_minutes: int | None
     booklet_name: str | None
@@ -32,8 +47,9 @@ class PastPaperDetail(PastPaperOut):
 class PastPaperAttemptOut(BaseModel):
     submission_id: int
     past_paper_id: int
-    session_label: str
-    paper_number: str
+    title: str
+    session_label: str | None
+    paper_number: str | None
     subject_name: str
     status: str
     timed: bool
