@@ -50,10 +50,11 @@ from app.schemas.homework import (
     TypedAnswerOut,
 )
 from app.services import storage
+from app.services.attempts import open_attempt
 from app.services.groups import review_queue_predicate
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
-from app.services.submission_kind import kind_of
+from app.services.submission_kind import HOMEWORK, kind_of
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
@@ -160,29 +161,11 @@ async def submit_work(
             "Add your answers — upload a photo or type them in",
         )
 
-    submission = await db.scalar(
-        select(Submission)
-        .where(Submission.assignment_id == assignment_id, Submission.student_id == user.id)
-        .options(selectinload(Submission.files), selectinload(Submission.marks))
-    )
-    if submission is not None and submission.status in SETTLED_STATUSES:
+    submission, settled = await open_attempt(db, HOMEWORK, assignment_id, user.id)
+    if settled:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This homework has already been marked and finalized"
         )
-    if submission is None:
-        submission = Submission(assignment_id=assignment_id, student_id=user.id)
-        db.add(submission)
-        await db.flush()
-    else:
-        # Resubmission before finalize: replace the files and restart marking.
-        for f in submission.files:
-            await db.delete(f)
-        for m in submission.marks:
-            await db.delete(m)
-        submission.status = SubmissionStatus.submitted
-        submission.ai_error = None
-        submission.submitted_at = datetime.now(timezone.utc)
-        await db.flush()
 
     # Replaced, never merged with what a previous attempt typed — the same rule
     # the files above follow. A resubmission is the whole answer again.

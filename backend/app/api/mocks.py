@@ -16,12 +16,11 @@ What differs from a past paper:
 """
 
 from collections.abc import Sequence
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
     CurrentUser,
@@ -44,13 +43,14 @@ from app.models import (
     Subject,
     Submission,
     SubmissionFile,
-    SubmissionStatus,
     User,
     UserRole,
 )
 from app.schemas.mock import MockDetail, MockOut, MockQuestionOut, MockSubmissionOut
 from app.services import storage
+from app.services.attempts import open_attempt
 from app.services.injection_scan import scan_typed_answer
+from app.services.submission_kind import MOCK
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/mocks", tags=["mocks"])
@@ -333,28 +333,9 @@ async def sit_mock(
             "Add your answers — upload a photo or type them in",
         )
 
-    submission = await db.scalar(
-        select(Submission)
-        .where(Submission.mock_id == mock.id, Submission.student_id == user.id)
-        .options(selectinload(Submission.files), selectinload(Submission.marks))
-    )
-    if submission is not None and submission.status in SETTLED_STATUSES:
+    submission, settled = await open_attempt(db, MOCK, mock.id, user.id)
+    if settled:
         raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
-    if submission is None:
-        submission = Submission(mock_id=mock.id, student_id=user.id)
-        db.add(submission)
-        await db.flush()
-    else:
-        for f in submission.files:
-            await db.delete(f)
-        for m in submission.marks:
-            await db.delete(m)
-        submission.status = SubmissionStatus.submitted
-        submission.ai_error = None
-        # The review queue orders by this, so a resit that kept its first
-        # attempt's timestamp would sort as though it never happened.
-        submission.submitted_at = datetime.now(timezone.utc)
-        await db.flush()
 
     submission.typed_answer = typed
     # The deterministic scan (AV-93), run at submission so the verdict is stored

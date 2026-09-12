@@ -18,7 +18,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import and_, false, func, or_, select
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, owned_subject
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
@@ -32,7 +31,6 @@ from app.models import (
     Subject,
     Submission,
     SubmissionFile,
-    SubmissionStatus,
     User,
     UserRole,
 )
@@ -43,6 +41,8 @@ from app.schemas.past_paper import (
     PastPaperQuestionOut,
 )
 from app.services import storage
+from app.services.attempts import open_attempt
+from app.services.submission_kind import PAST_PAPER
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
@@ -296,28 +296,11 @@ async def log_attempt(
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
 
-    submission = await db.scalar(
-        select(Submission)
-        .where(Submission.past_paper_id == paper.id, Submission.student_id == user.id)
-        .options(selectinload(Submission.files), selectinload(Submission.marks))
-    )
-    if submission is not None and submission.status in SETTLED_STATUSES:
+    submission, settled = await open_attempt(db, PAST_PAPER, paper.id, user.id)
+    if settled:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "You've already logged this paper and it's been marked"
         )
-    if submission is None:
-        submission = Submission(past_paper_id=paper.id, student_id=user.id)
-        db.add(submission)
-        await db.flush()
-    else:
-        # Re-logging before it settled: replace the pages and re-mark.
-        for f in list(submission.files):
-            await db.delete(f)
-        for m in list(submission.marks):
-            await db.delete(m)
-        submission.status = SubmissionStatus.submitted
-        submission.ai_error = None
-        await db.flush()
 
     submission.timed = timed
     submission.time_taken_minutes = time_taken_minutes

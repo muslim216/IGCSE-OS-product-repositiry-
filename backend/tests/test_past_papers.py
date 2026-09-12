@@ -433,3 +433,34 @@ async def test_a_tutor_can_review_and_finalize_a_past_paper_attempt(
     assert (
         await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])
     ).json() == []
+
+
+async def test_relogging_a_paper_moves_it_back_up_the_review_queue(client, student, past_paper):
+    """Re-logging replaces the attempt, so the clock restarts with it.
+
+    The review queue orders by `submitted_at`. Keeping the first attempt's
+    timestamp buries a replacement below work the tutor has already seen — it
+    sorts as though the student never came back to it. Homework had always got
+    this right and the past-paper copy of the same block had not, which is why
+    all three arms now share `services/attempts.open_attempt`.
+    """
+    first = await _log_attempt(client, student, past_paper["id"])
+    assert first.status_code in (200, 201), first.text
+    async with async_session() as session:
+        before = (
+            await session.scalar(
+                select(Submission).where(Submission.past_paper_id == past_paper["id"])
+            )
+        ).submitted_at
+
+    again = await _log_attempt(client, student, past_paper["id"])
+    assert again.status_code in (200, 201), again.text
+    async with async_session() as session:
+        rows = (
+            await session.scalars(
+                select(Submission).where(Submission.past_paper_id == past_paper["id"])
+            )
+        ).all()
+    # Replaced, not appended — one attempt per student per paper.
+    assert len(rows) == 1
+    assert rows[0].submitted_at > before
