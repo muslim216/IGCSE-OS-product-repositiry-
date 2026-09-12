@@ -415,18 +415,26 @@ async def sit_mock(
     # upload was being written, and `_visible_mock` is what tests membership. A
     # status-only recheck would accept a submission from a student who is no
     # longer in the mock's class.
-    locked = await _visible_mock(db, user, mock_id, for_update=True)
-    if locked.status != MockStatus.published:
+    # Every rejection inside the locked region goes through one handler, so no
+    # path can forget the cleanup — `_visible_mock` raises 404 itself when this
+    # student is no longer in the mock's class, which is the case a per-branch
+    # `_discard` call silently missed.
+    #
+    # The rollback comes first and matters: it releases the row lock, so the
+    # storage deletes that follow do not hold a whole class behind them. Nothing
+    # here has written a row worth keeping — that is what makes discarding the
+    # transaction outright the right move rather than a blunt one.
+    try:
+        locked = await _visible_mock(db, user, mock_id, for_update=True)
+        if locked.status != MockStatus.published:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+        submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
+        if settled:
+            raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
+    except HTTPException:
+        await db.rollback()
         await _discard(saved)
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
-
-    submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
-    if settled:
-        # Nothing will ever reference these: the request is rejected and the
-        # rows that would have pointed at them are never created. An object with
-        # no row pointing at it is invisible and can never be cleaned up.
-        await _discard(saved)
-        raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
+        raise
 
     submission.typed_answer = typed
     # The deterministic scan (AV-93), run at submission so the verdict is stored

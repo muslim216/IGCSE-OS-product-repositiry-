@@ -893,6 +893,13 @@ async def test_a_student_removed_from_the_class_mid_upload_cannot_finish_sitting
 
     monkeypatch.setattr("app.api.mocks.storage.save_upload", save_then_drop_the_student)
 
+    discarded: list[str] = []
+
+    async def record_delete(key: str) -> None:
+        discarded.append(key)
+
+    monkeypatch.setattr("app.api.mocks.storage.delete_file", record_delete)
+
     resp = await client.post(
         f"/api/v1/mocks/{mock_paper['id']}/submissions",
         files={"files": ("page1.png", PNG_BYTES, "image/png")},
@@ -904,3 +911,7 @@ async def test_a_student_removed_from_the_class_mid_upload_cannot_finish_sitting
         assert (
             await session.scalar(select(Submission).where(Submission.mock_id == mock_paper["id"]))
         ) is None
+    # And the upload written before the lock is cleaned up. Asserting only the
+    # rejection would pass while leaving a file on disk that nothing references
+    # and that nothing can ever find again.
+    assert len(discarded) == 1
