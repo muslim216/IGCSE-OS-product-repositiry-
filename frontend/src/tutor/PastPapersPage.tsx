@@ -25,7 +25,8 @@ type PaperRow = NonNullable<Awaited<ReturnType<typeof listPastPapers>>>[number];
 function statusLine(p: PaperRow): string {
   if (p.extraction_error) return `Couldn't read this paper: ${p.extraction_error}`;
   if (p.question_count > 0) {
-    return `${p.question_count} questions${p.total_marks ? ` · ${p.total_marks} marks` : ""}`;
+    const marks = p.total_marks ? ` · ${p.total_marks} marks` : "";
+    return `${p.question_count} questions${marks}`;
   }
   return "Reading the questions out of the paper…";
 }
