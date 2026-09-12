@@ -82,8 +82,17 @@ class PastPaper(TimestampMixin, Base):
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     tutor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
-    session_label: Mapped[str] = mapped_column(String(64), nullable=False)  # e.g. "November 2026"
-    paper_number: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. "Paper 1"
+    # The paper's own name, read off the document by extraction — never typed
+    # by the tutor. e.g. "Cambridge IGCSE Physics 0625/41 Paper 4 Theory
+    # (Extended) October/November 2026". Null until extraction has run; see
+    # `display_title` for what every call site actually renders (PROD-2).
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # AI-filled from the document alongside `title` — the tutor no longer
+    # types either. Null until extraction runs.
+    session_label: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )  # e.g. "November 2026"
+    paper_number: Mapped[str | None] = mapped_column(String(32), nullable=True)  # e.g. "Paper 1"
     total_marks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # How long the real exam allows, so a student's self-declared time_taken
     # means something.
@@ -98,6 +107,14 @@ class PastPaper(TimestampMixin, Base):
     mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def display_title(self) -> str:
+        """The name every site actually shows for this paper. AI-filled from
+        the document once extraction runs; "Untitled paper" until then or if
+        extraction never produced one — never the tutor's old typed guess
+        (`PROD-2`: absent data is shown as absent, not fabricated)."""
+        return self.title or "Untitled paper"
 
 
 class PastPaperQuestion(Base):

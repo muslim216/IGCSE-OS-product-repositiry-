@@ -470,6 +470,10 @@ async def main() -> None:
         past_paper = PastPaper(
             organization_id=org.id,
             subject_id=subject.id,
+            # Set explicitly because the seed never runs extraction, and an
+            # unnamed paper renders as "Untitled paper" everywhere the demo
+            # shows it — the library, the activity feed, and the marking prompt.
+            title=f"{subject.exam_board} {subject.name} {subject.code}/11 Paper 1 June 2026",
             session_label="June 2026",
             paper_number="Paper 1",
         )

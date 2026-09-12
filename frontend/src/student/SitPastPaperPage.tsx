@@ -56,9 +56,7 @@ export default function SitPastPaperPage() {
       </Link>
 
       <div>
-        <h2 className="text-xl font-semibold text-slate-800">
-          {p.session_label} · {p.paper_number}
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-800">{p.display_title}</h2>
         <p className="text-sm text-slate-500">
           {p.total_marks ? `${p.total_marks} marks` : ""}
           {p.duration_minutes ? ` · ${p.duration_minutes} minutes allowed` : ""}

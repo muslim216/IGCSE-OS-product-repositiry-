@@ -23,9 +23,7 @@ export default function PastPapersPage() {
             to={`/student/past-papers/${p.id}`}
             className="rounded-lg border bg-white p-4 hover:border-blue-400"
           >
-            <div className="font-medium text-slate-800">
-              {p.session_label} · {p.paper_number}
-            </div>
+            <div className="font-medium text-slate-800">{p.display_title}</div>
             <div className="mt-1 text-sm text-slate-500">
               {p.total_marks ? `${p.total_marks} marks` : "Marks not set"}
               {p.duration_minutes ? ` · ${p.duration_minutes} minutes` : ""}

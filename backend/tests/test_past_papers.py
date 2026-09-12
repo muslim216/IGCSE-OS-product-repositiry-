@@ -8,6 +8,7 @@ from app.db import async_session
 from app.models import (
     Evidence,
     EvidenceSource,
+    PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
     QuestionMark,
@@ -20,10 +21,13 @@ from tests.factories import subject_defaults
 
 
 def _extraction_double(fake_ai):
-    from app.services.extraction import ExtractedQuestion, ExtractionResult
+    from app.services.extraction import ExtractedQuestion, PastPaperExtractionResult
 
     return fake_ai(
-        ExtractionResult(
+        PastPaperExtractionResult(
+            title="Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice November 2026",
+            session_label="November 2026",
+            paper_number="Paper 2",
             questions=[
                 ExtractedQuestion(
                     number="1",
@@ -39,7 +43,7 @@ def _extraction_double(fake_ai):
                     topic_codes=["1.6"],
                     has_mark_scheme=True,
                 ),
-            ]
+            ],
         )
     )
 
@@ -77,8 +81,6 @@ async def _upload(client, tutor, subject, *, with_scheme=True):  # noqa: F811
         "/api/v1/past-papers",
         data={
             "subject_id": str(subject["id"]),
-            "session_label": "November 2026",
-            "paper_number": "Paper 1",
             "duration_minutes": "90",
         },
         files=files,
@@ -102,6 +104,44 @@ async def test_upload_requires_the_official_mark_scheme(client, tutor, subject):
     assert resp.status_code == 422
 
 
+async def test_upload_no_longer_accepts_session_label_or_paper_number(client, tutor, subject):  # noqa: F811
+    """The tutor stops typing the paper's name — extraction reads it off the
+    document instead. Extra form fields are simply ignored, not rejected."""
+    resp = await client.post(
+        "/api/v1/past-papers",
+        data={
+            "subject_id": str(subject["id"]),
+            "session_label": "should be ignored",
+            "paper_number": "should be ignored",
+        },
+        files=[
+            ("booklet", ("paper.pdf", PDF_BYTES, "application/pdf")),
+            ("mark_scheme", ("ms.pdf", PDF_BYTES, "application/pdf")),
+        ],
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["session_label"] is None
+    assert resp.json()["paper_number"] is None
+
+
+async def test_before_extraction_a_paper_is_untitled(past_paper):  # noqa: F811
+    """`past_paper` here is the raw upload response, captured before the
+    extraction job ran — the tutor's old typed guess is gone, and nothing
+    fabricates a name in its place (`PROD-2`).
+
+    Both fields are asserted because their difference is the point: `title` is
+    null, so a client can tell "not read yet" from "a paper genuinely called
+    that", and `display_title` carries the fallback for anything that only
+    renders it. Collapsing them would let task 3.5's review form round-trip the
+    literal string "Untitled paper" back into the column.
+    """
+    assert past_paper["title"] is None
+    assert past_paper["display_title"] == "Untitled paper"
+    assert past_paper["session_label"] is None
+    assert past_paper["paper_number"] is None
+
+
 async def test_upload_extracts_the_question_list(client, tutor, past_paper):
     detail = await client.get(f"/api/v1/past-papers/{past_paper['id']}", headers=tutor["headers"])
     assert detail.status_code == 200
@@ -110,6 +150,13 @@ async def test_upload_extracts_the_question_list(client, tutor, past_paper):
     assert [q["number"] for q in body["questions"]] == ["1", "2"]
     # total_marks is filled in from the extracted questions when not given.
     assert body["total_marks"] == 6
+    # The paper's name, session and paper number all come off the document —
+    # the AI's structured output, not anything the tutor typed.
+    assert (
+        body["title"] == "Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice November 2026"
+    )
+    assert body["session_label"] == "November 2026"
+    assert body["paper_number"] == "Paper 2"
     async with async_session() as session:
         question = await session.scalar(select(PastPaperQuestion))
         assert question.ai_prompt_version == "test", "extraction records its prompt version"
@@ -337,11 +384,7 @@ async def test_a_student_only_sees_papers_for_subjects_they_take(
 
     resp = await client.post(
         "/api/v1/past-papers",
-        data={
-            "subject_id": str(other_id),
-            "session_label": "June 2026",
-            "paper_number": "Paper 2",
-        },
+        data={"subject_id": str(other_id)},
         files=[
             ("booklet", ("p.pdf", PDF_BYTES, "application/pdf")),
             ("mark_scheme", ("ms.pdf", PDF_BYTES, "application/pdf")),
@@ -407,7 +450,10 @@ async def test_a_tutor_can_review_and_finalize_a_past_paper_attempt(
     sid = queue[0]["submission_id"]
     assert queue[0]["past_paper_id"] == past_paper["id"]
     assert queue[0]["assignment_id"] is None
-    assert queue[0]["assignment_title"] == "November 2026 Paper 1"
+    assert (
+        queue[0]["assignment_title"]
+        == "Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice November 2026"
+    )
 
     detail = await client.get(f"/api/v1/submissions/{sid}", headers=tutor["headers"])
     assert detail.status_code == 200, detail.text
@@ -464,3 +510,122 @@ async def test_relogging_a_paper_moves_it_back_up_the_review_queue(client, stude
     # Replaced, not appended — one attempt per student per paper.
     assert len(rows) == 1
     assert rows[0].submitted_at > before
+
+
+async def test_an_overlong_extracted_name_is_clamped_not_left_to_fail_on_postgres(
+    client, tutor, subject, monkeypatch, fake_ai
+):
+    """Nothing bounds what a model reads off a document, and the columns do.
+
+    `title` is String(255), `session_label` 64, `paper_number` 32. SQLite does
+    not enforce VARCHAR length, so an over-long value passes every test here and
+    raises only on Postgres — and not cleanly: the assignment is flushed inside
+    the question loop, which aborts the transaction, so the `commit()` that
+    would have recorded `extraction_error` for the tutor fails too and the paper
+    sits "Untitled paper" with nothing explaining why. This test pins the clamp
+    rather than the symptom, because the symptom is invisible on SQLite
+    (`RISK-3`).
+    """
+    from app.services.extraction import ExtractedQuestion, PastPaperExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete",
+        fake_ai(
+            PastPaperExtractionResult(
+                title="T" * 400,
+                session_label="S" * 200,
+                paper_number="P" * 100,
+                questions=[
+                    ExtractedQuestion(
+                        number="1",
+                        text_summary="Define an isotope",
+                        max_marks=2,
+                        topic_codes=[],
+                        has_mark_scheme=False,
+                    )
+                ],
+            )
+        ),
+    )
+    created = await client.post(
+        "/api/v1/past-papers",
+        data={"subject_id": str(subject["id"])},
+        files={
+            "booklet": ("paper.pdf", PDF_BYTES, "application/pdf"),
+            "mark_scheme": ("ms.pdf", PDF_BYTES, "application/pdf"),
+        },
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, created.json()["id"])
+        assert len(paper.title) == 255
+        assert len(paper.session_label) == 64
+        assert len(paper.paper_number) == 32
+
+
+async def test_a_failed_extraction_leaves_the_paper_unnamed_and_says_why(
+    client,
+    tutor,
+    subject,  # noqa: F811
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The title is assigned only after the empty-questions check, and this
+    pins that ordering.
+
+    Getting it wrong is not obvious: a paper the model could not read would be
+    stamped with whatever it guessed the title was, and the tutor would see a
+    confident name on a paper with no questions behind it — a `PROD-1` problem
+    (a value with nothing traceable under it) presented as success. Until the
+    AI reads it, an unread paper is `display_title` "Untitled paper" and a
+    recorded reason, which is `PROD-2`: absent data shown as absent.
+    """
+    from app.services.extraction import ExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete", fake_ai(ExtractionResult(questions=[]))
+    )
+    created = await _upload(client, tutor, subject)
+    assert created.status_code == 201, created.text
+    await process_one_job()
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, created.json()["id"])
+        assert paper.title is None
+        assert paper.session_label is None
+        assert paper.paper_number is None
+        assert paper.display_title == "Untitled paper"
+        assert "No questions were found" in paper.extraction_error
+
+
+async def test_re_extraction_replaces_the_name_rather_than_appending_to_it(
+    client,
+    tutor,
+    past_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """`BE-6` — a worker that dies mid-job has its work requeued, so the
+    handler re-runs on a payload it may have partly processed.
+
+    `test_re_extraction_replaces_the_question_list` covers the questions; the
+    three name fields are assigned by a different statement and nothing pinned
+    them. A `+=` slip there would survive that test and show the tutor a title
+    doubled end to end.
+    """
+    from app.services.extraction import extract_past_paper
+
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    async with async_session() as session:
+        for _ in range(2):
+            await extract_past_paper(session, {"past_paper_id": past_paper["id"]})
+            await session.commit()
+        paper = await session.get(PastPaper, past_paper["id"])
+        assert paper.title == (
+            "Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice November 2026"
+        )
+        assert paper.session_label == "November 2026"
+        assert paper.paper_number == "Paper 2"

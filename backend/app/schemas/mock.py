@@ -30,6 +30,12 @@ class MockOut(BaseModel):
     question_count: int = 0
 
 
+class MockAssignGroup(BaseModel):
+    """PATCH body for /mocks/{mock_id}: the only field that route can set."""
+
+    group_id: int
+
+
 class MockDetail(MockOut):
     questions: list[MockQuestionOut] = []
 

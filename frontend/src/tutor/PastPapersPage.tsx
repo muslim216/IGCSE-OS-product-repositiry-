@@ -12,12 +12,18 @@ import { ApiError } from "../api/client";
 
 export default function PastPapersPage() {
   const queryClient = useQueryClient();
-  const papers = useQuery({ queryKey: ["past-papers"], queryFn: () => listPastPapers() });
+  const papers = useQuery({
+    queryKey: ["past-papers"],
+    queryFn: () => listPastPapers(),
+    // Extraction happens in a background job, so without this the tutor sits on
+    // "Reading the questions…" until they navigate away and back. Self-
+    // terminating: once nothing is mid-extraction the interval returns false.
+    refetchInterval: (query) =>
+      query.state.data?.some((p) => p.question_count === 0 && !p.extraction_error) ? 3000 : false,
+  });
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
 
   const [subjectId, setSubjectId] = useState("");
-  const [sessionLabel, setSessionLabel] = useState("");
-  const [paperNumber, setPaperNumber] = useState("");
   const [duration, setDuration] = useState("");
   const [booklet, setBooklet] = useState<File | null>(null);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
@@ -27,15 +33,11 @@ export default function PastPapersPage() {
     mutationFn: () =>
       uploadPastPaper({
         subject_id: Number(subjectId),
-        session_label: sessionLabel,
-        paper_number: paperNumber,
         booklet: booklet!,
         mark_scheme: markScheme!,
         duration_minutes: duration ? Number(duration) : null,
       }),
     onSuccess: () => {
-      setSessionLabel("");
-      setPaperNumber("");
       setDuration("");
       setBooklet(null);
       setMarkScheme(null);
@@ -44,7 +46,7 @@ export default function PastPapersPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
-  const ready = subjectId && sessionLabel && paperNumber && booklet && markScheme;
+  const ready = subjectId && booklet && markScheme;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -64,6 +66,10 @@ export default function PastPapersPage() {
 
       <form onSubmit={onSubmit} className="space-y-3 rounded-lg border bg-white p-4">
         <h3 className="font-medium text-slate-800">Add a paper</h3>
+        <p className="text-xs text-ink-500">
+          The AI reads the session, paper number and question list off the booklet itself once it's
+          uploaded — there's nothing to type here but the subject and files.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <select
             value={subjectId}
@@ -77,18 +83,6 @@ export default function PastPapersPage() {
               </option>
             ))}
           </select>
-          <input
-            value={sessionLabel}
-            onChange={(e) => setSessionLabel(e.target.value)}
-            placeholder="Session, e.g. November 2026"
-            className="rounded border border-slate-300 px-2 py-1.5 text-sm"
-          />
-          <input
-            value={paperNumber}
-            onChange={(e) => setPaperNumber(e.target.value)}
-            placeholder="Paper, e.g. Paper 1"
-            className="rounded border border-slate-300 px-2 py-1.5 text-sm"
-          />
           <input
             type="number"
             value={duration}
@@ -141,20 +135,21 @@ export default function PastPapersPage() {
             <li key={p.id} className="py-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="font-medium text-slate-800">
-                    {p.session_label} · {p.paper_number}
-                  </div>
-                  <div className="text-slate-500">
-                    {p.question_count > 0
-                      ? `${p.question_count} questions${p.total_marks ? ` · ${p.total_marks} marks` : ""}`
-                      : "Reading the questions out of the paper…"}
+                  <div className="font-medium text-slate-800">{p.display_title}</div>
+                  {/* One status line, never two. A failed paper keeps the name
+                      "Untitled paper" — the AI reads the name and the questions
+                      in the same pass, so failing loses both — and showing
+                      "Reading the questions…" beside the failure told a tutor it
+                      was still working when it had already given up. The error
+                      wins the branch outright. */}
+                  <div className="text-ink-500" aria-live="polite">
+                    {p.extraction_error
+                      ? `Couldn't read this paper: ${p.extraction_error}`
+                      : p.question_count > 0
+                        ? `${p.question_count} questions${p.total_marks ? ` · ${p.total_marks} marks` : ""}`
+                        : "Reading the questions out of the paper…"}
                     {p.duration_minutes ? ` · ${p.duration_minutes} min` : ""}
                   </div>
-                  {p.extraction_error && (
-                    <div className="mt-1 text-amber-700">
-                      Couldn't read the questions: {p.extraction_error}
-                    </div>
-                  )}
                 </div>
                 <div className="flex gap-3 text-xs">
                   <AuthFileLink path={pastPaperBookletPath(p.id)} label="Paper" />

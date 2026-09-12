@@ -46,7 +46,13 @@ from app.models import (
     User,
     UserRole,
 )
-from app.schemas.mock import MockDetail, MockOut, MockQuestionOut, MockSubmissionOut
+from app.schemas.mock import (
+    MockAssignGroup,
+    MockDetail,
+    MockOut,
+    MockQuestionOut,
+    MockSubmissionOut,
+)
 from app.services import storage
 from app.services.attempts import open_attempt
 from app.services.injection_scan import scan_typed_answer
@@ -136,6 +142,16 @@ async def _owned_group(db, group_id: int, user: User) -> Group:
     return group
 
 
+def _group_teaches_subject(group: Group, subject_id: int) -> None:
+    """The one definition of "this class studies this subject" — create_mock and
+    the group-assignment PATCH both enforce it and must not each restate it."""
+    if group.subject_id != subject_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "That class doesn't study this subject",
+        )
+
+
 @router.post("", response_model=MockOut, status_code=status.HTTP_201_CREATED)
 async def create_mock(
     db: DbSession,
@@ -153,11 +169,7 @@ async def create_mock(
     subject = await owned_subject(db, subject_id, user)
     if group_id is not None:
         group = await _owned_group(db, group_id, user)
-        if group.subject_id != subject.id:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "That class doesn't study this subject",
-            )
+        _group_teaches_subject(group, subject.id)
     if not paper.filename:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -251,6 +263,35 @@ async def get_mock(mock_id: int, db: DbSession, user: CurrentUser) -> MockDetail
             for q in questions
         ],
     )
+
+
+@router.patch("/{mock_id}", response_model=MockOut)
+async def assign_mock_group(
+    mock_id: int,
+    body: MockAssignGroup,
+    db: DbSession,
+    user: TutorUser,
+) -> MockOut:
+    """Set the group for a mock created without one (see `models/mocks.py` on
+    why `group_id` is nullable). Locked once a student has sat it — re-pointing
+    a mock at a different class would leave submissions belonging to students
+    who are no longer its audience.
+    """
+    mock = await _visible_mock(db, user, mock_id)
+    group = await _owned_group(db, body.group_id, user)
+    _group_teaches_subject(group, mock.subject_id)
+    existing_submission = await db.scalar(
+        select(Submission.id).where(Submission.mock_id == mock.id).limit(1)
+    )
+    if existing_submission is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This mock already has submissions — its class can't be changed",
+        )
+    mock.group_id = group.id
+    await db.commit()
+    counts = await _question_counts(db, [mock.id])
+    return _out(mock, counts.get(mock.id, 0), for_tutor=True)
 
 
 @router.get("/{mock_id}/paper", response_class=Response, responses=FILE_RESPONSES)
