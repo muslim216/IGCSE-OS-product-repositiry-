@@ -846,7 +846,7 @@ async def mark_history(
     mark = await db.scalar(
         select(QuestionMark).where(
             QuestionMark.submission_id == submission.id,
-            QuestionMark.question_id == question_id,
+            getattr(QuestionMark, kind_of(submission).mark_fk) == question_id,
         )
     )
     if mark is None:
@@ -893,7 +893,7 @@ async def request_remark(
     mark = await db.scalar(
         select(QuestionMark).where(
             QuestionMark.submission_id == submission.id,
-            QuestionMark.question_id == question_id,
+            getattr(QuestionMark, kind_of(submission).mark_fk) == question_id,
         )
     )
     if mark is None:

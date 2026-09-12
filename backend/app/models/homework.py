@@ -174,13 +174,15 @@ SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
 
 
 class Submission(TimestampMixin, Base):
-    """A student's uploaded answers to *either* a homework assignment or a past
-    paper — exactly one of assignment_id / past_paper_id is set.
+    """A student's uploaded answers to a homework assignment, a past paper or a
+    mock — exactly one of assignment_id / past_paper_id / mock_id is set.
 
-    Making this polymorphic rather than giving past papers their own table
-    means SubmissionFile, QuestionMark, marking, the review queue, the override
-    audit, remark requests and evidence-building all apply to past papers with
-    no extra code."""
+    Making this polymorphic rather than giving each kind its own table means
+    SubmissionFile, QuestionMark, marking, the review queue, the override
+    audit, remark requests and evidence-building all apply to every kind with
+    no extra code. Resolve the arm with `kind_of()` in
+    `services/submission_kind.py` — never read one of the three FKs
+    unconditionally (`API-20`)."""
 
     __tablename__ = "submissions"
     __table_args__ = (
@@ -266,8 +268,9 @@ class MarkConfidence(str, enum.Enum):
 
 class QuestionMark(Base):
     """One question's mark within a submission. Exactly one of question_id
-    (homework) / past_paper_question_id (past paper) is set, matching whichever
-    kind of work the submission is for."""
+    (homework) / past_paper_question_id (past paper) / mock_question_id (mock)
+    is set, matching whichever kind of work the submission is for. The matching
+    column name is `kind_of(submission).mark_fk`."""
 
     __tablename__ = "question_marks"
     __table_args__ = (

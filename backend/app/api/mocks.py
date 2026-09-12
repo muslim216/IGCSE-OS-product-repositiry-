@@ -16,7 +16,7 @@ What differs from a past paper:
 """
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
@@ -245,6 +245,11 @@ async def get_mock(mock_id: int, db: DbSession, user: CurrentUser) -> MockDetail
 async def mock_paper(mock_id: int, db: DbSession, user: CurrentUser) -> Response:
     """The question paper — readable by the students sitting it."""
     mock = await _visible_mock(db, user, mock_id)
+    if mock.status != MockStatus.published and user.role not in (UserRole.tutor, UserRole.admin):
+        # `sit_mock` already refuses an unpublished mock; without the same gate
+        # here a student in the group could pull the paper while it was still
+        # extracting, or after the extraction failed.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     return await signed_or_proxied_file(
         mock.paper_path, mime=mock.paper_mime, filename=mock.paper_name
     )
@@ -339,6 +344,9 @@ async def sit_mock(
             await db.delete(m)
         submission.status = SubmissionStatus.submitted
         submission.ai_error = None
+        # The review queue orders by this, so a resit that kept its first
+        # attempt's timestamp would sort as though it never happened.
+        submission.submitted_at = datetime.now(timezone.utc)
         await db.flush()
 
     submission.typed_answer = typed

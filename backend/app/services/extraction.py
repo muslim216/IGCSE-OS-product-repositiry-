@@ -19,6 +19,7 @@ from app.models import (
     PastPaper,
     PastPaperQuestion,
     PastPaperQuestionTopic,
+    QuestionMark,
     QuestionTopic,
     Topic,
 )
@@ -298,8 +299,16 @@ async def _clear_mock_questions(session: AsyncSession, mock_id: int) -> None:
     ).all()
     if not existing:
         return
+    question_ids = [q.id for q in existing]
+    # Once anyone has been marked against this question list it is settled: a
+    # re-run (an orphan reclaim, `BE-6`) must not delete rows `question_marks`
+    # points at. On Postgres that is an FK violation that fails the job for good.
+    if await session.scalar(
+        select(QuestionMark.id).where(QuestionMark.mock_question_id.in_(question_ids)).limit(1)
+    ):
+        return
     await session.execute(
-        delete(MockQuestionTopic).where(MockQuestionTopic.question_id.in_([q.id for q in existing]))
+        delete(MockQuestionTopic).where(MockQuestionTopic.question_id.in_(question_ids))
     )
     await session.execute(delete(MockQuestion).where(MockQuestion.mock_id == mock_id))
 

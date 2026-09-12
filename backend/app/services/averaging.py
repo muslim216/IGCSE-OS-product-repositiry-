@@ -23,6 +23,8 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     Group,
+    Mock,
+    MockQuestion,
     PastPaper,
     PastPaperQuestion,
     QuestionMark,
@@ -86,15 +88,20 @@ def average_marked_work(rows: Sequence[MarkRow]) -> Averaging:
 
 
 async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) -> list[MarkRow]:
-    """Every settled marked question this student has in this subject, from both
-    kinds of submission.
+    """Every settled marked question this student has in this subject, from all
+    three kinds of submission.
 
-    The two queries are what keeps `Submission`'s polymorphism honest (API-20):
-    each joins through the identifier its own kind uses, so a past-paper
-    submission — whose assignment_id is None — is excluded from the homework
-    query by the join itself rather than by reading a column that may be null.
-    A subject reaches homework through the group it was set to, and past papers
-    directly.
+    The three queries are what keeps `Submission`'s polymorphism honest
+    (`API-20`): each joins through the identifier its own kind uses, so a
+    past-paper submission — whose assignment_id is None — is excluded from the
+    homework query by the join itself rather than by reading a column that may
+    be null. A subject reaches homework through the group it was set to, and
+    past papers and mocks directly.
+
+    A missing arm here does not raise. It drops that kind of work out of the
+    averaging grade silently, which is a number a student and their parent are
+    shown as "what they have actually been getting" — so a kind omitted here is
+    a wrong answer presented as a right one (`PROD-1`).
     """
     homework = (
         await db.execute(
@@ -136,7 +143,25 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
         )
     ).all()
 
-    return [MarkRow(*row) for row in (*homework, *past_papers)]
+    mocks = (
+        await db.execute(
+            select(
+                QuestionMark.submission_id,
+                QuestionMark.final_marks,
+                MockQuestion.max_marks,
+            )
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .join(MockQuestion, MockQuestion.id == QuestionMark.mock_question_id)
+            .join(Mock, Mock.id == Submission.mock_id)
+            .where(
+                Submission.student_id == student_id,
+                Submission.status.in_(SETTLED_STATUSES),
+                Mock.subject_id == subject_id,
+            )
+        )
+    ).all()
+
+    return [MarkRow(*row) for row in (*homework, *past_papers, *mocks)]
 
 
 async def subject_averaging(db: AsyncSession, student_id: int, subject_id: int) -> Averaging:

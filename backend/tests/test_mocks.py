@@ -409,3 +409,247 @@ async def test_the_tutor_can_review_and_finalize_a_mock_submission(
             for j in (await session.scalars(select(Job).where(Job.type == "recompute_readiness")))
         ]
         assert recomputes and all(p["subject_id"] == subject["id"] for p in recomputes)
+
+
+# --- the arms the discriminator does not reach ------------------------------
+
+
+async def _sat_and_marked(client, tutor, student, subject, group, monkeypatch, fake_ai):
+    """A mock sat, AI-marked and left in the tutor's queue (no mark scheme)."""
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    created = await _create(client, tutor, subject, group, with_scheme=False)
+    assert created.status_code == 201
+    assert await process_one_job() is True
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
+    sat = await client.post(
+        f"/api/v1/mocks/{created.json()['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert sat.status_code == 201, sat.text
+    assert await process_one_job() is True
+    async with async_session() as session:
+        submission = await session.scalar(
+            select(Submission).where(Submission.mock_id == created.json()["id"])
+        )
+        return created.json()["id"], submission.id
+
+
+async def test_a_mock_appears_in_the_tutors_headline_count_not_just_the_queue(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """The home's count and the queue it links to must agree.
+
+    They are built from one shared predicate for exactly this reason — when they
+    drifted before, the home said "3 to mark" and the page listed a different
+    set. A mock reaches the queue through neither `Group` nor `PastPaper`, so an
+    arm missing from that predicate does not raise; it just undercounts.
+    """
+    await _sat_and_marked(client, tutor, student, subject, group, monkeypatch, fake_ai)
+    home = await client.get("/api/v1/today", headers=tutor["headers"])
+    assert home.status_code == 200, home.text
+    assert home.json()["review_count"] >= 1
+
+    feed = await client.get("/api/v1/me/activity", headers=tutor["headers"])
+    assert feed.status_code == 200, feed.text
+    assert any("Mock Paper 1" in i["label"] for i in feed.json()["items"])
+
+
+async def test_a_student_can_see_and_contest_a_marked_mock(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """The student side of a mock: it shows on their activity feed once
+    finalized, and a mark on it can be contested like any other (`AI-15`).
+
+    Both read `QuestionMark` by the homework foreign key unless the arm is
+    resolved — which is null on every mock mark, so both failed closed.
+    """
+    mock_id, submission_id = await _sat_and_marked(
+        client, tutor, student, subject, group, monkeypatch, fake_ai
+    )
+    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
+    rows = detail.json()["marks"]
+    saved = await client.put(
+        f"/api/v1/submissions/{submission_id}/marks",
+        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
+        headers=tutor["headers"],
+    )
+    assert saved.status_code == 200, saved.text
+
+    # The tutor's audit trail for a mock mark.
+    history = await client.get(
+        f"/api/v1/submissions/{submission_id}/marks/{rows[0]['question_id']}/history",
+        headers=tutor["headers"],
+    )
+    assert history.status_code == 200, history.text
+
+    done = await client.post(
+        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
+    )
+    assert done.status_code == 200, done.text
+
+    feed = await client.get("/api/v1/me/activity", headers=student["headers"])
+    assert feed.status_code == 200, feed.text
+    assert any("Mock Paper 1" in i["label"] for i in feed.json()["items"])
+
+    contest = await client.post(
+        f"/api/v1/submissions/{submission_id}/questions/{rows[0]['question_id']}/remark-request",
+        json={"reason": "I think question 1 deserves another look"},
+        headers=student["headers"],
+    )
+    assert contest.status_code in (200, 201), contest.text
+
+
+async def test_an_unpublished_mocks_paper_is_not_readable_by_a_student(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """`sit_mock` refuses an unpublished mock; the paper download must too, or
+    the group reads the exam while it is still extracting."""
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    created = await _create(client, tutor, subject, group)
+    assert created.status_code == 201
+    # Extraction deliberately not run: the mock is still `extracting`.
+    denied = await client.get(
+        f"/api/v1/mocks/{created.json()['id']}/paper", headers=student["headers"]
+    )
+    assert denied.status_code == 404, denied.text
+    # The tutor who set it still needs to check what they uploaded.
+    allowed = await client.get(
+        f"/api/v1/mocks/{created.json()['id']}/paper", headers=tutor["headers"]
+    )
+    assert allowed.status_code == 200, allowed.text
+
+
+# --- the student's own surface ----------------------------------------------
+
+
+async def test_a_student_finds_their_mock_and_reads_their_own_submission(
+    client, student, mock_paper, monkeypatch, fake_ai
+):
+    """`/mocks/mine` and `/mocks/{id}/my-submission` are how a student actually
+    reaches a mock. Both carry their own join and status filters."""
+    mine = await client.get("/api/v1/mocks/mine", headers=student["headers"])
+    assert mine.status_code == 200, mine.text
+    assert [m["id"] for m in mine.json()] == [mock_paper["id"]]
+    # The scheme's existence is tutor-only information (`AI-11` is not the
+    # student's business either way).
+    assert all(m["mark_scheme_name"] is None for m in mine.json())
+
+    # Not sat yet is `null`, not a 404 — the surface asks "have you done this?"
+    # and an absent attempt is an answer, not a missing resource.
+    before = await client.get(
+        f"/api/v1/mocks/{mock_paper['id']}/my-submission", headers=student["headers"]
+    )
+    assert before.status_code == 200 and before.json() is None, before.text
+
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
+    sat = await client.post(
+        f"/api/v1/mocks/{mock_paper['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert sat.status_code == 201, sat.text
+    after = await client.get(
+        f"/api/v1/mocks/{mock_paper['id']}/my-submission", headers=student["headers"]
+    )
+    assert after.status_code == 200, after.text
+
+
+async def test_a_mock_with_no_group_is_invisible_to_every_student(
+    client, tutor, student, subject, monkeypatch, fake_ai
+):
+    """`Mock.group_id` is nullable so a tutor can upload and extract before
+    deciding who sits it. Until they do, nobody may see it — the inner join in
+    `my_mocks` is what enforces that, so it has to be held by a test."""
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    created = await client.post(
+        "/api/v1/mocks",
+        data={"subject_id": str(subject["id"]), "title": "Unassigned mock"},
+        files={"paper": ("mock.pdf", PDF_BYTES, "application/pdf")},
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+    assert await process_one_job() is True
+
+    mine = await client.get("/api/v1/mocks/mine", headers=student["headers"])
+    assert mine.status_code == 200
+    assert created.json()["id"] not in [m["id"] for m in mine.json()]
+    direct = await client.get(f"/api/v1/mocks/{created.json()['id']}", headers=student["headers"])
+    assert direct.status_code == 404, direct.text
+
+
+async def test_a_mock_can_be_resat_until_its_marks_have_counted(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """One `Submission` per (mock, student) by unique constraint, so a resit
+    replaces the previous attempt rather than adding a row — and once the marks
+    have settled the door closes, as it does for homework."""
+    mock_id, submission_id = await _sat_and_marked(
+        client, tutor, student, subject, group, monkeypatch, fake_ai
+    )
+    again = await client.post(
+        f"/api/v1/mocks/{mock_id}/submissions",
+        files={"files": ("page2.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert again.status_code == 201, again.text
+    async with async_session() as session:
+        rows = (
+            await session.scalars(select(Submission).where(Submission.mock_id == mock_id))
+        ).all()
+        assert len(rows) == 1 and rows[0].id == submission_id
+        # The previous attempt's drafts went with it.
+        assert not (
+            await session.scalars(
+                select(QuestionMark).where(QuestionMark.submission_id == submission_id)
+            )
+        ).all()
+
+    assert await process_one_job() is True
+    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
+    rows = detail.json()["marks"]
+    await client.put(
+        f"/api/v1/submissions/{submission_id}/marks",
+        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
+        headers=tutor["headers"],
+    )
+    done = await client.post(
+        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
+    )
+    assert done.status_code == 200, done.text
+
+    closed = await client.post(
+        f"/api/v1/mocks/{mock_id}/submissions",
+        files={"files": ("page3.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert closed.status_code == 409, closed.text
+
+
+async def test_a_marked_mock_counts_toward_the_averaging_grade(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """The averaging grade is "what they have actually been getting", shown to
+    the student and their parent. A mock is the most exam-like evidence they
+    have — omitting it does not raise, it just reports a wrong number as a right
+    one (`PROD-1`)."""
+    from app.services.averaging import fetch_marked_rows
+
+    mock_id, submission_id = await _sat_and_marked(
+        client, tutor, student, subject, group, monkeypatch, fake_ai
+    )
+    detail = await client.get(f"/api/v1/submissions/{submission_id}", headers=tutor["headers"])
+    rows = detail.json()["marks"]
+    await client.put(
+        f"/api/v1/submissions/{submission_id}/marks",
+        json=[{"question_id": m["question_id"], "final_marks": 2} for m in rows],
+        headers=tutor["headers"],
+    )
+    done = await client.post(
+        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
+    )
+    assert done.status_code == 200, done.text
+
+    async with async_session() as session:
+        marked = await fetch_marked_rows(session, student["user"]["id"], subject["id"])
+    assert [r.submission_id for r in marked] == [submission_id] * len(rows)

@@ -13,6 +13,7 @@ from app.models import (
     SETTLED_STATUSES,
     Assignment,
     Group,
+    Mock,
     ParentLink,
     PastPaper,
     Report,
@@ -29,26 +30,32 @@ from app.services.groups import AWAITING_REVIEW
 ACTIVITY_LIMIT = 12
 
 
-def _work_title(assignment: Assignment | None, past_paper: PastPaper | None) -> str:
+def _work_title(
+    assignment: Assignment | None, past_paper: PastPaper | None, mock: Mock | None
+) -> str:
     """Submissions are polymorphic — name whichever side is set."""
     if assignment is not None:
         return assignment.title
     if past_paper is not None:
         return f"{past_paper.session_label} {past_paper.paper_number}"
+    if mock is not None:
+        return mock.title
     return "Work"
 
 
 def _polymorphic_submissions() -> Select:
-    """Submissions joined to both kinds of work they can belong to.
+    """Submissions joined to every kind of work they can belong to.
 
-    Left-joined both ways: a submission belongs to an assignment (homework) or
-    to a past paper, never both, so an inner join on either would silently drop
-    half the rows.
+    Left-joined three ways: a submission belongs to an assignment (homework), a
+    past paper or a mock, never more than one, so an inner join on any of them
+    would silently drop the other two thirds. Miss an arm here and the feed does
+    not raise — it reads a `None` as though the work did not exist (`API-20`).
     """
     return (
-        select(Submission, Assignment, PastPaper)
+        select(Submission, Assignment, PastPaper, Mock)
         .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
         .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
+        .outerjoin(Mock, Mock.id == Submission.mock_id)
     )
 
 
@@ -62,7 +69,8 @@ def tutor_scope(user: User) -> Select:
         .where(
             Submission.status.in_(AWAITING_REVIEW),
             (Group.organization_id == user.organization_id)
-            | (PastPaper.organization_id == user.organization_id),
+            | (PastPaper.organization_id == user.organization_id)
+            | (Mock.organization_id == user.organization_id),
         )
     )
 
@@ -90,12 +98,14 @@ async def _tutor_activity(session: AsyncSession, user: User) -> ActivitySummary:
         items=[
             ActivityItem(
                 kind="submission_awaiting_review",
-                label=f"{student.name} submitted {_work_title(assignment, past_paper)}",
-                sublabel="Past paper" if past_paper is not None else None,
+                label=f"{student.name} submitted {_work_title(assignment, past_paper, mock)}",
+                sublabel=(
+                    "Past paper" if past_paper is not None else "Mock" if mock is not None else None
+                ),
                 link=f"/tutor/submissions/{submission.id}",
                 occurred_at=submission.submitted_at,
             )
-            for submission, assignment, past_paper, student in rows
+            for submission, assignment, past_paper, mock, student in rows
         ],
     )
 
@@ -117,15 +127,17 @@ async def _student_activity(session: AsyncSession, user: User) -> ActivitySummar
         items=[
             ActivityItem(
                 kind="homework_marked",
-                label=f"{_work_title(assignment, past_paper)} has been marked",
+                label=f"{_work_title(assignment, past_paper, mock)} has been marked",
                 link=(
                     f"/student/homework/{assignment.id}"
                     if assignment is not None
                     else f"/student/past-papers/{past_paper.id}"
+                    if past_paper is not None
+                    else f"/student/mocks/{mock.id}"
                 ),
                 occurred_at=submission.finalized_at or submission.submitted_at,
             )
-            for submission, assignment, past_paper in rows
+            for submission, assignment, past_paper, mock in rows
         ],
     )
 

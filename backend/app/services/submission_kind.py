@@ -10,8 +10,17 @@ Before task 3.4 each site rewrote the test as `past_paper_id is not None` and
 picked its own answers inline. Two arms fit in an `if`/`else`; three do not,
 and four copies of a three-way branch is four chances to add the next arm in
 three places. So the branch is written once here and the answers travel as
-data. A fourth kind is a new constant and one line in `kind_of` — nothing in
-marking, evidence or the router changes.
+data.
+
+What this does NOT cover, and the honest cost of a fourth kind: `kind_of` takes
+a loaded `Submission`, so it answers "I hold one row — which tables?" and says
+nothing about "select submissions of every kind". Queries that span kinds still
+hand-join all three arms and OR three `organization_id` columns —
+`review_queue` and `review_queue_predicate`, `today.pending_review_count`,
+`activity._polymorphic_submissions` and `activity.tutor_scope`. Those, plus a
+marking source builder and the title branches, are what a fourth arm actually
+costs. Only the builder fails loudly; the rest fail silently, which is how the
+third arm shipped broken in five places at once.
 
 Pure by `BE-4`: model classes and strings in, no session, no I/O.
 """
