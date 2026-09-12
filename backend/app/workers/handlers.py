@@ -12,7 +12,7 @@ entry points import it: `app.main` for the in-process worker, and
 which is the direction `BE-1` allows.
 """
 
-from app.services.extraction import extract_assignment, extract_past_paper
+from app.services.extraction import extract_assignment, extract_mock, extract_past_paper
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
@@ -35,6 +35,9 @@ def register_all() -> None:
     register_handler("extract_assignment", extract_assignment)
     # A past paper is a full-paper classified: same extractor, same prompt.
     register_handler("extract_past_paper", extract_past_paper)
+    # A mock is the tutor's own full paper (task 3.4, AV-26): same extractor,
+    # same prompt, and the status it sets is what makes the mock sittable.
+    register_handler("extract_mock", extract_mock)
     register_handler("mark_submission", mark_submission)
     # Condenses a subject's marking rules into what the marking prompt is given
     # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,

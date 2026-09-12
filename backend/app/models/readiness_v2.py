@@ -28,6 +28,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -213,6 +214,18 @@ class FactorEvaluation(Base):
 
     __tablename__ = "factor_evaluations"
 
+    # Declared here as well as in migration 0016_readiness_v2_schema.py — the test schema is built
+    # from `Base.metadata`, so an index that lives only in a migration makes the
+    # suite run against a different shape than production (`DB-12`).
+    __table_args__ = (
+        Index(
+            "ix_factor_evaluations_run_student_subject",
+            "evaluation_run_id",
+            "student_id",
+            "subject_id",
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True)
     evaluation_run_id: Mapped[str] = mapped_column(String(36), nullable=False)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -246,6 +259,18 @@ class ReadinessSnapshot(Base):
     with status='failed' so the deterministic layer isn't lost. Append-only."""
 
     __tablename__ = "readiness_snapshots"
+
+    # Declared here as well as in migration 0016_readiness_v2_schema.py — the test schema is built
+    # from `Base.metadata`, so an index that lives only in a migration makes the
+    # suite run against a different shape than production (`DB-12`).
+    __table_args__ = (
+        Index(
+            "ix_readiness_snapshots_student_subject",
+            "student_id",
+            "subject_id",
+            "created_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     evaluation_run_id: Mapped[str] = mapped_column(String(36), nullable=False)

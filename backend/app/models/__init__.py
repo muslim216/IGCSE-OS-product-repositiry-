@@ -24,6 +24,7 @@ from app.models.homework import (
 )
 from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
 from app.models.lessons import Lesson, LessonObservation, LessonTopic
+from app.models.mocks import Mock, MockQuestion, MockQuestionTopic, MockStatus
 from app.models.narrative import Narrative, NarrativeAudience
 from app.models.orgs import Organization
 from app.models.readiness import (
@@ -102,6 +103,10 @@ __all__ = [
     "MarkConfidence",
     "Mistake",
     "MistakeCategory",
+    "Mock",
+    "MockQuestion",
+    "MockQuestionTopic",
+    "MockStatus",
     "Narrative",
     "NarrativeAudience",
     "Organization",

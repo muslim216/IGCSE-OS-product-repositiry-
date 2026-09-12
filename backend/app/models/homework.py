@@ -174,23 +174,30 @@ SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
 
 
 class Submission(TimestampMixin, Base):
-    """A student's uploaded answers to *either* a homework assignment or a past
-    paper — exactly one of assignment_id / past_paper_id is set.
+    """A student's uploaded answers to a homework assignment, a past paper or a
+    mock — exactly one of assignment_id / past_paper_id / mock_id is set.
 
-    Making this polymorphic rather than giving past papers their own table
-    means SubmissionFile, QuestionMark, marking, the review queue, the override
-    audit, remark requests and evidence-building all apply to past papers with
-    no extra code."""
+    Making this polymorphic rather than giving each kind its own table means
+    SubmissionFile, QuestionMark, marking, the review queue, the override
+    audit, remark requests and evidence-building all apply to every kind with
+    no extra code. Resolve the arm with `kind_of()` in
+    `services/submission_kind.py` — never read one of the three FKs
+    unconditionally (`API-20`)."""
 
     __tablename__ = "submissions"
     __table_args__ = (
         UniqueConstraint("assignment_id", "student_id"),
         UniqueConstraint("past_paper_id", "student_id"),
+        UniqueConstraint("mock_id", "student_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id"), nullable=True)
     past_paper_id: Mapped[int | None] = mapped_column(ForeignKey("past_papers.id"), nullable=True)
+    # The third arm (task 3.4, AV-26). A mock is set, sat and marked on its own
+    # terms rather than as homework with a flag, so it gets its own key here
+    # instead of bending `assignment_id` to mean two things.
+    mock_id: Mapped[int | None] = mapped_column(ForeignKey("mocks.id"), nullable=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # Past papers only, and self-declared: the platform can't measure how long
     # a student took or whether they really sat it under timed conditions.
@@ -261,19 +268,24 @@ class MarkConfidence(str, enum.Enum):
 
 class QuestionMark(Base):
     """One question's mark within a submission. Exactly one of question_id
-    (homework) / past_paper_question_id (past paper) is set, matching whichever
-    kind of work the submission is for."""
+    (homework) / past_paper_question_id (past paper) / mock_question_id (mock)
+    is set, matching whichever kind of work the submission is for. The matching
+    column name is `kind_of(submission).mark_fk`."""
 
     __tablename__ = "question_marks"
     __table_args__ = (
         UniqueConstraint("submission_id", "question_id"),
         UniqueConstraint("submission_id", "past_paper_question_id"),
+        UniqueConstraint("submission_id", "mock_question_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), nullable=False)
     question_id: Mapped[int | None] = mapped_column(
         ForeignKey("assignment_questions.id"), nullable=True
+    )
+    mock_question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mock_questions.id"), nullable=True
     )
     past_paper_question_id: Mapped[int | None] = mapped_column(
         ForeignKey("past_paper_questions.id"), nullable=True
@@ -325,6 +337,11 @@ class MarkOverrideAudit(Base):
     has to be answerable from the record months later."""
 
     __tablename__ = "mark_override_audit"
+
+    # Declared here as well as in migration 0019_auto_marking_review_queue.py — the test schema is built
+    # from `Base.metadata`, so an index that lives only in a migration makes the
+    # suite run against a different shape than production (`DB-12`).
+    __table_args__ = (Index("ix_mark_override_audit_question_mark_id", "question_mark_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)

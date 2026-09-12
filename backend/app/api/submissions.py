@@ -22,8 +22,8 @@ from app.models import (
     Group,
     GroupMember,
     MarkOverrideAudit,
+    Mock,
     PastPaper,
-    PastPaperQuestion,
     QuestionMark,
     RemarkRequest,
     RemarkRequestStatus,
@@ -50,9 +50,11 @@ from app.schemas.homework import (
     TypedAnswerOut,
 )
 from app.services import storage
+from app.services.attempts import open_attempt
 from app.services.groups import review_queue_predicate
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
+from app.services.submission_kind import HOMEWORK, kind_of
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
@@ -92,6 +94,12 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
         # Past papers belong to the organization, not to one tutor's group.
         paper = await db.get(PastPaper, submission.past_paper_id)
         return paper is not None and paper.organization_id == user.organization_id
+    if submission.mock_id is not None:
+        # A mock belongs to the tutor who set it, like an assignment — but
+        # without a group in between, since a mock can be extracted before it is
+        # set to anyone (Mock.group_id is nullable).
+        mock = await db.get(Mock, submission.mock_id)
+        return mock is not None and mock.tutor_id == user.id
     assignment = await db.get(Assignment, submission.assignment_id)
     if assignment is None:
         return False
@@ -153,29 +161,11 @@ async def submit_work(
             "Add your answers — upload a photo or type them in",
         )
 
-    submission = await db.scalar(
-        select(Submission)
-        .where(Submission.assignment_id == assignment_id, Submission.student_id == user.id)
-        .options(selectinload(Submission.files), selectinload(Submission.marks))
-    )
-    if submission is not None and submission.status in SETTLED_STATUSES:
+    submission, settled = await open_attempt(db, HOMEWORK, assignment_id, user.id)
+    if settled:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This homework has already been marked and finalized"
         )
-    if submission is None:
-        submission = Submission(assignment_id=assignment_id, student_id=user.id)
-        db.add(submission)
-        await db.flush()
-    else:
-        # Resubmission before finalize: replace the files and restart marking.
-        for f in submission.files:
-            await db.delete(f)
-        for m in submission.marks:
-            await db.delete(m)
-        submission.status = SubmissionStatus.submitted
-        submission.ai_error = None
-        submission.submitted_at = datetime.now(timezone.utc)
-        await db.flush()
 
     # Replaced, never merged with what a previous attempt typed — the same rule
     # the files above follow. A resubmission is the whole answer again.
@@ -505,15 +495,13 @@ async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
 
 
 async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
-    """One row per question, whether the submission is homework or a past
-    paper — the review UI is the same either way."""
+    """One row per question, whatever the submission hangs off — the review UI
+    is the same for homework, a past paper and a mock."""
     open_remarks = await _open_remarks(db, submission.id)
-    if submission.past_paper_id is not None:
-        question, link = PastPaperQuestion, QuestionMark.past_paper_question_id
-        scope = PastPaperQuestion.past_paper_id == submission.past_paper_id
-    else:
-        question, link = AssignmentQuestion, QuestionMark.question_id
-        scope = AssignmentQuestion.assignment_id == submission.assignment_id
+    kind = kind_of(submission)
+    question = kind.question_model
+    link = getattr(QuestionMark, kind.mark_fk)
+    scope = getattr(question, kind.parent_fk) == getattr(submission, kind.parent_fk)
     rows = (
         await db.execute(
             select(question, QuestionMark)
@@ -555,14 +543,17 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
     the AI was unsure about, or with a student's remark request open. This is
     the whole of the tutor's marking workload — confidently marked work never
     appears here."""
-    # Left-joined both ways: a submission belongs to an assignment (homework)
-    # or a past paper, never both, and the queue covers both kinds.
+    # Left-joined three ways: a submission belongs to an assignment (homework),
+    # a past paper or a mock, never more than one, and the queue covers all
+    # three. A mock with no mark scheme never auto-finalizes (`AI-11`), so every
+    # one of them arrives here — missing this join took the whole queue down.
     rows = (
         await db.execute(
-            select(Submission, Assignment, PastPaper, User)
+            select(Submission, Assignment, PastPaper, Mock, User)
             .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
             .outerjoin(Group, Group.id == Assignment.group_id)
             .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
+            .outerjoin(Mock, Mock.id == Submission.mock_id)
             .join(User, User.id == Submission.student_id)
             # Shared with the home's headline count, which links here — see
             # services/groups.review_queue_predicate.
@@ -571,7 +562,7 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
         )
     ).all()
     out: list[ReviewQueueItem] = []
-    for submission, assignment, past_paper, student in rows:
+    for submission, assignment, past_paper, mock, student in rows:
         unsure = (
             await db.scalar(
                 select(func.count(QuestionMark.id)).where(
@@ -586,9 +577,12 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
                 submission_id=submission.id,
                 assignment_id=assignment.id if assignment else None,
                 past_paper_id=past_paper.id if past_paper else None,
+                mock_id=mock.id if mock else None,
                 assignment_title=(
                     assignment.title
                     if assignment
+                    else mock.title
+                    if mock
                     else f"{past_paper.session_label} {past_paper.paper_number}"
                 ),
                 student_id=student.id,
@@ -610,6 +604,9 @@ async def submission_detail(
     if submission.past_paper_id is not None:
         paper = await db.get(PastPaper, submission.past_paper_id)
         title = f"{paper.session_label} {paper.paper_number}"
+    elif submission.mock_id is not None:
+        mock = await db.get(Mock, submission.mock_id)
+        title = mock.title
     else:
         assignment = await db.get(Assignment, submission.assignment_id)
         title = assignment.title
@@ -617,6 +614,7 @@ async def submission_detail(
         id=submission.id,
         assignment_id=submission.assignment_id,
         past_paper_id=submission.past_paper_id,
+        mock_id=submission.mock_id,
         assignment_title=title,
         student_id=student.id,
         student_name=student.name,
@@ -677,20 +675,17 @@ async def save_marks(
             )
         ).all()
     }
-    # Homework and past papers keep their questions in different tables; the
-    # tutor's review screen is the same either way.
-    is_past_paper = submission.past_paper_id is not None
-    if is_past_paper:
-        question_query = select(PastPaperQuestion).where(
-            PastPaperQuestion.past_paper_id == submission.past_paper_id
-        )
-    else:
-        question_query = select(AssignmentQuestion).where(
-            AssignmentQuestion.assignment_id == submission.assignment_id
-        )
+    # Homework, past papers and mocks keep their questions in three different
+    # tables; the tutor's review screen is the same for all of them. The parent
+    # column matches the arm's own foreign key on Submission, so the filter is
+    # derived rather than branched on.
+    kind = kind_of(submission)
+    question_query = select(kind.question_model).where(
+        getattr(kind.question_model, kind.parent_fk) == getattr(submission, kind.parent_fk)
+    )
     questions = {q.id: q for q in (await db.scalars(question_query)).all()}
     existing = {
-        (m.past_paper_question_id if is_past_paper else m.question_id): m
+        getattr(m, kind.mark_fk): m
         for m in (
             await db.scalars(
                 select(QuestionMark).where(QuestionMark.submission_id == submission.id)
@@ -704,10 +699,7 @@ async def save_marks(
         mark = existing.get(update.question_id)
         if mark is None:
             mark = QuestionMark(submission_id=submission.id)
-            if is_past_paper:
-                mark.past_paper_question_id = question.id
-            else:
-                mark.question_id = question.id
+            setattr(mark, kind.mark_fk, question.id)
             db.add(mark)
             await db.flush()
             existing[question.id] = mark
@@ -753,6 +745,9 @@ async def _subject_id(db, submission: Submission) -> int:
     if submission.past_paper_id is not None:
         paper = await db.get(PastPaper, submission.past_paper_id)
         return paper.subject_id
+    if submission.mock_id is not None:
+        mock = await db.get(Mock, submission.mock_id)
+        return mock.subject_id
     assignment = await db.get(Assignment, submission.assignment_id)
     group = await db.get(Group, assignment.group_id)
     return group.subject_id
@@ -834,7 +829,7 @@ async def mark_history(
     mark = await db.scalar(
         select(QuestionMark).where(
             QuestionMark.submission_id == submission.id,
-            QuestionMark.question_id == question_id,
+            getattr(QuestionMark, kind_of(submission).mark_fk) == question_id,
         )
     )
     if mark is None:
@@ -881,7 +876,7 @@ async def request_remark(
     mark = await db.scalar(
         select(QuestionMark).where(
             QuestionMark.submission_id == submission.id,
-            QuestionMark.question_id == question_id,
+            getattr(QuestionMark, kind_of(submission).mark_fk) == question_id,
         )
     )
     if mark is None:

@@ -7,6 +7,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -41,6 +42,11 @@ class Evidence(Base):
     so every score is explainable by listing its contributing evidence."""
 
     __tablename__ = "evidence"
+
+    # Declared here as well as in migration 0004_readiness.py — the test schema is built
+    # from `Base.metadata`, so an index that lives only in a migration makes the
+    # suite run against a different shape than production (`DB-12`).
+    __table_args__ = (Index("ix_evidence_student_topic", "student_id", "topic_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)

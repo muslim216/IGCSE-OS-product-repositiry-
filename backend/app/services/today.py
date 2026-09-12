@@ -18,6 +18,7 @@ from app.models import (
     Assignment,
     Group,
     GroupMember,
+    Mock,
     Organization,
     PastPaper,
     ReadinessHistory,
@@ -79,6 +80,7 @@ async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
             .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
             .outerjoin(Group, Group.id == Assignment.group_id)
             .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
+            .outerjoin(Mock, Mock.id == Submission.mock_id)
             .where(*review_queue_predicate(organization_id))
         )
     ) or 0
