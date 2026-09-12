@@ -841,8 +841,12 @@ async def test_re_extraction_leaves_a_marked_question_list_alone(
             )
         ).all()
         assert len(before) == 2
-        # No AI double is installed: reaching the model at all would mean the
-        # guard let the job through, and the call would fail the test loudly.
+        # The `mock_paper` fixture's extraction double is still patched in (the
+        # monkeypatch is function-scoped), so a regressed guard would NOT fail
+        # on the model call — it would quietly succeed and insert a second list.
+        # The id comparison below is what catches that, which is why it compares
+        # ids rather than a count: two identical lists have twice the rows but
+        # the same length per question number.
         await extract_mock(session, {"mock_id": mock_paper["id"]})
         await session.commit()
         after = (
@@ -851,3 +855,52 @@ async def test_re_extraction_leaves_a_marked_question_list_alone(
             )
         ).all()
         assert [q.id for q in after] == [q.id for q in before]
+
+
+async def test_a_student_removed_from_the_class_mid_upload_cannot_finish_sitting(
+    client, student, mock_paper, group, monkeypatch
+):
+    """Visibility is re-checked under the row lock, not only at the top.
+
+    Uploads are written before the lock so a class does not serialise behind
+    each other's file I/O, and that opens a window: the tutor can move the mock
+    to another group, or drop this student, while the upload is in flight. A
+    recheck that tested only `status` would accept the submission anyway and
+    file a student's work under a class they are not in.
+
+    The removal happens *inside* `save_upload` deliberately. Doing it before the
+    request would be caught by the check at the top of the handler, and the test
+    would pass whether the recheck under the lock existed or not.
+    """
+    from app.models import GroupMember
+    from app.services import storage as storage_module
+
+    real_save = storage_module.save_upload
+
+    async def save_then_drop_the_student(upload, **kwargs):
+        result = await real_save(upload, **kwargs)
+        async with async_session() as session:
+            member = await session.scalar(
+                select(GroupMember).where(
+                    GroupMember.group_id == group["id"],
+                    GroupMember.student_id == student["user"]["id"],
+                )
+            )
+            assert member is not None
+            await session.delete(member)
+            await session.commit()
+        return result
+
+    monkeypatch.setattr("app.api.mocks.storage.save_upload", save_then_drop_the_student)
+
+    resp = await client.post(
+        f"/api/v1/mocks/{mock_paper['id']}/submissions",
+        files={"files": ("page1.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    # 404, not 403 — the mock's existence is not theirs to learn (`API-7`).
+    assert resp.status_code == 404, resp.text
+    async with async_session() as session:
+        assert (
+            await session.scalar(select(Submission).where(Submission.mock_id == mock_paper["id"]))
+        ) is None

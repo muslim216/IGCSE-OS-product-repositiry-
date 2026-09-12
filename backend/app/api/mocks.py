@@ -361,6 +361,18 @@ async def _submission_out(db, mock: Mock, submission: Submission) -> MockSubmiss
     )
 
 
+async def _discard(saved: list[tuple[str, str, str]]) -> None:
+    """Remove uploads written for a submission that was then rejected.
+
+    They are written before the row lock so a class does not serialise behind
+    one another's file I/O, which means every path that rejects after that point
+    owns their cleanup — an object with no row pointing at it is invisible and
+    can never be found again.
+    """
+    for path, _name, _mime in saved:
+        await storage.delete_file(path)
+
+
 @router.post(
     "/{mock_id}/submissions",
     response_model=MockSubmissionOut,
@@ -396,14 +408,24 @@ async def sit_mock(
     # The lock starts here and covers only the check-and-insert. It is what
     # makes `assign_mock_group`'s 409 real: without it a submission can land
     # between that handler's check and its commit, leaving the mock pointed at a
-    # class its submissions do not belong to. Re-read under the lock rather than
-    # reusing `mock` above, since the tutor may have changed it in between.
-    locked = await db.get(Mock, mock_id, with_for_update=True)
-    if locked is None or locked.status != MockStatus.published:
+    # class its submissions do not belong to.
+    #
+    # The visibility check is re-run in full under the lock, not just the status
+    # — the tutor may have moved the mock to another group while this student's
+    # upload was being written, and `_visible_mock` is what tests membership. A
+    # status-only recheck would accept a submission from a student who is no
+    # longer in the mock's class.
+    locked = await _visible_mock(db, user, mock_id, for_update=True)
+    if locked.status != MockStatus.published:
+        await _discard(saved)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
 
     submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
     if settled:
+        # Nothing will ever reference these: the request is rejected and the
+        # rows that would have pointed at them are never created. An object with
+        # no row pointing at it is invisible and can never be cleaned up.
+        await _discard(saved)
         raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
 
     submission.typed_answer = typed

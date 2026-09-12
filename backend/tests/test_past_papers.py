@@ -694,8 +694,9 @@ async def test_re_extraction_leaves_a_marked_question_list_alone(
             )
         ).all()
         assert len(before) == 2
-        # No AI double installed: reaching the model would mean the guard let
-        # the job through, and the call would fail this test loudly.
+        # The `past_paper` fixture's extraction double is still patched in, so a
+        # regressed guard would quietly succeed rather than fail on the model
+        # call. The id comparison below is what catches it.
         await extract_past_paper(session, {"past_paper_id": past_paper["id"]})
         await session.commit()
         after = (
