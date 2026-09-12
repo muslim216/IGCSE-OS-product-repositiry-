@@ -76,14 +76,26 @@ async def _visible_mock(db, user: User, mock_id: int) -> Mock:
         if mock.tutor_id != user.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
-    if user.role == UserRole.student and mock.group_id is not None:
-        member = await db.scalar(
-            select(GroupMember.id).where(
-                GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
+    if user.role == UserRole.student:
+        # A student may see a mock only once it is published. While it is still
+        # extracting there is nothing to sit, and after a failed extraction
+        # there never will be — in both states the paper must not be readable.
+        # The gate lives here rather than on each route so the detail view and
+        # the paper download cannot drift apart.
+        #
+        # `closed` stays visible deliberately: a student keeps access to a paper
+        # they already sat. Nothing sets `closed` yet, and naming it here is
+        # what stops the day it does from silently hiding their own marked work.
+        if mock.status not in (MockStatus.published, MockStatus.closed):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+        if mock.group_id is not None:
+            member = await db.scalar(
+                select(GroupMember.id).where(
+                    GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
+                )
             )
-        )
-        if member is not None:
-            return mock
+            if member is not None:
+                return mock
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
 
 
@@ -245,11 +257,6 @@ async def get_mock(mock_id: int, db: DbSession, user: CurrentUser) -> MockDetail
 async def mock_paper(mock_id: int, db: DbSession, user: CurrentUser) -> Response:
     """The question paper — readable by the students sitting it."""
     mock = await _visible_mock(db, user, mock_id)
-    if mock.status != MockStatus.published and user.role not in (UserRole.tutor, UserRole.admin):
-        # `sit_mock` already refuses an unpublished mock; without the same gate
-        # here a student in the group could pull the paper while it was still
-        # extracting, or after the extraction failed.
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     return await signed_or_proxied_file(
         mock.paper_path, mime=mock.paper_mime, filename=mock.paper_name
     )

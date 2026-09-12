@@ -513,6 +513,9 @@ async def test_an_unpublished_mocks_paper_is_not_readable_by_a_student(
         f"/api/v1/mocks/{created.json()['id']}/paper", headers=student["headers"]
     )
     assert denied.status_code == 404, denied.text
+    # The record itself is hidden too, not just the file — one gate, both routes.
+    hidden = await client.get(f"/api/v1/mocks/{created.json()['id']}", headers=student["headers"])
+    assert hidden.status_code == 404, hidden.text
     # The tutor who set it still needs to check what they uploaded.
     allowed = await client.get(
         f"/api/v1/mocks/{created.json()['id']}/paper", headers=tutor["headers"]
