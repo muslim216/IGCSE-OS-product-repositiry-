@@ -1,10 +1,13 @@
 import { api } from "./client";
 import type { components } from "./schema";
 
-/** Aliased from the generated schema rather than hand-mirrored (`FE-4`). The
- *  AI names the paper at extraction time — `title` is always non-null, with
- *  the server's own "Untitled paper" fallback applied before it reaches us.
- *  `session_label`/`paper_number` are supplementary and may still be null. */
+/** Aliased from the generated schema rather than hand-mirrored (`FE-4`).
+ *
+ *  The AI names the paper at extraction time, so `title` is **null** until that
+ *  has run — as are `session_label` and `paper_number`. Render `display_title`,
+ *  which is the same value with the server's "Untitled paper" fallback already
+ *  applied; read `title` only where you need to know whether a real name exists
+ *  yet, such as a form that writes one back. */
 export type PastPaper = components["schemas"]["PastPaperOut"];
 export type PastPaperDetail = components["schemas"]["PastPaperDetail"];
 export type PastPaperAttempt = components["schemas"]["PastPaperAttemptOut"];

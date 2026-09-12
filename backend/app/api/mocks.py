@@ -62,7 +62,7 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/mocks", tags=["mocks"])
 
 
-async def _visible_mock(db, user: User, mock_id: int) -> Mock:
+async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = False) -> Mock:
     """A tutor sees the mocks they set; a student sees a mock set to a group
     they are actually in.
 
@@ -70,8 +70,19 @@ async def _visible_mock(db, user: User, mock_id: int) -> Mock:
     so subject-level scoping would show it to every student the tutor teaches
     that subject to, including ones who never sat it. `SEC-8`'s reason for
     scoping past papers on the pair applies here a step further in.
+
+    `for_update` takes a row lock, and the two callers that pass it are the two
+    that must not interleave: reassigning a mock's group checks that nothing has
+    been submitted, and sitting one creates exactly that submission. Unlocked,
+    a student submitting between the tutor's check and commit leaves the mock
+    pointed at a class its submissions do not belong to — and the 409 that
+    exists to prevent it reports success. Reads do not pass it; a lock on the
+    paper download would serialise a whole class opening the same exam.
+
+    On SQLite `with_for_update()` is a no-op, so the suite cannot demonstrate
+    this and only Postgres actually enforces it (`RISK-3`).
     """
-    mock = await db.get(Mock, mock_id)
+    mock = await db.get(Mock, mock_id, with_for_update=for_update)
     if mock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     if user.role == UserRole.admin:
@@ -277,7 +288,7 @@ async def assign_mock_group(
     a mock at a different class would leave submissions belonging to students
     who are no longer its audience.
     """
-    mock = await _visible_mock(db, user, mock_id)
+    mock = await _visible_mock(db, user, mock_id, for_update=True)
     group = await _owned_group(db, body.group_id, user)
     _group_teaches_subject(group, mock.subject_id)
     existing_submission = await db.scalar(
@@ -363,7 +374,7 @@ async def sit_mock(
     files: Annotated[list[UploadFile] | None, File()] = None,
     typed_answer: Annotated[str | None, Form()] = None,
 ) -> MockSubmissionOut:
-    mock = await _visible_mock(db, user, mock_id)
+    mock = await _visible_mock(db, user, mock_id, for_update=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     # Either channel, or both — the same rule homework follows since AV-73.

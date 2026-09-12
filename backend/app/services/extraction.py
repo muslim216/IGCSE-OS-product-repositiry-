@@ -187,7 +187,8 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
     paper = await session.get(PastPaper, past_paper_id)
     if paper is None or paper.booklet_path is None:
         return
-    await _clear_past_paper_questions(session, paper.id)
+    if not await _clear_past_paper_questions(session, paper.id):
+        return
     try:
         await _run_past_paper_extraction(session, paper)
         paper.extraction_error = None
@@ -197,32 +198,40 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
         raise
 
 
-async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int) -> None:
+async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int) -> bool:
+    """Empty the question list so extraction can rebuild it.
+
+    Returns False when the list is settled and must not be rebuilt — the caller
+    has to abandon the whole job then, not just skip the delete. Returning None
+    and letting extraction run on regardless is the bug this signature exists to
+    make impossible: the delete is skipped but the insert is not, so the paper
+    ends up holding two question lists.
+    """
     existing = (
         await session.scalars(
             select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper_id)
         )
     ).all()
     if not existing:
-        return
+        return True
     question_ids = [q.id for q in existing]
-    # The same guard the mock arm carries, and for the same reason: once anyone
-    # has been marked against this question list a re-run (an orphan reclaim,
-    # `BE-6`) must not delete rows `question_marks` points at — on Postgres that
-    # is an FK violation that fails the job for good. Only the mock arm had it;
-    # the hazard was always identical here.
+    # Once anyone has been marked against this question list it is settled: a
+    # re-run (an orphan reclaim, `BE-6`) must not delete rows `question_marks`
+    # points at — on Postgres that is an FK violation that fails the job for
+    # good — and must not add a second list beside it either.
     if await session.scalar(
         select(QuestionMark.id)
         .where(QuestionMark.past_paper_question_id.in_(question_ids))
         .limit(1)
     ):
-        return
+        return False
     await session.execute(
         delete(PastPaperQuestionTopic).where(PastPaperQuestionTopic.question_id.in_(question_ids))
     )
     await session.execute(
         delete(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper_id)
     )
+    return True
 
 
 async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) -> None:
@@ -331,7 +340,8 @@ async def extract_mock(session: AsyncSession, payload: dict) -> None:
     mock = await session.get(Mock, mock_id)
     if mock is None:
         return
-    await _clear_mock_questions(session, mock.id)
+    if not await _clear_mock_questions(session, mock.id):
+        return
     try:
         await _run_mock_extraction(session, mock)
         mock.status = MockStatus.published
@@ -343,24 +353,28 @@ async def extract_mock(session: AsyncSession, payload: dict) -> None:
         raise
 
 
-async def _clear_mock_questions(session: AsyncSession, mock_id: int) -> None:
+async def _clear_mock_questions(session: AsyncSession, mock_id: int) -> bool:
+    """As `_clear_past_paper_questions` — False means the list is settled and
+    the caller must abandon the job rather than rebuild it."""
     existing = (
         await session.scalars(select(MockQuestion).where(MockQuestion.mock_id == mock_id))
     ).all()
     if not existing:
-        return
+        return True
     question_ids = [q.id for q in existing]
     # Once anyone has been marked against this question list it is settled: a
     # re-run (an orphan reclaim, `BE-6`) must not delete rows `question_marks`
-    # points at. On Postgres that is an FK violation that fails the job for good.
+    # points at — on Postgres that is an FK violation that fails the job for
+    # good — and must not add a second list beside it either.
     if await session.scalar(
         select(QuestionMark.id).where(QuestionMark.mock_question_id.in_(question_ids)).limit(1)
     ):
-        return
+        return False
     await session.execute(
         delete(MockQuestionTopic).where(MockQuestionTopic.question_id.in_(question_ids))
     )
     await session.execute(delete(MockQuestion).where(MockQuestion.mock_id == mock_id))
+    return True
 
 
 async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:

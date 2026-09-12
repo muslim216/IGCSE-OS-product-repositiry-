@@ -11,7 +11,11 @@ const paper = {
   // Deliberately NOT a substring of session_label/paper_number: with the old
   // "November 2026 · Paper 1" the student assertion below passed whether the
   // page rendered `title` or the pair it replaced, so it pinned nothing.
-  title: "Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice",
+  // `title` and `display_title` differ deliberately. Set to the same string,
+  // every assertion below passes whichever of the two the page renders — and a
+  // page switched to `title` would silently drop the "Untitled paper" fallback
+  // for papers still extracting. Only the display field is ever asserted.
+  title: "RAW TITLE — no component should render this",
   display_title: "Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice",
   session_label: "November 2026",
   paper_number: "Paper 1",

@@ -46,15 +46,38 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Checked BEFORE the batch rebuild starts, not left to the NOT NULL copy to
+    # discover. On SQLite `batch_alter_table` creates `_alembic_tmp_past_papers`
+    # first and copies into it; failing at the copy strands that table, and the
+    # retry — after the operator has cleaned up the rows — then fails on the
+    # leftover instead, which looks like a different problem entirely. Checking
+    # up front also turns an `IntegrityError` into a sentence saying what to do.
+    rows = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                "SELECT COUNT(*) FROM past_papers "
+                "WHERE session_label IS NULL OR paper_number IS NULL"
+            )
+        )
+        .scalar()
+    )
+    if rows:
+        raise RuntimeError(
+            f"{rows} past paper(s) have no session label or paper number yet — their "
+            "extraction has not finished. Downgrading past 0040 would have to invent "
+            "those values, which `PROD-2` forbids. Wait for extraction to finish, or "
+            "delete the unextracted papers (they have no marks against them), then "
+            "run this again."
+        )
+
     with op.batch_alter_table("past_papers", naming_convention=NAMING) as batch:
         # THIS DOWNGRADE FAILS if any row has a null `session_label` or
         # `paper_number` — which is the normal state of every paper between
         # upload and its extraction job finishing, not an edge case. Reproduced:
-        # a single such row gives `IntegrityError: NOT NULL constraint failed`,
-        # and on SQLite the failed batch rebuild can strand a
-        # `_alembic_tmp_past_papers` table behind it. Postgres has transactional
-        # DDL and rolls back clean, so the production dialect fails in the safer
-        # direction.
+        # the guard above stops it with an explanation rather than an
+        # `IntegrityError` from the NOT NULL copy — and, on SQLite, rather than
+        # a stranded `_alembic_tmp_past_papers` that breaks the retry too.
         #
         # Failing loudly is deliberate. The alternative is backfilling a session
         # label and paper number nobody read off the document, which is the

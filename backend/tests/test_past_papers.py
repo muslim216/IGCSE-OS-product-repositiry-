@@ -601,31 +601,65 @@ async def test_a_failed_extraction_leaves_the_paper_unnamed_and_says_why(
         assert "No questions were found" in paper.extraction_error
 
 
-async def test_re_extraction_replaces_the_name_rather_than_appending_to_it(
-    client,
-    tutor,
+async def test_re_extraction_never_renames_a_paper_that_already_has_a_name(
     past_paper,
     monkeypatch,
     fake_ai,  # noqa: F811
 ):
-    """`BE-6` — a worker that dies mid-job has its work requeued, so the
-    handler re-runs on a payload it may have partly processed.
+    """A paper is named once, on the run that first names it, and never again.
 
-    `test_re_extraction_replaces_the_question_list` covers the questions; the
-    three name fields are assigned by a different statement and nothing pinned
-    them. A `+=` slip there would survive that test and show the tutor a title
-    doubled end to end.
+    The second run here returns a *different* name, which is the only way to
+    tell the guard apart from a plain overwrite — feeding the same fixture twice
+    passes either way and pins nothing.
+
+    Why the guard exists is task 3.5: a booklet's papers are named by the AI,
+    corrected by the tutor, and only then do their question lists get extracted.
+    That second job lands on this same code and would overwrite the tutor's
+    correction with a fresh read — of a file holding a dozen papers, so
+    frequently wrong as well as unwanted, and with no audit row. `PROD-7` gives
+    the tutor final authority over what the AI produces, and `mark_submission`
+    already takes this posture: it never overwrites a tutor-finalized mark.
     """
-    from app.services.extraction import extract_past_paper
+    from app.services.extraction import (
+        ExtractedQuestion,
+        PastPaperExtractionResult,
+        extract_past_paper,
+    )
 
-    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete",
+        fake_ai(
+            PastPaperExtractionResult(
+                title="A completely different paper",
+                session_label="June 2025",
+                paper_number="Paper 9",
+                questions=[
+                    ExtractedQuestion(
+                        number="1",
+                        text_summary="Define an isotope",
+                        max_marks=2,
+                        topic_codes=[],
+                        has_mark_scheme=False,
+                    )
+                ],
+            )
+        ),
+    )
     async with async_session() as session:
-        for _ in range(2):
-            await extract_past_paper(session, {"past_paper_id": past_paper["id"]})
-            await session.commit()
+        await extract_past_paper(session, {"past_paper_id": past_paper["id"]})
+        await session.commit()
         paper = await session.get(PastPaper, past_paper["id"])
         assert paper.title == (
             "Cambridge IGCSE Chemistry 0620/21 Paper 2 Multiple Choice November 2026"
         )
         assert paper.session_label == "November 2026"
         assert paper.paper_number == "Paper 2"
+        # Only the name is sticky. The question list is still replaced, which
+        # is what keeps this from reading as "re-extraction does nothing":
+        # the fixture extracted two questions, this run returned one.
+        rows = (
+            await session.scalars(
+                select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == past_paper["id"])
+            )
+        ).all()
+        assert len(rows) == 1

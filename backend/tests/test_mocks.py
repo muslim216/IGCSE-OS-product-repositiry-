@@ -690,6 +690,7 @@ async def test_assigning_a_group_another_tutor_gets_404(client, mock_paper, grou
         "/api/v1/auth/register/tutor",
         json={"name": "Other", "email": "other-assign@example.com", "password": "password123"},
     )
+    assert reg.status_code == 201, reg.text
     headers = {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"}
     resp = await client.patch(
         f"/api/v1/mocks/{mock_paper['id']}",
