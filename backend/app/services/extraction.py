@@ -185,7 +185,7 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
     replace-don't-append idempotency rule."""
     past_paper_id = payload["past_paper_id"]
     paper = await session.get(PastPaper, past_paper_id)
-    if paper is None or paper.booklet_path is None:
+    if paper is None or paper.paper_path is None:
         return
     if not await _clear_past_paper_questions(session, paper.id):
         return
@@ -235,16 +235,14 @@ async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int)
 
 
 async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) -> None:
-    assert paper.booklet_path is not None
-    assert paper.booklet_mime is not None
+    assert paper.paper_path is not None
+    assert paper.paper_mime is not None
     topics = (
         await session.scalars(select(Topic).where(Topic.subject_id == paper.subject_id))
     ).all()
     topic_list = "\n".join(f"- {t.code}: {t.title}" for t in topics)
 
-    content: list[dict] = [
-        file_block(await storage.read_file(paper.booklet_path), paper.booklet_mime)
-    ]
+    content: list[dict] = [file_block(await storage.read_file(paper.paper_path), paper.paper_mime)]
     if paper.mark_scheme_path and paper.mark_scheme_mime:
         content.append(
             file_block(await storage.read_file(paper.mark_scheme_path), paper.mark_scheme_mime)
@@ -292,7 +290,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
     #
     # A plain overwrite is idempotent against the same payload, which is all
     # `BE-6` asks for — but it is not idempotent against a *tutor edit*, and
-    # that is the state task 3.5 creates: a booklet's papers are named by the
+    # that is the state task 3.5 creates: an upload's papers are named by the
     # AI, corrected by the tutor, and only then do their question lists get
     # extracted. That second job would land here and overwrite the correction
     # with a fresh read of a file holding a dozen papers — frequently wrong as

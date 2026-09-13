@@ -58,8 +58,8 @@ async def test_a_past_paper_with_no_mark_scheme_does_not_claim_one(client, tutor
             subject_id=world["subject_id"],
             session_label="June 2026",
             paper_number="Paper 1",
-            booklet_path=_write("papers/booklet.pdf"),
-            booklet_mime="application/pdf",
+            paper_path=_write("papers/booklet.pdf"),
+            paper_mime="application/pdf",
             # No mark scheme — the state seed data is in.
         )
         session.add(paper)
@@ -86,8 +86,8 @@ async def test_a_past_paper_with_no_mark_scheme_does_not_claim_one(client, tutor
 
     assert source.mark_scheme is None
     assert "mark scheme" not in source.intro
-    # The booklet is attached, so it may be named.
-    assert source.booklet is not None
+    # The question paper is attached, so it may be named.
+    assert source.question_paper is not None
     assert "question paper" in source.intro
 
 
@@ -165,8 +165,8 @@ async def test_an_unattached_scheme_never_auto_finalizes_however_confident(
             subject_id=world["subject_id"],
             session_label="June 2026",
             paper_number="Paper 1",
-            booklet_path=_write("papers/booklet2.pdf"),
-            booklet_mime="application/pdf",
+            paper_path=_write("papers/booklet2.pdf"),
+            paper_mime="application/pdf",
             # No mark_scheme_path: nothing for the model to mark against.
         )
         session.add(paper)

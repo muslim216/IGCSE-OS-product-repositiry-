@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listPastPapers,
-  pastPaperBookletPath,
+  pastPaperPaperPath,
   pastPaperMarkSchemePath,
   uploadPastPaper,
 } from "../api/pastPapers";
@@ -46,7 +46,7 @@ export default function PastPapersPage() {
 
   const [subjectId, setSubjectId] = useState("");
   const [duration, setDuration] = useState("");
-  const [booklet, setBooklet] = useState<File | null>(null);
+  const [paper, setPaper] = useState<File | null>(null);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,20 +54,20 @@ export default function PastPapersPage() {
     mutationFn: () =>
       uploadPastPaper({
         subject_id: Number(subjectId),
-        booklet: booklet!,
+        paper: paper!,
         mark_scheme: markScheme!,
         duration_minutes: duration ? Number(duration) : null,
       }),
     onSuccess: () => {
       setDuration("");
-      setBooklet(null);
+      setPaper(null);
       setMarkScheme(null);
       queryClient.invalidateQueries({ queryKey: ["past-papers"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
-  const ready = subjectId && booklet && markScheme;
+  const ready = subjectId && paper && markScheme;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -88,7 +88,7 @@ export default function PastPapersPage() {
       <form onSubmit={onSubmit} className="space-y-3 rounded-lg border bg-white p-4">
         <h3 className="font-medium text-slate-800">Add a paper</h3>
         <p className="text-xs text-ink-500">
-          The AI reads the session, paper number and question list off the booklet itself once it's
+          The AI reads the session, paper number and question list off the paper itself once it's
           uploaded — there's nothing to type here but the subject and files.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -119,7 +119,7 @@ export default function PastPapersPage() {
             <input
               type="file"
               accept="application/pdf,image/*"
-              onChange={(e) => setBooklet(e.target.files?.[0] ?? null)}
+              onChange={(e) => setPaper(e.target.files?.[0] ?? null)}
               className="mt-1 block w-full text-sm"
             />
           </label>
@@ -163,7 +163,7 @@ export default function PastPapersPage() {
                   </div>
                 </div>
                 <div className="flex gap-3 text-xs">
-                  <AuthFileLink path={pastPaperBookletPath(p.id)} label="Paper" />
+                  <AuthFileLink path={pastPaperPaperPath(p.id)} label="Paper" />
                   <AuthFileLink path={pastPaperMarkSchemePath(p.id)} label="Mark scheme" />
                 </div>
               </div>

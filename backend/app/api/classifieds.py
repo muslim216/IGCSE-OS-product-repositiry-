@@ -89,15 +89,15 @@ async def list_classifieds(
 async def update_classified(
     classified_id: int, body: ClassifiedUpdate, db: DbSession, user: TutorUser
 ) -> ClassifiedOut:
-    """Re-file a booklet under a chapter, and edit its notes.
+    """Re-file a classified under a chapter, and edit its notes.
 
     Notes are marking context the AI will act on (`AV-21`), so write-once at
-    upload would mean a tutor who mistyped them has to re-upload the booklet to
+    upload would mean a tutor who mistyped them has to re-upload the classified to
     correct what the marker is told. The subject's rules and the teaching
     guidance are both editable for the same reason.
     """
     classified = await db.get(Classified, classified_id)
-    # Ownership of a booklet is the tutor who uploaded it — the same rule the
+    # Ownership of a classified is the tutor who uploaded it — the same rule the
     # download routes below apply. A row in another account is a 404 (API-7).
     if classified is None or (classified.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")

@@ -19,7 +19,7 @@ export const getPastPaper = (id: number) => api<PastPaperDetail>(`/api/v1/past-p
 
 export function uploadPastPaper(payload: {
   subject_id: number;
-  booklet: File;
+  paper: File;
   /** Required: a full paper's marks can't rest on the AI's judgement alone. */
   mark_scheme: File;
   total_marks?: number | null;
@@ -27,7 +27,7 @@ export function uploadPastPaper(payload: {
 }) {
   const form = new FormData();
   form.append("subject_id", String(payload.subject_id));
-  form.append("booklet", payload.booklet);
+  form.append("paper", payload.paper);
   form.append("mark_scheme", payload.mark_scheme);
   if (payload.total_marks) form.append("total_marks", String(payload.total_marks));
   if (payload.duration_minutes) form.append("duration_minutes", String(payload.duration_minutes));
@@ -58,5 +58,5 @@ export function logAttempt(
 export const myAttempt = (pastPaperId: number) =>
   api<PastPaperAttempt | null>(`/api/v1/past-papers/${pastPaperId}/my-attempt`);
 
-export const pastPaperBookletPath = (id: number) => `/api/v1/past-papers/${id}/booklet`;
+export const pastPaperPaperPath = (id: number) => `/api/v1/past-papers/${id}/paper`;
 export const pastPaperMarkSchemePath = (id: number) => `/api/v1/past-papers/${id}/mark-scheme`;

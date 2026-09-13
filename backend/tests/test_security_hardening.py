@@ -105,7 +105,7 @@ async def test_students_cannot_see_another_organizations_past_papers(
             "paper_number": "Paper 9",
         },
         files=[
-            ("booklet", ("rival.pdf", PDF_BYTES, "application/pdf")),
+            ("paper", ("rival.pdf", PDF_BYTES, "application/pdf")),
             ("mark_scheme", ("rival-ms.pdf", PDF_BYTES, "application/pdf")),
         ],
         headers=other_tutor["headers"],
@@ -118,7 +118,7 @@ async def test_students_cannot_see_another_organizations_past_papers(
     assert listing.status_code == 200
     assert [p["id"] for p in listing.json()] == []
 
-    for path in (f"/{rival_id}", f"/{rival_id}/booklet", f"/{rival_id}/mark-scheme"):
+    for path in (f"/{rival_id}", f"/{rival_id}/paper", f"/{rival_id}/mark-scheme"):
         resp = await client.get(f"/api/v1/past-papers{path}", headers=student["headers"])
         assert resp.status_code in (403, 404), f"{path} -> {resp.status_code}"
 
@@ -133,10 +133,10 @@ async def test_students_still_see_their_own_tutors_past_papers(
     listing = await client.get("/api/v1/past-papers", headers=student["headers"])
     assert [p["id"] for p in listing.json()] == [past_paper["id"]]
 
-    booklet = await client.get(
-        f"/api/v1/past-papers/{past_paper['id']}/booklet", headers=student["headers"]
+    paper = await client.get(
+        f"/api/v1/past-papers/{past_paper['id']}/paper", headers=student["headers"]
     )
-    assert booklet.status_code == 200
+    assert paper.status_code == 200
     # The answers stay tutor-only.
     scheme = await client.get(
         f"/api/v1/past-papers/{past_paper['id']}/mark-scheme", headers=student["headers"]

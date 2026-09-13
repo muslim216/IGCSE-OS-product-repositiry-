@@ -10,7 +10,7 @@ tutor's rule contradicts the scheme, **the tutor's rule wins and the marks are
 awarded their way**, and the contradiction is recorded rather than suppressed.
 That applies to every contradictory point, not case by case. So:
 
-    1. chapter notes        the most specific tutor input, about this booklet
+    1. chapter notes        the most specific tutor input, about this classified
     2. subject marking rules  the tutor's standing policy for the subject
     3. the official mark scheme
     4. exam board and level   (AV-24)
@@ -92,7 +92,12 @@ async def build_marking_context(session: AsyncSession, sources: MarkingContextSo
     del session  # see the docstring; deliberately unused for now
     blocks: list[str] = []
 
-    # 1. Chapter notes — the most specific tutor input, about this booklet.
+    # 1. Chapter notes — the most specific tutor input, about this classified.
+    #    The block below deliberately says "question booklet" to the model and
+    #    not "classified": the trade word is ours, and plain English describes
+    #    the document better to a reader that has never seen our glossary. Do
+    #    not "fix" the mismatch — changing this text is a prompt change and
+    #    needs a version bump (`AI-7`).
     if sources.classified is not None and sources.classified.notes:
         blocks.append(
             f"--- [1] {CHAPTER_NOTES_LABEL} (written by the tutor, about this "

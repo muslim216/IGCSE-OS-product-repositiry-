@@ -33,7 +33,7 @@ class PastPaperOut(BaseModel):
     paper_number: str | None
     total_marks: int | None
     duration_minutes: int | None
-    booklet_name: str | None
+    paper_name: str | None
     # Present for tutors only — students must never see the mark scheme.
     mark_scheme_name: str | None = None
     extraction_error: str | None = None

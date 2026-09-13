@@ -1290,7 +1290,7 @@
           "classifieds"
         ],
         "summary": "Update Classified",
-        "description": "Re-file a booklet under a chapter, and edit its notes.\n\nNotes are marking context the AI will act on (`AV-21`), so write-once at\nupload would mean a tutor who mistyped them has to re-upload the booklet to\ncorrect what the marker is told. The subject's rules and the teaching\nguidance are both editable for the same reason.",
+        "description": "Re-file a classified under a chapter, and edit its notes.\n\nNotes are marking context the AI will act on (`AV-21`), so write-once at\nupload would mean a tutor who mistyped them has to re-upload the classified to\ncorrect what the marker is told. The subject's rules and the teaching\nguidance are both editable for the same reason.",
         "operationId": "update_classified_api_v1_classifieds__classified_id__patch",
         "security": [
           {
@@ -3756,14 +3756,14 @@
         }
       }
     },
-    "/api/v1/past-papers/{past_paper_id}/booklet": {
+    "/api/v1/past-papers/{past_paper_id}/paper": {
       "get": {
         "tags": [
           "past-papers"
         ],
-        "summary": "Past Paper Booklet",
+        "summary": "Past Paper Paper",
         "description": "The question paper \u2014 readable by enrolled students so they can sit it.",
-        "operationId": "past_paper_booklet_api_v1_past_papers__past_paper_id__booklet_get",
+        "operationId": "past_paper_paper_api_v1_past_papers__past_paper_id__paper_get",
         "security": [
           {
             "HTTPBearer": []
@@ -7556,10 +7556,10 @@
             "type": "integer",
             "title": "Subject Id"
           },
-          "booklet": {
+          "paper": {
             "type": "string",
             "contentMediaType": "application/octet-stream",
-            "title": "Booklet"
+            "title": "Paper"
           },
           "mark_scheme": {
             "type": "string",
@@ -7592,7 +7592,7 @@
         "type": "object",
         "required": [
           "subject_id",
-          "booklet",
+          "paper",
           "mark_scheme"
         ],
         "title": "Body_upload_past_paper_api_v1_past_papers_post"
@@ -10033,7 +10033,7 @@
             ],
             "title": "Duration Minutes"
           },
-          "booklet_name": {
+          "paper_name": {
             "anyOf": [
               {
                 "type": "string"
@@ -10042,7 +10042,7 @@
                 "type": "null"
               }
             ],
-            "title": "Booklet Name"
+            "title": "Paper Name"
           },
           "mark_scheme_name": {
             "anyOf": [
@@ -10090,7 +10090,7 @@
           "paper_number",
           "total_marks",
           "duration_minutes",
-          "booklet_name"
+          "paper_name"
         ],
         "title": "PastPaperDetail"
       },
@@ -10163,7 +10163,7 @@
             ],
             "title": "Duration Minutes"
           },
-          "booklet_name": {
+          "paper_name": {
             "anyOf": [
               {
                 "type": "string"
@@ -10172,7 +10172,7 @@
                 "type": "null"
               }
             ],
-            "title": "Booklet Name"
+            "title": "Paper Name"
           },
           "mark_scheme_name": {
             "anyOf": [
@@ -10212,7 +10212,7 @@
           "paper_number",
           "total_marks",
           "duration_minutes",
-          "booklet_name"
+          "paper_name"
         ],
         "title": "PastPaperOut"
       },

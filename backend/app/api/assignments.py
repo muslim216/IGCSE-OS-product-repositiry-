@@ -413,7 +413,7 @@ async def retry_extraction(
     assignment = await _owned_assignment(db, user, assignment_id)
     if assignment.classified_id is None:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "This assignment has no question booklet to re-extract"
+            status.HTTP_409_CONFLICT, "This assignment has no classified to re-extract"
         )
     if assignment.status not in (AssignmentStatus.extraction_failed, AssignmentStatus.review):
         raise HTTPException(

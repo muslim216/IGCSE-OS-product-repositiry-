@@ -112,7 +112,7 @@ class _MarkingSource:
     homework vs past paper past this point."""
 
     questions: list  # AssignmentQuestion | PastPaperQuestion, ordered
-    booklet: tuple[bytes, str] | None
+    question_paper: tuple[bytes, str] | None
     mark_scheme: tuple[bytes, str] | None
     intro: str
     organization_id: int
@@ -123,7 +123,7 @@ class _MarkingSource:
     kind: SubmissionKind
     # AV-76's layers. `subject` carries the tutor's marking rules and the exam
     # board and level (AV-24); `classified` carries the chapter notes and is
-    # None for a past paper, which is not a booklet a tutor annotated.
+    # None for a past paper, which is not a classified that a tutor annotated.
     subject: Subject | None
     classified: Classified | None
 
@@ -157,7 +157,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
     # (AI-11, ADR-0009) — a model told it has a scheme it cannot see can report
     # exactly that, and the mark lands finalized with no official scheme behind
     # it and no tutor in the loop.
-    booklet = (
+    question_paper = (
         (await storage.read_file(classified.file_path), classified.file_mime)
         if classified is not None and classified.file_path and classified.file_mime
         else None
@@ -167,31 +167,31 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
         if classified is not None and classified.mark_scheme_path and classified.mark_scheme_mime
         else None
     )
-    has_booklet = booklet is not None
+    has_question_paper = question_paper is not None
     has_mark_scheme = mark_scheme is not None
     # "the student's answers", not "handwritten answer pages": since task 3.3 a
     # submission may be typed, photographed or both, and telling the model to
     # mark handwritten pages that are not there is a contradiction it has to
     # resolve on its own (cubic).
-    if has_booklet:
+    if has_question_paper:
         intro = (
-            "The documents above are: (1) the question booklet, "
+            "The documents above are: (1) the question paper, "
             + ("(2) the mark scheme, " if has_mark_scheme else "")
             + "followed by the student's answers."
         )
     elif has_mark_scheme:
         intro = (
             "The document above is the mark scheme, followed by the student's answers. No "
-            "question booklet is attached — mark from the question list below."
+            "question paper is attached — mark from the question list below."
         )
     else:
         intro = (
-            "No question booklet is attached to this assignment — mark from the question "
+            "No question paper is attached to this assignment — mark from the question "
             "list below and the student's answers above only."
         )
     return _MarkingSource(
         questions=questions,
-        booklet=booklet,
+        question_paper=question_paper,
         mark_scheme=mark_scheme,
         intro=intro,
         organization_id=group.organization_id,
@@ -235,9 +235,9 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
     # This one claimed both documents unconditionally, so a past paper stored
     # without a mark scheme told the model it had the official scheme in front of
     # it — the one input AI-11 lets a mark auto-finalize on.
-    booklet = (
-        (await storage.read_file(paper.booklet_path), paper.booklet_mime)
-        if paper.booklet_path and paper.booklet_mime
+    question_paper = (
+        (await storage.read_file(paper.paper_path), paper.paper_mime)
+        if paper.paper_path and paper.paper_mime
         else None
     )
     mark_scheme = (
@@ -245,12 +245,12 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         if paper.mark_scheme_path and paper.mark_scheme_mime
         else None
     )
-    has_booklet = booklet is not None
+    has_question_paper = question_paper is not None
     has_mark_scheme = mark_scheme is not None
     attached = [
         name
         for name, present in (
-            ("the question paper", has_booklet),
+            ("the question paper", has_question_paper),
             ("the official mark scheme", has_mark_scheme),
         )
         if present
@@ -286,7 +286,7 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         )
     return _MarkingSource(
         questions=questions,
-        booklet=booklet,
+        question_paper=question_paper,
         mark_scheme=mark_scheme,
         intro=intro,
         organization_id=paper.organization_id,
@@ -294,8 +294,8 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         subject_id=paper.subject_id,
         kind=PAST_PAPER,
         subject=await session.get(Subject, paper.subject_id),
-        # A past paper is the board's own document, not a booklet the tutor
-        # compiled and annotated, so there are no chapter notes to apply.
+        # A past paper is the board's own document, not a classified that the
+        # tutor compiled and annotated, so there are no chapter notes to apply.
         classified=None,
     )
 
@@ -322,7 +322,7 @@ async def _mock_source(session: AsyncSession, submission: Submission) -> _Markin
     # Same rule as the other two branches: the sentence names only what is
     # actually attached, because a model told it has a scheme it cannot see can
     # report a mark as scheme-backed and auto-finalize it (AI-11, ADR-0009).
-    booklet = (
+    question_paper = (
         (await storage.read_file(mock.paper_path), mock.paper_mime)
         if mock.paper_path and mock.paper_mime
         else None
@@ -335,7 +335,7 @@ async def _mock_source(session: AsyncSession, submission: Submission) -> _Markin
     attached = [
         name
         for name, present in (
-            ("the question paper", booklet is not None),
+            ("the question paper", question_paper is not None),
             ("the official mark scheme", mark_scheme is not None),
         )
         if present
@@ -353,7 +353,7 @@ async def _mock_source(session: AsyncSession, submission: Submission) -> _Markin
         )
     return _MarkingSource(
         questions=questions,
-        booklet=booklet,
+        question_paper=question_paper,
         mark_scheme=mark_scheme,
         intro=intro,
         organization_id=mock.organization_id,
@@ -401,7 +401,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     ):
         return
 
-    # `q.has_mark_scheme` records what the *extractor* saw in the booklet, and is
+    # `q.has_mark_scheme` records what the *extractor* saw in the question paper, and is
     # set once at extraction. Whether a scheme is in front of the model on THIS
     # call is a different fact — `source.mark_scheme`. They diverge, and
     # `PastPaperQuestion.has_mark_scheme` defaults to True (readiness_v2.py), so
@@ -425,10 +425,10 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     )
 
     content: list[dict] = []
-    # The booklet/mark scheme is shared across every student marked against it —
+    # The question paper/mark scheme is shared across every student marked against it —
     # cache it so marking a batch reuses the prefix.
-    if source.booklet is not None:
-        content.append(file_block(*source.booklet, cache=True))
+    if source.question_paper is not None:
+        content.append(file_block(*source.question_paper, cache=True))
     if source.mark_scheme is not None:
         content.append(file_block(*source.mark_scheme, cache=True))
     # Fetched concurrently: these are independent reads, and against an object
@@ -471,7 +471,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     kb_context = await build_tutor_context(session, source.tutor_id, source.subject_id)
     # AV-76's layers, assembled in exactly one place (E16). Cached with the
     # knowledge base below: both are per-tutor/per-subject, so marking a class
-    # against the same booklet reuses the prefix rather than re-sending it per
+    # against the same question paper reuses the prefix rather than re-sending it per
     # student.
     marking_context = await build_marking_context(
         session,

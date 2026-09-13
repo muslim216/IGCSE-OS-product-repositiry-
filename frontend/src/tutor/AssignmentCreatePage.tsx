@@ -34,7 +34,7 @@ export default function AssignmentCreatePage() {
     queryFn: () => listClassifieds(subjectId),
     enabled: subjectId !== undefined,
   });
-  // A booklet belongs to the chapter the tutor is starting (AV-20). A subject
+  // A classified belongs to the chapter the tutor is starting (AV-20). A subject
   // whose syllabus was never extracted chapter-first has none, and the picker
   // simply does not render — nothing here invents structure the tutor never
   // approved (PROD-2).
@@ -50,15 +50,15 @@ export default function AssignmentCreatePage() {
   const [showDetails, setShowDetails] = useState(false);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
   const [form, setForm] = useState({ title: "", instructions: "", due_at: "", question_range: "" });
-  // The booklet's chapter and its marking notes (AV-20, AV-21). They describe
+  // The classified's chapter and its marking notes (AV-20, AV-21). They describe
   // the paper, not this piece of homework, so on the reuse path they are the
-  // chosen booklet's existing values and saving them is an edit of it.
+  // chosen classified's existing values and saving them is an edit of it.
   const [chapterId, setChapterId] = useState<number | "">("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const reused = reuseId === "" ? undefined : classifieds.data?.find((c) => c.id === reuseId);
-  // Seeded from the chosen booklet, and cleared when the choice is cleared.
+  // Seeded from the chosen classified, and cleared when the choice is cleared.
   // Keyed on the id rather than the row so a background refetch of the list
   // cannot overwrite what the tutor has typed since (the same guard the
   // marking-rules editor needs, for the same reason).
@@ -97,7 +97,7 @@ export default function AssignmentCreatePage() {
         });
       }
       if (reuseId !== "") {
-        // Save the booklet's chapter and notes first, and only when they have
+        // Save the classified's chapter and notes first, and only when they have
         // actually changed: they are marking context the AI will act on, so a
         // correction must land before work is set from it. Ordered this way on
         // purpose — homework created against stale notes would be marked
@@ -142,7 +142,7 @@ export default function AssignmentCreatePage() {
     setMarkScheme(null);
     // Same argument, and it matters more here: the chapter and the notes
     // describe *this paper*, and swapping the file after typing them would
-    // quietly carry marking instructions written about one booklet onto
+    // quietly carry marking instructions written about one classified onto
     // another. Retyping them is an annoyance; inheriting them steers a mark
     // (cubic). Clearing the reuse selection above does not reach these — the
     // hydration effect below only fires when the chosen id changes.
@@ -326,7 +326,7 @@ export default function AssignmentCreatePage() {
               )}
               <label className="block text-sm">
                 <span className="mb-1 block text-xs font-medium text-ink-500">
-                  Question range (leave empty for the whole booklet)
+                  Question range (leave empty for the whole paper)
                 </span>
                 <input
                   className="w-full rounded-md border border-line px-3 py-2 text-sm"

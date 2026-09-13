@@ -74,7 +74,7 @@ def _marking_double(fake_ai, *, confidence="high"):
 
 
 async def _upload(client, tutor, subject, *, with_scheme=True):  # noqa: F811
-    files = [("booklet", ("paper.pdf", PDF_BYTES, "application/pdf"))]
+    files = [("paper", ("paper.pdf", PDF_BYTES, "application/pdf"))]
     if with_scheme:
         files.append(("mark_scheme", ("ms.pdf", PDF_BYTES, "application/pdf")))
     return await client.post(
@@ -115,7 +115,7 @@ async def test_upload_no_longer_accepts_session_label_or_paper_number(client, tu
             "paper_number": "should be ignored",
         },
         files=[
-            ("booklet", ("paper.pdf", PDF_BYTES, "application/pdf")),
+            ("paper", ("paper.pdf", PDF_BYTES, "application/pdf")),
             ("mark_scheme", ("ms.pdf", PDF_BYTES, "application/pdf")),
         ],
         headers=tutor["headers"],
@@ -162,16 +162,16 @@ async def test_upload_extracts_the_question_list(client, tutor, past_paper):
         assert question.ai_prompt_version == "test", "extraction records its prompt version"
 
 
-async def test_a_student_can_read_the_booklet_but_never_the_mark_scheme(
+async def test_a_student_can_read_the_paper_but_never_the_mark_scheme(
     client,
     tutor,
     student,
     past_paper,  # noqa: F811
 ):
-    booklet = await client.get(
-        f"/api/v1/past-papers/{past_paper['id']}/booklet", headers=student["headers"]
+    paper = await client.get(
+        f"/api/v1/past-papers/{past_paper['id']}/paper", headers=student["headers"]
     )
-    assert booklet.status_code == 200
+    assert paper.status_code == 200
     scheme = await client.get(
         f"/api/v1/past-papers/{past_paper['id']}/mark-scheme", headers=student["headers"]
     )
@@ -386,7 +386,7 @@ async def test_a_student_only_sees_papers_for_subjects_they_take(
         "/api/v1/past-papers",
         data={"subject_id": str(other_id)},
         files=[
-            ("booklet", ("p.pdf", PDF_BYTES, "application/pdf")),
+            ("paper", ("p.pdf", PDF_BYTES, "application/pdf")),
             ("mark_scheme", ("ms.pdf", PDF_BYTES, "application/pdf")),
         ],
         headers=tutor["headers"],
@@ -551,7 +551,7 @@ async def test_an_overlong_extracted_name_is_clamped_not_left_to_fail_on_postgre
         "/api/v1/past-papers",
         data={"subject_id": str(subject["id"])},
         files={
-            "booklet": ("paper.pdf", PDF_BYTES, "application/pdf"),
+            "paper": ("paper.pdf", PDF_BYTES, "application/pdf"),
             "mark_scheme": ("ms.pdf", PDF_BYTES, "application/pdf"),
         },
         headers=tutor["headers"],
@@ -612,7 +612,7 @@ async def test_re_extraction_never_renames_a_paper_that_already_has_a_name(
     tell the guard apart from a plain overwrite — feeding the same fixture twice
     passes either way and pins nothing.
 
-    Why the guard exists is task 3.5: a booklet's papers are named by the AI,
+    Why the guard exists is task 3.5: an upload's papers are named by the AI,
     corrected by the tutor, and only then do their question lists get extracted.
     That second job lands on this same code and would overwrite the tutor's
     correction with a fresh read — of a file holding a dozen papers, so

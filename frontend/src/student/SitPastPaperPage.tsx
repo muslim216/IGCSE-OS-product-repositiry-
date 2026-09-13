@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getPastPaper, logAttempt, myAttempt, pastPaperBookletPath } from "../api/pastPapers";
+import { getPastPaper, logAttempt, myAttempt, pastPaperPaperPath } from "../api/pastPapers";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
 
@@ -62,7 +62,7 @@ export default function SitPastPaperPage() {
           {p.duration_minutes ? ` · ${p.duration_minutes} minutes allowed` : ""}
         </p>
         <div className="mt-2 text-sm">
-          <AuthFileLink path={pastPaperBookletPath(p.id)} label="Open the question paper" />
+          <AuthFileLink path={pastPaperPaperPath(p.id)} label="Open the question paper" />
         </div>
       </div>
 
