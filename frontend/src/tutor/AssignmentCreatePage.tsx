@@ -326,7 +326,7 @@ export default function AssignmentCreatePage() {
               )}
               <label className="block text-sm">
                 <span className="mb-1 block text-xs font-medium text-ink-500">
-                  Question range (leave empty for the whole classified)
+                  Question range (leave empty for the whole paper)
                 </span>
                 <input
                   className="w-full rounded-md border border-line px-3 py-2 text-sm"

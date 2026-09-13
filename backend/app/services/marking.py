@@ -123,7 +123,7 @@ class _MarkingSource:
     kind: SubmissionKind
     # AV-76's layers. `subject` carries the tutor's marking rules and the exam
     # board and level (AV-24); `classified` carries the chapter notes and is
-    # None for a past paper, which is not a classified a tutor annotated.
+    # None for a past paper, which is not a classified that a tutor annotated.
     subject: Subject | None
     classified: Classified | None
 
@@ -294,8 +294,8 @@ async def _past_paper_source(session: AsyncSession, submission: Submission) -> _
         subject_id=paper.subject_id,
         kind=PAST_PAPER,
         subject=await session.get(Subject, paper.subject_id),
-        # A past paper is the board's own document, not a classified the tutor
-        # compiled and annotated, so there are no chapter notes to apply.
+        # A past paper is the board's own document, not a classified that the
+        # tutor compiled and annotated, so there are no chapter notes to apply.
         classified=None,
     )
 
