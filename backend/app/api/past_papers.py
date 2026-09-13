@@ -10,7 +10,7 @@ Two rules specific to past papers:
 - **The official mark scheme is required at upload.** Past-paper marks feed the
   Past Paper Performance factor and a predicted grade; they may not rest on the
   AI's own judgement.
-- **The mark scheme is tutor-only.** Students can read the question booklet.
+- **The mark scheme is tutor-only.** Students can read the question paper.
 """
 
 from collections.abc import Sequence
@@ -123,7 +123,7 @@ def _out(paper: PastPaper, count: int, *, for_tutor: bool) -> PastPaperOut:
         paper_number=paper.paper_number,
         total_marks=paper.total_marks,
         duration_minutes=paper.duration_minutes,
-        booklet_name=paper.booklet_name,
+        paper_name=paper.paper_name,
         mark_scheme_name=paper.mark_scheme_name if for_tutor else None,
         extraction_error=paper.extraction_error if for_tutor else None,
         question_count=count,
@@ -135,7 +135,7 @@ async def upload_past_paper(
     db: DbSession,
     user: TutorUser,
     subject_id: Annotated[int, Form()],
-    booklet: Annotated[UploadFile, File()],
+    paper: Annotated[UploadFile, File()],
     mark_scheme: Annotated[UploadFile, File()],
     total_marks: Annotated[int | None, Form()] = None,
     duration_minutes: Annotated[int | None, Form()] = None,
@@ -150,8 +150,8 @@ async def upload_past_paper(
             "paper can't rest on the AI's judgement alone.",
         )
 
-    booklet_path, booklet_name, booklet_mime = await storage.save_upload(
-        booklet, organization_id=user.organization_id
+    paper_path, paper_name, paper_mime = await storage.save_upload(
+        paper, organization_id=user.organization_id
     )
     ms_path, ms_name, ms_mime = await storage.save_upload(
         mark_scheme, organization_id=user.organization_id
@@ -162,9 +162,9 @@ async def upload_past_paper(
         subject_id=subject.id,
         total_marks=total_marks,
         duration_minutes=duration_minutes,
-        booklet_path=booklet_path,
-        booklet_name=booklet_name,
-        booklet_mime=booklet_mime,
+        paper_path=paper_path,
+        paper_name=paper_name,
+        paper_mime=paper_mime,
         mark_scheme_path=ms_path,
         mark_scheme_name=ms_name,
         mark_scheme_mime=ms_mime,
@@ -238,18 +238,18 @@ async def past_paper_detail(
     )
 
 
-@router.get("/{past_paper_id}/booklet", response_class=Response, responses=FILE_RESPONSES)
-async def past_paper_booklet(past_paper_id: int, db: DbSession, user: CurrentUser) -> Response:
+@router.get("/{past_paper_id}/paper", response_class=Response, responses=FILE_RESPONSES)
+async def past_paper_paper(past_paper_id: int, db: DbSession, user: CurrentUser) -> Response:
     """The question paper — readable by enrolled students so they can sit it."""
     paper = await _visible_paper(db, user, past_paper_id)
-    if paper.booklet_path is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No booklet uploaded")
-    # booklet_mime/_name are nullable, so fall back rather than 500 on a row
+    if paper.paper_path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No paper uploaded")
+    # paper_mime/_name are nullable, so fall back rather than 500 on a row
     # that does have a file to serve (same reason as classifieds.py).
     return await signed_or_proxied_file(
-        paper.booklet_path,
-        mime=paper.booklet_mime or "application/octet-stream",
-        filename=paper.booklet_name or "booklet",
+        paper.paper_path,
+        mime=paper.paper_mime or "application/octet-stream",
+        filename=paper.paper_name or "paper",
     )
 
 

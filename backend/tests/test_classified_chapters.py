@@ -4,7 +4,7 @@ A classified belongs to the chapter the tutor is starting, and carries that
 chapter's marking notes — `AV-76`'s "chapter notes" layer, one step below the
 official mark scheme. Nothing reads the notes yet; task 3.2's context assembler
 is the single function that will (`E16`). So what is testable here is where a
-booklet may be filed, the bound on the notes, the tenancy, and the fact that no
+classified may be filed, the bound on the notes, the tenancy, and the fact that no
 prompt has quietly started using them.
 """
 
@@ -84,7 +84,7 @@ async def test_a_subject_with_no_extracted_chapters_returns_an_empty_list(client
     assert resp.json() == []
 
 
-async def test_upload_files_a_booklet_under_a_chapter_with_notes(client, tutor, subject):
+async def test_upload_files_a_classified_under_a_chapter_with_notes(client, tutor, subject):
     resp = await client.post(
         "/api/v1/classifieds",
         **_upload(subject["id"], chapter_id=str(subject["chapters"][0]), notes=NOTES),
@@ -95,7 +95,7 @@ async def test_upload_files_a_booklet_under_a_chapter_with_notes(client, tutor, 
     assert resp.json()["notes"] == NOTES
 
 
-async def test_a_booklet_may_have_no_chapter(client, tutor, subject):
+async def test_a_classified_may_have_no_chapter(client, tutor, subject):
     """Nullable by design: every classified uploaded before this task has none,
     and a subject whose syllabus was never extracted chapter-first has no
     chapter to name."""
@@ -134,7 +134,7 @@ async def test_a_chapter_from_another_subject_is_rejected_before_anything_is_sto
 
 async def test_notes_are_editable_after_upload(client, tutor, subject):
     """Write-once would mean a tutor who mistyped what the marker is told has to
-    re-upload the booklet to correct it."""
+    re-upload the classified to correct it."""
     created = await client.post(
         "/api/v1/classifieds",
         **_upload(subject["id"], chapter_id=str(subject["chapters"][0]), notes=NOTES),
@@ -159,7 +159,7 @@ async def test_notes_are_editable_after_upload(client, tutor, subject):
 
 async def test_whitespace_only_notes_are_stored_as_none(client, tutor, subject):
     """ "   " would make `notes` truthy, so the assembler would paste an empty
-    instruction block into every marking prompt for this booklet."""
+    instruction block into every marking prompt for this classified."""
     created = await client.post(
         "/api/v1/classifieds",
         **_upload(subject["id"], notes="   \n  "),
@@ -267,7 +267,7 @@ async def test_a_partial_patch_is_refused_rather_than_clearing_the_other_field(
 ):
     """This route is a full replacement of the pair. Schema defaults would
     materialize for the omitted field and the handler would write them, so
-    sending only the notes would silently unfile the booklet (cubic)."""
+    sending only the notes would silently unfile the classified (cubic)."""
     classified_id = await _a_classified(client, tutor, subject)
     await client.patch(
         f"/api/v1/classifieds/{classified_id}",
@@ -292,8 +292,8 @@ async def _a_classified(client, tutor, subject) -> int:
     return created.json()["id"]
 
 
-async def test_another_tutors_booklet_cannot_be_re_filed(client, tutor, subject):
-    """QA-12: the negative case ships with the change. A booklet in another
+async def test_another_tutors_classified_cannot_be_re_filed(client, tutor, subject):
+    """QA-12: the negative case ships with the change. A classified in another
     account is a 404, so nothing confirms it exists."""
     classified_id = await _a_classified(client, tutor, subject)
 
@@ -314,7 +314,7 @@ async def test_another_tutors_booklet_cannot_be_re_filed(client, tutor, subject)
         assert await session.scalar(select(Classified.notes)) is None
 
 
-async def test_a_student_cannot_re_file_a_booklet(client, tutor, subject):
+async def test_a_student_cannot_re_file_a_classified(client, tutor, subject):
     """The role gate is a signature dependency, so it cannot be forgotten — this
     is the assertion that it is actually there (SEC-11, BE-17, QA-12)."""
     classified_id = await _a_classified(client, tutor, subject)
@@ -400,7 +400,7 @@ async def test_setting_homework_refuses_a_chapter_from_another_subject(client, t
         assert (await session.scalars(select(Classified))).all() == []
 
 
-def test_the_marking_context_is_the_only_thing_that_reads_a_booklet_s_notes():
+def test_the_marking_context_is_the_only_thing_that_reads_a_classified_s_notes():
     """Task 3.1 shipped a guard asserting *nothing* read these — `E16` says the
     marking context is assembled in exactly one function, so this is that guard
     turned round now that 3.2 has built it.
@@ -414,7 +414,7 @@ def test_the_marking_context_is_the_only_thing_that_reads_a_booklet_s_notes():
 
     app = Path(__file__).resolve().parents[1] / "app"
     #: Whole-file exemptions, and only for files with nothing to do with a
-    #: booklet's notes: `assignments.py` *writes* the field on creation, and
+    #: classified's notes: `assignments.py` *writes* the field on creation, and
     #: `student_crm.py` has its own unrelated `notes` (TutorNote).
     exempt_files = {"assignments.py", "student_crm.py"}
     #: `marking_context.py` is **not** exempt as a file. `E16` says one
@@ -442,7 +442,7 @@ def test_the_marking_context_is_the_only_thing_that_reads_a_booklet_s_notes():
                     continue
                 found.append(f"{path.name}:{node.lineno}")
     assert found == [], (
-        f"{found} now read a booklet's notes outside `build_marking_context`. "
+        f"{found} now read a classified's notes outside `build_marking_context`. "
         "Precedence spread across call sites is precedence that drifts (E16) — route "
         "it through the assembler, or extend the exemption deliberately."
     )

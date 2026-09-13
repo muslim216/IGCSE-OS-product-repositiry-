@@ -21,7 +21,7 @@ const paper = {
   paper_number: "Paper 1",
   total_marks: 80,
   duration_minutes: 90,
-  booklet_name: "paper.pdf",
+  paper_name: "paper.pdf",
   mark_scheme_name: null,
   extraction_error: null,
   question_count: 12,

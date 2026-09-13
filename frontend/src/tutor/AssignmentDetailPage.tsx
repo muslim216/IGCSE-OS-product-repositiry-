@@ -18,7 +18,7 @@ interface EditableQuestion extends QuestionIn {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  extracting: "AI is reading the booklet…",
+  extracting: "AI is reading the classified…",
   extraction_failed: "Extraction failed",
   review: "Review the questions, then publish",
   published: "Published",

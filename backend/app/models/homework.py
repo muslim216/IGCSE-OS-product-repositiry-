@@ -21,7 +21,7 @@ from app.models.base import Base, TimestampMixin, utcnow
 
 
 class Classified(TimestampMixin, Base):
-    """A topic-compiled past-paper question booklet a tutor uploads and reuses."""
+    """A topic-compiled past-paper question document a tutor uploads and reuses."""
 
     __tablename__ = "classifieds"
     __table_args__ = (
@@ -29,7 +29,7 @@ class Classified(TimestampMixin, Base):
         # names must belong to the classified's own subject. `topics` carries
         # the identical key for the identical reason (see its __table_args__) —
         # a single-column FK proves only that the chapter exists, so nothing
-        # would stop a booklet being filed under another subject's chapter and
+        # would stop a classified being filed under another subject's chapter and
         # its notes then being fed into a mark for a different syllabus.
         #
         # chapter_id is nullable and default MATCH SIMPLE skips the check while
@@ -57,13 +57,13 @@ class Classified(TimestampMixin, Base):
     mark_scheme_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # The chapter this booklet belongs to (AV-20). Nullable: every classified
+    # The chapter this classified belongs to (AV-20). Nullable: every classified
     # that predates task 3.1 has none, and a subject whose syllabus was never
     # extracted has no chapters to point at. The foreign key is composite with
     # subject_id and lives in __table_args__.
     chapter_id: Mapped[int | None] = mapped_column(nullable=True)
     # Chapter-specific marking notes (AV-21) — free text the tutor writes about
-    # how work from this booklet should be marked. This is AV-76's "chapter
+    # how work from this classified should be marked. This is AV-76's "chapter
     # notes" layer: below the official mark scheme, which it can never relax,
     # and above the subject's own rules. Nothing reads it until task 3.2's
     # context assembler.
@@ -86,7 +86,7 @@ class Assignment(TimestampMixin, Base):
     # The lesson this homework was assigned from, if any — direct
     # (lesson-less) assignments remain possible.
     lesson_id: Mapped[int | None] = mapped_column(ForeignKey("lessons.id"), nullable=True)
-    # Optional: assignments can be created without a question booklet — the
+    # Optional: assignments can be created without a classified — the
     # tutor types questions directly instead of uploading/extracting a PDF.
     classified_id: Mapped[int | None] = mapped_column(ForeignKey("classifieds.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)

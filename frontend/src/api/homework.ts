@@ -2,7 +2,7 @@ import { api, apiUrl, getStoredTokens } from "./client";
 import type { components } from "./schema";
 import type { Topic } from "./syllabus";
 
-/** A booklet of past-paper questions, uploaded once and reused. Chapter-scoped
+/** A classified: past-paper questions compiled by topic, uploaded once and reused. Chapter-scoped
  *  since task 3.1 (`AV-20`), and carrying that chapter's marking notes
  *  (`AV-21`) — the layer of `AV-76`'s precedence directly below the official
  *  mark scheme. Aliased from the generated schema rather than hand-mirrored
@@ -198,7 +198,7 @@ export interface StudentSubmissionView {
 export const listClassifieds = (subjectId?: number) =>
   api<Classified[]>(`/api/v1/classifieds${subjectId ? `?subject_id=${subjectId}` : ""}`);
 
-/** Re-file a booklet under a chapter and rewrite its marking notes. A full
+/** Re-file a classified under a chapter and rewrite its marking notes. A full
  *  replacement of that pair, not a partial patch — the editor holds both. */
 export const updateClassified = (
   classifiedId: number,

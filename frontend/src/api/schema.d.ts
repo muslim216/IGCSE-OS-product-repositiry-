@@ -583,10 +583,10 @@ export interface paths {
         head?: never;
         /**
          * Update Classified
-         * @description Re-file a booklet under a chapter, and edit its notes.
+         * @description Re-file a classified under a chapter, and edit its notes.
          *
          *     Notes are marking context the AI will act on (`AV-21`), so write-once at
-         *     upload would mean a tutor who mistyped them has to re-upload the booklet to
+         *     upload would mean a tutor who mistyped them has to re-upload the classified to
          *     correct what the marker is told. The subject's rules and the teaching
          *     guidance are both editable for the same reason.
          */
@@ -1337,7 +1337,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/past-papers/{past_paper_id}/booklet": {
+    "/api/v1/past-papers/{past_paper_id}/paper": {
         parameters: {
             query?: never;
             header?: never;
@@ -1345,10 +1345,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Past Paper Booklet
+         * Past Paper Paper
          * @description The question paper — readable by enrolled students so they can sit it.
          */
-        get: operations["past_paper_booklet_api_v1_past_papers__past_paper_id__booklet_get"];
+        get: operations["past_paper_paper_api_v1_past_papers__past_paper_id__paper_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2573,8 +2573,8 @@ export interface components {
         Body_upload_past_paper_api_v1_past_papers_post: {
             /** Subject Id */
             subject_id: number;
-            /** Booklet */
-            booklet: string;
+            /** Paper */
+            paper: string;
             /** Mark Scheme */
             mark_scheme: string;
             /** Total Marks */
@@ -3438,8 +3438,8 @@ export interface components {
             total_marks: number | null;
             /** Duration Minutes */
             duration_minutes: number | null;
-            /** Booklet Name */
-            booklet_name: string | null;
+            /** Paper Name */
+            paper_name: string | null;
             /** Mark Scheme Name */
             mark_scheme_name?: string | null;
             /** Extraction Error */
@@ -3473,8 +3473,8 @@ export interface components {
             total_marks: number | null;
             /** Duration Minutes */
             duration_minutes: number | null;
-            /** Booklet Name */
-            booklet_name: string | null;
+            /** Paper Name */
+            paper_name: string | null;
             /** Mark Scheme Name */
             mark_scheme_name?: string | null;
             /** Extraction Error */
@@ -6968,7 +6968,7 @@ export interface operations {
             };
         };
     };
-    past_paper_booklet_api_v1_past_papers__past_paper_id__booklet_get: {
+    past_paper_paper_api_v1_past_papers__past_paper_id__paper_get: {
         parameters: {
             query?: never;
             header?: never;

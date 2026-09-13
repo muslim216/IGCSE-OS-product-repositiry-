@@ -7,11 +7,11 @@ from app.schemas.groups import TopicOut
 #: Hard cap on a classified's chapter notes.
 #:
 #: These notes go into the marking prompt for every submission made against
-#: this booklet (task 3.2's context assembler), so their length is a cost paid
+#: this classified (task 3.2's context assembler), so their length is a cost paid
 #: per mark, and an unbounded field sitting in an instruction position is an
 #: unbounded attack surface — the plan's own security criterion for `AV-76`.
 #: Shorter than the subject's rules (`MAX_MARKING_RULES`, 8000) because this is
-#: the narrow layer: what is unusual about *this booklet*, not the tutor's whole
+#: the narrow layer: what is unusual about *this classified*, not the tutor's whole
 #: marking policy. Enforced server-side; a frontend limit is a courtesy.
 MAX_CLASSIFIED_NOTES = 4000
 
@@ -29,7 +29,7 @@ def clean_notes(value: str | None) -> str | None:
     """Whitespace-only notes are no notes at all — stored as NULL.
 
     "   " would make `notes` truthy, so the assembler would paste an empty
-    instruction block into every marking prompt for this booklet, and a surface
+    instruction block into every marking prompt for this classified, and a surface
     would report notes that say nothing. Used by the multipart upload route as
     well as by the schema below, so the two entry points cannot disagree.
     """
@@ -44,7 +44,7 @@ class ClassifiedOut(BaseModel):
     title: str
     file_name: str
     mark_scheme_name: str | None
-    #: The chapter this booklet belongs to (`AV-20`). Null for anything
+    #: The chapter this classified belongs to (`AV-20`). Null for anything
     #: uploaded before task 3.1, and for a subject with no extracted chapters.
     chapter_id: int | None = None
     #: Chapter-specific marking notes (`AV-21`). Empty string rather than null:
@@ -88,7 +88,7 @@ class AssignmentCreate(BaseModel):
     group_id: int
     # The lesson this homework was assigned from, if any.
     lesson_id: int | None = None
-    # Omit to create an assignment without a question booklet; the tutor
+    # Omit to create an assignment without a classified; the tutor
     # types the question list directly instead.
     classified_id: int | None = None
     title: str = Field(min_length=1, max_length=255)

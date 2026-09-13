@@ -5,9 +5,9 @@ import { afterEach, expect, test, vi } from "vitest";
 import AssignmentCreatePage from "../tutor/AssignmentCreatePage";
 
 /* Chapter-scoped classifieds (3.1, AV-20/AV-21). What has to hold on screen:
-   a booklet is filed under the chapter the tutor is starting, the notes that
+   a classified is filed under the chapter the tutor is starting, the notes that
    travel with it reach the server, and — because those notes are marking
-   context the AI will act on — a correction to a reused booklet lands *before*
+   context the AI will act on — a correction to a reused classified lands *before*
    work is set from it. */
 
 const SUBJECT = {
@@ -25,7 +25,7 @@ const CHAPTERS = [
   { id: 22, code: "1", title: "States of matter", position: 2 },
 ];
 
-const BOOKLET = {
+const CLASSIFIED = {
   id: 55,
   subject_id: 7,
   title: "Bonding classified",
@@ -35,10 +35,10 @@ const BOOKLET = {
   notes: "Accept either sign convention.",
 };
 
-function stub({ classifieds = [] as (typeof BOOKLET)[], holdPatch = false } = {}) {
+function stub({ classifieds = [] as (typeof CLASSIFIED)[], holdPatch = false } = {}) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   /** Resolves the held PATCH, so a test can prove the assignment is not created
-   *  until the booklet's notes have actually landed. */
+   *  until the classified's notes have actually landed. */
   let releasePatch = () => {};
   vi.stubGlobal(
     "fetch",
@@ -77,7 +77,7 @@ function stub({ classifieds = [] as (typeof BOOKLET)[], holdPatch = false } = {}
       if (method === "PATCH" && path === "/api/v1/classifieds/55") {
         const body = JSON.parse(String(init?.body));
         calls.push({ method, path, body });
-        const answer = () => json({ ...BOOKLET, ...body });
+        const answer = () => json({ ...CLASSIFIED, ...body });
         if (!holdPatch) return answer();
         return new Promise<Response>((resolve) => {
           releasePatch = () => resolve(answer());
@@ -160,8 +160,8 @@ test("the screen does not claim marking already reads the notes", async () => {
   expect(hint.textContent).toMatch(/mark scheme always wins/i);
 });
 
-test("reusing a booklet shows its own chapter and notes", async () => {
-  stub({ classifieds: [BOOKLET] });
+test("reusing a classified shows its own chapter and notes", async () => {
+  stub({ classifieds: [CLASSIFIED] });
   renderPage();
 
   fireEvent.change(await screen.findByRole("combobox"), { target: { value: "55" } });
@@ -173,12 +173,12 @@ test("reusing a booklet shows its own chapter and notes", async () => {
     ).toBe("21"),
   );
   expect((screen.getByLabelText(/Marking notes for this paper/) as HTMLTextAreaElement).value).toBe(
-    BOOKLET.notes,
+    CLASSIFIED.notes,
   );
 });
 
-test("a correction to a reused booklet is saved before work is set from it", async () => {
-  const { calls, releasePatch } = stub({ classifieds: [BOOKLET], holdPatch: true });
+test("a correction to a reused classified is saved before work is set from it", async () => {
+  const { calls, releasePatch } = stub({ classifieds: [CLASSIFIED], holdPatch: true });
   renderPage();
 
   fireEvent.change(await screen.findByRole("combobox"), { target: { value: "55" } });
@@ -186,7 +186,7 @@ test("a correction to a reused booklet is saved before work is set from it", asy
   await waitFor(() =>
     expect(
       (screen.getByLabelText(/Marking notes for this paper/) as HTMLTextAreaElement).value,
-    ).toBe(BOOKLET.notes),
+    ).toBe(CLASSIFIED.notes),
   );
   fireEvent.change(screen.getByLabelText(/Marking notes for this paper/), {
     target: { value: "Only the 2019 convention now." },
@@ -207,8 +207,8 @@ test("a correction to a reused booklet is saved before work is set from it", asy
   expect(calls[1].path).toBe("/api/v1/assignments");
 });
 
-test("an untouched booklet is not rewritten", async () => {
-  const { calls } = stub({ classifieds: [BOOKLET] });
+test("an untouched classified is not rewritten", async () => {
+  const { calls } = stub({ classifieds: [CLASSIFIED] });
   renderPage();
 
   fireEvent.change(await screen.findByRole("combobox"), { target: { value: "55" } });
@@ -216,7 +216,7 @@ test("an untouched booklet is not rewritten", async () => {
   await waitFor(() =>
     expect(
       (screen.getByLabelText(/Marking notes for this paper/) as HTMLTextAreaElement).value,
-    ).toBe(BOOKLET.notes),
+    ).toBe(CLASSIFIED.notes),
   );
   fireEvent.click(screen.getByRole("button", { name: "Set homework" }));
 
@@ -237,7 +237,7 @@ test("swapping the file does not carry the old paper's chapter and notes over", 
     target: { value: "Bonding-specific guidance." },
   });
 
-  // A different booklet. Notes written about the first one would steer the
+  // A different classified. Notes written about the first one would steer the
   // marking of this one, so they must not survive the swap.
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
   fireEvent.change(input, {

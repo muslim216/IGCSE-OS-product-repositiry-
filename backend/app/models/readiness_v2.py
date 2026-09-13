@@ -97,11 +97,11 @@ class PastPaper(TimestampMixin, Base):
     # How long the real exam allows, so a student's self-declared time_taken
     # means something.
     duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # The question booklet. Nullable only because rows created before past
+    # The question paper. Nullable only because rows created before past
     # papers had files (seed/demo data) still exist.
-    booklet_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    booklet_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    booklet_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    paper_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    paper_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    paper_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # The official mark scheme — required at upload, tutor-only to download.
     mark_scheme_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -118,7 +118,7 @@ class PastPaper(TimestampMixin, Base):
 
 
 class PastPaperQuestion(Base):
-    """One question extracted from a past paper booklet. Mirrors
+    """One question extracted from a past paper. Mirrors
     AssignmentQuestion so the same marking prompt and review UI apply."""
 
     __tablename__ = "past_paper_questions"
