@@ -162,14 +162,6 @@ async def upload_past_paper(
     #
     # An empty file part (a browser form submitted with no file chosen) arrives
     # as an UploadFile with an empty filename, so it is treated as absent too.
-    paper_path, paper_name, paper_mime = await storage.save_upload(
-        paper, organization_id=user.organization_id
-    )
-    ms_path, ms_name, ms_mime = (
-        await storage.save_upload(mark_scheme, organization_id=user.organization_id)
-        if mark_scheme is not None and mark_scheme.filename
-        else (None, None, None)
-    )
     # Every past paper belongs to a booklet, and a single upload is a booklet
     # of one (task 3.5). That is what lets one paper and ten papers travel the
     # same path: nothing downstream has to ask whether a parent exists, and
@@ -185,7 +177,7 @@ async def upload_past_paper(
     # booklet of one they are the same file, which is not duplication worth
     # removing: the booklet records what arrived, the paper records what gets
     # marked, and for a multi-paper booklet those genuinely differ.
-    # The files are on disk before any row exists, so from here on every path
+    # The files reach disk before any row exists, so from here on every path
     # that fails owns their cleanup — a stored object with no row pointing at it
     # is invisible and can never be found again. `_discard` in `api/mocks.py`
     # is the same guard for the same reason; this handler wrote two rows and had
@@ -194,8 +186,23 @@ async def upload_past_paper(
     # Rolling the transaction back is not the expensive part: nothing written
     # here is worth keeping on its own. A booklet with no paper in it is exactly
     # the orphan `booklet_id`'s NOT NULL exists to prevent.
-    saved = [path for path in (paper_path, ms_path) if path]
+    saved: list[str] = []
     try:
+        paper_path, paper_name, paper_mime = await storage.save_upload(
+            paper, organization_id=user.organization_id
+        )
+        # Tracked the moment it exists, not once both uploads are through: a
+        # mark scheme that is oversize or of the wrong type is rejected *after*
+        # the paper is already on disk, and that rejection must take the paper
+        # with it.
+        saved.append(paper_path)
+        ms_path, ms_name, ms_mime = (None, None, None)
+        if mark_scheme is not None and mark_scheme.filename:
+            ms_path, ms_name, ms_mime = await storage.save_upload(
+                mark_scheme, organization_id=user.organization_id
+            )
+            saved.append(ms_path)
+
         booklet = Booklet(
             organization_id=user.organization_id,
             tutor_id=user.id,
@@ -237,9 +244,9 @@ async def upload_past_paper(
         await enqueue(db, "extract_past_paper", {"past_paper_id": past_paper.id})
         await db.commit()
     except Exception:
-        # Deliberately not just HTTPException. There is no rejection left to
-        # raise one by this point — what fails here is the database or the
-        # queue, and those leave the same orphans.
+        # Deliberately not just HTTPException. A rejected mark scheme raises
+        # one; the database and the queue raise other things. All of them leave
+        # the same orphans.
         await db.rollback()
         for path in saved:
             await storage.delete_file(path)

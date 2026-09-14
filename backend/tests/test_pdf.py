@@ -63,20 +63,23 @@ def test_the_last_page_is_included() -> None:
 
 
 def test_a_range_starting_below_one_is_refused() -> None:
+    data = _pdf(3)
     with pytest.raises(ValueError, match="start at 1"):
-        extract_pages(_pdf(3), 0, 2)
+        extract_pages(data, 0, 2)
 
 
 def test_a_backwards_range_is_refused() -> None:
+    data = _pdf(5)
     with pytest.raises(ValueError, match="ends before it starts"):
-        extract_pages(_pdf(5), 4, 2)
+        extract_pages(data, 4, 2)
 
 
 def test_a_range_past_the_end_is_refused_rather_than_clamped() -> None:
     """Clamping would hand back a shorter paper than the list promised, and
     nothing downstream would notice."""
+    data = _pdf(3)
     with pytest.raises(ValueError, match="runs past the last page"):
-        extract_pages(_pdf(3), 2, 9)
+        extract_pages(data, 2, 9)
 
 
 def test_a_file_that_is_not_a_pdf_is_refused() -> None:
@@ -99,5 +102,24 @@ def test_a_password_protected_pdf_is_refused() -> None:
     out = BytesIO()
     writer.write(out)
 
+    data = out.getvalue()
     with pytest.raises(ValueError, match="password-protected"):
-        page_count(out.getvalue())
+        page_count(data)
+
+
+def test_a_page_that_fails_while_being_copied_is_refused(monkeypatch) -> None:
+    """pypdf parses lazily, so a file can pass `_read` and still fail on the
+    page it is asked for — the content streams are not touched until then.
+    Forced here rather than crafted, because a file that breaks at exactly that
+    point depends on pypdf internals that change between releases; what matters
+    to a caller is that it is still a `ValueError`."""
+
+    data = _pdf(3)  # built before the patch, which would break the builder too
+
+    def _explode(*args, **kwargs):
+        raise KeyError("/Contents")
+
+    monkeypatch.setattr("app.services.pdf.PdfWriter.add_page", _explode)
+
+    with pytest.raises(ValueError, match="could not be read"):
+        extract_pages(data, 1, 2)

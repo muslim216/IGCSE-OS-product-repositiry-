@@ -237,6 +237,45 @@ async def test_a_failed_upload_leaves_no_orphaned_files(
         assert await session.scalar(select(Booklet)) is None
 
 
+async def test_a_rejected_mark_scheme_takes_the_paper_file_with_it(
+    client,
+    tutor,
+    subject,
+    monkeypatch,  # noqa: F811
+):
+    """The mark scheme is validated after the paper is already stored.
+
+    A tutor who picks the wrong second file gets a 415 and retries; without
+    this the first upload's file is left on disk with no row pointing at it,
+    once per retry."""
+    deleted: list[str] = []
+    real_delete = storage.delete_file
+
+    async def _delete(path, *args, **kwargs):
+        deleted.append(path)
+        return await real_delete(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "delete_file", _delete)
+
+    resp = await client.post(
+        "/api/v1/past-papers",
+        data={"subject_id": str(subject["id"]), "duration_minutes": "90"},
+        files=[
+            ("paper", ("paper.pdf", PDF_BYTES, "application/pdf")),
+            # PNG bytes claiming to be a PDF — rejected by the magic-byte check
+            # (`SEC-15`), which runs after the paper is on disk.
+            ("mark_scheme", ("ms.pdf", PNG_BYTES, "application/pdf")),
+        ],
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 415, resp.text
+    assert len(deleted) == 1, f"the stored paper was not cleaned up: {deleted}"
+
+    async with async_session() as session:
+        assert await session.scalar(select(PastPaper)) is None
+        assert await session.scalar(select(Booklet)) is None
+
+
 async def test_a_student_learns_nothing_from_the_mark_scheme_route(
     client,
     tutor,

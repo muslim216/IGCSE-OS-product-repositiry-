@@ -109,3 +109,47 @@ test("a paper whose extraction failed is never also described as still reading",
   expect(await screen.findByText(/Couldn't read this paper/)).toBeInTheDocument();
   expect(screen.queryByText(/Reading the questions out of the paper/)).not.toBeInTheDocument();
 });
+
+test("the tutor sees a mark scheme link only when there is one to open", async () => {
+  // `mark_scheme_name` is the only signal a scheme file exists; the download
+  // route 404s without one, so linking unconditionally sent tutors to a dead
+  // link on every paper uploaded without a scheme.
+  mockFetch([{ ...paper, mark_scheme_name: "ms.pdf" }]);
+  const { unmount } = renderPage(<TutorPastPapersPage />);
+  expect(await screen.findByText("Mark scheme")).toBeInTheDocument();
+  expect(screen.queryByText("No mark scheme")).not.toBeInTheDocument();
+  unmount();
+
+  mockFetch([paper]);
+  renderPage(<TutorPastPapersPage />);
+  expect(await screen.findByText("No mark scheme")).toBeInTheDocument();
+  expect(screen.queryByText("Mark scheme")).not.toBeInTheDocument();
+});
+
+test("an upload with no mark scheme chosen sends no mark scheme field", async () => {
+  // An empty part would arrive as an UploadFile with a blank filename, which
+  // the handler treats as absent anyway — but sending nothing is what keeps
+  // the two ends honest about "optional".
+  const calls: FormData[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.body instanceof FormData) calls.push(init.body);
+      return new Response(JSON.stringify({}), { status: 200 });
+    }),
+  );
+  const { uploadPastPaper } = await import("../api/pastPapers");
+
+  await uploadPastPaper({
+    subject_id: 1,
+    paper: new File(["x"], "paper.pdf", { type: "application/pdf" }),
+  });
+  expect(calls[0].has("mark_scheme")).toBe(false);
+
+  await uploadPastPaper({
+    subject_id: 1,
+    paper: new File(["x"], "paper.pdf", { type: "application/pdf" }),
+    mark_scheme: new File(["y"], "ms.pdf", { type: "application/pdf" }),
+  });
+  expect(calls[1].has("mark_scheme")).toBe(true);
+});

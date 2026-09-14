@@ -41,7 +41,10 @@ def _read(data: bytes) -> tuple[PdfReader, int]:
         return reader, len(reader.pages)
     except ValueError:
         raise
-    except Exception as exc:  # noqa: BLE001 — deliberate, see the docstring
+    # Blind on purpose, and not suppressed with a `noqa`: BLE001 does not fire
+    # on a handler that re-raises, so one here would be a comment pretending to
+    # be a directive.
+    except Exception as exc:
         raise ValueError(f"This file could not be read as a PDF: {exc}") from exc
 
 
@@ -68,9 +71,17 @@ def extract_pages(data: bytes, first_page: int, last_page: int) -> bytes:
     if last_page > total:
         raise ValueError(f"Page range {first_page}-{last_page} runs past the last page ({total}).")
 
-    writer = PdfWriter()
-    for index in range(first_page - 1, last_page):
-        writer.add_page(reader.pages[index])
-    out = BytesIO()
-    writer.write(out)
+    # pypdf parses lazily, so a page's content streams are only touched here —
+    # a file that survived `_read` can still blow up on the page it is asked
+    # for. Same funnel into `ValueError` as `_read`, for the same reason.
+    try:
+        writer = PdfWriter()
+        for index in range(first_page - 1, last_page):
+            writer.add_page(reader.pages[index])
+        out = BytesIO()
+        writer.write(out)
+    except Exception as exc:  # blind on purpose, as in `_read`
+        raise ValueError(
+            f"Pages {first_page}-{last_page} of this PDF could not be read: {exc}"
+        ) from exc
     return out.getvalue()
