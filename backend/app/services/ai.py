@@ -57,6 +57,11 @@ SURFACES = (
     # call site names a surface, and "summarise these rules" is not "mark this
     # work".
     "marking_rules",
+    # Reads an uploaded booklet into the list of whole papers inside it. Its own
+    # surface rather than a mode of "extraction" because it answers a different
+    # question — which papers are in here and on which pages, not which
+    # questions — and `AI-2` routes per surface.
+    "booklet",
 )
 
 # Which ai_usage_events.feature bucket each surface meters into. Several
@@ -67,6 +72,8 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "marking": AiFeature.marking,
     "extraction": AiFeature.extraction,
     "syllabus": AiFeature.extraction,
+    # Billed as extraction: reading a document the tutor uploaded, same bucket.
+    "booklet": AiFeature.extraction,
     "reports": AiFeature.report,
     "readiness": AiFeature.readiness,
     "class_brief": AiFeature.report,

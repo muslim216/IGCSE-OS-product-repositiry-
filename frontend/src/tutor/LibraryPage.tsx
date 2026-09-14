@@ -4,6 +4,7 @@ import {
   ClipboardList,
   FileText,
   Gauge,
+  Layers,
   PenLine,
   Ruler,
   Scale,
@@ -31,6 +32,12 @@ const CONTENT: Shelf[] = [
     label: "Past papers",
     hint: "Browse and assign past papers by board and topic.",
     icon: FileText,
+  },
+  {
+    to: "/tutor/booklets",
+    label: "Booklets",
+    hint: "One PDF holding several papers — the AI reads out what's inside and you check the list.",
+    icon: Layers,
   },
   {
     to: "/tutor/mocks",

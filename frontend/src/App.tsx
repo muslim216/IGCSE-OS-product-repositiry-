@@ -46,6 +46,7 @@ import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
 import TeachingGuidancePage from "./tutor/TeachingGuidancePage";
 import SettingsPage from "./tutor/SettingsPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
+import BookletsPage from "./tutor/BookletsPage";
 
 import StudentHomePage from "./student/StudentHomePage";
 import ProgressPage from "./student/ProgressPage";
@@ -135,6 +136,7 @@ export default function App() {
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
           <Route path="/tutor/settings" element={<SettingsPage />} />
           <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
+          <Route path="/tutor/booklets" element={<BookletsPage />} />
         </Route>
       </Route>
 

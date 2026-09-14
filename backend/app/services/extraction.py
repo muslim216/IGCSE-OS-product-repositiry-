@@ -10,6 +10,8 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    Booklet,
+    BookletStatus,
     Classified,
     Group,
     Mock,
@@ -57,6 +59,28 @@ class PastPaperExtractionResult(ExtractionResult):
     paper_number: str = Field(
         description="The paper/component number printed on the paper, e.g. 'Paper 4'"
     )
+
+
+class ExtractedPaper(BaseModel):
+    """One whole exam paper found inside an uploaded booklet."""
+
+    title: str = Field(description="The paper's full name exactly as printed on its front page")
+    session_label: str = Field(
+        description="The exam session printed on the paper, e.g. 'November 2026'"
+    )
+    paper_number: str = Field(
+        description="The paper/component number printed on it, e.g. 'Paper 2'"
+    )
+    first_page: int = Field(
+        description="1-based page of the uploaded document this paper starts on"
+    )
+    last_page: int = Field(
+        description="1-based page of the uploaded document this paper ends on, inclusive"
+    )
+
+
+class BookletExtractionResult(BaseModel):
+    papers: list[ExtractedPaper]
 
 
 async def _clear_questions(session: AsyncSession, assignment_id: int) -> None:
@@ -440,3 +464,144 @@ async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:
                 session.add(MockQuestionTopic(question_id=question.id, topic_id=topic.id))
     if mock.total_marks is None:
         mock.total_marks = sum(max(1, q.max_marks) for q in result.questions)
+
+
+async def extract_booklet(session: AsyncSession, payload: dict) -> None:
+    """Job handler: read an uploaded booklet into a draft list of the papers inside it.
+
+    Same shape as extract_past_paper, one level up: this reads the *table of
+    papers*, not the question list, and writes it to `booklet.draft` for the
+    tutor to correct before it becomes PastPaper rows."""
+    booklet = await session.get(Booklet, payload["booklet_id"])
+    if booklet is None or booklet.file_path is None or booklet.file_mime is None:
+        return
+    # An applied booklet's paper list is settled — it already became PastPaper
+    # rows. A re-run (an orphan reclaim, `BE-6`) must not overwrite the draft
+    # those rows were created from, which is the tutor's corrected list, not the
+    # AI's (`PROD-7`).
+    if booklet.status is BookletStatus.applied:
+        return
+    try:
+        await _run_booklet_extraction(session, booklet)
+        booklet.status = BookletStatus.review
+        booklet.error = None
+    except Exception as exc:
+        booklet.status = BookletStatus.extraction_failed
+        booklet.error = str(exc) or exc.__class__.__name__
+        await session.commit()
+        raise
+
+
+async def _read_papers(
+    session: AsyncSession, booklet: Booklet, path: str, mime: str
+) -> list[ExtractedPaper]:
+    """One AI pass over one document, metered. The booklet file and the mark
+    scheme each get their own call: page ranges are the whole point of the
+    output, and a scheme's page 4 is not the paper's page 4 — one call over both
+    documents returns ranges with no way to tell which document they index."""
+    response = await structured_complete(
+        surface="booklet",
+        content=[file_block(await storage.read_file(path), mime)],
+        output_format=BookletExtractionResult,
+        max_tokens=16000,
+    )
+    if booklet.tutor_id is not None:
+        await record_usage(
+            session,
+            response,
+            organization_id=booklet.organization_id,
+            tutor_id=booklet.tutor_id,
+            student_id=None,
+            feature=AiFeature.extraction,
+        )
+    return require_parsed(response).papers
+
+
+def _paper_dict(paper: ExtractedPaper) -> dict:
+    # Clamped to the widths of the PastPaper columns these become on apply, so
+    # an over-long value fails now (visibly, in the draft) rather than at the
+    # insert, where SQLite would never have shown it (`RISK-3`).
+    return {
+        "title": paper.title[:255],
+        "session_label": paper.session_label[:64],
+        "paper_number": paper.paper_number[:32],
+        "first_page": paper.first_page,
+        "last_page": paper.last_page,
+    }
+
+
+def _paper_key(paper: ExtractedPaper) -> tuple[str, str]:
+    return (paper.session_label.strip().casefold(), paper.paper_number.strip().casefold())
+
+
+def _papers(count: int) -> str:
+    return f"{count} paper" if count == 1 else f"{count} papers"
+
+
+def _scheme_mismatch(
+    papers: list[ExtractedPaper], scheme_papers: list[ExtractedPaper]
+) -> str | None:
+    """One plain sentence for the tutor when the two documents do not describe
+    the same papers, or None when they agree.
+
+    Never resolves the disagreement: which document is right is a judgement
+    about two files only the tutor has seen (`PROD-7`), and silently trusting
+    either one would attach the wrong scheme to a paper that then auto-finalizes
+    marks against it."""
+    booklet_keys = [_paper_key(p) for p in papers]
+    scheme_keys = [_paper_key(p) for p in scheme_papers]
+    if booklet_keys == scheme_keys:
+        return None
+    if len(booklet_keys) != len(scheme_keys):
+        return (
+            f"The mark scheme lists {_papers(len(scheme_keys))} but the booklet has "
+            f"{len(booklet_keys)}."
+        )
+    for paper, key in zip(papers, booklet_keys, strict=True):
+        if key not in scheme_keys:
+            return (
+                f"The booklet has {paper.paper_number} ({paper.session_label}) but the "
+                "mark scheme does not."
+            )
+    for paper, key in zip(scheme_papers, scheme_keys, strict=True):
+        if key not in booklet_keys:
+            return (
+                f"The mark scheme has {paper.paper_number} ({paper.session_label}) but the "
+                "booklet does not."
+            )
+    return "The booklet and the mark scheme list the same papers, but in a different order."
+
+
+async def _run_booklet_extraction(session: AsyncSession, booklet: Booklet) -> None:
+    assert booklet.file_path is not None
+    assert booklet.file_mime is not None
+    papers = await _read_papers(session, booklet, booklet.file_path, booklet.file_mime)
+    if not papers:
+        raise ValueError("No papers were found in the booklet")
+
+    scheme_papers: list[ExtractedPaper] | None = None
+    mismatch: str | None = None
+    if booklet.mark_scheme_path and booklet.mark_scheme_mime:
+        try:
+            scheme_papers = await _read_papers(
+                session, booklet, booklet.mark_scheme_path, booklet.mark_scheme_mime
+            )
+        except Exception as exc:  # noqa: BLE001 — a bad scheme must not fail the booklet
+            # An unreadable mark scheme is not a failed extraction: the papers
+            # are what the tutor is approving, and a scheme is what makes a mark
+            # eligible to auto-finalize, not what makes the booklet usable. The
+            # reason is surfaced in the same field the tutor already reads for
+            # scheme trouble rather than swallowed.
+            scheme_papers = None
+            mismatch = f"The mark scheme could not be read: {exc or exc.__class__.__name__}"
+        else:
+            mismatch = _scheme_mismatch(papers, scheme_papers)
+
+    # Replaced wholesale, never appended to (`BE-6`).
+    booklet.draft = {
+        "papers": [_paper_dict(p) for p in papers],
+        "scheme_papers": (
+            [_paper_dict(p) for p in scheme_papers] if scheme_papers is not None else None
+        ),
+        "scheme_mismatch": mismatch,
+    }

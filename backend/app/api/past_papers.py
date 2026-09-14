@@ -39,6 +39,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.models.base import utcnow
 from app.schemas.past_paper import (
     PastPaperAttemptOut,
     PastPaperDetail,
@@ -262,7 +263,15 @@ async def list_past_papers(
 ) -> list[PastPaperOut]:
     query = select(PastPaper)
     if user.role in (UserRole.tutor, UserRole.admin):
-        query = query.where(PastPaper.organization_id == user.organization_id)
+        query = query.where(
+            PastPaper.organization_id == user.organization_id,
+            # Hidden on the tutor's own shelf only. The student filter below
+            # deliberately does not repeat this: a paper a student can already
+            # see must not disappear from under them mid-attempt, which is the
+            # product owner's decision and the reason this is a flag and not a
+            # delete.
+            PastPaper.hidden_at.is_(None),
+        )
         for_tutor = True
     elif user.role == UserRole.student:
         # One OR'd (organization, subject) pair per group the student is in.
@@ -422,3 +431,24 @@ async def my_attempt(
         )
     )
     return await _attempt_out(db, submission) if submission else None
+
+
+@router.delete("/{past_paper_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def hide_past_paper(past_paper_id: int, db: DbSession, user: TutorUser) -> Response:
+    """Take a paper off the tutor's shelf. **Students keep it.**
+
+    Named `DELETE` because that is what the tutor is doing — removing it from
+    their list — but it is a flag, not a row deletion, and the product owner
+    settled that on purpose. A paper carries attempts, marks and the `Evidence`
+    those produced; deleting it would either cascade through a student's record
+    or fail on the foreign keys, and a student mid-attempt would watch the paper
+    vanish. `PROD-5` makes finalized outcomes permanent, so the row has to stay.
+
+    Idempotent: hiding an already-hidden paper keeps the first timestamp, since
+    "when did this leave my shelf" has one answer.
+    """
+    paper = await _visible_paper(db, user, past_paper_id)
+    if paper.hidden_at is None:
+        paper.hidden_at = utcnow()
+        await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

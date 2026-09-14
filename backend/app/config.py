@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     ai_marking_model: str = ""
     ai_extraction_provider: str = "anthropic"
     ai_extraction_model: str = ""
+    # Reading a booklet's table of papers: extraction work, so it follows the
+    # same blank-model default as extraction itself.
+    ai_booklet_provider: str = "anthropic"
+    ai_booklet_model: str = ""
     # Anthropic since task 2.3 (AV-124): the chapter-tree prompt is a
     # structure-and-judgement job, not bulk transcription, and the model left
     # blank inherits `anthropic_model` above.

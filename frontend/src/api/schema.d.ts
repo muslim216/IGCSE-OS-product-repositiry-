@@ -1302,6 +1302,161 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/booklets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Booklets */
+        get: operations["list_booklets_api_v1_booklets_get"];
+        put?: never;
+        /**
+         * Upload Booklet
+         * @description Upload a booklet and queue the AI read of what is inside it.
+         */
+        post: operations["upload_booklet_api_v1_booklets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/booklets/{booklet_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Booklet Detail */
+        get: operations["booklet_detail_api_v1_booklets__booklet_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/booklets/{booklet_id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Booklet File
+         * @description The booklet as uploaded. Students may read it — they can already read
+         *     every paper cut from it, so withholding the parent protects nothing.
+         */
+        get: operations["booklet_file_api_v1_booklets__booklet_id__file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/booklets/{booklet_id}/mark-scheme": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Booklet Mark Scheme
+         * @description Tutor-only, like every mark scheme.
+         */
+        get: operations["booklet_mark_scheme_api_v1_booklets__booklet_id__mark_scheme_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/booklets/{booklet_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit Draft
+         * @description The tutor's correction of the AI's list — full authority (`PROD-7`).
+         *
+         *     They may rewrite every field, add a paper the AI missed and drop one it
+         *     invented; the only rules enforced are the ones that make the split
+         *     physically possible (a forward page range, no two papers claiming the same
+         *     page), which `BookletDraft` checks.
+         */
+        put: operations["edit_draft_api_v1_booklets__booklet_id__draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/booklets/{booklet_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Booklet
+         * @description Try the step that failed again — and only that step.
+         *
+         *     A failed *read* and a failed *cut* recover in opposite directions, and
+         *     sending one down the other's path is worse than doing nothing: re-reading
+         *     after a partial cut overwrites the list the tutor approved (`PROD-7`) while
+         *     the papers already cut keep their old indexes, so the entries at those
+         *     positions are silently never created.
+         */
+        post: operations["retry_booklet_api_v1_booklets__booklet_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/booklets/{booklet_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Booklet
+         * @description Turn the reviewed list into real papers.
+         *
+         *     The cutting itself is a job: a booklet of twelve is twelve PDF writes, which
+         *     is CPU-bound work that must not run on the event loop the whole API shares
+         *     (`BE-13`, `PERF-1`). So this marks the booklet `applying` and returns — the
+         *     papers appear as the job creates them.
+         */
+        post: operations["approve_booklet_api_v1_booklets__booklet_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/past-papers": {
         parameters: {
             query?: never;
@@ -1331,7 +1486,21 @@ export interface paths {
         get: operations["past_paper_detail_api_v1_past_papers__past_paper_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Hide Past Paper
+         * @description Take a paper off the tutor's shelf. **Students keep it.**
+         *
+         *     Named `DELETE` because that is what the tutor is doing — removing it from
+         *     their list — but it is a flag, not a row deletion, and the product owner
+         *     settled that on purpose. A paper carries attempts, marks and the `Evidence`
+         *     those produced; deleting it would either cascade through a student's record
+         *     or fail on the foreign keys, and a student mid-attempt would watch the paper
+         *     vanish. `PROD-5` makes finalized outcomes permanent, so the row has to stay.
+         *
+         *     Idempotent: hiding an already-hidden paper keeps the first timestamp, since
+         *     "when did this leave my shelf" has one answer.
+         */
+        delete: operations["hide_past_paper_api_v1_past_papers__past_paper_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2554,6 +2723,15 @@ export interface components {
              */
             typed_answer?: string | null;
         };
+        /** Body_upload_booklet_api_v1_booklets_post */
+        Body_upload_booklet_api_v1_booklets_post: {
+            /** Subject Id */
+            subject_id: number;
+            /** File */
+            file: string;
+            /** Mark Scheme */
+            mark_scheme?: string | null;
+        };
         /** Body_upload_classified_api_v1_classifieds_post */
         Body_upload_classified_api_v1_classifieds_post: {
             /** Title */
@@ -2593,6 +2771,81 @@ export interface components {
         Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put: {
             /** File */
             file: string;
+        };
+        /** BookletDetail */
+        BookletDetail: {
+            /** Id */
+            id: number;
+            /** Subject Id */
+            subject_id: number;
+            /** Title */
+            title: string | null;
+            /** Display Title */
+            display_title: string;
+            /** Status */
+            status: string;
+            /** File Name */
+            file_name: string | null;
+            /** Mark Scheme Name */
+            mark_scheme_name?: string | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Paper Count
+             * @default 0
+             */
+            paper_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            draft?: components["schemas"]["BookletDraft"] | null;
+        };
+        /**
+         * BookletDraft
+         * @description The full reviewed list. A tutor PUTs this back, corrected.
+         *
+         *     `scheme_papers` and `scheme_mismatch` are read-only in practice — they come
+         *     from the AI's second pass over the mark scheme — but they ride along on the
+         *     round trip so an edit does not silently drop them.
+         */
+        BookletDraft: {
+            /** Papers */
+            papers: components["schemas"]["DraftPaper"][];
+            /** Scheme Papers */
+            scheme_papers?: components["schemas"]["DraftPaper"][] | null;
+            /** Scheme Mismatch */
+            scheme_mismatch?: string | null;
+        };
+        /** BookletOut */
+        BookletOut: {
+            /** Id */
+            id: number;
+            /** Subject Id */
+            subject_id: number;
+            /** Title */
+            title: string | null;
+            /** Display Title */
+            display_title: string;
+            /** Status */
+            status: string;
+            /** File Name */
+            file_name: string | null;
+            /** Mark Scheme Name */
+            mark_scheme_name?: string | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Paper Count
+             * @default 0
+             */
+            paper_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** ChapterOut */
         ChapterOut: {
@@ -2784,6 +3037,22 @@ export interface components {
             total_final: number | null;
             /** Total Max */
             total_max: number;
+        };
+        /**
+         * DraftPaper
+         * @description One paper the AI found inside a booklet, as the tutor may edit it.
+         */
+        DraftPaper: {
+            /** Title */
+            title: string;
+            /** Session Label */
+            session_label: string;
+            /** Paper Number */
+            paper_number: string;
+            /** First Page */
+            first_page: number;
+            /** Last Page */
+            last_page: number;
         };
         /** EvidenceItem */
         EvidenceItem: {
@@ -6873,6 +7142,268 @@ export interface operations {
             };
         };
     };
+    list_booklets_api_v1_booklets_get: {
+        parameters: {
+            query?: {
+                subject_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookletOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_booklet_api_v1_booklets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_booklet_api_v1_booklets_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookletDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    booklet_detail_api_v1_booklets__booklet_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booklet_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookletDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    booklet_file_api_v1_booklets__booklet_id__file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booklet_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    booklet_mark_scheme_api_v1_booklets__booklet_id__mark_scheme_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booklet_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_draft_api_v1_booklets__booklet_id__draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booklet_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookletDraft"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookletDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_booklet_api_v1_booklets__booklet_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booklet_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookletDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_booklet_api_v1_booklets__booklet_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booklet_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookletDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_past_papers_api_v1_past_papers_get: {
         parameters: {
             query?: {
@@ -6956,6 +7487,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PastPaperDetail"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    hide_past_paper_api_v1_past_papers__past_paper_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                past_paper_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

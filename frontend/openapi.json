@@ -3607,6 +3607,456 @@
         }
       }
     },
+    "/api/v1/booklets": {
+      "post": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Upload Booklet",
+        "description": "Upload a booklet and queue the AI read of what is inside it.",
+        "operationId": "upload_booklet_api_v1_booklets_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_booklet_api_v1_booklets_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookletDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "List Booklets",
+        "operationId": "list_booklets_api_v1_booklets_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BookletOut"
+                  },
+                  "title": "Response List Booklets Api V1 Booklets Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booklets/{booklet_id}": {
+      "get": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Booklet Detail",
+        "operationId": "booklet_detail_api_v1_booklets__booklet_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "booklet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Booklet Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookletDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booklets/{booklet_id}/file": {
+      "get": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Booklet File",
+        "description": "The booklet as uploaded. Students may read it \u2014 they can already read\nevery paper cut from it, so withholding the parent protects nothing.",
+        "operationId": "booklet_file_api_v1_booklets__booklet_id__file_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "booklet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Booklet Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored file.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booklets/{booklet_id}/mark-scheme": {
+      "get": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Booklet Mark Scheme",
+        "description": "Tutor-only, like every mark scheme.",
+        "operationId": "booklet_mark_scheme_api_v1_booklets__booklet_id__mark_scheme_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "booklet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Booklet Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored file.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booklets/{booklet_id}/draft": {
+      "put": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Edit Draft",
+        "description": "The tutor's correction of the AI's list \u2014 full authority (`PROD-7`).\n\nThey may rewrite every field, add a paper the AI missed and drop one it\ninvented; the only rules enforced are the ones that make the split\nphysically possible (a forward page range, no two papers claiming the same\npage), which `BookletDraft` checks.",
+        "operationId": "edit_draft_api_v1_booklets__booklet_id__draft_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "booklet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Booklet Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookletDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookletDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booklets/{booklet_id}/retry": {
+      "post": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Retry Booklet",
+        "description": "Try the step that failed again \u2014 and only that step.\n\nA failed *read* and a failed *cut* recover in opposite directions, and\nsending one down the other's path is worse than doing nothing: re-reading\nafter a partial cut overwrites the list the tutor approved (`PROD-7`) while\nthe papers already cut keep their old indexes, so the entries at those\npositions are silently never created.",
+        "operationId": "retry_booklet_api_v1_booklets__booklet_id__retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "booklet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Booklet Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookletDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/booklets/{booklet_id}/approve": {
+      "post": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Approve Booklet",
+        "description": "Turn the reviewed list into real papers.\n\nThe cutting itself is a job: a booklet of twelve is twelve PDF writes, which\nis CPU-bound work that must not run on the event loop the whole API shares\n(`BE-13`, `PERF-1`). So this marks the booklet `applying` and returns \u2014 the\npapers appear as the job creates them.",
+        "operationId": "approve_booklet_api_v1_booklets__booklet_id__approve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "booklet_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Booklet Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookletDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/past-papers": {
       "post": {
         "tags": [
@@ -3742,6 +4192,45 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Hide Past Paper",
+        "description": "Take a paper off the tutor's shelf. **Students keep it.**\n\nNamed `DELETE` because that is what the tutor is doing \u2014 removing it from\ntheir list \u2014 but it is a flag, not a row deletion, and the product owner\nsettled that on purpose. A paper carries attempts, marks and the `Evidence`\nthose produced; deleting it would either cascade through a student's record\nor fail on the foreign keys, and a student mid-attempt would watch the paper\nvanish. `PROD-5` makes finalized outcomes permanent, so the row has to stay.\n\nIdempotent: hiding an already-hidden paper keeps the first timestamp, since\n\"when did this leave my shelf\" has one answer.",
+        "operationId": "hide_past_paper_api_v1_past_papers__past_paper_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "past_paper_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Past Paper Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -7490,6 +7979,37 @@
         "type": "object",
         "title": "Body_submit_work_api_v1_assignments__assignment_id__submissions_post"
       },
+      "Body_upload_booklet_api_v1_booklets_post": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "mark_scheme": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Scheme"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "file"
+        ],
+        "title": "Body_upload_booklet_api_v1_booklets_post"
+      },
       "Body_upload_classified_api_v1_classifieds_post": {
         "properties": {
           "title": {
@@ -7637,6 +8157,229 @@
           "file"
         ],
         "title": "Body_upload_teaching_guidance_api_v1_subjects__subject_id__teaching_guidance_put"
+      },
+      "BookletDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "display_title": {
+            "type": "string",
+            "title": "Display Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "mark_scheme_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Scheme Name"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "paper_count": {
+            "type": "integer",
+            "title": "Paper Count",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookletDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subject_id",
+          "title",
+          "display_title",
+          "status",
+          "file_name",
+          "created_at"
+        ],
+        "title": "BookletDetail"
+      },
+      "BookletDraft": {
+        "properties": {
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/DraftPaper"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Papers"
+          },
+          "scheme_papers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DraftPaper"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme Papers"
+          },
+          "scheme_mismatch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheme Mismatch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "papers"
+        ],
+        "title": "BookletDraft",
+        "description": "The full reviewed list. A tutor PUTs this back, corrected.\n\n`scheme_papers` and `scheme_mismatch` are read-only in practice \u2014 they come\nfrom the AI's second pass over the mark scheme \u2014 but they ride along on the\nround trip so an edit does not silently drop them."
+      },
+      "BookletOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "display_title": {
+            "type": "string",
+            "title": "Display Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "mark_scheme_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mark Scheme Name"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "paper_count": {
+            "type": "integer",
+            "title": "Paper Count",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "subject_id",
+          "title",
+          "display_title",
+          "status",
+          "file_name",
+          "created_at"
+        ],
+        "title": "BookletOut"
       },
       "ChapterOut": {
         "properties": {
@@ -8090,6 +8833,48 @@
           "total_max"
         ],
         "title": "CrmHomeworkItem"
+      },
+      "DraftPaper": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "session_label": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Session Label"
+          },
+          "paper_number": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Paper Number"
+          },
+          "first_page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "First Page"
+          },
+          "last_page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Last Page"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "session_label",
+          "paper_number",
+          "first_page",
+          "last_page"
+        ],
+        "title": "DraftPaper",
+        "description": "One paper the AI found inside a booklet, as the tutor may edit it."
       },
       "EvidenceItem": {
         "properties": {
