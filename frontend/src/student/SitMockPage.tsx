@@ -41,7 +41,13 @@ export default function SitMockPage() {
     queryKey: ["mock-clock", id],
     queryFn: () => openMock(id),
     refetchInterval: CLOCK_REFETCH_MS,
-    staleTime: Infinity,
+    // Both deliberate. React Query stops interval refetches for a hidden tab
+    // by default, and a student who switches away for twenty minutes would
+    // come back to a local countdown that had drifted — the exact thing the
+    // server clock exists to overrule. `"always"` on focus because the answer
+    // is time-sensitive by nature: it is never "still fresh".
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
   });
 
   // A once-a-second heartbeat, and nothing else. Server data stays in the
@@ -176,13 +182,28 @@ export default function SitMockPage() {
           </label>
 
           {error && <p className="text-sm text-risk-600">{error}</p>}
-          {/* Never disabled by the clock. A late hand-in is accepted in full and
-              flagged for the tutor — blocking it is the failure this feature
-              exists to prevent. */}
+          {clock.isPending && <p className="text-sm text-ink-500">Starting your clock…</p>}
+          {clock.isError && (
+            <p className="text-sm text-warn-700">
+              We couldn&apos;t start your clock, so this hand-in won&apos;t be timed. You can still
+              hand in — your tutor will see it wasn&apos;t timed.
+            </p>
+          )}
+          {/* Disabled while the clock is still starting, never because it has
+              run out. Handing in before `/open` has answered would record no
+              start time at all — the submission cannot then be timed or flagged
+              — but a *failed* open must not block the work: losing a student's
+              answers is worse than losing the measurement. And a late hand-in
+              is accepted in full and flagged, which is the point of `AV-116`. */}
           <button
             type="submit"
-            disabled={submit.isPending || (files.length === 0 && typed.trim() === "")}
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            disabled={
+              submit.isPending ||
+              clock.isPending ||
+              submission.isPending ||
+              (files.length === 0 && typed.trim() === "")
+            }
+            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-surface hover:bg-brand-700 disabled:opacity-50"
           >
             {submit.isPending ? "Handing in…" : "Hand in"}
           </button>

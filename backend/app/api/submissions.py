@@ -622,10 +622,14 @@ async def submission_detail(
         ai_error=submission.ai_error,
         submitted_at=submission.submitted_at,
         measured_minutes=submission.measured_minutes,
-        # Only a mock has a time to be late for; the column is NOT NULL and
-        # defaults false for every kind, so the mock check is what keeps a
-        # homework submission from reporting "on time".
-        submitted_late=submission.submitted_late if submission.mock_id is not None else None,
+        # Only a mock has a time to be late for, and only one that was
+        # actually timed. The column is NOT NULL and defaults false for every
+        # kind, so without this a homework submission — or a mock handed in
+        # without ever being opened through the API — would report "on time"
+        # about a sitting nothing measured.
+        submitted_late=(
+            submission.submitted_late if submission.measured_minutes is not None else None
+        ),
         files=[SubmissionFileOut.model_validate(f) for f in submission.files],
         typed_answer=(
             TypedAnswerOut(text=submission.typed_answer, flag_reason=submission.typed_flag_reason)

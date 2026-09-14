@@ -17,7 +17,7 @@ from app.db import async_session
 from app.models import Mock, MockOpening, Submission, SubmissionFile
 from app.models.base import utcnow
 from app.services import mock_clock
-from tests.conftest import PNG_BYTES
+from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.test_mocks import mock_paper  # noqa: F401 — fixture
 
 
@@ -154,7 +154,8 @@ async def test_a_sitting_nobody_timed_reports_no_time_rather_than_zero(
     sitting, which is a lie about a real student."""
     body = (await _sit(client, student, mock_paper["id"])).json()
     assert body["measured_minutes"] is None
-    assert body["submitted_late"] is False
+    # Null, not false: there is no deadline this could have missed.
+    assert body["submitted_late"] is None
 
 
 # --- measured is not self-declared ------------------------------------------
@@ -435,3 +436,70 @@ async def test_a_resit_is_still_timed_from_the_first_opening(client, student, mo
     assert second["submitted_late"] is True
     async with async_session() as session:
         assert len((await session.scalars(select(MockOpening))).all()) == 1
+
+
+async def test_a_class_cannot_be_swapped_under_a_student_mid_sitting(
+    client,
+    tutor,
+    subject,
+    student,
+    mock_paper,  # noqa: F811
+):
+    """Reassigning was already refused once anyone had handed in. A student
+    with the paper open is the same situation one step earlier: moving the mock
+    takes it away from them mid-sitting and the work they have done is lost."""
+    assert (await _open(client, student, mock_paper["id"])).status_code == 200
+
+    other = await client.post(
+        "/api/v1/groups",
+        json={"name": "A different class", "subject_id": subject["id"]},
+        headers=tutor["headers"],
+    )
+    resp = await client.patch(
+        f"/api/v1/mocks/{mock_paper['id']}",
+        json={"group_id": other.json()["id"]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 409
+    assert "sitting this mock" in resp.text
+
+
+async def test_a_mock_cannot_be_set_with_a_duration_of_zero_or_less(
+    client,
+    tutor,
+    subject,
+    group,  # noqa: F811
+):
+    """A zero or negative duration puts the deadline at or before the moment
+    the student opens the paper — every submission late before they have read a
+    question."""
+    for bad in ("0", "-30"):
+        resp = await client.post(
+            "/api/v1/mocks",
+            data={
+                "subject_id": str(subject["id"]),
+                "title": "Impossible mock",
+                "group_id": str(group["id"]),
+                "duration_minutes": bad,
+            },
+            files={"paper": ("mock.pdf", PDF_BYTES, "application/pdf")},
+            headers=tutor["headers"],
+        )
+        assert resp.status_code == 422, f"{bad}: {resp.status_code}"
+
+
+def test_the_last_second_is_shown_as_a_second_not_as_zero():
+    """Truncating would show 0 while `overdue` was still false — a screen
+    saying "time is up" over a server that disagrees, which is the confusion a
+    server-side clock exists to end."""
+    from datetime import timedelta
+
+    started = utcnow()
+    # Six tenths of a second left.
+    clock = mock_clock.read(started, 1, now=started + timedelta(seconds=59.4))
+    assert clock.overdue is False
+    assert clock.seconds_remaining == 1
+
+    done = mock_clock.read(started, 1, now=started + timedelta(seconds=60))
+    assert done.overdue is True
+    assert done.seconds_remaining == 0

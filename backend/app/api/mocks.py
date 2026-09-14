@@ -177,7 +177,11 @@ async def create_mock(
     type: Annotated[AssessmentType, Form()] = AssessmentType.mock,
     sat_on: Annotated[date | None, Form()] = None,
     total_marks: Annotated[int | None, Form()] = None,
-    duration_minutes: Annotated[int | None, Form()] = None,
+    # `gt=0`: a zero or negative duration would put the deadline at or before
+    # the moment the student opened the paper, marking every submission late
+    # before they had read a question. Refused at the door rather than defended
+    # against in the clock.
+    duration_minutes: Annotated[int | None, Form(gt=0)] = None,
 ) -> MockOut:
     subject = await owned_subject(db, subject_id, user)
     if group_id is not None:
@@ -316,6 +320,18 @@ async def assign_mock_group(
             status.HTTP_409_CONFLICT,
             "This mock already has submissions — its class can't be changed",
         )
+    # A student part-way through counts too (task 3.6). Their clock is already
+    # running, and moving the mock to another class takes the paper away from
+    # them mid-sitting: `_visible_mock` would refuse their submission and the
+    # work they have done is simply lost.
+    open_sitting = await db.scalar(
+        select(MockOpening.id).where(MockOpening.mock_id == mock.id).limit(1)
+    )
+    if open_sitting is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A student is sitting this mock right now — its class can't be changed",
+        )
     mock.group_id = group.id
     await db.commit()
     counts = await _question_counts(db, [mock.id])
@@ -375,7 +391,9 @@ async def _submission_out(db, mock: Mock, submission: Submission) -> MockSubmiss
         status=submission.status.value,
         submitted_at=submission.submitted_at,
         measured_minutes=submission.measured_minutes,
-        submitted_late=submission.submitted_late,
+        submitted_late=(
+            submission.submitted_late if submission.measured_minutes is not None else None
+        ),
         raw_marks=raw,
         max_marks=mx,
     )

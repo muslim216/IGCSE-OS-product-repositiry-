@@ -7862,7 +7862,8 @@
           "duration_minutes": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -10345,9 +10346,15 @@
             "title": "Measured Minutes"
           },
           "submitted_late": {
-            "type": "boolean",
-            "title": "Submitted Late",
-            "default": false
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted Late"
           },
           "raw_marks": {
             "anyOf": [

@@ -3566,11 +3566,8 @@ export interface components {
             submitted_at: string;
             /** Measured Minutes */
             measured_minutes?: number | null;
-            /**
-             * Submitted Late
-             * @default false
-             */
-            submitted_late: boolean;
+            /** Submitted Late */
+            submitted_late?: boolean | null;
             /** Raw Marks */
             raw_marks?: number | null;
             /** Max Marks */

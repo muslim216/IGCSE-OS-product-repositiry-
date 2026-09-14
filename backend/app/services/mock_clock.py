@@ -58,12 +58,15 @@ def read(
         return Clock(opened_at=opened_at, due_at=None, seconds_remaining=None, overdue=False)
     due_at = opened_at + timedelta(minutes=duration_minutes)
     remaining = (due_at - now).total_seconds()
-    # Clamped at zero so a screen never has to decide what a negative countdown
-    # means, while `overdue` carries the fact that it ran out.
+    # Rounded **up** while any time is left, and clamped at zero once it is
+    # not. Truncating would show 0 for the last fractional second while
+    # `overdue` was still false — a screen saying "time is up" over a server
+    # that disagrees, which is exactly the confusion a server-side clock is
+    # supposed to end.
     return Clock(
         opened_at=opened_at,
         due_at=due_at,
-        seconds_remaining=max(0, int(remaining)),
+        seconds_remaining=max(0, -(-int(remaining * 1000) // 1000)) if remaining > 0 else 0,
         overdue=remaining <= 0,
     )
 

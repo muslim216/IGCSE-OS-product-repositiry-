@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import SitMockPage from "../student/SitMockPage";
+import MocksPage from "../student/MocksPage";
 
 const mock = {
   id: 7,
@@ -212,4 +213,71 @@ test("the countdown is the server's answer, not the browser's own tick", async (
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("hand in waits for the clock to have started, but never for it to run out", async () => {
+  // Submitting before `/open` answers records no start time at all: the server
+  // then cannot measure the sitting or flag it late, silently. Submitting after
+  // it has *run out* is fine and must stay fine — that is the whole feature.
+  let releaseOpen: ((value: Response) => void) | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/open")) {
+        return new Promise<Response>((resolve) => {
+          releaseOpen = resolve;
+        });
+      }
+      if (url.includes("/my-submission")) {
+        return new Response(JSON.stringify(null), { status: 200 });
+      }
+      if (url.includes("/mocks/7")) {
+        return new Response(JSON.stringify(mock), { status: 200 });
+      }
+      return new Response(JSON.stringify(null), { status: 200 });
+    }),
+  );
+
+  renderSit();
+  const typed = await screen.findByLabelText(/type/i);
+  fireEvent.change(typed, { target: { value: "my answers" } });
+
+  // The clock has not answered yet.
+  expect(screen.getByRole("button", { name: /Hand in/ })).toBeDisabled();
+
+  releaseOpen?.(
+    new Response(
+      JSON.stringify({
+        opened_at: "2026-09-14T09:00:00Z",
+        due_at: "2026-09-14T09:30:00Z",
+        // Already out of time — and the button must come back anyway.
+        seconds_remaining: 0,
+        overdue: true,
+      }),
+      { status: 200 },
+    ),
+  );
+
+  await waitFor(() => expect(screen.getByRole("button", { name: /Hand in/ })).toBeEnabled());
+});
+
+test("a list that failed to load says so rather than looking empty", async () => {
+  // "Your tutor hasn't set you a mock yet" is the one thing a student must not
+  // be told when the truth is that we could not ask.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("nope", { status: 500 })),
+  );
+  render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
+      <MemoryRouter>
+        <MocksPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText(/couldn't load your mocks/i)).toBeInTheDocument();
+  expect(screen.queryByText(/hasn't set you a mock yet/i)).not.toBeInTheDocument();
 });

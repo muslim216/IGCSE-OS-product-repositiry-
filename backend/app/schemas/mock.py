@@ -77,8 +77,11 @@ class MockSubmissionOut(BaseModel):
     # a submission that predates the clock, or one made without opening through
     # the API.
     measured_minutes: int | None = None
-    # Whether it arrived after time was up. Recorded, never enforced.
-    submitted_late: bool = False
+    # Whether it arrived after time was up. Recorded, never enforced. Null
+    # rather than false when nothing timed the sitting — a mock handed in
+    # without ever being opened through the API has no deadline to have missed,
+    # and "on time" would be a claim about something nobody measured.
+    submitted_late: bool | None = None
     # Null until the submission has settled.
     raw_marks: int | None = None
     max_marks: int | None = None

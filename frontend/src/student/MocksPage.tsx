@@ -22,6 +22,14 @@ export default function MocksPage() {
       </div>
 
       {mocks.isLoading && <p className="text-ink-500">Loading…</p>}
+      {/* Without this a failed request renders as a bare heading, which reads
+          as "your tutor has set you nothing" — the one thing a student must
+          not be told when the truth is that we could not ask. */}
+      {mocks.isError && (
+        <p className="text-risk-600">
+          We couldn&apos;t load your mocks just now. Refresh the page to try again.
+        </p>
+      )}
 
       {/* Newest first is the server's own order (`Mock.id` descending). */}
       <div className="grid gap-3 sm:grid-cols-2">
