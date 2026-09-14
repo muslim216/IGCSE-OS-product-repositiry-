@@ -1,6 +1,8 @@
 """AI extraction: read a classified PDF (and optional mark scheme) and produce
 the assignment's question list for the tutor to review."""
 
+import asyncio
+
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +27,7 @@ from app.models import (
     QuestionTopic,
     Topic,
 )
-from app.services import storage
+from app.services import pdf, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.knowledge import build_tutor_context
 
@@ -578,6 +580,18 @@ async def _run_booklet_extraction(session: AsyncSession, booklet: Booklet) -> No
     papers = await _read_papers(session, booklet, booklet.file_path, booklet.file_mime)
     if not papers:
         raise ValueError("No papers were found in the booklet")
+
+    # Counted here because the bytes are in hand anyway, and because approval
+    # needs it: a page range running past the end of the document is refused
+    # there, before anything is cut. Counting blocks (`BE-13`), hence the
+    # thread. A booklet that is not a PDF cannot be split at all, so a count it
+    # cannot produce is left absent rather than guessed (`PROD-2`).
+    try:
+        booklet.page_count = await asyncio.to_thread(
+            pdf.page_count, await storage.read_file(booklet.file_path)
+        )
+    except ValueError:
+        booklet.page_count = None
 
     scheme_papers: list[ExtractedPaper] | None = None
     mismatch: str | None = None

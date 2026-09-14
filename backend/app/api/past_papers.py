@@ -448,6 +448,15 @@ async def hide_past_paper(past_paper_id: int, db: DbSession, user: TutorUser) ->
     "when did this leave my shelf" has one answer.
     """
     paper = await _visible_paper(db, user, past_paper_id)
+    # `_visible_paper` lets an admin read any organization's paper — an older
+    # exemption eight read-only routes share. This one writes, so it does not
+    # inherit it: hiding another tenant's paper is a change to their shelf, and
+    # a mutation has no business being the first route to act on that
+    # exemption (`SEC-7`, `PROD-4`). The narrow check here rather than a change
+    # to the shared helper, which would alter eight routes this task never
+    # touched.
+    if paper.organization_id != user.organization_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
     if paper.hidden_at is None:
         paper.hidden_at = utcnow()
         await db.commit()

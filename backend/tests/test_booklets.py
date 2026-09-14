@@ -601,15 +601,22 @@ async def test_a_failed_cut_is_retried_by_cutting_not_by_reading_again(
         await session.execute(delete(Job))
         await session.commit()
 
-    # The list is settled from here: some papers exist and are keyed by their
-    # position in it.
+    # Nothing was cut, so the list is still the tutor's to fix — a bad page
+    # range is the likeliest reason a cut failed, and refusing the edit here
+    # would leave re-uploading as the only way out.
     assert (
         await client.put(
             f"/api/v1/booklets/{booklet_id}/draft",
-            json=_draft((1, 3)),
+            json=_draft((1, 2), (3, 6)),
             headers=tutor["headers"],
         )
-    ).status_code == 409
+    ).status_code == 200
+    async with async_session() as session:
+        booklet = await session.get(Booklet, booklet_id)
+        booklet.status = BookletStatus.split_failed
+        booklet.error = "disk was full"
+        await session.execute(delete(Job))
+        await session.commit()
 
     resp = await client.post(f"/api/v1/booklets/{booklet_id}/retry", headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
@@ -627,3 +634,108 @@ async def test_a_failed_cut_is_retried_by_cutting_not_by_reading_again(
             await session.scalars(select(PastPaper).where(PastPaper.booklet_id == booklet_id))
         ).all()
         assert len(papers) == 2
+
+
+async def test_once_a_paper_exists_the_list_is_frozen(client, tutor, subject):  # noqa: F811
+    """The other half of the same rule: papers are keyed by their position in
+    the list, so editing it after one exists leaves that entry describing a
+    paper cut to different pages."""
+    booklet_id = await _reviewed(client, tutor, subject, (1, 2), (3, 6))
+    assert (
+        await client.post(f"/api/v1/booklets/{booklet_id}/approve", headers=tutor["headers"])
+    ).status_code == 200
+    async with async_session() as session:
+        booklet = await session.get(Booklet, booklet_id)
+        session.add(
+            PastPaper(
+                organization_id=booklet.organization_id,
+                booklet_id=booklet.id,
+                booklet_index=1,
+                subject_id=booklet.subject_id,
+            )
+        )
+        booklet.status = BookletStatus.split_failed
+        await session.commit()
+
+    resp = await client.put(
+        f"/api/v1/booklets/{booklet_id}/draft", json=_draft((1, 4)), headers=tutor["headers"]
+    )
+    assert resp.status_code == 409
+    assert "already been created" in resp.text
+
+
+async def test_a_page_range_past_the_end_is_refused_before_anything_is_cut(
+    client,
+    tutor,
+    subject,  # noqa: F811
+):
+    """The AI can propose a range longer than the document. Caught at approval
+    the tutor edits the list; caught inside the cut it is a failed split."""
+    booklet_id = await _reviewed(client, tutor, subject, (1, 6))
+    async with async_session() as session:
+        booklet = await session.get(Booklet, booklet_id)
+        booklet.page_count = 6
+        booklet.draft = _draft((1, 6), (7, 40))
+        await session.commit()
+
+    resp = await client.post(f"/api/v1/booklets/{booklet_id}/approve", headers=tutor["headers"])
+    assert resp.status_code == 422
+    assert "this booklet has 6 pages" in resp.text.lower()
+    async with async_session() as session:
+        assert (await session.get(Booklet, booklet_id)).status is BookletStatus.review
+        assert (await session.scalars(select(PastPaper))).all() == []
+
+
+async def test_an_admin_cannot_reach_out_of_their_own_organization(client, tutor, subject):  # noqa: F811
+    """`SEC-7` reads the organization off the authenticated user with no
+    exemption. The list route never gave admins one; the detail route did, so a
+    booklet they could not list could still be opened and approved by id."""
+    from app.models import User, UserRole
+
+    async with async_session() as session:
+        foreign = await other_org_subject(session)
+        booklet = Booklet(
+            organization_id=foreign.organization_id,
+            subject_id=foreign.id,
+            status=BookletStatus.review,
+            draft=_draft((1, 2)),
+        )
+        session.add(booklet)
+        admin = await session.get(User, tutor["user"]["id"])
+        admin.role = UserRole.admin
+        await session.commit()
+        foreign_id = booklet.id
+
+    for path in ("", "/file", "/approve"):
+        method = client.post if path == "/approve" else client.get
+        resp = await method(f"/api/v1/booklets/{foreign_id}{path}", headers=tutor["headers"])
+        assert resp.status_code == 404, f"{path}: {resp.status_code}"
+
+
+async def test_an_admin_cannot_hide_another_organizations_paper(client, tutor, subject):  # noqa: F811
+    """Reading across tenants is an older exemption eight routes share; writing
+    across them is not, and this route writes."""
+    from app.models import User, UserRole
+
+    resp = await client.post(
+        "/api/v1/past-papers",
+        data={"subject_id": str(subject["id"])},
+        files=[("paper", ("paper.pdf", _pdf(1), "application/pdf"))],
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    paper_id = resp.json()["id"]
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, paper_id)
+        foreign = await other_org_subject(session)
+        paper.organization_id = foreign.organization_id
+        admin = await session.get(User, tutor["user"]["id"])
+        admin.role = UserRole.admin
+        await session.commit()
+
+    assert (
+        await client.delete(f"/api/v1/past-papers/{paper_id}", headers=tutor["headers"])
+    ).status_code == 404
+    async with async_session() as session:
+        assert (await session.get(PastPaper, paper_id)).hidden_at is None

@@ -58,9 +58,20 @@ const cell = "w-full rounded border border-line bg-surface px-2 py-1 text-sm tex
  * the one thing here that is legitimately local: it is an unsaved form, not
  * server state copied into `useState` (`FE-6`).
  */
-function DraftEditor({ booklet }: { booklet: BookletDetail }) {
+type Row = { key: number; paper: DraftPaper };
+
+let nextRowKey = 0;
+const asRow = (paper: DraftPaper): Row => ({ key: nextRowKey++, paper });
+
+function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
   const queryClient = useQueryClient();
-  const [papers, setPapers] = useState<DraftPaper[]>(booklet.draft?.papers ?? []);
+  // Each row carries its own key, because a row's identity is not its position:
+  // rows are added, removed and reordered. The values survive an index key
+  // either way — the inputs are controlled — but the DOM state React does not
+  // own does not: focus and the caret jump to whatever now sits at that index,
+  // so a tutor who reorders while typing keeps typing into a different paper.
+  const [rows, setRows] = useState<Row[]>(() => (booklet.draft?.papers ?? []).map(asRow));
+  const papers = rows.map((r) => r.paper);
   const [error, setError] = useState<string | null>(null);
 
   const invalidate = () => {
@@ -89,13 +100,15 @@ function DraftEditor({ booklet }: { booklet: BookletDetail }) {
   });
 
   const edit = (i: number, patch: Partial<DraftPaper>) =>
-    setPapers((rows) => rows.map((r, n) => (n === i ? { ...r, ...patch } : r)));
+    setRows((current) =>
+      current.map((r, n) => (n === i ? { ...r, paper: { ...r.paper, ...patch } } : r)),
+    );
 
   const move = (i: number, by: number) =>
-    setPapers((rows) => {
+    setRows((current) => {
       const to = i + by;
-      if (to < 0 || to >= rows.length) return rows;
-      const next = [...rows];
+      if (to < 0 || to >= current.length) return current;
+      const next = [...current];
       [next[i], next[to]] = [next[to], next[i]];
       return next;
     });
@@ -144,8 +157,8 @@ function DraftEditor({ booklet }: { booklet: BookletDetail }) {
               </tr>
             </thead>
             <tbody>
-              {papers.map((p, i) => (
-                <tr key={i} className="border-t border-line align-top">
+              {rows.map(({ key, paper: p }, i) => (
+                <tr key={key} className="border-t border-line align-top">
                   <td className="py-1 pr-2">
                     <input
                       aria-label={`Title, paper ${i + 1}`}
@@ -209,7 +222,7 @@ function DraftEditor({ booklet }: { booklet: BookletDetail }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPapers((rows) => rows.filter((_, n) => n !== i))}
+                      onClick={() => setRows((current) => current.filter((_, n) => n !== i))}
                       aria-label={`Remove paper ${i + 1}`}
                       className="px-1 text-risk-600 hover:underline"
                     >
@@ -228,7 +241,7 @@ function DraftEditor({ booklet }: { booklet: BookletDetail }) {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setPapers((rows) => [...rows, { ...BLANK }])}
+          onClick={() => setRows((current) => [...current, asRow({ ...BLANK })])}
           className="rounded-md border border-line-strong px-3 py-2 text-sm text-ink-700"
         >
           Add a paper
@@ -250,7 +263,7 @@ function DraftEditor({ booklet }: { booklet: BookletDetail }) {
             setError(null);
             approve.mutate();
           }}
-          disabled={approve.isPending || papers.length === 0}
+          disabled={approve.isPending || save.isPending || papers.length === 0}
           className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-surface hover:bg-brand-700 disabled:opacity-50"
         >
           {approve.isPending ? "Approving…" : "Approve and cut the papers"}

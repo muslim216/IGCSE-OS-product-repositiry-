@@ -142,15 +142,24 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
             # single upload uses — no parallel path (`PROD-9`), and a booklet of
             # twelve does not become one enormous extraction.
             await enqueue(session, "extract_past_paper", {"past_paper_id": paper.id})
+            # Committed per paper, not once at the end. The files are already on
+            # disk, so a paper that is cut but not committed is an orphan — and
+            # the failure most likely to end this loop is a database error,
+            # which invalidates the session and makes a single commit at the end
+            # raise instead of saving anything. Per paper, the re-run resumes
+            # from exactly where this one stopped.
+            await session.commit()
     except Exception as exc:
-        # The papers created before the failure are kept, not rolled back: their
-        # files are already stored and their extractions already queued, and the
-        # re-run picks up from the index that failed. `extraction_failed` is
-        # what the tutor's screen reads to offer a retry.
-        await session.commit()
-        booklet.status = BookletStatus.split_failed
-        booklet.error = str(exc) or exc.__class__.__name__
-        await session.commit()
+        # The session may be unusable — a failed flush leaves it needing a
+        # rollback before it can be read from again, and without this the write
+        # below raises too and the booklet is stranded in `applying` with no
+        # retry that will touch it.
+        await session.rollback()
+        stalled = await session.get(Booklet, payload["booklet_id"])
+        if stalled is not None:
+            stalled.status = BookletStatus.split_failed
+            stalled.error = str(exc) or exc.__class__.__name__
+            await session.commit()
         raise
 
     booklet.status = BookletStatus.applied

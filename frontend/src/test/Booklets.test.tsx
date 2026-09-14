@@ -210,3 +210,49 @@ test("approving asks the server to cut the papers", async () => {
     ),
   );
 });
+
+test("moving a paper up takes its own details with it", async () => {
+  // Reordering is a real control, not decoration — this is the assertion that
+  // the swap actually moves a paper's own details with it. (The row keys it
+  // relies on protect focus and the caret, which no test here asserts.)
+  mockFetch([booklet], { ...booklet, draft });
+  renderPage();
+  await openReview();
+
+  const titles = () =>
+    screen.getAllByLabelText(/^Title, paper/).map((input) => (input as HTMLInputElement).value);
+  expect(titles()).toEqual(["Multiple Choice", "Theory"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Move paper 2 up" }));
+  expect(titles()).toEqual(["Theory", "Multiple Choice"]);
+});
+
+test("approving is blocked while a save is still in flight", async () => {
+  // Approve cuts the list the server is holding, so approving over an
+  // unfinished save cuts the list from before the edit.
+  let release: ((value: Response) => void) | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "PUT") {
+        return new Promise<Response>((resolve) => {
+          release = resolve;
+        });
+      }
+      if (/\/booklets\/\d+/.test(url)) {
+        return new Response(JSON.stringify({ ...booklet, draft }), { status: 200 });
+      }
+      if (url.includes("/booklets")) {
+        return new Response(JSON.stringify([booklet]), { status: 200 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+  renderPage();
+  await openReview();
+
+  fireEvent.click(screen.getByRole("button", { name: /Save changes/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: /Approve/ })).toBeDisabled());
+  release?.(new Response(JSON.stringify({ ...booklet, draft }), { status: 200 }));
+});

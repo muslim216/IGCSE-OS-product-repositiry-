@@ -19,7 +19,7 @@ created until the tutor applies it.
 
 import enum
 
-from sqlalchemy import JSON, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -81,6 +81,14 @@ class Booklet(TimestampMixin, Base):
         default=BookletStatus.extracting,
         nullable=False,
     )
+    # How many pages the document actually has, counted once when the AI reads
+    # it. It is what lets approval refuse a page range that runs past the end
+    # *before* anything is cut: without it a hallucinated "pages 1-40" of a
+    # 20-page booklet is only caught inside the split job, which fails, and a
+    # half-cut booklet cannot be edited. Null for a booklet whose read never
+    # finished, and for the booklets-of-one backfilled by 0042 — the check is
+    # skipped rather than guessed (`PROD-2`).
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # The AI's proposed paper list, tutor-editable until approval turns it into
     # `PastPaper` rows. Shape is `schemas.booklet.BookletDraft`: `papers`, the
     # `scheme_papers` read off the mark scheme, and `scheme_mismatch` when the

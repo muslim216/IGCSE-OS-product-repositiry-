@@ -11,8 +11,10 @@ export type BookletDetail = components["schemas"]["BookletDetail"];
 export type BookletDraft = components["schemas"]["BookletDraft"];
 export type DraftPaper = components["schemas"]["DraftPaper"];
 
-export const listBooklets = (subjectId?: number) =>
-  api<Booklet[]>(`/api/v1/booklets${subjectId ? `?subject_id=${subjectId}` : ""}`);
+export const listBooklets = (subjectId?: number) => {
+  const query = subjectId ? `?subject_id=${subjectId}` : "";
+  return api<Booklet[]>(`/api/v1/booklets${query}`);
+};
 
 export const getBooklet = (id: number) => api<BookletDetail>(`/api/v1/booklets/${id}`);
 

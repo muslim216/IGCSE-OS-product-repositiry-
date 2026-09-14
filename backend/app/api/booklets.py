@@ -25,8 +25,13 @@ from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/booklets", tags=["past-papers"])
 
+#: One wording for every refusal in this file. A booklet a caller may not see
+#: and a booklet that does not exist must be indistinguishable (`API-7`), and
+#: three separately-typed strings are three chances for them to drift apart.
+NOT_FOUND = "Booklet not found"
 
-async def _visible_booklet(db, user: User, booklet_id: int) -> Booklet:
+
+async def _visible_booklet(db, user: User, booklet_id: int, *, for_update: bool = False) -> Booklet:
     """A tutor sees their organization's booklets; a student sees an applied
     booklet in an organization that teaches them, for a subject they are
     enrolled in (`SEC-8`).
@@ -38,12 +43,17 @@ async def _visible_booklet(db, user: User, booklet_id: int) -> Booklet:
     `404` rather than `403` throughout — a booklet id is an integer and
     enumerable, so a caller must not learn that one exists (`API-7`).
     """
-    booklet = await db.get(Booklet, booklet_id)
+    booklet = await db.get(Booklet, booklet_id, with_for_update=for_update)
     if booklet is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Booklet not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
     if user.role in (UserRole.tutor, UserRole.admin):
-        if booklet.organization_id != user.organization_id and user.role != UserRole.admin:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Booklet not found")
+        # An admin gets no cross-tenant exemption here, deliberately. The older
+        # `_visible_paper` grants one and `list_booklets` does not, so the pair
+        # disagreed: an admin could not *list* another tenant's booklets but
+        # could open and approve one by id. Scoped, the two agree, and `SEC-7`
+        # reads the organization off the authenticated user with no exception.
+        if booklet.organization_id != user.organization_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
         return booklet
     # Nested rather than collapsed for the same reason as `_visible_paper`:
     # this is the rule deciding which tutor's material a student can see, and
@@ -54,7 +64,7 @@ async def _visible_booklet(db, user: User, booklet_id: int) -> Booklet:
             booklet.subject_id,
         ) in await _enrolled_scope(db, user.id):
             return booklet
-    raise HTTPException(status.HTTP_404_NOT_FOUND, "Booklet not found")
+    raise HTTPException(status.HTTP_404_NOT_FOUND, NOT_FOUND)
 
 
 async def _paper_counts(db, booklet_ids: list[int]) -> dict[int, int]:
@@ -234,19 +244,24 @@ def _first_problem(exc: ValidationError) -> str:
     return first.removeprefix("Value error, ")
 
 
-def _editable(booklet: Booklet) -> None:
-    """Everything after approval is settled. Editing the list then would
-    describe papers that already exist and were cut to the old ranges."""
-    # `split_failed` is included: some papers are already cut and keyed by their
-    # position in this list, so editing it would leave the entries at those
-    # positions describing papers that exist with different pages.
-    if booklet.status in (
-        BookletStatus.applying,
-        BookletStatus.split_failed,
-        BookletStatus.applied,
-    ):
+async def _editable(db, booklet: Booklet) -> None:
+    """Everything after the papers exist is settled. Editing the list then would
+    describe papers that already exist and were cut to the old ranges.
+
+    `split_failed` is the interesting case: a cut that failed on the very first
+    paper created nothing, and the tutor must be able to fix the range that
+    broke it — refusing there is a dead end with no way out but re-uploading.
+    Once any paper exists the list is keyed by position and is frozen.
+    """
+    if booklet.status in (BookletStatus.applying, BookletStatus.applied):
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This booklet's papers have already been created"
+        )
+    if booklet.status is BookletStatus.split_failed and await db.scalar(
+        select(PastPaper.id).where(PastPaper.booklet_id == booklet.id).limit(1)
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Some of this booklet's papers have already been created"
         )
 
 
@@ -262,7 +277,7 @@ async def edit_draft(
     page), which `BookletDraft` checks.
     """
     booklet = await _visible_booklet(db, user, booklet_id)
-    _editable(booklet)
+    await _editable(db, booklet)
     booklet.draft = body.model_dump()
     # An edited draft is a reviewable one: correcting the list by hand is
     # exactly how a tutor recovers from a failed read, so it clears the failure
@@ -309,8 +324,13 @@ async def approve_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Bo
     (`BE-13`, `PERF-1`). So this marks the booklet `applying` and returns — the
     papers appear as the job creates them.
     """
-    booklet = await _visible_booklet(db, user, booklet_id)
-    _editable(booklet)
+    # Locked, so two clicks (or two tabs) cannot both move a `review` booklet to
+    # `applying` and queue two splits. The second waits, sees `applying`, and is
+    # refused by `_editable`. The split job is idempotent anyway, but two jobs
+    # racing on the same index collide on the unique key and one fails the
+    # booklet for no reason.
+    booklet = await _visible_booklet(db, user, booklet_id, for_update=True)
+    await _editable(db, booklet)
     if not booklet.draft:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "There is no paper list to approve yet"
@@ -321,12 +341,25 @@ async def approve_booklet(booklet_id: int, db: DbSession, user: TutorUser) -> Bo
     # rather than left to become a 500 — the tutor can fix an overlap by hand,
     # and needs to be told what it is.
     try:
-        BookletDraft.model_validate(booklet.draft)
+        draft = BookletDraft.model_validate(booklet.draft)
     except ValidationError as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"This paper list cannot be cut as it stands: {_first_problem(exc)}",
         ) from exc
+    # And that every range fits the document. Caught here, the tutor edits the
+    # list and tries again; caught inside the split job it is a failed cut, and
+    # a half-cut booklet's list can no longer be edited. `page_count` is absent
+    # on a booklet whose read never finished, and the check is then skipped
+    # rather than guessed.
+    if booklet.page_count is not None:
+        over = [p for p in draft.papers if p.last_page > booklet.page_count]
+        if over:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"'{over[0].title}' runs to page {over[0].last_page}, but this booklet has "
+                f"{booklet.page_count} pages. Correct the list and approve again.",
+            )
     booklet.status = BookletStatus.applying
     booklet.error = None
     await enqueue(db, "split_booklet", {"booklet_id": booklet.id})
