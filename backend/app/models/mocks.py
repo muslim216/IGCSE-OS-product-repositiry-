@@ -15,11 +15,12 @@ mock counts for what it is, not for how its marks were produced.
 """
 
 import enum
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
     Date,
+    DateTime,
     Enum,
     ForeignKey,
     Integer,
@@ -29,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, TimestampMixin, utcnow
 from app.models.readiness import AssessmentType
 
 
@@ -88,6 +89,34 @@ class Mock(TimestampMixin, Base):
         back_populates="mock",
         cascade="all, delete-orphan",
         order_by="MockQuestion.position",
+    )
+
+
+class MockOpening(Base):
+    """When one student first opened one mock — the moment its clock started.
+
+    A row of its own rather than a column on `Submission`, because the clock has
+    to start *before* there is a submission: a `Submission` is created when work
+    is handed in, and by then the sitting is over. It is also the only honest
+    place to record a student who opened the paper and never submitted.
+
+    `AV-116` says the clock is server-side. A timer in the browser is a
+    suggestion — the tab can be reloaded, the device clock moved, the page left
+    open overnight — so `opened_at` is written here, by the server, once, and
+    every remaining-time figure is computed from it.
+    """
+
+    __tablename__ = "mock_openings"
+    # One opening per student per mock: the clock starts once and cannot be
+    # restarted by closing the tab and coming back (`BE-6` — the endpoint is
+    # idempotent, and this is what makes it true under a double-click too).
+    __table_args__ = (UniqueConstraint("mock_id", "student_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mock_id: Mapped[int] = mapped_column(ForeignKey("mocks.id"), nullable=False)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
     )
 
 

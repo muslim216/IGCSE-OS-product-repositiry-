@@ -200,9 +200,23 @@ class Submission(TimestampMixin, Base):
     mock_id: Mapped[int | None] = mapped_column(ForeignKey("mocks.id"), nullable=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # Past papers only, and self-declared: the platform can't measure how long
-    # a student took or whether they really sat it under timed conditions.
+    # a student took or whether they really sat it under timed conditions. A
+    # mock is the opposite — see `measured_minutes` below — and the two must
+    # never be shown under the same label (`PROD-8`, `UX-20`).
     timed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     time_taken_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Mocks only, and **measured**: minutes from the server's own record of when
+    # this student first opened the paper to when they handed it in. Not the
+    # student's word for it, so it is never labelled self-declared. Null on a
+    # mock nobody opened through the API — an older submission, or a tutor
+    # entering a sitting after the fact — because a number invented to fill the
+    # gap is exactly what `PROD-2` forbids.
+    measured_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Whether it arrived after the mock's time was up. **Recorded, never
+    # enforced** (`AV-116`): a late submission is accepted in full and flagged
+    # for the tutor, because refusing it loses a student's work to punish
+    # something the tutor is better placed to judge.
+    submitted_late: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     attempted_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[SubmissionStatus] = mapped_column(
         Enum(SubmissionStatus, native_enum=False, length=16),

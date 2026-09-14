@@ -1240,6 +1240,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mocks/{mock_id}/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open Mock
+         * @description Start this student's clock, or report the one already running.
+         *
+         *     The first call writes the start time; every call after returns it unchanged,
+         *     so closing the tab and coming back does not buy more time (`AV-116`). The
+         *     page polls this rather than trusting its own countdown — the browser's timer
+         *     is a display, and a display can be reloaded, paused or lied to.
+         */
+        post: operations["open_mock_api_v1_mocks__mock_id__open_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mocks/{mock_id}/my-submission": {
         parameters: {
             query?: never;
@@ -3412,6 +3437,29 @@ export interface components {
             /** Group Id */
             group_id: number;
         };
+        /**
+         * MockClockOut
+         * @description The server's answer to "how long have I got" — never the browser's.
+         *
+         *     A countdown on screen is a display of this. `AV-116` puts the clock on the
+         *     server, so the page asks and shows; it does not decide.
+         */
+        MockClockOut: {
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Due At */
+            due_at?: string | null;
+            /** Seconds Remaining */
+            seconds_remaining?: number | null;
+            /**
+             * Overdue
+             * @default false
+             */
+            overdue: boolean;
+        };
         /** MockDetail */
         MockDetail: {
             /** Id */
@@ -3441,6 +3489,8 @@ export interface components {
              * @default 0
              */
             question_count: number;
+            /** My Submission Status */
+            my_submission_status?: string | null;
             /**
              * Questions
              * @default []
@@ -3476,6 +3526,8 @@ export interface components {
              * @default 0
              */
             question_count: number;
+            /** My Submission Status */
+            my_submission_status?: string | null;
         };
         /** MockQuestionOut */
         MockQuestionOut: {
@@ -3512,6 +3564,13 @@ export interface components {
              * Format: date-time
              */
             submitted_at: string;
+            /** Measured Minutes */
+            measured_minutes?: number | null;
+            /**
+             * Submitted Late
+             * @default false
+             */
+            submitted_late: boolean;
             /** Raw Marks */
             raw_marks?: number | null;
             /** Max Marks */
@@ -4380,6 +4439,10 @@ export interface components {
              * Format: date-time
              */
             submitted_at: string;
+            /** Measured Minutes */
+            measured_minutes?: number | null;
+            /** Submitted Late */
+            submitted_late?: boolean | null;
             /** Files */
             files: components["schemas"]["SubmissionFileOut"][];
             typed_answer?: components["schemas"]["TypedAnswerOut"] | null;
@@ -7036,6 +7099,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MockSubmissionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_mock_api_v1_mocks__mock_id__open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mock_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MockClockOut"];
                 };
             };
             /** @description Validation Error */
