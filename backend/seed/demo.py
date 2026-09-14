@@ -23,6 +23,8 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    Booklet,
+    BookletStatus,
     Chapter,
     Classified,
     Evidence,
@@ -467,8 +469,22 @@ async def main() -> None:
         # full past papers carry official grade boundaries and timed
         # conditions, and become the dominant evidence source later in the
         # IGCSE year.
+        # Its booklet of one. Every past paper has a parent (task 3.5), and a
+        # single paper is a booklet holding just it — `applied` because there
+        # is nothing left to extract or review. Untitled for the same reason
+        # the paper is titled: a booklet's title is read off the document by an
+        # extraction the seed never runs (`PROD-2`).
+        booklet = Booklet(
+            organization_id=org.id,
+            subject_id=subject.id,
+            status=BookletStatus.applied,
+        )
+        session.add(booklet)
+        await session.flush()
         past_paper = PastPaper(
             organization_id=org.id,
+            booklet_id=booklet.id,
+            booklet_index=1,
             subject_id=subject.id,
             # Set explicitly because the seed never runs extraction, and an
             # unnamed paper renders as "Untitled paper" everywhere the demo

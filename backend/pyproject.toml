@@ -34,6 +34,11 @@ dependencies = [
     # 5.0.1, not 5.0: `Redis.aclose()` (used by RedisWindowStore.close) only
     # arrived in 5.0.1 — 5.0.0 exposes `close()` and raises AttributeError.
     "redis>=5.0.1",
+    # PDF page splitting for past-paper booklets (services/pdf.py). The API it
+    # uses — PdfReader, is_encrypted, PdfWriter.add_page — has been stable
+    # since 3.0; the floor is 5.1 only because that is the oldest release still
+    # getting the security fixes that matter for parsing tutor uploads.
+    "pypdf>=5.1",
 ]
 
 [project.optional-dependencies]

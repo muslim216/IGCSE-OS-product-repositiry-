@@ -11,7 +11,6 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
-    PastPaper,
     PastPaperQuestion,
     QuestionMark,
     Subject,
@@ -20,7 +19,7 @@ from app.models import (
     User,
 )
 from app.services.averaging import MarkRow, average_marked_work, subject_averaging
-from tests.factories import subject_defaults
+from tests.factories import make_past_paper, subject_defaults
 
 # ---- The pure mean ----
 
@@ -150,14 +149,13 @@ async def add_homework(world, marks, *, status=SubmissionStatus.finalized, title
 async def add_past_paper(world, marks, *, status=SubmissionStatus.finalized):
     """The same, as a past paper: the submission's assignment_id stays None."""
     async with async_session() as session:
-        paper = PastPaper(
+        paper = await make_past_paper(
+            session,
             organization_id=world["org_id"],
             subject_id=world["subject_id"],
             session_label="June 2026",
             paper_number="1",
         )
-        session.add(paper)
-        await session.flush()
         submission = Submission(
             past_paper_id=paper.id, student_id=world["student_id"], status=status
         )

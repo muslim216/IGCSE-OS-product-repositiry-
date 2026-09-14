@@ -72,14 +72,46 @@ class PastPaper(TimestampMixin, Base):
     Distinct from a classified (see CLAUDE.md): a classified is a topic-compiled
     selection of questions, a past paper is the whole thing, sat under timed
     conditions and marked against the official scheme. It carries files like a
-    Classified does, and rides the same extract -> mark -> review pipeline, but
-    the mark scheme is REQUIRED — a paper's marks feed the Past Paper
-    Performance factor, so they may not rest on the AI's judgement alone."""
+    Classified does, and rides the same extract -> mark -> review pipeline.
+
+    The mark scheme used to be required here, on the grounds that a paper's
+    marks feed the Past Paper Performance factor and so may not rest on the
+    AI's judgement alone. The product owner reversed that in task 3.5: a tutor
+    who has the paper but not the scheme could otherwise upload nothing. The
+    guarantee is unchanged, because the scheme was never what enforced it —
+    `scheme_backed()` in `services/marking.py` is, and with no scheme attached
+    it auto-finalizes nothing, so every mark waits for the tutor (`AI-11`,
+    `ADR-0009`)."""
 
     __tablename__ = "past_papers"
+    # `booklet_index` is what makes approving a booklet safe to re-run (`BE-6`).
+    # Delivery is at-least-once and a worker that dies mid-approve is requeued,
+    # so the handler can meet a booklet whose papers it already half-created.
+    # Without a natural key it would insert them a second time; with one the
+    # re-run collides and can skip. It doubles as the index every paper list
+    # needs, since `booklet_id` leads it — a separate index on `booklet_id`
+    # alone would be redundant (`DB-12`).
+    __table_args__ = (UniqueConstraint("booklet_id", "booklet_index"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    # NOT NULL: every past paper belongs to exactly one booklet, a single upload
+    # included — that becomes a booklet of one. A paper with no parent would have
+    # nowhere to keep its file, its scheme or its extraction status.
+    booklet_id: Mapped[int] = mapped_column(ForeignKey("booklets.id"), nullable=False)
+    # Which paper of its booklet this is, counting from 1. A booklet of one
+    # always holds a single paper at 1.
+    booklet_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # Which pages of the booklet this paper was cut from, for provenance: a
+    # mis-split is otherwise only fixable by re-uploading, and nothing can say
+    # "pages 12-23 of this booklet" (`PROD-1`).
+    #
+    # NULL means the whole document, which is the booklet-of-one case. It is
+    # deliberately not filled in with 1..page_count there: knowing the page
+    # count means parsing the PDF, and that is a blocking CPU-bound call in a
+    # request handler (`BE-13`, `PERF-1`). Absent rather than computed.
+    first_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tutor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     # The paper's own name, read off the document by extraction — never typed
@@ -102,7 +134,8 @@ class PastPaper(TimestampMixin, Base):
     paper_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     paper_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     paper_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # The official mark scheme — required at upload, tutor-only to download.
+    # The official mark scheme — optional since task 3.5, tutor-only to
+    # download. NULL means nothing from this paper auto-finalizes.
     mark_scheme_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -7,9 +7,11 @@ That means the review queue, mark-override audit and remark requests all apply
 here with no extra code.
 
 Two rules specific to past papers:
-- **The official mark scheme is required at upload.** Past-paper marks feed the
-  Past Paper Performance factor and a predicted grade; they may not rest on the
-  AI's own judgement.
+- **The official mark scheme is optional at upload.** It used to be mandatory,
+  on the reasoning that past-paper marks feed a predicted grade and may not rest
+  on the AI's own judgement. That reasoning is enforced by marking, not by this
+  endpoint: with no scheme file attached nothing auto-finalizes (see
+  `upload_past_paper`), so the tutor rules on every mark by hand.
 - **The mark scheme is tutor-only.** Students can read the question paper.
 """
 
@@ -24,6 +26,8 @@ from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser, owned_s
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import (
     SETTLED_STATUSES,
+    Booklet,
+    BookletStatus,
     Group,
     GroupMember,
     PastPaper,
@@ -136,46 +140,120 @@ async def upload_past_paper(
     user: TutorUser,
     subject_id: Annotated[int, Form()],
     paper: Annotated[UploadFile, File()],
-    mark_scheme: Annotated[UploadFile, File()],
+    mark_scheme: Annotated[UploadFile | None, File()] = None,
     total_marks: Annotated[int | None, Form()] = None,
     duration_minutes: Annotated[int | None, Form()] = None,
 ) -> PastPaperOut:
     subject = await owned_subject(db, subject_id, user)
-    # The mark scheme is a required part of the form, so FastAPI rejects a
-    # missing file before we get here — this catches an empty upload.
-    if not mark_scheme.filename:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "A past paper needs its official mark scheme — marks from a full "
-            "paper can't rest on the AI's judgement alone.",
-        )
 
-    paper_path, paper_name, paper_mime = await storage.save_upload(
-        paper, organization_id=user.organization_id
-    )
-    ms_path, ms_name, ms_mime = await storage.save_upload(
-        mark_scheme, organization_id=user.organization_id
-    )
-    paper = PastPaper(
-        organization_id=user.organization_id,
-        tutor_id=user.id,
-        subject_id=subject.id,
-        total_marks=total_marks,
-        duration_minutes=duration_minutes,
-        paper_path=paper_path,
-        paper_name=paper_name,
-        paper_mime=paper_mime,
-        mark_scheme_path=ms_path,
-        mark_scheme_name=ms_name,
-        mark_scheme_mime=ms_mime,
-    )
-    db.add(paper)
-    await db.flush()
-    await enqueue(db, "extract_past_paper", {"past_paper_id": paper.id})
-    await db.commit()
+    # The mark scheme used to be mandatory here, rejected with a 422. The
+    # product owner removed that: a tutor who has the paper but not the scheme
+    # could upload nothing at all, which is worse than uploading a paper whose
+    # marks a human checks.
+    #
+    # Dropping the 422 is safe because it was never the control. Marking gates
+    # auto-finalize on `scheme_backed(q) = q.has_mark_scheme and
+    # source.mark_scheme is not None` (services/marking.py), so a paper stored
+    # with these three columns NULL marks normally and auto-finalizes *nothing*
+    # — every question lands in the tutor's review queue and no mark becomes
+    # Evidence until they rule on it. That is already how mocks behave
+    # (models/mocks.py). AI-11/ADR-0009 — scheme-backed *and* confident — is
+    # therefore still honoured; it is honoured one layer down.
+    #
+    # An empty file part (a browser form submitted with no file chosen) arrives
+    # as an UploadFile with an empty filename, so it is treated as absent too.
+    # Every past paper belongs to a booklet, and a single upload is a booklet
+    # of one (task 3.5). That is what lets one paper and ten papers travel the
+    # same path: nothing downstream has to ask whether a parent exists, and
+    # `PastPaper.booklet_id` can be NOT NULL.
+    #
+    # It is `applied` immediately and carries no draft: there is no list of
+    # papers to read off a single upload and nothing for the tutor to review,
+    # so the extract-then-review screen a multi-paper booklet goes through is
+    # skipped entirely. A photographed paper reaches here too, and a photo
+    # cannot be split — a booklet of one never needs to be.
+    #
+    # The booklet keeps the file as uploaded; the paper keeps its own. For a
+    # booklet of one they are the same file, which is not duplication worth
+    # removing: the booklet records what arrived, the paper records what gets
+    # marked, and for a multi-paper booklet those genuinely differ.
+    # The files reach disk before any row exists, so from here on every path
+    # that fails owns their cleanup — a stored object with no row pointing at it
+    # is invisible and can never be found again. `_discard` in `api/mocks.py`
+    # is the same guard for the same reason; this handler wrote two rows and had
+    # none.
+    #
+    # Rolling the transaction back is not the expensive part: nothing written
+    # here is worth keeping on its own. A booklet with no paper in it is exactly
+    # the orphan `booklet_id`'s NOT NULL exists to prevent.
+    saved: list[str] = []
+    try:
+        paper_path, paper_name, paper_mime = await storage.save_upload(
+            paper, organization_id=user.organization_id
+        )
+        # Tracked the moment it exists, not once both uploads are through: a
+        # mark scheme that is oversize or of the wrong type is rejected *after*
+        # the paper is already on disk, and that rejection must take the paper
+        # with it.
+        saved.append(paper_path)
+        ms_path, ms_name, ms_mime = (None, None, None)
+        if mark_scheme is not None and mark_scheme.filename:
+            ms_path, ms_name, ms_mime = await storage.save_upload(
+                mark_scheme, organization_id=user.organization_id
+            )
+            saved.append(ms_path)
+
+        booklet = Booklet(
+            organization_id=user.organization_id,
+            tutor_id=user.id,
+            subject_id=subject.id,
+            status=BookletStatus.applied,
+            file_path=paper_path,
+            file_name=paper_name,
+            file_mime=paper_mime,
+            mark_scheme_path=ms_path,
+            mark_scheme_name=ms_name,
+            mark_scheme_mime=ms_mime,
+        )
+        db.add(booklet)
+        # Needed before the paper: `PastPaper.booklet_id` is NOT NULL and there
+        # is no relationship for the ORM to order the inserts by.
+        await db.flush()
+
+        past_paper = PastPaper(
+            organization_id=user.organization_id,
+            booklet_id=booklet.id,
+            # The only paper in it. `first_page`/`last_page` stay NULL: this
+            # paper is the whole document, and working out its page count would
+            # mean parsing the PDF here, on the event loop (`BE-13`).
+            booklet_index=1,
+            tutor_id=user.id,
+            subject_id=subject.id,
+            total_marks=total_marks,
+            duration_minutes=duration_minutes,
+            paper_path=paper_path,
+            paper_name=paper_name,
+            paper_mime=paper_mime,
+            mark_scheme_path=ms_path,
+            mark_scheme_name=ms_name,
+            mark_scheme_mime=ms_mime,
+        )
+        db.add(past_paper)
+        # And before the enqueue: the job payload carries the id (`BE-9`).
+        await db.flush()
+        await enqueue(db, "extract_past_paper", {"past_paper_id": past_paper.id})
+        await db.commit()
+    except Exception:
+        # Deliberately not just HTTPException. A rejected mark scheme raises
+        # one; the database and the queue raise other things. All of them leave
+        # the same orphans.
+        await db.rollback()
+        for path in saved:
+            await storage.delete_file(path)
+        raise
     # Extraction was only just enqueued, so the count is 0 by construction —
     # no point asking the database.
-    return _out(paper, 0, for_tutor=True)
+    return _out(past_paper, 0, for_tutor=True)
 
 
 @router.get("", response_model=list[PastPaperOut])
