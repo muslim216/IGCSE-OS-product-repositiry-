@@ -3456,6 +3456,54 @@
         }
       }
     },
+    "/api/v1/mocks/{mock_id}/open": {
+      "post": {
+        "tags": [
+          "mocks"
+        ],
+        "summary": "Open Mock",
+        "description": "Start this student's clock, or report the one already running.\n\nThe first call writes the start time; every call after returns it unchanged,\nso closing the tab and coming back does not buy more time (`AV-116`). The\npage polls this rather than trusting its own countdown \u2014 the browser's timer\nis a display, and a display can be reloaded, paused or lied to.",
+        "operationId": "open_mock_api_v1_mocks__mock_id__open_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mock_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mock Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MockClockOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mocks/{mock_id}/my-submission": {
       "get": {
         "tags": [
@@ -7814,7 +7862,8 @@
           "duration_minutes": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "exclusiveMinimum": 0.0
               },
               {
                 "type": "null"
@@ -9918,6 +9967,49 @@
         "title": "MockAssignGroup",
         "description": "PATCH body for /mocks/{mock_id}: the only field that route can set."
       },
+      "MockClockOut": {
+        "properties": {
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "seconds_remaining": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds Remaining"
+          },
+          "overdue": {
+            "type": "boolean",
+            "title": "Overdue",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "opened_at"
+        ],
+        "title": "MockClockOut",
+        "description": "The server's answer to \"how long have I got\" \u2014 never the browser's.\n\nA countdown on screen is a display of this. `AV-116` puts the clock on the\nserver, so the page asks and shows; it does not decide."
+      },
       "MockDetail": {
         "properties": {
           "id": {
@@ -10013,6 +10105,17 @@
             "type": "integer",
             "title": "Question Count",
             "default": 0
+          },
+          "my_submission_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "My Submission Status"
           },
           "questions": {
             "items": {
@@ -10133,6 +10236,17 @@
             "type": "integer",
             "title": "Question Count",
             "default": 0
+          },
+          "my_submission_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "My Submission Status"
           }
         },
         "type": "object",
@@ -10219,6 +10333,28 @@
             "type": "string",
             "format": "date-time",
             "title": "Submitted At"
+          },
+          "measured_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Minutes"
+          },
+          "submitted_late": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted Late"
           },
           "raw_marks": {
             "anyOf": [
@@ -12924,6 +13060,28 @@
             "type": "string",
             "format": "date-time",
             "title": "Submitted At"
+          },
+          "measured_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Minutes"
+          },
+          "submitted_late": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted Late"
           },
           "files": {
             "items": {

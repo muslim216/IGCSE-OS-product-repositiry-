@@ -58,6 +58,8 @@ import RecordingsPage from "./student/RecordingsPage";
 import ExamsPage from "./student/ExamsPage";
 import StudentPastPapersPage from "./student/PastPapersPage";
 import SitPastPaperPage from "./student/SitPastPaperPage";
+import StudentMocksPage from "./student/MocksPage";
+import SitMockPage from "./student/SitMockPage";
 import ParentDashboard from "./parent/ParentDashboard";
 
 function Home() {
@@ -78,6 +80,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/progress", label: "Progress", icon: Gauge },
   { to: "/student/homework", label: "Homework", icon: ClipboardList },
   { to: "/student/past-papers", label: "Past papers", icon: FileText },
+  { to: "/student/mocks", label: "Mocks", icon: ClipboardCheck },
   { to: "/student/exams", label: "Exams", icon: GraduationCap },
   { to: "/student/files", label: "Files", icon: FolderOpen },
   { to: "/student/recordings", label: "Recordings", icon: Video },
@@ -161,6 +164,8 @@ export default function App() {
           <Route path="/student/tutor" element={<Navigate to="/student" replace />} />
           <Route path="/student/past-papers" element={<StudentPastPapersPage />} />
           <Route path="/student/past-papers/:pastPaperId" element={<SitPastPaperPage />} />
+          <Route path="/student/mocks" element={<StudentMocksPage />} />
+          <Route path="/student/mocks/:mockId" element={<SitMockPage />} />
           <Route path="/student/exams" element={<ExamsPage />} />
         </Route>
       </Route>

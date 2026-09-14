@@ -247,6 +247,22 @@ class SubmissionDetail(BaseModel):
     status: str
     ai_error: str | None
     submitted_at: datetime
+    # Mocks only. How long the sitting took, **measured** by the server from
+    # when the student first opened the paper — never their own word for it, so
+    # no screen may label it the way a past paper's self-declared `timed` is
+    # labelled (`PROD-8`, `UX-20`). Null on homework, on past papers, and on a
+    # mock nobody timed.
+    measured_minutes: int | None = None
+    # Whether a mock arrived after its time was up. `AV-116` records it and
+    # **shows it to the tutor** — this field is that second half. It never
+    # blocked the submission.
+    #
+    # `None`, not `False`, on homework and past papers: lateness is not a
+    # concept there, and `False` would assert "this arrived on time" about a
+    # submission nothing ever timed. Absent is shown as absent (`PROD-2`), and
+    # a nullable field makes that the schema's rule rather than something every
+    # screen has to remember to check `mock_id` for.
+    submitted_late: bool | None = None
     files: list[SubmissionFileOut]
     #: Present only when the student typed rather than (or as well as)
     #: photographing. Tutor-facing: it carries the scan's verdict, which is not
