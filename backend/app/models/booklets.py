@@ -19,7 +19,7 @@ created until the tutor applies it.
 
 import enum
 
-from sqlalchemy import JSON, Enum, ForeignKey, Index, String, Text
+from sqlalchemy import JSON, Enum, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -29,6 +29,19 @@ class BookletStatus(str, enum.Enum):
     extracting = "extracting"
     extraction_failed = "extraction_failed"
     review = "review"
+    # Between the tutor approving the list and the papers existing. Cutting a
+    # booklet into its papers is CPU-bound work that has to happen off the
+    # request (`BE-13`, `PERF-1`), so there is a real window where the tutor has
+    # approved and nothing is there yet — without a state for it the screen
+    # would say "ready" over an empty list. A new member costs no migration
+    # (`DB-5`, `DB-6`).
+    applying = "applying"
+    # The cut itself failed — distinct from `extraction_failed`, which is the
+    # AI failing to read the list. They recover in opposite directions: a failed
+    # read is fixed by reading again, a failed cut by cutting again, and
+    # re-reading after a partial cut would overwrite the list the tutor approved
+    # while the papers already cut keep their old indexes (`PROD-7`).
+    split_failed = "split_failed"
     applied = "applied"
 
 
@@ -68,8 +81,18 @@ class Booklet(TimestampMixin, Base):
         default=BookletStatus.extracting,
         nullable=False,
     )
-    # The AI's proposed paper list, tutor-editable until `applied` turns it into
-    # `PastPaper` rows. Nothing reads it yet — a later spec owns its shape.
+    # How many pages the document actually has, counted once when the AI reads
+    # it. It is what lets approval refuse a page range that runs past the end
+    # *before* anything is cut: without it a hallucinated "pages 1-40" of a
+    # 20-page booklet is only caught inside the split job, which fails, and a
+    # half-cut booklet cannot be edited. Null for a booklet whose read never
+    # finished, and for the booklets-of-one backfilled by 0042 — the check is
+    # skipped rather than guessed (`PROD-2`).
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The AI's proposed paper list, tutor-editable until approval turns it into
+    # `PastPaper` rows. Shape is `schemas.booklet.BookletDraft`: `papers`, the
+    # `scheme_papers` read off the mark scheme, and `scheme_mismatch` when the
+    # two disagree.
     draft: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 

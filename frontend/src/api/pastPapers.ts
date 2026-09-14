@@ -59,5 +59,11 @@ export function logAttempt(
 export const myAttempt = (pastPaperId: number) =>
   api<PastPaperAttempt | null>(`/api/v1/past-papers/${pastPaperId}/my-attempt`);
 
+/** Takes the paper off the tutor's own list. **Students keep it** — the row
+ *  carries their attempts and the evidence those produced (`PROD-5`), so the
+ *  server sets a hidden flag rather than deleting anything. */
+export const hidePastPaper = (id: number) =>
+  api<void>(`/api/v1/past-papers/${id}`, { method: "DELETE" });
+
 export const pastPaperPaperPath = (id: number) => `/api/v1/past-papers/${id}/paper`;
 export const pastPaperMarkSchemePath = (id: number) => `/api/v1/past-papers/${id}/mark-scheme`;

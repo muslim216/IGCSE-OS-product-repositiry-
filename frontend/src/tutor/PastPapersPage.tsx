@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  hidePastPaper,
   listPastPapers,
   pastPaperPaperPath,
   pastPaperMarkSchemePath,
@@ -49,6 +50,12 @@ export default function PastPapersPage() {
   const [paper, setPaper] = useState<File | null>(null);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const hide = useMutation({
+    mutationFn: hidePastPaper,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["past-papers"] }),
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  });
 
   const upload = useMutation({
     mutationFn: () =>
@@ -176,6 +183,25 @@ export default function PastPapersPage() {
                   ) : (
                     <span className="text-ink-500">No mark scheme</span>
                   )}
+                  {/* A flag, not a deletion — the row carries attempts, marks
+                      and the evidence those produced (`PROD-5`), so the copy
+                      says what actually happens rather than "delete". */}
+                  <button
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Take "${p.display_title}" off your list? Students keep it — anyone who has sat it, or is sitting it now, is unaffected.`,
+                        )
+                      ) {
+                        setError(null);
+                        hide.mutate(p.id);
+                      }
+                    }}
+                    disabled={hide.isPending}
+                    className="text-red-600 hover:underline disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
             </li>

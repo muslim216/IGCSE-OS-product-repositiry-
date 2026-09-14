@@ -17,6 +17,8 @@ from app.main import app
 #: Every route serving a stored file. Adding one here without declaring
 #: `response_class=Response, responses=FILE_RESPONSES` on it fails this test.
 FILE_ROUTES = [
+    "/api/v1/booklets/{booklet_id}/file",
+    "/api/v1/booklets/{booklet_id}/mark-scheme",
     "/api/v1/classifieds/{classified_id}/file",
     "/api/v1/classifieds/{classified_id}/mark-scheme",
     "/api/v1/mocks/{mock_id}/mark-scheme",

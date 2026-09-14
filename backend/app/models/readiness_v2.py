@@ -140,6 +140,17 @@ class PastPaper(TimestampMixin, Base):
     mark_scheme_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mark_scheme_mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # When the tutor took this paper off their own shelf. It stays visible to
+    # every student who can already see it, which is the product owner's
+    # decision and not an oversight: a student mid-attempt, or one looking back
+    # at a paper they sat, must not have it vanish under them. So this hides a
+    # row from one list, and is deliberately not a delete — a delete would take
+    # the attempts, the marks and the evidence built on them with it.
+    #
+    # A timestamp rather than a boolean because "when" is the question a tutor
+    # asks when a paper they expected is missing, and `IS NULL` filters exactly
+    # as well as `= false`.
+    hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     @property
     def display_title(self) -> str:

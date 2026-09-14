@@ -12,7 +12,13 @@ entry points import it: `app.main` for the in-process worker, and
 which is the direction `BE-1` allows.
 """
 
-from app.services.extraction import extract_assignment, extract_mock, extract_past_paper
+from app.services.booklets import split_booklet
+from app.services.extraction import (
+    extract_assignment,
+    extract_booklet,
+    extract_mock,
+    extract_past_paper,
+)
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
@@ -38,6 +44,12 @@ def register_all() -> None:
     # A mock is the tutor's own full paper (task 3.4, AV-26): same extractor,
     # same prompt, and the status it sets is what makes the mock sittable.
     register_handler("extract_mock", extract_mock)
+    # Reads the list of papers inside an uploaded booklet (task 3.5, AV-117).
+    # It only drafts — nothing exists until the tutor approves the list.
+    register_handler("extract_booklet", extract_booklet)
+    # And cuts the booklet into those papers once they have. A job rather than
+    # part of the approve request because splitting a PDF blocks (`BE-13`).
+    register_handler("split_booklet", split_booklet)
     register_handler("mark_submission", mark_submission)
     # Condenses a subject's marking rules into what the marking prompt is given
     # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,
