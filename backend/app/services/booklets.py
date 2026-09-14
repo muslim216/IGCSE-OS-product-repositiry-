@@ -86,69 +86,15 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
         for index, drafted in enumerate(draft.papers, start=1):
             if index in existing:
                 continue
-            # Tracked per paper, because the two cuts below land on disk before
-            # the row that points at them exists. The scheme's page range comes
-            # from a second AI pass the tutor never corrected, so the scheme cut
-            # failing while the paper cut succeeded is the ordinary case, not an
-            # exotic one — and without this it leaves an unreferenced file
-            # behind on every retry.
-            cut: list[str] = []
-            try:
-                paper_path, paper_name, paper_mime = await _cut(
-                    data,
-                    drafted,
-                    organization_id=booklet.organization_id,
-                    name=_slice_name(booklet.file_name, drafted, ""),
-                )
-                cut.append(paper_path)
-                ms_path = ms_name = ms_mime = None
-                if scheme_data is not None and index <= len(schemes):
-                    ms_path, ms_name, ms_mime = await _cut(
-                        scheme_data,
-                        schemes[index - 1],
-                        organization_id=booklet.organization_id,
-                        name=_slice_name(booklet.file_name, drafted, " mark scheme"),
-                    )
-                    cut.append(ms_path)
-            except Exception:
-                for stored in cut:
-                    await storage.delete_file(stored)
-                raise
-            paper = PastPaper(
-                organization_id=booklet.organization_id,
-                booklet_id=booklet.id,
-                booklet_index=index,
-                first_page=drafted.first_page,
-                last_page=drafted.last_page,
-                tutor_id=booklet.tutor_id,
-                subject_id=booklet.subject_id,
-                # Named from the draft the tutor reviewed, not left for
-                # extraction to guess a second time: they have already corrected
-                # these three fields and `PROD-7` gives that correction final
-                # authority over anything the AI reads later.
-                title=drafted.title,
-                session_label=drafted.session_label,
-                paper_number=drafted.paper_number,
-                paper_path=paper_path,
-                paper_name=paper_name,
-                paper_mime=paper_mime,
-                mark_scheme_path=ms_path,
-                mark_scheme_name=ms_name,
-                mark_scheme_mime=ms_mime,
+            await _create_paper(
+                session,
+                booklet,
+                drafted,
+                index=index,
+                data=data,
+                scheme_data=scheme_data,
+                scheme=schemes[index - 1] if index <= len(schemes) else None,
             )
-            session.add(paper)
-            await session.flush()
-            # The question list is a separate job per paper, the same one a
-            # single upload uses — no parallel path (`PROD-9`), and a booklet of
-            # twelve does not become one enormous extraction.
-            await enqueue(session, "extract_past_paper", {"past_paper_id": paper.id})
-            # Committed per paper, not once at the end. The files are already on
-            # disk, so a paper that is cut but not committed is an orphan — and
-            # the failure most likely to end this loop is a database error,
-            # which invalidates the session and makes a single commit at the end
-            # raise instead of saving anything. Per paper, the re-run resumes
-            # from exactly where this one stopped.
-            await session.commit()
     except Exception as exc:
         # The session may be unusable — a failed flush leaves it needing a
         # rollback before it can be read from again, and without this the write
@@ -164,4 +110,81 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
 
     booklet.status = BookletStatus.applied
     booklet.error = None
+    await session.commit()
+
+
+async def _create_paper(
+    session: AsyncSession,
+    booklet: Booklet,
+    drafted: DraftPaper,
+    *,
+    index: int,
+    data: bytes,
+    scheme_data: bytes | None,
+    scheme: DraftPaper | None,
+) -> None:
+    """One paper of the booklet: cut, stored, recorded and queued for its
+    question list. Lifted out of the loop so the loop reads as what it is —
+    "for each paper the tutor approved that does not exist yet"."""
+    # Tracked because the two cuts below land on disk before the row that points
+    # at them exists. The scheme's page range comes from a second AI pass the
+    # tutor never corrected, so the scheme cut failing while the paper cut
+    # succeeded is the ordinary case, not an exotic one — and without this it
+    # leaves an unreferenced file behind on every retry.
+    cut: list[str] = []
+    try:
+        paper_path, paper_name, paper_mime = await _cut(
+            data,
+            drafted,
+            organization_id=booklet.organization_id,
+            name=_slice_name(booklet.file_name, drafted, ""),
+        )
+        cut.append(paper_path)
+        ms_path = ms_name = ms_mime = None
+        if scheme_data is not None and scheme is not None:
+            ms_path, ms_name, ms_mime = await _cut(
+                scheme_data,
+                scheme,
+                organization_id=booklet.organization_id,
+                name=_slice_name(booklet.file_name, drafted, " mark scheme"),
+            )
+            cut.append(ms_path)
+    except Exception:
+        for stored in cut:
+            await storage.delete_file(stored)
+        raise
+
+    paper = PastPaper(
+        organization_id=booklet.organization_id,
+        booklet_id=booklet.id,
+        booklet_index=index,
+        first_page=drafted.first_page,
+        last_page=drafted.last_page,
+        tutor_id=booklet.tutor_id,
+        subject_id=booklet.subject_id,
+        # Named from the draft the tutor reviewed, not left for extraction to
+        # guess a second time: they have already corrected these three fields and
+        # `PROD-7` gives that correction final authority over anything the AI
+        # reads later.
+        title=drafted.title,
+        session_label=drafted.session_label,
+        paper_number=drafted.paper_number,
+        paper_path=paper_path,
+        paper_name=paper_name,
+        paper_mime=paper_mime,
+        mark_scheme_path=ms_path,
+        mark_scheme_name=ms_name,
+        mark_scheme_mime=ms_mime,
+    )
+    session.add(paper)
+    await session.flush()
+    # The question list is a separate job per paper, the same one a single
+    # upload uses — no parallel path (`PROD-9`), and a booklet of twelve does not
+    # become one enormous extraction.
+    await enqueue(session, "extract_past_paper", {"past_paper_id": paper.id})
+    # Committed per paper, not once at the end. The files are already on disk, so
+    # a paper that is cut but not committed is an orphan — and the failure most
+    # likely to end the loop is a database error, which invalidates the session
+    # and makes a single commit at the end raise instead of saving anything. Per
+    # paper, the re-run resumes from exactly where this one stopped.
     await session.commit()

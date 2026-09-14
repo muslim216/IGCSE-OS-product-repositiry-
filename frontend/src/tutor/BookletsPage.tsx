@@ -365,7 +365,7 @@ export default function BookletsPage() {
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-ink-700">
-            Booklet (PDF)
+            <span>Booklet (PDF)</span>
             <input
               type="file"
               accept="application/pdf"
