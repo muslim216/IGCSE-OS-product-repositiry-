@@ -20,15 +20,16 @@ export const getPastPaper = (id: number) => api<PastPaperDetail>(`/api/v1/past-p
 export function uploadPastPaper(payload: {
   subject_id: number;
   paper: File;
-  /** Required: a full paper's marks can't rest on the AI's judgement alone. */
-  mark_scheme: File;
+  /** Optional. Without it the paper is still marked, but nothing
+   *  auto-finalizes — every mark waits in the tutor's review queue. */
+  mark_scheme?: File | null;
   total_marks?: number | null;
   duration_minutes?: number | null;
 }) {
   const form = new FormData();
   form.append("subject_id", String(payload.subject_id));
   form.append("paper", payload.paper);
-  form.append("mark_scheme", payload.mark_scheme);
+  if (payload.mark_scheme) form.append("mark_scheme", payload.mark_scheme);
   if (payload.total_marks) form.append("total_marks", String(payload.total_marks));
   if (payload.duration_minutes) form.append("duration_minutes", String(payload.duration_minutes));
   return api<PastPaper>("/api/v1/past-papers", { method: "POST", body: form });

@@ -93,3 +93,43 @@ async def subject_for_tutor(session, email: str, **kwargs) -> Subject:
     organization_id = await session.scalar(select(User.organization_id).where(User.email == email))
     kwargs.setdefault("code", "9RIV")
     return await make_subject(session, organization_id=organization_id, **kwargs)
+
+
+async def make_past_paper(session, *, subject_id: int, organization_id: int, **kwargs):
+    """A past paper and the booklet it belongs to.
+
+    Every past paper has a booklet — a single upload becomes a booklet of one
+    (task 3.5), so `PastPaper.booklet_id` is NOT NULL. Four test files built a
+    `PastPaper` directly and all four broke the moment that column arrived,
+    which is the same reason this module exists at all. Build papers through
+    here so the next NOT NULL column is one edit, not four.
+
+    Pass `booklet=` to attach the paper to a booklet you already made — that is
+    what a real multi-paper booklet looks like.
+    """
+    from app.models import Booklet, BookletStatus, PastPaper
+
+    booklet = kwargs.pop("booklet", None)
+    if booklet is None:
+        booklet = Booklet(
+            organization_id=organization_id,
+            subject_id=subject_id,
+            tutor_id=kwargs.get("tutor_id"),
+            status=BookletStatus.applied,
+            file_path=kwargs.get("paper_path"),
+            file_name=kwargs.get("paper_name"),
+            file_mime=kwargs.get("paper_mime"),
+        )
+        session.add(booklet)
+        await session.flush()
+
+    kwargs.setdefault("booklet_index", 1)
+    paper = PastPaper(
+        organization_id=organization_id,
+        subject_id=subject_id,
+        booklet_id=booklet.id,
+        **kwargs,
+    )
+    session.add(paper)
+    await session.flush()
+    return paper

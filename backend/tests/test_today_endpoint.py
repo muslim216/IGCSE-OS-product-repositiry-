@@ -21,7 +21,7 @@ from app.models import (
     TopicReadiness,
 )
 from app.services.grade_boundaries import set_org_boundaries
-from tests.factories import subject_defaults
+from tests.factories import make_past_paper, subject_defaults
 
 
 @pytest.fixture
@@ -283,21 +283,20 @@ async def test_past_paper_review_counts_toward_the_workload(client, tutor, subje
     """The count drives the Mark link and NEEDS YOU. Submission is polymorphic,
     so counting only through Assignment silently drops every past paper and the
     home can report a clear day while past-paper work waits (API-20)."""
-    from app.models import PastPaper, Submission, SubmissionStatus
+    from app.models import Submission, SubmissionStatus
 
     group = await _make_class(client, tutor, subject_id)
     student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
 
     async with async_session() as session:
         org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
-        paper = PastPaper(
+        paper = await make_past_paper(
+            session,
             organization_id=org_id,
             subject_id=subject_id,
             session_label="June 2025",
             paper_number="1",
         )
-        session.add(paper)
-        await session.flush()
         session.add(
             Submission(
                 past_paper_id=paper.id,

@@ -2576,7 +2576,7 @@ export interface components {
             /** Paper */
             paper: string;
             /** Mark Scheme */
-            mark_scheme: string;
+            mark_scheme?: string | null;
             /** Total Marks */
             total_marks?: number | null;
             /** Duration Minutes */

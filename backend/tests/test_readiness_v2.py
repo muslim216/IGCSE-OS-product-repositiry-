@@ -22,7 +22,6 @@ from app.models import (
     LessonTopic,
     Mistake,
     MistakeCategory,
-    PastPaper,
     PastPaperAttempt,
     QuestionDifficulty,
     QuestionMark,
@@ -33,6 +32,7 @@ from app.models import (
     User,
 )
 from app.services.readiness_v2 import evaluate_subject_factors
+from tests.factories import make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 NOW = datetime.now(timezone.utc)
@@ -122,14 +122,13 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
         )
 
         # A past paper attempt for the subject.
-        past_paper = PastPaper(
+        past_paper = await make_past_paper(
+            session,
             organization_id=org_id,
             subject_id=subject_id,
             session_label="June 2026",
             paper_number="1",
         )
-        session.add(past_paper)
-        await session.flush()
         session.add(
             PastPaperAttempt(
                 past_paper_id=past_paper.id,
@@ -226,14 +225,13 @@ async def test_an_unmarked_past_paper_attempt_is_omitted_not_scored_zero(client,
         tutor_user = await session.get(User, tutor["user"]["id"])
         assert tutor_user is not None
         org_id = tutor_user.organization_id
-        past_paper = PastPaper(
+        past_paper = await make_past_paper(
+            session,
             organization_id=org_id,
             subject_id=subject_id,
             session_label="June 2027",
             paper_number="2",
         )
-        session.add(past_paper)
-        await session.flush()
         session.add_all(
             [
                 # Settled: 18/20 = 90%.

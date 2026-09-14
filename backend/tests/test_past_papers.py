@@ -3,9 +3,12 @@ whole thing rides the homework marking pipeline."""
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
 from app.models import (
+    Booklet,
+    BookletStatus,
     Evidence,
     EvidenceSource,
     PastPaper,
@@ -15,6 +18,7 @@ from app.models import (
     Submission,
     SubmissionStatus,
 )
+from app.services import storage
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import subject_defaults
@@ -97,11 +101,212 @@ async def past_paper(client, tutor, subject, monkeypatch, fake_ai):  # noqa: F81
     return resp.json()
 
 
-async def test_upload_requires_the_official_mark_scheme(client, tutor, subject):  # noqa: F811
-    """A full paper's marks feed a predicted grade — they can't rest on the
-    AI's own judgement."""
+async def test_a_paper_uploads_without_a_mark_scheme(client, tutor, subject):  # noqa: F811
+    """The mark scheme is no longer required (it was a 422 until the product
+    owner reversed it). The three mark_scheme columns stay NULL — nothing is
+    invented to fill them (`PROD-2`)."""
     resp = await _upload(client, tutor, subject, with_scheme=False)
-    assert resp.status_code == 422
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["mark_scheme_name"] is None
+    async with async_session() as session:
+        paper = await session.scalar(select(PastPaper))
+        assert paper.mark_scheme_path is None
+        assert paper.mark_scheme_name is None
+        assert paper.mark_scheme_mime is None
+    # Nothing to serve, and the tutor is told that rather than getting a 500.
+    scheme = await client.get(
+        f"/api/v1/past-papers/{resp.json()['id']}/mark-scheme", headers=tutor["headers"]
+    )
+    assert scheme.status_code == 404
+
+
+async def test_a_single_upload_becomes_a_booklet_of_one(client, tutor, subject):  # noqa: F811
+    """Every past paper belongs to a booklet (task 3.5), so a tutor uploading
+    one paper gets a booklet holding just it.
+
+    It is `applied` on arrival and carries no draft: there is no list of papers
+    to read off a single file and nothing for the tutor to review, so the
+    extract-then-review screen a multi-paper booklet goes through is skipped.
+    That is what keeps a single upload behaving exactly as it did before
+    booklets existed."""
+    resp = await _upload(client, tutor, subject, with_scheme=False)
+    assert resp.status_code == 201, resp.text
+
+    async with async_session() as session:
+        paper = await session.scalar(select(PastPaper))
+        booklet = await session.get(Booklet, paper.booklet_id)
+        assert booklet is not None
+        assert booklet.status == BookletStatus.applied
+        assert booklet.draft is None
+        # Read off the document by extraction, never typed — absent until then.
+        assert booklet.title is None
+        assert booklet.display_title == "Untitled booklet"
+        # Same tenant and subject as its paper: a booklet is not a way to reach
+        # across organizations (`PROD-3`, `SEC-7`).
+        assert booklet.organization_id == paper.organization_id
+        assert booklet.subject_id == paper.subject_id
+        assert booklet.tutor_id == paper.tutor_id
+        # The booklet records what arrived; the paper records what gets marked.
+        # For a booklet of one they are the same file.
+        assert booklet.file_path == paper.paper_path
+        # Exactly one booklet, not one per request or one per question.
+        assert len((await session.scalars(select(Booklet))).all()) == 1
+
+
+async def test_a_booklet_cannot_hold_two_papers_at_the_same_index(
+    client,
+    tutor,
+    subject,  # noqa: F811
+):
+    """The key that makes approving a booklet safe to re-run (`BE-6`).
+
+    A worker that dies mid-approve is requeued and meets a booklet whose papers
+    it already part-created. Without this constraint the re-run inserts them
+    again; with it the second insert collides and the handler can skip. Proven
+    here rather than assumed, because nothing exercises it until spec 7 and a
+    missing constraint would look exactly like a working one until then."""
+    resp = await _upload(client, tutor, subject, with_scheme=False)
+    assert resp.status_code == 201, resp.text
+
+    async with async_session() as session:
+        paper = await session.scalar(select(PastPaper))
+        assert paper.booklet_index == 1
+        # The whole document, not a slice — nothing invented (`PROD-2`).
+        assert paper.first_page is None
+        assert paper.last_page is None
+
+        session.add(
+            PastPaper(
+                organization_id=paper.organization_id,
+                booklet_id=paper.booklet_id,
+                subject_id=paper.subject_id,
+                booklet_index=1,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.flush()
+
+
+async def test_a_failed_upload_leaves_no_orphaned_files(
+    client,
+    tutor,
+    subject,
+    monkeypatch,  # noqa: F811
+):
+    """Files are written to disk before any row exists, so a failure after that
+    point owns their cleanup — a stored object with no row pointing at it is
+    invisible and can never be found again (`api/mocks.py:_discard`).
+
+    The failure is forced at `enqueue`, which is the last step before the
+    commit and the one with a row already flushed behind it."""
+
+    async def _explode(*args, **kwargs):
+        raise RuntimeError("queue is down")
+
+    monkeypatch.setattr("app.api.past_papers.enqueue", _explode)
+
+    # Watch the two storage calls rather than the upload directory itself: the
+    # suite runs against a shared directory, so a filesystem diff would depend
+    # on what every other test left there.
+    saved: list[str] = []
+    deleted: list[str] = []
+    real_save = storage.save_upload
+    real_delete = storage.delete_file
+
+    async def _save(*args, **kwargs):
+        result = await real_save(*args, **kwargs)
+        saved.append(result[0])
+        return result
+
+    async def _delete(path, *args, **kwargs):
+        deleted.append(path)
+        return await real_delete(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "save_upload", _save)
+    monkeypatch.setattr(storage, "delete_file", _delete)
+
+    with pytest.raises(RuntimeError):
+        await _upload(client, tutor, subject)
+
+    # Both files — the paper and its mark scheme — not just the last one.
+    assert saved, "the test proves nothing if nothing was stored"
+    assert set(deleted) == set(saved), f"orphaned files left behind: {set(saved) - set(deleted)}"
+
+    async with async_session() as session:
+        assert await session.scalar(select(PastPaper)) is None
+        assert await session.scalar(select(Booklet)) is None
+
+
+async def test_a_student_learns_nothing_from_the_mark_scheme_route(
+    client,
+    tutor,
+    subject,
+    student,  # noqa: F811
+):
+    """A mark scheme is tutor-only, and the gate is `TutorUser` in the
+    signature (`BE-17`, `SEC-11`), so it refuses before any lookup runs.
+
+    That is why the 403 here is not the `API-7` leak it looks like: the answer
+    is identical for a real paper and an invented id, so a student cannot probe
+    which ids exist. The assertion is on that equality rather than on the
+    number — a handler that looked the paper up and *then* checked the role
+    would satisfy a 403-only test while leaking existence."""
+    resp = await _upload(client, tutor, subject, with_scheme=False)
+    assert resp.status_code == 201, resp.text
+    real_id = resp.json()["id"]
+
+    real = await client.get(
+        f"/api/v1/past-papers/{real_id}/mark-scheme", headers=student["headers"]
+    )
+    invented = await client.get(
+        f"/api/v1/past-papers/{real_id + 9999}/mark-scheme", headers=student["headers"]
+    )
+    assert real.status_code == invented.status_code
+    assert real.json() == invented.json()
+
+    # The tutor, who may see it, is told plainly that there is none.
+    tutor_resp = await client.get(
+        f"/api/v1/past-papers/{real_id}/mark-scheme", headers=tutor["headers"]
+    )
+    assert tutor_resp.status_code == 404
+
+
+async def test_without_a_mark_scheme_nothing_auto_finalizes(
+    client,
+    tutor,
+    student,
+    subject,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The negative case the dropped 422 now rests on (`QA-12`).
+
+    Marking still runs and still drafts a mark per question, but with no scheme
+    file in front of the model `scheme_backed()` is false for every question, so
+    AI-11/ADR-0009 lets none of them finalize — even at `high` confidence, which
+    is exactly what this double returns. Every mark waits for the tutor.
+    """
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    resp = await _upload(client, tutor, subject, with_scheme=False)
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True  # extraction
+
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
+    assert (await _log_attempt(client, student, resp.json()["id"])).status_code == 201
+    assert await process_one_job() is True  # marking
+
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+        assert submission.status == SubmissionStatus.needs_review
+        marks = (await session.scalars(select(QuestionMark))).all()
+        assert len(marks) == 2, "the paper is still marked — only finalizing is withheld"
+        assert all(m.ai_marks is not None for m in marks), "the AI still proposed a number"
+        assert all(m.needs_review for m in marks)
+        assert not any(m.auto_finalized for m in marks)
+        assert all(m.final_marks is None for m in marks)
+    # And nothing counted: an unfinalized mark is not Evidence (`PROD-5`).
+    async with async_session() as session:
+        assert (await session.scalars(select(Evidence))).all() == []
 
 
 async def test_upload_no_longer_accepts_session_label_or_paper_number(client, tutor, subject):  # noqa: F811

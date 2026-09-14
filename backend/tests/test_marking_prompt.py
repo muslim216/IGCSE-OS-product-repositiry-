@@ -22,12 +22,12 @@ from app.models import (
     AssignmentQuestion,
     AssignmentStatus,
     Classified,
-    PastPaper,
     PastPaperQuestion,
     Submission,
     User,
 )
 from app.services.marking import _homework_source, _past_paper_source
+from tests.factories import make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -52,7 +52,8 @@ async def _org_id(tutor) -> int:
 async def test_a_past_paper_with_no_mark_scheme_does_not_claim_one(client, tutor, world):
     org_id = await _org_id(tutor)
     async with async_session() as session:
-        paper = PastPaper(
+        paper = await make_past_paper(
+            session,
             organization_id=org_id,
             tutor_id=tutor["user"]["id"],
             subject_id=world["subject_id"],
@@ -62,8 +63,6 @@ async def test_a_past_paper_with_no_mark_scheme_does_not_claim_one(client, tutor
             paper_mime="application/pdf",
             # No mark scheme — the state seed data is in.
         )
-        session.add(paper)
-        await session.flush()
         session.add(
             PastPaperQuestion(
                 past_paper_id=paper.id,
@@ -159,7 +158,8 @@ async def test_an_unattached_scheme_never_auto_finalizes_however_confident(
 
     org_id = await _org_id(tutor)
     async with async_session() as session:
-        paper = PastPaper(
+        paper = await make_past_paper(
+            session,
             organization_id=org_id,
             tutor_id=tutor["user"]["id"],
             subject_id=world["subject_id"],
@@ -169,8 +169,6 @@ async def test_an_unattached_scheme_never_auto_finalizes_however_confident(
             paper_mime="application/pdf",
             # No mark_scheme_path: nothing for the model to mark against.
         )
-        session.add(paper)
-        await session.flush()
         session.add(
             PastPaperQuestion(
                 past_paper_id=paper.id,

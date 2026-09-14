@@ -77,7 +77,9 @@ test("the tutor upload form has nothing to type but the subject and files", asyn
   renderPage(<TutorPastPapersPage />);
   const button = await screen.findByRole("button", { name: /Add past paper/ });
   expect(button).toBeDisabled();
-  expect(screen.getByText(/mark scheme is required/)).toBeInTheDocument();
+  // The mark scheme is optional now, and the form says what skipping it costs
+  // rather than blocking the upload.
+  expect(screen.getByText(/no mark is finalized for you/)).toBeInTheDocument();
   expect(screen.queryByPlaceholderText(/Session/)).not.toBeInTheDocument();
   expect(screen.queryByPlaceholderText(/Paper, e.g./)).not.toBeInTheDocument();
 });

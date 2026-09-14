@@ -7562,8 +7562,15 @@
             "title": "Paper"
           },
           "mark_scheme": {
-            "type": "string",
-            "contentMediaType": "application/octet-stream",
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Mark Scheme"
           },
           "total_marks": {
@@ -7592,8 +7599,7 @@
         "type": "object",
         "required": [
           "subject_id",
-          "paper",
-          "mark_scheme"
+          "paper"
         ],
         "title": "Body_upload_past_paper_api_v1_past_papers_post"
       },

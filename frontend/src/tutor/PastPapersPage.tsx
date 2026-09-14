@@ -55,7 +55,7 @@ export default function PastPapersPage() {
       uploadPastPaper({
         subject_id: Number(subjectId),
         paper: paper!,
-        mark_scheme: markScheme!,
+        mark_scheme: markScheme,
         duration_minutes: duration ? Number(duration) : null,
       }),
     onSuccess: () => {
@@ -67,7 +67,10 @@ export default function PastPapersPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
-  const ready = subjectId && paper && markScheme;
+  // The mark scheme is deliberately not part of this: a paper without one still
+  // uploads and still gets marked — it just auto-finalizes nothing, which the
+  // copy below the file inputs says in the tutor's own terms.
+  const ready = subjectId && paper;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -124,7 +127,7 @@ export default function PastPapersPage() {
             />
           </label>
           <label className="text-sm text-slate-600">
-            Official mark scheme <span className="text-red-600">*</span>
+            Official mark scheme <span className="text-ink-500">(optional)</span>
             <input
               type="file"
               accept="application/pdf,image/*"
@@ -133,10 +136,11 @@ export default function PastPapersPage() {
             />
           </label>
         </div>
-        <p className="text-xs text-slate-500">
-          The mark scheme is required — a full paper contributes to a predicted grade, so its marks
-          can't rest on the AI's judgement alone. Students can open the question paper but never the
-          mark scheme.
+        <p className="text-xs text-ink-500">
+          {markScheme
+            ? "Marks that match the scheme and read clearly are finalized for you; the rest come to you to check."
+            : "Without the official mark scheme, no mark is finalized for you — every one comes to you to check before it counts."}{" "}
+          Students can open the question paper but never the mark scheme.
         </p>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -164,7 +168,14 @@ export default function PastPapersPage() {
                 </div>
                 <div className="flex gap-3 text-xs">
                   <AuthFileLink path={pastPaperPaperPath(p.id)} label="Paper" />
-                  <AuthFileLink path={pastPaperMarkSchemePath(p.id)} label="Mark scheme" />
+                  {/* A paper may have no scheme now that one is optional, and
+                      that endpoint 404s. `mark_scheme_name` is the only signal
+                      of whether a file exists, and it is tutor-only. */}
+                  {p.mark_scheme_name ? (
+                    <AuthFileLink path={pastPaperMarkSchemePath(p.id)} label="Mark scheme" />
+                  ) : (
+                    <span className="text-ink-500">No mark scheme</span>
+                  )}
                 </div>
               </div>
             </li>
