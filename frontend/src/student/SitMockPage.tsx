@@ -113,21 +113,25 @@ export default function SitMockPage() {
         </div>
       </div>
 
-      {timeUp ? (
+      {timeUp && (
         <div className="rounded-lg border border-line bg-warn-100 p-4 text-sm text-warn-700">
           Your time is up. You can still hand in — your tutor will see it came in late.
         </div>
-      ) : secondsLeft !== null ? (
+      )}
+      {/* Not an `else`: a mock with no duration set has no countdown to show
+          either way, so both branches are absent rather than one standing in
+          for the other (`PROD-2`, `UX-19`). */}
+      {!timeUp && secondsLeft !== null && (
         <div className="rounded-lg border border-line bg-surface p-4">
           <div className="text-sm text-ink-500">Time left</div>
           <div className="text-2xl font-semibold tabular-nums text-ink-900">
             {formatLeft(secondsLeft)}
           </div>
           <p className="mt-1 text-xs text-ink-500">
-            Timed on our servers, so closing this page doesn't buy you more time.
+            Timed on our servers, so closing this page doesn&apos;t buy you more time.
           </p>
         </div>
-      ) : null}
+      )}
 
       {sub ? (
         <div className="rounded-lg border border-line bg-surface p-4">
@@ -172,7 +176,7 @@ export default function SitMockPage() {
           )}
 
           <label className="block text-sm text-ink-700">
-            Or type your answers
+            <span>Or type your answers</span>
             <textarea
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
