@@ -38,6 +38,7 @@ from app.models import (
     SubmissionFile,
     User,
     UserRole,
+    WorkKind,
 )
 from app.models.base import utcnow
 from app.schemas.past_paper import (
@@ -49,6 +50,7 @@ from app.schemas.past_paper import (
 from app.services import storage
 from app.services.attempts import open_attempt
 from app.services.submission_kind import PAST_PAPER
+from app.services.work import create_work
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
@@ -221,7 +223,18 @@ async def upload_past_paper(
         # is no relationship for the ORM to order the inserts by.
         await db.flush()
 
+        work = await create_work(
+            db,
+            kind=WorkKind.past_paper,
+            # NULL, exactly like `PastPaper.title`: extraction has not read the
+            # document yet and `PROD-2` forbids inventing a name. Kept in step
+            # by `services/extraction.py`, which fills both.
+            title=None,
+            organization_id=user.organization_id,
+            subject_id=subject.id,
+        )
         past_paper = PastPaper(
+            work_id=work.id,
             organization_id=user.organization_id,
             booklet_id=booklet.id,
             # The only paper in it. `first_page`/`last_page` stay NULL: this

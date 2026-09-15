@@ -17,8 +17,10 @@ from app.models import (
     QuestionMark,
     Submission,
     SubmissionStatus,
+    WorkKind,
 )
 from app.services import storage
+from app.services.work import create_work
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import subject_defaults
@@ -175,12 +177,20 @@ async def test_a_booklet_cannot_hold_two_papers_at_the_same_index(
         assert paper.first_page is None
         assert paper.last_page is None
 
+        work = await create_work(
+            session,
+            kind=WorkKind.past_paper,
+            organization_id=paper.organization_id,
+            subject_id=paper.subject_id,
+            title=None,
+        )
         session.add(
             PastPaper(
                 organization_id=paper.organization_id,
                 booklet_id=paper.booklet_id,
                 subject_id=paper.subject_id,
                 booklet_index=1,
+                work_id=work.id,
             )
         )
         with pytest.raises(IntegrityError):

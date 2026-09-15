@@ -46,6 +46,7 @@ from app.models import (
     SubmissionFile,
     User,
     UserRole,
+    WorkKind,
 )
 from app.models.base import utcnow
 from app.schemas.mock import (
@@ -60,6 +61,7 @@ from app.services import mock_clock, storage
 from app.services.attempts import open_attempt
 from app.services.injection_scan import scan_typed_answer
 from app.services.submission_kind import MOCK
+from app.services.work import create_work
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/mocks", tags=["mocks"])
@@ -201,7 +203,15 @@ async def create_mock(
         ms_path, ms_name, ms_mime = await storage.save_upload(
             mark_scheme, organization_id=user.organization_id
         )
+    work = await create_work(
+        db,
+        kind=WorkKind.mock,
+        organization_id=user.organization_id,
+        subject_id=subject.id,
+        title=title,
+    )
     mock = Mock(
+        work_id=work.id,
         organization_id=user.organization_id,
         tutor_id=user.id,
         subject_id=subject.id,

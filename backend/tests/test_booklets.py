@@ -12,8 +12,9 @@ from pypdf import PdfReader, PdfWriter
 from sqlalchemy import delete, select
 
 from app.db import async_session
-from app.models import Booklet, BookletStatus, Job, PastPaper
+from app.models import Booklet, BookletStatus, Job, PastPaper, WorkKind
 from app.services import storage
+from app.services.work import create_work
 from app.workers.jobs import process_one_job
 from tests.factories import other_org_subject
 
@@ -189,6 +190,13 @@ async def test_a_half_finished_split_finishes_on_its_second_run(client, tutor, s
     # still `applying`, and the job has not run.
     async with async_session() as session:
         booklet = await session.get(Booklet, booklet_id)
+        work = await create_work(
+            session,
+            kind=WorkKind.past_paper,
+            organization_id=booklet.organization_id,
+            subject_id=booklet.subject_id,
+            title="Already cut",
+        )
         session.add(
             PastPaper(
                 organization_id=booklet.organization_id,
@@ -196,6 +204,7 @@ async def test_a_half_finished_split_finishes_on_its_second_run(client, tutor, s
                 booklet_index=1,
                 subject_id=booklet.subject_id,
                 title="Already cut",
+                work_id=work.id,
             )
         )
         await session.commit()
@@ -646,12 +655,20 @@ async def test_once_a_paper_exists_the_list_is_frozen(client, tutor, subject):  
     ).status_code == 200
     async with async_session() as session:
         booklet = await session.get(Booklet, booklet_id)
+        work = await create_work(
+            session,
+            kind=WorkKind.past_paper,
+            organization_id=booklet.organization_id,
+            subject_id=booklet.subject_id,
+            title=None,
+        )
         session.add(
             PastPaper(
                 organization_id=booklet.organization_id,
                 booklet_id=booklet.id,
                 booklet_index=1,
                 subject_id=booklet.subject_id,
+                work_id=work.id,
             )
         )
         booklet.status = BookletStatus.split_failed

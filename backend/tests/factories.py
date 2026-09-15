@@ -107,7 +107,8 @@ async def make_past_paper(session, *, subject_id: int, organization_id: int, **k
     Pass `booklet=` to attach the paper to a booklet you already made — that is
     what a real multi-paper booklet looks like.
     """
-    from app.models import Booklet, BookletStatus, PastPaper
+    from app.models import Booklet, BookletStatus, PastPaper, WorkKind
+    from app.services.work import create_work
 
     booklet = kwargs.pop("booklet", None)
     if booklet is None:
@@ -123,11 +124,20 @@ async def make_past_paper(session, *, subject_id: int, organization_id: int, **k
         session.add(booklet)
         await session.flush()
 
+    work = await create_work(
+        session,
+        kind=WorkKind.past_paper,
+        organization_id=organization_id,
+        subject_id=subject_id,
+        title=kwargs.get("title"),
+    )
+
     kwargs.setdefault("booklet_index", 1)
     paper = PastPaper(
         organization_id=organization_id,
         subject_id=subject_id,
         booklet_id=booklet.id,
+        work_id=work.id,
         **kwargs,
     )
     session.add(paper)

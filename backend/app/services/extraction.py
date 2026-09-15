@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AiFeature,
+    AssessableWork,
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
@@ -327,6 +328,13 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
         paper.title = result.title[:255]
         paper.session_label = result.session_label[:64]
         paper.paper_number = result.paper_number[:32]
+        # The parent carries the same title, so the cross-kind queries can name
+        # a piece of work without joining down to its own table. Written here
+        # rather than left to drift: this is the only place a past paper is
+        # ever named.
+        work = await session.get(AssessableWork, paper.work_id)
+        if work is not None:
+            work.title = paper.title
 
     topic_by_code = {t.code: t for t in topics}
     for position, q in enumerate(result.questions):

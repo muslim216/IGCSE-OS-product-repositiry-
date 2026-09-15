@@ -56,11 +56,13 @@ from app.models import (
     TutorPreferences,
     User,
     UserRole,
+    WorkKind,
 )
 from app.security import hash_password
 from app.services import storage
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 from app.services.readiness import recompute_student
+from app.services.work import create_work
 
 PASSWORD = "demo1234"
 
@@ -350,7 +352,15 @@ async def main() -> None:
         await session.flush()
         await storage.get_storage().upload(classified_key, FAKE_PDF_BYTES, "application/pdf")
 
+        hw_work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=group.organization_id,
+            subject_id=group.subject_id,
+            title="HW1 — Atomic structure",
+        )
         assignment = Assignment(
+            work_id=hw_work.id,
             group_id=group.id,
             lesson_id=lesson.id,
             classified_id=classified.id,
@@ -481,7 +491,15 @@ async def main() -> None:
         )
         session.add(booklet)
         await session.flush()
+        paper_work = await create_work(
+            session,
+            kind=WorkKind.past_paper,
+            organization_id=org.id,
+            subject_id=subject.id,
+            title=f"{subject.exam_board} {subject.name} {subject.code}/11 Paper 1 June 2026",
+        )
         past_paper = PastPaper(
+            work_id=paper_work.id,
             organization_id=org.id,
             booklet_id=booklet.id,
             booklet_index=1,

@@ -11,14 +11,17 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    Group,
     PastPaperQuestion,
     QuestionMark,
     Subject,
     Submission,
     SubmissionStatus,
     User,
+    WorkKind,
 )
 from app.services.averaging import MarkRow, average_marked_work, subject_averaging
+from app.services.work import create_work
 from tests.factories import make_past_paper, subject_defaults
 
 # ---- The pure mean ----
@@ -116,8 +119,19 @@ async def add_homework(world, marks, *, status=SubmissionStatus.finalized, title
     """A homework submission carrying one question per (final_marks, max_marks)
     pair in `marks`. A final_marks of None is a question left unmarked."""
     async with async_session() as session:
+        group = await session.get(Group, world["group_id"])
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=group.organization_id,
+            subject_id=group.subject_id,
+            title=title,
+        )
         assignment = Assignment(
-            group_id=world["group_id"], title=title, status=AssignmentStatus.published
+            work_id=work.id,
+            group_id=world["group_id"],
+            title=title,
+            status=AssignmentStatus.published,
         )
         session.add(assignment)
         await session.flush()

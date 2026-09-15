@@ -25,8 +25,10 @@ from app.models import (
     PastPaperQuestion,
     Submission,
     User,
+    WorkKind,
 )
 from app.services.marking import _homework_source, _past_paper_source
+from app.services.work import create_work
 from tests.factories import make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -108,7 +110,15 @@ async def test_a_mark_scheme_with_no_stored_mime_is_not_announced(client, tutor,
         )
         session.add(classified)
         await session.flush()
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=world["subject_id"],
+            title="Algebra sheet",
+        )
         assignment = Assignment(
+            work_id=work.id,
             group_id=world["group"]["id"],
             classified_id=classified.id,
             title="Algebra sheet",
