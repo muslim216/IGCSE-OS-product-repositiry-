@@ -52,6 +52,10 @@ def test_each_arm_points_at_its_own_real_columns() -> None:
         )
         # The evidence builder queries every topic table by this one name.
         assert "question_id" in arm.topic_model.__table__.columns
+    # Two arms sharing a topic table would attribute one kind's marks to another
+    # kind's topics in `services/evidence.py`. The evidence sources are pinned
+    # distinct by `test_every_evidence_source_for_marked_work_has_an_arm`.
+    assert len({arm.topic_model for arm in (HOMEWORK, PAST_PAPER, MOCK)}) == 3
 
 
 def test_every_evidence_source_for_marked_work_has_an_arm() -> None:
