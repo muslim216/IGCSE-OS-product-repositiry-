@@ -27,8 +27,11 @@ and those four sites now filter on it. A fourth kind of work is scoped
 correctly by existing, with nobody editing an OR. What is still per-arm is
 *display*: `activity._polymorphic_submissions` and the review queue still
 left-join all three to read each kind's own title, and `_work_title` still
-branches. Those fail visibly — a missing title is a missing title — and D5 is
-where the remaining dispatch readers move.
+branches. That branch does not fail loudly either — a kind it does not know
+renders as the word "Work", and a past paper with no extracted title renders as
+"Untitled paper". Wrong, but wrong in front of a tutor rather than silently in
+a scope, which is why it is the half that could wait. D5 is where the remaining
+per-kind readers move.
 
 The arm-to-parent mapping is deliberately NOT here. The D2 backfill is a
 migration, and no migration in this repo imports app code (`DB-15`) — it

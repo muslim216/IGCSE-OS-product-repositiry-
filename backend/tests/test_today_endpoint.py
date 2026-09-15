@@ -343,6 +343,56 @@ async def test_another_organizations_past_paper_is_neither_counted_nor_listed(
     assert (await client.get("/api/v1/submissions/review-queue", headers=headers)).json() == []
 
 
+async def test_the_queue_never_shows_a_title_from_a_different_piece_of_work(
+    client, tutor, subject_id
+):
+    """The row's title and the organization that let the tutor see it have to
+    come from the same work.
+
+    Nothing at the database level stops a submission's `past_paper_id` pointing
+    at one paper while its `work_id` points at another's parent. When the queue
+    joined the three kinds on their own keys, such a row was authorized as one
+    organization's work and rendered with the other's title. Joining every kind
+    through `work_id` makes that impossible rather than merely unlikely.
+    """
+    from app.models import Submission, SubmissionStatus
+
+    group = await _make_class(client, tutor, subject_id)
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
+        mine = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2025",
+            paper_number="1",
+        )
+        theirs = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2024",
+            paper_number="2",
+        )
+        theirs.title = "Somebody else's paper"
+        session.add(
+            # Contradictory on purpose: the key says one paper, the parent says
+            # the other.
+            Submission(
+                past_paper_id=theirs.id,
+                work_id=mine.work_id,
+                student_id=student["id"],
+                status=SubmissionStatus.needs_review,
+            )
+        )
+        await session.commit()
+
+    queue = (await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json()
+    assert len(queue) == 1
+    assert "Somebody else's paper" not in str(queue[0])
+
+
 async def test_review_count_equals_what_the_review_queue_lists(client, tutor, subject_id):
     """The home's headline links straight to /submissions/review-queue, so the
     number and the page must describe the same work.

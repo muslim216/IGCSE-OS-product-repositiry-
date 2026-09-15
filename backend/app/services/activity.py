@@ -49,13 +49,19 @@ def _polymorphic_submissions() -> Select:
     Left-joined three ways: a submission belongs to an assignment (homework), a
     past paper or a mock, never more than one, so an inner join on any of them
     would silently drop the other two thirds. Miss an arm here and the feed does
-    not raise — it reads a `None` as though the work did not exist (`API-20`).
+    not raise — it falls back to the word "Work" (`API-20`, and see
+    `_work_title`).
+
+    Each join goes through `work_id`, not through that kind's own key, so the
+    title the feed shows and the parent row that decides whose work it is are
+    the same piece of work. Each child's `work_id` is unique, so this still
+    matches at most one row per kind.
     """
     return (
         select(Submission, Assignment, PastPaper, Mock)
-        .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
-        .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
-        .outerjoin(Mock, Mock.id == Submission.mock_id)
+        .outerjoin(Assignment, Assignment.work_id == Submission.work_id)
+        .outerjoin(PastPaper, PastPaper.work_id == Submission.work_id)
+        .outerjoin(Mock, Mock.work_id == Submission.work_id)
     )
 
 

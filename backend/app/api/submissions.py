@@ -549,13 +549,20 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
     # though — the parent row carries that, and the join to it is inner because
     # every submission has one (D4). A mock with no mark scheme never
     # auto-finalizes (`AI-11`), so every one of them arrives here.
+    #
+    # The three joins go through `work_id` rather than each kind's own key, so
+    # the title on a row and the organization that let the tutor see it come
+    # from the same piece of work. Joining on the old keys let those be two
+    # different rows if a submission's key and its parent ever disagreed:
+    # authorized as one organization's work, displayed as another's. Each
+    # child's `work_id` is unique, so this still matches at most one.
     rows = (
         await db.execute(
             select(Submission, Assignment, PastPaper, Mock, User)
             .join(AssessableWork, AssessableWork.id == Submission.work_id)
-            .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
-            .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
-            .outerjoin(Mock, Mock.id == Submission.mock_id)
+            .outerjoin(Assignment, Assignment.work_id == Submission.work_id)
+            .outerjoin(PastPaper, PastPaper.work_id == Submission.work_id)
+            .outerjoin(Mock, Mock.work_id == Submission.work_id)
             .join(User, User.id == Submission.student_id)
             # Shared with the home's headline count, which links here — see
             # services/groups.review_queue_predicate.
