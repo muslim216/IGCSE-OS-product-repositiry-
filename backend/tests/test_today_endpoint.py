@@ -302,6 +302,7 @@ async def test_past_paper_review_counts_toward_the_workload(client, tutor, subje
                 past_paper_id=paper.id,
                 student_id=student["id"],
                 status=SubmissionStatus.needs_review,
+                work_id=paper.work_id,
             )
         )
         await session.commit()
@@ -350,6 +351,7 @@ async def test_review_count_equals_what_the_review_queue_lists(client, tutor, su
                 assignment_id=assignment.id,
                 student_id=waiting["id"],
                 status=SubmissionStatus.needs_review,
+                work_id=assignment.work_id,
             )
         )
         # An AI draft is *not* in the queue — confidently marked work never is.
@@ -358,6 +360,7 @@ async def test_review_count_equals_what_the_review_queue_lists(client, tutor, su
                 assignment_id=assignment.id,
                 student_id=drafted["id"],
                 status=SubmissionStatus.ai_marked,
+                work_id=assignment.work_id,
             )
         )
         await session.commit()

@@ -109,6 +109,7 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
             status=SubmissionStatus.finalized,
             submitted_at=NOW - timedelta(days=3),
             finalized_at=NOW - timedelta(days=1),
+            work_id=assignment.work_id,
         )
         session.add(submission)
         await session.flush()
@@ -337,6 +338,7 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
             status=SubmissionStatus.auto_finalized,
             submitted_at=NOW - timedelta(days=3),
             finalized_at=NOW - timedelta(days=1),
+            work_id=assignment.work_id,
         )
         session.add(submission)
         await session.flush()
