@@ -1,29 +1,53 @@
-"""`kind_of` picks the right arm, and homework stays the fallback.
+"""`kind_of` picks the arm off the parent row, and a kind with no arm raises.
 
-The function is a fallback chain, not a match: anything that is neither a past
-paper nor a mock is reported as homework. That is correct — Classroom sync once
-created submissions with no key at all and those really are homework — but it
-means a future arm nobody adds here is silently marked homework, its marks
-written to the wrong column and its evidence given the wrong weight, with no
-error anywhere. The module docstring records that the third arm shipped broken
-in five places at once. These tests pin the behaviour so a reordering, or a
-"tidy-up" that turns the fallback into an error, fails here instead.
+It used to be a fallback chain over the three foreign keys: past paper, then
+mock, then homework for anything left. That made homework the answer for a row
+that was none of the three — right for the Classroom submissions created before
+the past-paper arm existed, and wrong for a fourth kind nobody added to the
+chain, which would have been marked as homework in silence, its marks written
+to the wrong column and its evidence given the wrong weight. The module
+docstring records that the third arm shipped broken in five places at once.
+
+Since D5 the parent row names its kind outright, so there is nothing to fall
+back to and an unknown kind raises. These tests pin that, and pin each arm
+against the real schema so a swapped pair fails here.
 """
 
-from app.models import EvidenceSource, QuestionMark, Submission, WorkKind
+import pytest
+
+from app.models import AssessableWork, EvidenceSource, QuestionMark, Submission, WorkKind
 from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, kind_of
 
 
+def _answering(kind: WorkKind) -> Submission:
+    """A submission against a piece of work of this kind. No foreign key set on
+    purpose — the arm must come from the parent, not from which key is filled."""
+    return Submission(work=AssessableWork(kind=kind))
+
+
 def test_each_arm_resolves_to_its_own_tables() -> None:
-    assert kind_of(Submission(past_paper_id=7)) is PAST_PAPER
-    assert kind_of(Submission(mock_id=7)) is MOCK
-    assert kind_of(Submission(assignment_id=7)) is HOMEWORK
+    assert kind_of(_answering(WorkKind.past_paper)) is PAST_PAPER
+    assert kind_of(_answering(WorkKind.mock)) is MOCK
+    assert kind_of(_answering(WorkKind.homework)) is HOMEWORK
 
 
-def test_a_submission_with_no_key_is_homework() -> None:
-    """Deliberate, not an accident: Classroom sync created these before the
-    past-paper arm existed. Turning this into an error would break them."""
-    assert kind_of(Submission()) is HOMEWORK
+def test_the_parent_decides_even_when_an_old_key_disagrees() -> None:
+    """The three keys are still written until D6, so they could contradict the
+    parent. There is one answer, and it is the parent's — otherwise the same
+    submission is a mock to one reader and homework to another."""
+    contradictory = Submission(assignment_id=7, work=AssessableWork(kind=WorkKind.mock))
+    assert kind_of(contradictory) is MOCK
+
+
+def test_a_kind_with_no_arm_raises_instead_of_passing_as_homework() -> None:
+    """The whole point of the change. Under the old fallback chain a kind
+    nobody added here came back as homework with nothing raising."""
+
+    class Quiz:
+        kind = "quiz"
+
+    with pytest.raises(ValueError, match="no submission arm"):
+        kind_of(Submission(work=Quiz()))  # type: ignore[arg-type]
 
 
 def test_each_arm_points_at_its_own_real_columns() -> None:

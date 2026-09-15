@@ -58,6 +58,7 @@ from app.models import (
     PastPaperQuestionTopic,
     QuestionTopic,
     Submission,
+    WorkKind,
 )
 
 
@@ -66,6 +67,10 @@ class SubmissionKind:
     """The tables and the evidence source behind one arm of `Submission`."""
 
     name: str
+    #: The parent table's word for this arm. Since D5 this is what picks the
+    #: arm — `kind_of` reads it off the parent row rather than working out
+    #: which of the three foreign keys happens to be set.
+    work_kind: WorkKind
     #: The model holding this kind's questions. `type[Any]` rather than a
     #: Protocol: the three question models already agree on the shape this
     #: module needs — `id`, `max_marks`, and a `<parent_fk>` column — and the
@@ -97,6 +102,7 @@ class SubmissionKind:
 
 HOMEWORK = SubmissionKind(
     name="homework",
+    work_kind=WorkKind.homework,
     question_model=AssignmentQuestion,
     topic_model=QuestionTopic,
     mark_fk="question_id",
@@ -107,6 +113,7 @@ HOMEWORK = SubmissionKind(
 
 PAST_PAPER = SubmissionKind(
     name="past paper",
+    work_kind=WorkKind.past_paper,
     question_model=PastPaperQuestion,
     topic_model=PastPaperQuestionTopic,
     mark_fk="past_paper_question_id",
@@ -117,6 +124,7 @@ PAST_PAPER = SubmissionKind(
 
 MOCK = SubmissionKind(
     name="mock",
+    work_kind=WorkKind.mock,
     question_model=MockQuestion,
     topic_model=MockQuestionTopic,
     mark_fk="mock_question_id",
@@ -126,12 +134,29 @@ MOCK = SubmissionKind(
 )
 
 
+_BY_WORK_KIND = {arm.work_kind: arm for arm in (HOMEWORK, PAST_PAPER, MOCK)}
+
+
 def kind_of(submission: Submission) -> SubmissionKind:
-    """Which arm this submission is. Homework is the fallback because it is the
-    only arm whose key can be absent on a legitimately old row — Classroom sync
-    once created submissions before the past-paper arm existed."""
-    if submission.past_paper_id is not None:
-        return PAST_PAPER
-    if submission.mock_id is not None:
-        return MOCK
-    return HOMEWORK
+    """Which arm this submission is, read off its parent row.
+
+    This used to be a fallback chain over the three foreign keys — past paper,
+    then mock, then homework for everything left. That made homework the answer
+    for a row that was none of the three, which was right for the Classroom
+    rows created before the past-paper arm existed, and wrong for a fourth kind
+    of work nobody added to the chain: it would have been marked as homework in
+    silence, its marks written to the wrong column and its evidence given the
+    wrong weight.
+
+    A parent row names its kind outright, so there is nothing to fall back to.
+    A kind with no arm here raises instead, which is the loud failure the chain
+    could not give (`PROD-1`). `Submission.work` is eagerly loaded, so this
+    stays a plain attribute read with no session (`BE-4`).
+    """
+    arm = _BY_WORK_KIND.get(submission.work.kind)
+    if arm is None:
+        raise ValueError(
+            f"no submission arm for work kind {submission.work.kind!r} — add one to "
+            "services/submission_kind.py alongside its question and topic tables"
+        )
+    return arm
