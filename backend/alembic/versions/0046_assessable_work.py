@@ -61,7 +61,11 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_assessable_work_organization_id", "assessable_work", ["organization_id"])
+    op.create_index(
+        "ix_assessable_work_organization_id_subject_id",
+        "assessable_work",
+        ["organization_id", "subject_id"],
+    )
 
     with op.batch_alter_table("assignments", naming_convention=NAMING) as batch:
         batch.add_column(
@@ -110,5 +114,5 @@ def downgrade() -> None:
         batch.drop_constraint("uq_assignments_work_id", type_="unique")
         batch.drop_column("work_id")
 
-    op.drop_index("ix_assessable_work_organization_id", table_name="assessable_work")
+    op.drop_index("ix_assessable_work_organization_id_subject_id", table_name="assessable_work")
     op.drop_table("assessable_work")

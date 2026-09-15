@@ -28,7 +28,16 @@ class WorkKind(str, enum.Enum):
 
 class AssessableWork(TimestampMixin, Base):
     __tablename__ = "assessable_work"
-    __table_args__ = (Index("ix_assessable_work_organization_id", "organization_id"),)
+    # Composite, though every consumer named today — the review queue, the home
+    # count, the activity feed — filters `organization_id` alone. The second
+    # column is a bet on the student-visible listings, which must be scoped by
+    # (organization, subject) and never subject alone (`SEC-8`). It is a cheap
+    # bet: a btree serves a leading-prefix lookup, so the org-only queries pay
+    # nothing for it. If nothing ends up filtering subject, drop the column from
+    # the index — it is a performance choice, reversible in one migration.
+    __table_args__ = (
+        Index("ix_assessable_work_organization_id_subject_id", "organization_id", "subject_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
