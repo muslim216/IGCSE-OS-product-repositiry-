@@ -108,6 +108,8 @@ def test_a_submission_with_no_arm_aborts_the_migration(tmp_path) -> None:
         INSERT INTO organizations (id, name, created_at) VALUES (1, 'Org', '2026-01-01 00:00:00');
         INSERT INTO users (id, organization_id, name, role, password_hash, token_version, created_at)
             VALUES (1, 1, 'S', 'student', 'x', 0, '2026-01-01 00:00:00');
+        INSERT INTO users (id, organization_id, name, role, password_hash, token_version, created_at)
+            VALUES (2, 1, 'T', 'tutor', 'x', 0, '2026-01-01 00:00:00');
         -- All three arms NULL: nothing to take a parent from.
         INSERT INTO submissions (id, assignment_id, past_paper_id, mock_id, student_id,
                                   status, submitted_at, created_at)
@@ -123,6 +125,77 @@ def test_a_submission_with_no_arm_aborts_the_migration(tmp_path) -> None:
     # The count, not just the sentence: the migration has to say how many rows
     # are stranded or whoever reads the failed deploy log cannot size it.
     assert "1 submission(s) have no assignment, past paper or mock" in blocked.stderr
+
+    # The abort tells the operator to give each row its arm's key and re-run,
+    # so the re-run has to actually work — a half-applied column left behind
+    # would make the documented recovery fail on a duplicate column instead.
+    raw = sqlite3.connect(db)
+    raw.executescript(
+        """
+        INSERT INTO subjects (id, organization_id, exam_board, code, name, level, grade_scale)
+            VALUES (1, 1, 'Edexcel IGCSE', '4CH1', 'Chemistry', 'igcse', '9-1');
+        INSERT INTO groups (id, organization_id, tutor_id, subject_id, name, created_at)
+            VALUES (1, 1, 2, 1, 'Y11', '2026-01-01 00:00:00');
+        INSERT INTO assessable_work (id, organization_id, subject_id, kind, created_at)
+            VALUES (55, 1, 1, 'homework', '2026-01-01 00:00:00');
+        INSERT INTO assignments (id, group_id, title, status, created_at, work_id)
+            VALUES (105, 1, 'Homework', 'published', '2026-01-01 00:00:00', 55);
+        UPDATE submissions SET assignment_id = 105 WHERE id = 301;
+    """
+    )
+    raw.commit()
+
+    recovered = _alembic(db, "upgrade", "head")
+    assert recovered.returncode == 0, recovered.stderr
+    assert raw.execute("SELECT work_id FROM submissions WHERE id = 301").fetchone()[0] == 55
+    raw.close()
+
+
+def test_a_submission_with_two_arms_aborts_before_touching_the_schema(tmp_path) -> None:
+    """Nothing in the schema stops a submission carrying two arms, and the two
+    answers disagree: the backfill takes assignment first, `kind_of` takes past
+    paper first. Refusing is the only honest option — and it has to refuse
+    before adding the column, or the re-run it asks for hits a duplicate one."""
+    db = tmp_path / "twoarms.db"
+    at_0047 = _alembic(db, "upgrade", "0047")
+    assert at_0047.returncode == 0, at_0047.stderr
+
+    raw = sqlite3.connect(db)
+    raw.executescript(
+        _SCAFFOLD
+        + """
+        INSERT INTO assessable_work (id, organization_id, subject_id, kind, created_at)
+            VALUES (66, 1, 1, 'homework', '2026-01-01 00:00:00');
+        INSERT INTO assessable_work (id, organization_id, subject_id, kind, created_at)
+            VALUES (77, 1, 1, 'past_paper', '2026-01-01 00:00:00');
+        INSERT INTO assignments (id, group_id, title, status, created_at, work_id)
+            VALUES (106, 1, 'Homework', 'published', '2026-01-01 00:00:00', 66);
+        INSERT INTO past_papers (id, organization_id, subject_id, booklet_id, booklet_index,
+                                  created_at, work_id)
+            VALUES (107, 1, 1, 1, 1, '2026-01-01 00:00:00', 77);
+        -- Both keys set: which piece of work does this answer?
+        INSERT INTO submissions (id, assignment_id, past_paper_id, mock_id, student_id,
+                                  status, submitted_at, created_at)
+            VALUES (205, 106, 107, NULL, 1, 'needs_review',
+                    '2026-01-02 00:00:00', '2026-01-02 00:00:00');
+    """
+    )
+    raw.commit()
+
+    blocked = _alembic(db, "upgrade", "head")
+    assert blocked.returncode != 0
+    assert "1 submission(s) carry more than one of" in blocked.stderr
+    # Nothing was added, so clearing the wrong key and re-running is a clean
+    # first run rather than a half-applied one.
+    with pytest.raises(sqlite3.OperationalError):
+        raw.execute("SELECT work_id FROM submissions")
+
+    raw.execute("UPDATE submissions SET past_paper_id = NULL WHERE id = 205")
+    raw.commit()
+    recovered = _alembic(db, "upgrade", "head")
+    assert recovered.returncode == 0, recovered.stderr
+    assert raw.execute("SELECT work_id FROM submissions WHERE id = 205").fetchone()[0] == 66
+    raw.close()
 
 
 def test_downgrade_then_upgrade_rebackfills_real_rows(tmp_path) -> None:

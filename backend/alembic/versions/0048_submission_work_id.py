@@ -14,10 +14,12 @@ rather than deriving it a second way.
 The backfill takes each arm in turn, so a row is matched by the key it actually
 has. A submission with no key at all is homework by the same rule `kind_of`
 uses — Classroom sync created those before the past-paper arm existed — but it
-has no assignment to take a parent from, so there is nothing to point it at and
-the NOT NULL flip would fail on it. There are none in practice (every arm's key
-is written at creation); if one exists, this migration stops and says so rather
-than inventing a parent for it (`PROD-1`).
+has no assignment to take a parent from, so there is nothing to point it at.
+There are none in practice (every arm's key is written at creation); if one
+exists, this migration stops and says so rather than inventing a parent for it
+(`PROD-1`). It stops *before* adding the column, because SQLite commits the
+table rebuild that an `ALTER` needs — refusing after that would leave the column
+behind and break the re-run the error asks for.
 
 Revision ID: 0048
 Revises: 0047
@@ -49,6 +51,48 @@ _ARMS = (
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+
+    # Both checks run before any DDL, deliberately. SQLite rebuilds the table
+    # to add a column, and that rebuild commits — so aborting after it leaves
+    # `work_id` behind and the recovery these errors describe ("fix the rows,
+    # run it again") fails on a duplicate column instead. Checking first means
+    # a refusal changes nothing and the re-run is a clean first run.
+
+    # Nothing at the database level stops a submission carrying two arms, and
+    # the backfill below takes the first one it finds — assignment before past
+    # paper — while `kind_of` reads past paper first. On a two-armed row those
+    # two answers differ, so `work_id` would point at one piece of work while
+    # every reader still on the old keys showed another.
+    arm_count = " + ".join(f"(CASE WHEN {key} IS NOT NULL THEN 1 ELSE 0 END)" for key, _ in _ARMS)
+    conflicted = conn.execute(
+        sa.text(f"SELECT COUNT(*) FROM submissions WHERE {arm_count} > 1")  # noqa: S608
+    ).scalar_one()
+    if conflicted:
+        raise RuntimeError(
+            f"{conflicted} submission(s) carry more than one of assignment_id, past_paper_id "
+            "and mock_id, so which piece of work they answer is ambiguous. Clear the wrong key "
+            "on each before re-running."
+        )
+
+    # A submission with no arm at all is homework by the same rule `kind_of`
+    # uses, but it has no assignment to take a parent from — and neither has
+    # one whose arm points at a row that is gone. Either way there is nothing
+    # to point it at, and a parent invented here would be a piece of work
+    # nobody uploaded (`PROD-1`).
+    has_parent = " OR ".join(
+        f"({key} IS NOT NULL AND EXISTS (SELECT 1 FROM {table} p WHERE p.id = submissions.{key}))"
+        for key, table in _ARMS
+    )
+    stranded = conn.execute(
+        sa.text(f"SELECT COUNT(*) FROM submissions WHERE NOT ({has_parent})")  # noqa: S608
+    ).scalar_one()
+    if stranded:
+        raise RuntimeError(
+            f"{stranded} submission(s) have no assignment, past paper or mock to take a parent "
+            "from. Give each one its arm's key before re-running."
+        )
+
     with op.batch_alter_table("submissions", naming_convention=NAMING) as batch:
         batch.add_column(
             sa.Column(
@@ -59,7 +103,6 @@ def upgrade() -> None:
             )
         )
 
-    conn = op.get_bind()
     for key, table in _ARMS:
         conn.execute(
             sa.text(
@@ -67,16 +110,6 @@ def upgrade() -> None:
                 f"  SELECT p.work_id FROM {table} p WHERE p.id = submissions.{key}"
                 f") WHERE {key} IS NOT NULL AND work_id IS NULL"
             )
-        )
-
-    stranded = conn.execute(
-        sa.text("SELECT COUNT(*) FROM submissions WHERE work_id IS NULL")
-    ).scalar_one()
-    if stranded:
-        raise RuntimeError(
-            f"{stranded} submission(s) have no assignment, past paper or mock to take a parent "
-            "from. Give each one its arm's key before re-running; a parent invented here would "
-            "be a piece of work nobody uploaded (PROD-1)."
         )
 
     with op.batch_alter_table("submissions", naming_convention=NAMING) as batch:
