@@ -26,14 +26,11 @@ from sqlalchemy.orm import selectinload
 
 from app.models import (
     AiFeature,
-    Assignment,
     AssignmentQuestion,
     Classified,
     Group,
     MarkConfidence,
-    Mock,
     MockQuestion,
-    PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
     QuestionMark,
@@ -55,6 +52,7 @@ from app.services.submission_kind import (
     SubmissionKind,
     kind_of,
 )
+from app.services.work import parent_of
 from app.workers.jobs import enqueue
 
 # Confidence levels good enough for a scheme-backed mark to stand without a
@@ -129,7 +127,7 @@ class _MarkingSource:
 
 
 async def _homework_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
-    assignment = await session.get(Assignment, submission.assignment_id)
+    assignment = await parent_of(session, submission)
     assert assignment is not None
     classified = (
         await session.get(Classified, assignment.classified_id)
@@ -204,7 +202,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
 
 
 async def _past_paper_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
-    paper = await session.get(PastPaper, submission.past_paper_id)
+    paper = await parent_of(session, submission)
     assert paper is not None
     if paper.tutor_id is None:
         # An owning tutor is not decoration here: it selects the knowledge-base
@@ -306,7 +304,7 @@ async def _mock_source(session: AsyncSession, submission: Submission) -> _Markin
     document, and unlike homework it has no classified behind it — so there are
     no chapter notes, and AV-76's precedence runs from the scheme to the subject
     rules with the chapter layer absent."""
-    mock = await session.get(Mock, submission.mock_id)
+    mock = await parent_of(session, submission)
     assert mock is not None
     questions = list(
         (
@@ -598,7 +596,11 @@ async def record_marks_as_evidence(
     build_homework_evidence is idempotent by source_ref, so running it again
     after a tutor override replaces rather than duplicates."""
     await build_homework_evidence(session, submission)
-    if submission.past_paper_id is not None:
+    # Gated on the kind the parent names, not on a key being set. The three old
+    # keys are still written and nothing forces them to agree with the parent,
+    # so a mock carrying a stale `past_paper_id` would otherwise have its marks
+    # rolled up against somebody's past paper (`PROD-1`).
+    if kind_of(submission) is PAST_PAPER:
         await _upsert_attempt_rollup(session, submission)
     await enqueue(
         session,
@@ -616,7 +618,7 @@ async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) 
     """Roll a settled past-paper submission up into the PastPaperAttempt row the
     Past Paper Performance factor reads. Upserted, not appended, so re-running
     after a tutor override corrects the total instead of double-counting it."""
-    paper = await session.get(PastPaper, submission.past_paper_id)
+    paper = await parent_of(session, submission)
     assert paper is not None
     totals = (
         await session.execute(
@@ -637,13 +639,13 @@ async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) 
     got, counted_max = totals
     attempt = await session.scalar(
         select(PastPaperAttempt).where(
-            PastPaperAttempt.past_paper_id == submission.past_paper_id,
+            PastPaperAttempt.past_paper_id == paper.id,
             PastPaperAttempt.student_id == submission.student_id,
         )
     )
     if attempt is None:
         attempt = PastPaperAttempt(
-            past_paper_id=submission.past_paper_id,
+            past_paper_id=paper.id,
             student_id=submission.student_id,
             attempted_at=submission.attempted_at or submission.submitted_at.date(),
             max_marks=paper.total_marks or counted_max or 1,

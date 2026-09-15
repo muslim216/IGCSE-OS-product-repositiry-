@@ -55,7 +55,8 @@ from app.services.attempts import open_attempt
 from app.services.groups import review_queue_predicate
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
-from app.services.submission_kind import HOMEWORK, kind_of
+from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, kind_of
+from app.services.work import parent_of
 from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["submissions"])
@@ -91,20 +92,22 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
         return True
     if user.role != UserRole.tutor:
         return False
-    if submission.past_paper_id is not None:
+    # The kind and the parent both come off `work_id`, so an authorization
+    # check can never be answered about a different piece of work than the one
+    # dispatch picked.
+    kind = kind_of(submission)
+    parent = await parent_of(db, submission)
+    if parent is None:
+        return False
+    if kind is PAST_PAPER:
         # Past papers belong to the organization, not to one tutor's group.
-        paper = await db.get(PastPaper, submission.past_paper_id)
-        return paper is not None and paper.organization_id == user.organization_id
-    if submission.mock_id is not None:
+        return bool(parent.organization_id == user.organization_id)
+    if kind is MOCK:
         # A mock belongs to the tutor who set it, like an assignment — but
         # without a group in between, since a mock can be extracted before it is
         # set to anyone (Mock.group_id is nullable).
-        mock = await db.get(Mock, submission.mock_id)
-        return mock is not None and mock.tutor_id == user.id
-    assignment = await db.get(Assignment, submission.assignment_id)
-    if assignment is None:
-        return False
-    group = await db.get(Group, assignment.group_id)
+        return bool(parent.tutor_id == user.id)
+    group = await db.get(Group, parent.group_id)
     return group is not None and group.tutor_id == user.id
 
 

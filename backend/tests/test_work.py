@@ -12,8 +12,17 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
-from app.models import AssessableWork, Assignment, Group, User, UserRole, WorkKind
-from app.services.work import create_work
+from app.models import (
+    AssessableWork,
+    Assignment,
+    AssignmentStatus,
+    Group,
+    Submission,
+    User,
+    UserRole,
+    WorkKind,
+)
+from app.services.work import create_work, parent_of
 from tests.factories import make_subject
 
 
@@ -132,3 +141,55 @@ async def test_every_assignment_created_through_the_api_gets_a_parent(client, tu
         assert work.organization_id == group_row.organization_id
         assert work.subject_id == group_row.subject_id
         assert work.title == "HW1 — Waves"
+
+
+async def test_the_parent_is_found_through_work_id_not_a_stale_key(tutor, group):
+    """Dispatch and loading must name the same piece of work.
+
+    Both `work_id` and the old per-kind key are written until D6, and nothing
+    at the database level forces them to agree. `kind_of` reads the parent, so
+    if a loader read the old key instead, a contradictory row would be marked
+    as one kind and have its marks written against another kind's paper. This
+    pins both to `work_id`.
+    """
+    async with async_session() as session:
+        group_row = await session.get(Group, group["id"])
+        assert group_row is not None
+        assignments = []
+        for title in ("Real", "Stale"):
+            work = await create_work(
+                session,
+                kind=WorkKind.homework,
+                organization_id=group_row.organization_id,
+                subject_id=group_row.subject_id,
+                title=title,
+            )
+            assignment = Assignment(
+                work_id=work.id,
+                group_id=group["id"],
+                title=title,
+                status=AssignmentStatus.published,
+            )
+            session.add(assignment)
+            await session.flush()
+            assignments.append(assignment)
+        real, stale = assignments
+
+        submission = Submission(
+            # Contradictory on purpose: the key says one assignment, the parent
+            # says the other.
+            assignment_id=stale.id,
+            work_id=real.work_id,
+            student_id=tutor["user"]["id"],
+        )
+        session.add(submission)
+        await session.commit()
+
+    async with async_session() as session:
+        # Re-read the way every real caller does: a submission reaches
+        # `parent_of` loaded from the database, with its parent row alongside.
+        loaded = await session.scalar(select(Submission).where(Submission.id == submission.id))
+        assert loaded is not None
+        found = await parent_of(session, loaded)
+    assert found is not None
+    assert found.id == real.id, "the parent must come from work_id, not the old key"

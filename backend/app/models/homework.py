@@ -1,5 +1,6 @@
 import enum
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -18,6 +19,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, utcnow
+
+if TYPE_CHECKING:
+    from app.models.work import AssessableWork
 
 
 class Classified(TimestampMixin, Base):
@@ -267,6 +271,22 @@ class Submission(TimestampMixin, Base):
     finalized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     assignment: Mapped[Assignment | None] = relationship()
+    # `lazy="selectin"` — the only eager relationship in this file, and
+    # deliberately so. `kind_of()` reads `work.kind` to decide which question
+    # table, mark column and evidence source a submission uses, and it is
+    # called from seven places that each load a submission differently. A
+    # default lazy load raises `MissingGreenlet` under async, so the loading
+    # would have to be remembered at every one of those sites — and forgetting
+    # it would fail at runtime, not in review. Eager here cannot be forgotten.
+    #
+    # The price, paid knowingly: it is mapper-wide, so every query that loads
+    # submissions runs one extra `WHERE work_id IN (...)` — one per query, not
+    # per row — including the review queue and the activity feed, which never
+    # read `work`. One batched query in exchange for removing a whole class of
+    # runtime crash. If a profile ever shows it mattering, the unwind is to
+    # move `selectinload(Submission.work)` to `kind_of`'s callers, and the cost
+    # of that unwind is exactly the risk described above.
+    work: Mapped["AssessableWork"] = relationship(lazy="selectin")
     files: Mapped[list["SubmissionFile"]] = relationship(
         back_populates="submission",
         cascade="all, delete-orphan",
