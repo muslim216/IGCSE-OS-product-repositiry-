@@ -21,7 +21,8 @@ from app.models import (
     WorkKind,
 )
 from app.services import storage
-from app.services.work import create_work
+from app.services.submission_kind import PAST_PAPER, kind_of
+from app.services.work import create_work, parent_of
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import subject_defaults
@@ -472,8 +473,8 @@ async def test_a_student_self_logs_an_attempt_and_it_is_auto_marked(
     async with async_session() as session:
         submission = await session.scalar(select(Submission))
         assert submission.status == SubmissionStatus.auto_finalized
-        assert submission.past_paper_id == past_paper["id"]
-        assert submission.assignment_id is None
+        assert kind_of(submission) is PAST_PAPER
+        assert (await parent_of(session, submission)).id == past_paper["id"]
         marks = (await session.scalars(select(QuestionMark))).all()
         assert len(marks) == 2
         assert all(m.past_paper_question_id is not None for m in marks)
@@ -748,19 +749,17 @@ async def test_relogging_a_paper_moves_it_back_up_the_review_queue(client, stude
     first = await _log_attempt(client, student, past_paper["id"])
     assert first.status_code in (200, 201), first.text
     async with async_session() as session:
+        paper = await session.get(PastPaper, past_paper["id"])
         before = (
-            await session.scalar(
-                select(Submission).where(Submission.past_paper_id == past_paper["id"])
-            )
+            await session.scalar(select(Submission).where(Submission.work_id == paper.work_id))
         ).submitted_at
 
     again = await _log_attempt(client, student, past_paper["id"])
     assert again.status_code in (200, 201), again.text
     async with async_session() as session:
+        paper = await session.get(PastPaper, past_paper["id"])
         rows = (
-            await session.scalars(
-                select(Submission).where(Submission.past_paper_id == past_paper["id"])
-            )
+            await session.scalars(select(Submission).where(Submission.work_id == paper.work_id))
         ).all()
     # Replaced, not appended — one attempt per student per paper.
     assert len(rows) == 1
@@ -778,7 +777,7 @@ async def test_an_attempt_joins_the_paper_it_answers_rather_than_making_a_second
     async with async_session() as session:
         paper = await session.get(PastPaper, past_paper["id"])
         submission = await session.scalar(
-            select(Submission).where(Submission.past_paper_id == past_paper["id"])
+            select(Submission).where(Submission.work_id == paper.work_id)
         )
         assert submission.work_id == paper.work_id
         parents = (

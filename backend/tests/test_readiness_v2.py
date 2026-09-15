@@ -104,7 +104,6 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
         session.add(QuestionTopic(question_id=question.id, topic_id=topic1))
 
         submission = Submission(
-            assignment_id=assignment.id,
             student_id=student_id,
             status=SubmissionStatus.finalized,
             submitted_at=NOW - timedelta(days=3),
@@ -331,7 +330,6 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
         session.add(QuestionTopic(question_id=question.id, topic_id=topic1))
 
         submission = Submission(
-            assignment_id=assignment.id,
             student_id=student_id,
             # The AI marked every question confidently against an official
             # scheme. No tutor touched it, and none needs to (AI-11).

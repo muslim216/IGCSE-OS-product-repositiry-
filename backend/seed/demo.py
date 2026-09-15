@@ -391,7 +391,6 @@ async def main() -> None:
 
         for student in students:
             submission = Submission(
-                assignment_id=assignment.id,
                 work_id=assignment.work_id,
                 student_id=student.id,
                 status=SubmissionStatus.finalized,

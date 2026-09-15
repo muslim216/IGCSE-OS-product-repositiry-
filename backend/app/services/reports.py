@@ -134,7 +134,7 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
         submitted = (
             await session.scalar(
                 select(func.count(Submission.id))
-                .join(Assignment, Assignment.id == Submission.assignment_id)
+                .join(Assignment, Assignment.work_id == Submission.work_id)
                 .join(Group, Group.id == Assignment.group_id)
                 .where(Submission.student_id == student.id, Group.subject_id == subject_id)
             )

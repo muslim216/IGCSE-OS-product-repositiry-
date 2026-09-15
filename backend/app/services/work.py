@@ -53,12 +53,17 @@ async def create_work(
 async def parent_of(session: AsyncSession, submission: Submission) -> Any:
     """The `Assignment`, `PastPaper` or `Mock` a submission answers.
 
-    Found through `work_id`, not through the old per-kind key. Both are written
-    until D6 and nothing at the database level forces them to agree, so a
-    contradictory row would otherwise be dispatched as one kind by `kind_of` —
-    which reads the parent — and loaded as another by whoever read the key,
-    landing marks on the wrong paper. One source, so there is nothing to
-    disagree with. Each child's `work_id` is unique, so this matches one row.
+    Found through `work_id`, which since D6 is the only thing a submission says
+    about the work it answers. `kind_of` picks the table off the same parent
+    row, so the kind a submission is dispatched as and the row its marks are
+    written against are read from one place rather than two that have to agree.
+
+    Each child's `work_id` is unique *within its own table*, so this matches at
+    most one row. What no constraint expresses is that a parent has a child in
+    exactly one of the three — see `create_work` above, which is the invariant's
+    only enforcement. If that were ever broken, `kind` would send this to a
+    table holding no matching row and it would return `None`, which is why
+    callers check.
     """
     kind = kind_of(submission)
     return await session.scalar(

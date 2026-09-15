@@ -22,7 +22,6 @@ async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(
     async with async_session() as session:
         assignment = await session.get(Assignment, published_assignment["id"])
         submission = Submission(
-            assignment_id=published_assignment["id"],
             student_id=student["user"]["id"],
             status=SubmissionStatus.finalized,
             submitted_at=datetime.now(timezone.utc),

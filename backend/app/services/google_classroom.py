@@ -358,7 +358,7 @@ async def _sync_submissions(
 
         existing = await session.scalar(
             select(Submission).where(
-                Submission.assignment_id == assignment.id, Submission.student_id == student.id
+                Submission.work_id == assignment.work_id, Submission.student_id == student.id
             )
         )
         if existing is not None:
@@ -366,7 +366,6 @@ async def _sync_submissions(
 
         files = await _download_attachments(access_token, sub, organization_id=link.organization_id)
         submission = Submission(
-            assignment_id=assignment.id,
             work_id=assignment.work_id,
             student_id=student.id,
             status=SubmissionStatus.submitted,

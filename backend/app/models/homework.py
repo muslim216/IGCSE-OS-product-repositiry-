@@ -185,44 +185,40 @@ SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
 
 
 class Submission(TimestampMixin, Base):
-    """A student's uploaded answers to a homework assignment, a past paper or a
-    mock — exactly one of assignment_id / past_paper_id / mock_id is set.
+    """A student's uploaded answers to one piece of work, named by `work_id` —
+    a homework assignment, a past paper or a mock, whichever its parent says.
 
     Making this polymorphic rather than giving each kind its own table means
     SubmissionFile, QuestionMark, marking, the review queue, the override
     audit, remark requests and evidence-building all apply to every kind with
-    no extra code. Resolve the arm with `kind_of()` in
-    `services/submission_kind.py` — never read one of the three FKs
-    unconditionally (`API-20`).
-
-    Since D4, whose work a submission is comes off `work_id`'s parent row, not
-    from whichever of the three arms happens to be set. Reach for one of the
-    three only when you need that kind's own columns."""
+    no extra code. Which kind it is, and whose work it is, both come off the
+    parent row `work_id` points at — `kind_of()` in
+    `services/submission_kind.py` names the arm, `services/work.parent_of`
+    loads the assignment, past paper or mock itself (`API-20`)."""
 
     __tablename__ = "submissions"
+    # One attempt per student per piece of work. This replaced three
+    # constraints, one per arm (D6), which between them could not stop the same
+    # student holding two submissions against one piece of work through two
+    # different keys. One column, one rule.
+    # Named, not left to the database to name. The constraint this replaced was
+    # written without one in `0003`, so Postgres called it something the
+    # migration that came to drop it could not guess — and SQLite, which
+    # fabricates whatever name is asked for, could not show the difference
+    # (`RISK-3`). A name here is what the migration can rely on later.
     __table_args__ = (
-        UniqueConstraint("assignment_id", "student_id"),
-        UniqueConstraint("past_paper_id", "student_id"),
-        UniqueConstraint("mock_id", "student_id"),
-        # The three arms above get equality lookups free from their unique
-        # constraints; `work_id` has none, and from D4 it is the column every
-        # cross-kind query joins on. Declared here as well as in the migration
-        # so the test schema matches production (`DB-12`).
-        Index("ix_submissions_work_id", "work_id"),
+        UniqueConstraint("work_id", "student_id", name="uq_submissions_work_id_student_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id"), nullable=True)
-    past_paper_id: Mapped[int | None] = mapped_column(ForeignKey("past_papers.id"), nullable=True)
-    # The third arm (task 3.4, AV-26). A mock is set, sat and marked on its own
-    # terms rather than as homework with a flag, so it gets its own key here
-    # instead of bending `assignment_id` to mean two things.
-    mock_id: Mapped[int | None] = mapped_column(ForeignKey("mocks.id"), nullable=True)
-    # Which piece of work this answers, whichever kind it is. Set alongside the
-    # three FKs above rather than replacing them yet: the readers move onto it
-    # in D4 and D5, and only then do the three go (D6). Until then both are
-    # written and they must agree — `open_attempt` copies it off the parent so
-    # there is one source.
+    # Which piece of work this answers — the whole of it. Until D6 there were
+    # three nullable keys here instead, one per kind, with exactly one of them
+    # set: reading the wrong one raised inside an authorization check, and
+    # every query that spanned kinds had to join all three and OR three
+    # organization columns. Adding a fourth kind meant finding every one of
+    # those places, and missing one failed silently rather than loudly. The
+    # parent row says both whose work it is and what kind it is, so a new kind
+    # of work needs no new column here and no edit to those queries.
     work_id: Mapped[int] = mapped_column(ForeignKey("assessable_work.id"), nullable=False)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # Past papers only, and self-declared: the platform can't measure how long
@@ -270,7 +266,6 @@ class Submission(TimestampMixin, Base):
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finalized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
-    assignment: Mapped[Assignment | None] = relationship()
     # `lazy="selectin"` — the only eager relationship in this file, and
     # deliberately so. `kind_of()` reads `work.kind` to decide which question
     # table, mark column and evidence source a submission uses, and it is

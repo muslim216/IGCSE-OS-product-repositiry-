@@ -105,7 +105,7 @@ async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
             .join(GroupMember, GroupMember.group_id == Group.id)
             .outerjoin(
                 Submission,
-                (Submission.assignment_id == Assignment.id) & (Submission.student_id == student.id),
+                (Submission.work_id == Assignment.work_id) & (Submission.student_id == student.id),
             )
             .where(
                 GroupMember.student_id == student.id,

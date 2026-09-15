@@ -109,7 +109,7 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
         await db.scalars(
             select(QuestionMark)
             .join(Submission, Submission.id == QuestionMark.submission_id)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Assignment, Assignment.work_id == Submission.work_id)
             .where(
                 Assignment.group_id == group_id,
                 Submission.status == SubmissionStatus.finalized,

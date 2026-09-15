@@ -31,14 +31,6 @@ def test_each_arm_resolves_to_its_own_tables() -> None:
     assert kind_of(_answering(WorkKind.homework)) is HOMEWORK
 
 
-def test_the_parent_decides_even_when_an_old_key_disagrees() -> None:
-    """The three keys are still written until D6, so they could contradict the
-    parent. There is one answer, and it is the parent's — otherwise the same
-    submission is a mock to one reader and homework to another."""
-    contradictory = Submission(assignment_id=7, work=AssessableWork(kind=WorkKind.mock))
-    assert kind_of(contradictory) is MOCK
-
-
 def test_a_kind_with_no_arm_raises_instead_of_passing_as_homework() -> None:
     """The whole point of the change. Under the old fallback chain a kind
     nobody added here came back as homework with nothing raising."""
@@ -55,7 +47,7 @@ def test_each_arm_points_at_its_own_real_columns() -> None:
     "one kind's marks land on another kind's questions" bug. So check each arm
     against the schema: its `mark_fk` must be a real `QuestionMark` column whose
     foreign key targets that arm's own question table, and its `parent_fk` a
-    real `Submission` column."""
+    real column on that question table pointing back at its own parent."""
     for arm in (HOMEWORK, PAST_PAPER, MOCK):
         mark_column = QuestionMark.__table__.columns[arm.mark_fk]
         targets = {fk.column.table.name for fk in mark_column.foreign_keys}
@@ -63,16 +55,16 @@ def test_each_arm_points_at_its_own_real_columns() -> None:
             f"{arm.name}: mark_fk {arm.mark_fk} points at {targets}, "
             f"not {arm.question_model.__tablename__}"
         )
-        # `parent_fk` is deliberately one name for two columns — the docstring
-        # says `Submission.<parent_fk>` and `question_model.<parent_fk>` are
-        # always spelt the same, and a question list is filtered by that. Check
-        # both exist and point at the same table, or that filter silently
-        # returns another kind's questions.
-        submission_fk = Submission.__table__.columns[arm.parent_fk]
+        # `parent_fk` is the one string that filters a question list to the
+        # piece of work it belongs to (services/work.parent_of reads the
+        # parent itself, off Submission.work_id, since D6 — this no longer
+        # names a Submission column). It must be a real column on the
+        # question table pointing back at this arm's own parent, or the
+        # filter silently returns another kind's questions.
         question_fk = arm.question_model.__table__.columns[arm.parent_fk]
-        parents = {fk.column.table.name for fk in submission_fk.foreign_keys}
-        assert parents == {fk.column.table.name for fk in question_fk.foreign_keys}, (
-            f"{arm.name}: {arm.parent_fk} means a different table on each side"
+        parents = {fk.column.table.name for fk in question_fk.foreign_keys}
+        assert parents == {arm.parent_model.__tablename__}, (
+            f"{arm.name}: {arm.parent_fk} points at {parents}, not {arm.parent_model.__tablename__}"
         )
         # The evidence builder queries every topic table by this one name.
         assert "question_id" in arm.topic_model.__table__.columns

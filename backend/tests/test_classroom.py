@@ -324,7 +324,7 @@ async def test_sync_imports_coursework_and_submission_with_attachment(
         )
         submission = await session.scalar(
             select(Submission).where(
-                Submission.assignment_id == assignment.id, Submission.student_id == student_user.id
+                Submission.work_id == assignment.work_id, Submission.student_id == student_user.id
             )
         )
         assert submission is not None

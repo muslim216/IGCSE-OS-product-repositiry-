@@ -15,12 +15,14 @@ from app.models import (
     Evidence,
     EvidenceSource,
     Job,
+    Mock,
     MockQuestion,
     MockStatus,
     QuestionMark,
     Submission,
     SubmissionStatus,
 )
+from app.services.submission_kind import MOCK, kind_of
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
 
@@ -165,11 +167,12 @@ async def test_a_sat_mock_is_marked_and_becomes_mock_evidence(
     assert await process_one_job() is True  # marking
 
     async with async_session() as session:
+        mock = await session.get(Mock, mock_paper["id"])
         submission = await session.scalar(
-            select(Submission).where(Submission.mock_id == mock_paper["id"])
+            select(Submission).where(Submission.work_id == mock.work_id)
         )
         assert submission is not None
-        assert submission.assignment_id is None and submission.past_paper_id is None
+        assert kind_of(submission) is MOCK
         assert submission.status == SubmissionStatus.auto_finalized
         marks = (
             await session.scalars(
@@ -211,8 +214,9 @@ async def test_a_mock_with_no_mark_scheme_never_auto_finalizes(
     assert await process_one_job() is True
 
     async with async_session() as session:
+        mock = await session.get(Mock, created.json()["id"])
         submission = await session.scalar(
-            select(Submission).where(Submission.mock_id == created.json()["id"])
+            select(Submission).where(Submission.work_id == mock.work_id)
         )
         assert submission.status == SubmissionStatus.needs_review
         marks = (
@@ -238,15 +242,17 @@ async def test_a_typed_mock_answer_is_accepted_and_scanned(
     )
     assert resp.status_code == 201, resp.text
     async with async_session() as session:
+        mock = await session.get(Mock, mock_paper["id"])
         submission = await session.scalar(
-            select(Submission).where(Submission.mock_id == mock_paper["id"])
+            select(Submission).where(Submission.work_id == mock.work_id)
         )
         assert submission.typed_answer is not None
         assert submission.typed_flag_reason is not None
     assert await process_one_job() is True
     async with async_session() as session:
+        mock = await session.get(Mock, mock_paper["id"])
         submission = await session.scalar(
-            select(Submission).where(Submission.mock_id == mock_paper["id"])
+            select(Submission).where(Submission.work_id == mock.work_id)
         )
         # A flagged answer never auto-finalizes, whatever the model's confidence.
         assert submission.status == SubmissionStatus.needs_review
@@ -452,8 +458,9 @@ async def _sat_and_marked(client, tutor, student, subject, group, monkeypatch, f
     assert sat.status_code == 201, sat.text
     assert await process_one_job() is True
     async with async_session() as session:
+        mock = await session.get(Mock, created.json()["id"])
         submission = await session.scalar(
-            select(Submission).where(Submission.mock_id == created.json()["id"])
+            select(Submission).where(Submission.work_id == mock.work_id)
         )
         return created.json()["id"], submission.id
 
@@ -608,8 +615,9 @@ async def test_a_mock_can_be_resat_until_its_marks_have_counted(
     )
     assert again.status_code == 201, again.text
     async with async_session() as session:
+        mock = await session.get(Mock, mock_id)
         rows = (
-            await session.scalars(select(Submission).where(Submission.mock_id == mock_id))
+            await session.scalars(select(Submission).where(Submission.work_id == mock.work_id))
         ).all()
         assert len(rows) == 1 and rows[0].id == submission_id
         # The previous attempt's drafts went with it.
@@ -908,8 +916,9 @@ async def test_a_student_removed_from_the_class_mid_upload_cannot_finish_sitting
     # 404, not 403 — the mock's existence is not theirs to learn (`API-7`).
     assert resp.status_code == 404, resp.text
     async with async_session() as session:
+        mock = await session.get(Mock, mock_paper["id"])
         assert (
-            await session.scalar(select(Submission).where(Submission.mock_id == mock_paper["id"]))
+            await session.scalar(select(Submission).where(Submission.work_id == mock.work_id))
         ) is None
     # And the upload written before the lock is cleaned up. Asserting only the
     # rejection would pass while leaving a file on disk that nothing references

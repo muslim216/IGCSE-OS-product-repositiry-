@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
@@ -84,9 +84,11 @@ PUBLIC_STATUS: dict[SubmissionStatus, str] = {
 async def _tutor_owns(db, user: User, submission: Submission) -> bool:
     """Whether this tutor may act on a submission.
 
-    Submission is polymorphic, so every caller has to branch on which parent it
-    hangs off — reading `assignment_id` unconditionally hits None on a past
-    paper. This is the one place that branch lives.
+    Ownership means something different for each kind — a past paper belongs to
+    the organization, a mock to the tutor who set it, homework to whoever
+    teaches the class — so there is a branch, and this is the one place it
+    lives. Which branch comes from the parent row, so it can never disagree
+    with the parent the check then reads.
     """
     if user.role == UserRole.admin:
         return True
@@ -295,12 +297,15 @@ async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssign
             )
         ).all()
     }
+    # Submissions are found by the parent they answer, not by an assignment
+    # key they no longer carry (D6), so the rows have to be mapped back.
+    by_work = {a.work_id: a.id for a, _ in rows}
     submissions = {
-        s.assignment_id: s
+        by_work[s.work_id]: s
         for s in (
             await db.scalars(
                 select(Submission).where(
-                    Submission.assignment_id.in_(assignment_ids),
+                    Submission.work_id.in_(by_work),
                     Submission.student_id == user.id,
                 )
             )
@@ -384,17 +389,20 @@ async def _best_settled_totals(db, assignment_ids: list[int]) -> dict[int, tuple
     """
     if not assignment_ids:
         return {}
+    # The assignment comes from the join now rather than off the submission,
+    # which no longer names one (D6).
     per_submission = (
         select(
-            Submission.assignment_id.label("assignment_id"),
+            Assignment.id.label("assignment_id"),
             func.coalesce(func.sum(QuestionMark.final_marks), 0).label("total"),
         )
+        .join(Submission, Submission.work_id == Assignment.work_id)
         .join(QuestionMark, QuestionMark.submission_id == Submission.id)
         .where(
-            Submission.assignment_id.in_(assignment_ids),
+            Assignment.id.in_(assignment_ids),
             Submission.status.in_(SETTLED_STATUSES),
         )
-        .group_by(Submission.id, Submission.assignment_id)
+        .group_by(Submission.id, Assignment.id)
         .subquery()
     )
     return {
@@ -427,7 +435,7 @@ async def my_submission(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     submission = await db.scalar(
         select(Submission).where(
-            Submission.assignment_id == assignment_id, Submission.student_id == user.id
+            Submission.work_id == assignment.work_id, Submission.student_id == user.id
         )
     )
     return await _student_view(db, assignment, submission)
@@ -454,7 +462,7 @@ async def list_submissions(
         await db.execute(
             select(Submission, User)
             .join(User, User.id == Submission.student_id)
-            .where(Submission.assignment_id == assignment_id)
+            .where(Submission.work_id == assignment.work_id)
             .order_by(User.name)
         )
     ).all()
@@ -498,14 +506,21 @@ async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
     return dict(rows)
 
 
-async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
-    """One row per question, whatever the submission hangs off — the review UI
-    is the same for homework, a past paper and a mock."""
+async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
+    """One row per question, whatever kind of work it is — the review UI is the
+    same for homework, a past paper and a mock.
+
+    The parent is passed in rather than loaded here: every caller has already
+    loaded it, to decide whether this tutor may see the submission at all.
+    """
     open_remarks = await _open_remarks(db, submission.id)
     kind = kind_of(submission)
     question = kind.question_model
     link = getattr(QuestionMark, kind.mark_fk)
-    scope = getattr(question, kind.parent_fk) == getattr(submission, kind.parent_fk)
+    # `parent_fk` still names the question table's column; the submission side
+    # of it went with the three old keys (D6), so the value comes off the
+    # parent row this submission answers.
+    scope = getattr(question, kind.parent_fk) == parent.id
     rows = (
         await db.execute(
             select(question, QuestionMark)
@@ -613,20 +628,22 @@ async def submission_detail(
 ) -> SubmissionDetail:
     submission = await _tutor_submission(db, user, submission_id)
     student = await db.get(User, submission.student_id)
-    if submission.past_paper_id is not None:
-        paper = await db.get(PastPaper, submission.past_paper_id)
-        title = paper.display_title
-    elif submission.mock_id is not None:
-        mock = await db.get(Mock, submission.mock_id)
-        title = mock.title
+    # One parent load for both the title and the id. The response still names
+    # the kind-specific id the frontend routes on, so the contract is unchanged
+    # by D6 — only where the id is read from.
+    kind = kind_of(submission)
+    parent = await parent_of(db, submission)
+    if kind is PAST_PAPER:
+        title = parent.display_title
+    elif kind is MOCK:
+        title = parent.title
     else:
-        assignment = await db.get(Assignment, submission.assignment_id)
-        title = assignment.title
+        title = parent.title
     return SubmissionDetail(
         id=submission.id,
-        assignment_id=submission.assignment_id,
-        past_paper_id=submission.past_paper_id,
-        mock_id=submission.mock_id,
+        assignment_id=parent.id if kind is HOMEWORK else None,
+        past_paper_id=parent.id if kind is PAST_PAPER else None,
+        mock_id=parent.id if kind is MOCK else None,
         assignment_title=title,
         student_id=student.id,
         student_name=student.name,
@@ -648,7 +665,7 @@ async def submission_detail(
             if submission.typed_answer
             else None
         ),
-        marks=await _mark_rows(db, submission),
+        marks=await _mark_rows(db, submission, parent),
     )
 
 
@@ -697,12 +714,13 @@ async def save_marks(
         ).all()
     }
     # Homework, past papers and mocks keep their questions in three different
-    # tables; the tutor's review screen is the same for all of them. The parent
-    # column matches the arm's own foreign key on Submission, so the filter is
+    # tables; the tutor's review screen is the same for all of them. Which
+    # table, and which row in it, both come off the parent — so the filter is
     # derived rather than branched on.
     kind = kind_of(submission)
+    parent = await parent_of(db, submission)
     question_query = select(kind.question_model).where(
-        getattr(kind.question_model, kind.parent_fk) == getattr(submission, kind.parent_fk)
+        getattr(kind.question_model, kind.parent_fk) == parent.id
     )
     questions = {q.id: q for q in (await db.scalars(question_query)).all()}
     existing = {
@@ -761,17 +779,15 @@ async def save_marks(
 
 
 async def _subject_id(db, submission: Submission) -> int:
-    """The subject a submission's evidence belongs to, from either side of the
-    polymorphic split."""
-    if submission.past_paper_id is not None:
-        paper = await db.get(PastPaper, submission.past_paper_id)
-        return paper.subject_id
-    if submission.mock_id is not None:
-        mock = await db.get(Mock, submission.mock_id)
-        return mock.subject_id
-    assignment = await db.get(Assignment, submission.assignment_id)
-    group = await db.get(Group, assignment.group_id)
-    return group.subject_id
+    """The subject a submission's evidence belongs to.
+
+    One attribute now. This used to branch three ways and, for homework, walk
+    the assignment to its class to find the subject there — three round trips
+    and three chances to add a fourth kind in only two of them. The parent row
+    carries the subject for every kind (`SEC-8` scopes student-visible material
+    by organization *and* subject, so it had to).
+    """
+    return submission.work.subject_id
 
 
 async def _refresh_review_state(db, submission: Submission) -> None:
@@ -810,7 +826,7 @@ async def finalize_submission(
     submission = await _tutor_submission(db, user, submission_id)
     if submission.status == SubmissionStatus.finalized:
         raise HTTPException(status.HTTP_409_CONFLICT, "This submission is already finalized")
-    marks = await _mark_rows(db, submission)
+    marks = await _mark_rows(db, submission, await parent_of(db, submission))
     missing = [m.number for m in marks if m.final_marks is None]
     if missing:
         raise HTTPException(

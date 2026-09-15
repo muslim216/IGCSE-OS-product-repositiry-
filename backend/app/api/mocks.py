@@ -266,9 +266,11 @@ async def my_mocks(db: DbSession, user: StudentUser) -> list[MockOut]:
     # would otherwise take is a `/my-submission` request per mock, which is the
     # same N+1 a page further out.
     rows = await db.execute(
-        select(Submission.mock_id, Submission.status).where(
+        select(Mock.id, Submission.status)
+        .join(Submission, Submission.work_id == Mock.work_id)
+        .where(
             Submission.student_id == user.id,
-            Submission.mock_id.in_([m.id for m in mocks]),
+            Mock.id.in_([m.id for m in mocks]),
         )
     )
     mine = dict(rows.all())
@@ -323,7 +325,7 @@ async def assign_mock_group(
     group = await _owned_group(db, body.group_id, user)
     _group_teaches_subject(group, mock.subject_id)
     existing_submission = await db.scalar(
-        select(Submission.id).where(Submission.mock_id == mock.id).limit(1)
+        select(Submission.id).where(Submission.work_id == mock.work_id).limit(1)
     )
     if existing_submission is not None:
         raise HTTPException(
@@ -555,7 +557,9 @@ async def my_mock_submission(
 ) -> MockSubmissionOut | None:
     mock = await _visible_mock(db, user, mock_id)
     submission = await db.scalar(
-        select(Submission).where(Submission.mock_id == mock.id, Submission.student_id == user.id)
+        select(Submission).where(
+            Submission.work_id == mock.work_id, Submission.student_id == user.id
+        )
     )
     if submission is None:
         return None
