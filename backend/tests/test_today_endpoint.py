@@ -311,6 +311,52 @@ async def test_past_paper_review_counts_toward_the_workload(client, tutor, subje
     assert body["review_count"] == 1, "a past paper awaiting review must count as work"
 
 
+async def test_another_organizations_past_paper_is_neither_counted_nor_listed(
+    client, tutor, subject_id
+):
+    """The negative case for D4 (`QA-12`).
+
+    Both the count and the queue used to decide whose work this is by ORing
+    three organization columns — the assignment's group, the past paper, the
+    mock. Since D4 they read the one column on the parent row instead, so this
+    proves the new scoping still keeps a tutor out of another organization's
+    work, on the past-paper arm that has no group to be scoped by.
+    """
+    from app.models import Submission, SubmissionStatus
+
+    group = await _make_class(client, tutor, subject_id)
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
+        paper = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2025",
+            paper_number="1",
+        )
+        session.add(
+            Submission(
+                past_paper_id=paper.id,
+                student_id=student["id"],
+                status=SubmissionStatus.needs_review,
+                work_id=paper.work_id,
+            )
+        )
+        await session.commit()
+
+    # There is work to leak before an empty result proves anything.
+    assert (await client.get("/api/v1/today", headers=tutor["headers"])).json()["review_count"] == 1
+
+    other = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Other", "email": "other-org@example.com", "password": "password123"},
+    )
+    headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
+    assert (await client.get("/api/v1/today", headers=headers)).json()["review_count"] == 0
+    assert (await client.get("/api/v1/submissions/review-queue", headers=headers)).json() == []
+
+
 async def test_review_count_equals_what_the_review_queue_lists(client, tutor, subject_id):
     """The home's headline links straight to /submissions/review-queue, so the
     number and the page must describe the same work.

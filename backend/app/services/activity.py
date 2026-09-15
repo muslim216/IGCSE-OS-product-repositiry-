@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     SETTLED_STATUSES,
+    AssessableWork,
     Assignment,
-    Group,
     Mock,
     ParentLink,
     PastPaper,
@@ -60,17 +60,22 @@ def _polymorphic_submissions() -> Select:
 
 
 def tutor_scope(user: User) -> Select:
-    """Work awaiting review across this tutor's organization."""
+    """Work awaiting review across this tutor's organization.
+
+    Whose work it is comes off the parent row, which every submission has
+    exactly one of (D4). The three joins above stay because the feed names
+    each kind's own title; they no longer decide what the tutor can see. When
+    they did, the organization was ORed across three columns and a kind left
+    out of the OR disappeared from the feed with nothing raising.
+    """
     return (
         _polymorphic_submissions()
         .add_columns(User)
-        .outerjoin(Group, Group.id == Assignment.group_id)
+        .join(AssessableWork, AssessableWork.id == Submission.work_id)
         .join(User, User.id == Submission.student_id)
         .where(
             Submission.status.in_(AWAITING_REVIEW),
-            (Group.organization_id == user.organization_id)
-            | (PastPaper.organization_id == user.organization_id)
-            | (Mock.organization_id == user.organization_id),
+            AssessableWork.organization_id == user.organization_id,
         )
     )
 

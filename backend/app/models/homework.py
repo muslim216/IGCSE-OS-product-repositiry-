@@ -189,7 +189,11 @@ class Submission(TimestampMixin, Base):
     audit, remark requests and evidence-building all apply to every kind with
     no extra code. Resolve the arm with `kind_of()` in
     `services/submission_kind.py` — never read one of the three FKs
-    unconditionally (`API-20`)."""
+    unconditionally (`API-20`).
+
+    Since D4, whose work a submission is comes off `work_id`'s parent row, not
+    from whichever of the three arms happens to be set. Reach for one of the
+    three only when you need that kind's own columns."""
 
     __tablename__ = "submissions"
     __table_args__ = (

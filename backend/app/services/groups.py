@@ -9,12 +9,11 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
+    AssessableWork,
     Assignment,
     AssignmentStatus,
     Group,
     GroupMember,
-    Mock,
-    PastPaper,
     ScheduleSlot,
     Submission,
     SubmissionStatus,
@@ -51,17 +50,20 @@ def review_queue_predicate(organization_id: int):
     and the queue it linked to listed a different set — the count was built
     from AWAITING_REVIEW scoped by `Group.tutor_id`, so it counted AI drafts the
     queue never shows and dropped a colleague's homework the queue does show.
-    Both call sites already outer-join Assignment -> Group, PastPaper and Mock,
-    so this WHERE clause is the whole of the difference. A mock hangs off none
-    of the first two, so leaving it out of the OR does not raise — it silently
-    drops every mock from both the queue and the headline count, which is the
-    drift this shared definition exists to prevent.
+
+    Whose work it is now comes off the parent row (D4). Until this change the
+    organization was ORed across three columns — the assignment's group, the
+    past paper, the mock — and a kind left out of that OR did not raise, it
+    just vanished from the queue and the count. That is how the mock arm
+    shipped broken. Every submission has exactly one parent carrying one
+    `organization_id`, so a fourth kind of work is now scoped correctly by
+    existing without anyone editing this line. Both call sites join
+    `AssessableWork` on `Submission.work_id`, which is NOT NULL, so the join is
+    inner and drops nothing.
     """
     return (
         Submission.status == SubmissionStatus.needs_review,
-        (Group.organization_id == organization_id)
-        | (PastPaper.organization_id == organization_id)
-        | (Mock.organization_id == organization_id),
+        AssessableWork.organization_id == organization_id,
     )
 
 

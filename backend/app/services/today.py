@@ -15,12 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import (
-    Assignment,
+    AssessableWork,
     Group,
     GroupMember,
-    Mock,
     Organization,
-    PastPaper,
     ReadinessHistory,
     ScheduleSlot,
     Submission,
@@ -73,14 +71,15 @@ async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
     The predicate itself is review_queue's, shared rather than restated: this
     count is the headline the tutor clicks to reach that page, so any difference
     between them is visible as a wrong number (see review_queue_predicate).
+
+    Since D4 that predicate reads the parent row's one `organization_id`, so
+    counting needs the one join and none of the per-kind ones this used to
+    carry — and a kind nobody joined can no longer go missing from the count.
     """
     return (
         await db.scalar(
             select(func.count(Submission.id))
-            .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
-            .outerjoin(Group, Group.id == Assignment.group_id)
-            .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
-            .outerjoin(Mock, Mock.id == Submission.mock_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
             .where(*review_queue_predicate(organization_id))
         )
     ) or 0
