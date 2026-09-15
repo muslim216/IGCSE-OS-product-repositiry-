@@ -61,12 +61,11 @@ async def tutor_groups(db: AsyncSession, tutor_id: int) -> Sequence[Group]:
 async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
     """How many submissions the review queue would list for this tutor.
 
-    Submission is polymorphic: a homework submission has `assignment_id` set and
-    a past-paper submission has `past_paper_id` set instead (API-20). Counting
-    only through an inner join to Assignment — which is what
-    services/groups.summaries() does, correctly, for its *per-class* number —
-    silently drops every past paper, so the home could report a clear day while
-    past-paper work sat in the review queue.
+    Every kind of work counts here. Counting only through an inner join to
+    Assignment — which is what services/groups.summaries() does, correctly, for
+    its *per-class* number — silently drops every past paper and every mock, so
+    the home could report a clear day while that work sat in the review queue
+    (API-20).
 
     The predicate itself is review_queue's, shared rather than restated: this
     count is the headline the tutor clicks to reach that page, so any difference

@@ -301,7 +301,6 @@ async def _past_paper_awaiting_review(client, tutor, subject_id) -> None:
         )
         session.add(
             Submission(
-                past_paper_id=paper.id,
                 student_id=student["id"],
                 status=SubmissionStatus.needs_review,
                 work_id=paper.work_id,
@@ -349,11 +348,12 @@ async def test_the_queue_never_shows_a_title_from_a_different_piece_of_work(
     """The row's title and the organization that let the tutor see it have to
     come from the same work.
 
-    Nothing at the database level stops a submission's `past_paper_id` pointing
-    at one paper while its `work_id` points at another's parent. When the queue
-    joined the three kinds on their own keys, such a row was authorized as one
-    organization's work and rendered with the other's title. Joining every kind
-    through `work_id` makes that impossible rather than merely unlikely.
+    Before D6, nothing at the database level stopped a submission's
+    `past_paper_id` pointing at one paper while its `work_id` pointed at
+    another's parent. When the queue joined the three kinds on their own keys,
+    such a row was authorized as one organization's work and rendered with the
+    other's title. `past_paper_id` is gone now, so `work_id` is the only paper
+    a submission can name — this pins the queue to reading only that one.
     """
     from app.models import Submission, SubmissionStatus
 
@@ -377,10 +377,10 @@ async def test_the_queue_never_shows_a_title_from_a_different_piece_of_work(
         )
         theirs.title = "Somebody else's paper"
         session.add(
-            # Contradictory on purpose: the key says one paper, the parent says
-            # the other.
+            # `theirs` exists only so a title it carries could leak into the
+            # queue if the join went via the wrong key. It cannot any more:
+            # `work_id` is the only key, and it names `mine`.
             Submission(
-                past_paper_id=theirs.id,
                 work_id=mine.work_id,
                 student_id=student["id"],
                 status=SubmissionStatus.needs_review,
@@ -430,7 +430,6 @@ async def test_review_count_equals_what_the_review_queue_lists(client, tutor, su
         # Waiting on the tutor, and listed by the queue.
         session.add(
             Submission(
-                assignment_id=assignment.id,
                 student_id=waiting["id"],
                 status=SubmissionStatus.needs_review,
                 work_id=assignment.work_id,
@@ -439,7 +438,6 @@ async def test_review_count_equals_what_the_review_queue_lists(client, tutor, su
         # An AI draft is *not* in the queue — confidently marked work never is.
         session.add(
             Submission(
-                assignment_id=assignment.id,
                 student_id=drafted["id"],
                 status=SubmissionStatus.ai_marked,
                 work_id=assignment.work_id,

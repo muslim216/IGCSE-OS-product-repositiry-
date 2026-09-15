@@ -93,7 +93,7 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
 
     The three queries are what keeps `Submission`'s polymorphism honest
     (`API-20`): each joins through the identifier its own kind uses, so a
-    past-paper submission — whose assignment_id is None — is excluded from the
+    past-paper submission — which answers a different piece of work — is excluded from the
     homework query by the join itself rather than by reading a column that may
     be null. A subject reaches homework through the group it was set to, and
     past papers and mocks directly.
@@ -112,7 +112,7 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
             )
             .join(Submission, Submission.id == QuestionMark.submission_id)
             .join(AssignmentQuestion, AssignmentQuestion.id == QuestionMark.question_id)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Assignment, Assignment.work_id == Submission.work_id)
             .join(Group, Group.id == Assignment.group_id)
             .where(
                 Submission.student_id == student_id,
@@ -134,7 +134,7 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
                 PastPaperQuestion,
                 PastPaperQuestion.id == QuestionMark.past_paper_question_id,
             )
-            .join(PastPaper, PastPaper.id == Submission.past_paper_id)
+            .join(PastPaper, PastPaper.work_id == Submission.work_id)
             .where(
                 Submission.student_id == student_id,
                 Submission.status.in_(SETTLED_STATUSES),
@@ -152,7 +152,7 @@ async def fetch_marked_rows(db: AsyncSession, student_id: int, subject_id: int) 
             )
             .join(Submission, Submission.id == QuestionMark.submission_id)
             .join(MockQuestion, MockQuestion.id == QuestionMark.mock_question_id)
-            .join(Mock, Mock.id == Submission.mock_id)
+            .join(Mock, Mock.work_id == Submission.work_id)
             .where(
                 Submission.student_id == student_id,
                 Submission.status.in_(SETTLED_STATUSES),

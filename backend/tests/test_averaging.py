@@ -136,7 +136,6 @@ async def add_homework(world, marks, *, status=SubmissionStatus.finalized, title
         session.add(assignment)
         await session.flush()
         submission = Submission(
-            assignment_id=assignment.id,
             student_id=world["student_id"],
             status=status,
             work_id=assignment.work_id,
@@ -164,7 +163,8 @@ async def add_homework(world, marks, *, status=SubmissionStatus.finalized, title
 
 
 async def add_past_paper(world, marks, *, status=SubmissionStatus.finalized):
-    """The same, as a past paper: the submission's assignment_id stays None."""
+    """The same, as a past paper: the submission points at the paper's
+    `work_id`, not an assignment."""
     async with async_session() as session:
         paper = await make_past_paper(
             session,
@@ -174,7 +174,6 @@ async def add_past_paper(world, marks, *, status=SubmissionStatus.finalized):
             paper_number="1",
         )
         submission = Submission(
-            past_paper_id=paper.id,
             student_id=world["student_id"],
             status=status,
             work_id=paper.work_id,
@@ -230,8 +229,8 @@ async def test_auto_finalized_work_counts(client, tutor, world):
 
 
 async def test_past_paper_submission_contributes(client, tutor, world):
-    # assignment_id is None on this submission; it must still be found, and
-    # reading that column unconditionally would raise (API-20, PROD-9).
+    # This submission's parent is a PastPaper, found through work_id/kind_of,
+    # not an assignment; it must still be found (API-20, PROD-9).
     await add_past_paper(world, [(12, 20)])
     result = await averaging_for(world)
     assert result.score == 60.0

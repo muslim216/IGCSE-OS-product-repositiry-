@@ -50,7 +50,7 @@ from app.schemas.past_paper import (
 from app.services import storage
 from app.services.attempts import open_attempt
 from app.services.submission_kind import PAST_PAPER
-from app.services.work import create_work
+from app.services.work import create_work, parent_of
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
@@ -367,7 +367,7 @@ async def past_paper_mark_scheme(past_paper_id: int, db: DbSession, user: TutorU
 
 
 async def _attempt_out(db, submission: Submission) -> PastPaperAttemptOut:
-    paper = await db.get(PastPaper, submission.past_paper_id)
+    paper = await parent_of(db, submission)
     subject = await db.get(Subject, paper.subject_id)
     attempt = await db.scalar(
         select(PastPaperAttempt).where(
@@ -440,7 +440,7 @@ async def my_attempt(
     paper = await _visible_paper(db, user, past_paper_id)
     submission = await db.scalar(
         select(Submission).where(
-            Submission.past_paper_id == paper.id, Submission.student_id == user.id
+            Submission.work_id == paper.work_id, Submission.student_id == user.id
         )
     )
     return await _attempt_out(db, submission) if submission else None

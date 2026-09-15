@@ -77,7 +77,6 @@ async def test_a_past_paper_with_no_mark_scheme_does_not_claim_one(client, tutor
         )
         submission = Submission(
             student_id=world["student_id"],
-            past_paper_id=paper.id,
             attempted_at=date.today(),
             work_id=paper.work_id,
         )
@@ -138,9 +137,7 @@ async def test_a_mark_scheme_with_no_stored_mime_is_not_announced(client, tutor,
                 max_marks=5,
             )
         )
-        submission = Submission(
-            student_id=world["student_id"], assignment_id=assignment.id, work_id=assignment.work_id
-        )
+        submission = Submission(student_id=world["student_id"], work_id=assignment.work_id)
         session.add(submission)
         await session.commit()
         submission_id = submission.id
@@ -197,7 +194,6 @@ async def test_an_unattached_scheme_never_auto_finalizes_however_confident(
         )
         submission = Submission(
             student_id=world["student_id"],
-            past_paper_id=paper.id,
             attempted_at=date.today(),
             work_id=paper.work_id,
         )

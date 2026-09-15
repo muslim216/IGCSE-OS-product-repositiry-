@@ -131,7 +131,7 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
         for row in (
             await session.execute(
                 select(Assignment.group_id, func.count(Submission.id))
-                .join(Assignment, Assignment.id == Submission.assignment_id)
+                .join(Assignment, Assignment.work_id == Submission.work_id)
                 .where(
                     Assignment.group_id.in_(group_ids),
                     Submission.status.in_(AWAITING_REVIEW),

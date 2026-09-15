@@ -4,7 +4,6 @@ from sqlalchemy.orm import selectinload
 
 from app.db import async_session
 from app.models import (
-    Assignment,
     AssignmentQuestion,
     Group,
     MarkConfidence,
@@ -13,6 +12,7 @@ from app.models import (
     SubmissionFile,
 )
 from app.services.marking import _run_marking
+from app.services.work import parent_of
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES, fake_extraction
 
@@ -23,11 +23,10 @@ async def fake_marking(session, submission):
     pipeline would leave it in (auto-finalized vs review queue)."""
     from app.services.marking import _settle_submission
 
+    assignment = await parent_of(session, submission)
     questions = (
         await session.scalars(
-            select(AssignmentQuestion).where(
-                AssignmentQuestion.assignment_id == submission.assignment_id
-            )
+            select(AssignmentQuestion).where(AssignmentQuestion.assignment_id == assignment.id)
         )
     ).all()
     for q in questions:
@@ -46,7 +45,6 @@ async def fake_marking(session, submission):
             mark.needs_review = True
         session.add(mark)
 
-    assignment = await session.get(Assignment, submission.assignment_id)
     group = await session.get(Group, assignment.group_id)
     await _settle_submission(session, submission, group.subject_id)
 

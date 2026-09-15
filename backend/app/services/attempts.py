@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import SETTLED_STATUSES, Submission, SubmissionStatus
+from app.models import SETTLED_STATUSES, AssessableWork, Submission, SubmissionStatus
 from app.services.submission_kind import SubmissionKind
 
 
@@ -36,10 +36,17 @@ async def open_attempt(
     and every AI draft against them are deleted, which is what keeps
     `mark_submission` idempotent on a re-run (`BE-6`).
     """
+    # The parent is loaded first because its `work_id` is what identifies the
+    # attempt — a submission says which piece of work it answers and nothing
+    # else (D6).
+    parent = await session.get(kind.parent_model, parent_id)
+    if parent is None:
+        raise ValueError(f"no {kind.name} with id {parent_id}")
+
     submission = await session.scalar(
         select(Submission)
         .where(
-            getattr(Submission, kind.parent_fk) == parent_id,
+            Submission.work_id == parent.work_id,
             Submission.student_id == student_id,
         )
         .options(selectinload(Submission.files), selectinload(Submission.marks))
@@ -48,14 +55,13 @@ async def open_attempt(
         return submission, True
 
     if submission is None:
-        # The parent's `work_id`, not a fresh one: a submission answers a piece
-        # of work that already exists, so it joins that parent rather than
-        # creating a second identity for the same paper.
-        parent = await session.get(kind.parent_model, parent_id)
-        if parent is None:
-            raise ValueError(f"no {kind.name} with id {parent_id}")
-        submission = Submission(student_id=student_id, work_id=parent.work_id)
-        setattr(submission, kind.parent_fk, parent_id)
+        # The parent row is attached, not just its id. `Submission.work` is
+        # eagerly loaded, but eager loading only fills a row read back from the
+        # database — a submission built here and handed straight to the caller
+        # would have nothing there, and the first reader to ask what kind of
+        # work it is would raise `MissingGreenlet` instead of answering.
+        work = await session.get(AssessableWork, parent.work_id)
+        submission = Submission(student_id=student_id, work=work)
         session.add(submission)
         await session.flush()
         return submission, False

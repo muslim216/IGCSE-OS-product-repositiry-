@@ -1,44 +1,48 @@
 """What kind of thing a `Submission` is, in one place.
 
-`Submission` is polymorphic (`API-20`): exactly one of `assignment_id`,
-`past_paper_id` and `mock_id` is set. Four call sites need the same four
-answers off the back of that discriminator — which question table the marks
-hang off, which topic-tag table, which `QuestionMark` column points at the
-question, and which `EvidenceSource` the finalized marks become.
+A submission answers one piece of work, named by `work_id`, and the parent row
+says which kind of work that is. Four call sites need the same four answers off
+the back of it — which question table the marks hang off, which topic-tag
+table, which `QuestionMark` column points at the question, and which
+`EvidenceSource` the finalized marks become. The branch is written once here
+and the answers travel as data.
 
-Before task 3.4 each site rewrote the test as `past_paper_id is not None` and
-picked its own answers inline. Two arms fit in an `if`/`else`; three do not,
-and four copies of a three-way branch is four chances to add the next arm in
-three places. So the branch is written once here and the answers travel as
-data.
+How it used to be, because the shape of the code still carries the scars: a
+submission held three nullable foreign keys — `assignment_id`, `past_paper_id`,
+`mock_id` — with exactly one set, and every reader worked the kind out from
+whichever was filled in. Each site started by writing that test itself, as
+`past_paper_id is not None`. Two arms fit in an `if`/`else`; three did not, and
+four copies of a three-way branch were four chances to add the next arm in only
+three of them. Worse, the chain ended in homework as the leftover, so an arm
+nobody added came back as homework with nothing raising.
 
-What this does NOT cover, and the honest cost of a fourth kind: `kind_of` takes
-a loaded `Submission`, so it answers "I hold one row — which tables?" and says
-nothing about "select submissions of every kind". Queries that span kinds used
-to hand-join all three arms and OR three `organization_id` columns —
-`review_queue` and `review_queue_predicate`, `today.pending_review_count`,
-`activity.tutor_scope`. An arm left out of one of those ORs did not raise; it
-silently vanished from that queue, count or feed, which is how the third arm
+The cross-kind queries had the matching problem and it was the expensive one.
+`review_queue` and `review_queue_predicate`, `today.pending_review_count` and
+`activity.tutor_scope` each joined all three arms and ORed three
+`organization_id` columns. An arm missing from one of those ORs did not fail —
+it silently vanished from that queue, count or feed. That is how the third arm
 shipped broken in five places at once.
 
-**D4 closed the scoping half of that.** Every submission carries `work_id`
-(D3), the parent row's `organization_id` is the one answer to whose work it is,
-and those four sites now filter on it. A fourth kind of work is scoped
-correctly by existing, with nobody editing an OR. What is still per-arm is
-*display*: `activity._polymorphic_submissions` and the review queue still
-left-join all three to read each kind's own title, and `_work_title` still
-branches. That branch does not fail loudly either — a kind it does not know
-renders as the word "Work", and a past paper with no extracted title renders as
-"Untitled paper". Wrong, but wrong in front of a tutor rather than silently in
-a scope, which is why it is the half that could wait. D5 is where the remaining
-per-kind readers move.
+`assessable_work` (migrations `0046`–`0049`) is what closed it. Whose work it
+is comes from the parent's one `organization_id` (D4); what kind it is comes
+from the parent's `kind` (D5); and the three old keys are gone (D6), so there
+is no second answer to disagree with. A fourth kind of work needs a `WorkKind`
+member, an arm here, and nothing else — no column on `submissions`, no edit to
+any cross-kind query.
+
+What is still per-kind is *display*: `activity._polymorphic_submissions` and
+the review queue left-join all three to read each kind's own title, and
+`_work_title` branches. That branch does not fail loudly — a kind it does not
+know renders as the word "Work", and a past paper with no extracted title as
+"Untitled paper". Wrong in front of a tutor rather than silently inside a
+scope, which is why it is what remains.
 
 The arm-to-parent mapping is deliberately NOT here. The D2 backfill is a
 migration, and no migration in this repo imports app code (`DB-15`) — it
 spells the three arms out in literal SQL. This module gains a field when a
-service-layer reader actually needs one, not before — `parent_model` is here
-because D3's `open_attempt` needs to read a parent's `work_id`, and was
-deliberately absent until then.
+service-layer reader actually needs one, not before — `parent_model` was
+deliberately absent until D3's `open_attempt` needed to read a parent's
+`work_id`.
 
 Pure by `BE-4`: model classes and strings in, no session, no I/O.
 """
@@ -83,20 +87,22 @@ class SubmissionKind:
     topic_model: type[Any]
     #: The `QuestionMark` column that points at `question_model`.
     mark_fk: str
-    #: The column naming this arm's parent. Deliberately one name for two
-    #: columns: `Submission.<parent_fk>` and `question_model.<parent_fk>` are
-    #: always spelt the same, so one string filters a question list by the
-    #: submission that owns it.
+    #: The column on `question_model` naming this arm's parent — the one
+    #: string that filters a question list to the piece of work it belongs to.
+    #: It named a `Submission` column of the same spelling too, until D6 took
+    #: the three old keys off submissions; the value it is compared against now
+    #: comes from the parent row (`services/work.parent_of`).
     parent_fk: str
     #: What finalized marks from this kind weigh as in readiness. A mock counts
     #: as a mock whether the tutor typed the score in or the AI marked the
     #: paper — the weight follows the exam, not the marking channel.
     evidence_source: EvidenceSource
     #: The model holding this arm's parent row — `Assignment`, `PastPaper` or
-    #: `Mock`. `open_attempt` loads it by `parent_fk` to copy its `work_id` onto
-    #: the new submission, which is the one thing it needs that the strings
-    #: above cannot give it. `type[Any]` for the same reason as
-    #: `question_model`: the three already agree on the shape used here.
+    #: `Mock`. `open_attempt` loads it to read its `work_id`, and
+    #: `services/work.parent_of` loads it back again from that `work_id` —
+    #: which is the whole of how a submission and its paper find each other
+    #: since D6. `type[Any]` for the same reason as `question_model`: the three
+    #: already agree on the shape used here.
     parent_model: type[Any]
 
 

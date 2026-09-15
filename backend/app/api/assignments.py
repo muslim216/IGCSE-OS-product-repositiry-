@@ -242,7 +242,7 @@ async def list_group_assignments(
         ).one()
         submission_count = (
             await db.scalar(
-                select(func.count(Submission.id)).where(Submission.assignment_id == a.id)
+                select(func.count(Submission.id)).where(Submission.work_id == a.work_id)
             )
         ) or 0
         out.append(
@@ -294,7 +294,7 @@ async def assignments_needing_attention(
     rows = (
         await db.execute(
             select(Submission, Assignment, User)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Assignment, Assignment.work_id == Submission.work_id)
             .join(User, User.id == Submission.student_id)
             .where(
                 Assignment.group_id.in_(tutor_groups),
@@ -369,7 +369,7 @@ async def replace_questions(
     # invariant is marked work: once a student has submitted, QuestionMark rows
     # may reference these questions and the list must not change under them.
     submitted = await db.scalar(
-        select(func.count(Submission.id)).where(Submission.assignment_id == assignment.id)
+        select(func.count(Submission.id)).where(Submission.work_id == assignment.work_id)
     )
     if submitted:
         raise HTTPException(

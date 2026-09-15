@@ -53,12 +53,11 @@ async def create_work(
 async def parent_of(session: AsyncSession, submission: Submission) -> Any:
     """The `Assignment`, `PastPaper` or `Mock` a submission answers.
 
-    Found through `work_id`, not through the old per-kind key. Both are written
-    until D6 and nothing at the database level forces them to agree, so a
-    contradictory row would otherwise be dispatched as one kind by `kind_of` —
-    which reads the parent — and loaded as another by whoever read the key,
-    landing marks on the wrong paper. One source, so there is nothing to
-    disagree with. Each child's `work_id` is unique, so this matches one row.
+    Found through `work_id`, which since D6 is the only thing a submission says
+    about the work it answers. `kind_of` picks the table off the same parent
+    row, so the kind a submission is dispatched as and the paper its marks are
+    written against cannot name two different things. Each child's `work_id` is
+    unique, so this matches one row.
     """
     kind = kind_of(submission)
     return await session.scalar(

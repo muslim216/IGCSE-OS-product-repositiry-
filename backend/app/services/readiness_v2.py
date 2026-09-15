@@ -153,7 +153,7 @@ async def _homework_assignment_rows(session: AsyncSession, student_id: int, subj
             .join(GroupMember, GroupMember.group_id == Group.id)
             .outerjoin(
                 Submission,
-                (Submission.assignment_id == Assignment.id) & (Submission.student_id == student_id),
+                (Submission.work_id == Assignment.work_id) & (Submission.student_id == student_id),
             )
             .where(
                 GroupMember.student_id == student_id,
@@ -279,7 +279,7 @@ async def _mistake_points_and_total(
         await session.scalar(
             select(func.count(QuestionMark.id))
             .join(Submission, Submission.id == QuestionMark.submission_id)
-            .join(Assignment, Assignment.id == Submission.assignment_id)
+            .join(Assignment, Assignment.work_id == Submission.work_id)
             .join(Group, Group.id == Assignment.group_id)
             .where(
                 Submission.student_id == student_id,
@@ -294,7 +294,7 @@ async def _mistake_points_and_total(
                 select(Mistake)
                 .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
                 .join(Submission, Submission.id == QuestionMark.submission_id)
-                .join(Assignment, Assignment.id == Submission.assignment_id)
+                .join(Assignment, Assignment.work_id == Submission.work_id)
                 .join(Group, Group.id == Assignment.group_id)
                 .where(Mistake.student_id == student_id, Group.subject_id == subject_id)
             )

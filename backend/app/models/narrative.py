@@ -21,10 +21,10 @@ class Narrative(Base):
     a regeneration never blanks the previous text mid-flight (UX-21).
 
     `group_id` and `student_id` are two nullable FKs selected by `audience` —
-    structurally identical to Submission.assignment_id/past_paper_id, which
-    API-20 exists to guard because reading the wrong one raises *inside* an
-    authorization check and would attach a paragraph about one child to another
-    child's parent. So no caller reads either FK directly: they go through
+    the same shape `submissions` carried until D6 collapsed its three onto one
+    `work_id`, and `API-20` exists to guard it because reading the wrong one
+    raises *inside* an authorization check and would attach a paragraph about
+    one child to another child's parent. So no caller reads either FK directly: they go through
     `target_id` below, the one place the audience/FK pairing is enforced.
 
     No `reviewed_at` and no `suppressed` column — there is no review step (D2).
