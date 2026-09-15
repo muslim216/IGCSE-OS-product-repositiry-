@@ -14,23 +14,31 @@ data.
 
 What this does NOT cover, and the honest cost of a fourth kind: `kind_of` takes
 a loaded `Submission`, so it answers "I hold one row — which tables?" and says
-nothing about "select submissions of every kind". Queries that span kinds still
-hand-join all three arms and OR three `organization_id` columns —
+nothing about "select submissions of every kind". Queries that span kinds used
+to hand-join all three arms and OR three `organization_id` columns —
 `review_queue` and `review_queue_predicate`, `today.pending_review_count`,
-`activity._polymorphic_submissions` and `activity.tutor_scope`. Those, plus a
-marking source builder and the title branches, are what a fourth arm actually
-costs. Only the builder fails loudly; the rest fail silently, which is how the
-third arm shipped broken in five places at once.
+`activity.tutor_scope`. An arm left out of one of those ORs did not raise; it
+silently vanished from that queue, count or feed, which is how the third arm
+shipped broken in five places at once.
 
-The `assessable_work` parent table (migration 0046) is where that gap gets
-closed: once every piece of work has a parent row, those five sites filter one
-`organization_id` on the parent instead of ORing three. The arm-to-parent
-mapping is deliberately NOT here. The D2 backfill is a migration, and no
-migration in this repo imports app code (`DB-15`) — it spells the three arms
-out in literal SQL. This module gains a field when a service-layer reader
-actually needs one, not before — `parent_model` is here because D3's
-`open_attempt` needs to read a parent's `work_id`, and was deliberately absent
-until then.
+**D4 closed the scoping half of that.** Every submission carries `work_id`
+(D3), the parent row's `organization_id` is the one answer to whose work it is,
+and those four sites now filter on it. A fourth kind of work is scoped
+correctly by existing, with nobody editing an OR. What is still per-arm is
+*display*: `activity._polymorphic_submissions` and the review queue still
+left-join all three to read each kind's own title, and `_work_title` still
+branches. That branch does not fail loudly either — a kind it does not know
+renders as the word "Work", and a past paper with no extracted title renders as
+"Untitled paper". Wrong, but wrong in front of a tutor rather than silently in
+a scope, which is why it is the half that could wait. D5 is where the remaining
+per-kind readers move.
+
+The arm-to-parent mapping is deliberately NOT here. The D2 backfill is a
+migration, and no migration in this repo imports app code (`DB-15`) — it
+spells the three arms out in literal SQL. This module gains a field when a
+service-layer reader actually needs one, not before — `parent_model` is here
+because D3's `open_attempt` needs to read a parent's `work_id`, and was
+deliberately absent until then.
 
 Pure by `BE-4`: model classes and strings in, no session, no I/O.
 """

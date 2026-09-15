@@ -16,6 +16,7 @@ from app.api.deps import (
 from app.api.file_responses import FILE_RESPONSES, proxied_file
 from app.models import (
     SETTLED_STATUSES,
+    AssessableWork,
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
@@ -543,17 +544,25 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
     the AI was unsure about, or with a student's remark request open. This is
     the whole of the tutor's marking workload — confidently marked work never
     appears here."""
-    # Left-joined three ways: a submission belongs to an assignment (homework),
-    # a past paper or a mock, never more than one, and the queue covers all
-    # three. A mock with no mark scheme never auto-finalizes (`AI-11`), so every
-    # one of them arrives here — missing this join took the whole queue down.
+    # Still left-joined three ways, because the queue shows each kind's own
+    # title and due date. Whose work it is no longer comes from these joins
+    # though — the parent row carries that, and the join to it is inner because
+    # every submission has one (D4). A mock with no mark scheme never
+    # auto-finalizes (`AI-11`), so every one of them arrives here.
+    #
+    # The three joins go through `work_id` rather than each kind's own key, so
+    # the title on a row and the organization that let the tutor see it come
+    # from the same piece of work. Joining on the old keys let those be two
+    # different rows if a submission's key and its parent ever disagreed:
+    # authorized as one organization's work, displayed as another's. Each
+    # child's `work_id` is unique, so this still matches at most one.
     rows = (
         await db.execute(
             select(Submission, Assignment, PastPaper, Mock, User)
-            .outerjoin(Assignment, Assignment.id == Submission.assignment_id)
-            .outerjoin(Group, Group.id == Assignment.group_id)
-            .outerjoin(PastPaper, PastPaper.id == Submission.past_paper_id)
-            .outerjoin(Mock, Mock.id == Submission.mock_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
+            .outerjoin(Assignment, Assignment.work_id == Submission.work_id)
+            .outerjoin(PastPaper, PastPaper.work_id == Submission.work_id)
+            .outerjoin(Mock, Mock.work_id == Submission.work_id)
             .join(User, User.id == Submission.student_id)
             # Shared with the home's headline count, which links here — see
             # services/groups.review_queue_predicate.

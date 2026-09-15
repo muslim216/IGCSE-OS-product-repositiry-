@@ -279,15 +279,17 @@ async def test_lessons_use_the_org_timezone(client, tutor, subject_id):
     assert body["lessons"][0]["weekday"] == weekday
 
 
-async def test_past_paper_review_counts_toward_the_workload(client, tutor, subject_id):
-    """The count drives the Mark link and NEEDS YOU. Submission is polymorphic,
-    so counting only through Assignment silently drops every past paper and the
-    home can report a clear day while past-paper work waits (API-20)."""
+async def _past_paper_awaiting_review(client, tutor, subject_id) -> None:
+    """One past-paper submission sitting in this tutor's review queue.
+
+    A past paper has no class, so it is the arm that neither the count nor the
+    queue can reach through `Group` — which is why both the counting test and
+    the cross-organization one build exactly this.
+    """
     from app.models import Submission, SubmissionStatus
 
     group = await _make_class(client, tutor, subject_id)
     student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
-
     async with async_session() as session:
         org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
         paper = await make_past_paper(
@@ -307,8 +309,88 @@ async def test_past_paper_review_counts_toward_the_workload(client, tutor, subje
         )
         await session.commit()
 
+
+async def test_past_paper_review_counts_toward_the_workload(client, tutor, subject_id):
+    """The count drives the Mark link and NEEDS YOU. Submission is polymorphic,
+    so counting only through Assignment silently drops every past paper and the
+    home can report a clear day while past-paper work waits (API-20)."""
+    await _past_paper_awaiting_review(client, tutor, subject_id)
     body = (await client.get("/api/v1/today", headers=tutor["headers"])).json()
     assert body["review_count"] == 1, "a past paper awaiting review must count as work"
+
+
+async def test_another_organizations_past_paper_is_neither_counted_nor_listed(
+    client, tutor, subject_id
+):
+    """The negative case for D4 (`QA-12`).
+
+    Both the count and the queue used to decide whose work this is by ORing
+    three organization columns — the assignment's class, the past paper, the
+    mock. Since D4 they read the one column on the parent row instead, so this
+    proves the new scoping still keeps a tutor out of another organization's
+    work, on the arm that has no class to be scoped by.
+    """
+    await _past_paper_awaiting_review(client, tutor, subject_id)
+    # There is work to leak before an empty result proves anything.
+    assert (await client.get("/api/v1/today", headers=tutor["headers"])).json()["review_count"] == 1
+
+    other = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Other", "email": "other-org@example.com", "password": "password123"},
+    )
+    headers = {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
+    assert (await client.get("/api/v1/today", headers=headers)).json()["review_count"] == 0
+    assert (await client.get("/api/v1/submissions/review-queue", headers=headers)).json() == []
+
+
+async def test_the_queue_never_shows_a_title_from_a_different_piece_of_work(
+    client, tutor, subject_id
+):
+    """The row's title and the organization that let the tutor see it have to
+    come from the same work.
+
+    Nothing at the database level stops a submission's `past_paper_id` pointing
+    at one paper while its `work_id` points at another's parent. When the queue
+    joined the three kinds on their own keys, such a row was authorized as one
+    organization's work and rendered with the other's title. Joining every kind
+    through `work_id` makes that impossible rather than merely unlikely.
+    """
+    from app.models import Submission, SubmissionStatus
+
+    group = await _make_class(client, tutor, subject_id)
+    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
+    async with async_session() as session:
+        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
+        mine = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2025",
+            paper_number="1",
+        )
+        theirs = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="June 2024",
+            paper_number="2",
+        )
+        theirs.title = "Somebody else's paper"
+        session.add(
+            # Contradictory on purpose: the key says one paper, the parent says
+            # the other.
+            Submission(
+                past_paper_id=theirs.id,
+                work_id=mine.work_id,
+                student_id=student["id"],
+                status=SubmissionStatus.needs_review,
+            )
+        )
+        await session.commit()
+
+    queue = (await client.get("/api/v1/submissions/review-queue", headers=tutor["headers"])).json()
+    assert len(queue) == 1
+    assert "Somebody else's paper" not in str(queue[0])
 
 
 async def test_review_count_equals_what_the_review_queue_lists(client, tutor, subject_id):
