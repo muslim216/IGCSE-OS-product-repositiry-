@@ -12,9 +12,35 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
-from app.models import AssessableWork, Assignment, Group, WorkKind
+from app.models import AssessableWork, Assignment, Group, User, UserRole, WorkKind
 from app.services.work import create_work
-from tests.factories import make_subject, org_id
+from tests.factories import make_subject
+
+
+async def _tutor_and_group(session, *, email: str) -> Group:
+    """A real `User` row, not `tutor_id=1`. The suite runs on SQLite with
+    foreign keys off, so a dangling id passes here and fails on Postgres —
+    `RISK-3`, the failure that has actually happened in this repository
+    (cubic, on the D2 PR)."""
+    subject = await make_subject(session)
+    tutor = User(
+        organization_id=subject.organization_id,
+        email=email,
+        name="Work Tutor",
+        password_hash="x",
+        role=UserRole.tutor,
+    )
+    session.add(tutor)
+    await session.flush()
+    group = Group(
+        organization_id=subject.organization_id,
+        tutor_id=tutor.id,
+        subject_id=subject.id,
+        name="Y11",
+    )
+    session.add(group)
+    await session.flush()
+    return group
 
 
 async def test_create_work_copies_the_tenant_and_the_subject() -> None:
@@ -58,16 +84,7 @@ async def test_a_piece_of_work_cannot_exist_without_a_parent() -> None:
     forgets the parent fails loudly here instead of writing a row the
     cross-kind queries cannot see."""
     async with async_session() as session:
-        organization_id = await org_id(session)
-        subject = await make_subject(session)
-        group = Group(
-            organization_id=organization_id,
-            tutor_id=1,
-            subject_id=subject.id,
-            name="Y11",
-        )
-        session.add(group)
-        await session.flush()
+        group = await _tutor_and_group(session, email="no-parent@example.com")
 
         session.add(Assignment(group_id=group.id, title="No parent"))
         with pytest.raises(IntegrityError):
@@ -77,18 +94,12 @@ async def test_a_piece_of_work_cannot_exist_without_a_parent() -> None:
 async def test_two_pieces_of_work_cannot_share_one_parent() -> None:
     """`work_id` is unique per table, so a parent adopted twice is refused."""
     async with async_session() as session:
-        organization_id = await org_id(session)
-        subject = await make_subject(session)
-        group = Group(
-            organization_id=organization_id, tutor_id=1, subject_id=subject.id, name="Y11"
-        )
-        session.add(group)
-        await session.flush()
+        group = await _tutor_and_group(session, email="shared-parent@example.com")
         work = await create_work(
             session,
             kind=WorkKind.homework,
-            organization_id=organization_id,
-            subject_id=subject.id,
+            organization_id=group.organization_id,
+            subject_id=group.subject_id,
             title="HW1",
         )
         session.add(Assignment(work_id=work.id, group_id=group.id, title="First"))
@@ -115,7 +126,8 @@ async def test_every_assignment_created_through_the_api_gets_a_parent(client, tu
         assert assignment is not None
         work = await session.get(AssessableWork, assignment.work_id)
         group_row = await session.get(Group, assignment.group_id)
-        assert work is not None and group_row is not None
+        assert work is not None
+        assert group_row is not None
         assert work.kind is WorkKind.homework
         assert work.organization_id == group_row.organization_id
         assert work.subject_id == group_row.subject_id

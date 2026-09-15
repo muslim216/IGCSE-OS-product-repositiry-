@@ -10,7 +10,7 @@ in five places at once. These tests pin the behaviour so a reordering, or a
 "tidy-up" that turns the fallback into an error, fails here instead.
 """
 
-from app.models import EvidenceSource, Submission, WorkKind
+from app.models import EvidenceSource, QuestionMark, Submission, WorkKind
 from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, kind_of
 
 
@@ -26,14 +26,32 @@ def test_a_submission_with_no_key_is_homework() -> None:
     assert kind_of(Submission()) is HOMEWORK
 
 
-def test_the_three_arms_stay_distinct() -> None:
-    """Each arm must name its own question table, its own QuestionMark column
-    and its own evidence weight — two arms sharing any of them means one kind's
-    marks land on another kind's questions."""
-    arms = (HOMEWORK, PAST_PAPER, MOCK)
-    for field in ("question_model", "topic_model", "mark_fk", "parent_fk", "evidence_source"):
-        values = [getattr(arm, field) for arm in arms]
-        assert len(set(values)) == 3, f"two arms share {field}: {values}"
+def test_each_arm_points_at_its_own_real_columns() -> None:
+    """Distinctness alone would pass with two arms swapped, which is exactly the
+    "one kind's marks land on another kind's questions" bug. So check each arm
+    against the schema: its `mark_fk` must be a real `QuestionMark` column whose
+    foreign key targets that arm's own question table, and its `parent_fk` a
+    real `Submission` column."""
+    for arm in (HOMEWORK, PAST_PAPER, MOCK):
+        mark_column = QuestionMark.__table__.columns[arm.mark_fk]
+        targets = {fk.column.table.name for fk in mark_column.foreign_keys}
+        assert targets == {arm.question_model.__tablename__}, (
+            f"{arm.name}: mark_fk {arm.mark_fk} points at {targets}, "
+            f"not {arm.question_model.__tablename__}"
+        )
+        # `parent_fk` is deliberately one name for two columns — the docstring
+        # says `Submission.<parent_fk>` and `question_model.<parent_fk>` are
+        # always spelt the same, and a question list is filtered by that. Check
+        # both exist and point at the same table, or that filter silently
+        # returns another kind's questions.
+        submission_fk = Submission.__table__.columns[arm.parent_fk]
+        question_fk = arm.question_model.__table__.columns[arm.parent_fk]
+        parents = {fk.column.table.name for fk in submission_fk.foreign_keys}
+        assert parents == {fk.column.table.name for fk in question_fk.foreign_keys}, (
+            f"{arm.name}: {arm.parent_fk} means a different table on each side"
+        )
+        # The evidence builder queries every topic table by this one name.
+        assert "question_id" in arm.topic_model.__table__.columns
 
 
 def test_every_evidence_source_for_marked_work_has_an_arm() -> None:

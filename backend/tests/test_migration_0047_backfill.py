@@ -44,10 +44,15 @@ def test_existing_work_is_adopted_and_the_pointer_becomes_required(tmp_path) -> 
         INSERT INTO organizations (id, name, created_at) VALUES (1, 'Org', '2026-01-01 00:00:00');
         INSERT INTO subjects (id, organization_id, exam_board, code, name, level, grade_scale)
             VALUES (1, 1, 'Edexcel IGCSE', '4CH1', 'Chemistry', 'igcse', '9-1');
+        -- A second subject, so the group's subject is NOT the same number as
+        -- everything else in this fixture. Without it an assertion of `1` would
+        -- pass even if the backfill read the subject from the wrong place.
+        INSERT INTO subjects (id, organization_id, exam_board, code, name, level, grade_scale)
+            VALUES (2, 1, 'Edexcel IGCSE', '4PH1', 'Physics', 'igcse', '9-1');
         INSERT INTO users (id, organization_id, name, role, password_hash, token_version, created_at)
             VALUES (1, 1, 'T', 'tutor', 'x', 0, '2026-01-01 00:00:00');
         INSERT INTO groups (id, organization_id, tutor_id, subject_id, name, created_at)
-            VALUES (1, 1, 1, 1, 'Y11', '2026-01-01 00:00:00');
+            VALUES (1, 1, 1, 2, 'Y11', '2026-01-01 00:00:00');
         INSERT INTO assignments (id, group_id, title, status, created_at)
             VALUES (1, 1, 'Old homework', 'published', '2026-01-01 00:00:00');
         INSERT INTO booklets (id, organization_id, subject_id, status, created_at)
@@ -72,7 +77,9 @@ def test_existing_work_is_adopted_and_the_pointer_becomes_required(tmp_path) -> 
         SELECT w.organization_id, w.subject_id, w.title
         FROM assignments a JOIN assessable_work w ON w.id = a.work_id
     """).fetchone()
-    assert (org, subject, title) == (1, 1, "Old homework")
+    # subject 2 is the group's, and the assignment has no subject of its own —
+    # so this can only pass if the backfill really read the Group.
+    assert (org, subject, title) == (1, 2, "Old homework")
 
     # A past paper is unnamed until extraction runs; the parent says so too.
     assert (
