@@ -153,11 +153,12 @@ def kind_of(submission: Submission) -> SubmissionKind:
     could not give (`PROD-1`). `Submission.work` is eagerly loaded, so this
     stays a plain attribute read with no session (`BE-4`).
 
-    One edge to know about: eager loading happens when a submission is read
-    back from the database, not when one is constructed in Python. Calling this
-    on a submission you have only just built and flushed raises
-    `MissingGreenlet` rather than answering. No caller does — every one of them
-    loads the submission first — but re-read it if you write one that does not.
+    One edge to know about: the eager load fills `work` when a submission is
+    read back from the database. A submission built in Python with `work_id`
+    alone has nothing there yet, and reading it under async raises
+    `MissingGreenlet` rather than answering. Building it with `work=<the parent
+    row>` is fine, and so is re-reading the submission — which is what every
+    caller here does.
     """
     arm = _BY_WORK_KIND.get(submission.work.kind)
     if arm is None:
