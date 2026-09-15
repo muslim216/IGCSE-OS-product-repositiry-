@@ -279,48 +279,12 @@ async def test_lessons_use_the_org_timezone(client, tutor, subject_id):
     assert body["lessons"][0]["weekday"] == weekday
 
 
-async def test_past_paper_review_counts_toward_the_workload(client, tutor, subject_id):
-    """The count drives the Mark link and NEEDS YOU. Submission is polymorphic,
-    so counting only through Assignment silently drops every past paper and the
-    home can report a clear day while past-paper work waits (API-20)."""
-    from app.models import Submission, SubmissionStatus
+async def _past_paper_awaiting_review(client, tutor, subject_id) -> None:
+    """One past-paper submission sitting in this tutor's review queue.
 
-    group = await _make_class(client, tutor, subject_id)
-    student = await _add_student(client, tutor, group["id"], "Aya", "aya01")
-
-    async with async_session() as session:
-        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
-        paper = await make_past_paper(
-            session,
-            organization_id=org_id,
-            subject_id=subject_id,
-            session_label="June 2025",
-            paper_number="1",
-        )
-        session.add(
-            Submission(
-                past_paper_id=paper.id,
-                student_id=student["id"],
-                status=SubmissionStatus.needs_review,
-                work_id=paper.work_id,
-            )
-        )
-        await session.commit()
-
-    body = (await client.get("/api/v1/today", headers=tutor["headers"])).json()
-    assert body["review_count"] == 1, "a past paper awaiting review must count as work"
-
-
-async def test_another_organizations_past_paper_is_neither_counted_nor_listed(
-    client, tutor, subject_id
-):
-    """The negative case for D4 (`QA-12`).
-
-    Both the count and the queue used to decide whose work this is by ORing
-    three organization columns — the assignment's group, the past paper, the
-    mock. Since D4 they read the one column on the parent row instead, so this
-    proves the new scoping still keeps a tutor out of another organization's
-    work, on the past-paper arm that has no group to be scoped by.
+    A past paper has no class, so it is the arm that neither the count nor the
+    queue can reach through `Group` — which is why both the counting test and
+    the cross-organization one build exactly this.
     """
     from app.models import Submission, SubmissionStatus
 
@@ -345,6 +309,28 @@ async def test_another_organizations_past_paper_is_neither_counted_nor_listed(
         )
         await session.commit()
 
+
+async def test_past_paper_review_counts_toward_the_workload(client, tutor, subject_id):
+    """The count drives the Mark link and NEEDS YOU. Submission is polymorphic,
+    so counting only through Assignment silently drops every past paper and the
+    home can report a clear day while past-paper work waits (API-20)."""
+    await _past_paper_awaiting_review(client, tutor, subject_id)
+    body = (await client.get("/api/v1/today", headers=tutor["headers"])).json()
+    assert body["review_count"] == 1, "a past paper awaiting review must count as work"
+
+
+async def test_another_organizations_past_paper_is_neither_counted_nor_listed(
+    client, tutor, subject_id
+):
+    """The negative case for D4 (`QA-12`).
+
+    Both the count and the queue used to decide whose work this is by ORing
+    three organization columns — the assignment's class, the past paper, the
+    mock. Since D4 they read the one column on the parent row instead, so this
+    proves the new scoping still keeps a tutor out of another organization's
+    work, on the arm that has no class to be scoped by.
+    """
+    await _past_paper_awaiting_review(client, tutor, subject_id)
     # There is work to leak before an empty result proves anything.
     assert (await client.get("/api/v1/today", headers=tutor["headers"])).json()["review_count"] == 1
 
