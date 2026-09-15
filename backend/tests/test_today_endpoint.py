@@ -320,15 +320,27 @@ async def test_review_count_equals_what_the_review_queue_lists(client, tutor, su
     homework the queue does show. Asserting equality rather than either number
     alone is what keeps them together.
     """
-    from app.models import Assignment, AssignmentStatus, Submission, SubmissionStatus
+    from app.models import Assignment, AssignmentStatus, Submission, SubmissionStatus, WorkKind
+    from app.services.work import create_work
 
     group = await _make_class(client, tutor, subject_id)
     waiting = await _add_student(client, tutor, group["id"], "Aya", "aya01")
     drafted = await _add_student(client, tutor, group["id"], "Omar", "omar01")
 
     async with async_session() as session:
+        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group["id"]))
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="Forces",
+        )
         assignment = Assignment(
-            group_id=group["id"], title="Forces", status=AssignmentStatus.published
+            work_id=work.id,
+            group_id=group["id"],
+            title="Forces",
+            status=AssignmentStatus.published,
         )
         session.add(assignment)
         await session.flush()

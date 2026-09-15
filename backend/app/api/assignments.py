@@ -26,6 +26,7 @@ from app.models import (
     Topic,
     User,
     UserRole,
+    WorkKind,
 )
 from app.schemas.groups import TopicOut
 from app.schemas.homework import (
@@ -37,6 +38,7 @@ from app.schemas.homework import (
     QuestionOut,
 )
 from app.services.assignments import create_from_upload
+from app.services.work import create_work
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
@@ -114,7 +116,15 @@ async def create_assignment(
         lesson_id = lesson.id
 
     if body.classified_id is None:
+        work = await create_work(
+            db,
+            kind=WorkKind.homework,
+            organization_id=group.organization_id,
+            subject_id=group.subject_id,
+            title=body.title,
+        )
         assignment = Assignment(
+            work_id=work.id,
             group_id=group.id,
             lesson_id=lesson_id,
             classified_id=None,
@@ -137,7 +147,15 @@ async def create_assignment(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "This classified belongs to a different subject than the group",
         )
+    work = await create_work(
+        db,
+        kind=WorkKind.homework,
+        organization_id=group.organization_id,
+        subject_id=group.subject_id,
+        title=body.title,
+    )
     assignment = Assignment(
+        work_id=work.id,
         group_id=group.id,
         lesson_id=lesson_id,
         classified_id=classified.id,

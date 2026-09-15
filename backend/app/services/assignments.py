@@ -12,8 +12,9 @@ from pathlib import Path
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Assignment, AssignmentStatus, Classified, Group, User
+from app.models import Assignment, AssignmentStatus, Classified, Group, User, WorkKind
 from app.services import storage
+from app.services.work import create_work
 from app.workers.jobs import enqueue
 
 log = logging.getLogger("api")
@@ -73,7 +74,15 @@ async def create_from_upload(
         session.add(classified)
         await session.flush()
 
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=group.organization_id,
+            subject_id=group.subject_id,
+            title=resolved_title,
+        )
         assignment = Assignment(
+            work_id=work.id,
             group_id=group.id,
             classified_id=classified.id,
             title=resolved_title,

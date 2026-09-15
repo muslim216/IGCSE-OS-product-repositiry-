@@ -16,9 +16,10 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Booklet, BookletStatus, PastPaper
+from app.models import Booklet, BookletStatus, PastPaper, WorkKind
 from app.schemas.booklet import BookletDraft, DraftPaper
 from app.services import pdf, storage
+from app.services.work import create_work
 from app.workers.jobs import enqueue
 
 log = logging.getLogger(__name__)
@@ -154,7 +155,15 @@ async def _create_paper(
             await storage.delete_file(stored)
         raise
 
+    work = await create_work(
+        session,
+        kind=WorkKind.past_paper,
+        organization_id=booklet.organization_id,
+        subject_id=booklet.subject_id,
+        title=drafted.title,
+    )
     paper = PastPaper(
+        work_id=work.id,
         organization_id=booklet.organization_id,
         booklet_id=booklet.id,
         booklet_index=index,

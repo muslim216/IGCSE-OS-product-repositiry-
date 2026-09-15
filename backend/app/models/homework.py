@@ -100,10 +100,12 @@ class Assignment(TimestampMixin, Base):
         nullable=False,
     )
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Nullable for now: D1 only adds the column. D2 backfills every existing
-    # row and makes it NOT NULL once every Assignment has a parent.
-    work_id: Mapped[int | None] = mapped_column(
-        ForeignKey("assessable_work.id"), nullable=True, unique=True
+    # Required since 0047: every piece of work has a parent row carrying its
+    # organization, subject and title, so the cross-kind queries filter one
+    # column instead of ORing three. Create both through
+    # `services/work.create_work` — never an Assignment on its own.
+    work_id: Mapped[int] = mapped_column(
+        ForeignKey("assessable_work.id"), nullable=False, unique=True
     )
 
     classified: Mapped[Classified | None] = relationship()

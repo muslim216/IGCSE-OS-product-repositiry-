@@ -30,8 +30,10 @@ from app.models import (
     Submission,
     SubmissionStatus,
     User,
+    WorkKind,
 )
 from app.services.readiness_v2 import evaluate_subject_factors
+from app.services.work import create_work
 from tests.factories import make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -72,7 +74,15 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
         )
 
         # A finalized homework submission with one marked question on topic1.
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="HW1",
+        )
         assignment = Assignment(
+            work_id=work.id,
             group_id=group_id,
             title="HW1",
             status=AssignmentStatus.published,
@@ -288,7 +298,17 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
     topic1 = world["topic1"]
 
     async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        org_id = tutor_user.organization_id
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="Auto-marked HW",
+        )
         assignment = Assignment(
+            work_id=work.id,
             group_id=group_id,
             title="Auto-marked HW",
             status=AssignmentStatus.published,

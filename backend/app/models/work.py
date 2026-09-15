@@ -7,9 +7,11 @@ point: five cross-kind queries currently OR three separate `organization_id`
 columns together, and a missed arm fails silently. One column here replaces
 that OR.
 
-D1 only creates this table and a nullable `work_id` pointer on each child.
-Nothing reads it yet — D2 backfills existing rows and makes the pointer
-NOT NULL.
+Every assignment, past paper and mock has one of these since `0047`, and their
+`work_id` is NOT NULL — so a piece of work without a parent cannot be written.
+Make the pair through `services/work.create_work`, never a child on its own.
+The cross-kind queries still read the three child tables; moving them onto this
+one is D4 and D5.
 """
 
 import enum

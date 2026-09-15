@@ -84,8 +84,8 @@ class Mock(TimestampMixin, Base):
         nullable=False,
     )
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    work_id: Mapped[int | None] = mapped_column(
-        ForeignKey("assessable_work.id"), nullable=True, unique=True
+    work_id: Mapped[int] = mapped_column(
+        ForeignKey("assessable_work.id"), nullable=False, unique=True
     )
 
     questions: Mapped[list["MockQuestion"]] = relationship(

@@ -33,8 +33,10 @@ from app.models import (
     SubmissionStatus,
     User,
     UserRole,
+    WorkKind,
 )
 from app.services import storage
+from app.services.work import create_work
 from app.workers.jobs import enqueue
 
 AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -296,9 +298,18 @@ async def _sync_course(session: AsyncSession, access_token: str, link: Classroom
             )
         )
         if work_link is None:
+            title = cw.get("title", "Classroom assignment")[:255]
+            work = await create_work(
+                session,
+                kind=WorkKind.homework,
+                organization_id=group.organization_id,
+                subject_id=group.subject_id,
+                title=title,
+            )
             assignment = Assignment(
+                work_id=work.id,
                 group_id=group.id,
-                title=cw.get("title", "Classroom assignment")[:255],
+                title=title,
                 instructions=cw.get("description"),
                 status=AssignmentStatus.review,
             )
