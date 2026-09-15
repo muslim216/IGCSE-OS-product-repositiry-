@@ -28,7 +28,9 @@ closed: once every piece of work has a parent row, those five sites filter one
 mapping is deliberately NOT here. The D2 backfill is a migration, and no
 migration in this repo imports app code (`DB-15`) — it spells the three arms
 out in literal SQL. This module gains a field when a service-layer reader
-actually needs one, not before.
+actually needs one, not before — `parent_model` is here because D3's
+`open_attempt` needs to read a parent's `work_id`, and was deliberately absent
+until then.
 
 Pure by `BE-4`: model classes and strings in, no session, no I/O.
 """
@@ -37,10 +39,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models import (
+    Assignment,
     AssignmentQuestion,
     EvidenceSource,
+    Mock,
     MockQuestion,
     MockQuestionTopic,
+    PastPaper,
     PastPaperQuestion,
     PastPaperQuestionTopic,
     QuestionTopic,
@@ -74,6 +79,12 @@ class SubmissionKind:
     #: as a mock whether the tutor typed the score in or the AI marked the
     #: paper — the weight follows the exam, not the marking channel.
     evidence_source: EvidenceSource
+    #: The model holding this arm's parent row — `Assignment`, `PastPaper` or
+    #: `Mock`. `open_attempt` loads it by `parent_fk` to copy its `work_id` onto
+    #: the new submission, which is the one thing it needs that the strings
+    #: above cannot give it. `type[Any]` for the same reason as
+    #: `question_model`: the three already agree on the shape used here.
+    parent_model: type[Any]
 
 
 HOMEWORK = SubmissionKind(
@@ -83,6 +94,7 @@ HOMEWORK = SubmissionKind(
     mark_fk="question_id",
     evidence_source=EvidenceSource.homework,
     parent_fk="assignment_id",
+    parent_model=Assignment,
 )
 
 PAST_PAPER = SubmissionKind(
@@ -92,6 +104,7 @@ PAST_PAPER = SubmissionKind(
     mark_fk="past_paper_question_id",
     evidence_source=EvidenceSource.past_paper,
     parent_fk="past_paper_id",
+    parent_model=PastPaper,
 )
 
 MOCK = SubmissionKind(
@@ -101,6 +114,7 @@ MOCK = SubmissionKind(
     mark_fk="mock_question_id",
     evidence_source=EvidenceSource.mock,
     parent_fk="mock_id",
+    parent_model=Mock,
 )
 
 

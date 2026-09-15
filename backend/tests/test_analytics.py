@@ -9,7 +9,7 @@ alone and let those rows through)."""
 from datetime import datetime, timezone
 
 from app.db import async_session
-from app.models import QuestionMark, Submission, SubmissionStatus
+from app.models import Assignment, QuestionMark, Submission, SubmissionStatus
 
 
 async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(
@@ -20,6 +20,7 @@ async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(
 ):
     q1, q2 = published_assignment["questions"]
     async with async_session() as session:
+        assignment = await session.get(Assignment, published_assignment["id"])
         submission = Submission(
             assignment_id=published_assignment["id"],
             student_id=student["user"]["id"],
@@ -27,6 +28,7 @@ async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(
             submitted_at=datetime.now(timezone.utc),
             finalized_at=datetime.now(timezone.utc),
             finalized_by_id=tutor["user"]["id"],
+            work_id=assignment.work_id,
         )
         session.add(submission)
         await session.flush()

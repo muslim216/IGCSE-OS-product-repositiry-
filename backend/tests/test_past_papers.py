@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
 from app.models import (
+    AssessableWork,
     Booklet,
     BookletStatus,
     Evidence,
@@ -764,6 +765,28 @@ async def test_relogging_a_paper_moves_it_back_up_the_review_queue(client, stude
     # Replaced, not appended — one attempt per student per paper.
     assert len(rows) == 1
     assert rows[0].submitted_at > before
+
+
+async def test_an_attempt_joins_the_paper_it_answers_rather_than_making_a_second_one(
+    client, student, past_paper
+):
+    """A submission answers work that already exists, so it takes that work's
+    parent row. Creating a fresh one instead would give the same paper two
+    identities, and every count that goes through the parent would see two
+    pieces of work where the student uploaded one."""
+    assert (await _log_attempt(client, student, past_paper["id"])).status_code in (200, 201)
+    async with async_session() as session:
+        paper = await session.get(PastPaper, past_paper["id"])
+        submission = await session.scalar(
+            select(Submission).where(Submission.past_paper_id == past_paper["id"])
+        )
+        assert submission.work_id == paper.work_id
+        parents = (
+            await session.scalars(
+                select(AssessableWork).where(AssessableWork.kind == WorkKind.past_paper)
+            )
+        ).all()
+    assert [p.id for p in parents] == [paper.work_id]
 
 
 async def test_an_overlong_extracted_name_is_clamped_not_left_to_fail_on_postgres(

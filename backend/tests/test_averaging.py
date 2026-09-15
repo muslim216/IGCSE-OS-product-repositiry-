@@ -136,7 +136,10 @@ async def add_homework(world, marks, *, status=SubmissionStatus.finalized, title
         session.add(assignment)
         await session.flush()
         submission = Submission(
-            assignment_id=assignment.id, student_id=world["student_id"], status=status
+            assignment_id=assignment.id,
+            student_id=world["student_id"],
+            status=status,
+            work_id=assignment.work_id,
         )
         session.add(submission)
         await session.flush()
@@ -171,7 +174,10 @@ async def add_past_paper(world, marks, *, status=SubmissionStatus.finalized):
             paper_number="1",
         )
         submission = Submission(
-            past_paper_id=paper.id, student_id=world["student_id"], status=status
+            past_paper_id=paper.id,
+            student_id=world["student_id"],
+            status=status,
+            work_id=paper.work_id,
         )
         session.add(submission)
         await session.flush()

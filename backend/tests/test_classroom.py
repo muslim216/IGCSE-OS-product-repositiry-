@@ -328,6 +328,12 @@ async def test_sync_imports_coursework_and_submission_with_attachment(
             )
         )
         assert submission is not None
+        # The imported submission answers the assignment Classroom sync just
+        # created, so it joins that assignment's parent row rather than getting
+        # one of its own. SQLite runs with foreign keys off (`RISK-3`), so a
+        # wrong id here would pass the NOT NULL column and only show up as a
+        # miscount once D4's readers go through the parent.
+        assert submission.work_id == assignment.work_id
         files = (
             await session.scalars(
                 select(SubmissionFile).where(SubmissionFile.submission_id == submission.id)

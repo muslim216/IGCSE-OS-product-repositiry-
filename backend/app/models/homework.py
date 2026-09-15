@@ -196,6 +196,11 @@ class Submission(TimestampMixin, Base):
         UniqueConstraint("assignment_id", "student_id"),
         UniqueConstraint("past_paper_id", "student_id"),
         UniqueConstraint("mock_id", "student_id"),
+        # The three arms above get equality lookups free from their unique
+        # constraints; `work_id` has none, and from D4 it is the column every
+        # cross-kind query joins on. Declared here as well as in the migration
+        # so the test schema matches production (`DB-12`).
+        Index("ix_submissions_work_id", "work_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -205,6 +210,12 @@ class Submission(TimestampMixin, Base):
     # terms rather than as homework with a flag, so it gets its own key here
     # instead of bending `assignment_id` to mean two things.
     mock_id: Mapped[int | None] = mapped_column(ForeignKey("mocks.id"), nullable=True)
+    # Which piece of work this answers, whichever kind it is. Set alongside the
+    # three FKs above rather than replacing them yet: the readers move onto it
+    # in D4 and D5, and only then do the three go (D6). Until then both are
+    # written and they must agree — `open_attempt` copies it off the parent so
+    # there is one source.
+    work_id: Mapped[int] = mapped_column(ForeignKey("assessable_work.id"), nullable=False)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # Past papers only, and self-declared: the platform can't measure how long
     # a student took or whether they really sat it under timed conditions. A

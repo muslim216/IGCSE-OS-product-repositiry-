@@ -48,7 +48,13 @@ async def open_attempt(
         return submission, True
 
     if submission is None:
-        submission = Submission(student_id=student_id)
+        # The parent's `work_id`, not a fresh one: a submission answers a piece
+        # of work that already exists, so it joins that parent rather than
+        # creating a second identity for the same paper.
+        parent = await session.get(kind.parent_model, parent_id)
+        if parent is None:
+            raise ValueError(f"no {kind.name} with id {parent_id}")
+        submission = Submission(student_id=student_id, work_id=parent.work_id)
         setattr(submission, kind.parent_fk, parent_id)
         session.add(submission)
         await session.flush()
