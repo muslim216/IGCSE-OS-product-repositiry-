@@ -17,9 +17,13 @@ An assignment is the awkward arm: it carries neither `organization_id` nor
 whole reason this table exists — see `services/submission_kind.py`.
 """
 
+from typing import Any
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AssessableWork, WorkKind
+from app.models import AssessableWork, Submission, WorkKind
+from app.services.submission_kind import kind_of
 
 
 async def create_work(
@@ -44,3 +48,19 @@ async def create_work(
     session.add(work)
     await session.flush()
     return work
+
+
+async def parent_of(session: AsyncSession, submission: Submission) -> Any:
+    """The `Assignment`, `PastPaper` or `Mock` a submission answers.
+
+    Found through `work_id`, not through the old per-kind key. Both are written
+    until D6 and nothing at the database level forces them to agree, so a
+    contradictory row would otherwise be dispatched as one kind by `kind_of` —
+    which reads the parent — and loaded as another by whoever read the key,
+    landing marks on the wrong paper. One source, so there is nothing to
+    disagree with. Each child's `work_id` is unique, so this matches one row.
+    """
+    kind = kind_of(submission)
+    return await session.scalar(
+        select(kind.parent_model).where(kind.parent_model.work_id == submission.work_id)
+    )

@@ -26,12 +26,10 @@ from sqlalchemy.orm import selectinload
 
 from app.models import (
     AiFeature,
-    Assignment,
     AssignmentQuestion,
     Classified,
     Group,
     MarkConfidence,
-    Mock,
     MockQuestion,
     PastPaper,
     PastPaperAttempt,
@@ -55,6 +53,7 @@ from app.services.submission_kind import (
     SubmissionKind,
     kind_of,
 )
+from app.services.work import parent_of
 from app.workers.jobs import enqueue
 
 # Confidence levels good enough for a scheme-backed mark to stand without a
@@ -129,7 +128,7 @@ class _MarkingSource:
 
 
 async def _homework_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
-    assignment = await session.get(Assignment, submission.assignment_id)
+    assignment = await parent_of(session, submission)
     assert assignment is not None
     classified = (
         await session.get(Classified, assignment.classified_id)
@@ -204,7 +203,7 @@ async def _homework_source(session: AsyncSession, submission: Submission) -> _Ma
 
 
 async def _past_paper_source(session: AsyncSession, submission: Submission) -> _MarkingSource:
-    paper = await session.get(PastPaper, submission.past_paper_id)
+    paper = await parent_of(session, submission)
     assert paper is not None
     if paper.tutor_id is None:
         # An owning tutor is not decoration here: it selects the knowledge-base
@@ -306,7 +305,7 @@ async def _mock_source(session: AsyncSession, submission: Submission) -> _Markin
     document, and unlike homework it has no classified behind it — so there are
     no chapter notes, and AV-76's precedence runs from the scheme to the subject
     rules with the chapter layer absent."""
-    mock = await session.get(Mock, submission.mock_id)
+    mock = await parent_of(session, submission)
     assert mock is not None
     questions = list(
         (

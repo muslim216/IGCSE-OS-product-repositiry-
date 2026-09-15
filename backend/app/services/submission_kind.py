@@ -152,6 +152,12 @@ def kind_of(submission: Submission) -> SubmissionKind:
     A kind with no arm here raises instead, which is the loud failure the chain
     could not give (`PROD-1`). `Submission.work` is eagerly loaded, so this
     stays a plain attribute read with no session (`BE-4`).
+
+    One edge to know about: eager loading happens when a submission is read
+    back from the database, not when one is constructed in Python. Calling this
+    on a submission you have only just built and flushed raises
+    `MissingGreenlet` rather than answering. No caller does — every one of them
+    loads the submission first — but re-read it if you write one that does not.
     """
     arm = _BY_WORK_KIND.get(submission.work.kind)
     if arm is None:
