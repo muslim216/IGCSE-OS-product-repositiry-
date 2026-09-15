@@ -22,6 +22,14 @@ marking source builder and the title branches, are what a fourth arm actually
 costs. Only the builder fails loudly; the rest fail silently, which is how the
 third arm shipped broken in five places at once.
 
+The `assessable_work` parent table (migration 0046) is where that gap gets
+closed: once every piece of work has a parent row, those five sites filter one
+`organization_id` on the parent instead of ORing three. The arm-to-parent
+mapping is deliberately NOT here. The D2 backfill is a migration, and no
+migration in this repo imports app code (`DB-15`) — it spells the three arms
+out in literal SQL. This module gains a field when a service-layer reader
+actually needs one, not before.
+
 Pure by `BE-4`: model classes and strings in, no session, no I/O.
 """
 

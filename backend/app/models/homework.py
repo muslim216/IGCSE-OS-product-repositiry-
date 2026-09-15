@@ -100,6 +100,11 @@ class Assignment(TimestampMixin, Base):
         nullable=False,
     )
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Nullable for now: D1 only adds the column. D2 backfills every existing
+    # row and makes it NOT NULL once every Assignment has a parent.
+    work_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assessable_work.id"), nullable=True, unique=True
+    )
 
     classified: Mapped[Classified | None] = relationship()
     questions: Mapped[list["AssignmentQuestion"]] = relationship(

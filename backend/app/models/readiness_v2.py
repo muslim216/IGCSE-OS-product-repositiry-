@@ -151,6 +151,9 @@ class PastPaper(TimestampMixin, Base):
     # asks when a paper they expected is missing, and `IS NULL` filters exactly
     # as well as `= false`.
     hidden_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    work_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assessable_work.id"), nullable=True, unique=True
+    )
 
     @property
     def display_title(self) -> str:

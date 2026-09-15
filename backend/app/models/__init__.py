@@ -66,12 +66,14 @@ from app.models.syllabus import (
     Topic,
 )
 from app.models.users import User, UserRole
+from app.models.work import AssessableWork, WorkKind
 from app.models.workers import WorkerHeartbeat
 
 __all__ = [
     "AiFeature",
     "AiSynthesisStatus",
     "AiUsageEvent",
+    "AssessableWork",
     "Assessment",
     "AssessmentScore",
     "AssessmentType",
@@ -154,4 +156,5 @@ __all__ = [
     "User",
     "UserRole",
     "WorkerHeartbeat",
+    "WorkKind",
 ]
