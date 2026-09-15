@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
@@ -506,12 +506,15 @@ async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
     return dict(rows)
 
 
-async def _mark_rows(db, submission: Submission) -> list[MarkRow]:
-    """One row per question, whatever the submission hangs off — the review UI
-    is the same for homework, a past paper and a mock."""
+async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
+    """One row per question, whatever kind of work it is — the review UI is the
+    same for homework, a past paper and a mock.
+
+    The parent is passed in rather than loaded here: every caller has already
+    loaded it, to decide whether this tutor may see the submission at all.
+    """
     open_remarks = await _open_remarks(db, submission.id)
     kind = kind_of(submission)
-    parent = await parent_of(db, submission)
     question = kind.question_model
     link = getattr(QuestionMark, kind.mark_fk)
     # `parent_fk` still names the question table's column; the submission side
@@ -662,7 +665,7 @@ async def submission_detail(
             if submission.typed_answer
             else None
         ),
-        marks=await _mark_rows(db, submission),
+        marks=await _mark_rows(db, submission, parent),
     )
 
 
@@ -823,7 +826,7 @@ async def finalize_submission(
     submission = await _tutor_submission(db, user, submission_id)
     if submission.status == SubmissionStatus.finalized:
         raise HTTPException(status.HTTP_409_CONFLICT, "This submission is already finalized")
-    marks = await _mark_rows(db, submission)
+    marks = await _mark_rows(db, submission, await parent_of(db, submission))
     missing = [m.number for m in marks if m.final_marks is None]
     if missing:
         raise HTTPException(

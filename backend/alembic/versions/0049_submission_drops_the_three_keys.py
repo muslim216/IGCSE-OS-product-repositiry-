@@ -119,6 +119,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+
+    # Before any DDL, for the same reason the upgrade checks first. Going back
+    # means putting each submission on the arm its parent belongs to, so every
+    # parent has to still have a child to name. One that does not would be
+    # restored with all three keys NULL — a submission that answers nothing,
+    # which is precisely the row `0048` refuses to create.
+    orphan = " AND ".join(
+        f"NOT EXISTS (SELECT 1 FROM {table} p WHERE p.work_id = submissions.work_id)"
+        for _, table in _ARMS
+    )
+    stranded = conn.execute(
+        sa.text(f"SELECT COUNT(*) FROM submissions WHERE {orphan}")  # noqa: S608
+    ).scalar_one()
+    if stranded:
+        raise RuntimeError(
+            f"{stranded} submission(s) point at a piece of work with no assignment, past paper "
+            "or mock behind it, so there is no arm to put them back on. Restore the missing "
+            "child rows before downgrading."
+        )
+
     with op.batch_alter_table("submissions", naming_convention=NAMING) as batch:
         batch.drop_constraint("uq_submissions_work_id_student_id", type_="unique")
         for key, table in _ARMS:
@@ -131,7 +152,6 @@ def downgrade() -> None:
                 )
             )
 
-    conn = op.get_bind()
     for key, table in _ARMS:
         conn.execute(
             sa.text(

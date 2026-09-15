@@ -123,15 +123,22 @@ def test_two_submissions_for_one_piece_of_work_abort_before_any_ddl(tmp_path) ->
     raw.executescript(
         _SCAFFOLD
         + """
-        -- Same student, same piece of work, through two different arms: legal
-        -- under the three old constraints, which is the point.
+        -- How a duplicate can exist at all: nothing stops two child rows in
+        -- two different tables sharing one parent, because each table's
+        -- `work_id` is unique only within itself. Here a past paper is given
+        -- the assignment's parent, so the same student can hold one submission
+        -- on each arm against one piece of work — legal under the three old
+        -- constraints, which is exactly what the new one closes.
+        INSERT INTO past_papers (id, organization_id, subject_id, booklet_id, booklet_index,
+                                  created_at, work_id)
+            VALUES (104, 1, 1, 1, 2, '2026-01-01 00:00:00', 11);
         INSERT INTO submissions (id, assignment_id, past_paper_id, mock_id, work_id,
                                   student_id, status, submitted_at, created_at)
             VALUES (201, 101, NULL, NULL, 11, 2, 'needs_review',
                     '2026-01-02 00:00:00', '2026-01-02 00:00:00');
         INSERT INTO submissions (id, assignment_id, past_paper_id, mock_id, work_id,
                                   student_id, status, submitted_at, created_at)
-            VALUES (202, NULL, 102, NULL, 11, 2, 'needs_review',
+            VALUES (202, NULL, 104, NULL, 11, 2, 'needs_review',
                     '2026-01-02 00:00:00', '2026-01-02 00:00:00');
     """
     )

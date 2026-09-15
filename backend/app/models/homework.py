@@ -185,8 +185,8 @@ SETTLED_STATUSES = (SubmissionStatus.finalized, SubmissionStatus.auto_finalized)
 
 
 class Submission(TimestampMixin, Base):
-    """A student's uploaded answers to a homework assignment, a past paper or a
-    mock — exactly one of assignment_id / past_paper_id / mock_id is set.
+    """A student's uploaded answers to one piece of work, named by `work_id` —
+    a homework assignment, a past paper or a mock, whichever its parent says.
 
     Making this polymorphic rather than giving each kind its own table means
     SubmissionFile, QuestionMark, marking, the review queue, the override
