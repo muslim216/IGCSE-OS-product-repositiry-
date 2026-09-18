@@ -10,7 +10,11 @@ class MistakeCategoryItem(BaseModel):
     # back to its row); absent on one the tutor is adding.
     id: int | None = None
     name: str = Field(min_length=1, max_length=60)
-    description: str | None = None
+    # Bounded because 4.2 interpolates this into the tagging prompt. Every
+    # other free-text field bound for a prompt in this codebase is capped
+    # and trimmed the same way (see `clean_notes` in api/deps.py); an
+    # unbounded one is a cost and a latency the tutor never sees coming.
+    description: str | None = Field(default=None, max_length=400)
 
     @field_validator("name")
     @classmethod
@@ -22,7 +26,17 @@ class MistakeCategoryItem(BaseModel):
 
 
 class MistakeCategoriesIn(BaseModel):
-    categories: list[MistakeCategoryItem]
+    # A sanity bound, not a product limit: 4.2 sends this whole list to the
+    # model on every submission it tags, so the list's length is a per-call
+    # cost. Nobody sorts mistakes forty ways.
+    # min_length=1 mirrors GradeBoundariesIn. An empty list is not a
+    # confirmed choice the product can express: saving one archived every
+    # category, reported `source="organization"`, and then the next GET
+    # found nothing stored, reported `source="none"` and re-offered the
+    # published defaults — telling the tutor their deliberate edit had not
+    # happened (PROD-8). Making it inexpressible is smaller than teaching
+    # every read path to tell "emptied on purpose" from "never set".
+    categories: list[MistakeCategoryItem] = Field(min_length=1, max_length=40)
 
     @field_validator("categories")
     @classmethod
@@ -30,9 +44,15 @@ class MistakeCategoriesIn(BaseModel):
         """Reject a duplicate name in the schema, before it reaches the unique
         constraint — the difference between a 422 naming the problem and a 500
         from a constraint violation the tutor never sees explained."""
-        names = [item.name.lower() for item in items]
+        names = [item.name.casefold() for item in items]
         if len(set(names)) != len(names):
             raise ValueError("each category name may appear once")
+        # The same for ids. Without this, two items carrying one id resolve to
+        # the same row twice and the reply lists that category twice — the
+        # editor then renders one category as two, each overwriting the other.
+        ids = [item.id for item in items if item.id is not None]
+        if len(set(ids)) != len(ids):
+            raise ValueError("each category may appear once")
         return items
 
 

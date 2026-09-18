@@ -222,3 +222,116 @@ async def test_dropping_a_category_from_the_payload_archives_it_not_deletes(clie
             select(MistakeCategory).where(MistakeCategory.name == "Content gap")
         )
         assert gone is not None and gone.archived_at is not None
+
+
+async def test_saving_the_same_list_twice_is_not_an_error(client, tutor, subject):
+    """The plainest thing a client does: send the same payload again.
+
+    A double-clicked save, a retry after a timeout, a form that did not keep
+    the ids the first reply carried. With no id to match on, the name is the
+    key — the unique constraint says so. Matching only *archived* names sent
+    this straight into an IntegrityError the tutor saw as a 500.
+    """
+    body = {"categories": [{"name": "Careless", "description": "slip"}]}
+    first = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json=body,
+        headers=tutor["headers"],
+    )
+    assert first.status_code == 200, first.text
+
+    second = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json=body,
+        headers=tutor["headers"],
+    )
+    assert second.status_code == 200, second.text
+    assert [c["name"] for c in second.json()["categories"]] == ["Careless"]
+
+    async with async_session() as session:
+        rows = (await session.scalars(select(MistakeCategory))).all()
+    assert len(rows) == 1, "the second save reused the row rather than inserting a second"
+
+
+async def test_a_rename_frees_its_name_for_a_new_category_in_the_same_save(client, tutor, subject):
+    """Rename "Careless" to "Slip" and add a fresh "Careless", in one save.
+
+    Legal, and it has to work. SQLAlchemy emits INSERTs before UPDATEs inside a
+    single flush, so done naively the new row is inserted while the old one
+    still holds the name and the unique constraint rejects it — which is why
+    existing rows are settled and flushed before any row is created.
+    """
+    first = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "Careless"}]},
+        headers=tutor["headers"],
+    )
+    original_id = first.json()["categories"][0]["id"]
+
+    second = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={
+            "categories": [
+                {"id": original_id, "name": "Slip"},
+                {"name": "Careless", "description": "a different thing now"},
+            ]
+        },
+        headers=tutor["headers"],
+    )
+    assert second.status_code == 200, second.text
+    returned = second.json()["categories"]
+    assert [c["name"] for c in returned] == ["Slip", "Careless"], "payload order is kept"
+    assert returned[0]["id"] == original_id, "the renamed row is the same row"
+    assert returned[1]["id"] != original_id, "the reused name is a new row"
+
+
+async def test_a_description_longer_than_the_bound_is_rejected(client, tutor, subject):
+    """Bounded because 4.2 puts it in a prompt — an unbounded description is a
+    per-call cost nobody sees coming."""
+    r = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "Careless", "description": "x" * 401}]},
+        headers=tutor["headers"],
+    )
+    assert r.status_code == 422
+
+
+async def test_an_empty_category_list_is_rejected(client, tutor, subject):
+    """ "No categories" is not a state the product can express.
+
+    Accepting it archived everything and answered `source="organization"`,
+    while the next GET found nothing stored, answered `source="none"` and
+    re-offered the published defaults — telling the tutor the edit they had
+    just confirmed had not happened, and inviting them to save back the list
+    they meant to clear (PROD-8).
+    """
+    r = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": []},
+        headers=tutor["headers"],
+    )
+    assert r.status_code == 422
+
+
+async def test_the_same_category_twice_in_one_payload_is_rejected(client, tutor, subject):
+    """Two items carrying one id resolve to the same row twice, and the reply
+    listed that category twice — the editor renders one category as two, each
+    overwriting the other."""
+    first = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "Careless"}]},
+        headers=tutor["headers"],
+    )
+    existing_id = first.json()["categories"][0]["id"]
+
+    r = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={
+            "categories": [
+                {"id": existing_id, "name": "One"},
+                {"id": existing_id, "name": "Two"},
+            ]
+        },
+        headers=tutor["headers"],
+    )
+    assert r.status_code == 422

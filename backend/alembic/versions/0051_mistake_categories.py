@@ -56,6 +56,24 @@ def upgrade() -> None:
     # this migration was written) and is therefore empty, so the enum column
     # can be dropped and the new FK added NOT NULL in the same batch with no
     # backfill.
+    #
+    # Checked rather than assumed, and checked here rather than left to the
+    # database, for the same reason `downgrade()` below checks: adding a NOT
+    # NULL column with no server default to a table that turned out to have
+    # rows fails on Postgres with "column contains null values", mid-deploy,
+    # ahead of uvicorn starting. It fails closed either way — but a message
+    # naming the count tells whoever is reading the deploy log what happened,
+    # and a driver error does not. A writer merging before this migration runs
+    # is the ordinary way this stops being true.
+    count = op.get_bind().execute(sa.text("SELECT COUNT(*) FROM mistakes")).scalar_one()
+    if count:
+        raise RuntimeError(
+            f"{count} mistake(s) already exist, so `category_id` cannot be added NOT NULL "
+            "without deciding which category each one belongs to. Back-fill them, or delete "
+            "them, before running this migration — picking a category for a tutor is not "
+            "this migration's call (PROD-1)."
+        )
+
     with op.batch_alter_table("mistakes", naming_convention=NAMING) as batch:
         batch.drop_column("category")
         batch.add_column(

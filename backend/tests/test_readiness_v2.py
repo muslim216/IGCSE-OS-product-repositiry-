@@ -408,6 +408,8 @@ async def _mock_submission_with_mistake(
     student_id: int,
     status: SubmissionStatus = SubmissionStatus.finalized,
     analysed: bool = True,
+    category_name: str = "careless",
+    category_archived: bool = False,
 ) -> None:
     """A settled mock submission with one marked, analysed question and one
     mistake on it — the mock arm of the homework setup in
@@ -461,7 +463,11 @@ async def _mock_submission_with_mistake(
     session.add(mark)
     await session.flush()
     mistake_category = await make_mistake_category(
-        session, organization_id=org_id, subject_id=subject_id
+        session,
+        organization_id=org_id,
+        subject_id=subject_id,
+        name=category_name,
+        archived_at=NOW if category_archived else None,
     )
     session.add(
         Mistake(
@@ -625,3 +631,62 @@ async def test_mistake_factor_counts_past_papers(client, tutor, world):
 
     assert analysed == 1
     assert len(points) == 1
+
+
+async def test_an_archived_categorys_mistakes_still_count(client, tutor, world):
+    """Archiving a category hides it from new tagging. It does not unmake the
+    mistakes already tagged with it.
+
+    The join to MistakeCategory is deliberately unfiltered, and must stay that
+    way. Adding `archived_at.is_(None)` to it reads like tidying — "only show
+    active categories" — and would silently drop real evidence out of a
+    weighted factor, understating a student's mistake rate with no error and
+    nothing on screen to show it (PROD-2).
+    """
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await _mock_submission_with_mistake(
+            session,
+            org_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject_id,
+            student_id=student_id,
+            category_archived=True,
+        )
+
+    async with async_session() as session:
+        points, analysed = await _mistake_points_and_analysed(session, student_id, subject_id)
+
+    assert analysed == 1
+    assert len(points) == 1
+
+
+async def test_the_factor_reports_whatever_the_category_is_called(client, tutor, world):
+    """Every other test here uses a category called "careless" — the word the
+    old enum happened to produce — so none of them could tell a working join
+    from code that still special-cases that string. This one uses a name no
+    enum ever had.
+    """
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await _mock_submission_with_mistake(
+            session,
+            org_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject_id,
+            student_id=student_id,
+            category_name="Rushed the last page",
+        )
+
+    async with async_session() as session:
+        points, analysed = await _mistake_points_and_analysed(session, student_id, subject_id)
+
+    assert [p.category for p in points] == ["Rushed the last page"]
+    result = mistake_analysis(points, analysed, NOW)
+    assert result.detail["by_category"] == {"Rushed the last page": 1}
