@@ -12,6 +12,8 @@ from app.models import (
     BookletStatus,
     Evidence,
     EvidenceSource,
+    Mistake,
+    MistakeCategory,
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
@@ -764,6 +766,55 @@ async def test_relogging_a_paper_moves_it_back_up_the_review_queue(client, stude
     # Replaced, not appended — one attempt per student per paper.
     assert len(rows) == 1
     assert rows[0].submitted_at > before
+
+
+async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
+    client, student, past_paper
+):
+    """A replacement is the whole answer again, so the mistakes tagged on the
+    previous answer go with the marks they describe.
+
+    Left behind, a Mistake row points at a QuestionMark being deleted — an
+    orphan its foreign key does not cascade away — and `mistakes_analysed_at`
+    would still say the submission had been examined, so the replacement's
+    fresh marks would count as already looked at (PROD-2)."""
+    assert (await _log_attempt(client, student, past_paper["id"])).status_code in (200, 201)
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, past_paper["id"])
+        submission = await session.scalar(
+            select(Submission).where(Submission.work_id == paper.work_id)
+        )
+        question = await session.scalar(
+            select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == paper.id)
+        )
+        mark = QuestionMark(
+            submission_id=submission.id,
+            past_paper_question_id=question.id,
+            final_marks=3,
+        )
+        session.add(mark)
+        await session.flush()
+        session.add(
+            Mistake(
+                student_id=submission.student_id,
+                question_mark_id=mark.id,
+                category=MistakeCategory.careless,
+                severity=2,
+            )
+        )
+        submission.mistakes_analysed_at = submission.submitted_at
+        await session.commit()
+
+    assert (await _log_attempt(client, student, past_paper["id"])).status_code in (200, 201)
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, past_paper["id"])
+        submission = await session.scalar(
+            select(Submission).where(Submission.work_id == paper.work_id)
+        )
+        assert submission.mistakes_analysed_at is None
+        assert (await session.scalars(select(Mistake))).all() == []
 
 
 async def test_an_attempt_joins_the_paper_it_answers_rather_than_making_a_second_one(
