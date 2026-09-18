@@ -289,6 +289,16 @@ async def _mistake_points_and_analysed(
     once the tag_mistakes job (4.2) has actually looked at it, not merely once
     it is marked — that gate is what stops an empty mistakes table reading as
     a clean record for work nobody has examined (PROD-2).
+
+    **Both queries carry the same gate, and must keep doing so.** They count
+    two halves of one ratio, so a filter on one and not the other counts
+    mistakes from questions the denominator does not count as examined. That is
+    reachable today, not hypothetical: a remark request sets the whole
+    submission back to `needs_review` (`api/submissions.py`), which leaves
+    SETTLED_STATUSES while `mistakes_analysed_at` stays set and the Mistake rows
+    stay put. Ungated, the numerator would keep summing them against a
+    denominator that had dropped them — an understated score, no error, no log,
+    self-correcting only whenever the tutor happens to re-finalize.
     """
     analysed_questions = (
         await session.scalar(
@@ -313,6 +323,8 @@ async def _mistake_points_and_analysed(
                 .where(
                     Mistake.student_id == student_id,
                     AssessableWork.subject_id == subject_id,
+                    Submission.status.in_(SETTLED_STATUSES),
+                    Submission.mistakes_analysed_at.is_not(None),
                 )
             )
         )

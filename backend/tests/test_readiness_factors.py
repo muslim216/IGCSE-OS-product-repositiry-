@@ -171,11 +171,6 @@ def test_mistake_analysis_penalizes_severe_recent_mistakes():
     assert result.detail["by_category"] == {"content_gap": 1, "careless": 1}
 
 
-def test_mistake_analysis_is_no_data_when_nothing_was_analysed():
-    # Marked work that nobody examined for mistakes is not a clean record.
-    assert mistake_analysis([], 0) is NO_DATA
-
-
 def test_mistake_analysis_scores_a_clean_record_when_work_was_analysed():
     result = mistake_analysis([], 12)
     assert result is not NO_DATA
