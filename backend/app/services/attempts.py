@@ -14,11 +14,17 @@ foreign key each kind uses, so there is nothing kind-specific left here.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import SETTLED_STATUSES, AssessableWork, Submission, SubmissionStatus
+from app.models import (
+    SETTLED_STATUSES,
+    AssessableWork,
+    Mistake,
+    Submission,
+    SubmissionStatus,
+)
 from app.services.submission_kind import SubmissionKind
 
 
@@ -66,12 +72,24 @@ async def open_attempt(
         await session.flush()
         return submission, False
 
+    # The mistakes tagged on those marks go with them. A mistake is an
+    # observation about an answer that is about to stop existing, and its
+    # foreign key has no cascade — left behind it is an orphan row that
+    # `_mistake_points_and_analysed` would still count. Deleted before the
+    # marks, because the key points that way.
+    mark_ids = [mark.id for mark in submission.marks]
+    if mark_ids:
+        await session.execute(delete(Mistake).where(Mistake.question_mark_id.in_(mark_ids)))
     for file in list(submission.files):
         await session.delete(file)
     for mark in list(submission.marks):
         await session.delete(mark)
     submission.status = SubmissionStatus.submitted
     submission.ai_error = None
+    # Cleared with them: the replacement's pages have not been examined for
+    # mistakes, and leaving this set would count its fresh marks as though
+    # they had been (PROD-2).
+    submission.mistakes_analysed_at = None
     # The review queue orders by this. Keeping the first attempt's timestamp
     # sorts a resubmission as though it never happened.
     submission.submitted_at = datetime.now(timezone.utc)

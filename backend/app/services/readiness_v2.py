@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     SETTLED_STATUSES,
+    AssessableWork,
     Assessment,
     AssessmentScore,
     Assignment,
@@ -272,19 +273,43 @@ async def _topic_coverage(
     ]
 
 
-async def _mistake_points_and_total(
+async def _mistake_points_and_analysed(
     session: AsyncSession, student_id: int, subject_id: int
 ) -> tuple[list[MistakePoint], int]:
-    total_questions = (
+    """Mistakes and the count of questions examined for them, across every kind
+    of work.
+
+    Joins AssessableWork, not Assignment. Both queries here used to inner-join
+    Assignment for the subject, and Assignment.work_id is unique — so past
+    paper and mock submissions were dropped from the mistake list *and* the
+    denominator, with nothing to show for it (API-20). One parent row carries
+    the subject for all three kinds, so there is no arm to forget.
+
+    The denominator is gated on mistakes_analysed_at: a question only counts
+    once the tag_mistakes job (4.2) has actually looked at it, not merely once
+    it is marked — that gate is what stops an empty mistakes table reading as
+    a clean record for work nobody has examined (PROD-2).
+
+    **Both queries carry the same gate, and must keep doing so.** They count
+    two halves of one ratio, so a filter on one and not the other counts
+    mistakes from questions the denominator does not count as examined. That is
+    reachable today, not hypothetical: a remark request sets the whole
+    submission back to `needs_review` (`api/submissions.py`), which leaves
+    SETTLED_STATUSES while `mistakes_analysed_at` stays set and the Mistake rows
+    stay put. Ungated, the numerator would keep summing them against a
+    denominator that had dropped them — an understated score, no error, no log,
+    self-correcting only whenever the tutor happens to re-finalize.
+    """
+    analysed_questions = (
         await session.scalar(
             select(func.count(QuestionMark.id))
             .join(Submission, Submission.id == QuestionMark.submission_id)
-            .join(Assignment, Assignment.work_id == Submission.work_id)
-            .join(Group, Group.id == Assignment.group_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
             .where(
                 Submission.student_id == student_id,
-                Group.subject_id == subject_id,
+                AssessableWork.subject_id == subject_id,
                 Submission.status.in_(SETTLED_STATUSES),
+                Submission.mistakes_analysed_at.is_not(None),
             )
         )
     ) or 0
@@ -294,9 +319,13 @@ async def _mistake_points_and_total(
                 select(Mistake)
                 .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
                 .join(Submission, Submission.id == QuestionMark.submission_id)
-                .join(Assignment, Assignment.work_id == Submission.work_id)
-                .join(Group, Group.id == Assignment.group_id)
-                .where(Mistake.student_id == student_id, Group.subject_id == subject_id)
+                .join(AssessableWork, AssessableWork.id == Submission.work_id)
+                .where(
+                    Mistake.student_id == student_id,
+                    AssessableWork.subject_id == subject_id,
+                    Submission.status.in_(SETTLED_STATUSES),
+                    Submission.mistakes_analysed_at.is_not(None),
+                )
             )
         )
         .scalars()
@@ -306,7 +335,7 @@ async def _mistake_points_and_total(
         MistakePoint(category=m.category.value, severity=m.severity, occurred_at=m.created_at)
         for m in mistakes
     ]
-    return points, total_questions
+    return points, analysed_questions
 
 
 async def evaluate_subject_factors(
@@ -388,10 +417,10 @@ async def evaluate_subject_factors(
         )
     )
 
-    mistake_points, total_questions = await _mistake_points_and_total(
+    mistake_points, analysed_questions = await _mistake_points_and_analysed(
         session, student_id, subject_id
     )
-    mistake_result = mistake_analysis(mistake_points, total_questions, now)
+    mistake_result = mistake_analysis(mistake_points, analysed_questions, now)
     rows.append(
         _factor_row(
             evaluation_run_id,

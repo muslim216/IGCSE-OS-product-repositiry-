@@ -264,6 +264,14 @@ class Submission(TimestampMixin, Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set by the tag_mistakes job (4.2) when a submission has been examined
+    # for mistakes. This is what separates "no mistakes were found" from
+    # "nobody has looked yet" — without it the Mistake Analysis factor scored
+    # a confident 100.0 for every student, because an empty mistakes table
+    # looks exactly like a clean record (PROD-2).
+    mistakes_analysed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     finalized_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     # `lazy="selectin"` — the only eager relationship in this file, and

@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.models import FactorConfidence
 from app.services.readiness_factors import (
+    NO_DATA,
     AssessmentPoint,
     ConsistencyPoint,
     HomeworkPoint,
@@ -151,11 +152,11 @@ def test_syllabus_coverage_blends_taught_practiced_mastered():
 
 
 def test_mistake_analysis_no_questions_is_no_data():
-    assert mistake_analysis([], total_questions=0).confidence == FactorConfidence.no_data
+    assert mistake_analysis([], analysed_questions=0).confidence == FactorConfidence.no_data
 
 
 def test_mistake_analysis_clean_record_scores_high():
-    result = mistake_analysis([], total_questions=20, now=NOW)
+    result = mistake_analysis([], analysed_questions=20, now=NOW)
     assert result.score == 100.0
     assert result.confidence == FactorConfidence.high
 
@@ -165,9 +166,16 @@ def test_mistake_analysis_penalizes_severe_recent_mistakes():
         MistakePoint(category="content_gap", severity=3, occurred_at=NOW - timedelta(days=1)),
         MistakePoint(category="careless", severity=1, occurred_at=NOW - timedelta(days=1)),
     ]
-    result = mistake_analysis(mistakes, total_questions=10, now=NOW)
+    result = mistake_analysis(mistakes, analysed_questions=10, now=NOW)
     assert result.score < 100.0
     assert result.detail["by_category"] == {"content_gap": 1, "careless": 1}
+
+
+def test_mistake_analysis_scores_a_clean_record_when_work_was_analysed():
+    result = mistake_analysis([], 12)
+    assert result is not NO_DATA
+    assert result.score == 100.0
+    assert result.detail["analysed_questions"] == 12
 
 
 # ---- Consistency ----

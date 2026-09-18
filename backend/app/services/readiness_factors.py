@@ -242,25 +242,35 @@ class MistakePoint:
 
 
 def mistake_analysis(
-    mistakes: list[MistakePoint], total_questions: int, now: datetime | None = None
+    mistakes: list[MistakePoint], analysed_questions: int, now: datetime | None = None
 ) -> FactorResult:
-    """Fewer, less severe, less-recent mistakes relative to the volume of
-    work attempted -> a higher score. total_questions=0 is "no data"; zero
-    mistakes with total_questions>0 is a clean record, not "no data"."""
-    if total_questions <= 0:
+    """Fewer, less severe, less-recent mistakes relative to the volume of work
+    **examined for mistakes** -> a higher score.
+
+    The denominator is analysed questions, not marked questions, and that
+    distinction is the whole point. An empty mistakes table is indistinguishable
+    from a flawless student, so counting every marked question here scored a
+    confident 100.0 for everyone and fed it into a weighted factor (PROD-2).
+    A question is only counted once something has actually looked at it —
+    `submissions.mistakes_analysed_at`, set by the tag_mistakes job.
+
+    analysed_questions=0 is "no data". Zero mistakes across analysed work is a
+    clean record and scores 100.0, which is a measurement rather than a guess.
+    """
+    if analysed_questions <= 0:
         return NO_DATA
     now = now or datetime.now(timezone.utc)
     penalty = sum(m.severity * _decay(_age_days(m.occurred_at, now)) for m in mistakes)
-    rate = penalty / total_questions
+    rate = penalty / analysed_questions
     score = max(0.0, 100.0 - rate * 40.0)
     by_category: dict[str, int] = {}
     for m in mistakes:
         by_category[m.category] = by_category.get(m.category, 0) + 1
     return FactorResult(
         score=round(score, 1),
-        confidence=_confidence_from_count(total_questions, medium_at=5, high_at=15),
+        confidence=_confidence_from_count(analysed_questions, medium_at=5, high_at=15),
         evidence_count=len(mistakes),
-        detail={"by_category": by_category, "total_questions": total_questions},
+        detail={"by_category": by_category, "analysed_questions": analysed_questions},
     )
 
 

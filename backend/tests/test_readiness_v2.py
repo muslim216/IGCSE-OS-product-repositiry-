@@ -22,7 +22,10 @@ from app.models import (
     LessonTopic,
     Mistake,
     MistakeCategory,
+    Mock,
+    MockQuestion,
     PastPaperAttempt,
+    PastPaperQuestion,
     QuestionDifficulty,
     QuestionMark,
     QuestionTopic,
@@ -32,7 +35,8 @@ from app.models import (
     User,
     WorkKind,
 )
-from app.services.readiness_v2 import evaluate_subject_factors
+from app.services.readiness_factors import NO_DATA, mistake_analysis
+from app.services.readiness_v2 import _mistake_points_and_analysed, evaluate_subject_factors
 from app.services.work import create_work
 from tests.factories import make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
@@ -108,6 +112,10 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
             status=SubmissionStatus.finalized,
             submitted_at=NOW - timedelta(days=3),
             finalized_at=NOW - timedelta(days=1),
+            # Without this the mistake factor's denominator is 0 and the
+            # factor reads NO_DATA even though a Mistake row exists below
+            # (Task 4.0: analysed_questions is gated on this column).
+            mistakes_analysed_at=NOW - timedelta(days=1),
             work_id=assignment.work_id,
         )
         session.add(submission)
@@ -204,7 +212,7 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
 
     mistakes = by_factor[(ReadinessFactor.mistake_analysis, None)]
     assert mistakes.evidence_count == 1
-    assert mistakes.detail["total_questions"] == 1
+    assert mistakes.detail["analysed_questions"] == 1
     assert mistakes.detail["by_category"] == {"careless": 1}
 
     cons = by_factor[(ReadinessFactor.consistency, None)]
@@ -336,6 +344,8 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
             status=SubmissionStatus.auto_finalized,
             submitted_at=NOW - timedelta(days=3),
             finalized_at=NOW - timedelta(days=1),
+            # See the comment on the equivalent line above.
+            mistakes_analysed_at=NOW - timedelta(days=1),
             work_id=assignment.work_id,
         )
         session.add(submission)
@@ -381,4 +391,226 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
     # to catch.
     mistakes = by_factor[(ReadinessFactor.mistake_analysis, None)]
     assert mistakes.evidence_count == 1
-    assert mistakes.detail["total_questions"] == 1
+    assert mistakes.detail["analysed_questions"] == 1
+
+
+async def _mock_submission_with_mistake(
+    session,
+    *,
+    org_id: int,
+    tutor_id: int,
+    subject_id: int,
+    student_id: int,
+    status: SubmissionStatus = SubmissionStatus.finalized,
+    analysed: bool = True,
+) -> None:
+    """A settled mock submission with one marked, analysed question and one
+    mistake on it — the mock arm of the homework setup in
+    test_evaluate_subject_factors_end_to_end above, built through
+    services.work.create_work, the only sanctioned creation path."""
+    work = await create_work(
+        session,
+        kind=WorkKind.mock,
+        organization_id=org_id,
+        subject_id=subject_id,
+        title="Mock paper",
+    )
+    mock = Mock(
+        work_id=work.id,
+        organization_id=org_id,
+        tutor_id=tutor_id,
+        subject_id=subject_id,
+        title="Mock paper",
+        paper_path="mocks/paper.pdf",
+        paper_name="paper.pdf",
+        paper_mime="application/pdf",
+    )
+    session.add(mock)
+    await session.flush()
+    question = MockQuestion(
+        mock_id=mock.id,
+        position=0,
+        number="1",
+        text_summary="Q1",
+        max_marks=10,
+        has_mark_scheme=True,
+    )
+    session.add(question)
+    await session.flush()
+
+    submission = Submission(
+        student_id=student_id,
+        status=status,
+        submitted_at=NOW - timedelta(days=3),
+        finalized_at=NOW - timedelta(days=1),
+        mistakes_analysed_at=(NOW - timedelta(days=1)) if analysed else None,
+        work_id=work.id,
+    )
+    session.add(submission)
+    await session.flush()
+    mark = QuestionMark(
+        submission_id=submission.id,
+        mock_question_id=question.id,
+        final_marks=6,
+    )
+    session.add(mark)
+    await session.flush()
+    session.add(
+        Mistake(
+            student_id=student_id,
+            question_mark_id=mark.id,
+            category=MistakeCategory.careless,
+            severity=1,
+        )
+    )
+    await session.commit()
+
+
+async def test_mistake_factor_counts_mocks(client, tutor, world):
+    """A mock's marked questions reach both the mistake list and the
+    denominator. They did not before: both queries inner-joined Assignment,
+    whose work_id is unique, so every non-homework submission was dropped in
+    silence (API-20)."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        org_id = tutor_user.organization_id
+        await _mock_submission_with_mistake(
+            session,
+            org_id=org_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject_id,
+            student_id=student_id,
+        )
+
+    async with async_session() as session:
+        points, analysed = await _mistake_points_and_analysed(session, student_id, subject_id)
+
+    assert analysed == 1
+    assert len(points) == 1
+
+
+async def test_marked_but_unexamined_work_is_no_data(client, tutor, world):
+    """The bug this whole change exists for. Marked work that nothing has
+    examined for mistakes must read as no data, not as a clean record — an
+    empty mistakes table looks identical to a flawless student, and scoring it
+    put a fabricated confident 100.0 into a weighted factor (PROD-2)."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await _mock_submission_with_mistake(
+            session,
+            org_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject_id,
+            student_id=student_id,
+            analysed=False,
+        )
+
+    async with async_session() as session:
+        points, analysed = await _mistake_points_and_analysed(session, student_id, subject_id)
+
+    assert analysed == 0
+    assert mistake_analysis(points, analysed, NOW) is NO_DATA
+
+
+async def test_mistakes_leave_the_numerator_when_their_work_leaves_settled(client, tutor, world):
+    """Numerator and denominator count one population, so they carry one gate.
+
+    A remark request sets the whole submission back to `needs_review`
+    (`api/submissions.py`), which drops its questions out of the denominator
+    while `mistakes_analysed_at` stays set and the Mistake rows stay put.
+    Ungated, the numerator would keep charging those mistakes against a
+    denominator that no longer counts them — a quietly understated score."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await _mock_submission_with_mistake(
+            session,
+            org_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject_id,
+            student_id=student_id,
+            status=SubmissionStatus.needs_review,
+        )
+
+    async with async_session() as session:
+        points, analysed = await _mistake_points_and_analysed(session, student_id, subject_id)
+
+    assert analysed == 0
+    assert points == []
+
+
+async def _past_paper_submission_with_mistake(
+    session, *, org_id: int, subject_id: int, student_id: int
+) -> None:
+    """The past-paper arm of the same setup — one arm passing does not prove
+    the other (API-20's failure class dropped both)."""
+    past_paper = await make_past_paper(
+        session,
+        organization_id=org_id,
+        subject_id=subject_id,
+        session_label="Nov 2026",
+        paper_number="9",
+    )
+    question = PastPaperQuestion(
+        past_paper_id=past_paper.id,
+        position=0,
+        number="1",
+        text_summary="Q1",
+        max_marks=10,
+    )
+    session.add(question)
+    await session.flush()
+
+    submission = Submission(
+        student_id=student_id,
+        status=SubmissionStatus.finalized,
+        submitted_at=NOW - timedelta(days=3),
+        finalized_at=NOW - timedelta(days=1),
+        mistakes_analysed_at=NOW - timedelta(days=1),
+        work_id=past_paper.work_id,
+    )
+    session.add(submission)
+    await session.flush()
+    mark = QuestionMark(
+        submission_id=submission.id,
+        past_paper_question_id=question.id,
+        final_marks=7,
+    )
+    session.add(mark)
+    await session.flush()
+    session.add(
+        Mistake(
+            student_id=student_id,
+            question_mark_id=mark.id,
+            category=MistakeCategory.careless,
+            severity=1,
+        )
+    )
+    await session.commit()
+
+
+async def test_mistake_factor_counts_past_papers(client, tutor, world):
+    """The past-paper sibling of test_mistake_factor_counts_mocks."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        org_id = tutor_user.organization_id
+        await _past_paper_submission_with_mistake(
+            session, org_id=org_id, subject_id=subject_id, student_id=student_id
+        )
+
+    async with async_session() as session:
+        points, analysed = await _mistake_points_and_analysed(session, student_id, subject_id)
+
+    assert analysed == 1
+    assert len(points) == 1
