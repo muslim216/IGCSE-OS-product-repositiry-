@@ -21,7 +21,6 @@ from app.models import (
     Lesson,
     LessonTopic,
     Mistake,
-    MistakeCategory,
     Mock,
     MockQuestion,
     PastPaperAttempt,
@@ -38,7 +37,7 @@ from app.models import (
 from app.services.readiness_factors import NO_DATA, mistake_analysis
 from app.services.readiness_v2 import _mistake_points_and_analysed, evaluate_subject_factors
 from app.services.work import create_work
-from tests.factories import make_past_paper
+from tests.factories import make_mistake_category, make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 NOW = datetime.now(timezone.utc)
@@ -129,12 +128,15 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
         await session.flush()
 
         # A mistake tagged on that mark.
+        mistake_category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id
+        )
         session.add(
             Mistake(
                 student_id=student_id,
                 question_mark_id=mark.id,
                 topic_id=topic1,
-                category=MistakeCategory.careless,
+                category_id=mistake_category.id,
                 severity=1,
             )
         )
@@ -357,12 +359,15 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
         )
         session.add(mark)
         await session.flush()
+        mistake_category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id
+        )
         session.add(
             Mistake(
                 student_id=student_id,
                 question_mark_id=mark.id,
                 topic_id=topic1,
-                category=MistakeCategory.careless,
+                category_id=mistake_category.id,
                 severity=1,
             )
         )
@@ -455,11 +460,14 @@ async def _mock_submission_with_mistake(
     )
     session.add(mark)
     await session.flush()
+    mistake_category = await make_mistake_category(
+        session, organization_id=org_id, subject_id=subject_id
+    )
     session.add(
         Mistake(
             student_id=student_id,
             question_mark_id=mark.id,
-            category=MistakeCategory.careless,
+            category_id=mistake_category.id,
             severity=1,
         )
     )
@@ -586,11 +594,14 @@ async def _past_paper_submission_with_mistake(
     )
     session.add(mark)
     await session.flush()
+    mistake_category = await make_mistake_category(
+        session, organization_id=org_id, subject_id=subject_id
+    )
     session.add(
         Mistake(
             student_id=student_id,
             question_mark_id=mark.id,
-            category=MistakeCategory.careless,
+            category_id=mistake_category.id,
             severity=1,
         )
     )

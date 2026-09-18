@@ -39,12 +39,46 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin, utcnow
 
 
-class MistakeCategory(str, enum.Enum):
-    misread = "misread"
-    content_gap = "content_gap"
-    careless = "careless"
-    calculation = "calculation"
-    time_management = "time_management"
+class MistakeCategory(TimestampMixin, Base):
+    """A kind of mistake, named by the tutor who teaches the subject.
+
+    This was a five-member enum. It is a table because the words a tutor uses
+    for what went wrong are theirs: "careless" is not a category every subject
+    or every teacher recognises, and a fixed list quietly tells a tutor their
+    vocabulary is wrong.
+
+    **Nothing may branch on a category's value.** No `if name == "careless"`.
+    The contents are tutor data, so code that reads meaning into them breaks
+    the moment someone renames one — silently, because a rename is a valid
+    edit and nothing would fail.
+
+    Scoped per (organization, subject) like GradeBoundary, for the same reason:
+    a subject is owned by one tenant, but tutors sharing an organization share
+    its setup, and no tenant may ever see another's (SEC-8).
+    """
+
+    __tablename__ = "mistake_categories"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "subject_id",
+            "name",
+            name="uq_mistake_categories_organization_id_subject_id_name",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    # Written for the model to read, not only the tutor: 4.2 passes this list
+    # into the tagging prompt, and a bare word like "careless" is ambiguous to
+    # anything that has not sat in the room.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Archived, never deleted — mistakes already tagged with it must keep
+    # reading back. An archived category is hidden from new tagging and from
+    # the editor's live list, and nothing else about it changes.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Mistake(TimestampMixin, Base):
@@ -57,9 +91,7 @@ class Mistake(TimestampMixin, Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
-    category: Mapped[MistakeCategory] = mapped_column(
-        Enum(MistakeCategory, native_enum=False, length=16), nullable=False
-    )
+    category_id: Mapped[int] = mapped_column(ForeignKey("mistake_categories.id"), nullable=False)
     severity: Mapped[int] = mapped_column(
         Integer, default=1, nullable=False
     )  # 1 (minor) .. 3 (major)
