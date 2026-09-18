@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "../api/client";
 import { listSubjects } from "../api/groups";
 import {
   getMistakeCategories,
@@ -27,13 +28,24 @@ interface DraftCategory {
   id: number | null;
   name: string;
   description: string;
+  /** Stable across renders, so React tracks a row rather than a position.
+   *  Keying by array index means removing a row shifts every row below it onto
+   *  a different key, and React reuses those inputs for the shifted content —
+   *  which moves a half-typed IME composition, an autofill entry or an undo
+   *  history onto the wrong category. A new row has no `id` to key on, so the
+   *  key cannot come from the server. */
+  key: string;
 }
+
+let nextDraftKey = 0;
+const draftKey = () => `draft-${nextDraftKey++}`;
 
 function toDraft(categories: MistakeCategoryItem[]): DraftCategory[] {
   return categories.map((c) => ({
     id: c.id ?? null,
     name: c.name,
     description: c.description ?? "",
+    key: draftKey(),
   }));
 }
 
@@ -63,9 +75,29 @@ export default function MistakeCategoriesPage() {
   // in TanStack Query (FE-6); this is the draft the tutor is typing, which is
   // a different thing from what is stored and is not server data.
   const [draft, setDraft] = useState<DraftCategory[]>([]);
+  // Seeded once per subject, not on every query update — the same guard
+  // `MarkingRulesPage` carries, and for the same reason it was added there: a
+  // refetch is enough to copy the stored list over whatever the tutor has
+  // typed and not yet saved, and a window regaining focus is a refetch. These
+  // categories are shared by every tutor in an organization, so a colleague
+  // saving the same subject in another tab is the ordinary way the server's
+  // answer changes mid-edit.
+  const hydratedFor = useRef<number | null>(null);
   useEffect(() => {
-    if (categories.data) setDraft(toDraft(categories.data.categories));
+    if (categories.data && hydratedFor.current !== categories.data.subject_id) {
+      hydratedFor.current = categories.data.subject_id;
+      setDraft(toDraft(categories.data.categories));
+    }
   }, [categories.data]);
+
+  // Focus has to go somewhere deliberate when a row is removed: the button the
+  // tutor just pressed stops existing, and a browser drops focus to <body>,
+  // which puts a keyboard or screen-reader user back at the top of the page.
+  const addButton = useRef<HTMLButtonElement | null>(null);
+  const removeRow = (index: number) => {
+    setDraft(draft.filter((_, j) => j !== index));
+    addButton.current?.focus();
+  };
 
   const save = useMutation({
     mutationFn: () =>
@@ -79,20 +111,31 @@ export default function MistakeCategoriesPage() {
       ),
     onSuccess: (data) => {
       // The PUT reply carries the same shape as the GET, ids included — write
-      // it straight into the cache rather than refetching, and re-seed the
-      // draft from it so a second save updates the same rows instead of
-      // re-creating them (a category kept without its id is read as new).
+      // it straight into the cache rather than refetching.
       queryClient.setQueryData(["mistake-categories", selected], data);
+      // And adopt it here too. The per-subject hydration guard deliberately
+      // ignores query updates, so without this the rows just created would keep
+      // `id: null` and the next save would present them as new again. A save is
+      // an explicit action, unlike the refetch that guard exists to ignore, so
+      // taking what was actually stored is right here and wrong there.
+      hydratedFor.current = data.subject_id;
+      setDraft(toDraft(data.categories));
       showToast("Mistake categories saved.");
     },
   });
 
   // Mirrors the backend's own checks (schemas/mistake_categories.py) so the
-  // tutor sees the reason beside the field rather than a rejected save.
+  // tutor sees the reason beside the field rather than a rejected save. The
+  // server stays the authority: where the two disagree on something exotic —
+  // JS has no exact equivalent of Python's `casefold`, so a pair like "ß"/"ss"
+  // is one name to the API and two here — the API refuses and its own message
+  // is shown, which is why that message had to stop being generic.
   const trimmedNames = draft.map((c) => c.name.trim());
   const emptyName = trimmedNames.some((n) => n.length === 0);
   const nameTooLong = draft.some((c) => c.name.length > 60);
-  const descriptionTooLong = draft.some((c) => c.description.length > 400);
+  // Measured on what is actually sent: a description that trims to nothing is
+  // sent as absent, so whitespace alone cannot be too long.
+  const descriptionTooLong = draft.some((c) => c.description.trim().length > 400);
   const duplicateNames =
     new Set(trimmedNames.map((n) => n.toLowerCase())).size !== trimmedNames.length;
   const tooMany = draft.length > 40;
@@ -143,7 +186,12 @@ export default function MistakeCategoriesPage() {
         ))}
       </select>
 
-      {categories.isLoading ? (
+      {/* The editor appears only once the loaded list is the selected
+          subject's. Switching to a subject already in the cache renders its
+          data synchronously, while `draft` still holds the previous subject's
+          rows until the effect above runs — one render with Save enabled,
+          pointed at the new subject, carrying the old subject's list. */}
+      {categories.isLoading || (categories.data && categories.data.subject_id !== selected) ? (
         <span aria-hidden className="block h-32 w-full animate-pulse rounded bg-surface-muted" />
       ) : categories.isError || !categories.data ? (
         <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
@@ -162,14 +210,20 @@ export default function MistakeCategoriesPage() {
 
           <ul className="max-w-2xl space-y-3">
             {draft.map((category, i) => (
-              <li key={i} className="space-y-2 rounded-lg border border-line p-3">
+              <li key={category.key} className="space-y-2 rounded-lg border border-line p-3">
                 <div className="flex items-start gap-3">
                   <div className="flex-1 space-y-2">
-                    <label htmlFor={`category-name-${i}`} className="sr-only">
+                    <label htmlFor={`category-name-${category.key}`} className="sr-only">
                       Category {i + 1} name
                     </label>
                     <input
-                      id={`category-name-${i}`}
+                      id={`category-name-${category.key}`}
+                      aria-invalid={category.name.length > 60}
+                      aria-describedby={
+                        category.name.length > 60
+                          ? `category-name-error-${category.key}`
+                          : undefined
+                      }
                       value={category.name}
                       onChange={(e) =>
                         setDraft(
@@ -179,11 +233,17 @@ export default function MistakeCategoriesPage() {
                       placeholder="Category name"
                       className="w-full rounded-md border border-line-control px-2 py-1 text-sm"
                     />
-                    <label htmlFor={`category-description-${i}`} className="sr-only">
+                    <label htmlFor={`category-description-${category.key}`} className="sr-only">
                       Description for {category.name || `category ${i + 1}`}
                     </label>
                     <textarea
-                      id={`category-description-${i}`}
+                      id={`category-description-${category.key}`}
+                      aria-invalid={category.description.trim().length > 400}
+                      aria-describedby={
+                        category.description.trim().length > 400
+                          ? `category-description-error-${category.key}`
+                          : undefined
+                      }
                       value={category.description}
                       onChange={(e) =>
                         setDraft(
@@ -199,17 +259,22 @@ export default function MistakeCategoriesPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setDraft(draft.filter((_, j) => j !== i))}
+                    onClick={() => removeRow(i)}
                     className="shrink-0 text-sm text-ink-500 hover:text-risk-600"
                   >
                     Remove<span className="sr-only"> {category.name || `category ${i + 1}`}</span>
                   </button>
                 </div>
                 {category.name.length > 60 && (
-                  <p className="text-sm text-risk-600">Name must be 60 characters or fewer.</p>
+                  <p id={`category-name-error-${category.key}`} className="text-sm text-risk-600">
+                    Name must be 60 characters or fewer.
+                  </p>
                 )}
-                {category.description.length > 400 && (
-                  <p className="text-sm text-risk-600">
+                {category.description.trim().length > 400 && (
+                  <p
+                    id={`category-description-error-${category.key}`}
+                    className="text-sm text-risk-600"
+                  >
                     Description must be 400 characters or fewer.
                   </p>
                 )}
@@ -220,7 +285,10 @@ export default function MistakeCategoriesPage() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => setDraft([...draft, { id: null, name: "", description: "" }])}
+              ref={addButton}
+              onClick={() =>
+                setDraft([...draft, { id: null, name: "", description: "", key: draftKey() }])
+              }
               disabled={draft.length >= 40}
               className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
             >
@@ -246,7 +314,16 @@ export default function MistakeCategoriesPage() {
             <p className="text-sm text-risk-600">Each category name can appear only once.</p>
           )}
           {tooMany && <p className="text-sm text-risk-600">Up to 40 categories.</p>}
-          {save.isError && <p className="text-sm text-risk-600">{ABSENT.loadFailed}</p>}
+          {save.isError && (
+            <p className="text-sm text-risk-600" role="alert">
+              {/* The server's own reason, not a generic one. "Refresh the page
+                  to try again" is wrong advice for a rejected save, and it is
+                  the wrong advice precisely when the tutor most needs the real
+                  message — a stale row, or a rule the checks below did not
+                  mirror. */}
+              {save.error instanceof ApiError ? save.error.message : ABSENT.loadFailed}
+            </p>
+          )}
         </>
       )}
       {toast}

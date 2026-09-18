@@ -12,6 +12,7 @@ import MistakeCategoriesPage from "../tutor/MistakeCategoriesPage";
 
 const SUBJECTS = [
   { id: 7, exam_board: "Edexcel IGCSE", code: "4CH1", name: "Chemistry", grade_scale: "9-1" },
+  { id: 9, exam_board: "Edexcel IGCSE", code: "4BI1", name: "Biology", grade_scale: "9-1" },
 ];
 
 const DEFAULTS = [
@@ -19,10 +20,23 @@ const DEFAULTS = [
   { id: null, name: "Content gap", description: "The method was not known." },
 ];
 
-function stub(options: { source?: "organization" | "none"; categories?: unknown[] } = {}) {
+function stub(
+  options: {
+    source?: "organization" | "none";
+    categories?: unknown[];
+    /** What each subject holds, when a test needs more than one. */
+    bySubject?: Record<number, { source: string; categories: unknown[] }>;
+    /** Make the save fail with this status and detail. */
+    failSaveWith?: { status: number; detail: string };
+  } = {},
+) {
   const source = options.source ?? "none";
-  const categories = options.categories ?? DEFAULTS;
+  let categories = options.categories ?? DEFAULTS;
   const saved: unknown[] = [];
+  /** Change what the server holds, as a colleague in another tab would. */
+  const setStored = (next: unknown[]) => {
+    categories = next;
+  };
 
   vi.stubGlobal(
     "fetch",
@@ -32,7 +46,23 @@ function stub(options: { source?: "organization" | "none"; categories?: unknown[
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
       if (method === "GET" && path === "/api/v1/subjects") return json(SUBJECTS);
-      if (/^\/api\/v1\/subjects\/\d+\/mistake-categories$/.test(path)) {
+      const match = /^\/api\/v1\/subjects\/(\d+)\/mistake-categories$/.exec(path);
+      if (match) {
+        const subject = Number(match[1]);
+        if (options.bySubject) {
+          const held = options.bySubject[subject];
+          return json({
+            subject_id: subject,
+            subject_name: SUBJECTS.find((s) => s.id === subject)!.name,
+            source: held.source,
+            categories: held.categories,
+          });
+        }
+        if (method === "PUT" && options.failSaveWith) {
+          return new Response(JSON.stringify({ detail: options.failSaveWith.detail }), {
+            status: options.failSaveWith.status,
+          });
+        }
         if (method === "PUT") {
           const body = JSON.parse(String(init?.body));
           saved.push(body);
@@ -61,16 +91,17 @@ function stub(options: { source?: "organization" | "none"; categories?: unknown[
       });
     }),
   );
-  return { saved };
+  return { saved, setStored };
 }
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const rendered = render(
     <QueryClientProvider client={client}>
       <MistakeCategoriesPage />
     </QueryClientProvider>,
   );
+  return { ...rendered, client };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -155,4 +186,97 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   expect((saved[1] as { categories: { id?: number }[] }).categories.every((c) => !!c.id)).toBe(
     true,
   );
+});
+
+test("new server data arriving mid-edit does not overwrite what the tutor has typed", async () => {
+  // These categories belong to the organisation, not to one tutor, so a
+  // colleague saving the same subject in another tab is the ordinary way the
+  // server's answer changes while someone is editing — and a window regaining
+  // focus is enough to fetch it. Re-seeding the draft on every query update
+  // silently replaced the unsaved edit: no warning, no diff, no sign anyone
+  // else had touched it.
+  //
+  // Written against the cache rather than by forcing a refetch, because that
+  // is the state a refetch produces and it produces it deterministically.
+  stub({ source: "organization", categories: [{ id: 3, name: "Careless", description: null }] });
+  const { client } = renderPage();
+
+  const name = await screen.findByDisplayValue("Careless");
+  fireEvent.change(name, { target: { value: "Half-typed edit" } });
+
+  client.setQueryData(["mistake-categories", 7], {
+    subject_id: 7,
+    subject_name: "Chemistry",
+    source: "organization",
+    categories: [{ id: 3, name: "Saved by a colleague", description: null }],
+  });
+
+  await waitFor(() => expect(screen.getByDisplayValue("Half-typed edit")).toBeTruthy());
+  expect(screen.queryByDisplayValue("Saved by a colleague")).toBeNull();
+});
+
+test("switching subject shows that subject's categories, never the previous one's", async () => {
+  // Switching back to a subject already in the cache renders its data
+  // synchronously, while the draft still holds the previous subject's rows.
+  // Saving in that window wrote one subject's list onto another — and because
+  // rows offered as defaults carry no id, the API matched them by name and
+  // took them as edits rather than refusing them.
+  stub({
+    bySubject: {
+      7: {
+        source: "organization",
+        categories: [{ id: 1, name: "Chemistry only", description: null }],
+      },
+      9: {
+        source: "organization",
+        categories: [{ id: 2, name: "Biology only", description: null }],
+      },
+    },
+  });
+  renderPage();
+
+  await screen.findByDisplayValue("Chemistry only");
+
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "9" } });
+  expect(await screen.findByDisplayValue("Biology only")).toBeTruthy();
+  expect(screen.queryByDisplayValue("Chemistry only")).toBeNull();
+
+  fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "7" } });
+  expect(await screen.findByDisplayValue("Chemistry only")).toBeTruthy();
+  expect(screen.queryByDisplayValue("Biology only")).toBeNull();
+});
+
+test("removing a row moves focus somewhere deliberate", async () => {
+  // The button the tutor pressed stops existing. A browser then drops focus to
+  // <body>, which puts a keyboard or screen-reader user back at the top of the
+  // document with no way to tell what happened.
+  stub({
+    source: "organization",
+    categories: [
+      { id: 3, name: "Careless", description: null },
+      { id: 4, name: "Content gap", description: null },
+    ],
+  });
+  renderPage();
+
+  await screen.findByDisplayValue("Careless");
+  fireEvent.click(screen.getByRole("button", { name: /Remove Careless/i }));
+
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /Add a category/i }));
+});
+
+test("a rejected save shows the server's reason, not generic advice", async () => {
+  // "Refresh the page to try again" is wrong advice for a rejected save, and
+  // it is wrong exactly when the real message matters most.
+  stub({
+    source: "organization",
+    categories: [{ id: 3, name: "Careless", description: null }],
+    failSaveWith: { status: 404, detail: "Mistake category not found" },
+  });
+  renderPage();
+
+  await screen.findByDisplayValue("Careless");
+  fireEvent.click(screen.getByRole("button", { name: /save/i }));
+
+  expect(await screen.findByText(/Mistake category not found/)).toBeTruthy();
 });
