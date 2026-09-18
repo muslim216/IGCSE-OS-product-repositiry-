@@ -8,6 +8,7 @@ import {
   PenLine,
   Ruler,
   Scale,
+  Tags,
   Settings as SettingsIcon,
   SlidersHorizontal,
   type LucideIcon,
@@ -77,6 +78,12 @@ const SETTINGS: Shelf[] = [
     label: "Grade boundaries",
     hint: "What percentage earns each grade. Every predicted grade is read through these.",
     icon: Ruler,
+  },
+  {
+    to: "/tutor/mistake-categories",
+    label: "Mistake categories",
+    hint: "The words you use for what went wrong, per subject. Marking tags against these.",
+    icon: Tags,
   },
   {
     to: "/tutor/preferences",
