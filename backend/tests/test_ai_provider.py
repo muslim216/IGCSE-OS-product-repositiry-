@@ -38,10 +38,11 @@ def test_get_prompt_rejects_an_unknown_surface():
 #: `anthropic_model` — the one line that moves all of them at once.
 #: mistake_tagging (task 4.2) added here rather than pinned: like marking, it
 #: is a judgement call about a student's own work, not report-shaped prose
-#: written from data the platform already computed, and it has no dedicated
-#: `ai_mistake_tagging_model` setting (deliberately — resolve_surface's
-#: getattr fallback already gives it the same "blank means anthropic_model"
-#: behaviour without one).
+#: written from data the platform already computed. Its
+#: `ai_mistake_tagging_model` setting exists and is blank, like every other
+#: surface in this tuple — `test_every_surface_defaults_to_anthropic_in_config_py`
+#: reads `Settings.model_fields` directly, so a surface with no field there
+#: raises rather than falling back on `resolve_surface`'s getattr default.
 DEFAULT_MODEL_SURFACES = (
     "marking",
     "extraction",

@@ -152,10 +152,30 @@ def test_the_tagging_prompt_treats_its_inputs_as_data():
     organization has more than one tutor its list is not something one person
     alone can vouch for.
     """
-    from app.services.prompts import get_prompt
+    from app.services.prompts import (
+        CATEGORY_LIST_MARKERS,
+        QUESTION_FEEDBACK_MARKERS,
+        get_prompt,
+    )
 
     prompt = get_prompt("mistake_tagging")
     assert prompt.version == "v1"
-    system = prompt.system.lower()
-    assert "data" in system and "never instructions" in system
-    assert "categor" in system
+    system = prompt.system
+    lowered = system.lower()
+    assert "data" in lowered and "never instructions" in lowered
+
+    # Both halves of SEC-20, not just the first. The rule is "states that the
+    # content is data and never instructions, **and directs the model to flag
+    # rather than obey** anything addressing it" — and the first draft of this
+    # prompt carried only the "do not obey" half. Resisting an injection
+    # silently is not enough here: nothing reads these rows before a tutor
+    # does, so an attempt nobody records is an attempt nobody can find. MARKING
+    # spends its last paragraph on exactly this (its confidence 'low' clause);
+    # this prompt has to as well.
+    assert "note" in lowered and "tutor sees" in lowered
+
+    # Both untrusted sources are delimited, and the prompt names the same
+    # markers the caller emits. A prompt promising a boundary the content does
+    # not carry fails silently — the call succeeds and the tags come back.
+    for marker in CATEGORY_LIST_MARKERS + QUESTION_FEEDBACK_MARKERS:
+        assert marker in system, f"the prompt does not name {marker!r}"
