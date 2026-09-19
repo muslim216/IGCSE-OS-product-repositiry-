@@ -244,6 +244,31 @@ export default function SubmissionReviewPage() {
         </div>
       </div>
 
+      {/* A zero here is not a finding — render nothing at all (UX-19). */}
+      {s.bare_question_count > 0 && (
+        <div className="rounded-lg border border-line bg-surface-muted p-3 text-sm text-ink-700">
+          {s.bare_question_count === 1
+            ? "1 question isn't linked to a syllabus topic."
+            : `${s.bare_question_count} questions aren't linked to a syllabus topic.`}{" "}
+          {/* All three arms, not two. A mock carries `mock_id`, never
+              `assignment_id`, so an `assignment_id ? … : past-papers` test sends
+              every mock to the past-papers library — the same silent narrowing
+              to two arms that `API-20` exists to stop, one layer up. */}
+          <Link
+            to={
+              s.assignment_id
+                ? `/tutor/assignments/${s.assignment_id}`
+                : s.mock_id
+                  ? "/tutor/mocks"
+                  : "/tutor/past-papers"
+            }
+            className="text-brand-600 hover:underline"
+          >
+            Fix this
+          </Link>
+        </div>
+      )}
+
       {s.ai_error && (
         <div className="rounded-lg border border-line bg-warn-100 p-3 text-sm text-warn-700">
           AI marking did not run ({s.ai_error}). Mark each question yourself below.

@@ -37,11 +37,13 @@ function submissionBody(
   id = 1,
   status = "needs_review",
   typed: { text: string; flag_reason: string | null } | null = null,
+  bareQuestionCount = 0,
 ) {
   return {
     id,
     assignment_id: 7,
     past_paper_id: null,
+    mock_id: null,
     assignment_title: "HW1",
     student_id: 2,
     student_name: "Sara",
@@ -51,6 +53,7 @@ function submissionBody(
     files: [],
     typed_answer: typed,
     marks,
+    bare_question_count: bareQuestionCount,
   };
 }
 
@@ -84,6 +87,7 @@ function stubSubmission(
   queue: number[] = [],
   status = "needs_review",
   typed: { text: string; flag_reason: string | null } | null = null,
+  bareQuestionCount = 0,
 ) {
   vi.stubGlobal(
     "fetch",
@@ -97,17 +101,22 @@ function stubSubmission(
       if (route(/^\/api\/v1\/submissions\/review-queue$/, "GET")) return json(queue.map(queueItem));
 
       const detail = route(/^\/api\/v1\/submissions\/(\d+)$/, "GET");
-      if (detail) return json(submissionBody(marks, Number(detail[1]), status, typed));
+      if (detail)
+        return json(submissionBody(marks, Number(detail[1]), status, typed, bareQuestionCount));
 
       const saved = route(/^\/api\/v1\/submissions\/(\d+)\/marks$/, "PUT");
       // `typed` threaded through here too: in production `save_marks` returns
       // the whole SubmissionDetail, so a stub that dropped it would make the
       // typed-answer panel vanish after a save and diverge from real behaviour
       // (cubic).
-      if (saved) return json(submissionBody(marks, Number(saved[1]), status, typed));
+      if (saved)
+        return json(submissionBody(marks, Number(saved[1]), status, typed, bareQuestionCount));
 
       const finalized = route(/^\/api\/v1\/submissions\/(\d+)\/finalize$/, "POST");
-      if (finalized) return json(submissionBody(marks, Number(finalized[1]), "finalized", typed));
+      if (finalized)
+        return json(
+          submissionBody(marks, Number(finalized[1]), "finalized", typed, bareQuestionCount),
+        );
 
       if (route(/^\/api\/v1\/submissions\/\d+\/marks\/\d+\/history$/, "GET")) return json([]);
 
@@ -325,4 +334,54 @@ test("a photographed submission shows no typed-answer panel at all", async () =>
 
   await screen.findByText(/marks need your decision/);
   expect(screen.queryByText("What the student typed")).toBeNull();
+});
+
+/* Task 7 (decision 15): bare questions. A zero here is not a finding — an
+   empty state reading "0 questions" is noise (UX-19). */
+
+test("bare questions are surfaced with a link to fix them", async () => {
+  stubSubmission([mark({ question_id: 1, final_marks: 8 })], [], "needs_review", null, 2);
+  renderPage();
+
+  expect(
+    await screen.findByText("2 questions aren't linked to a syllabus topic."),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Fix this")).toBeInTheDocument();
+});
+
+test("nothing is rendered when every question has a topic", async () => {
+  stubSubmission([mark({ question_id: 1, final_marks: 8 })], [], "needs_review", null, 0);
+  renderPage();
+
+  await screen.findByText("8 / 10");
+  expect(screen.queryByText(/linked to a syllabus topic/)).not.toBeInTheDocument();
+});
+
+test("a mock's bare-question link goes to mocks, not the past-paper library", async () => {
+  // A mock carries `mock_id` and never `assignment_id`, so a two-arm
+  // `assignment_id ? … : past-papers` test sends every mock to the past-paper
+  // library — wrong destination, nothing failing, and the tutor cannot reach
+  // the questions they were just told to fix.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (/^\/api\/v1\/submissions\/\d+$/.test(path))
+        return new Response(
+          JSON.stringify({
+            ...submissionBody([], 1, "needs_review", null, 2),
+            assignment_id: null,
+            mock_id: 4,
+            assignment_title: "Mock 1",
+          }),
+          { status: 200 },
+        );
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+  renderPage();
+  expect(await screen.findByRole("link", { name: "Fix this" })).toHaveAttribute(
+    "href",
+    "/tutor/mocks",
+  );
 });
