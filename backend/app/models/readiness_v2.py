@@ -33,6 +33,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,11 +60,19 @@ class MistakeCategory(TimestampMixin, Base):
 
     __tablename__ = "mistake_categories"
     __table_args__ = (
-        UniqueConstraint(
+        # Unique on the folded name, not the name as typed. The editor and
+        # `save_categories` both treat "Careless" and "careless" as one
+        # category, so a database that does not would let two saves landing at
+        # once create both — after which the editor reads its own stored list
+        # as a duplicate and refuses to save anything at all, with nothing the
+        # tutor can do about it from the screen (cubic). Declared here as well
+        # as created in the migration (`DB-12`).
+        Index(
+            "uq_mistake_categories_org_subject_lower_name",
             "organization_id",
             "subject_id",
-            "name",
-            name="uq_mistake_categories_organization_id_subject_id_name",
+            text("lower(name)"),
+            unique=True,
         ),
     )
 

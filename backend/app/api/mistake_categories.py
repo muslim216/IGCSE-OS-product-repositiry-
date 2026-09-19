@@ -14,6 +14,7 @@ other-org subject is a 404, never a 403 (`API-7`/`SEC-9`).
 """
 
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import DbSession, TutorUser, owned_subject
 from app.schemas.mistake_categories import (
@@ -84,6 +85,23 @@ async def write_mistake_categories(
         # exist (SEC-7); indistinguishable to the caller from one that never
         # existed (API-7, SEC-9).
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mistake category not found") from exc
+    except IntegrityError as exc:
+        # Two tutors in one organization saving the same subject at once. The
+        # second save diffed against a list that had already moved, so a name
+        # it believed was free is taken by the time it flushes.
+        #
+        # The payload is the whole list, so the later save wins — the same
+        # contract `set_org_boundaries` has. Archiving rather than deleting is
+        # what makes that survivable: a category the other tutor added and this
+        # save did not know about is archived, not destroyed, and re-adding the
+        # name brings back the same row with everything tagged against it. What
+        # must not happen is a 500 for an edit that is legal and merely late,
+        # with no way to tell the tutor which it was (cubic).
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "These categories changed while you were editing. Reload the list and try again.",
+        ) from exc
     await db.commit()
     return MistakeCategoriesOut(
         subject_id=subject.id,

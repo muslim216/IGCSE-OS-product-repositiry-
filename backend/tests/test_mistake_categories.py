@@ -12,6 +12,7 @@ on a category's name — the contents are tutor data.
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
 from app.models import MistakeCategory
@@ -135,7 +136,12 @@ async def test_a_student_cannot_write_categories(client, student, subject):
         json={"categories": [{"name": "Careless"}]},
         headers=student["headers"],
     )
-    assert r.status_code in (401, 403)
+    # 403 exactly, not "401 or 403". The token is valid and the student is who
+    # they say they are; what fails is the `TutorUser` gate, which is the claim
+    # this test exists to pin — `tests/test_authorization.py` pins it the same
+    # way. Accepting 401 would let a regression that rejects a valid student
+    # for the wrong reason pass as though nothing had changed (QA-12, cubic).
+    assert r.status_code == 403
 
 
 async def test_another_organizations_subject_is_404_not_403(client, tutor):
@@ -280,7 +286,12 @@ async def test_a_rename_frees_its_name_for_a_new_category_in_the_same_save(clien
     )
     assert second.status_code == 200, second.text
     returned = second.json()["categories"]
-    assert [c["name"] for c in returned] == ["Slip", "Careless"], "payload order is kept"
+    # Ordered by id, which is what `save_categories` returns and what
+    # `list_categories` returns after it — so a save and the reload that
+    # follows agree. It coincides with payload order here only because the
+    # renamed row keeps its original, smaller id; do not read this as a promise
+    # that the payload's order survives, because it does not (cubic).
+    assert [c["name"] for c in returned] == ["Slip", "Careless"], "ordered by id"
     assert returned[0]["id"] == original_id, "the renamed row is the same row"
     assert returned[1]["id"] != original_id, "the reused name is a new row"
 
@@ -335,3 +346,165 @@ async def test_the_same_category_twice_in_one_payload_is_rejected(client, tutor,
         headers=tutor["headers"],
     )
     assert r.status_code == 422
+
+
+async def test_a_name_match_never_takes_a_row_the_payload_already_claimed_by_id(
+    client, tutor, subject
+):
+    """Add "Careless" while renaming the row that currently holds that name.
+
+    Both items point at the same stored row: one by name, one by id. Resolved
+    in payload order they both won it — the reply listed that category twice,
+    the "Careless" the tutor was adding was never created, and nothing failed.
+    The reverse payload order worked, so the outcome depended on which row the
+    tutor happened to put first. Ids are settled before names for that reason.
+    """
+    first = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "Careless"}]},
+        headers=tutor["headers"],
+    )
+    original_id = first.json()["categories"][0]["id"]
+
+    second = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={
+            "categories": [
+                {"name": "Careless", "description": "a different thing now"},
+                {"id": original_id, "name": "Slip"},
+            ]
+        },
+        headers=tutor["headers"],
+    )
+    assert second.status_code == 200, second.text
+    returned = second.json()["categories"]
+    assert sorted(c["name"] for c in returned) == ["Careless", "Slip"]
+    assert len({c["id"] for c in returned}) == 2, "two categories, not one listed twice"
+
+    async with async_session() as session:
+        live = (
+            await session.scalars(
+                select(MistakeCategory).where(MistakeCategory.archived_at.is_(None))
+            )
+        ).all()
+    assert sorted(row.name for row in live) == ["Careless", "Slip"]
+
+
+async def test_two_categories_can_swap_names_in_one_save(client, tutor, subject):
+    """A tutor deciding the words are the wrong way round.
+
+    Legal, and it has to work. The unique index is checked one statement at a
+    time, so writing the first new name lands while the other row still holds
+    it — which is why a row whose name is changing is parked on a placeholder
+    and flushed before the real names are written.
+    """
+    first = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "Careless"}, {"name": "Calculation"}]},
+        headers=tutor["headers"],
+    )
+    careless_id, calculation_id = (c["id"] for c in first.json()["categories"])
+
+    second = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={
+            "categories": [
+                {"id": careless_id, "name": "Calculation"},
+                {"id": calculation_id, "name": "Careless"},
+            ]
+        },
+        headers=tutor["headers"],
+    )
+    assert second.status_code == 200, second.text
+    assert {c["id"]: c["name"] for c in second.json()["categories"]} == {
+        careless_id: "Calculation",
+        calculation_id: "Careless",
+    }
+
+    async with async_session() as session:
+        rows = (await session.scalars(select(MistakeCategory))).all()
+    assert len(rows) == 2, "a swap renames two rows; it does not create any"
+    assert all(row.archived_at is None for row in rows)
+
+
+async def test_a_description_of_only_whitespace_is_stored_as_absent(client, tutor, subject):
+    """Not stored as spaces. 4.2 interpolates descriptions into the tagging
+    prompt, where a blank label is worse than no label and the padding is paid
+    for on every call."""
+    r = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "  Careless  ", "description": "   "}]},
+        headers=tutor["headers"],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["categories"][0] == {
+        "id": r.json()["categories"][0]["id"],
+        "name": "Careless",
+        "description": None,
+    }
+
+
+async def test_a_name_at_the_bound_with_surrounding_space_is_accepted(client, tutor, subject):
+    """60 characters plus a trailing space is a 60-character name. Rejecting it
+    asks the tutor to count a character they cannot see, for a space that is
+    never stored."""
+    r = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": " " + "x" * 60 + " "}]},
+        headers=tutor["headers"],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["categories"][0]["name"] == "x" * 60
+
+
+async def test_the_database_holds_one_name_per_subject_whatever_its_case(org_and_subject):
+    """The editor and `save_categories` both treat "Careless" and "careless" as
+    one category, so the database has to as well.
+
+    It does not bite through `save_categories`, which matches case-insensitively
+    itself. It bites when two saves land at once: both find no match, both
+    insert, and the editor then reads its own stored list as a duplicate and
+    disables saving with nothing the tutor can do from the screen. The index is
+    on `lower(name)` so the second insert loses instead.
+    """
+    organization_id, subject_id = org_and_subject
+    async with async_session() as session:
+        session.add(
+            MistakeCategory(organization_id=organization_id, subject_id=subject_id, name="Careless")
+        )
+        await session.commit()
+
+    with pytest.raises(IntegrityError):
+        async with async_session() as session:
+            session.add(
+                MistakeCategory(
+                    organization_id=organization_id, subject_id=subject_id, name="careless"
+                )
+            )
+            await session.commit()
+
+
+async def test_a_name_taken_since_the_editor_loaded_is_a_conflict_not_a_500(
+    client, tutor, subject, monkeypatch
+):
+    """Two tutors in one organization saving the same subject at once.
+
+    The later save diffed against a list that had already moved, so a name it
+    believed was free is taken by the time it flushes. The later save still
+    wins the list — but an edit that is legal and merely late must not reach
+    the tutor as a 500 with nothing saying which it was.
+    """
+    import app.api.mistake_categories as api_module
+
+    async def _taken(*args, **kwargs):
+        raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(api_module, "save_categories", _taken)
+
+    r = await client.put(
+        f"/api/v1/subjects/{subject['id']}/mistake-categories",
+        json={"categories": [{"name": "Careless"}]},
+        headers=tutor["headers"],
+    )
+    assert r.status_code == 409
+    assert "changed while you were editing" in r.json()["detail"]

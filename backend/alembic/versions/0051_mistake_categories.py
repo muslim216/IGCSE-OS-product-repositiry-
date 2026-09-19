@@ -44,12 +44,21 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint(
-            "organization_id",
-            "subject_id",
-            "name",
-            name="uq_mistake_categories_organization_id_subject_id_name",
-        ),
+    )
+
+    # Unique on the folded name rather than the name as typed, because that is
+    # what the editor and `save_categories` both mean by "the same category".
+    # A plain UNIQUE(organization_id, subject_id, name) let two saves landing at
+    # once store "Careless" and "careless" side by side, after which the editor
+    # reads its own stored list as a duplicate and disables saving entirely.
+    # An expression index rather than a constraint: Postgres has no functional
+    # UNIQUE constraint, and SQLite has supported expression indexes since 3.9,
+    # so the test schema built from `Base.metadata` matches (`DB-12`, `RISK-3`).
+    op.create_index(
+        "uq_mistake_categories_org_subject_lower_name",
+        "mistake_categories",
+        ["organization_id", "subject_id", sa.text("lower(name)")],
+        unique=True,
     )
 
     # `mistakes` has no writer anywhere in backend/app (verified by grep before

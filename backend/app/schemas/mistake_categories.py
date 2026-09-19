@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 class MistakeCategoryItem(BaseModel):
@@ -16,13 +16,25 @@ class MistakeCategoryItem(BaseModel):
     # unbounded one is a cost and a latency the tutor never sees coming.
     description: str | None = Field(default=None, max_length=400)
 
-    @field_validator("name")
+    @field_validator("name", "description", mode="before")
     @classmethod
-    def _stripped_and_non_empty(cls, value: str) -> str:
+    def _trimmed(cls, value: object, info: ValidationInfo) -> object:
+        """Trim before the length bounds are applied, not after.
+
+        Before, because the bound belongs to what is stored: a 60-character
+        name typed with a trailing space is a 60-character name, and refusing
+        it asks the tutor to count a character they cannot see. The same for a
+        400-character description. An all-whitespace name still fails, on
+        `min_length=1`, which is the field that should be saying so.
+        """
+        if not isinstance(value, str):
+            return value
         value = value.strip()
-        if not value:
-            raise ValueError("name must not be empty")
-        return value
+        # A description that trims to nothing is absent, not a description made
+        # of spaces. 4.2 interpolates these into the tagging prompt, where a
+        # blank label is worse than no label — and padding is paid for on every
+        # call.
+        return (value or None) if info.field_name == "description" else value
 
 
 class MistakeCategoriesIn(BaseModel):

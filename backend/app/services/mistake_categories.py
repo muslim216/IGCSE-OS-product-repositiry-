@@ -95,7 +95,7 @@ async def save_categories(
         it was previously dropped and is now being brought back by id);
       - an item with no `id` reuses the row that already holds that name,
         archived **or live**, rather than inserting a duplicate the
-        (organization_id, subject_id, name) constraint would reject. Matching
+        (organization_id, subject_id, lower(name)) index would reject. Matching
         only archived rows meant re-saving a list unchanged — a double-clicked
         save, a retry after a timeout, a form that did not keep the returned
         ids — raised an IntegrityError at the tutor as a 500. With no `id` to
@@ -107,7 +107,12 @@ async def save_categories(
     passes with a flush between. SQLAlchemy emits INSERTs before UPDATEs within
     one flush, so renaming "careless" to "slip" and adding a fresh "careless"
     in the same save would otherwise insert the new row while the old one still
-    held the name — a legal edit rejected by the constraint.
+    held the name — a legal edit rejected by the index.
+
+    Within the first pass, ids are resolved before names, and a name moving
+    between rows is parked on a placeholder first. Both exist because the
+    uniqueness of a name is checked one statement at a time; see the comments
+    at each step for the edit that broke without them.
     """
     existing = {
         row.id: row
@@ -135,30 +140,78 @@ async def save_categories(
 
     kept_ids: set[int] = set()
     resolved: dict[int, MistakeCategory] = {}
+    claimed: set[int] = set()
 
-    # Pass 1 — every item that names a row already in the table.
+    # Pass 1a — items that name a row by id. Settled before any name match,
+    # because an id says which row was meant and a name only guesses. Resolving
+    # both in one loop let a single row be claimed twice: with one stored
+    # "Careless" (id 5), the payload [{"name": "Careless"}, {"id": 5, "name":
+    # "Slip"}] matched row 5 by name at position 0 and then took it again by id
+    # at position 1. The reply listed that category twice — the exact thing the
+    # schema's duplicate-id check exists to prevent — and the "Careless" the
+    # tutor was adding was never created, silently. The reverse payload order
+    # worked, so correctness depended on which row the tutor happened to put
+    # first (cubic).
     for position, item in enumerate(items):
         item_id = item.get("id")
-        if item_id is not None:
-            row = existing.get(item_id)
-            if row is None:
-                # An id that is not this organization's own row — never someone
-                # else's row updated because the id happened to exist (SEC-7).
-                raise ValueError(f"no mistake category {item_id} in this subject")
-        else:
-            # Case-insensitively, because the payload validator already
-            # treats "Careless" and "careless" as one name. Matching
-            # exactly here would let the pair coexist across two saves
-            # while being rejected within one.
-            wanted = item["name"].casefold()
-            row = next((r for r in existing.values() if r.name.casefold() == wanted), None)
-            if row is None:
-                continue
+        if item_id is None:
+            continue
+        row = existing.get(item_id)
+        if row is None:
+            # An id that is not this organization's own row — never someone
+            # else's row updated because the id happened to exist (SEC-7).
+            raise ValueError(f"no mistake category {item_id} in this subject")
+        claimed.add(row.id)
+        resolved[position] = row
+
+    # Pass 1b — an item with no id reuses the row already holding that name,
+    # unless pass 1a has already spoken for it.
+    for position, item in enumerate(items):
+        if position in resolved:
+            continue
+        # Case-insensitively, because the payload validator already
+        # treats "Careless" and "careless" as one name. Matching
+        # exactly here would let the pair coexist across two saves
+        # while being rejected within one.
+        wanted = item["name"].casefold()
+        row = next(
+            (r for r in existing.values() if r.id not in claimed and r.name.casefold() == wanted),
+            None,
+        )
+        if row is None:
+            continue
+        claimed.add(row.id)
+        resolved[position] = row
+
+    # A name moving from one row to another is written in two steps. The unique
+    # index is checked per statement, so swapping two categories' names — a
+    # legal edit — fails on the first UPDATE, while the other row still holds
+    # the name it is about to give up. Park every row whose name is changing on
+    # a name nothing holds, flush that, and only then write the real ones
+    # (cubic).
+    renaming = [
+        (position, row) for position, row in resolved.items() if row.name != items[position]["name"]
+    ]
+    if renaming:
+        taken = {row.name.casefold() for row in existing.values()}
+        taken |= {item["name"].casefold() for item in items}
+        for _, row in renaming:
+            # The id makes this unique among the parked names; the prefix is
+            # only there in case a tutor has literally named a category
+            # "pending 5". Forty categories cannot exhaust 60 characters of it.
+            parked = f"pending {row.id}"
+            while parked.casefold() in taken:
+                parked = f"_{parked}"
+            taken.add(parked.casefold())
+            row.name = parked
+        await session.flush()
+
+    for position, row in resolved.items():
+        item = items[position]
         row.name = item["name"]
         row.description = item.get("description")
         row.archived_at = None
         kept_ids.add(row.id)
-        resolved[position] = row
 
     # Frees any name a rename in pass 1 gave up, before pass 2 tries to take it.
     await session.flush()
