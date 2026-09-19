@@ -25,7 +25,7 @@ import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -184,6 +184,40 @@ async def _tag_call(
     )
 
 
+async def _delete_own_mistakes(session: AsyncSession, submission_id: int) -> None:
+    """Drop what a previous run of this same job wrote for this submission, and
+    nothing else (E17, decision 8).
+
+    Re-running is ordinary — at-least-once delivery, the orphan reclaim, and
+    4.3's re-tag button (`BE-6`). Appending would double every mistake and
+    double the factor's count; deleting everything would throw away a tutor's
+    own judgement, which `PROD-7` puts above anything the AI produced. So the
+    scope is `source == ai`, joined through `QuestionMark` to this submission.
+
+    **MistakeTopic rows go first, then Mistake.** `Mistake.id` carries no ON
+    DELETE CASCADE, and this suite runs SQLite with foreign keys off, so
+    deleting Mistake first passes every local test while orphaning
+    `mistake_topics` rows on a real Postgres database — the exact shape of
+    failure `RISK-3` records as having already happened here.
+    """
+    stale_mistake_ids = (
+        await session.scalars(
+            select(Mistake.id)
+            .join(QuestionMark, Mistake.question_mark_id == QuestionMark.id)
+            .where(
+                QuestionMark.submission_id == submission_id,
+                Mistake.source == MistakeSource.ai,
+            )
+        )
+    ).all()
+    if not stale_mistake_ids:
+        return
+    await session.execute(
+        delete(MistakeTopic).where(MistakeTopic.mistake_id.in_(stale_mistake_ids))
+    )
+    await session.execute(delete(Mistake).where(Mistake.id.in_(stale_mistake_ids)))
+
+
 async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     """Job handler. payload: {"submission_id": int}.
 
@@ -310,6 +344,21 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
                 subject_id,
                 submission_id,
             )
+        if not lost:
+            # The marks now say this submission lost nothing — so a mistake row
+            # a previous run wrote against it is contradicted by the evidence,
+            # not merely unrefreshed. Reached when a tutor overrides a mark
+            # upward and finalize re-queues this job (task 6): without this,
+            # the old row survives while `mistakes_analysed_at` below is
+            # refreshed to say "examined, nothing wrong", and the factor counts
+            # a mistake against a question the tutor decided was correct
+            # (`PROD-7`).
+            #
+            # Deliberately not done when `categories` is empty but `lost` is
+            # not: a tutor archiving their whole list removes the vocabulary,
+            # it does not assert the past tags were wrong, and silently
+            # deleting them would lose evidence no one asked to drop.
+            await _delete_own_mistakes(session, submission_id)
         submission.mistakes_analysed_at = utcnow()
         await session.commit()
         return
@@ -361,6 +410,11 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     # mistake_categories.py`) — a tutor typing "Careless" and a model
     # returning "careless" are one category.
     by_name = {c.name.casefold(): c for c in categories}
+
+    # Deleted only after the model call above has already succeeded — deleting
+    # before it would destroy the existing rows on a run that then fails and
+    # retries with nothing to show for it.
+    await _delete_own_mistakes(session, submission_id)
 
     unknown_count = 0
     unresolved_count = 0

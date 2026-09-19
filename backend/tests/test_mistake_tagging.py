@@ -1050,3 +1050,217 @@ async def test_a_question_number_out_of_range_is_dropped_and_logged(
     assert any("outside the 1 question(s)" in record.getMessage() for record in caplog.records), (
         "the dropped proposal left no trace in the log"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 5: E17 — a re-run replaces its own rows and nobody else's.
+# ---------------------------------------------------------------------------
+
+
+async def test_re_running_replaces_its_own_mistakes_and_leaves_the_tutors(
+    tutor, org_and_subject, monkeypatch
+):
+    """E17, decision 8, PROD-7. A second run of this job — the ordinary
+    at-least-once-delivery case (`BE-6`) — must delete only the `source="ai"`
+    row it wrote before, and must never touch a tutor's own row: that row's id
+    has to survive unchanged, because it is what a tutor's later edit or the
+    4.3 UI would still be pointing at."""
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 5)],
+        )
+        mark_id = await session.scalar(select(QuestionMark.id))
+
+        ai_mistake = Mistake(
+            student_id=tutor["user"]["id"],
+            question_mark_id=mark_id,
+            category_id=category.id,
+            severity=1,
+            source=MistakeSource.ai,
+        )
+        tutor_mistake = Mistake(
+            student_id=tutor["user"]["id"],
+            question_mark_id=mark_id,
+            category_id=category.id,
+            severity=2,
+            source=MistakeSource.tutor,
+        )
+        session.add_all([ai_mistake, tutor_mistake])
+        await session.commit()
+        tutor_mistake_id = tutor_mistake.id
+
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    result = MistakeTaggingResult(
+        mistakes=[
+            ProposedMistake(question_number=1, category_name="Careless", severity=3, note=None)
+        ]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        mistakes = (await session.scalars(select(Mistake))).all()
+        assert len(mistakes) == 2
+
+        tutor_row = await session.get(Mistake, tutor_mistake_id)
+        assert tutor_row is not None
+        assert tutor_row.source is MistakeSource.tutor
+        assert tutor_row.severity == 2
+
+        ai_rows = [m for m in mistakes if m.source is MistakeSource.ai]
+        assert len(ai_rows) == 1
+        assert ai_rows[0].severity == 3  # the new run's proposal, not the old row
+
+
+async def test_replacing_a_mistake_takes_its_topic_links_with_it(
+    tutor, org_and_subject, monkeypatch
+):
+    """A re-run deletes the old `source="ai"` row and writes a new one — its
+    old `MistakeTopic` rows must go with it, or they are left pointing at a
+    deleted `Mistake` id with nothing left to gate them out (`RISK-3`:
+    `Mistake.id` carries no ON DELETE CASCADE, and this suite's SQLite runs
+    with foreign keys off, so an orphan here raises nothing locally)."""
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        topic = Topic(subject_id=subject_id, code="1.1", title="Topic one")
+        session.add(topic)
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 5)],
+        )
+        mark_id = await session.scalar(select(QuestionMark.id))
+        question_id = await session.scalar(select(AssignmentQuestion.id))
+        session.add(QuestionTopic(question_id=question_id, topic_id=topic.id))
+
+        ai_mistake = Mistake(
+            student_id=tutor["user"]["id"],
+            question_mark_id=mark_id,
+            category_id=category.id,
+            severity=1,
+            source=MistakeSource.ai,
+        )
+        session.add(ai_mistake)
+        await session.flush()
+        old_mistake_id = ai_mistake.id
+        session.add(MistakeTopic(mistake_id=old_mistake_id, topic_id=topic.id))
+        await session.commit()
+
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    result = MistakeTaggingResult(
+        mistakes=[
+            ProposedMistake(question_number=1, category_name="Careless", severity=1, note=None)
+        ]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        # Not "the old id is gone" — SQLite reuses a deleted rowid for the
+        # very next insert when nothing else holds a higher one, so the new
+        # row can legitimately carry `old_mistake_id` again. The real claim
+        # is that there is exactly one Mistake left for this question, and
+        # every MistakeTopic row points at a Mistake that still exists.
+        mistakes = (await session.scalars(select(Mistake))).all()
+        assert len(mistakes) == 1
+        live_ids = {m.id for m in mistakes}
+
+        links = (await session.scalars(select(MistakeTopic))).all()
+        assert len(links) == 1
+        assert links[0].mistake_id in live_ids
+        assert links[0].topic_id == topic.id
+
+
+async def test_a_mark_raised_to_full_clears_the_mistake_the_last_run_wrote(
+    tutor, org_and_subject, monkeypatch
+):
+    """The delete has to reach the early-return path too, not just the one that
+    calls the model.
+
+    A tutor overriding a mark up to full marks re-queues this job (task 6), and
+    this run finds `lost` empty — nothing to tag, no model call. Leaving the
+    previous run's `source="ai"` row in place while refreshing
+    `mistakes_analysed_at` would record "examined, nothing wrong" over a row
+    the factor still counts, against a question the tutor has decided was
+    correct (`PROD-7`). The tutor's own row survives regardless: their
+    judgement is not what the raised mark contradicts.
+    """
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 10)],  # full marks: nothing lost, so nothing to tag
+        )
+        mark_id = await session.scalar(select(QuestionMark.id))
+
+        ai_mistake = Mistake(
+            student_id=tutor["user"]["id"],
+            question_mark_id=mark_id,
+            category_id=category.id,
+            severity=1,
+            source=MistakeSource.ai,
+        )
+        tutor_mistake = Mistake(
+            student_id=tutor["user"]["id"],
+            question_mark_id=mark_id,
+            category_id=category.id,
+            severity=2,
+            source=MistakeSource.tutor,
+        )
+        topic = Topic(subject_id=subject_id, code="9.1", title="Topic nine")
+        session.add_all([ai_mistake, tutor_mistake, topic])
+        await session.flush()
+        session.add(MistakeTopic(mistake_id=ai_mistake.id, topic_id=topic.id))
+        await session.commit()
+        tutor_mistake_id = tutor_mistake.id
+
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    def _never_called(*args, **kwargs):  # pragma: no cover - the point is that it isn't
+        raise AssertionError("no model call belongs on a submission that lost no marks")
+
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _never_called)
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        mistakes = (await session.scalars(select(Mistake))).all()
+        assert [m.source for m in mistakes] == [MistakeSource.tutor]
+        assert mistakes[0].id == tutor_mistake_id
+        # The link table goes with it — no cascade, and foreign keys are off
+        # here, so an orphan would survive silently (RISK-3).
+        assert (await session.scalars(select(MistakeTopic))).all() == []
+        submission = await session.get(Submission, submission_id)
+        assert submission.mistakes_analysed_at is not None
