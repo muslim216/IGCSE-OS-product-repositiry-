@@ -89,15 +89,26 @@ class Settings(BaseSettings):
     # bump of `anthropic_model` must not silently move it onto Opus.
     ai_marking_rules_provider: str = "anthropic"
     ai_marking_rules_model: str = "claude-sonnet-5"
-    # Tagging a settled submission's lost-marks questions with the tutor's own
-    # mistake categories (task 4.2): a judgement call about a student's work,
-    # like marking, not prose written from data already computed — so it takes
-    # the blank-model default rather than a Sonnet pin (test_ai_provider.py's
-    # DEFAULT_MODEL_SURFACES). The field exists so
-    # test_render_routing.py's `Settings.model_fields` check and this file's
-    # own settings-per-surface pattern (`BE-15`) both have a real entry to read.
+    # Tagging a settled submission's lost-marks questions (task 4.2). Sonnet,
+    # pinned — and it is the one surface here pinned on **cost** rather than on
+    # what kind of judgement it makes.
+    #
+    # By the rule above it would take the blank default and follow
+    # `anthropic_model` onto Opus, because it is a judgement about a student's
+    # work. That is where it started. But it is the most frequent model call in
+    # the product: one per settled submission, for every student, forever —
+    # where marking is one per submission *that needs marking*, and a tutor
+    # finalizing the review queue reaches no model at all. The judgement is
+    # also narrow: pick from a list of five or so tutor-written words, given
+    # text the marking model already produced. No pages, no mark scheme, no
+    # marks to decide.
+    #
+    # Pinned rather than blank so a later bump of `anthropic_model` cannot
+    # silently move the product's highest-volume call back onto its most
+    # expensive model. If tagging quality turns out to need Opus, that is a
+    # one-line change with a cost somebody chose.
     ai_mistake_tagging_provider: str = "anthropic"
-    ai_mistake_tagging_model: str = ""
+    ai_mistake_tagging_model: str = "claude-sonnet-5"
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
