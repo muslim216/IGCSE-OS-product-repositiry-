@@ -3018,6 +3018,110 @@
         ]
       }
     },
+    "/api/v1/subjects/{subject_id}/mistake-categories": {
+      "get": {
+        "tags": [
+          "mistake-categories"
+        ],
+        "summary": "Read Mistake Categories",
+        "description": "This organization's mistake categories for the subject, and whether\nthey are set. `source` travels with the list for the same reason it does\non grade boundaries: the tutor's own list and an unconfirmed starting\npoint are different facts and must not render alike (`PROD-8`).",
+        "operationId": "read_mistake_categories_api_v1_subjects__subject_id__mistake_categories_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MistakeCategoriesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "mistake-categories"
+        ],
+        "summary": "Write Mistake Categories",
+        "description": "Diff this organization's categories for a subject against the payload.\n\nDiffs rather than replaces \u2014 a category a `Mistake` row points at is\narchived, never deleted, when the tutor drops it from the list\n(`services/mistake_categories.py`).",
+        "operationId": "write_mistake_categories_api_v1_subjects__subject_id__mistake_categories_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MistakeCategoriesIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MistakeCategoriesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/mocks": {
       "post": {
         "tags": [
@@ -9952,6 +10056,97 @@
           "configured"
         ],
         "title": "MarkingRulesOut"
+      },
+      "MistakeCategoriesIn": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeCategoryItem"
+            },
+            "type": "array",
+            "maxItems": 40,
+            "minItems": 1,
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categories"
+        ],
+        "title": "MistakeCategoriesIn"
+      },
+      "MistakeCategoriesOut": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "organization",
+              "none"
+            ],
+            "title": "Source"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeCategoryItem"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "subject_name",
+          "source",
+          "categories"
+        ],
+        "title": "MistakeCategoriesOut"
+      },
+      "MistakeCategoryItem": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "MistakeCategoryItem"
       },
       "MockAssignGroup": {
         "properties": {

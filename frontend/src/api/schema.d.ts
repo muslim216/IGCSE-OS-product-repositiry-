@@ -1121,6 +1121,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/subjects/{subject_id}/mistake-categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Mistake Categories
+         * @description This organization's mistake categories for the subject, and whether
+         *     they are set. `source` travels with the list for the same reason it does
+         *     on grade boundaries: the tutor's own list and an unconfirmed starting
+         *     point are different facts and must not render alike (`PROD-8`).
+         */
+        get: operations["read_mistake_categories_api_v1_subjects__subject_id__mistake_categories_get"];
+        /**
+         * Write Mistake Categories
+         * @description Diff this organization's categories for a subject against the payload.
+         *
+         *     Diffs rather than replaces — a category a `Mistake` row points at is
+         *     archived, never deleted, when the tutor drops it from the list
+         *     (`services/mistake_categories.py`).
+         */
+        put: operations["write_mistake_categories_api_v1_subjects__subject_id__mistake_categories_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mocks": {
         parameters: {
             query?: never;
@@ -3428,6 +3459,34 @@ export interface components {
             configured: boolean;
             /** Summary */
             summary?: string | null;
+        };
+        /** MistakeCategoriesIn */
+        MistakeCategoriesIn: {
+            /** Categories */
+            categories: components["schemas"]["MistakeCategoryItem"][];
+        };
+        /** MistakeCategoriesOut */
+        MistakeCategoriesOut: {
+            /** Subject Id */
+            subject_id: number;
+            /** Subject Name */
+            subject_name: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "organization" | "none";
+            /** Categories */
+            categories: components["schemas"]["MistakeCategoryItem"][];
+        };
+        /** MistakeCategoryItem */
+        MistakeCategoryItem: {
+            /** Id */
+            id?: number | null;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
         };
         /**
          * MockAssignGroup
@@ -6841,6 +6900,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_mistake_categories_api_v1_subjects__subject_id__mistake_categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MistakeCategoriesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    write_mistake_categories_api_v1_subjects__subject_id__mistake_categories_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MistakeCategoriesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MistakeCategoriesOut"];
                 };
             };
             /** @description Validation Error */

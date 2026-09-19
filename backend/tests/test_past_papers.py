@@ -13,7 +13,6 @@ from app.models import (
     Evidence,
     EvidenceSource,
     Mistake,
-    MistakeCategory,
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
@@ -27,7 +26,7 @@ from app.services.submission_kind import PAST_PAPER, kind_of
 from app.services.work import create_work, parent_of
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
-from tests.factories import subject_defaults
+from tests.factories import make_mistake_category, subject_defaults
 
 
 def _extraction_double(fake_ai):
@@ -795,11 +794,14 @@ async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
         )
         session.add(mark)
         await session.flush()
+        mistake_category = await make_mistake_category(
+            session, organization_id=paper.organization_id, subject_id=paper.subject_id
+        )
         session.add(
             Mistake(
                 student_id=submission.student_id,
                 question_mark_id=mark.id,
-                category=MistakeCategory.careless,
+                category_id=mistake_category.id,
                 severity=2,
             )
         )

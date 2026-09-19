@@ -7,7 +7,7 @@ that stays one edit next time rather than twenty-five.
 
 from sqlalchemy import select
 
-from app.models import Organization, Subject, SubjectLevel
+from app.models import MistakeCategory, Organization, Subject, SubjectLevel
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 
 
@@ -61,6 +61,22 @@ async def make_subject(
         defaults_for_scale(kwargs["grade_scale"]) if bands is None else bands,
     )
     return subject
+
+
+async def make_mistake_category(
+    session, *, organization_id: int, subject_id: int, name: str = "careless", **kwargs
+) -> MistakeCategory:
+    """A MistakeCategory row for tests building a `Mistake` directly.
+
+    `Mistake.category_id` became a required FK in 4.1 — the enum a test used
+    to point at with a bare value is gone, so a row has to exist first.
+    """
+    category = MistakeCategory(
+        organization_id=organization_id, subject_id=subject_id, name=name, **kwargs
+    )
+    session.add(category)
+    await session.flush()
+    return category
 
 
 async def other_org_subject(session, **kwargs) -> Subject:

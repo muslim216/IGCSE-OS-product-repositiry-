@@ -30,6 +30,7 @@ from app.models import (
     Lesson,
     LessonTopic,
     Mistake,
+    MistakeCategory,
     PastPaper,
     PastPaperAttempt,
     QuestionMark,
@@ -313,27 +314,29 @@ async def _mistake_points_and_analysed(
             )
         )
     ) or 0
+    # The category name comes from a join, not `m.category.name` on a lazily
+    # loaded relationship — that would be one query per row inside this loop,
+    # a blocking call the worker's shared event loop cannot afford (BE-13,
+    # PERF-1). Categories are tutor data (see MistakeCategory), so the name is
+    # read here only to label the point, never branched on.
     mistakes = (
-        (
-            await session.execute(
-                select(Mistake)
-                .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
-                .join(Submission, Submission.id == QuestionMark.submission_id)
-                .join(AssessableWork, AssessableWork.id == Submission.work_id)
-                .where(
-                    Mistake.student_id == student_id,
-                    AssessableWork.subject_id == subject_id,
-                    Submission.status.in_(SETTLED_STATUSES),
-                    Submission.mistakes_analysed_at.is_not(None),
-                )
+        await session.execute(
+            select(Mistake, MistakeCategory.name)
+            .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
+            .join(MistakeCategory, MistakeCategory.id == Mistake.category_id)
+            .where(
+                Mistake.student_id == student_id,
+                AssessableWork.subject_id == subject_id,
+                Submission.status.in_(SETTLED_STATUSES),
+                Submission.mistakes_analysed_at.is_not(None),
             )
         )
-        .scalars()
-        .all()
-    )
+    ).all()
     points = [
-        MistakePoint(category=m.category.value, severity=m.severity, occurred_at=m.created_at)
-        for m in mistakes
+        MistakePoint(category=category_name, severity=m.severity, occurred_at=m.created_at)
+        for m, category_name in mistakes
     ]
     return points, analysed_questions
 
