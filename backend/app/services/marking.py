@@ -608,6 +608,12 @@ async def record_marks_as_evidence(
         {"student_id": submission.student_id, "subject_id": subject_id},
     )
     await enqueue_readiness_v2_debounced(session, submission.student_id, subject_id)
+    # Mistake tagging is queued from here rather than a router because marks
+    # settling is the event that makes tagging possible, and it happens on two
+    # paths — auto-finalize and the tutor's own finalize endpoint — that both
+    # already meet in this function. The job re-reads all state from the
+    # submission id (BE-9) and is safe to re-run (BE-6).
+    await enqueue(session, "tag_mistakes", {"submission_id": submission.id})
     # The class narrative is refreshed from the tail of the evidence build, not
     # from a router: evidence landing is the event that makes the stored
     # paragraph stale. Deduped against pending jobs and gated on the kill switch.
