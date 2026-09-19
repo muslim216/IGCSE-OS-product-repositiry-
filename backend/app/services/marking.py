@@ -29,6 +29,8 @@ from app.models import (
     AssignmentQuestion,
     Classified,
     Group,
+    Job,
+    JobStatus,
     MarkConfidence,
     MockQuestion,
     PastPaperAttempt,
@@ -613,7 +615,23 @@ async def record_marks_as_evidence(
     # paths — auto-finalize and the tutor's own finalize endpoint — that both
     # already meet in this function. The job re-reads all state from the
     # submission id (BE-9) and is safe to re-run (BE-6).
-    await enqueue(session, "tag_mistakes", {"submission_id": submission.id})
+    #
+    # Deduped against pending jobs, like the class narrative below. Re-running
+    # is *safe* — the handler replaces its own rows — but it is not *free*:
+    # every run is a paid AI call (`AI-17`). And the two paths are not mutually
+    # exclusive, because `finalize_submission` rejects only `finalized`, not
+    # `auto_finalized`: a tutor pressing finalize on a submission the AI already
+    # settled passes every guard there and arrives here a second time, with
+    # nothing changed for the second call to discover.
+    #
+    # Compared in Python rather than SQL because `payload` is a JSON column and
+    # Postgres' json type has no equality operator (as in narrative.py's
+    # `_pending_payloads` and `enqueue_readiness_v2_debounced`).
+    pending_tag_jobs = await session.scalars(
+        select(Job.payload).where(Job.type == "tag_mistakes", Job.status == JobStatus.pending)
+    )
+    if not any(p.get("submission_id") == submission.id for p in pending_tag_jobs):
+        await enqueue(session, "tag_mistakes", {"submission_id": submission.id})
     # The class narrative is refreshed from the tail of the evidence build, not
     # from a router: evidence landing is the event that makes the stored
     # paragraph stale. Deduped against pending jobs and gated on the kill switch.

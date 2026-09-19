@@ -33,3 +33,35 @@ async def test_settling_a_submissions_marks_queues_the_tagging_job(
     # None — satisfies `"submission_id" in payload` and queues a job that
     # tags somebody else's work, or no work at all, with nothing failing.
     assert tag_jobs[0]["submission_id"] == submission_id
+
+
+async def test_finalizing_an_already_auto_finalized_submission_does_not_queue_a_second_run(
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """`finalize_submission` rejects only `finalized`, not `auto_finalized`, so
+    a tutor pressing finalize on a submission the AI already settled reaches
+    `record_marks_as_evidence` a second time with nothing changed for the
+    second run to find. The handler is safe to re-run (`BE-6`) but not free to
+    — each run is a paid AI call (`AI-17`), so the enqueue is deduped against
+    pending jobs the way the class narrative beside it already is."""
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
+    await _submit(client, assignment_all_scheme, student)
+
+    async with async_session() as session:
+        submission_id = await session.scalar(select(Submission.id))
+
+    second = await client.post(
+        f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
+    )
+    assert second.status_code == 200
+
+    async with async_session() as session:
+        rows = (await session.execute(select(Job.type, Job.payload))).all()
+    tag_jobs = [payload for job_type, payload in rows if job_type == "tag_mistakes"]
+    assert len(tag_jobs) == 1
+    assert tag_jobs[0]["submission_id"] == submission_id
