@@ -62,9 +62,7 @@ def upgrade() -> None:
         # Plain UniqueConstraint, not the functional index 0051 used — that one
         # existed to fold case on a tutor-typed name; a topic and a mistake are
         # both surrogate ids, so the columns themselves are the whole rule.
-        sa.UniqueConstraint(
-            "mistake_id", "topic_id", name="uq_mistake_topics_mistake_id_topic_id"
-        ),
+        sa.UniqueConstraint("mistake_id", "topic_id", name="uq_mistake_topics_mistake_id_topic_id"),
     )
 
     # `mistakes` has no writer anywhere in backend/app (checked again for this
