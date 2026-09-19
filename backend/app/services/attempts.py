@@ -22,6 +22,7 @@ from app.models import (
     SETTLED_STATUSES,
     AssessableWork,
     Mistake,
+    MistakeTopic,
     Submission,
     SubmissionStatus,
 )
@@ -79,6 +80,18 @@ async def open_attempt(
     # marks, because the key points that way.
     mark_ids = [mark.id for mark in submission.marks]
     if mark_ids:
+        # The topic links go one step ahead of the mistakes, for the reason
+        # above taken one level further out: `mistake_topics.mistake_id` has no
+        # cascade either, so a link left behind points at a mistake that no
+        # longer exists. 4.4's topic rollups read those rows, and an orphan is a
+        # mistake counted against a topic for an answer the student replaced.
+        mistake_ids = (
+            await session.scalars(select(Mistake.id).where(Mistake.question_mark_id.in_(mark_ids)))
+        ).all()
+        if mistake_ids:
+            await session.execute(
+                delete(MistakeTopic).where(MistakeTopic.mistake_id.in_(mistake_ids))
+            )
         await session.execute(delete(Mistake).where(Mistake.question_mark_id.in_(mark_ids)))
     for file in list(submission.files):
         await session.delete(file)
