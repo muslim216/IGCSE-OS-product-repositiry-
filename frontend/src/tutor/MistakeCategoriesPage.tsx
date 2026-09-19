@@ -229,12 +229,12 @@ export default function MistakeCategoriesPage() {
       ) : (
         <>
           {categories.data.source === "none" ? (
-            <p
-              role="status"
-              className="rounded-lg border border-line bg-warn-100 p-3 text-sm text-warn-700"
-            >
+            // <output> rather than a div with role="status": it carries that
+            // role implicitly and is announced by assistive tech that does not
+            // honour the attribute on a generic element (SonarCloud).
+            <output className="block rounded-lg border border-line bg-warn-100 p-3 text-sm text-warn-700">
               {sourceNote(categories.data)}
-            </p>
+            </output>
           ) : (
             <p className="text-sm text-ink-500">{sourceNote(categories.data)}</p>
           )}

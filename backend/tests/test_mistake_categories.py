@@ -72,7 +72,8 @@ async def test_save_archives_what_the_payload_drops(org_and_subject):
         gone = await session.scalar(
             select(MistakeCategory).where(MistakeCategory.name == "Content gap")
         )
-        assert gone is not None and gone.archived_at is not None
+        assert gone is not None, "dropped, not deleted"
+        assert gone.archived_at is not None
 
 
 async def test_ensure_categories_writes_the_defaults_once(org_and_subject):
@@ -227,7 +228,8 @@ async def test_dropping_a_category_from_the_payload_archives_it_not_deletes(clie
         gone = await session.scalar(
             select(MistakeCategory).where(MistakeCategory.name == "Content gap")
         )
-        assert gone is not None and gone.archived_at is not None
+        assert gone is not None, "dropped, not deleted"
+        assert gone.archived_at is not None
 
 
 async def test_saving_the_same_list_twice_is_not_an_error(client, tutor, subject):
@@ -474,13 +476,13 @@ async def test_the_database_holds_one_name_per_subject_whatever_its_case(org_and
         )
         await session.commit()
 
-    with pytest.raises(IntegrityError):
-        async with async_session() as session:
-            session.add(
-                MistakeCategory(
-                    organization_id=organization_id, subject_id=subject_id, name="careless"
-                )
-            )
+    async with async_session() as session:
+        session.add(
+            MistakeCategory(organization_id=organization_id, subject_id=subject_id, name="careless")
+        )
+        # Only the commit is inside the block — building the row cannot raise,
+        # and a `raises` wide enough to catch setup passes for the wrong reason.
+        with pytest.raises(IntegrityError):
             await session.commit()
 
 

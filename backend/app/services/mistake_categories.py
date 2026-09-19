@@ -83,6 +83,103 @@ async def list_categories(
     return list(rows)
 
 
+def _reject_repeats(items: list[dict]) -> None:
+    """Refuse a payload that names one category twice.
+
+    The schema rejects a repeated name or id before a request gets here, but
+    this module is exported and `BE-2` puts the logic in the service, so it
+    defends its own invariant rather than trusting every future caller to come
+    through Pydantic. A batch naming one row twice would otherwise resolve it
+    twice and return it twice.
+    """
+    seen_ids = [item["id"] for item in items if item.get("id") is not None]
+    if len(set(seen_ids)) != len(seen_ids):
+        raise ValueError("each category may appear once in a save")
+    seen_names = [item["name"].casefold() for item in items]
+    if len(set(seen_names)) != len(seen_names):
+        raise ValueError("each category name may appear once in a save")
+
+
+def _match_existing(
+    items: list[dict], existing: dict[int, MistakeCategory]
+) -> dict[int, MistakeCategory]:
+    """Which payload position means which row already in the table.
+
+    **Ids first, names second.** An id says which row was meant; a name only
+    guesses. Resolving both in one loop let a single row be claimed twice: with
+    one stored "Careless" (id 5), the payload [{"name": "Careless"}, {"id": 5,
+    "name": "Slip"}] matched row 5 by name at position 0 and then took it again
+    by id at position 1. The reply listed that category twice — the exact thing
+    the schema's duplicate-id check exists to prevent — and the "Careless" the
+    tutor was adding was never created, silently. The reverse payload order
+    worked, so correctness depended on which row the tutor happened to put
+    first (cubic).
+    """
+    resolved: dict[int, MistakeCategory] = {}
+    claimed: set[int] = set()
+
+    for position, item in enumerate(items):
+        item_id = item.get("id")
+        if item_id is None:
+            continue
+        row = existing.get(item_id)
+        if row is None:
+            # An id that is not this organization's own row — never someone
+            # else's row updated because the id happened to exist (SEC-7).
+            raise ValueError(f"no mistake category {item_id} in this subject")
+        claimed.add(row.id)
+        resolved[position] = row
+
+    for position, item in enumerate(items):
+        if position in resolved:
+            continue
+        # Case-insensitively, because the payload validator already treats
+        # "Careless" and "careless" as one name. Matching exactly here would
+        # let the pair coexist across two saves while being rejected within one.
+        wanted = item["name"].casefold()
+        row = next(
+            (r for r in existing.values() if r.id not in claimed and r.name.casefold() == wanted),
+            None,
+        )
+        if row is None:
+            continue
+        claimed.add(row.id)
+        resolved[position] = row
+
+    return resolved
+
+
+async def _park_renamed(
+    session: AsyncSession,
+    items: list[dict],
+    existing: dict[int, MistakeCategory],
+    resolved: dict[int, MistakeCategory],
+) -> None:
+    """Move every row whose name is changing onto a placeholder, and flush.
+
+    A name moving from one row to another is written in two steps because the
+    unique index is checked one statement at a time: swapping two categories'
+    names — a legal edit — fails on the first UPDATE, while the other row still
+    holds the name it is about to give up (cubic).
+    """
+    renaming = [row for position, row in resolved.items() if row.name != items[position]["name"]]
+    if not renaming:
+        return
+
+    taken = {row.name.casefold() for row in existing.values()}
+    taken |= {item["name"].casefold() for item in items}
+    for row in renaming:
+        # The id makes this unique among the parked names; the prefix is only
+        # there in case a tutor has literally named a category "pending 5".
+        # Forty categories cannot exhaust 60 characters of it.
+        parked = f"pending {row.id}"
+        while parked.casefold() in taken:
+            parked = f"_{parked}"
+        taken.add(parked.casefold())
+        row.name = parked
+    await session.flush()
+
+
 async def save_categories(
     session: AsyncSession, organization_id: int, subject_id: int, items: list[dict]
 ) -> list[MistakeCategory]:
@@ -126,86 +223,11 @@ async def save_categories(
         ).all()
     }
 
-    # The schema rejects a repeated name or id before a request gets here, but
-    # this function is exported and `BE-2` puts the logic in the service, so it
-    # defends its own invariant rather than trusting every future caller to
-    # come through Pydantic. A batch that names one row twice would otherwise
-    # resolve it twice and return it twice.
-    seen_ids = [item["id"] for item in items if item.get("id") is not None]
-    if len(set(seen_ids)) != len(seen_ids):
-        raise ValueError("each category may appear once in a save")
-    seen_names = [item["name"].casefold() for item in items]
-    if len(set(seen_names)) != len(seen_names):
-        raise ValueError("each category name may appear once in a save")
+    _reject_repeats(items)
+    resolved = _match_existing(items, existing)
+    await _park_renamed(session, items, existing, resolved)
 
     kept_ids: set[int] = set()
-    resolved: dict[int, MistakeCategory] = {}
-    claimed: set[int] = set()
-
-    # Pass 1a — items that name a row by id. Settled before any name match,
-    # because an id says which row was meant and a name only guesses. Resolving
-    # both in one loop let a single row be claimed twice: with one stored
-    # "Careless" (id 5), the payload [{"name": "Careless"}, {"id": 5, "name":
-    # "Slip"}] matched row 5 by name at position 0 and then took it again by id
-    # at position 1. The reply listed that category twice — the exact thing the
-    # schema's duplicate-id check exists to prevent — and the "Careless" the
-    # tutor was adding was never created, silently. The reverse payload order
-    # worked, so correctness depended on which row the tutor happened to put
-    # first (cubic).
-    for position, item in enumerate(items):
-        item_id = item.get("id")
-        if item_id is None:
-            continue
-        row = existing.get(item_id)
-        if row is None:
-            # An id that is not this organization's own row — never someone
-            # else's row updated because the id happened to exist (SEC-7).
-            raise ValueError(f"no mistake category {item_id} in this subject")
-        claimed.add(row.id)
-        resolved[position] = row
-
-    # Pass 1b — an item with no id reuses the row already holding that name,
-    # unless pass 1a has already spoken for it.
-    for position, item in enumerate(items):
-        if position in resolved:
-            continue
-        # Case-insensitively, because the payload validator already
-        # treats "Careless" and "careless" as one name. Matching
-        # exactly here would let the pair coexist across two saves
-        # while being rejected within one.
-        wanted = item["name"].casefold()
-        row = next(
-            (r for r in existing.values() if r.id not in claimed and r.name.casefold() == wanted),
-            None,
-        )
-        if row is None:
-            continue
-        claimed.add(row.id)
-        resolved[position] = row
-
-    # A name moving from one row to another is written in two steps. The unique
-    # index is checked per statement, so swapping two categories' names — a
-    # legal edit — fails on the first UPDATE, while the other row still holds
-    # the name it is about to give up. Park every row whose name is changing on
-    # a name nothing holds, flush that, and only then write the real ones
-    # (cubic).
-    renaming = [
-        (position, row) for position, row in resolved.items() if row.name != items[position]["name"]
-    ]
-    if renaming:
-        taken = {row.name.casefold() for row in existing.values()}
-        taken |= {item["name"].casefold() for item in items}
-        for _, row in renaming:
-            # The id makes this unique among the parked names; the prefix is
-            # only there in case a tutor has literally named a category
-            # "pending 5". Forty categories cannot exhaust 60 characters of it.
-            parked = f"pending {row.id}"
-            while parked.casefold() in taken:
-                parked = f"_{parked}"
-            taken.add(parked.casefold())
-            row.name = parked
-        await session.flush()
-
     for position, row in resolved.items():
         item = items[position]
         row.name = item["name"]
