@@ -91,6 +91,12 @@ def upgrade() -> None:
                 nullable=False,
             )
         )
+        # What the tagging job (task 4) saw when a category or a question's
+        # ai_feedback read like an instruction rather than data — SEC-20's
+        # flag-rather-than-obey half. Nullable, no backfill needed for the same
+        # reason `source` needs none: the count check above already proves the
+        # table is empty.
+        batch.add_column(sa.Column("note", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
@@ -111,6 +117,7 @@ def downgrade() -> None:
         )
 
     with op.batch_alter_table("mistakes", naming_convention=NAMING) as batch:
+        batch.drop_column("note")
         batch.drop_column("source")
         batch.add_column(
             sa.Column(

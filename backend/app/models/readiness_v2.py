@@ -146,6 +146,14 @@ class Mistake(TimestampMixin, Base):
     source: Mapped[MistakeSource] = mapped_column(
         Enum(MistakeSource, native_enum=False, length=8), nullable=False
     )
+    # What the tagging job saw when a category's name/description or a
+    # question's ai_feedback read like an instruction rather than data — the
+    # SEC-20 flag-rather-than-obey half. Resisting an injection silently is
+    # not enough, since nothing else in this pipeline reads these rows before
+    # a tutor does; this is where the model records what it saw so a tutor
+    # can. Null on every ordinary tag. Only `services/mistake_tagging.py`
+    # writes it.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PastPaper(TimestampMixin, Base):
