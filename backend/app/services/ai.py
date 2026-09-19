@@ -62,6 +62,15 @@ SURFACES = (
     # question — which papers are in here and on which pages, not which
     # questions — and `AI-2` routes per surface.
     "booklet",
+    # Tags a settled submission's lost-marks questions with the tutor's own
+    # mistake categories and the topics the question tests (task 4.2). Its own
+    # surface rather than a mode of "marking": it answers "what went wrong and
+    # why", not "how many marks", it runs text-only off `ai_feedback` where
+    # marking is document work, and `mark_submission` already skips the model
+    # entirely once every question is decided (services/marking.py:397-400) —
+    # so tagging cannot ride on that call and needs its own routing, pricing
+    # and metering (`AI-2`).
+    "mistake_tagging",
 )
 
 # Which ai_usage_events.feature bucket each surface meters into. Several
@@ -80,6 +89,10 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     "marking_rules": AiFeature.marking_rules,
     # The stored narrative is a report-shaped paragraph, so it shares that bucket.
     "narrative": AiFeature.report,
+    # Its own bucket, not `marking`: reusing marking's would bury tagging's
+    # spend inside marking's and make "what does tagging cost" unanswerable
+    # (PROD-1) — see the AiFeature.mistake_tagging comment in models/ai_usage.py.
+    "mistake_tagging": AiFeature.mistake_tagging,
 }
 
 

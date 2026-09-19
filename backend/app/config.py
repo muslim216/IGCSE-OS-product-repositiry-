@@ -89,6 +89,15 @@ class Settings(BaseSettings):
     # bump of `anthropic_model` must not silently move it onto Opus.
     ai_marking_rules_provider: str = "anthropic"
     ai_marking_rules_model: str = "claude-sonnet-5"
+    # Tagging a settled submission's lost-marks questions with the tutor's own
+    # mistake categories (task 4.2): a judgement call about a student's work,
+    # like marking, not prose written from data already computed — so it takes
+    # the blank-model default rather than a Sonnet pin (test_ai_provider.py's
+    # DEFAULT_MODEL_SURFACES). The field exists so
+    # test_render_routing.py's `Settings.model_fields` check and this file's
+    # own settings-per-surface pattern (`BE-15`) both have a real entry to read.
+    ai_mistake_tagging_provider: str = "anthropic"
+    ai_mistake_tagging_model: str = ""
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather

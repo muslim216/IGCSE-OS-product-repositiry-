@@ -26,6 +26,16 @@ class AiFeature(str, enum.Enum):
     # adding a member is safe (DB-5, DB-6, ADR-0007) — check that again before
     # adding the next one.
     marking_rules = "marking_rules"
+    # Tagging a settled submission's lost-marks questions with the tutor's own
+    # mistake categories and topics (task 4.2). Its own bucket rather than
+    # `marking`: it is a separate job on separate text-only input, triggered
+    # independently of a mark ever being drafted, and burying its spend inside
+    # marking's would make "what does tagging cost" unanswerable (PROD-1).
+    # Re-verified before adding: nothing branches on this enum (grepped
+    # `AiFeature\.` across app/ and tests/ — every hit is a `feature=...`
+    # construction, a `==`/`is` equality check, or a query filter; none is an
+    # if/match chain over the value) — DB-5, DB-6, ADR-0007.
+    mistake_tagging = "mistake_tagging"
 
 
 class AiUsageEvent(Base):

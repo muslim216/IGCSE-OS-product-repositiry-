@@ -35,8 +35,21 @@ def test_get_prompt_rejects_an_unknown_surface():
 
 
 #: The surfaces that leave their model blank and therefore inherit
-#: `anthropic_model` — the one line that moves all four at once.
-DEFAULT_MODEL_SURFACES = ("marking", "extraction", "syllabus", "readiness", "booklet")
+#: `anthropic_model` — the one line that moves all of them at once.
+#: mistake_tagging (task 4.2) added here rather than pinned: like marking, it
+#: is a judgement call about a student's own work, not report-shaped prose
+#: written from data the platform already computed, and it has no dedicated
+#: `ai_mistake_tagging_model` setting (deliberately — resolve_surface's
+#: getattr fallback already gives it the same "blank means anthropic_model"
+#: behaviour without one).
+DEFAULT_MODEL_SURFACES = (
+    "marking",
+    "extraction",
+    "syllabus",
+    "readiness",
+    "booklet",
+    "mistake_tagging",
+)
 #: The surfaces pinned to an explicit model because they diverge on purpose.
 PINNED_MODEL_SURFACES = ("reports", "class_brief", "narrative", "marking_rules")
 
