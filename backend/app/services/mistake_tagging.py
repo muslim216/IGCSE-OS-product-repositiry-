@@ -22,7 +22,7 @@ the topics it tags are task 4.
 """
 
 import logging
-from typing import Any
+from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
@@ -129,9 +129,28 @@ async def _categories_for_subject(
         raise
 
 
-def _build_content(
-    categories: list[MistakeCategory], lost: list[tuple[QuestionMark, Any]]
-) -> list[dict]:
+@dataclass(frozen=True)
+class LostAnswer:
+    """One question that lost marks, as plain values rather than ORM objects.
+
+    Load-bearing, not tidiness. `_categories_for_subject`'s race recovery
+    rolls the session back, and a rollback **expires every object loaded on
+    it** — a later attribute read is then a synchronous lazy load, which async
+    forbids (`MissingGreenlet`). Reading these values up front, before the
+    recovery can happen, is what makes that safe; holding the `QuestionMark`
+    and question rows themselves only moved the read later, it did not avoid
+    it. Values in, values out, no session (`BE-4`).
+    """
+
+    mark_id: int
+    question_id: int
+    ai_feedback: str | None
+    final_marks: int
+    max_marks: int
+    text_summary: str | None
+
+
+def _build_content(categories: list[MistakeCategory], lost: list[LostAnswer]) -> list[dict]:
     """The one content block the model sees.
 
     `MISTAKE_TAGGING` (`services/prompts.py`) tells the model that the
@@ -152,13 +171,13 @@ def _build_content(
     category_block = f"{cat_begin}\n{cat_lines}\n{cat_end}"
 
     question_blocks = []
-    for position, (mark, question) in enumerate(lost, start=1):
-        feedback = mark.ai_feedback or "(no feedback recorded)"
+    for position, answer in enumerate(lost, start=1):
+        feedback = answer.ai_feedback or "(no feedback recorded)"
         question_blocks.append(
             f"Question {position}:\n"
-            f"text_summary: {question.text_summary}\n"
-            f"max_marks: {question.max_marks}\n"
-            f"final_marks: {mark.final_marks}\n"
+            f"text_summary: {answer.text_summary}\n"
+            f"max_marks: {answer.max_marks}\n"
+            f"final_marks: {answer.final_marks}\n"
             f"ai_feedback:\n{fb_begin}\n{feedback}\n{fb_end}"
         )
 
@@ -172,7 +191,7 @@ def _build_content(
 
 
 async def _tag_call(
-    categories: list[MistakeCategory], lost: list[tuple[QuestionMark, Any]]
+    categories: list[MistakeCategory], lost: list[LostAnswer]
 ) -> AiResponse[MistakeTaggingResult]:
     """The model call and nothing else — kept apart from `tag_mistakes` so
     that function stays about the writes, per this module's ~250-line budget."""
@@ -302,10 +321,26 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     # reload them with a synchronous lazy load async forbids
     # (`MissingGreenlet`). Reading them here, first, sidesteps that rather
     # than working around it after the fact.
+    # Read before `_categories_for_subject` below, for the same reason
+    # `LostAnswer` carries values: its race recovery rolls the session back and
+    # expires `submission` along with everything else.
+    student_id = submission.student_id
     lost = [
-        (m, q)
+        LostAnswer(
+            mark_id=m.id,
+            question_id=q.id,
+            ai_feedback=m.ai_feedback,
+            final_marks=m.final_marks,
+            max_marks=q.max_marks,
+            text_summary=q.text_summary,
+        )
         for m in settled
         if (q := questions.get(getattr(m, kind.mark_fk))) is not None
+        # `settled` already holds only decided marks, so this cannot be None
+        # here. Stated anyway because it is what lets `LostAnswer.final_marks`
+        # be a plain `int`: the invariant is checked rather than assumed, and
+        # mypy sees this module (`app.services` is in its explicit scope).
+        and m.final_marks is not None
         and m.final_marks < q.max_marks
     ]
     orphaned = [m for m in settled if questions.get(getattr(m, kind.mark_fk)) is None]
@@ -385,7 +420,7 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             response,
             organization_id=organization_id,
             tutor_id=tutor_id,
-            student_id=submission.student_id,
+            student_id=student_id,
             feature=AiFeature.mistake_tagging,
         )
 
@@ -394,7 +429,7 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     # One query for every lost question's topics, not one per question — every
     # one of the three topic models names its FK `question_id` (`API-20`), so
     # `kind.topic_model` reads all three kinds through the same statement.
-    lost_question_ids = [q.id for _, q in lost]
+    lost_question_ids = [answer.question_id for answer in lost]
     topic_rows = (
         await session.execute(
             select(kind.topic_model.question_id, kind.topic_model.topic_id).where(
@@ -435,7 +470,7 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             # are indistinguishable from a clean submission.
             unresolved_count += 1
             continue
-        mark, question = lost[proposed.question_number - 1]
+        answer = lost[proposed.question_number - 1]
         category = by_name.get(proposed.category_name.casefold())
         if category is None:
             # Decision Q5: never created (the tutor owns the vocabulary,
@@ -446,8 +481,8 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             unknown_count += 1
             continue
         mistake = Mistake(
-            student_id=submission.student_id,
-            question_mark_id=mark.id,
+            student_id=student_id,
+            question_mark_id=answer.mark_id,
             category_id=category.id,
             # AI-11's clamp-to-range discipline: a model returning 7 must not
             # become a row 4.4's rollups weight seven times.
@@ -456,7 +491,7 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             note=proposed.note,
         )
         session.add(mistake)
-        created.append((mistake, question.id))
+        created.append((mistake, answer.question_id))
 
     if unresolved_count:
         log.warning(

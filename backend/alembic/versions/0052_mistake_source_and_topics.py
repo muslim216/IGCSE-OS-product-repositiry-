@@ -97,6 +97,13 @@ def upgrade() -> None:
         # reason `source` needs none: the count check above already proves the
         # table is empty.
         batch.add_column(sa.Column("note", sa.Text(), nullable=True))
+        # Unindexed foreign keys until now, on the two columns every read and
+        # both delete paths actually filter by. Added here rather than in a
+        # migration of their own because the count check above has already
+        # proved this table empty, so they cost nothing to build now and a
+        # lock later. Declared on the model too (`DB-12`).
+        batch.create_index("ix_mistakes_student_id", ["student_id"])
+        batch.create_index("ix_mistakes_question_mark_id", ["question_mark_id"])
 
 
 def downgrade() -> None:
@@ -117,6 +124,8 @@ def downgrade() -> None:
         )
 
     with op.batch_alter_table("mistakes", naming_convention=NAMING) as batch:
+        batch.drop_index("ix_mistakes_question_mark_id")
+        batch.drop_index("ix_mistakes_student_id")
         batch.drop_column("note")
         batch.drop_column("source")
         batch.add_column(

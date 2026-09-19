@@ -134,8 +134,19 @@ class Mistake(TimestampMixin, Base):
     __tablename__ = "mistakes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
+    # Both indexed, and declared here as well as in the migration (`DB-12`) —
+    # four of this schema's five existing indexes live only in a migration, so
+    # the test schema, built from `Base.metadata`, silently differs from
+    # production. `student_id` carries the readiness read
+    # (`readiness_v2._mistake_points_and_analysed`, run on every recompute);
+    # `question_mark_id` carries both delete paths — this job's own
+    # `_delete_own_mistakes` and `attempts.open_attempt`'s resubmission cleanup.
+    # `category_id` is left unindexed: it is only ever joined to
+    # `mistake_categories.id` after `student_id` has already cut the rows down.
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    question_mark_id: Mapped[int] = mapped_column(
+        ForeignKey("question_marks.id"), nullable=False, index=True
+    )
     category_id: Mapped[int] = mapped_column(ForeignKey("mistake_categories.id"), nullable=False)
     severity: Mapped[int] = mapped_column(
         Integer, default=1, nullable=False

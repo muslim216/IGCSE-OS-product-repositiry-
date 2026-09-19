@@ -1264,3 +1264,58 @@ async def test_a_mark_raised_to_full_clears_the_mistake_the_last_run_wrote(
         assert (await session.scalars(select(MistakeTopic))).all() == []
         submission = await session.get(Submission, submission_id)
         assert submission.mistakes_analysed_at is not None
+
+
+async def test_the_race_recovery_survives_a_submission_that_actually_lost_marks(
+    tutor, org_and_subject, monkeypatch
+):
+    """The race recovery rolls the session back, and a rollback expires every
+    object already loaded on it. The two tests above take `questions=[(10, 10)]`
+    to isolate the race handling — which also means `lost` is empty and they
+    return before the tagging path ever re-reads one of those objects.
+
+    This one loses a mark, so the recovery is followed by `_build_content`
+    reading `mark.ai_feedback` and `question.max_marks`, and by the write
+    reading `submission.student_id`. An expired attribute read here is a
+    synchronous lazy load inside async, i.e. `MissingGreenlet` — the job fails,
+    retries once (`BE-6`), and the retry usually succeeds, so the only trace
+    left of a guaranteed first-attempt crash is a failed job nobody explains.
+    """
+    org_id, subject_id = org_and_subject
+
+    async def _raise(*args, **kwargs):
+        raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr("app.services.mistake_tagging.ensure_categories", _raise)
+
+    async with async_session() as session:
+        await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 4)],  # six marks lost: there is something to tag
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    result = MistakeTaggingResult(
+        mistakes=[
+            ProposedMistake(question_number=1, category_name="Careless", severity=2, note=None)
+        ]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        job = await session.scalar(select(Job))
+        assert job.status == JobStatus.done, job.error
+        mistakes = (await session.scalars(select(Mistake))).all()
+        assert len(mistakes) == 1
+        assert mistakes[0].source is MistakeSource.ai
