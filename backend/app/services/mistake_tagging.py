@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import QuestionMark, Submission
+from app.models import MistakeCategory, QuestionMark, Submission
 from app.models.base import utcnow
 from app.services.mistake_categories import ensure_categories, list_categories
 from app.services.submission_kind import kind_of
@@ -38,15 +38,15 @@ log = logging.getLogger("mistake_tagging")
 
 async def _categories_for_subject(
     session: AsyncSession, organization_id: int, subject_id: int
-) -> list:
+) -> list[MistakeCategory]:
     """`ensure_categories`, made safe for two tagging jobs reaching an empty
     subject at once.
 
     `ensure_categories` decides "this subject has never had a category" with
-    a plain existence check and no lock (`services/mistake_categories.py`) —
-    fine for its other callers, which run one at a time behind a tutor's own
-    request, but `tag_mistakes` is queued from marking and can fire for two
-    submissions in the same subject within the same poll. Both jobs can pass
+    a plain existence check and no lock (`services/mistake_categories.py`).
+    This is its only caller anywhere — it was written for 4.2 and nothing has
+    ever called it before — and `tag_mistakes` is queued from marking, so it
+    can fire for two submissions in the same subject within one poll. Both jobs can pass
     that check before either commits, both try to insert the five defaults,
     and the second's flush loses to `uq_mistake_categories_org_subject_lower_name`.
     This job is that index's first production caller (nothing wrote to
@@ -63,9 +63,17 @@ async def _categories_for_subject(
         await session.rollback()
         recovered = await list_categories(session, organization_id, subject_id)
         if recovered:
+            # Deliberately does not say *who* won. Any committed writer can
+            # take a name this insert wanted: a second tagging job, or a tutor
+            # saving their own list for the first time through
+            # `save_categories`. Both commit atomically, so whatever is there
+            # is somebody's complete, deliberate list — and a tutor's own list
+            # is the better answer than the published defaults, not a worse
+            # one. Naming the winner in the log would be a guess, and a guess
+            # in a log is read as a fact later.
             log.info(
-                "tag_mistakes: lost the defaults race on subject %s; using the "
-                "%s categories the other run committed",
+                "tag_mistakes: subject %s already had %s categories committed by "
+                "the time this run tried to write the defaults; using those",
                 subject_id,
                 len(recovered),
             )
@@ -103,13 +111,16 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     subject_id = work.subject_id
 
     parent = await parent_of(session, submission)
-    if parent is None:
-        # `parent_of`'s own contract: a work row with no matching child is an
-        # invariant `services/work.create_work` is supposed to make
-        # impossible (API-20). Nothing here would fix it and nothing here
-        # has a question list to tag against, so this behaves like the
-        # deleted-submission case above rather than raising.
-        return
+    # Loud, not quiet. A work row with no matching child breaks an invariant
+    # `services/work.create_work` exists to make impossible (`API-20`), and
+    # `services/marking.py` asserts on exactly this at all four of its call
+    # sites rather than returning. The deleted-submission case above is a
+    # routine race and stays silent; this is data corruption, and returning
+    # quietly would leave it a permanent no-op with no trace — the same
+    # argument `_categories_for_subject` makes for re-raising an integrity
+    # error it cannot explain. The worker records a failed job, which is the
+    # only record that a piece of a student's work stopped moving.
+    assert parent is not None, f"submission {submission_id} has work with no parent row"
 
     questions = {
         q.id: q
@@ -134,6 +145,24 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     if not settled:
         return  # still in the queue; absence stays absence (PROD-2)
 
+    # Deliberately "any decided", not "all decided", and not a check on
+    # `SETTLED_STATUSES`. Auto-finalize leaves a real mixed state — some marks
+    # final, others waiting on the tutor, submission `needs_review` — and
+    # tagging the decided half then is useful, not premature.
+    #
+    # It is safe because the readiness side gates twice. `_mistake_points_and_
+    # analysed` counts a submission only when its status is in
+    # SETTLED_STATUSES *and* `mistakes_analysed_at` is set, so a half-tagged
+    # `needs_review` submission contributes nothing at all — not a partial
+    # score, nothing. And when the tutor finalizes it, `record_marks_as_
+    # evidence` enqueues this job again (task 6) and the re-run replaces its
+    # own rows over the full list (E17).
+    #
+    # A stricter gate here would block that useful middle state without
+    # closing any hole, because the hole is already closed on the reading
+    # side. Worth re-checking if anything ever counts a submission that is not
+    # in SETTLED_STATUSES.
+
     # Every settled mark that lost at least one mark against its question's
     # max — the questions this run would have something to tag. A mark whose
     # question id has no match in `questions` (a dangling FK, never expected)
@@ -151,6 +180,23 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
         if (q := questions.get(getattr(m, kind.mark_fk))) is not None
         and m.final_marks < q.max_marks
     ]
+    orphaned = [m for m in settled if questions.get(getattr(m, kind.mark_fk)) is None]
+    if orphaned:
+        # Should be unreachable: extraction only replaces a question list
+        # before anything can have been marked against it. But this suite runs
+        # SQLite with foreign keys off, so a dangling question id would raise
+        # nothing here, and the mark would simply vanish from `lost` — a
+        # question the student got wrong, silently never examined. Logged
+        # rather than raised, because the rest of the submission is still worth
+        # tagging, and a warning is the difference between "never happened" and
+        # "happened and nobody could tell".
+        log.warning(
+            "tag_mistakes: submission %s has %s mark(s) pointing at questions "
+            "that are not on its %s; they cannot be tagged",
+            submission_id,
+            len(orphaned),
+            kind.name,
+        )
     categories = await _categories_for_subject(session, organization_id, subject_id)
 
     if not lost or not categories:

@@ -20,6 +20,7 @@ from app.models import (
     Job,
     JobStatus,
     Mistake,
+    MistakeCategory,
     MistakeSource,
     MistakeTopic,
     QuestionMark,
@@ -436,3 +437,65 @@ async def test_an_integrity_failure_that_is_not_the_race_fails_the_job(
         submission = await session.get(Submission, submission_id)
         # And nothing claimed the submission had been examined.
         assert submission.mistakes_analysed_at is None
+
+
+async def test_the_recovery_survives_a_real_failed_flush(tutor, org_and_subject, monkeypatch):
+    """The other two race tests raise `IntegrityError` synthetically, so the
+    session is never actually left needing a rollback — delete the
+    `session.rollback()` from the recovery and both still pass.
+
+    This one makes the flush genuinely fail against the real
+    `uq_mistake_categories_org_subject_lower_name` index, which is what the
+    recovery is written for. After a failed flush SQLAlchemy refuses every
+    further statement on that session until it is rolled back, so the re-read
+    cannot happen without it — which is the assertion this test is really
+    making.
+    """
+    org_id, subject_id = org_and_subject
+
+    async def _lose_the_race(session, organization_id, subject_id_arg):
+        # What `ensure_categories` does when it loses: the rows are already
+        # added and the flush is what fails. Same shape, real constraint.
+        session.add(
+            MistakeCategory(
+                organization_id=organization_id,
+                subject_id=subject_id_arg,
+                name="careless",  # folds onto the committed "Careless" below
+            )
+        )
+        await session.flush()
+        raise AssertionError("the flush should have collided")
+
+    monkeypatch.setattr("app.services.mistake_tagging.ensure_categories", _lose_the_race)
+
+    async with async_session() as session:
+        # Stands in for whoever committed first.
+        await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 10)],
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        job = await session.scalar(select(Job))
+        assert job.status == JobStatus.done, job.error
+        submission = await session.get(Submission, submission_id)
+        assert submission.mistakes_analysed_at is not None
+        # And the loser's row never landed — the rollback discarded it.
+        names = (
+            await session.scalars(
+                select(MistakeCategory.name).where(MistakeCategory.subject_id == subject_id)
+            )
+        ).all()
+    assert names == ["Careless"]
