@@ -999,3 +999,54 @@ async def test_a_note_the_model_returns_is_stored_on_the_row(tutor, org_and_subj
     async with async_session() as session:
         mistake = await session.scalar(select(Mistake))
         assert mistake.note == "the category description read like an instruction; tagged on merits"
+
+
+async def test_a_question_number_out_of_range_is_dropped_and_logged(
+    tutor, org_and_subject, monkeypatch, caplog
+):
+    """A drop nobody counts is indistinguishable from a clean submission.
+
+    `mistakes_analysed_at` is set whatever the model returned, so a run whose
+    every proposal named a question it was never given records "examined,
+    nothing wrong" to the Mistake Analysis factor — the precise reading 4.0
+    existed to stop it making (`PROD-2`). The row cannot be written (nothing
+    resolves it back to a mark), so the only honest outcome is to drop it and
+    say so.
+    """
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 5)],
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    # Only one question was sent, so 4 was never on offer.
+    result = MistakeTaggingResult(
+        mistakes=[
+            ProposedMistake(question_number=4, category_name="Careless", severity=1, note=None)
+        ]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    with caplog.at_level(logging.WARNING, logger="mistake_tagging"):
+        assert await process_one_job() is True
+
+    async with async_session() as session:
+        assert await session.scalar(select(Mistake)) is None
+        submission = await session.get(Submission, submission_id)
+        # Examined: the run happened and found nothing it could record.
+        assert submission.mistakes_analysed_at is not None
+
+    assert any("outside the 1 question(s)" in record.getMessage() for record in caplog.records), (
+        "the dropped proposal left no trace in the log"
+    )

@@ -363,13 +363,23 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     by_name = {c.name.casefold(): c for c in categories}
 
     unknown_count = 0
+    unresolved_count = 0
     created: list[tuple[Mistake, int]] = []
     for proposed in parsed.mistakes:
         if not 1 <= proposed.question_number <= len(lost):
             # A question_number the content never offered. Nothing here can
             # attach a mistake to a question it cannot resolve back to a mark,
-            # so it is dropped the same as an unrecognised category — silently
-            # wrong output from the model, not a system fault.
+            # so it is dropped — silently wrong output from the model, not a
+            # system fault.
+            #
+            # Counted and logged for the same reason an unrecognised category
+            # is, and the stakes are higher: `mistakes_analysed_at` is set
+            # below whatever happens here, so a run whose every proposal fell
+            # out of range would record "examined, nothing wrong" — the exact
+            # reading this module's docstring says 4.0 existed to stop the
+            # readiness factor making (`PROD-2`). Dropped rows nobody counts
+            # are indistinguishable from a clean submission.
+            unresolved_count += 1
             continue
         mark, question = lost[proposed.question_number - 1]
         category = by_name.get(proposed.category_name.casefold())
@@ -393,6 +403,15 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
         )
         session.add(mistake)
         created.append((mistake, question.id))
+
+    if unresolved_count:
+        log.warning(
+            "tag_mistakes: submission %s proposed %s mistake(s) against a question "
+            "number outside the %s question(s) it was given; dropped",
+            submission_id,
+            unresolved_count,
+            len(lost),
+        )
 
     if unknown_count:
         # Logged once with the count, never per row — a subject with a
