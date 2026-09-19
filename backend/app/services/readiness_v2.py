@@ -291,6 +291,16 @@ async def _mistake_points_and_analysed(
     it is marked — that gate is what stops an empty mistakes table reading as
     a clean record for work nobody has examined (PROD-2).
 
+    **Deliberately not filtered on `Mistake.source`.** A mistake a tutor
+    entered themselves counts exactly as one the tagging job proposed, because
+    the tutor is the higher authority here, not the lower one (PROD-7) —
+    filtering to `source="ai"` would drop precisely the observations somebody
+    qualified made by hand. `source` exists so the job can replace its own rows
+    without touching a tutor's (E17, decision 8); it is not a statement about
+    what counts. Nothing writes `source="tutor"` until 4.3, so this is written
+    down now, before the absence of a filter can be read as an oversight and
+    "fixed".
+
     **Both queries carry the same gate, and must keep doing so.** They count
     two halves of one ratio, so a filter on one and not the other counts
     mistakes from questions the denominator does not count as examined. That is
