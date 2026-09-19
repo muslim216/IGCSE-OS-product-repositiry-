@@ -179,12 +179,12 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   await screen.findByDisplayValue("Careless");
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
-  await waitFor(() => expect(saved.length).toBe(1));
+  await waitFor(() => expect(saved).toHaveLength(1));
   // First save: the offered defaults carry no id, so they are new.
   expect((saved[0] as { categories: { id?: number }[] }).categories.every((c) => !c.id)).toBe(true);
 
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
-  await waitFor(() => expect(saved.length).toBe(2));
+  await waitFor(() => expect(saved).toHaveLength(2));
   // Second save: every row now carries the id the first reply gave it.
   expect((saved[1] as { categories: { id?: number }[] }).categories.every((c) => !!c.id)).toBe(
     true,
