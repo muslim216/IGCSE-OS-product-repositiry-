@@ -61,7 +61,25 @@ async def _categories_for_subject(
         return await ensure_categories(session, organization_id, subject_id)
     except IntegrityError:
         await session.rollback()
-        return await list_categories(session, organization_id, subject_id)
+        recovered = await list_categories(session, organization_id, subject_id)
+        if recovered:
+            log.info(
+                "tag_mistakes: lost the defaults race on subject %s; using the "
+                "%s categories the other run committed",
+                subject_id,
+                len(recovered),
+            )
+            return recovered
+        # The premise of this recovery is that somebody else's rows are already
+        # there. If nothing is, it was not the race — it was some other
+        # integrity failure, and returning an empty list would send the caller
+        # down the "this tutor archived everything" path: analysed, tagged with
+        # nothing, `mistakes_analysed_at` set, and the factor reading a clean
+        # examination that never happened. That is precisely the failure 4.0
+        # existed to close, so it is raised rather than absorbed. The worker
+        # retries once and then records the job failed, which is a thing
+        # somebody can find (`PROD-2`, `BE-6`).
+        raise
 
 
 async def tag_mistakes(session: AsyncSession, payload: dict) -> None:

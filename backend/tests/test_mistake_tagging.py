@@ -390,3 +390,49 @@ async def test_a_category_race_between_two_tagging_jobs_is_recovered_not_failed(
         assert job.status == JobStatus.done, job.error
         submission = await session.get(Submission, submission_id)
         assert submission.mistakes_analysed_at is not None
+
+
+async def test_an_integrity_failure_that_is_not_the_race_fails_the_job(
+    tutor, org_and_subject, monkeypatch
+):
+    """The recovery above assumes somebody else's rows are already there.
+
+    If nothing is, it was not the race — it was some other integrity failure,
+    and swallowing it would return an empty category list, which the caller
+    reads as "this tutor archived every category": analysed, tagged with
+    nothing, `mistakes_analysed_at` set, and the Mistake Analysis factor
+    reading a clean examination that never happened. That is exactly the
+    failure 4.0 existed to close, so it has to stay loud.
+    """
+    org_id, subject_id = org_and_subject
+
+    async def _raise(*args, **kwargs):
+        raise IntegrityError("INSERT", {}, Exception("something else entirely"))
+
+    monkeypatch.setattr("app.services.mistake_tagging.ensure_categories", _raise)
+
+    async with async_session() as session:
+        # Deliberately no category for this subject — nothing for the recovery
+        # to find, which is what tells it the race premise does not hold.
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 10)],
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        job = await session.scalar(select(Job))
+        # Pending, not done: the worker retries once before giving up, and
+        # either way the job carries the error rather than reporting success.
+        assert job.status is not JobStatus.done
+        assert job.error
+        submission = await session.get(Submission, submission_id)
+        # And nothing claimed the submission had been examined.
+        assert submission.mistakes_analysed_at is None
