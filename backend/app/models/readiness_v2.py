@@ -90,6 +90,43 @@ class MistakeCategory(TimestampMixin, Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class MistakeSource(str, enum.Enum):
+    """Who decided this mistake — the tagging job, or a tutor.
+
+    Load-bearing, not descriptive. `tag_mistakes` re-runs on the same
+    submission whenever marks change or a tutor presses re-tag, and it must
+    replace what it wrote last time without touching what a tutor decided.
+    "Delete the rows I made" is only expressible if a row says who made it
+    (decision 8, E17).
+    """
+
+    ai = "ai"
+    tutor = "tutor"
+
+
+class MistakeTopic(Base):
+    """Which topics the question behind a mistake tests.
+
+    A link table rather than `Mistake.topic_id`, because a question carries
+    many topics — `QuestionTopic` is unique on (question_id, topic_id) and the
+    extractor returns a list. The single column meant a multi-topic question
+    was recorded against one topic chosen arbitrarily, or skipped; decision 11
+    says every topic, never a skip.
+
+    No `TimestampMixin`: a link either holds or it does not, and the mistake it
+    hangs off already carries when it was made.
+    """
+
+    __tablename__ = "mistake_topics"
+    __table_args__ = (
+        UniqueConstraint("mistake_id", "topic_id", name="uq_mistake_topics_mistake_id_topic_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mistake_id: Mapped[int] = mapped_column(ForeignKey("mistakes.id"), nullable=False)
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), nullable=False)
+
+
 class Mistake(TimestampMixin, Base):
     """An AI-tagged, tutor-confirmable recurring-mistake record for one
     marked question. Feeds the Mistake Analysis readiness factor."""
@@ -99,12 +136,16 @@ class Mistake(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     question_mark_id: Mapped[int] = mapped_column(ForeignKey("question_marks.id"), nullable=False)
-    topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     category_id: Mapped[int] = mapped_column(ForeignKey("mistake_categories.id"), nullable=False)
     severity: Mapped[int] = mapped_column(
         Integer, default=1, nullable=False
     )  # 1 (minor) .. 3 (major)
     confirmed_by_tutor: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Who decided this mistake. The tagging job deletes its own rows and only
+    # its own before re-inserting, so this is the whole of E17's enforcement.
+    source: Mapped[MistakeSource] = mapped_column(
+        Enum(MistakeSource, native_enum=False, length=8), nullable=False
+    )
 
 
 class PastPaper(TimestampMixin, Base):

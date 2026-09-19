@@ -13,6 +13,7 @@ from app.models import (
     Evidence,
     EvidenceSource,
     Mistake,
+    MistakeSource,
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
@@ -803,6 +804,7 @@ async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
                 question_mark_id=mark.id,
                 category_id=mistake_category.id,
                 severity=2,
+                source=MistakeSource.ai,
             )
         )
         submission.mistakes_analysed_at = submission.submitted_at
