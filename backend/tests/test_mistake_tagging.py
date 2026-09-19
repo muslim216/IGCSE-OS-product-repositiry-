@@ -13,6 +13,12 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import async_session
 from app.models import (
+    Assignment,
+    AssignmentQuestion,
+    AssignmentStatus,
+    Group,
+    Job,
+    JobStatus,
     Mistake,
     MistakeSource,
     MistakeTopic,
@@ -22,7 +28,9 @@ from app.models import (
     Topic,
     WorkKind,
 )
+from app.models.base import utcnow
 from app.services.work import create_work
+from app.workers.jobs import enqueue, process_one_job
 from tests.factories import make_mistake_category, make_subject
 
 
@@ -179,3 +187,206 @@ def test_the_tagging_prompt_treats_its_inputs_as_data():
     # not carry fails silently — the call succeeds and the tags come back.
     for marker in CATEGORY_LIST_MARKERS + QUESTION_FEEDBACK_MARKERS:
         assert marker in system, f"the prompt does not name {marker!r}"
+
+
+# ---------------------------------------------------------------------------
+# The tag_mistakes job (task 3): its skeleton and every path that never
+# reaches the model. A settled submission is built through a real
+# Group/Assignment/AssignmentQuestion chain — not just a bare Submission, as
+# `mistake_row` above builds — because the job resolves its parent through
+# `kind_of()`/`parent_of()` exactly as production does (API-20), and a
+# submission with no matching Assignment row would exercise the wrong branch.
+# ---------------------------------------------------------------------------
+
+
+async def _make_settled_homework(
+    session, *, org_id, subject_id, tutor_id, student_id, questions
+) -> int:
+    """A published assignment with one QuestionMark per (max_marks,
+    final_marks) pair in `questions`. `final_marks=None` leaves that
+    question's mark unsettled, still waiting in the tutor's review queue.
+    Returns the submission id."""
+    group = Group(organization_id=org_id, tutor_id=tutor_id, subject_id=subject_id, name="G")
+    session.add(group)
+    await session.flush()
+    work = await create_work(
+        session, kind=WorkKind.homework, organization_id=org_id, subject_id=subject_id, title="HW"
+    )
+    assignment = Assignment(
+        work_id=work.id, group_id=group.id, title="HW", status=AssignmentStatus.published
+    )
+    session.add(assignment)
+    await session.flush()
+    submission = Submission(
+        work_id=work.id, student_id=student_id, status=SubmissionStatus.finalized
+    )
+    session.add(submission)
+    await session.flush()
+    for position, (max_marks, final_marks) in enumerate(questions):
+        question = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=position,
+            number=str(position + 1),
+            text_summary=f"Q{position + 1}",
+            max_marks=max_marks,
+        )
+        session.add(question)
+        await session.flush()
+        session.add(
+            QuestionMark(
+                submission_id=submission.id, question_id=question.id, final_marks=final_marks
+            )
+        )
+    await session.commit()
+    return submission.id
+
+
+async def test_a_fully_correct_submission_is_analysed_with_no_mistakes(tutor, org_and_subject):
+    """Zero mistakes is a finding, not an absence.
+
+    `mistakes_analysed_at` is what tells the Mistake Analysis factor the
+    difference between "examined, nothing wrong" and "never examined". 4.0
+    exists because the factor used to read the second as a hardcoded 100.0.
+    """
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        await make_mistake_category(session, organization_id=org_id, subject_id=subject_id)
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 10), (5, 5)],
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        submission = await session.get(Submission, submission_id)
+        assert submission.mistakes_analysed_at is not None
+        mistakes = (await session.scalars(select(Mistake))).all()
+        assert mistakes == []
+
+
+async def test_a_subject_with_no_categories_is_analysed_without_calling_the_model(
+    tutor, org_and_subject, monkeypatch
+):
+    """A tutor who archived every category chose that, and `ensure_categories`
+    will not refill it. Calling the model with an empty list would spend a
+    request to have every tag dropped as unrecognised — and the factor would
+    go dark with nothing saying why, which is the failure class 4.0 closed.
+    """
+    org_id, subject_id = org_and_subject
+
+    async def _fail_if_called(*args, **kwargs):
+        raise AssertionError("mistake_tagging must not call the model with no categories")
+
+    # Task 4 is what gives this module a `structured_complete` name to patch;
+    # `raising=False` keeps this test meaningful once it does, without
+    # depending on task 4 having landed yet.
+    monkeypatch.setattr(
+        "app.services.mistake_tagging.structured_complete", _fail_if_called, raising=False
+    )
+
+    async with async_session() as session:
+        category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id
+        )
+        category.archived_at = utcnow()
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 5)],  # lost marks — would need tagging if there were categories
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        submission = await session.get(Submission, submission_id)
+        assert submission.mistakes_analysed_at is not None
+        mistakes = (await session.scalars(select(Mistake))).all()
+        assert mistakes == []
+
+
+async def test_a_submission_with_no_settled_marks_is_not_analysed(tutor, org_and_subject):
+    """Not yet examined is not the same as examined and clean. A submission
+    still waiting in the tutor's review queue must leave `mistakes_analysed_at`
+    null so the factor reports no-data rather than a perfect score."""
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, None)],
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        submission = await session.get(Submission, submission_id)
+        assert submission.mistakes_analysed_at is None
+
+
+async def test_a_category_race_between_two_tagging_jobs_is_recovered_not_failed(
+    tutor, org_and_subject, monkeypatch
+):
+    """`ensure_categories` decides "this subject has never had a category"
+    with a plain SELECT and no lock — two `tag_mistakes` jobs reaching an
+    empty subject at once both pass that check and both try to insert the
+    five defaults, and the loser's flush hits
+    `uq_mistake_categories_org_subject_lower_name`. This job is that index's
+    first production caller (verified fact: nothing wrote to `mistakes`
+    before 4.2), so this race becomes reachable here for the first time.
+
+    Losing the insert must not lose the run: the winner's committed rows —
+    stood in for here by a category created directly, ahead of the job — are
+    exactly what the loser wanted, so it re-reads instead of the job failing
+    and retrying with nothing to show for it.
+    """
+    org_id, subject_id = org_and_subject
+
+    async def _raise(*args, **kwargs):
+        raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr("app.services.mistake_tagging.ensure_categories", _raise)
+
+    async with async_session() as session:
+        # Stands in for the winning job's already-committed rows.
+        await make_mistake_category(session, organization_id=org_id, subject_id=subject_id)
+        await session.commit()
+        # Fully correct: whether the recovered category list is empty or not
+        # cannot change the outcome, so this isolates the race handling from
+        # the "no categories" behaviour covered above.
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 10)],
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        job = await session.scalar(select(Job))
+        assert job.status == JobStatus.done, job.error
+        submission = await session.get(Submission, submission_id)
+        assert submission.mistakes_analysed_at is not None
