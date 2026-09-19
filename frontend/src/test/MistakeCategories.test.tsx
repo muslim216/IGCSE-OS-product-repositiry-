@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import MistakeCategoriesPage from "../tutor/MistakeCategoriesPage";
+import { ABSENT } from "../lib/labels";
 
 /* The mistake-category editor (4.1, AV-39). What has to hold on screen:
    a list nobody has saved never reads as the organisation's own decision
@@ -31,12 +32,8 @@ function stub(
   } = {},
 ) {
   const source = options.source ?? "none";
-  let categories = options.categories ?? DEFAULTS;
+  const categories = options.categories ?? DEFAULTS;
   const saved: unknown[] = [];
-  /** Change what the server holds, as a colleague in another tab would. */
-  const setStored = (next: unknown[]) => {
-    categories = next;
-  };
 
   vi.stubGlobal(
     "fetch",
@@ -49,15 +46,10 @@ function stub(
       const match = /^\/api\/v1\/subjects\/(\d+)\/mistake-categories$/.exec(path);
       if (match) {
         const subject = Number(match[1]);
-        if (options.bySubject) {
-          const held = options.bySubject[subject];
-          return json({
-            subject_id: subject,
-            subject_name: SUBJECTS.find((s) => s.id === subject)!.name,
-            source: held.source,
-            categories: held.categories,
-          });
-        }
+        const name = SUBJECTS.find((s) => s.id === subject)!.name;
+        // PUT is answered before the `bySubject` GET table is consulted —
+        // otherwise a stub that describes two subjects can never model a save
+        // at all, because every request to those paths is read as a read.
         if (method === "PUT" && options.failSaveWith) {
           return new Response(JSON.stringify({ detail: options.failSaveWith.detail }), {
             status: options.failSaveWith.status,
@@ -68,30 +60,41 @@ function stub(
           saved.push(body);
           // The API answers a save with the stored rows, ids included — a stub
           // that withheld them would hide the re-seeding the page depends on.
+          // It echoes the subject from the URL rather than naming one: a reply
+          // claiming a subject the caller did not ask about is written into
+          // that subject's cache entry and skips its next hydration, so a stub
+          // that hardcoded it would quietly plant that bug in any future test
+          // that saves on a second subject.
           return json({
-            subject_id: 7,
-            subject_name: "Chemistry",
+            subject_id: subject,
+            subject_name: name,
             source: "organization",
-            categories: body.categories.map((c: { name: string }, i: number) => ({
-              id: i + 1,
-              name: c.name,
-              description: null,
-            })),
+            categories: body.categories.map(
+              (c: { id?: number; name: string; description?: string }, i: number) => ({
+                id: c.id ?? i + 1,
+                name: c.name,
+                description: c.description ?? null,
+              }),
+            ),
           });
         }
-        return json({
-          subject_id: 7,
-          subject_name: "Chemistry",
-          source,
-          categories,
-        });
+        if (options.bySubject) {
+          const held = options.bySubject[subject];
+          return json({
+            subject_id: subject,
+            subject_name: name,
+            source: held.source,
+            categories: held.categories,
+          });
+        }
+        return json({ subject_id: subject, subject_name: name, source, categories });
       }
       return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
         status: 404,
       });
     }),
   );
-  return { saved, setStored };
+  return { saved };
 }
 
 function renderPage() {
@@ -279,4 +282,43 @@ test("a rejected save shows the server's reason, not generic advice", async () =
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
   expect(await screen.findByText(/Mistake category not found/)).toBeTruthy();
+});
+
+test("subjects that fail to load say so, rather than reading as none existing", async () => {
+  // A transient failure rendered as "No subjects yet." sends a tutor who has
+  // subjects off to add a syllabus they already have, and hides that anything
+  // went wrong at all (PROD-2, UX-19).
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () => new Response(JSON.stringify({ detail: "upstream is down" }), { status: 500 }),
+    ),
+  );
+  renderPage();
+
+  expect(await screen.findByText(ABSENT.loadFailed)).toBeTruthy();
+  expect(screen.queryByText(/No subjects yet/i)).toBeNull();
+});
+
+test("a name the API would reject is marked on the row it is wrong on", async () => {
+  // Save going grey says something is wrong somewhere. With forty categories
+  // on screen, a page footnote does not say which — and a screen reader
+  // reaching the disabled button has nothing tying it to a field.
+  stub({
+    source: "organization",
+    categories: [
+      { id: 3, name: "Careless", description: null },
+      { id: 4, name: "Content gap", description: null },
+    ],
+  });
+  renderPage();
+
+  const second = await screen.findByDisplayValue("Content gap");
+  fireEvent.change(second, { target: { value: "  " } });
+
+  await waitFor(() => expect(second.getAttribute("aria-invalid")).toBe("true"));
+  const describedBy = second.getAttribute("aria-describedby")!;
+  expect(document.getElementById(describedBy)?.textContent).toMatch(/needs a name/i);
+  // And the row that is not the problem is not marked as one.
+  expect(screen.getByDisplayValue("Careless").getAttribute("aria-invalid")).toBe("false");
 });

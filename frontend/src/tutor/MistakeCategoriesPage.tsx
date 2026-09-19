@@ -82,13 +82,16 @@ export default function MistakeCategoriesPage() {
   // categories are shared by every tutor in an organization, so a colleague
   // saving the same subject in another tab is the ordinary way the server's
   // answer changes mid-edit.
-  const hydratedFor = useRef<number | null>(null);
+  // State rather than a ref, because the editor below is gated on it. A ref
+  // would record which subject the draft belongs to without being able to keep
+  // the wrong subject's rows off the screen while it catches up.
+  const [hydratedFor, setHydratedFor] = useState<number | null>(null);
   useEffect(() => {
-    if (categories.data && hydratedFor.current !== categories.data.subject_id) {
-      hydratedFor.current = categories.data.subject_id;
+    if (categories.data && hydratedFor !== categories.data.subject_id) {
+      setHydratedFor(categories.data.subject_id);
       setDraft(toDraft(categories.data.categories));
     }
-  }, [categories.data]);
+  }, [categories.data, hydratedFor]);
 
   // Focus has to go somewhere deliberate when a row is removed: the button the
   // tutor just pressed stops existing, and a browser drops focus to <body>,
@@ -106,7 +109,12 @@ export default function MistakeCategoriesPage() {
         draft.map((c) => ({
           id: c.id ?? undefined,
           name: c.name,
-          description: c.description.trim() === "" ? undefined : c.description,
+          // Trimmed, so the 400-character check below measures what is
+          // actually sent. Sending the raw string let a description of 400
+          // content characters plus a trailing newline pass on screen and come
+          // back rejected by the API (cubic). The API trims too; agreeing with
+          // it is what keeps the two bounds the same bound.
+          description: c.description.trim() || undefined,
         })),
       ),
     onSuccess: (data) => {
@@ -118,7 +126,7 @@ export default function MistakeCategoriesPage() {
       // `id: null` and the next save would present them as new again. A save is
       // an explicit action, unlike the refetch that guard exists to ignore, so
       // taking what was actually stored is right here and wrong there.
-      hydratedFor.current = data.subject_id;
+      setHydratedFor(data.subject_id);
       setDraft(toDraft(data.categories));
       showToast("Mistake categories saved.");
     },
@@ -131,21 +139,32 @@ export default function MistakeCategoriesPage() {
   // is one name to the API and two here — the API refuses and its own message
   // is shown, which is why that message had to stop being generic.
   const trimmedNames = draft.map((c) => c.name.trim());
-  const emptyName = trimmedNames.some((n) => n.length === 0);
-  const nameTooLong = draft.some((c) => c.name.length > 60);
-  // Measured on what is actually sent: a description that trims to nothing is
-  // sent as absent, so whitespace alone cannot be too long.
-  const descriptionTooLong = draft.some((c) => c.description.trim().length > 400);
-  const duplicateNames =
-    new Set(trimmedNames.map((n) => n.toLowerCase())).size !== trimmedNames.length;
+  const folded = trimmedNames.map((n) => n.toLowerCase());
+  /** Why this row's name cannot be saved, in the tutor's words, or null.
+   *
+   *  Per row rather than per page: a list of forty categories with one page
+   *  footnote saying "every category needs a name" does not say which one, and
+   *  a screen reader reaching a disabled Save has nothing tying it to a field.
+   *  Each message is attached to its own input with `aria-describedby` (cubic).
+   */
+  const nameError = (i: number): string | null => {
+    if (draft[i].name.length > 60) return "Name must be 60 characters or fewer.";
+    if (trimmedNames[i].length === 0) return "Every category needs a name.";
+    if (folded.some((n, j) => j !== i && n === folded[i]))
+      return "Each category name can appear only once.";
+    return null;
+  };
+  // Measured on what is actually sent, which is the trimmed string.
+  const descriptionError = (i: number): string | null =>
+    draft[i].description.trim().length > 400
+      ? "Description must be 400 characters or fewer."
+      : null;
+
   const tooMany = draft.length > 40;
   const invalid =
     draft.length === 0 ||
-    emptyName ||
-    nameTooLong ||
-    descriptionTooLong ||
-    duplicateNames ||
-    tooMany;
+    tooMany ||
+    draft.some((_, i) => nameError(i) !== null || descriptionError(i) !== null);
 
   if (subjects.isLoading) {
     return (
@@ -154,7 +173,13 @@ export default function MistakeCategoriesPage() {
       </div>
     );
   }
-  if (subjects.isError || !subjects.data || subjects.data.length === 0) {
+  // A failed load is not an empty list. Telling a tutor whose subjects simply
+  // did not arrive that they have none sends them off to add a syllabus they
+  // already have, and hides the fact that anything went wrong (PROD-2, UX-19).
+  if (subjects.isError) {
+    return <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>;
+  }
+  if (!subjects.data || subjects.data.length === 0) {
     return (
       <EmptyState
         title="No subjects yet."
@@ -186,15 +211,21 @@ export default function MistakeCategoriesPage() {
         ))}
       </select>
 
-      {/* The editor appears only once the loaded list is the selected
-          subject's. Switching to a subject already in the cache renders its
-          data synchronously, while `draft` still holds the previous subject's
-          rows until the effect above runs — one render with Save enabled,
-          pointed at the new subject, carrying the old subject's list. */}
-      {categories.isLoading || (categories.data && categories.data.subject_id !== selected) ? (
-        <span aria-hidden className="block h-32 w-full animate-pulse rounded bg-surface-muted" />
-      ) : categories.isError || !categories.data ? (
+      {/* The editor appears only once the *draft* belongs to the selected
+          subject — not merely once the query's answer does. Switching to a
+          subject already in the cache renders its data synchronously, while
+          `draft` still holds the previous subject's rows until the effect above
+          runs: one render with Save enabled, pointed at the new subject,
+          carrying the old subject's list. Gating on the loaded data's
+          `subject_id` passed in exactly that render, because the data had
+          already arrived and only the draft was behind (cubic). */}
+      {categories.isError ? (
+        // Before the hydration gate, not after: a failed load never hydrates,
+        // so testing it second would leave the skeleton pulsing forever with
+        // nothing saying the request had failed.
         <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
+      ) : categories.isLoading || !categories.data || hydratedFor !== selected ? (
+        <span aria-hidden className="block h-32 w-full animate-pulse rounded bg-surface-muted" />
       ) : (
         <>
           {categories.data.source === "none" ? (
@@ -218,11 +249,9 @@ export default function MistakeCategoriesPage() {
                     </label>
                     <input
                       id={`category-name-${category.key}`}
-                      aria-invalid={category.name.length > 60}
+                      aria-invalid={nameError(i) !== null}
                       aria-describedby={
-                        category.name.length > 60
-                          ? `category-name-error-${category.key}`
-                          : undefined
+                        nameError(i) !== null ? `category-name-error-${category.key}` : undefined
                       }
                       value={category.name}
                       onChange={(e) =>
@@ -238,9 +267,9 @@ export default function MistakeCategoriesPage() {
                     </label>
                     <textarea
                       id={`category-description-${category.key}`}
-                      aria-invalid={category.description.trim().length > 400}
+                      aria-invalid={descriptionError(i) !== null}
                       aria-describedby={
-                        category.description.trim().length > 400
+                        descriptionError(i) !== null
                           ? `category-description-error-${category.key}`
                           : undefined
                       }
@@ -265,17 +294,17 @@ export default function MistakeCategoriesPage() {
                     Remove<span className="sr-only"> {category.name || `category ${i + 1}`}</span>
                   </button>
                 </div>
-                {category.name.length > 60 && (
+                {nameError(i) && (
                   <p id={`category-name-error-${category.key}`} className="text-sm text-risk-600">
-                    Name must be 60 characters or fewer.
+                    {nameError(i)}
                   </p>
                 )}
-                {category.description.trim().length > 400 && (
+                {descriptionError(i) && (
                   <p
                     id={`category-description-error-${category.key}`}
                     className="text-sm text-risk-600"
                   >
-                    Description must be 400 characters or fewer.
+                    {descriptionError(i)}
                   </p>
                 )}
               </li>
@@ -307,12 +336,9 @@ export default function MistakeCategoriesPage() {
           {draft.length === 0 && (
             <p className="text-sm text-ink-500">Add at least one category before saving.</p>
           )}
-          {emptyName && draft.length > 0 && (
-            <p className="text-sm text-risk-600">Every category needs a name.</p>
-          )}
-          {duplicateNames && (
-            <p className="text-sm text-risk-600">Each category name can appear only once.</p>
-          )}
+          {/* Empty and duplicate names used to be reported here, as page
+              footnotes that never said which row was wrong. They are on the
+              rows now. This one stays: it is about the list, not a field. */}
           {tooMany && <p className="text-sm text-risk-600">Up to 40 categories.</p>}
           {save.isError && (
             <p className="text-sm text-risk-600" role="alert">
