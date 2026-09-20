@@ -85,7 +85,7 @@ export interface StudentAssignment {
   highest_in_class: boolean;
 }
 
-/** The mistake the tagging job tagged against one question (4.2), as the
+/** One mistake tagged against a question (4.2), as the
     tutor sees it. Tutor-only, like `scheme_conflict`: `StudentMarkRow` has no
     such field, and what a student sees about their own mistake pattern is
     `AV-41`'s homework tab, not this screen. */
@@ -96,8 +96,10 @@ export interface MistakeRow {
       on — a rename is a valid edit and nothing may read meaning into it. */
   category_name: string;
   severity: number;
-  /** "ai" or "tutor" — who decided this tag. */
-  source: string;
+  /** Who decided this tag. A union, not `string`: the review page branches on
+      the exact word, so a third value added to `MistakeSource` has to fail the
+      build rather than silently render the AI's call as the tutor's. */
+  source: "ai" | "tutor";
   /** What the tagging job flagged as reading like an instruction rather than
       data (`SEC-20`). Null on every ordinary tag. */
   note: string | null;
@@ -127,11 +129,12 @@ export interface MarkRow {
   auto_finalized: boolean;
   remark_requested: boolean;
   remark_reason: string | null;
-  /** The mistake tagged against this question, or null — the ordinary case
-      for a question that lost no marks, and also what a question nobody has
-      examined looks like. `SubmissionDetail.mistakes_analysed` is what tells
-      those two apart (`PROD-2`). */
-  mistake: MistakeRow | null;
+  /** Every tag on this question, oldest first. Empty is the ordinary case for
+      a question that lost no marks, and also what a question nobody has
+      examined looks like — `SubmissionDetail.mistakes_analysed` is what tells
+      those two apart (`PROD-2`). More than one is ordinary too: the tagging
+      prompt asks for every category that applies, not just the first. */
+  mistakes: MistakeRow[];
 }
 
 export interface ReviewQueueItem {

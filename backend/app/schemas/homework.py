@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -199,7 +200,12 @@ class MistakeRow(BaseModel):
     #: "ai" or "tutor" — who decided this tag. Shown, because "your tagging
     #: assistant said this" and "you said this" are different claims, and a
     #: tutor revising their own earlier revision should be able to tell.
-    source: str
+    #:
+    #: The two values spelled out rather than `str`: the review page branches
+    #: on the exact word, so a third `MistakeSource` member added later must
+    #: fail the frontend's type check rather than fall through that branch and
+    #: label the AI's decision as the tutor's.
+    source: Literal["ai", "tutor"]
     #: What the tagging job flagged as reading like an instruction rather than
     #: data (`SEC-20`). Null on every ordinary tag; when set, it is the whole
     #: reason this row is worth a tutor's attention.
@@ -239,7 +245,9 @@ class MarkRow(BaseModel):
     #: question nobody has examined yet looks like. Absent is shown as absent
     #: (`PROD-2`); `SubmissionDetail.mistakes_analysed` is what tells the two
     #: apart.
-    mistake: MistakeRow | None = None
+    #: Every tag on this question, oldest first — a list because the tagging
+    #: prompt asks the model for every category that applies, not just one.
+    mistakes: list[MistakeRow] = Field(default_factory=list)
 
 
 class MistakeRevisionIn(BaseModel):

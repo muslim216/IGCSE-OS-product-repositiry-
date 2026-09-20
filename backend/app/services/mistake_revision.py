@@ -61,6 +61,17 @@ async def revise_mistake(
         select(Mistake)
         .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
         .where(Mistake.id == mistake_id, QuestionMark.submission_id == submission.id)
+        # Locked for the rest of the transaction, because the audit row below
+        # records the values read *here* as the "old" ones. Two revisions of
+        # one mistake landing together would otherwise both read the same
+        # state, both claim to have moved it from there, and the second write
+        # would erase the first with nothing in the trail saying so — the
+        # append-only record `PROD-7` requires would be quietly wrong rather
+        # than merely incomplete. `of=Mistake` keeps the lock off the joined
+        # `question_marks` row, which a tutor saving marks holds at the same
+        # time. SQLite renders no `FOR UPDATE` at all, so this is exercised
+        # only by CI's Postgres job (`RISK-3`).
+        .with_for_update(of=Mistake)
     )
     if mistake is None:
         raise RevisionRejected("Mistake not found")

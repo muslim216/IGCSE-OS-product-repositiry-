@@ -532,8 +532,8 @@ async def _bare_question_count(db, kind, parent: Any) -> int:
     return result.scalar_one()
 
 
-async def _mistakes_by_mark(db, submission_id: int) -> dict[int, MistakeRow]:
-    """This submission's mistake tags, keyed by the question mark each hangs
+async def _mistakes_by_mark(db, submission_id: int) -> dict[int, list[MistakeRow]]:
+    """This submission's mistake tags, grouped by the question mark each hangs
     off.
 
     One query with the category joined, not `m.category.name` per row: that is
@@ -541,11 +541,13 @@ async def _mistakes_by_mark(db, submission_id: int) -> dict[int, MistakeRow]:
     and `PERF-1` forbid — the same reason `_mistake_points_and_analysed` reads
     the name through a join.
 
-    A dict, not a list, because `Mistake.question_mark_id` has no unique
-    constraint. Nothing writes two tags for one question today — the job
-    proposes at most one per question and a revision edits in place — but if
-    that ever changed, a dict shows one tag per question rather than silently
-    rendering a second card, and the constraint is the thing to add.
+    **A list per mark, not one tag.** The tagging prompt tells the model that a
+    question can show more than one kind of mistake and to "list every category
+    that genuinely applies, not just the first" (`prompts.py`), and nothing
+    downstream collapses them: `_mistake_points_and_analysed` counts every row
+    it finds. Keying one tag per mark would show the tutor the last one and
+    hide the rest — evidence that counts against the student in readiness and
+    that they could neither see nor revise (`PROD-1`, `AV-38`).
     """
     rows = (
         await db.execute(
@@ -556,17 +558,19 @@ async def _mistakes_by_mark(db, submission_id: int) -> dict[int, MistakeRow]:
             .order_by(Mistake.id)
         )
     ).all()
-    return {
-        m.question_mark_id: MistakeRow(
-            id=m.id,
-            category_id=m.category_id,
-            category_name=name,
-            severity=m.severity,
-            source=m.source.value,
-            note=m.note,
+    grouped: dict[int, list[MistakeRow]] = {}
+    for m, name in rows:
+        grouped.setdefault(m.question_mark_id, []).append(
+            MistakeRow(
+                id=m.id,
+                category_id=m.category_id,
+                category_name=name,
+                severity=m.severity,
+                source=m.source.value,
+                note=m.note,
+            )
         )
-        for m, name in rows
-    }
+    return grouped
 
 
 async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
@@ -615,7 +619,7 @@ async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
             auto_finalized=m.auto_finalized if m else False,
             remark_requested=m.id in open_remarks if m else False,
             remark_reason=open_remarks.get(m.id) if m else None,
-            mistake=mistakes.get(m.id) if m else None,
+            mistakes=mistakes.get(m.id, []) if m else [],
         )
         for q, m in rows
     ]

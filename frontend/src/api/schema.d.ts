@@ -3463,7 +3463,8 @@ export interface components {
             remark_requested: boolean;
             /** Remark Reason */
             remark_reason?: string | null;
-            mistake?: components["schemas"]["MistakeRow"] | null;
+            /** Mistakes */
+            mistakes?: components["schemas"]["MistakeRow"][];
         };
         /** MarkUpdate */
         MarkUpdate: {
@@ -3552,8 +3553,11 @@ export interface components {
             category_name: string;
             /** Severity */
             severity: number;
-            /** Source */
-            source: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "ai" | "tutor";
             /** Note */
             note?: string | null;
         };

@@ -10017,15 +10017,12 @@
             ],
             "title": "Remark Reason"
           },
-          "mistake": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/MistakeRow"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "mistakes": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeRow"
+            },
+            "type": "array",
+            "title": "Mistakes"
           }
         },
         "type": "object",
@@ -10266,6 +10263,10 @@
           },
           "source": {
             "type": "string",
+            "enum": [
+              "ai",
+              "tutor"
+            ],
             "title": "Source"
           },
           "note": {

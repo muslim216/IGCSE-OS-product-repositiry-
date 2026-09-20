@@ -14,7 +14,6 @@ from app.db import async_session
 from app.models import (
     Job,
     Mistake,
-    MistakeCategory,
     MistakeRevisionAudit,
     MistakeSource,
     Mock,
@@ -88,6 +87,7 @@ async def tagged(client, tutor):
         session.add(mistake)
         await session.commit()
         return {
+            "mark_id": mark.id,
             "submission_id": submission.id,
             "past_paper_id": paper.id,
             "mistake_id": mistake.id,
@@ -311,7 +311,7 @@ async def test_the_review_screen_shows_the_tag_it_lets_you_edit(client, tutor, t
     body = resp.json()
     assert body["mistakes_analysed"] is True
     assert body["subject_id"] == tagged["subject_id"]
-    tag = body["marks"][0]["mistake"]
+    (tag,) = body["marks"][0]["mistakes"]
     assert tag["id"] == tagged["mistake_id"]
     assert tag["category_name"] == "careless"
     assert tag["source"] == "ai"
@@ -338,15 +338,31 @@ async def test_a_revised_mistake_survives_the_next_tagging_run(client, tutor, ta
     assert mistake.category_id == tagged["method_id"]
 
 
-async def test_a_category_is_never_matched_by_name(client, tutor, tagged):
-    """Categories are tutor data and nothing may branch on their value, so the
-    revision resolves an id against this org and subject. A same-named
-    category in another tenant is a different category entirely (`SEC-8`)."""
+async def test_every_tag_on_a_question_reaches_the_screen(client, tutor, tagged):
+    """A question can carry more than one mistake — the tagging prompt asks the
+    model for every category that genuinely applies, not just the first, and
+    `_mistake_points_and_analysed` counts every row it finds. A projection
+    keyed one-per-question would serve the last one and drop the rest:
+    evidence counting against the student that no tutor could see or revise
+    (`PROD-1`, `AV-38`)."""
     async with async_session() as session:
-        count = await session.scalar(
-            select(func.count(MistakeCategory.id)).where(MistakeCategory.name == "careless")
+        session.add(
+            Mistake(
+                student_id=tutor["user"]["id"],
+                question_mark_id=tagged["mark_id"],
+                category_id=tagged["method_id"],
+                severity=2,
+                source=MistakeSource.ai,
+            )
         )
-    assert count == 1
+        await session.commit()
+
+    resp = await client.get(
+        f"/api/v1/submissions/{tagged['submission_id']}", headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    tags = resp.json()["marks"][0]["mistakes"]
+    assert [t["category_name"] for t in tags] == ["careless", "method"]
 
 
 async def test_severity_can_be_revised_on_an_archived_category(client, tutor, tagged):

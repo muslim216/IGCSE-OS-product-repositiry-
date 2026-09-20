@@ -28,7 +28,7 @@ function mark(overrides: Partial<MarkRow> & { question_id: number }): MarkRow {
     auto_finalized: false,
     remark_requested: false,
     remark_reason: null,
-    mistake: null,
+    mistakes: [],
     ...overrides,
   };
 }
@@ -167,27 +167,39 @@ function stubSubmission(
         });
       }
 
-      const revised = route(/^\/api\/v1\/submissions\/\d+\/mistakes\/(\d+)$/, "PATCH");
+      const revised = route(/^\/api\/v1\/submissions\/(\d+)\/mistakes\/(\d+)$/, "PATCH");
       if (revised) {
         const sent = JSON.parse(String(init?.body));
         revisions.push({ path, body: sent });
-        current = current.map((m) =>
-          m.mistake && String(m.mistake.id) === revised[1]
-            ? {
-                ...m,
-                mistake: {
-                  ...m.mistake,
+        current = current.map((m) => ({
+          ...m,
+          mistakes: m.mistakes.map((x) =>
+            String(x.id) === revised[2]
+              ? {
+                  ...x,
                   category_id: sent.category_id,
                   category_name:
-                    categories.find((c) => c.id === sent.category_id)?.name ??
-                    m.mistake.category_name,
+                    categories.find((c) => c.id === sent.category_id)?.name ?? x.category_name,
                   severity: sent.severity,
-                  source: "tutor",
-                },
-              }
-            : m,
+                  source: "tutor" as const,
+                }
+              : x,
+          ),
+        }));
+        // The submission id comes off the path, as every other write handler
+        // here does: a body hardcoding 1 would answer a PATCH on another
+        // submission with this one's marks, which is exactly the staleness
+        // this stateful stub exists to catch.
+        return json(
+          submissionBody(
+            current,
+            Number(revised[1]),
+            status,
+            typed,
+            bareQuestionCount,
+            mistakesAnalysed,
+          ),
         );
-        return json(submissionBody(current, 1, status, typed, bareQuestionCount, mistakesAnalysed));
       }
 
       return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
@@ -481,7 +493,7 @@ const tagged = (over: Partial<MistakeRow> = {}): MistakeRow => ({
 
 test("the tutor can retag a mistake the AI proposed", async () => {
   stubSubmission(
-    [mark({ question_id: 1, final_marks: 0, mistake: tagged() })],
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
     [],
     "needs_review",
     null,
@@ -513,7 +525,7 @@ test("a mistake on an archived category still shows that category", async () => 
       mark({
         question_id: 1,
         final_marks: 0,
-        mistake: tagged({ category_id: 9, category_name: "rushed" }),
+        mistakes: [tagged({ category_id: 9, category_name: "rushed" })],
       }),
     ],
     [],
@@ -537,7 +549,7 @@ test("a finalized submission can still be retagged", async () => {
   // pattern and is never part of the student's result, so AV-38's "may revise,
   // never prompted" would become an implicit prompt if the window shut here.
   stubSubmission(
-    [mark({ question_id: 1, final_marks: 0, mistake: tagged() })],
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
     [],
     "finalized",
     null,
@@ -582,7 +594,7 @@ test("a live category is not labelled archived while the category list is loadin
   // would close it before anything could be asserted, and the test would pass
   // against code that never checks the load state at all.
   stubSubmission(
-    [mark({ question_id: 1, final_marks: 0, mistake: tagged() })],
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
     [],
     "needs_review",
     null,
@@ -597,7 +609,7 @@ test("a live category is not labelled archived while the category list is loadin
   expect(picker).toHaveDisplayValue("careless");
   expect(screen.queryByDisplayValue("careless (archived)")).not.toBeInTheDocument();
   expect(
-    screen.queryByText("Set up mistake categories for this subject to change this."),
+    screen.queryByText("Set up mistake categories for this subject to change the category."),
   ).not.toBeInTheDocument();
 });
 
@@ -606,7 +618,7 @@ test("a category list that fails to load does not claim the tutor has none", asy
   // configuration, and it is false when the request simply failed (PROD-2
   // applied to a control rather than a metric).
   stubSubmission(
-    [mark({ question_id: 1, final_marks: 0, mistake: tagged() })],
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
     [],
     "needs_review",
     null,
@@ -619,11 +631,11 @@ test("a category list that fails to load does not claim the tutor has none", asy
 
   expect(
     await screen.findByText(
-      "Your mistake categories didn't load, so this can't be changed right now.",
+      "Your mistake categories didn't load, so the category can't be changed right now.",
     ),
   ).toBeInTheDocument();
   expect(
-    screen.queryByText("Set up mistake categories for this subject to change this."),
+    screen.queryByText("Set up mistake categories for this subject to change the category."),
   ).not.toBeInTheDocument();
 });
 
@@ -633,7 +645,7 @@ test("retagging does not discard marks the tutor has typed but not saved", async
   // on other questions vanished with no warning and nothing to undo it.
   stubSubmission(
     [
-      mark({ question_id: 1, final_marks: 0, mistake: tagged() }),
+      mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] }),
       mark({ question_id: 2, final_marks: null }),
     ],
     [],
@@ -651,10 +663,43 @@ test("retagging does not discard marks the tutor has typed but not saved", async
   fireEvent.change(picker, { target: { value: "2" } });
   await waitFor(() => expect(revisions).toHaveLength(1));
 
-  expect(feedback).toHaveValue("Show your working");
-  // And the retag itself landed on screen. Asserted here rather than left
-  // implicit: without it the test passes when the refetch never happens at
-  // all, which is the state it was written in and which hid the bug it was
-  // meant to catch.
+  // The retag landing on screen comes first, and the draft assertion after
+  // it. The re-seed this guards against can only happen once the refetched
+  // submission has rendered — asserting on the textarea before that round trip
+  // lands would pass against the re-seeding code too.
   expect(await screen.findByDisplayValue("method")).toBeInTheDocument();
+  expect(feedback).toHaveValue("Show your working");
+});
+
+test("every tag on a question is shown, not just the last one", async () => {
+  // The tagging prompt asks the model for every category that genuinely
+  // applies to a question, and the readiness factor counts every row it
+  // finds. Keying one tag per question showed the tutor the last one and hid
+  // the rest — evidence counting against the student that they could neither
+  // see nor revise (PROD-1, AV-38).
+  stubSubmission(
+    [
+      mark({
+        question_id: 1,
+        final_marks: 0,
+        mistakes: [tagged(), tagged({ id: 56, category_id: 2, category_name: "method" })],
+      }),
+    ],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const pickers = await screen.findAllByLabelText("Mistake category");
+  expect(pickers).toHaveLength(2);
+  expect(pickers[0]).toHaveDisplayValue("careless");
+  expect(pickers[1]).toHaveDisplayValue("method");
+
+  // And each one revises its own row rather than the first.
+  fireEvent.change(pickers[1], { target: { value: "1" } });
+  await waitFor(() => expect(revisions).toHaveLength(1));
+  expect(revisions[0].path).toContain("/mistakes/56");
 });
