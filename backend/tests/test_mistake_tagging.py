@@ -1300,3 +1300,114 @@ async def test_the_race_recovery_survives_a_submission_that_actually_lost_marks(
         mistakes = (await session.scalars(select(Mistake))).all()
         assert len(mistakes) == 1
         assert mistakes[0].source is MistakeSource.ai
+
+
+async def test_a_re_run_keeps_its_own_rows_on_a_category_the_tutor_archived(
+    tutor, org_and_subject, monkeypatch
+):
+    """Archiving is not deletion. An archived category stays attached to every
+    mistake already tagged with it and stays counted in readiness
+    (`docs/governance/glossary.md`).
+
+    `list_categories` hides archived rows, so a re-run is never offered that
+    category and can never propose it back. Deleting the row and rebuilding
+    only from live categories therefore loses it for good — the student's
+    record quietly shrinks because their tutor tidied a word out of a list.
+    """
+    org_id, subject_id = org_and_subject
+    async with async_session() as session:
+        live = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        archived = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Timing"
+        )
+        archived.archived_at = utcnow()
+        await session.commit()
+        archived_id = archived.id
+
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=tutor["user"]["id"],
+            student_id=tutor["user"]["id"],
+            questions=[(10, 5)],
+        )
+        mark_id = await session.scalar(select(QuestionMark.id))
+        session.add_all(
+            [
+                Mistake(
+                    student_id=tutor["user"]["id"],
+                    question_mark_id=mark_id,
+                    category_id=live.id,
+                    severity=1,
+                    source=MistakeSource.ai,
+                ),
+                Mistake(
+                    student_id=tutor["user"]["id"],
+                    question_mark_id=mark_id,
+                    category_id=archived_id,
+                    severity=3,
+                    source=MistakeSource.ai,
+                ),
+            ]
+        )
+        await session.commit()
+
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    result = MistakeTaggingResult(
+        mistakes=[
+            ProposedMistake(question_number=1, category_name="Careless", severity=2, note=None)
+        ]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        mistakes = (await session.scalars(select(Mistake))).all()
+        by_category = {m.category_id: m for m in mistakes}
+        # The archived one survives untouched — severity 3, as first tagged.
+        assert archived_id in by_category
+        assert by_category[archived_id].severity == 3
+        # The live one was replaced by this run's proposal, not doubled.
+        assert len([m for m in mistakes if m.category_id == live.id]) == 1
+        assert by_category[live.id].severity == 2
+
+
+def test_every_untrusted_string_in_the_content_sits_inside_its_markers():
+    """The prompt promises a boundary; this is the function that has to make
+    it real. `text_summary` is extraction's reading of an uploaded document —
+    no more this system's own words than the student's are — and it was the
+    one untrusted string reaching this prompt with nothing around it.
+
+    Marks stay *outside* the markers on purpose: they are numbers this system
+    computed, and a model told they are data it may discount is a model that
+    can talk itself out of the arithmetic.
+    """
+    from app.services.mistake_tagging import LostAnswer, _build_content
+    from app.services.prompts import QUESTION_FEEDBACK_MARKERS
+
+    fb_begin, fb_end = QUESTION_FEEDBACK_MARKERS
+    cat_begin, cat_end = CATEGORY_LIST_MARKERS
+    category = MistakeCategory(name="Careless", description="rushed working")
+    answer = LostAnswer(
+        mark_id=1,
+        question_id=1,
+        ai_feedback="STUDENT-WORDS-HERE",
+        final_marks=4,
+        max_marks=10,
+        text_summary="SUMMARY-WORDS-HERE",
+    )
+
+    text = _build_content([category], [answer])[0]["text"]
+    delimited = text[text.index(fb_begin) : text.index(fb_end)]
+    assert "SUMMARY-WORDS-HERE" in delimited
+    assert "STUDENT-WORDS-HERE" in delimited
+    # The computed numbers are not inside the untrusted block.
+    assert "max_marks: 10" not in delimited
+    # And the tutor's list keeps its own boundary.
+    assert "Careless" in text[text.index(cat_begin) : text.index(cat_end)]

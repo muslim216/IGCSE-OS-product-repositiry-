@@ -174,11 +174,21 @@ def _build_content(categories: list[MistakeCategory], lost: list[LostAnswer]) ->
     for position, answer in enumerate(lost, start=1):
         feedback = answer.ai_feedback or "(no feedback recorded)"
         question_blocks.append(
+            # `text_summary` sits inside the markers with the feedback, not
+            # outside them on its own line. It is extraction's reading of an
+            # uploaded document, so its wording is no more this system's own
+            # than the student's is — undelimited, it was the one untrusted
+            # string in this prompt with no boundary around it (`SEC-20`,
+            # `SEC-21`, `AI-8`). Marks stay outside: those are numbers this
+            # system computed, and the model must not read them as data it may
+            # discount.
             f"Question {position}:\n"
-            f"text_summary: {answer.text_summary}\n"
             f"max_marks: {answer.max_marks}\n"
             f"final_marks: {answer.final_marks}\n"
-            f"ai_feedback:\n{fb_begin}\n{feedback}\n{fb_end}"
+            f"{fb_begin}\n"
+            f"text_summary: {answer.text_summary}\n"
+            f"ai_feedback: {feedback}\n"
+            f"{fb_end}"
         )
 
     text = (
@@ -213,6 +223,16 @@ async def _delete_own_mistakes(session: AsyncSession, submission_id: int) -> Non
     own judgement, which `PROD-7` puts above anything the AI produced. So the
     scope is `source == ai`, joined through `QuestionMark` to this submission.
 
+    **And only rows on a category that is still live.** `list_categories`
+    hides archived categories, so the model is never offered one and can never
+    propose it — a row tagged with a category the tutor has since archived
+    would be deleted here and have nothing to recreate it. Archiving is not
+    deletion: an archived category stays attached to every mistake already
+    tagged with it and stays counted in readiness (`docs/governance/
+    glossary.md`), and a re-run that quietly dropped those rows would
+    understate the student, which is the same silent narrowing that rule
+    exists to stop.
+
     **MistakeTopic rows go first, then Mistake.** `Mistake.id` carries no ON
     DELETE CASCADE, and this suite runs SQLite with foreign keys off, so
     deleting Mistake first passes every local test while orphaning
@@ -223,9 +243,11 @@ async def _delete_own_mistakes(session: AsyncSession, submission_id: int) -> Non
         await session.scalars(
             select(Mistake.id)
             .join(QuestionMark, Mistake.question_mark_id == QuestionMark.id)
+            .join(MistakeCategory, MistakeCategory.id == Mistake.category_id)
             .where(
                 QuestionMark.submission_id == submission_id,
                 Mistake.source == MistakeSource.ai,
+                MistakeCategory.archived_at.is_(None),
             )
         )
     ).all()
