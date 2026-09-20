@@ -158,9 +158,12 @@ export interface SubmissionFileInfo {
 
 export interface SubmissionDetail {
   id: number;
-  /** Exactly one is set: the work is homework or a past paper. */
+  /** Exactly one is set: homework, a past paper or a mock. `mock_id` was
+      missing here while the backend schema carried it, so every reader that
+      branched on these fields silently treated a mock as a past paper. */
   assignment_id: number | null;
   past_paper_id: number | null;
+  mock_id: number | null;
   assignment_title: string;
   student_id: number;
   student_name: string;
@@ -172,6 +175,10 @@ export interface SubmissionDetail {
       photographing. Null otherwise. */
   typed_answer: TypedAnswer | null;
   marks: MarkRow[];
+  /** Questions on this piece of work with no linked syllabus topic — derived
+      at read time from the link rows, never stored (`PROD-14`). A bare
+      question is ordinary, not broken. */
+  bare_question_count: number;
 }
 
 export interface StudentMarkRow {

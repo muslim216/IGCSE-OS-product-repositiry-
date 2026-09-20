@@ -35,10 +35,26 @@ def test_get_prompt_rejects_an_unknown_surface():
 
 
 #: The surfaces that leave their model blank and therefore inherit
-#: `anthropic_model` — the one line that moves all four at once.
-DEFAULT_MODEL_SURFACES = ("marking", "extraction", "syllabus", "readiness", "booklet")
+#: `anthropic_model` — the one line that moves all of them at once.
+DEFAULT_MODEL_SURFACES = (
+    "marking",
+    "extraction",
+    "syllabus",
+    "readiness",
+    "booklet",
+)
 #: The surfaces pinned to an explicit model because they diverge on purpose.
-PINNED_MODEL_SURFACES = ("reports", "class_brief", "narrative", "marking_rules")
+#: mistake_tagging is pinned for a different reason from the other four: not
+#: because it writes prose, but because it is the most frequent call in the
+#: product — one per settled submission — doing the narrowest judgement in it.
+#: See the comment on `ai_mistake_tagging_model` in config.py.
+PINNED_MODEL_SURFACES = (
+    "reports",
+    "class_brief",
+    "narrative",
+    "marking_rules",
+    "mistake_tagging",
+)
 
 
 def test_no_surface_routes_to_gemini_any_more():

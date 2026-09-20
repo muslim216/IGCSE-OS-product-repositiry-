@@ -22,6 +22,7 @@ from app.services.extraction import (
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
+from app.services.mistake_tagging import tag_mistakes
 from app.services.narrative import (
     CLASS_NARRATIVE_JOB,
     SWEEP_JOB,
@@ -51,6 +52,13 @@ def register_all() -> None:
     # part of the approve request because splitting a PDF blocks (`BE-13`).
     register_handler("split_booklet", split_booklet)
     register_handler("mark_submission", mark_submission)
+    # Examines a settled submission for recurring mistakes (4.2, AV-40).
+    # Enqueued from `services/marking.py` where marks settle — both the
+    # auto-finalize path and the tutor's own finalize endpoint meet there —
+    # and by `seed/backfill_mistakes.py` for rows that predate it. Safe to
+    # re-run (`BE-6`): a run replaces the `source="ai"` rows it wrote before
+    # and never a tutor's own.
+    register_handler("tag_mistakes", tag_mistakes)
     # Condenses a subject's marking rules into what the marking prompt is given
     # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,
     # because it does nothing when a summary is already present.

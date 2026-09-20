@@ -13,12 +13,15 @@ from app.models import (
     Evidence,
     EvidenceSource,
     Mistake,
+    MistakeSource,
+    MistakeTopic,
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
     QuestionMark,
     Submission,
     SubmissionStatus,
+    Topic,
     WorkKind,
 )
 from app.services import storage
@@ -797,14 +800,17 @@ async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
         mistake_category = await make_mistake_category(
             session, organization_id=paper.organization_id, subject_id=paper.subject_id
         )
-        session.add(
-            Mistake(
-                student_id=submission.student_id,
-                question_mark_id=mark.id,
-                category_id=mistake_category.id,
-                severity=2,
-            )
+        mistake = Mistake(
+            student_id=submission.student_id,
+            question_mark_id=mark.id,
+            category_id=mistake_category.id,
+            severity=2,
+            source=MistakeSource.ai,
         )
+        session.add(mistake)
+        await session.flush()
+        topic = await session.scalar(select(Topic).where(Topic.subject_id == paper.subject_id))
+        session.add(MistakeTopic(mistake_id=mistake.id, topic_id=topic.id))
         submission.mistakes_analysed_at = submission.submitted_at
         await session.commit()
 
@@ -817,6 +823,13 @@ async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
         )
         assert submission.mistakes_analysed_at is None
         assert (await session.scalars(select(Mistake))).all() == []
+        # And the topic links go with them. `mistake_topics.mistake_id` has no
+        # cascade either, so a link left behind points at a mistake that no
+        # longer exists — and the suite runs SQLite with foreign keys off, so
+        # nothing here or in CI would raise (RISK-3). 4.4's topic rollups read
+        # these rows, and an orphan is a mistake counted against a topic for an
+        # answer the student has already replaced.
+        assert (await session.scalars(select(MistakeTopic))).all() == []
 
 
 async def test_an_attempt_joins_the_paper_it_answers_rather_than_making_a_second_one(

@@ -4504,6 +4504,8 @@ export interface components {
             typed_answer?: components["schemas"]["TypedAnswerOut"] | null;
             /** Marks */
             marks: components["schemas"]["MarkRow"][];
+            /** Bare Question Count */
+            bare_question_count: number;
         };
         /** SubmissionFileOut */
         SubmissionFileOut: {

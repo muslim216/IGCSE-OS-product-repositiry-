@@ -269,6 +269,12 @@ class SubmissionDetail(BaseModel):
     #: something to show the student.
     typed_answer: TypedAnswerOut | None = None
     marks: list[MarkRow]
+    #: Questions on this submission's piece of work with no row in their
+    #: kind's topic table — derived at read time from the link rows
+    #: (`PROD-14`), never stored, so it can never drift from what extraction
+    #: actually linked. A bare question is ordinary, not broken: extraction
+    #: only links a topic when the code matches a real one.
+    bare_question_count: int
 
 
 class MarkUpdate(BaseModel):

@@ -21,6 +21,7 @@ from app.models import (
     Lesson,
     LessonTopic,
     Mistake,
+    MistakeSource,
     Mock,
     MockQuestion,
     PastPaperAttempt,
@@ -135,9 +136,9 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
             Mistake(
                 student_id=student_id,
                 question_mark_id=mark.id,
-                topic_id=topic1,
                 category_id=mistake_category.id,
                 severity=1,
+                source=MistakeSource.ai,
             )
         )
 
@@ -366,9 +367,9 @@ async def test_auto_finalized_work_counts_in_every_factor(client, tutor, world):
             Mistake(
                 student_id=student_id,
                 question_mark_id=mark.id,
-                topic_id=topic1,
                 category_id=mistake_category.id,
                 severity=1,
+                source=MistakeSource.ai,
             )
         )
         await session.commit()
@@ -475,6 +476,7 @@ async def _mock_submission_with_mistake(
             question_mark_id=mark.id,
             category_id=mistake_category.id,
             severity=1,
+            source=MistakeSource.ai,
         )
     )
     await session.commit()
@@ -609,6 +611,7 @@ async def _past_paper_submission_with_mistake(
             question_mark_id=mark.id,
             category_id=mistake_category.id,
             severity=1,
+            source=MistakeSource.ai,
         )
     )
     await session.commit()

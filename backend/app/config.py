@@ -89,6 +89,26 @@ class Settings(BaseSettings):
     # bump of `anthropic_model` must not silently move it onto Opus.
     ai_marking_rules_provider: str = "anthropic"
     ai_marking_rules_model: str = "claude-sonnet-5"
+    # Tagging a settled submission's lost-marks questions (task 4.2). Sonnet,
+    # pinned — and it is the one surface here pinned on **cost** rather than on
+    # what kind of judgement it makes.
+    #
+    # By the rule above it would take the blank default and follow
+    # `anthropic_model` onto Opus, because it is a judgement about a student's
+    # work. That is where it started. But it is the most frequent model call in
+    # the product: one per settled submission, for every student, forever —
+    # where marking is one per submission *that needs marking*, and a tutor
+    # finalizing the review queue reaches no model at all. The judgement is
+    # also narrow: pick from a list of five or so tutor-written words, given
+    # text the marking model already produced. No pages, no mark scheme, no
+    # marks to decide.
+    #
+    # Pinned rather than blank so a later bump of `anthropic_model` cannot
+    # silently move the product's highest-volume call back onto its most
+    # expensive model. If tagging quality turns out to need Opus, that is a
+    # one-line change with a cost somebody chose.
+    ai_mistake_tagging_provider: str = "anthropic"
+    ai_mistake_tagging_model: str = "claude-sonnet-5"
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather

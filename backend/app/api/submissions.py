@@ -506,6 +506,26 @@ async def _open_remarks(db, submission_id: int) -> dict[int, str | None]:
     return dict(rows)
 
 
+async def _bare_question_count(db, kind, parent: Any) -> int:
+    """Questions on this piece of work with no row in this kind's topic table.
+
+    Derived at read time from the link rows (`PROD-14`) — never stored, so
+    re-extracting or re-linking topics is reflected immediately with nothing
+    to keep in sync. One query against `kind.topic_model`, never a three-way
+    branch on the arm (`API-20`).
+    """
+    question = kind.question_model
+    topic = kind.topic_model
+    scope = getattr(question, kind.parent_fk) == parent.id
+    result = await db.execute(
+        select(func.count())
+        .select_from(question)
+        .outerjoin(topic, topic.question_id == question.id)
+        .where(scope, topic.question_id.is_(None))
+    )
+    return result.scalar_one()
+
+
 async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
     """One row per question, whatever kind of work it is — the review UI is the
     same for homework, a past paper and a mock.
@@ -666,6 +686,7 @@ async def submission_detail(
             else None
         ),
         marks=await _mark_rows(db, submission, parent),
+        bare_question_count=await _bare_question_count(db, kind, parent),
     )
 
 
