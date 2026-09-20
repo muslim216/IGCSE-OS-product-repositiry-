@@ -522,6 +522,11 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             continue
         if (answer.mark_id, category.id) in surviving:
             continue
+        # Accepted pairs join the set, so the same question and category
+        # proposed twice in one response is caught by the same guard: a
+        # duplicate the model emitted is a mistake counted twice exactly as a
+        # duplicate of a surviving row is.
+        surviving.add((answer.mark_id, category.id))
         mistake = Mistake(
             student_id=student_id,
             question_mark_id=answer.mark_id,

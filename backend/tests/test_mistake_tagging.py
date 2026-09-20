@@ -1127,6 +1127,38 @@ async def test_re_running_replaces_its_own_mistakes_and_leaves_the_tutors(
         assert [m.id for m in mistakes] == [tutor_mistake_id]
 
 
+async def test_one_response_proposing_the_same_tag_twice_writes_one_row(
+    tutor, org_and_subject, monkeypatch
+):
+    """The other way a mistake gets counted twice: not a surviving row, but
+    one model response naming the same question and category in two entries.
+    The rows are what `_mistake_points_and_analysed` counts, so it reads as
+    two mistakes where the model made one claim."""
+    org_id, subject_id = org_and_subject
+    submission_id = await _queue_a_tagging_run(
+        org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"]
+    )
+
+    result = MistakeTaggingResult(
+        mistakes=[
+            ProposedMistake(question_number=1, category_name="Careless", severity=2, note=None),
+            ProposedMistake(question_number=1, category_name="careless", severity=3, note=None),
+        ]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        mistakes = (await session.scalars(select(Mistake))).all()
+    assert len(mistakes) == 1
+    # The first one, not the last: nothing here ranks two claims the model
+    # made about one question, and taking the later would be a rule about
+    # which wins that no caller knows about.
+    assert mistakes[0].severity == 2
+    assert submission_id is not None
+
+
 async def test_a_different_category_on_a_tutor_held_question_is_still_written(
     tutor, org_and_subject, monkeypatch
 ):
