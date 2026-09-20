@@ -627,10 +627,18 @@ async def record_marks_as_evidence(
     # Compared in Python rather than SQL because `payload` is a JSON column and
     # Postgres' json type has no equality operator (as in narrative.py's
     # `_pending_payloads` and `enqueue_readiness_v2_debounced`).
-    pending_tag_jobs = await session.scalars(
-        select(Job.payload).where(Job.type == "tag_mistakes", Job.status == JobStatus.pending)
+    # `running` as well as `pending`, matching `seed/backfill_mistakes.py`'s
+    # `already_queued`. A claimed job commits `running` before its handler is
+    # invoked (`workers/jobs.py`), so for the whole length of the AI call the
+    # job is in flight and invisible to a `pending`-only check — which is
+    # exactly the window a tutor pressing finalize lands in.
+    in_flight_tag_jobs = await session.scalars(
+        select(Job.payload).where(
+            Job.type == "tag_mistakes",
+            Job.status.in_((JobStatus.pending, JobStatus.running)),
+        )
     )
-    if not any(p.get("submission_id") == submission.id for p in pending_tag_jobs):
+    if not any(p.get("submission_id") == submission.id for p in in_flight_tag_jobs):
         await enqueue(session, "tag_mistakes", {"submission_id": submission.id})
     # The class narrative is refreshed from the tail of the evidence build, not
     # from a router: evidence landing is the event that makes the stored
