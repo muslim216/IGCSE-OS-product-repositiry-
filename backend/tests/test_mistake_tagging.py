@@ -1135,10 +1135,10 @@ async def test_one_response_proposing_the_same_tag_twice_writes_one_row(
     The rows are what `_mistake_points_and_analysed` counts, so it reads as
     two mistakes where the model made one claim."""
     org_id, subject_id = org_and_subject
-    submission_id = await _queue_a_tagging_run(
-        org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"]
-    )
+    await _queue_a_tagging_run(org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"])
 
+    # Differing only in case: `by_name` folds category names, so these resolve
+    # to one category and are the same claim twice, not two.
     result = MistakeTaggingResult(
         mistakes=[
             ProposedMistake(question_number=1, category_name="Careless", severity=2, note=None),
@@ -1156,7 +1156,6 @@ async def test_one_response_proposing_the_same_tag_twice_writes_one_row(
     # made about one question, and taking the later would be a rule about
     # which wins that no caller knows about.
     assert mistakes[0].severity == 2
-    assert submission_id is not None
 
 
 async def test_a_different_category_on_a_tutor_held_question_is_still_written(

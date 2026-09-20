@@ -481,15 +481,16 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     # (`PROD-1`). Only the exact pair is skipped: a different category on the
     # same question is a different claim, and the prompt asks for every
     # category that applies.
-    surviving = set(
-        (
+    surviving: set[tuple[int, int]] = {
+        (mark_id, category_id)
+        for mark_id, category_id in (
             await session.execute(
                 select(Mistake.question_mark_id, Mistake.category_id)
                 .join(QuestionMark, Mistake.question_mark_id == QuestionMark.id)
                 .where(QuestionMark.submission_id == submission_id)
             )
         ).all()
-    )
+    }
 
     unknown_count = 0
     unresolved_count = 0
