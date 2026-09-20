@@ -2193,6 +2193,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/{submission_id}/mistakes/{mistake_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Revise Submission Mistake
+         * @description Change the category or severity of a mistake the tagging job proposed
+         *     (`AV-38`, task 4.3).
+         *
+         *     **Unlike `save_marks`, this works on a finalized submission**, and that is
+         *     deliberate rather than an oversight. A mark is a number a student is owed
+         *     and finalizing settles it; a mistake tag is the tutor's own note about a
+         *     pattern, it is never shown as part of the result, and `AV-38` says the
+         *     tutor may revise one but is never prompted to — a window that closes on
+         *     finalize would be a prompt, just an implicit one.
+         *
+         *     Every change writes an append-only audit row (`PROD-7`, `AI-12`); see
+         *     `services/mistake_revision.py`.
+         */
+        patch: operations["revise_submission_mistake_api_v1_submissions__submission_id__mistakes__mistake_id__patch"];
+        trace?: never;
+    };
     "/api/v1/submissions/{submission_id}/finalize": {
         parameters: {
             query?: never;
@@ -3432,6 +3463,8 @@ export interface components {
             remark_requested: boolean;
             /** Remark Reason */
             remark_reason?: string | null;
+            /** Mistakes */
+            mistakes?: components["schemas"]["MistakeRow"][];
         };
         /** MarkUpdate */
         MarkUpdate: {
@@ -3487,6 +3520,46 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+        };
+        /**
+         * MistakeRevisionIn
+         * @description A tutor's revision of one tagged mistake (`AV-38`).
+         */
+        MistakeRevisionIn: {
+            /** Category Id */
+            category_id: number;
+            /** Severity */
+            severity: number;
+        };
+        /**
+         * MistakeRow
+         * @description What the tagging job decided about one question, as the tutor sees it.
+         *
+         *     4.2 wrote these rows and nothing displayed them. They appear here because
+         *     `AV-38` puts the revision on the marked-work view, and a tag nobody can
+         *     see is not one anybody can revise.
+         *
+         *     **Tutor-only**, like `MarkRow.scheme_conflict` and for the same reason: the
+         *     student's view is `StudentMarkRow`, which does not carry it. What the
+         *     student is shown about their own mistake pattern is `AV-41`, in the
+         *     homework tab, and is 4.5's decision to make rather than this schema's.
+         */
+        MistakeRow: {
+            /** Id */
+            id: number;
+            /** Category Id */
+            category_id: number;
+            /** Category Name */
+            category_name: string;
+            /** Severity */
+            severity: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "ai" | "tutor";
+            /** Note */
+            note?: string | null;
         };
         /**
          * MockAssignGroup
@@ -4502,10 +4575,14 @@ export interface components {
             /** Files */
             files: components["schemas"]["SubmissionFileOut"][];
             typed_answer?: components["schemas"]["TypedAnswerOut"] | null;
+            /** Subject Id */
+            subject_id: number;
             /** Marks */
             marks: components["schemas"]["MarkRow"][];
             /** Bare Question Count */
             bare_question_count: number;
+            /** Mistakes Analysed */
+            mistakes_analysed: boolean;
         };
         /** SubmissionFileOut */
         SubmissionFileOut: {
@@ -8926,6 +9003,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MarkUpdate"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_submission_mistake_api_v1_submissions__submission_id__mistakes__mistake_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: number;
+                mistake_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MistakeRevisionIn"];
             };
         };
         responses: {

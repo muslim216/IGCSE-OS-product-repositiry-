@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import SubmissionReviewPage from "../tutor/SubmissionReviewPage";
-import type { MarkRow } from "../api/homework";
+import type { MarkRow, MistakeRow } from "../api/homework";
 
 /* The running total on the review page. A question the tutor deliberately left
    blank used to contribute a fabricated 0 to the numerator while still adding
@@ -28,6 +28,7 @@ function mark(overrides: Partial<MarkRow> & { question_id: number }): MarkRow {
     auto_finalized: false,
     remark_requested: false,
     remark_reason: null,
+    mistakes: [],
     ...overrides,
   };
 }
@@ -38,6 +39,7 @@ function submissionBody(
   status = "needs_review",
   typed: { text: string; flag_reason: string | null } | null = null,
   bareQuestionCount = 0,
+  mistakesAnalysed = true,
 ) {
   return {
     id,
@@ -52,8 +54,10 @@ function submissionBody(
     submitted_at: "2026-06-01T10:00:00Z",
     files: [],
     typed_answer: typed,
+    subject_id: 3,
     marks,
     bare_question_count: bareQuestionCount,
+    mistakes_analysed: mistakesAnalysed,
   };
 }
 
@@ -82,13 +86,38 @@ function queueItem(submission_id: number) {
  * The id is a capture, not a constant — a traversal test has to be able to land
  * on the next submission and see it, or it can only assert a button label.
  */
+/** Every PATCH of a mistake the page sent, in order. A stub that only
+ *  answered 200 could not tell "the tutor's pick was sent" from "something
+ *  was sent" — the tag they chose is the whole of what this screen writes. */
+const revisions: { path: string; body: unknown }[] = [];
+
+let holdRevisions = false;
+
+/** Set by a test that needs two revisions in flight at once. Each PATCH then
+ *  computes its response body straight away — as a server reading committed
+ *  state would — but parks the response here until the test releases it, so
+ *  the replies can arrive in the opposite order to the requests. */
+let heldRevisions: (() => void)[] = [];
+
 function stubSubmission(
   marks: MarkRow[],
   queue: number[] = [],
   status = "needs_review",
   typed: { text: string; flag_reason: string | null } | null = null,
   bareQuestionCount = 0,
+  categories: { id: number | null; name: string; description: string | null }[] = [],
+  mistakesAnalysed = true,
+  categoriesTransport: "ok" | "never" | "error" = "ok",
 ) {
+  revisions.length = 0;
+  heldRevisions = [];
+  /* The stub holds state, because a PATCH here really does change what the
+     next GET returns. A stub that answered every GET with the original marks
+     would hand TanStack a structurally identical object after a retag,
+     structural sharing would keep the old reference, and nothing downstream
+     of the refetch would run — so any test of what a retag does to the rest
+     of the page would pass against code that does nothing. */
+  let current = marks;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -102,7 +131,16 @@ function stubSubmission(
 
       const detail = route(/^\/api\/v1\/submissions\/(\d+)$/, "GET");
       if (detail)
-        return json(submissionBody(marks, Number(detail[1]), status, typed, bareQuestionCount));
+        return json(
+          submissionBody(
+            current,
+            Number(detail[1]),
+            status,
+            typed,
+            bareQuestionCount,
+            mistakesAnalysed,
+          ),
+        );
 
       const saved = route(/^\/api\/v1\/submissions\/(\d+)\/marks$/, "PUT");
       // `typed` threaded through here too: in production `save_marks` returns
@@ -119,6 +157,61 @@ function stubSubmission(
         );
 
       if (route(/^\/api\/v1\/submissions\/\d+\/marks\/\d+\/history$/, "GET")) return json([]);
+
+      // 4.1's editor endpoint, which the review screen reads to fill the
+      // revision picker. `source` matters: "none" means nothing is saved and
+      // the list is a published starting point, never a choice to write
+      // against (PROD-8).
+      if (route(/^\/api\/v1\/subjects\/\d+\/mistake-categories$/, "GET")) {
+        // A request that never settles is what "still loading" actually is;
+        // `retry: false` on the test QueryClient makes the error terminal.
+        if (categoriesTransport === "never") return new Promise<Response>(() => {});
+        if (categoriesTransport === "error")
+          return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+        return json({
+          subject_id: 3,
+          subject_name: "Chemistry",
+          source: categories.length > 0 ? "organization" : "none",
+          categories,
+        });
+      }
+
+      const revised = route(/^\/api\/v1\/submissions\/(\d+)\/mistakes\/(\d+)$/, "PATCH");
+      if (revised) {
+        const sent = JSON.parse(String(init?.body));
+        revisions.push({ path, body: sent });
+        current = current.map((m) => ({
+          ...m,
+          mistakes: m.mistakes.map((x) =>
+            String(x.id) === revised[2]
+              ? {
+                  ...x,
+                  category_id: sent.category_id,
+                  category_name:
+                    categories.find((c) => c.id === sent.category_id)?.name ?? x.category_name,
+                  severity: sent.severity,
+                  source: "tutor" as const,
+                }
+              : x,
+          ),
+        }));
+        // The submission id comes off the path, as every other write handler
+        // here does: a body hardcoding 1 would answer a PATCH on another
+        // submission with this one's marks, which is exactly the staleness
+        // this stateful stub exists to catch.
+        const body = submissionBody(
+          current,
+          Number(revised[1]),
+          status,
+          typed,
+          bareQuestionCount,
+          mistakesAnalysed,
+        );
+        if (!holdRevisions) return json(body);
+        return new Promise<Response>((resolve) => {
+          heldRevisions.push(() => resolve(json(body) as Response));
+        });
+      }
 
       return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
         status: 404,
@@ -141,7 +234,13 @@ function renderPage(entry = "/tutor/submissions/1") {
   );
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  // Reset here rather than in the stub: a test that leaves it on would park
+  // every later test's PATCH forever, and the failure would land nowhere near
+  // the test that caused it.
+  holdRevisions = false;
+});
 
 test("a blank question is excluded from the total rather than counted as zero", async () => {
   // One question marked 8/10, one left blank. The blank must not drag the
@@ -389,4 +488,283 @@ test("a mock's bare-question link goes to mocks, not the past-paper library", as
     "href",
     "/tutor/mocks",
   );
+});
+
+/* The tutor's side of mistake tagging (4.3, AV-38). Editable from this screen,
+   never prompted for: the tag counts from the moment the job writes it. */
+
+const CATEGORIES = [
+  { id: 1, name: "careless", description: null },
+  { id: 2, name: "method", description: null },
+];
+
+const tagged = (over: Partial<MistakeRow> = {}): MistakeRow => ({
+  id: 55,
+  category_id: 1,
+  category_name: "careless",
+  severity: 1,
+  source: "ai",
+  note: null,
+  ...over,
+});
+
+test("the tutor can retag a mistake the AI proposed", async () => {
+  stubSubmission(
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const picker = await screen.findByDisplayValue("careless");
+  fireEvent.change(picker, { target: { value: "2" } });
+
+  await waitFor(() => expect(revisions).toHaveLength(1));
+  expect(revisions[0].path).toBe("/api/v1/submissions/1/mistakes/55");
+  // Severity travels with it: the endpoint takes both, so sending only the
+  // changed field would reset the other to whatever the body defaulted to.
+  expect(revisions[0].body).toEqual({ category_id: 2, severity: 1 });
+});
+
+test("a mistake on an archived category still shows that category", async () => {
+  // Archiving is not deletion: the category stays on every mistake already
+  // tagged with it and keeps counting, but it is not in the picker's list.
+  // Without an option for it the select falls back to its first option, so the
+  // screen would show the tutor a category nobody chose. (The severity change
+  // below cannot itself retag: it reads `mark.mistake.category_id` from server
+  // state, never the select's DOM value. It is here to prove the archived id
+  // is what a subsequent write carries.)
+  stubSubmission(
+    [
+      mark({
+        question_id: 1,
+        final_marks: 0,
+        mistakes: [tagged({ category_id: 9, category_name: "rushed" })],
+      }),
+    ],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  expect(await screen.findByDisplayValue("rushed (archived)")).toBeInTheDocument();
+
+  const severity = screen.getByLabelText("Severity");
+  fireEvent.change(severity, { target: { value: "3" } });
+  await waitFor(() => expect(revisions).toHaveLength(1));
+  expect(revisions[0].body).toEqual({ category_id: 9, severity: 3 });
+});
+
+test("a finalized submission can still be retagged", async () => {
+  // Marks are locked once finalized; a tag is the tutor's own note about a
+  // pattern and is never part of the student's result, so AV-38's "may revise,
+  // never prompted" would become an implicit prompt if the window shut here.
+  stubSubmission(
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
+    [],
+    "finalized",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const picker = await screen.findByDisplayValue("careless");
+  // Waited for, not asserted once: the picker renders disabled while the
+  // category list is still in flight, and whether that request has landed by
+  // the time the select first appears is a race this test does not control.
+  // A picker that stays disabled — the failure this asserts against — still
+  // fails here, by timing out.
+  await waitFor(() => expect(picker).not.toBeDisabled());
+  // Enabled is not the same as working. Without the change and the assertion
+  // on what was sent, this passes against a broken mutation, a wrong path, or
+  // a malformed body.
+  fireEvent.change(picker, { target: { value: "2" } });
+  await waitFor(() => expect(revisions).toHaveLength(1));
+  expect(revisions[0].body).toEqual({ category_id: 2, severity: 1 });
+});
+
+test("a question with no tag on unexamined work says so rather than showing nothing", async () => {
+  // PROD-2: "no mistakes found" and "nobody has looked yet" must not render
+  // identically. `mistakes_analysed` is what tells them apart.
+  stubSubmission(
+    [mark({ question_id: 1, final_marks: 0 })],
+    [],
+    "needs_review",
+    null,
+    0,
+    [],
+    false,
+  );
+  renderPage();
+  expect(await screen.findByText("Not examined for mistakes yet.")).toBeInTheDocument();
+});
+
+test("a live category is not labelled archived while the category list is loading", async () => {
+  // The categories query cannot start until the submission has resolved and
+  // handed it a subject id, so there is always a window where the list is
+  // empty. Treating that as "not in the list" tells the tutor a category they
+  // are still using was archived, and disables the control saying so.
+  //
+  // The window is held open deliberately — a stub that answered immediately
+  // would close it before anything could be asserted, and the test would pass
+  // against code that never checks the load state at all.
+  stubSubmission(
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+    true,
+    "never",
+  );
+  renderPage();
+
+  const picker = await screen.findByLabelText("Mistake category");
+  expect(picker).toHaveDisplayValue("careless");
+  expect(screen.queryByDisplayValue("careless (archived)")).not.toBeInTheDocument();
+  expect(
+    screen.queryByText("Set up mistake categories for this subject to change the category."),
+  ).not.toBeInTheDocument();
+});
+
+test("a category list that fails to load does not claim the tutor has none", async () => {
+  // "You have not set these up" is a statement about the tutor's own
+  // configuration, and it is false when the request simply failed (PROD-2
+  // applied to a control rather than a metric).
+  stubSubmission(
+    [mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] })],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+    true,
+    "error",
+  );
+  renderPage();
+
+  expect(
+    await screen.findByText(
+      "Your mistake categories didn't load, so the category can't be changed right now.",
+    ),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText("Set up mistake categories for this subject to change the category."),
+  ).not.toBeInTheDocument();
+});
+
+test("retagging does not discard marks the tutor has typed but not saved", async () => {
+  // The retag invalidates ["submission", id]; the drafts effect used to
+  // re-seed from server data on every refetch, so unsaved marks and feedback
+  // on other questions vanished with no warning and nothing to undo it.
+  stubSubmission(
+    [
+      mark({ question_id: 1, final_marks: 0, mistakes: [tagged()] }),
+      mark({ question_id: 2, final_marks: null }),
+    ],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const feedback = (await screen.findAllByPlaceholderText("Feedback for the student"))[1];
+  fireEvent.change(feedback, { target: { value: "Show your working" } });
+
+  const picker = await screen.findByLabelText("Mistake category");
+  fireEvent.change(picker, { target: { value: "2" } });
+  await waitFor(() => expect(revisions).toHaveLength(1));
+
+  // The retag landing on screen comes first, and the draft assertion after
+  // it. The re-seed this guards against can only happen once the refetched
+  // submission has rendered — asserting on the textarea before that round trip
+  // lands would pass against the re-seeding code too.
+  expect(await screen.findByDisplayValue("method")).toBeInTheDocument();
+  expect(feedback).toHaveValue("Show your working");
+});
+
+test("every tag on a question is shown, not just the last one", async () => {
+  // The tagging prompt asks the model for every category that genuinely
+  // applies to a question, and the readiness factor counts every row it
+  // finds. Keying one tag per question showed the tutor the last one and hid
+  // the rest — evidence counting against the student that they could neither
+  // see nor revise (PROD-1, AV-38).
+  stubSubmission(
+    [
+      mark({
+        question_id: 1,
+        final_marks: 0,
+        mistakes: [tagged(), tagged({ id: 56, category_id: 2, category_name: "method" })],
+      }),
+    ],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const pickers = await screen.findAllByLabelText("Mistake category");
+  expect(pickers).toHaveLength(2);
+  expect(pickers[0]).toHaveDisplayValue("careless");
+  expect(pickers[1]).toHaveDisplayValue("method");
+
+  // And each one revises its own row rather than the first.
+  fireEvent.change(pickers[1], { target: { value: "1" } });
+  await waitFor(() => expect(revisions).toHaveLength(1));
+  expect(revisions[0].path).toBe("/api/v1/submissions/1/mistakes/56");
+});
+
+test("revising a second tag does not revert the first", async () => {
+  // The PATCH answers with the whole submission. Writing all of it into the
+  // cache makes the *later-arriving* response carry the other tag as it was
+  // before its edit — so a decision the tutor already saved silently reverts,
+  // and the next change to it sends the reverted value on to the server.
+  //
+  // Both replies are held so they can land in the opposite order to the
+  // requests, which is the only way this fails: with them answered in order
+  // the second body already contains the first's change and a whole-response
+  // write looks correct.
+  holdRevisions = true;
+  stubSubmission(
+    [
+      mark({
+        question_id: 1,
+        final_marks: 0,
+        mistakes: [tagged(), tagged({ id: 56, category_id: 2, category_name: "method" })],
+      }),
+    ],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const severities = await screen.findAllByLabelText("Severity");
+  fireEvent.change(severities[0], { target: { value: "3" } });
+  await waitFor(() => expect(heldRevisions).toHaveLength(1));
+  fireEvent.change(severities[1], { target: { value: "2" } });
+  await waitFor(() => expect(heldRevisions).toHaveLength(2));
+
+  // Second request answered first, so the first request's reply — computed
+  // before the second tag moved — arrives last.
+  heldRevisions[1]();
+  await waitFor(() => expect(revisions).toHaveLength(2));
+  heldRevisions[0]();
+
+  await waitFor(() => expect(screen.getAllByLabelText("Severity")[0]).toHaveValue("3"));
+  expect(screen.getAllByLabelText("Severity")[1]).toHaveValue("2");
 });

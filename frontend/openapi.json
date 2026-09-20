@@ -6376,6 +6376,73 @@
         }
       }
     },
+    "/api/v1/submissions/{submission_id}/mistakes/{mistake_id}": {
+      "patch": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Revise Submission Mistake",
+        "description": "Change the category or severity of a mistake the tagging job proposed\n(`AV-38`, task 4.3).\n\n**Unlike `save_marks`, this works on a finalized submission**, and that is\ndeliberate rather than an oversight. A mark is a number a student is owed\nand finalizing settles it; a mistake tag is the tutor's own note about a\npattern, it is never shown as part of the result, and `AV-38` says the\ntutor may revise one but is never prompted to \u2014 a window that closes on\nfinalize would be a prompt, just an implicit one.\n\nEvery change writes an append-only audit row (`PROD-7`, `AI-12`); see\n`services/mistake_revision.py`.",
+        "operationId": "revise_submission_mistake_api_v1_submissions__submission_id__mistakes__mistake_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Submission Id"
+            }
+          },
+          {
+            "name": "mistake_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Mistake Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MistakeRevisionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/submissions/{submission_id}/finalize": {
       "post": {
         "tags": [
@@ -9949,6 +10016,13 @@
               }
             ],
             "title": "Remark Reason"
+          },
+          "mistakes": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeRow"
+            },
+            "type": "array",
+            "title": "Mistakes"
           }
         },
         "type": "object",
@@ -10147,6 +10221,76 @@
           "name"
         ],
         "title": "MistakeCategoryItem"
+      },
+      "MistakeRevisionIn": {
+        "properties": {
+          "category_id": {
+            "type": "integer",
+            "title": "Category Id"
+          },
+          "severity": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Severity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_id",
+          "severity"
+        ],
+        "title": "MistakeRevisionIn",
+        "description": "A tutor's revision of one tagged mistake (`AV-38`)."
+      },
+      "MistakeRow": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "category_id": {
+            "type": "integer",
+            "title": "Category Id"
+          },
+          "category_name": {
+            "type": "string",
+            "title": "Category Name"
+          },
+          "severity": {
+            "type": "integer",
+            "title": "Severity"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ai",
+              "tutor"
+            ],
+            "title": "Source"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "category_id",
+          "category_name",
+          "severity",
+          "source"
+        ],
+        "title": "MistakeRow",
+        "description": "What the tagging job decided about one question, as the tutor sees it.\n\n4.2 wrote these rows and nothing displayed them. They appear here because\n`AV-38` puts the revision on the marked-work view, and a tag nobody can\nsee is not one anybody can revise.\n\n**Tutor-only**, like `MarkRow.scheme_conflict` and for the same reason: the\nstudent's view is `StudentMarkRow`, which does not carry it. What the\nstudent is shown about their own mistake pattern is `AV-41`, in the\nhomework tab, and is 4.5's decision to make rather than this schema's."
       },
       "MockAssignGroup": {
         "properties": {
@@ -13295,6 +13439,10 @@
               }
             ]
           },
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
           "marks": {
             "items": {
               "$ref": "#/components/schemas/MarkRow"
@@ -13305,6 +13453,10 @@
           "bare_question_count": {
             "type": "integer",
             "title": "Bare Question Count"
+          },
+          "mistakes_analysed": {
+            "type": "boolean",
+            "title": "Mistakes Analysed"
           }
         },
         "type": "object",
@@ -13318,8 +13470,10 @@
           "ai_error",
           "submitted_at",
           "files",
+          "subject_id",
           "marks",
-          "bare_question_count"
+          "bare_question_count",
+          "mistakes_analysed"
         ],
         "title": "SubmissionDetail"
       },

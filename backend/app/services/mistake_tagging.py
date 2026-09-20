@@ -473,6 +473,25 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     # retries with nothing to show for it.
     await _delete_own_mistakes(session, submission_id)
 
+    # What survived that delete: the tutor's own rows (E17) and any row on a
+    # category since archived. A proposal naming the same question *and* the
+    # same category as one of them is that same mistake proposed again, and
+    # `_mistake_points_and_analysed` counts rows — so inserting it would count
+    # one mistake twice and weight the factor against the student for it
+    # (`PROD-1`). Only the exact pair is skipped: a different category on the
+    # same question is a different claim, and the prompt asks for every
+    # category that applies.
+    surviving: set[tuple[int, int]] = {
+        (mark_id, category_id)
+        for mark_id, category_id in (
+            await session.execute(
+                select(Mistake.question_mark_id, Mistake.category_id)
+                .join(QuestionMark, Mistake.question_mark_id == QuestionMark.id)
+                .where(QuestionMark.submission_id == submission_id)
+            )
+        ).all()
+    }
+
     unknown_count = 0
     unresolved_count = 0
     created: list[tuple[Mistake, int]] = []
@@ -502,6 +521,13 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             # about the list, and a silent drop throws that signal away.
             unknown_count += 1
             continue
+        if (answer.mark_id, category.id) in surviving:
+            continue
+        # Accepted pairs join the set, so the same question and category
+        # proposed twice in one response is caught by the same guard: a
+        # duplicate the model emitted is a mistake counted twice exactly as a
+        # duplicate of a surviving row is.
+        surviving.add((answer.mark_id, category.id))
         mistake = Mistake(
             student_id=student_id,
             question_mark_id=answer.mark_id,

@@ -85,6 +85,26 @@ export interface StudentAssignment {
   highest_in_class: boolean;
 }
 
+/** One mistake tagged against a question (4.2), as the
+    tutor sees it. Tutor-only, like `scheme_conflict`: `StudentMarkRow` has no
+    such field, and what a student sees about their own mistake pattern is
+    `AV-41`'s homework tab, not this screen. */
+export interface MistakeRow {
+  id: number;
+  category_id: number;
+  /** The tutor's own word for this kind of mistake. Rendered, never branched
+      on — a rename is a valid edit and nothing may read meaning into it. */
+  category_name: string;
+  severity: number;
+  /** Who decided this tag. A union, not `string`: the review page branches on
+      the exact word, so a third value added to `MistakeSource` has to fail the
+      build rather than silently render the AI's call as the tutor's. */
+  source: "ai" | "tutor";
+  /** What the tagging job flagged as reading like an instruction rather than
+      data (`SEC-20`). Null on every ordinary tag. */
+  note: string | null;
+}
+
 export interface MarkRow {
   question_id: number;
   number: string;
@@ -109,6 +129,12 @@ export interface MarkRow {
   auto_finalized: boolean;
   remark_requested: boolean;
   remark_reason: string | null;
+  /** Every tag on this question, oldest first. Empty is the ordinary case for
+      a question that lost no marks, and also what a question nobody has
+      examined looks like — `SubmissionDetail.mistakes_analysed` is what tells
+      those two apart (`PROD-2`). More than one is ordinary too: the tagging
+      prompt asks for every category that applies, not just the first. */
+  mistakes: MistakeRow[];
 }
 
 export interface ReviewQueueItem {
@@ -174,11 +200,18 @@ export interface SubmissionDetail {
   /** Present only when the student typed rather than (or as well as)
       photographing. Null otherwise. */
   typed_answer: TypedAnswer | null;
+  /** The subject this work belongs to — what the review screen loads the
+      mistake categories for. */
+  subject_id: number;
   marks: MarkRow[];
   /** Questions on this piece of work with no linked syllabus topic — derived
       at read time from the link rows, never stored (`PROD-14`). A bare
       question is ordinary, not broken. */
   bare_question_count: number;
+  /** Whether the tagging job has examined this submission at all. Without it,
+      "no mistakes found" and "nobody has looked yet" render identically
+      (`PROD-2`). */
+  mistakes_analysed: boolean;
 }
 
 export interface StudentMarkRow {
@@ -312,6 +345,19 @@ export const saveMarks = (
     method: "PUT",
     body: JSON.stringify(marks),
   });
+/** Change the category or severity of a tagged mistake (`AV-38`). Works on a
+    finalized submission: a tag is the tutor's own note, not part of the
+    student's result. Returns the whole submission, as saving marks does. */
+export const reviseMistake = (
+  submissionId: number,
+  mistakeId: number,
+  revision: { category_id: number; severity: number },
+) =>
+  api<SubmissionDetail>(`/api/v1/submissions/${submissionId}/mistakes/${mistakeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(revision),
+  });
+
 export const finalizeSubmission = (id: number) =>
   api<SubmissionDetail>(`/api/v1/submissions/${id}/finalize`, { method: "POST" });
 
