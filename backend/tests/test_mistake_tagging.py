@@ -622,21 +622,9 @@ async def test_a_category_the_tutor_does_not_have_is_dropped_and_counted(
     that keeps proposing a word the tutor does not have is a signal about the
     list, and a silent drop throws that away."""
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    submission_id = await _queue_a_tagging_run(
+        org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"]
+    )
 
     result = MistakeTaggingResult(
         mistakes=[
@@ -717,21 +705,7 @@ async def test_a_question_with_no_topics_still_produces_a_mistake(
     The student still got it wrong and that still counts; task 7 tells the
     tutor which questions are bare so they can fix the link."""
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    await _queue_a_tagging_run(org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"])
 
     result = MistakeTaggingResult(
         mistakes=[
@@ -932,21 +906,7 @@ async def test_a_proposed_severity_outside_1_to_3_is_clamped(tutor, org_and_subj
     """`AI-11`'s clamp-to-range discipline. A model returning a severity of 7
     must not become a row the 4.4 rollups weight seven times."""
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    await _queue_a_tagging_run(org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"])
 
     result = MistakeTaggingResult(
         mistakes=[
@@ -966,21 +926,7 @@ async def test_a_note_the_model_returns_is_stored_on_the_row(tutor, org_and_subj
     """`SEC-20`'s flag-rather-than-obey half: a `note` the model writes and
     nothing persists makes the flag half decorative."""
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    await _queue_a_tagging_run(org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"])
 
     result = MistakeTaggingResult(
         mistakes=[
@@ -1014,21 +960,9 @@ async def test_a_question_number_out_of_range_is_dropped_and_logged(
     say so.
     """
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    submission_id = await _queue_a_tagging_run(
+        org_id=org_id, subject_id=subject_id, user_id=tutor["user"]["id"]
+    )
 
     # Only one question was sent, so 4 was never on offer.
     result = MistakeTaggingResult(
@@ -1055,6 +989,33 @@ async def test_a_question_number_out_of_range_is_dropped_and_logged(
 # ---------------------------------------------------------------------------
 # Task 5: E17 — a re-run replaces its own rows and nobody else's.
 # ---------------------------------------------------------------------------
+
+
+async def _queue_a_tagging_run(*, org_id, subject_id, user_id, questions=((10, 5),)):
+    """One "Careless" category, one settled submission, one queued
+    `tag_mistakes` job — the starting position for every test that then
+    monkeypatches a model answer and calls `process_one_job()`.
+
+    Shared because it appeared five times verbatim. Five copies of a setup are
+    five places a future change has to land, and the ones it misses fail as
+    "that test was always like that" rather than as a bug.
+    """
+    async with async_session() as session:
+        await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        await session.commit()
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=user_id,
+            student_id=user_id,
+            questions=list(questions),
+        )
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+    return submission_id
 
 
 async def _seed_for_retag(
