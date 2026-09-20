@@ -23,6 +23,8 @@ from app.models import (
     Group,
     GroupMember,
     MarkOverrideAudit,
+    Mistake,
+    MistakeCategory,
     Mock,
     PastPaper,
     QuestionMark,
@@ -39,6 +41,8 @@ from app.schemas.homework import (
     MarkHistoryEntry,
     MarkRow,
     MarkUpdate,
+    MistakeRevisionIn,
+    MistakeRow,
     RemarkRequestCreate,
     RemarkRequestOut,
     ReviewQueueItem,
@@ -55,6 +59,8 @@ from app.services.attempts import open_attempt
 from app.services.groups import review_queue_predicate
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
+from app.services.mistake_revision import RevisionRejected, revise_mistake
+from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, kind_of
 from app.services.work import parent_of
 from app.workers.jobs import enqueue
@@ -526,6 +532,43 @@ async def _bare_question_count(db, kind, parent: Any) -> int:
     return result.scalar_one()
 
 
+async def _mistakes_by_mark(db, submission_id: int) -> dict[int, MistakeRow]:
+    """This submission's mistake tags, keyed by the question mark each hangs
+    off.
+
+    One query with the category joined, not `m.category.name` per row: that is
+    a lazy load inside an async request, which is the blocking call `BE-13`
+    and `PERF-1` forbid — the same reason `_mistake_points_and_analysed` reads
+    the name through a join.
+
+    A dict, not a list, because `Mistake.question_mark_id` has no unique
+    constraint. Nothing writes two tags for one question today — the job
+    proposes at most one per question and a revision edits in place — but if
+    that ever changed, a dict shows one tag per question rather than silently
+    rendering a second card, and the constraint is the thing to add.
+    """
+    rows = (
+        await db.execute(
+            select(Mistake, MistakeCategory.name)
+            .join(MistakeCategory, MistakeCategory.id == Mistake.category_id)
+            .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
+            .where(QuestionMark.submission_id == submission_id)
+            .order_by(Mistake.id)
+        )
+    ).all()
+    return {
+        m.question_mark_id: MistakeRow(
+            id=m.id,
+            category_id=m.category_id,
+            category_name=name,
+            severity=m.severity,
+            source=m.source.value,
+            note=m.note,
+        )
+        for m, name in rows
+    }
+
+
 async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
     """One row per question, whatever kind of work it is — the review UI is the
     same for homework, a past paper and a mock.
@@ -534,6 +577,7 @@ async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
     loaded it, to decide whether this tutor may see the submission at all.
     """
     open_remarks = await _open_remarks(db, submission.id)
+    mistakes = await _mistakes_by_mark(db, submission.id)
     kind = kind_of(submission)
     question = kind.question_model
     link = getattr(QuestionMark, kind.mark_fk)
@@ -571,6 +615,7 @@ async def _mark_rows(db, submission: Submission, parent: Any) -> list[MarkRow]:
             auto_finalized=m.auto_finalized if m else False,
             remark_requested=m.id in open_remarks if m else False,
             remark_reason=open_remarks.get(m.id) if m else None,
+            mistake=mistakes.get(m.id) if m else None,
         )
         for q, m in rows
     ]
@@ -685,8 +730,10 @@ async def submission_detail(
             if submission.typed_answer
             else None
         ),
+        subject_id=submission.work.subject_id,
         marks=await _mark_rows(db, submission, parent),
         bare_question_count=await _bare_question_count(db, kind, parent),
+        mistakes_analysed=submission.mistakes_analysed_at is not None,
     )
 
 
@@ -796,6 +843,61 @@ async def save_marks(
     await db.flush()
     await _refresh_review_state(db, submission)
     await db.commit()
+    return await submission_detail(submission_id, db, user)
+
+
+@router.patch(
+    "/submissions/{submission_id}/mistakes/{mistake_id}",
+    response_model=SubmissionDetail,
+)
+async def revise_submission_mistake(
+    submission_id: int,
+    mistake_id: int,
+    body: MistakeRevisionIn,
+    db: DbSession,
+    user: TutorUser,
+) -> SubmissionDetail:
+    """Change the category or severity of a mistake the tagging job proposed
+    (`AV-38`, task 4.3).
+
+    **Unlike `save_marks`, this works on a finalized submission**, and that is
+    deliberate rather than an oversight. A mark is a number a student is owed
+    and finalizing settles it; a mistake tag is the tutor's own note about a
+    pattern, it is never shown as part of the result, and `AV-38` says the
+    tutor may revise one but is never prompted to — a window that closes on
+    finalize would be a prompt, just an implicit one.
+
+    Every change writes an append-only audit row (`PROD-7`, `AI-12`); see
+    `services/mistake_revision.py`.
+    """
+    submission = await _tutor_submission(db, user, submission_id)
+    try:
+        changed = await revise_mistake(
+            db,
+            submission,
+            mistake_id=mistake_id,
+            category_id=body.category_id,
+            severity=body.severity,
+            tutor=user,
+        )
+    except RevisionRejected as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    if changed:
+        # Severity feeds the Mistake Analysis factor and the category is what
+        # the factor groups by, so a revision that never reached readiness
+        # would leave the score describing the AI's opinion after the tutor
+        # had corrected it — silently, and until the student's next piece of
+        # work happened to be marked. Debounced, the same call
+        # `record_marks_as_evidence` makes, so a tutor working down a page of
+        # questions queues one recompute rather than one each (`AV-37`).
+        await enqueue_readiness_v2_debounced(db, submission.student_id, submission.work.subject_id)
+    await db.commit()
+    # The whole submission back, exactly as `save_marks` does, so a caller
+    # that wants the revised tag has it without a second request. The review
+    # page does not use it — it invalidates its own query instead, because
+    # holding the mutation open across that refetch is what keeps both its
+    # selects disabled over stale data. Returning it anyway costs nothing and
+    # keeps the two write endpoints on this router answering alike.
     return await submission_detail(submission_id, db, user)
 
 

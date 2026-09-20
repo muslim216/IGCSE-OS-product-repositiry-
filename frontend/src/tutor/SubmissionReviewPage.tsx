@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,10 +6,12 @@ import {
   getSubmission,
   markHistory,
   reviewQueue,
+  reviseMistake,
   saveMarks,
   submissionFilePath,
   type MarkRow,
 } from "../api/homework";
+import { getMistakeCategories, type MistakeCategoryItem } from "../api/mistakeCategories";
 import { AuthImage, AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
 
@@ -60,6 +62,32 @@ export default function SubmissionReviewPage() {
     staleTime: Infinity,
   });
 
+  /* The tutor's own words for what went wrong (4.1), for the revision picker.
+     Only saved categories: a `source === "none"` reply is a published starting
+     point nobody has confirmed, and offering one here would write a category
+     the tutor never chose (PROD-8). */
+  const subjectId = submission.data?.subject_id;
+  const categories = useQuery({
+    queryKey: ["mistake-categories", subjectId],
+    queryFn: () => getMistakeCategories(subjectId!),
+    enabled: subjectId !== undefined,
+  });
+  /* Three different facts, and an empty list cannot tell them apart: the
+     query is still running, it failed, or the tutor genuinely has none saved.
+     Rendered as one they all read as "you have not set these up", which is a
+     false statement about the tutor's own configuration on two of the three
+     (PROD-2 applied to a control rather than a metric) — and it is what makes
+     a live category render as "(archived)" for the length of a round trip. */
+  const liveCategories: MistakeCategoryItem[] =
+    categories.data?.source === "organization" ? categories.data.categories : [];
+  const categoryState = categories.isPending
+    ? "loading"
+    : categories.isError
+      ? "error"
+      : liveCategories.length > 0
+        ? "ready"
+        : "none";
+
   const queueItems = queue.data ?? [];
   const position = queueItems.findIndex((item) => item.submission_id === id);
   const next = position >= 0 ? queueItems[position + 1] : undefined;
@@ -72,18 +100,29 @@ export default function SubmissionReviewPage() {
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});
   const [error, setError] = useState<string | null>(null);
 
+  /* Seeded once per submission, not on every change to `submission.data`.
+     This used to re-seed — and so discard every unsaved edit — whenever that
+     query refetched, which was harmless while the only thing that invalidated
+     it was an explicit save. Retagging a mistake (4.3) invalidates it too, so
+     a tutor half-way through typing marks on question 4 who corrected the
+     AI's tag on question 1 would silently lose the typing. Keyed on the id
+     rather than dropped, because this component stays mounted while the
+     review queue walks it from one submission to the next — and the keys are
+     question ids, which would otherwise carry one student's marks onto
+     another's. */
+  const seededFor = useRef<number | null>(null);
   useEffect(() => {
-    if (submission.data) {
-      const next: Record<number, Draft> = {};
-      for (const m of submission.data.marks) {
-        // Seed the tutor's editable value from any saved final, else the AI proposal.
-        next[m.question_id] = {
-          final_marks: m.final_marks ?? m.ai_marks,
-          final_feedback: m.final_feedback ?? m.ai_feedback ?? "",
-        };
-      }
-      setDrafts(next);
+    if (!submission.data || seededFor.current === submission.data.id) return;
+    seededFor.current = submission.data.id;
+    const next: Record<number, Draft> = {};
+    for (const m of submission.data.marks) {
+      // Seed the tutor's editable value from any saved final, else the AI proposal.
+      next[m.question_id] = {
+        final_marks: m.final_marks ?? m.ai_marks,
+        final_feedback: m.final_feedback ?? m.ai_feedback ?? "",
+      };
     }
+    setDrafts(next);
   }, [submission.data]);
 
   const finalized = submission.data?.status === "finalized";
@@ -325,6 +364,9 @@ export default function SubmissionReviewPage() {
               mark={m}
               draft={drafts[m.question_id]}
               readOnly={finalized}
+              categories={liveCategories}
+              categoryState={categoryState}
+              mistakesAnalysed={s.mistakes_analysed}
               onChange={(patch) =>
                 setDrafts((prev) => ({
                   ...prev,
@@ -344,17 +386,45 @@ function QuestionCard({
   mark,
   draft,
   readOnly,
+  categories,
+  categoryState,
+  mistakesAnalysed,
   onChange,
 }: {
   submissionId: number;
   mark: MarkRow;
   draft: Draft | undefined;
   readOnly: boolean;
+  categories: MistakeCategoryItem[];
+  categoryState: "loading" | "error" | "ready" | "none";
+  mistakesAnalysed: boolean;
   onChange: (patch: Partial<Draft>) => void;
 }) {
   const confidence = mark.ai_confidence ?? "unsure";
   const matchesAi = mark.ai_marks !== null && draft?.final_marks === mark.ai_marks;
   const [showHistory, setShowHistory] = useState(false);
+  const queryClient = useQueryClient();
+  /* Revising a tag is not part of saving marks: it works on a finalized
+     submission, it writes its own audit row, and nothing waits on it (AV-38).
+     So it is its own mutation, fired on change rather than collected into the
+     page's draft — there is no "finalize mistakes" step for it to wait for. */
+  const revise = useMutation({
+    mutationFn: (revision: { category_id: number; severity: number }) =>
+      reviseMistake(submissionId, mark.mistake!.id, revision),
+    /* Concise arrow on purpose: it returns the invalidation promise, and
+       TanStack awaits `onSuccess` before clearing `isPending` — so both
+       selects stay disabled until the refetched submission is in the cache.
+       Wrapping this in braces would drop that promise and re-enable them over
+       stale data, and the second select sends the *other* field read from
+       that data, so the tutor's own previous change would be silently
+       reverted with an audit row recording it as their decision. */
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["submission", submissionId] }),
+    // A rejected category is usually one archived in another tab since this
+    // list was cached, which is permanent, not the transient failure the
+    // message suggests — so drop the stale list rather than inviting a retry
+    // that cannot succeed.
+    onError: () => queryClient.invalidateQueries({ queryKey: ["mistake-categories"] }),
+  });
   const history = useQuery({
     queryKey: ["mark-history", submissionId, mark.question_id],
     queryFn: () => markHistory(submissionId, mark.question_id),
@@ -445,6 +515,109 @@ function QuestionCard({
         value={draft?.final_feedback ?? ""}
         onChange={(e) => onChange({ final_feedback: e.target.value })}
       />
+
+      {/* What went wrong, and the tutor's chance to disagree with it (AV-38).
+          Rendered only where there is a tag: a question that lost no marks has
+          nothing to categorise, and an empty picker on every card would read
+          as a demand to fill it in — which is exactly the prompt AV-38 says
+          the tutor is never given. */}
+      {mark.mistake && (
+        <div className="mt-3 rounded border border-line bg-surface-muted p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-ink-700">Mistake</span>
+            <select
+              className="rounded border border-line-control bg-surface px-2 py-1 text-sm disabled:opacity-50"
+              aria-label="Mistake category"
+              value={mark.mistake.category_id}
+              disabled={revise.isPending || categoryState !== "ready"}
+              onChange={(e) =>
+                revise.mutate({
+                  category_id: Number(e.target.value),
+                  severity: mark.mistake!.severity,
+                })
+              }
+            >
+              {/* A category the tutor has since archived stays on the mistake
+                  it was tagged with and keeps counting — archiving is not
+                  deletion — but it is not in `categories`. Without an option
+                  for it the select falls back to its first one and shows a
+                  category nobody chose. (It could not *write* that category:
+                  both handlers read `mark.mistake`, never the DOM. The damage
+                  is that the tutor is told the wrong thing.)
+
+                  Only once the list has actually loaded, though: while it is
+                  still empty every live category fails this test too, and the
+                  tutor would be told a category they are still using had been
+                  archived. */}
+              {categoryState !== "ready" ? (
+                <option value={mark.mistake.category_id}>{mark.mistake.category_name}</option>
+              ) : (
+                !categories.some((c) => c.id === mark.mistake!.category_id) && (
+                  <option value={mark.mistake.category_id}>
+                    {mark.mistake.category_name} (archived)
+                  </option>
+                )
+              )}
+              {categories.map((c) => (
+                <option key={c.id} value={c.id!}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="rounded border border-line-control bg-surface px-2 py-1 text-sm disabled:opacity-50"
+              aria-label="Severity"
+              value={mark.mistake.severity}
+              disabled={revise.isPending}
+              onChange={(e) =>
+                revise.mutate({
+                  category_id: mark.mistake!.category_id,
+                  severity: Number(e.target.value),
+                })
+              }
+            >
+              <option value={1}>Minor</option>
+              <option value={2}>Moderate</option>
+              <option value={3}>Major</option>
+            </select>
+            <span className="text-xs text-ink-500">
+              {mark.mistake.source === "tutor" ? "Your call" : "Tagged by AI"}
+            </span>
+          </div>
+          {mark.mistake.note && (
+            // SEC-20's flag-rather-than-obey half: the job saw something on
+            // the page or in a category that read like an instruction. Nothing
+            // downstream reads this, so if the tutor is not shown it, nobody
+            // ever sees it.
+            <p className="mt-2 rounded border border-warn-700 bg-warn-100 p-2 text-sm text-ink-900">
+              <span className="font-medium">Flagged while tagging.</span> {mark.mistake.note}
+            </p>
+          )}
+          {categoryState === "none" && (
+            <p className="mt-2 text-xs text-ink-500">
+              Set up mistake categories for this subject to change this.
+            </p>
+          )}
+          {categoryState === "error" && (
+            // Not the same as having none: saying so would be a false claim
+            // about the tutor's own setup, and would send them to fix
+            // something that is not broken.
+            <p className="mt-2 text-xs text-ink-500">
+              Your mistake categories didn't load, so this can't be changed right now.
+            </p>
+          )}
+          {revise.isError && (
+            <p className="mt-2 text-sm text-risk-600">That change did not save. Try again.</p>
+          )}
+        </div>
+      )}
+
+      {/* Absent is shown as absent (PROD-2): with no tag and nothing having
+          looked, the honest statement is that nobody has looked — not silence,
+          which reads as a clean question. */}
+      {!mark.mistake && !mistakesAnalysed && draft?.final_marks != null && (
+        <p className="mt-3 text-xs text-ink-500">Not examined for mistakes yet.</p>
+      )}
 
       <button
         onClick={() => setShowHistory((v) => !v)}

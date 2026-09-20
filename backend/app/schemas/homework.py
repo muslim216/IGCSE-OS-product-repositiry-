@@ -176,6 +176,36 @@ class StudentAssignment(BaseModel):
     highest_in_class: bool = False
 
 
+class MistakeRow(BaseModel):
+    """What the tagging job decided about one question, as the tutor sees it.
+
+    4.2 wrote these rows and nothing displayed them. They appear here because
+    `AV-38` puts the revision on the marked-work view, and a tag nobody can
+    see is not one anybody can revise.
+
+    **Tutor-only**, like `MarkRow.scheme_conflict` and for the same reason: the
+    student's view is `StudentMarkRow`, which does not carry it. What the
+    student is shown about their own mistake pattern is `AV-41`, in the
+    homework tab, and is 4.5's decision to make rather than this schema's.
+    """
+
+    id: int
+    category_id: int
+    #: Read from the join, never branched on — these are the tutor's own words
+    #: (see `MistakeCategory`), so code that reads meaning into one breaks
+    #: silently the moment it is renamed.
+    category_name: str
+    severity: int
+    #: "ai" or "tutor" — who decided this tag. Shown, because "your tagging
+    #: assistant said this" and "you said this" are different claims, and a
+    #: tutor revising their own earlier revision should be able to tell.
+    source: str
+    #: What the tagging job flagged as reading like an instruction rather than
+    #: data (`SEC-20`). Null on every ordinary tag; when set, it is the whole
+    #: reason this row is worth a tutor's attention.
+    note: str | None = None
+
+
 class MarkRow(BaseModel):
     question_id: int
     number: str
@@ -204,6 +234,23 @@ class MarkRow(BaseModel):
     auto_finalized: bool = False
     remark_requested: bool = False
     remark_reason: str | None = None
+    #: The mistake tagged against this question, or null — which is the
+    #: ordinary case for a question that lost no marks, and is also what a
+    #: question nobody has examined yet looks like. Absent is shown as absent
+    #: (`PROD-2`); `SubmissionDetail.mistakes_analysed` is what tells the two
+    #: apart.
+    mistake: MistakeRow | None = None
+
+
+class MistakeRevisionIn(BaseModel):
+    """A tutor's revision of one tagged mistake (`AV-38`)."""
+
+    category_id: int
+    # Bounded here rather than in the service: 1..3 is the whole scale
+    # (`AV-69`), the tutor sets categories and not severities, and a 422
+    # naming the field beats a row carrying a 7 that every reader then has to
+    # tolerate.
+    severity: int = Field(ge=1, le=3)
 
 
 class TypedAnswerOut(BaseModel):
@@ -268,6 +315,10 @@ class SubmissionDetail(BaseModel):
     #: photographing. Tutor-facing: it carries the scan's verdict, which is not
     #: something to show the student.
     typed_answer: TypedAnswerOut | None = None
+    #: The subject this work belongs to, so the review screen can load this
+    #: organization's mistake categories for the revision picker without
+    #: re-deriving the subject from three kind-specific ids.
+    subject_id: int
     marks: list[MarkRow]
     #: Questions on this submission's piece of work with no row in their
     #: kind's topic table — derived at read time from the link rows
@@ -275,6 +326,11 @@ class SubmissionDetail(BaseModel):
     #: actually linked. A bare question is ordinary, not broken: extraction
     #: only links a topic when the code matches a real one.
     bare_question_count: int
+    #: Whether the tagging job has examined this submission at all
+    #: (`submissions.mistakes_analysed_at`). Without it, "no mistakes found"
+    #: and "nobody has looked" render identically as a page of empty tags —
+    #: the exact fabrication `PROD-2` exists to stop.
+    mistakes_analysed: bool
 
 
 class MarkUpdate(BaseModel):

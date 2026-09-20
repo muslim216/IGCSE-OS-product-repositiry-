@@ -167,6 +167,53 @@ class Mistake(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class MistakeRevisionAudit(Base):
+    """Append-only record of a tutor changing a mistake the AI tagged.
+
+    A revision is a tutor override of AI output, so it leaves the same kind of
+    trail `MarkOverrideAudit` leaves for a mark: no API edits or deletes one,
+    because "why is this tagged careless" has to be answerable months later
+    (`PROD-7`, `AI-12`).
+
+    A sibling table rather than a reuse of `mark_override_audit`: that one
+    records a mark moving between two integers, this one records a category
+    and a severity moving together. Widening it with four nullable columns
+    would make every row of both kinds half-empty and leave nothing in the
+    schema saying which half is meaningful.
+
+    **Every id here is a plain integer, including `mistake_id`.** Not a
+    ForeignKey, for the reason an audit row exists at all: it must outlive
+    what it describes. `attempts.open_attempt` hard-deletes a submission's
+    `Mistake` rows when a student replaces the work, so a real FK would make a
+    resubmission fail on any database that enforces one — the suite runs
+    SQLite with foreign keys *off*, so it would have passed here and broken on
+    production Postgres, which is exactly the shape `RISK-3` records as
+    already having happened. Cascading instead would delete the record of the
+    tutor's decision, which `PROD-7` is the reason not to.
+
+    The category name is not stored alongside its id: a rename is a valid edit
+    and the current name is what the tutor means today (see MistakeCategory).
+    """
+
+    __tablename__ = "mistake_revision_audit"
+
+    # Declared here as well as in migration 0053 (`DB-12`) — the test schema is
+    # built from `Base.metadata`, so an index living only in the migration
+    # makes the suite run against a different shape than production.
+    __table_args__ = (Index("ix_mistake_revision_audit_mistake_id", "mistake_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mistake_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_category_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_category_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    old_severity: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_severity: Mapped[int] = mapped_column(Integer, nullable=False)
+    changed_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+
 class PastPaper(TimestampMixin, Base):
     """A full past paper a tutor uploads once and every student can attempt.
 
