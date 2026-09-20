@@ -1057,6 +1057,71 @@ async def test_a_question_number_out_of_range_is_dropped_and_logged(
 # ---------------------------------------------------------------------------
 
 
+async def _seed_for_retag(
+    *, org_id, subject_id, user_id, questions, with_tutor_mistake=False, with_topic=False
+):
+    """A settled submission carrying one `source="ai"` mistake, with a
+    `tag_mistakes` job queued against it — the shape every E17 re-run test
+    needs. Shared rather than repeated three times: the setup is long, and
+    three copies drift apart one assertion at a time.
+
+    Returns `(submission_id, tutor_mistake_id, topic_id)`, the last two None
+    unless asked for.
+    """
+    async with async_session() as session:
+        category = await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Careless"
+        )
+        topic = Topic(subject_id=subject_id, code="1.1", title="Topic one") if with_topic else None
+        if topic is not None:
+            session.add(topic)
+        await session.commit()
+
+        submission_id = await _make_settled_homework(
+            session,
+            org_id=org_id,
+            subject_id=subject_id,
+            tutor_id=user_id,
+            student_id=user_id,
+            questions=questions,
+        )
+        mark_id = await session.scalar(select(QuestionMark.id))
+        if topic is not None:
+            question_id = await session.scalar(select(AssignmentQuestion.id))
+            session.add(QuestionTopic(question_id=question_id, topic_id=topic.id))
+
+        ai_mistake = Mistake(
+            student_id=user_id,
+            question_mark_id=mark_id,
+            category_id=category.id,
+            severity=1,
+            source=MistakeSource.ai,
+        )
+        session.add(ai_mistake)
+        tutor_mistake = None
+        if with_tutor_mistake:
+            tutor_mistake = Mistake(
+                student_id=user_id,
+                question_mark_id=mark_id,
+                category_id=category.id,
+                severity=2,
+                source=MistakeSource.tutor,
+            )
+            session.add(tutor_mistake)
+        await session.flush()
+        if topic is not None:
+            session.add(MistakeTopic(mistake_id=ai_mistake.id, topic_id=topic.id))
+        await session.commit()
+
+        tutor_mistake_id = tutor_mistake.id if tutor_mistake is not None else None
+        topic_id = topic.id if topic is not None else None
+
+        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        await session.commit()
+
+    return submission_id, tutor_mistake_id, topic_id
+
+
 async def test_re_running_replaces_its_own_mistakes_and_leaves_the_tutors(
     tutor, org_and_subject, monkeypatch
 ):
@@ -1066,41 +1131,13 @@ async def test_re_running_replaces_its_own_mistakes_and_leaves_the_tutors(
     has to survive unchanged, because it is what a tutor's later edit or the
     4.3 UI would still be pointing at."""
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        category = await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        mark_id = await session.scalar(select(QuestionMark.id))
-
-        ai_mistake = Mistake(
-            student_id=tutor["user"]["id"],
-            question_mark_id=mark_id,
-            category_id=category.id,
-            severity=1,
-            source=MistakeSource.ai,
-        )
-        tutor_mistake = Mistake(
-            student_id=tutor["user"]["id"],
-            question_mark_id=mark_id,
-            category_id=category.id,
-            severity=2,
-            source=MistakeSource.tutor,
-        )
-        session.add_all([ai_mistake, tutor_mistake])
-        await session.commit()
-        tutor_mistake_id = tutor_mistake.id
-
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    _, tutor_mistake_id, _ = await _seed_for_retag(
+        org_id=org_id,
+        subject_id=subject_id,
+        user_id=tutor["user"]["id"],
+        questions=[(10, 5)],
+        with_tutor_mistake=True,
+    )
 
     result = MistakeTaggingResult(
         mistakes=[
@@ -1134,40 +1171,13 @@ async def test_replacing_a_mistake_takes_its_topic_links_with_it(
     `Mistake.id` carries no ON DELETE CASCADE, and this suite's SQLite runs
     with foreign keys off, so an orphan here raises nothing locally)."""
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        category = await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        topic = Topic(subject_id=subject_id, code="1.1", title="Topic one")
-        session.add(topic)
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
-        mark_id = await session.scalar(select(QuestionMark.id))
-        question_id = await session.scalar(select(AssignmentQuestion.id))
-        session.add(QuestionTopic(question_id=question_id, topic_id=topic.id))
-
-        ai_mistake = Mistake(
-            student_id=tutor["user"]["id"],
-            question_mark_id=mark_id,
-            category_id=category.id,
-            severity=1,
-            source=MistakeSource.ai,
-        )
-        session.add(ai_mistake)
-        await session.flush()
-        old_mistake_id = ai_mistake.id
-        session.add(MistakeTopic(mistake_id=old_mistake_id, topic_id=topic.id))
-        await session.commit()
-
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    _, _, topic_id = await _seed_for_retag(
+        org_id=org_id,
+        subject_id=subject_id,
+        user_id=tutor["user"]["id"],
+        questions=[(10, 5)],
+        with_topic=True,
+    )
 
     result = MistakeTaggingResult(
         mistakes=[
@@ -1191,7 +1201,7 @@ async def test_replacing_a_mistake_takes_its_topic_links_with_it(
         links = (await session.scalars(select(MistakeTopic))).all()
         assert len(links) == 1
         assert links[0].mistake_id in live_ids
-        assert links[0].topic_id == topic.id
+        assert links[0].topic_id == topic_id
 
 
 async def test_a_mark_raised_to_full_clears_the_mistake_the_last_run_wrote(
@@ -1209,44 +1219,15 @@ async def test_a_mark_raised_to_full_clears_the_mistake_the_last_run_wrote(
     judgement is not what the raised mark contradicts.
     """
     org_id, subject_id = org_and_subject
-    async with async_session() as session:
-        category = await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
-        await session.commit()
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 10)],  # full marks: nothing lost, so nothing to tag
-        )
-        mark_id = await session.scalar(select(QuestionMark.id))
-
-        ai_mistake = Mistake(
-            student_id=tutor["user"]["id"],
-            question_mark_id=mark_id,
-            category_id=category.id,
-            severity=1,
-            source=MistakeSource.ai,
-        )
-        tutor_mistake = Mistake(
-            student_id=tutor["user"]["id"],
-            question_mark_id=mark_id,
-            category_id=category.id,
-            severity=2,
-            source=MistakeSource.tutor,
-        )
-        topic = Topic(subject_id=subject_id, code="9.1", title="Topic nine")
-        session.add_all([ai_mistake, tutor_mistake, topic])
-        await session.flush()
-        session.add(MistakeTopic(mistake_id=ai_mistake.id, topic_id=topic.id))
-        await session.commit()
-        tutor_mistake_id = tutor_mistake.id
-
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
-        await session.commit()
+    submission_id, tutor_mistake_id, _ = await _seed_for_retag(
+        org_id=org_id,
+        subject_id=subject_id,
+        user_id=tutor["user"]["id"],
+        # Full marks: nothing lost, so nothing to tag and no model call.
+        questions=[(10, 10)],
+        with_tutor_mistake=True,
+        with_topic=True,
+    )
 
     def _never_called(*args, **kwargs):  # pragma: no cover - the point is that it isn't
         raise AssertionError("no model call belongs on a submission that lost no marks")
