@@ -91,6 +91,14 @@ function queueItem(submission_id: number) {
  *  was sent" — the tag they chose is the whole of what this screen writes. */
 const revisions: { path: string; body: unknown }[] = [];
 
+let holdRevisions = false;
+
+/** Set by a test that needs two revisions in flight at once. Each PATCH then
+ *  computes its response body straight away — as a server reading committed
+ *  state would — but parks the response here until the test releases it, so
+ *  the replies can arrive in the opposite order to the requests. */
+let heldRevisions: (() => void)[] = [];
+
 function stubSubmission(
   marks: MarkRow[],
   queue: number[] = [],
@@ -102,6 +110,7 @@ function stubSubmission(
   categoriesTransport: "ok" | "never" | "error" = "ok",
 ) {
   revisions.length = 0;
+  heldRevisions = [];
   /* The stub holds state, because a PATCH here really does change what the
      next GET returns. A stub that answered every GET with the original marks
      would hand TanStack a structurally identical object after a retag,
@@ -190,16 +199,18 @@ function stubSubmission(
         // here does: a body hardcoding 1 would answer a PATCH on another
         // submission with this one's marks, which is exactly the staleness
         // this stateful stub exists to catch.
-        return json(
-          submissionBody(
-            current,
-            Number(revised[1]),
-            status,
-            typed,
-            bareQuestionCount,
-            mistakesAnalysed,
-          ),
+        const body = submissionBody(
+          current,
+          Number(revised[1]),
+          status,
+          typed,
+          bareQuestionCount,
+          mistakesAnalysed,
         );
+        if (!holdRevisions) return json(body);
+        return new Promise<Response>((resolve) => {
+          heldRevisions.push(() => resolve(json(body) as Response));
+        });
       }
 
       return new Response(JSON.stringify({ detail: `unstubbed ${method} ${path}` }), {
@@ -223,7 +234,13 @@ function renderPage(entry = "/tutor/submissions/1") {
   );
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  // Reset here rather than in the stub: a test that leaves it on would park
+  // every later test's PATCH forever, and the failure would land nowhere near
+  // the test that caused it.
+  holdRevisions = false;
+});
 
 test("a blank question is excluded from the total rather than counted as zero", async () => {
   // One question marked 8/10, one left blank. The blank must not drag the
@@ -706,5 +723,48 @@ test("every tag on a question is shown, not just the last one", async () => {
   // And each one revises its own row rather than the first.
   fireEvent.change(pickers[1], { target: { value: "1" } });
   await waitFor(() => expect(revisions).toHaveLength(1));
-  expect(revisions[0].path).toContain("/mistakes/56");
+  expect(revisions[0].path).toBe("/api/v1/submissions/1/mistakes/56");
+});
+
+test("revising a second tag does not revert the first", async () => {
+  // The PATCH answers with the whole submission. Writing all of it into the
+  // cache makes the *later-arriving* response carry the other tag as it was
+  // before its edit — so a decision the tutor already saved silently reverts,
+  // and the next change to it sends the reverted value on to the server.
+  //
+  // Both replies are held so they can land in the opposite order to the
+  // requests, which is the only way this fails: with them answered in order
+  // the second body already contains the first's change and a whole-response
+  // write looks correct.
+  holdRevisions = true;
+  stubSubmission(
+    [
+      mark({
+        question_id: 1,
+        final_marks: 0,
+        mistakes: [tagged(), tagged({ id: 56, category_id: 2, category_name: "method" })],
+      }),
+    ],
+    [],
+    "needs_review",
+    null,
+    0,
+    CATEGORIES,
+  );
+  renderPage();
+
+  const severities = await screen.findAllByLabelText("Severity");
+  fireEvent.change(severities[0], { target: { value: "3" } });
+  await waitFor(() => expect(heldRevisions).toHaveLength(1));
+  fireEvent.change(severities[1], { target: { value: "2" } });
+  await waitFor(() => expect(heldRevisions).toHaveLength(2));
+
+  // Second request answered first, so the first request's reply — computed
+  // before the second tag moved — arrives last.
+  heldRevisions[1]();
+  await waitFor(() => expect(revisions).toHaveLength(2));
+  heldRevisions[0]();
+
+  await waitFor(() => expect(screen.getAllByLabelText("Severity")[0]).toHaveValue("3"));
+  expect(screen.getAllByLabelText("Severity")[1]).toHaveValue("2");
 });

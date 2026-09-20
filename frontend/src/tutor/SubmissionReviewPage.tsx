@@ -11,6 +11,7 @@ import {
   submissionFilePath,
   type MarkRow,
   type MistakeRow,
+  type SubmissionDetail,
 } from "../api/homework";
 import { getMistakeCategories, type MistakeCategoryItem } from "../api/mistakeCategories";
 import { AuthImage, AuthFileLink } from "../components/AuthFile";
@@ -404,13 +405,32 @@ function MistakeTag({
   const revise = useMutation({
     mutationFn: (revision: { category_id: number; severity: number }) =>
       reviseMistake(submissionId, mistake.id, revision),
-    /* The response is the whole submission, so the cache is written from it
-       rather than invalidated. Invalidating leaves a window where the PATCH
-       succeeded but the refetch failed: the controls re-enable over the old
-       tag, and the next change sends the *other* field read from that stale
-       data, silently reverting the tutor's own revision with an audit row
-       recording it as their decision. */
-    onSuccess: (data) => queryClient.setQueryData(["submission", submissionId], data),
+    /* Only this tag is taken from the response, merged into whatever is
+       cached now. The response is the whole submission, and writing all of it
+       would make two tags edited before either request returned overwrite each
+       other: the later response carries the *other* tag as it was before its
+       edit, so a saved decision would silently revert and the next change to
+       it would send the reverted value.
+
+       Merged rather than invalidated for the same reason the write is not
+       just dropped: a refetch that fails after a successful PATCH leaves the
+       controls re-enabled over the old tag, and the next change re-sends the
+       stale counterpart. */
+    onSuccess: (data) => {
+      const revised = data.marks.flatMap((m) => m.mistakes).find((x) => x.id === mistake.id);
+      if (!revised) return;
+      queryClient.setQueryData(
+        ["submission", submissionId],
+        (prev: SubmissionDetail | undefined) =>
+          prev && {
+            ...prev,
+            marks: prev.marks.map((m) => ({
+              ...m,
+              mistakes: m.mistakes.map((x) => (x.id === revised.id ? revised : x)),
+            })),
+          },
+      );
+    },
     // A rejected category is usually one archived in another tab since this
     // list was cached, which is permanent, not the transient failure the
     // message suggests — so drop the stale list rather than inviting a retry
