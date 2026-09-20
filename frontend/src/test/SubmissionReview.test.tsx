@@ -346,7 +346,12 @@ test("bare questions are surfaced with a link to fix them", async () => {
   expect(
     await screen.findByText("2 questions aren't linked to a syllabus topic."),
   ).toBeInTheDocument();
-  expect(screen.getByText("Fix this")).toBeInTheDocument();
+  // The destination, not just the words. "Fix this" existing while pointing
+  // somewhere useless is the failure this link has already had once.
+  expect(screen.getByRole("link", { name: "Fix this" })).toHaveAttribute(
+    "href",
+    "/tutor/assignments/7",
+  );
 });
 
 test("nothing is rendered when every question has a topic", async () => {

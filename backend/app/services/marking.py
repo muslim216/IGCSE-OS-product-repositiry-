@@ -627,18 +627,26 @@ async def record_marks_as_evidence(
     # Compared in Python rather than SQL because `payload` is a JSON column and
     # Postgres' json type has no equality operator (as in narrative.py's
     # `_pending_payloads` and `enqueue_readiness_v2_debounced`).
-    # `running` as well as `pending`, matching `seed/backfill_mistakes.py`'s
-    # `already_queued`. A claimed job commits `running` before its handler is
-    # invoked (`workers/jobs.py`), so for the whole length of the AI call the
-    # job is in flight and invisible to a `pending`-only check — which is
-    # exactly the window a tutor pressing finalize lands in.
-    in_flight_tag_jobs = await session.scalars(
-        select(Job.payload).where(
-            Job.type == "tag_mistakes",
-            Job.status.in_((JobStatus.pending, JobStatus.running)),
-        )
+    # `pending` only, and deliberately **not** `running` — the one place this
+    # deliberately disagrees with `seed/backfill_mistakes.py`'s `already_queued`,
+    # which does include `running`.
+    #
+    # The difference is what the job has already read. A pending job has read
+    # nothing yet, so it will see whatever the marks are when it starts and
+    # suppressing a second enqueue costs nothing. A *running* job has already
+    # read the marks — so if a tutor overrides one and finalizes during that
+    # window, suppressing the re-enqueue leaves the tags describing marks that
+    # no longer exist, with nothing left to correct them. Backfill has no such
+    # window: nothing is changing underneath it.
+    #
+    # So the duplicate paid call this does not prevent is the correct outcome,
+    # not a leak — the second run is what makes the tags match the marks
+    # (`PROD-7`: the tutor's override is the authority, and `PROD-1`: a tag has
+    # to be traceable to the mark that produced it).
+    pending_tag_jobs = await session.scalars(
+        select(Job.payload).where(Job.type == "tag_mistakes", Job.status == JobStatus.pending)
     )
-    if not any(p.get("submission_id") == submission.id for p in in_flight_tag_jobs):
+    if not any(p.get("submission_id") == submission.id for p in pending_tag_jobs):
         await enqueue(session, "tag_mistakes", {"submission_id": submission.id})
     # The class narrative is refreshed from the tail of the evidence build, not
     # from a router: evidence landing is the event that makes the stored

@@ -1356,7 +1356,10 @@ def test_every_untrusted_string_in_the_content_sits_inside_its_markers():
     delimited = text[text.index(fb_begin) : text.index(fb_end)]
     assert "SUMMARY-WORDS-HERE" in delimited
     assert "STUDENT-WORDS-HERE" in delimited
-    # The computed numbers are not inside the untrusted block.
+    # The computed numbers are not inside the untrusted block — both of them,
+    # since the docstring promises marks as a whole and a half-checked promise
+    # is how the other one drifts inside later.
     assert "max_marks: 10" not in delimited
+    assert "final_marks: 4" not in delimited
     # And the tutor's list keeps its own boundary.
     assert "Careless" in text[text.index(cat_begin) : text.index(cat_end)]

@@ -78,7 +78,7 @@ async def test_finalizing_an_already_auto_finalized_submission_does_not_queue_a_
     assert tag_jobs[0]["submission_id"] == submission_id
 
 
-async def test_a_tagging_job_already_in_flight_is_not_queued_a_second_time(
+async def test_a_finalize_during_a_running_job_queues_again_so_the_tags_match(
     client,
     tutor,
     student,
@@ -86,21 +86,23 @@ async def test_a_tagging_job_already_in_flight_is_not_queued_a_second_time(
     monkeypatch,
     fake_ai,  # noqa: F811
 ):
-    """`pending` is not the whole of "already queued". A claimed job commits
-    `running` before its handler is invoked (`workers/jobs.py`), so for the
-    whole length of the AI call it is in flight and invisible to a
-    `pending`-only check — and that is precisely the window a tutor pressing
-    finalize lands in. `seed/backfill_mistakes.py` checks both statuses; this
-    path has to agree with it, or the two halves of the same task disagree
-    about what "already queued" means and the gap is a second paid call
-    (`AI-17`)."""
+    """`running` is deliberately outside the dedup, unlike `pending`.
+
+    A claimed job has already read the marks. If a tutor overrides one and
+    finalizes inside that window, suppressing the re-enqueue would leave the
+    tags describing marks that no longer exist, with nothing left to correct
+    them — the tutor's override is the authority (`PROD-7`) and a tag has to
+    trace to the mark that produced it (`PROD-1`). The second paid call is the
+    correct outcome here, not a leak, which is why this differs from
+    `seed/backfill_mistakes.py`, where nothing changes underneath the run.
+    """
     submission_id = await _settle_and_read_tag_jobs(
         client, student, assignment_all_scheme, monkeypatch, fake_ai
     )
 
     async with async_session() as session:
         job = await session.scalar(select(Job).where(Job.type == "tag_mistakes"))
-        job.status = JobStatus.running  # claimed, mid-AI-call
+        job.status = JobStatus.running  # claimed, marks already read
         await session.commit()
 
     second = await client.post(
@@ -108,6 +110,6 @@ async def test_a_tagging_job_already_in_flight_is_not_queued_a_second_time(
     )
     assert second.status_code == 200
 
-    async with async_session() as session:
-        rows = (await session.execute(select(Job.type))).all()
-    assert [t for (t,) in rows if t == "tag_mistakes"] == ["tag_mistakes"]
+    tag_jobs = await _tag_job_payloads()
+    assert len(tag_jobs) == 2
+    assert {p["submission_id"] for p in tag_jobs} == {submission_id}

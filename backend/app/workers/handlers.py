@@ -53,10 +53,11 @@ def register_all() -> None:
     register_handler("split_booklet", split_booklet)
     register_handler("mark_submission", mark_submission)
     # Examines a settled submission for recurring mistakes (4.2, AV-40).
-    # Nothing enqueues this yet — services/marking.py wires it in where marks
-    # settle, and the manual backfill command queues it for existing rows,
-    # both task 6 — but registering it now is harmless (BE-6: idempotent on
-    # a re-run, and nothing calls it yet to re-run).
+    # Enqueued from `services/marking.py` where marks settle — both the
+    # auto-finalize path and the tutor's own finalize endpoint meet there —
+    # and by `seed/backfill_mistakes.py` for rows that predate it. Safe to
+    # re-run (`BE-6`): a run replaces the `source="ai"` rows it wrote before
+    # and never a tutor's own.
     register_handler("tag_mistakes", tag_mistakes)
     # Condenses a subject's marking rules into what the marking prompt is given
     # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,
