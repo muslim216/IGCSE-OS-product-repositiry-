@@ -473,6 +473,24 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
     # retries with nothing to show for it.
     await _delete_own_mistakes(session, submission_id)
 
+    # What survived that delete: the tutor's own rows (E17) and any row on a
+    # category since archived. A proposal naming the same question *and* the
+    # same category as one of them is that same mistake proposed again, and
+    # `_mistake_points_and_analysed` counts rows — so inserting it would count
+    # one mistake twice and weight the factor against the student for it
+    # (`PROD-1`). Only the exact pair is skipped: a different category on the
+    # same question is a different claim, and the prompt asks for every
+    # category that applies.
+    surviving = set(
+        (
+            await session.execute(
+                select(Mistake.question_mark_id, Mistake.category_id)
+                .join(QuestionMark, Mistake.question_mark_id == QuestionMark.id)
+                .where(QuestionMark.submission_id == submission_id)
+            )
+        ).all()
+    )
+
     unknown_count = 0
     unresolved_count = 0
     created: list[tuple[Mistake, int]] = []
@@ -501,6 +519,8 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
             # that keeps proposing a word the tutor does not have is a signal
             # about the list, and a silent drop throws that signal away.
             unknown_count += 1
+            continue
+        if (answer.mark_id, category.id) in surviving:
             continue
         mistake = Mistake(
             student_id=student_id,

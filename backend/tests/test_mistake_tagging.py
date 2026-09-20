@@ -1111,16 +1111,55 @@ async def test_re_running_replaces_its_own_mistakes_and_leaves_the_tutors(
 
     async with async_session() as session:
         mistakes = (await session.scalars(select(Mistake))).all()
-        assert len(mistakes) == 2
 
         tutor_row = await session.get(Mistake, tutor_mistake_id)
         assert tutor_row is not None
         assert tutor_row.source is MistakeSource.tutor
         assert tutor_row.severity == 2
 
-        ai_rows = [m for m in mistakes if m.source is MistakeSource.ai]
-        assert len(ai_rows) == 1
-        assert ai_rows[0].severity == 3  # the new run's proposal, not the old row
+        # And nothing beside it: the proposal names the same question and the
+        # same category as the row the tutor holds, so it is that mistake
+        # proposed again rather than a second one. `_mistake_points_and_
+        # analysed` counts rows, so writing it would count one mistake twice
+        # and weight the factor against the student for it (`PROD-1`). The
+        # tutor's severity stands — `PROD-7` is what decides between the two
+        # numbers, not recency.
+        assert [m.id for m in mistakes] == [tutor_mistake_id]
+
+
+async def test_a_different_category_on_a_tutor_held_question_is_still_written(
+    tutor, org_and_subject, monkeypatch
+):
+    """The other half of the rule above. Only the exact (question, category)
+    pair a surviving row already holds is skipped — a different category on
+    the same question is a different claim about the same wrong answer, and
+    the prompt asks the model for every category that genuinely applies, not
+    just the first."""
+    org_id, subject_id = org_and_subject
+    submission_id, tutor_mistake_id, _ = await _seed_for_retag(
+        org_id=org_id,
+        subject_id=subject_id,
+        user_id=tutor["user"]["id"],
+        questions=[(10, 5)],
+        with_tutor_mistake=True,
+    )
+    async with async_session() as session:
+        await make_mistake_category(
+            session, organization_id=org_id, subject_id=subject_id, name="Method"
+        )
+        await session.commit()
+
+    result = MistakeTaggingResult(
+        mistakes=[ProposedMistake(question_number=1, category_name="Method", severity=2, note=None)]
+    )
+    monkeypatch.setattr("app.services.mistake_tagging.structured_complete", _fake_result(result))
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        mistakes = (await session.scalars(select(Mistake).order_by(Mistake.id))).all()
+    assert [m.source for m in mistakes] == [MistakeSource.tutor, MistakeSource.ai]
+    assert mistakes[0].id == tutor_mistake_id
 
 
 async def test_replacing_a_mistake_takes_its_topic_links_with_it(
