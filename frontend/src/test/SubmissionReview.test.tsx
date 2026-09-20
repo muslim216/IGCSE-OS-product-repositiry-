@@ -559,7 +559,12 @@ test("a finalized submission can still be retagged", async () => {
   renderPage();
 
   const picker = await screen.findByDisplayValue("careless");
-  expect(picker).not.toBeDisabled();
+  // Waited for, not asserted once: the picker renders disabled while the
+  // category list is still in flight, and whether that request has landed by
+  // the time the select first appears is a race this test does not control.
+  // A picker that stays disabled — the failure this asserts against — still
+  // fails here, by timing out.
+  await waitFor(() => expect(picker).not.toBeDisabled());
   // Enabled is not the same as working. Without the change and the assertion
   // on what was sent, this passes against a broken mutation, a wrong path, or
   // a malformed body.
