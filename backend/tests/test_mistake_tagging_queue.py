@@ -9,6 +9,22 @@ from app.models import Job, JobStatus, Submission
 from tests.test_auto_marking import _confident_result, _submit, assignment_all_scheme  # noqa: F401
 
 
+async def _settle_and_read_tag_jobs(client, student, assignment_id, monkeypatch, fake_ai):
+    """Submit, let the marking job settle the marks, and return the submission
+    id. Shared by the dedup tests below: the setup is identical and only what
+    happens to the queued job afterwards differs."""
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
+    await _submit(client, assignment_id, student)
+    async with async_session() as session:
+        return await session.scalar(select(Submission.id))
+
+
+async def _tag_job_payloads() -> list[dict]:
+    async with async_session() as session:
+        rows = (await session.execute(select(Job.type, Job.payload))).all()
+    return [payload for job_type, payload in rows if job_type == "tag_mistakes"]
+
+
 async def test_settling_a_submissions_marks_queues_the_tagging_job(
     client,
     tutor,
@@ -21,13 +37,10 @@ async def test_settling_a_submissions_marks_queues_the_tagging_job(
     is the event that makes tagging possible, and it happens on two paths —
     auto-finalize and the tutor's own finalize endpoint. `record_marks_as_
     evidence` is the one place both already meet."""
-    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
-    await _submit(client, assignment_all_scheme, student)
-
-    async with async_session() as session:
-        submission_id = await session.scalar(select(Submission.id))
-        rows = (await session.execute(select(Job.type, Job.payload))).all()
-    tag_jobs = [payload for job_type, payload in rows if job_type == "tag_mistakes"]
+    submission_id = await _settle_and_read_tag_jobs(
+        client, student, assignment_all_scheme, monkeypatch, fake_ai
+    )
+    tag_jobs = await _tag_job_payloads()
     assert len(tag_jobs) == 1
     # The id, not just the key. A payload naming the wrong submission — or
     # None — satisfies `"submission_id" in payload` and queues a job that
@@ -49,11 +62,9 @@ async def test_finalizing_an_already_auto_finalized_submission_does_not_queue_a_
     second run to find. The handler is safe to re-run (`BE-6`) but not free to
     — each run is a paid AI call (`AI-17`), so the enqueue is deduped against
     pending jobs the way the class narrative beside it already is."""
-    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
-    await _submit(client, assignment_all_scheme, student)
-
-    async with async_session() as session:
-        submission_id = await session.scalar(select(Submission.id))
+    submission_id = await _settle_and_read_tag_jobs(
+        client, student, assignment_all_scheme, monkeypatch, fake_ai
+    )
 
     second = await client.post(
         f"/api/v1/submissions/{submission_id}/finalize", headers=tutor["headers"]
@@ -83,11 +94,11 @@ async def test_a_tagging_job_already_in_flight_is_not_queued_a_second_time(
     path has to agree with it, or the two halves of the same task disagree
     about what "already queued" means and the gap is a second paid call
     (`AI-17`)."""
-    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
-    await _submit(client, assignment_all_scheme, student)
+    submission_id = await _settle_and_read_tag_jobs(
+        client, student, assignment_all_scheme, monkeypatch, fake_ai
+    )
 
     async with async_session() as session:
-        submission_id = await session.scalar(select(Submission.id))
         job = await session.scalar(select(Job).where(Job.type == "tag_mistakes"))
         job.status = JobStatus.running  # claimed, mid-AI-call
         await session.commit()

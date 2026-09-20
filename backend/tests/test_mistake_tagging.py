@@ -1315,47 +1315,35 @@ async def test_a_re_run_keeps_its_own_rows_on_a_category_the_tutor_archived(
     record quietly shrinks because their tutor tidied a word out of a list.
     """
     org_id, subject_id = org_and_subject
+    submission_id, _, _ = await _seed_for_retag(
+        org_id=org_id,
+        subject_id=subject_id,
+        user_id=tutor["user"]["id"],
+        questions=[(10, 5)],
+    )
+
+    # The archived half, added on top of the standard shape: a second category
+    # the tutor has since archived, with an AI row already tagged against it.
     async with async_session() as session:
-        live = await make_mistake_category(
-            session, organization_id=org_id, subject_id=subject_id, name="Careless"
-        )
         archived = await make_mistake_category(
             session, organization_id=org_id, subject_id=subject_id, name="Timing"
         )
         archived.archived_at = utcnow()
-        await session.commit()
+        await session.flush()
         archived_id = archived.id
-
-        submission_id = await _make_settled_homework(
-            session,
-            org_id=org_id,
-            subject_id=subject_id,
-            tutor_id=tutor["user"]["id"],
-            student_id=tutor["user"]["id"],
-            questions=[(10, 5)],
-        )
         mark_id = await session.scalar(select(QuestionMark.id))
-        session.add_all(
-            [
-                Mistake(
-                    student_id=tutor["user"]["id"],
-                    question_mark_id=mark_id,
-                    category_id=live.id,
-                    severity=1,
-                    source=MistakeSource.ai,
-                ),
-                Mistake(
-                    student_id=tutor["user"]["id"],
-                    question_mark_id=mark_id,
-                    category_id=archived_id,
-                    severity=3,
-                    source=MistakeSource.ai,
-                ),
-            ]
+        live_id = await session.scalar(
+            select(MistakeCategory.id).where(MistakeCategory.archived_at.is_(None))
         )
-        await session.commit()
-
-        await enqueue(session, "tag_mistakes", {"submission_id": submission_id})
+        session.add(
+            Mistake(
+                student_id=tutor["user"]["id"],
+                question_mark_id=mark_id,
+                category_id=archived_id,
+                severity=3,
+                source=MistakeSource.ai,
+            )
+        )
         await session.commit()
 
     result = MistakeTaggingResult(
@@ -1374,8 +1362,8 @@ async def test_a_re_run_keeps_its_own_rows_on_a_category_the_tutor_archived(
         assert archived_id in by_category
         assert by_category[archived_id].severity == 3
         # The live one was replaced by this run's proposal, not doubled.
-        assert len([m for m in mistakes if m.category_id == live.id]) == 1
-        assert by_category[live.id].severity == 2
+        assert len([m for m in mistakes if m.category_id == live_id]) == 1
+        assert by_category[live_id].severity == 2
 
 
 def test_every_untrusted_string_in_the_content_sits_inside_its_markers():
