@@ -2,13 +2,24 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, DbSession, TutorUser
-from app.models import Group, GroupMember, Organization, ParentLink, ScheduleSlot, User
+from app.api.deps import CurrentUser, DbSession, StudentUser, TutorUser
+from app.models import (
+    Group,
+    GroupMember,
+    Organization,
+    ParentLink,
+    ScheduleSlot,
+    Subject,
+    User,
+)
 from app.schemas.activity import ActivitySummary
 from app.schemas.auth import UserOut, UserTimezoneUpdate
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
+from app.schemas.mistake_rollup import MyCategoryCount, MyMistakePattern
 from app.schemas.orgs import OrganizationOut, OrganizationTimezoneUpdate
 from app.services import activity
+from app.services.mistake_rollup import roll_up_mistakes
+from app.services.subjects import visible_subject_ids
 from app.services.timezones import normalize_timezone
 from app.services.today import today_lessons
 
@@ -152,3 +163,53 @@ async def set_my_timezone(body: UserTimezoneUpdate, db: DbSession, user: Current
     await db.commit()
     await db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@router.get("/mistakes", response_model=list[MyMistakePattern])
+async def my_mistakes(db: DbSession, user: StudentUser) -> list[MyMistakePattern]:
+    """What kinds of mistakes this student makes, one entry per subject (4.5).
+
+    There is no `student_id` here, in the path or anywhere else: the student is
+    `user.id`, read off the token (`SEC-7`, `PROD-4`). The absence of the
+    parameter is the control — there is nothing to authorize because there is
+    nothing a caller could name.
+
+    Subjects come from `visible_subject_ids`, which scopes a student to the
+    groups they are actually in rather than to their organization: a student
+    may be taught a subject by a tutor in another tenant (`SEC-8`).
+
+    The numbers are `roll_up_mistakes` projected down, never a second query —
+    two answers to "which mistakes count" is the `RISK-5` failure that module's
+    docstring names, and a third is no better. What the projection drops is
+    severity, at every level: it is an internal weighting signal, and it reads
+    as a verdict to the person who made the mistakes.
+    """
+    subject_ids = await visible_subject_ids(db, user)
+    if not subject_ids:
+        return []
+    subjects = (
+        await db.scalars(select(Subject).where(Subject.id.in_(subject_ids)).order_by(Subject.name))
+    ).all()
+    # Two queries per subject, on a list a student has a handful of entries in.
+    # Batching would mean a second scoping of "which mistakes count", which is
+    # the one thing this endpoint must not have (see above).
+    out: list[MyMistakePattern] = []
+    for subject in subjects:
+        rollup = await roll_up_mistakes(db, student_id=user.id, subject_id=subject.id)
+        out.append(
+            MyMistakePattern(
+                subject_id=subject.id,
+                subject_name=subject.name,
+                analysed_questions=rollup.analysed_questions,
+                total_mistakes=rollup.total.mistakes,
+                categories=[
+                    MyCategoryCount(
+                        category_id=c.category_id,
+                        category_name=c.category_name,
+                        mistakes=c.mistakes,
+                    )
+                    for c in rollup.total.categories
+                ],
+            )
+        )
+    return out

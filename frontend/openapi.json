@@ -3018,6 +3018,37 @@
         ]
       }
     },
+    "/api/v1/me/mistakes": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "My Mistakes",
+        "description": "What kinds of mistakes this student makes, one entry per subject (4.5).\n\nThere is no `student_id` here, in the path or anywhere else: the student is\n`user.id`, read off the token (`SEC-7`, `PROD-4`). The absence of the\nparameter is the control \u2014 there is nothing to authorize because there is\nnothing a caller could name.\n\nSubjects come from `visible_subject_ids`, which scopes a student to the\ngroups they are actually in rather than to their organization: a student\nmay be taught a subject by a tutor in another tenant (`SEC-8`).\n\nThe numbers are `roll_up_mistakes` projected down, never a second query \u2014\ntwo answers to \"which mistakes count\" is the `RISK-5` failure that module's\ndocstring names, and a third is no better. What the projection drops is\nseverity, at every level: it is an internal weighting signal, and it reads\nas a verdict to the person who made the mistakes.",
+        "operationId": "my_mistakes_api_v1_me_mistakes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MyMistakePattern"
+                  },
+                  "type": "array",
+                  "title": "Response My Mistakes Api V1 Me Mistakes Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/subjects/{subject_id}/mistake-categories": {
       "get": {
         "tags": [
@@ -10942,6 +10973,67 @@
           "pct"
         ],
         "title": "MyAssessmentScore"
+      },
+      "MyCategoryCount": {
+        "properties": {
+          "category_id": {
+            "type": "integer",
+            "title": "Category Id"
+          },
+          "category_name": {
+            "type": "string",
+            "title": "Category Name"
+          },
+          "mistakes": {
+            "type": "integer",
+            "title": "Mistakes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_id",
+          "category_name",
+          "mistakes"
+        ],
+        "title": "MyCategoryCount",
+        "description": "How many mistakes of one kind the student themselves has made.\n\nDeliberately not `CategoryTally`: no `severity_total`, at any nesting\nlevel. Severity is an internal weighting signal, and to the person who made\nthe mistakes it reads as a verdict on them rather than as a number the\nengine uses. A field that exists is a field that leaks, so the student's\nresponse cannot carry one for a client to remember not to render (4.5)."
+      },
+      "MyMistakePattern": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "analysed_questions": {
+            "type": "integer",
+            "title": "Analysed Questions"
+          },
+          "total_mistakes": {
+            "type": "integer",
+            "title": "Total Mistakes"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/MyCategoryCount"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "subject_name",
+          "analysed_questions",
+          "total_mistakes",
+          "categories"
+        ],
+        "title": "MyMistakePattern",
+        "description": "One subject's mistakes as the student who made them sees them (4.5).\n\nCategories only, and no severity. The per-topic and per-chapter breakdown\nthe tutor gets is also left out on purpose \u2014 a student is shown *what\nkinds* of mistakes they make, not a map of where in the syllabus they fall."
       },
       "NarrativeOut": {
         "properties": {

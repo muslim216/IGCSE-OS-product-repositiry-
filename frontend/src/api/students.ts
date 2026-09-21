@@ -16,3 +16,19 @@ export type MistakeTally = components["schemas"]["MistakeTally"];
  */
 export const studentMistakes = (studentId: number, subjectId: number) =>
   api<StudentMistakeRollup>(`/api/v1/students/${studentId}/mistakes?subject_id=${subjectId}`);
+
+/** The student's own mistake pattern, one entry per subject they are enrolled
+ *  in (4.5).
+ *
+ * Deliberately a different shape from `StudentMistakeRollup`: categories only,
+ * no severity and no syllabus breakdown. Severity is an internal weighting
+ * signal and reads as a verdict to the person who made the mistakes, so the
+ * server does not send it rather than trusting a client not to render it.
+ *
+ * There is no student id to pass — the student is the token holder (`SEC-7`).
+ * `analysed_questions === 0` means nobody has examined that subject's work,
+ * which is not a clean record (`PROD-2`).
+ */
+export type MyMistakePattern = components["schemas"]["MyMistakePattern"];
+
+export const myMistakes = () => api<MyMistakePattern[]>("/api/v1/me/mistakes");

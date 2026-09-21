@@ -1121,6 +1121,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/mistakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Mistakes
+         * @description What kinds of mistakes this student makes, one entry per subject (4.5).
+         *
+         *     There is no `student_id` here, in the path or anywhere else: the student is
+         *     `user.id`, read off the token (`SEC-7`, `PROD-4`). The absence of the
+         *     parameter is the control — there is nothing to authorize because there is
+         *     nothing a caller could name.
+         *
+         *     Subjects come from `visible_subject_ids`, which scopes a student to the
+         *     groups they are actually in rather than to their organization: a student
+         *     may be taught a subject by a tutor in another tenant (`SEC-8`).
+         *
+         *     The numbers are `roll_up_mistakes` projected down, never a second query —
+         *     two answers to "which mistakes count" is the `RISK-5` failure that module's
+         *     docstring names, and a third is no better. What the projection drops is
+         *     severity, at every level: it is an internal weighting signal, and it reads
+         *     as a verdict to the person who made the mistakes.
+         */
+        get: operations["my_mistakes_api_v1_me_mistakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects/{subject_id}/mistake-categories": {
         parameters: {
             query?: never;
@@ -3808,6 +3843,44 @@ export interface components {
             max_marks: number;
             /** Pct */
             pct: number;
+        };
+        /**
+         * MyCategoryCount
+         * @description How many mistakes of one kind the student themselves has made.
+         *
+         *     Deliberately not `CategoryTally`: no `severity_total`, at any nesting
+         *     level. Severity is an internal weighting signal, and to the person who made
+         *     the mistakes it reads as a verdict on them rather than as a number the
+         *     engine uses. A field that exists is a field that leaks, so the student's
+         *     response cannot carry one for a client to remember not to render (4.5).
+         */
+        MyCategoryCount: {
+            /** Category Id */
+            category_id: number;
+            /** Category Name */
+            category_name: string;
+            /** Mistakes */
+            mistakes: number;
+        };
+        /**
+         * MyMistakePattern
+         * @description One subject's mistakes as the student who made them sees them (4.5).
+         *
+         *     Categories only, and no severity. The per-topic and per-chapter breakdown
+         *     the tutor gets is also left out on purpose — a student is shown *what
+         *     kinds* of mistakes they make, not a map of where in the syllabus they fall.
+         */
+        MyMistakePattern: {
+            /** Subject Id */
+            subject_id: number;
+            /** Subject Name */
+            subject_name: string;
+            /** Analysed Questions */
+            analysed_questions: number;
+            /** Total Mistakes */
+            total_mistakes: number;
+            /** Categories */
+            categories: components["schemas"]["MyCategoryCount"][];
         };
         /**
          * NarrativeOut
@@ -7101,6 +7174,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_mistakes_api_v1_me_mistakes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyMistakePattern"][];
                 };
             };
         };
