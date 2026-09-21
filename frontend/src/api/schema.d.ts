@@ -1999,6 +1999,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/students/{student_id}/mistakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student Mistakes
+         * @description Where this student's tagged mistakes fall across one subject's syllabus.
+         *
+         *     `subject_id` is a query parameter, not a second path segment: a rollup is a
+         *     read of one student filtered to one subject, and the student is the thing
+         *     being addressed. Both ids are authorized before the service sees either —
+         *     `_tutor_student` for the student, `owned_subject` for the subject (`SEC-8`:
+         *     subjects are global, so subject-only scoping leaks across tenants). Both
+         *     answer **404** rather than 403, because integer keys are enumerable and a
+         *     403 would confirm a row in another tenant exists (`API-7`, `SEC-9`).
+         *
+         *     Tutor-facing. The softer student-facing view is a separate surface (4.5)
+         *     with its own gate — severity is an internal weighting signal and reads as a
+         *     verdict to the person who made the mistakes.
+         */
+        get: operations["student_mistakes_api_v1_students__student_id__mistakes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects": {
         parameters: {
             query?: never;
@@ -2934,6 +2966,38 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * CategoryTally
+         * @description How often one of the tutor's own categories came up in a bucket.
+         *
+         *     Named by id *and* name: the id is what a client filters or links on, the
+         *     name is what the tutor reads and may rename tomorrow. Nothing branches on
+         *     the name (see `models.readiness_v2.MistakeCategory`).
+         */
+        CategoryTally: {
+            /** Category Id */
+            category_id: number;
+            /** Category Name */
+            category_name: string;
+            /** Mistakes */
+            mistakes: number;
+            /** Severity Total */
+            severity_total: number;
+        };
+        /**
+         * ChapterMistakes
+         * @description Mistakes touching any topic of this chapter, counted once per chapter.
+         *
+         *     A mistake on a question spanning two topics of the same chapter is one
+         *     mistake here, and a mistake spanning two chapters counts in both.
+         */
+        ChapterMistakes: {
+            /** Chapter Id */
+            chapter_id: number;
+            /** Chapter Title */
+            chapter_title: string;
+            tally: components["schemas"]["MistakeTally"];
+        };
         /** ChapterOut */
         ChapterOut: {
             /** Id */
@@ -3560,6 +3624,18 @@ export interface components {
             source: "ai" | "tutor";
             /** Note */
             note?: string | null;
+        };
+        /**
+         * MistakeTally
+         * @description One bucket's totals: how many mistakes, how heavy, and of what kinds.
+         */
+        MistakeTally: {
+            /** Mistakes */
+            mistakes: number;
+            /** Severity Total */
+            severity_total: number;
+            /** Categories */
+            categories: components["schemas"]["CategoryTally"][];
         };
         /**
          * MockAssignGroup
@@ -4343,6 +4419,25 @@ export interface components {
             /** Remark Status */
             remark_status?: string | null;
         };
+        /**
+         * StudentMistakeRollup
+         * @description One student, one subject, all time.
+         */
+        StudentMistakeRollup: {
+            /** Student Id */
+            student_id: number;
+            /** Subject Id */
+            subject_id: number;
+            /** Analysed Questions */
+            analysed_questions: number;
+            total: components["schemas"]["MistakeTally"];
+            /** Topics */
+            topics: components["schemas"]["TopicMistakes"][];
+            topicless: components["schemas"]["MistakeTally"];
+            /** Chapters */
+            chapters: components["schemas"]["ChapterMistakes"][];
+            chapterless: components["schemas"]["MistakeTally"];
+        };
         /** StudentPasswordReset */
         StudentPasswordReset: {
             /** Password */
@@ -4808,6 +4903,24 @@ export interface components {
             avg_score: number;
             /** Student Count */
             student_count: number;
+        };
+        /**
+         * TopicMistakes
+         * @description Mistakes **touching** this topic — not mistakes "in" it.
+         *
+         *     A question tests several topics, so one mistake is counted under each of
+         *     them (decision 11). Label it as touching the topic wherever it is shown;
+         *     "mistakes in this topic" invites a reader to add the rows up, and that
+         *     over-counts. `StudentMistakeRollup.total` is the only subject figure.
+         */
+        TopicMistakes: {
+            /** Topic Id */
+            topic_id: number;
+            /** Topic Title */
+            topic_title: string;
+            /** Chapter Id */
+            chapter_id: number | null;
+            tally: components["schemas"]["MistakeTally"];
         };
         /** TopicOut */
         TopicOut: {
@@ -8692,6 +8805,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParentCommunicationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    student_mistakes_api_v1_students__student_id__mistakes_get: {
+        parameters: {
+            query: {
+                subject_id: number;
+            };
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentMistakeRollup"];
                 };
             };
             /** @description Validation Error */

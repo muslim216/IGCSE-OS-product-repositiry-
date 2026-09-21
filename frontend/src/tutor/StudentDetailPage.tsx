@@ -8,9 +8,10 @@ import {
   topicEvidence,
 } from "../api/readiness";
 import { listTopics } from "../api/syllabus";
+import { studentMistakes, type MistakeTally } from "../api/students";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
-import { sourceLabel } from "../lib/labels";
+import { ABSENT, sourceLabel } from "../lib/labels";
 
 export default function StudentDetailPage() {
   const { studentId } = useParams();
@@ -97,6 +98,8 @@ export default function StudentDetailPage() {
           <p className="text-slate-500">No readiness data yet for this student.</p>
         )}
       </div>
+
+      <MistakeRollupSection studentId={sid} subjectId={subjectId} />
 
       {selectedTopic !== null && evidence.data && (
         <div className="rounded-lg border bg-white p-4">
@@ -254,5 +257,161 @@ export default function StudentDetailPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+/* The mistake rollup (4.4).
+
+   Two failures this section exists to not commit. First, a student nobody has
+   examined must never read as flawless: `analysed_questions === 0` is absence
+   and is rendered as absence, never as "0 mistakes" and never as an empty
+   table (PROD-2, UX-19) — which is also why a failed request gets its own
+   wording rather than falling through to the clean-record line. Second, the
+   per-topic and per-chapter numbers must never be added up: a mistake on a
+   question testing three topics is counted under each of the three on purpose
+   (decision 11), so every bucket is labelled "touching" and `total` is the
+   only subject figure. Category names are the tutor's own words — rendered,
+   never branched on, because they can be renamed tomorrow. */
+const countMistakes = (n: number) => `${n} mistake${n === 1 ? "" : "s"}`;
+
+function CategoryChips({ categories }: { categories: MistakeTally["categories"] }) {
+  return (
+    <>
+      {categories.map((c) => (
+        <span
+          key={c.category_id}
+          className="rounded bg-surface-muted px-1.5 py-0.5 text-xs text-ink-700"
+        >
+          {c.category_name} {c.mistakes} · severity {c.severity_total}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function TallyDetail({ tally }: { tally: MistakeTally }) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-2 text-sm text-ink-500">
+      <span>{countMistakes(tally.mistakes)}</span>
+      <span className="text-xs">severity {tally.severity_total}</span>
+      <CategoryChips categories={tally.categories} />
+    </span>
+  );
+}
+
+function TallyList({
+  title,
+  note,
+  rows,
+}: {
+  title: string;
+  note: string;
+  rows: { key: string; label: string; tally: MistakeTally }[];
+}) {
+  return (
+    <div className="mt-4">
+      <h4 className="text-sm font-medium text-ink-700">{title}</h4>
+      <p className="mt-0.5 text-xs text-ink-500">{note}</p>
+      <ul className="mt-2 divide-y divide-line">
+        {rows.map((r) => (
+          <li
+            key={r.key}
+            className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2"
+          >
+            <span className="text-sm text-ink-700">{r.label}</span>
+            <TallyDetail tally={r.tally} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MistakeRollupSection({
+  studentId,
+  subjectId,
+}: {
+  studentId: number;
+  subjectId: number | undefined;
+}) {
+  const rollup = useQuery({
+    queryKey: ["student-mistakes", studentId, subjectId],
+    queryFn: () => studentMistakes(studentId, subjectId!),
+    enabled: subjectId !== undefined,
+  });
+
+  // Must stay the negation of `enabled` above. While the query is disabled it
+  // sits in `isPending` forever, so a guard that stopped matching would leave
+  // this section reading "Loading…" for a student with no subject at all.
+  //
+  // Nothing at all, rather than an absent-state line: there is no subject to
+  // ask about, and the subjects grid above has already said "No readiness data
+  // yet for this student." A second sentence here would answer the same
+  // condition twice, which is the drift lib/labels.ts exists to prevent.
+  if (subjectId === undefined) return null;
+
+  const d = rollup.data;
+  return (
+    <section className="rounded-lg border border-line bg-surface p-4">
+      <h3 className="font-medium text-ink-900">Mistakes</h3>
+      {rollup.isPending ? (
+        <p className="mt-1 text-sm text-ink-500">Loading…</p>
+      ) : rollup.isError || !d ? (
+        // Never the clean-record line and never an empty table: a request that
+        // failed knows nothing about this student's work (PROD-2).
+        <p className="mt-1 text-sm text-risk-600">Could not load mistakes. {ABSENT.loadFailed}</p>
+      ) : d.analysed_questions === 0 ? (
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          Nobody has examined this student's work for mistakes — {ABSENT.noEvidence}. An empty
+          record here is not a clean one.
+        </p>
+      ) : d.total.mistakes === 0 ? (
+        <p className="mt-1 max-w-prose text-sm text-ink-500">
+          No mistakes recorded in the {d.analysed_questions} questions examined so far.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 flex flex-wrap items-baseline gap-2 text-sm text-ink-700">
+            <span>
+              {countMistakes(d.total.mistakes)} across {d.analysed_questions} examined questions
+            </span>
+            <span className="text-xs text-ink-500">severity {d.total.severity_total}</span>
+            <CategoryChips categories={d.total.categories} />
+          </p>
+          <TallyList
+            title="By topic"
+            note={`Mistakes touching each topic. One mistake on a question that tests several topics is counted under each of them, so these do not add up to ${d.total.mistakes}.`}
+            rows={[
+              ...d.topics.map((t) => ({
+                key: `topic-${t.topic_id}`,
+                label: t.topic_title,
+                tally: t.tally,
+              })),
+              {
+                key: "topicless",
+                label: "Not linked to any topic",
+                tally: d.topicless,
+              },
+            ]}
+          />
+          <TallyList
+            title="By chapter"
+            note="Mistakes touching each chapter, on the same counting — a mistake spanning two chapters is in both."
+            rows={[
+              ...d.chapters.map((c) => ({
+                key: `chapter-${c.chapter_id}`,
+                label: c.chapter_title,
+                tally: c.tally,
+              })),
+              {
+                key: "chapterless",
+                label: "Topics with no chapter",
+                tally: d.chapterless,
+              },
+            ]}
+          />
+        </>
+      )}
+    </section>
   );
 }
