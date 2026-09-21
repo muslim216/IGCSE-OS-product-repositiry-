@@ -91,3 +91,38 @@ class StudentMistakeRollup(BaseModel):
     #: until syllabus extraction is chapter-first (task 2.3). Same treatment
     #: and the same reason as `topicless`.
     chapterless: MistakeTally
+
+
+class MyCategoryCount(BaseModel):
+    """How many mistakes of one kind the student themselves has made.
+
+    Deliberately not `CategoryTally`: no `severity_total`, at any nesting
+    level. Severity is an internal weighting signal, and to the person who made
+    the mistakes it reads as a verdict on them rather than as a number the
+    engine uses. A field that exists is a field that leaks, so the student's
+    response cannot carry one for a client to remember not to render (4.5).
+    """
+
+    category_id: int
+    category_name: str
+    mistakes: int
+
+
+class MyMistakePattern(BaseModel):
+    """One subject's mistakes as the student who made them sees them (4.5).
+
+    Categories only, and no severity. The per-topic and per-chapter breakdown
+    the tutor gets is also left out on purpose — a student is shown *what
+    kinds* of mistakes they make, not a map of where in the syllabus they fall.
+    """
+
+    subject_id: int
+    subject_name: str
+    #: The denominator, exactly as in `StudentMistakeRollup`. **Zero means
+    #: nobody has examined this subject's work yet, not a clean record**, and
+    #: the two must stay distinguishable on screen (`PROD-2`, `UX-19`).
+    analysed_questions: int
+    #: Distinct mistakes in this subject — `StudentMistakeRollup.total.mistakes`
+    #: projected down. The same figure the tutor sees, from the same query.
+    total_mistakes: int
+    categories: list[MyCategoryCount]
