@@ -74,7 +74,7 @@ const POPULATED = {
 /** Answers the whole page; `mistakes` is what the rollup endpoint returns, or
  *  a status to fail it with. Every other path answers empty so the rest of the
  *  profile renders without standing in the way. */
-function stub(mistakes: unknown, failWith?: number) {
+function stub(mistakes: unknown, failWith?: number, subjects = [SUBJECT]) {
   const calls: string[] = [];
   // Flipped mid-test so a later refetch can fail after a first load succeeded.
   const state = { failWith };
@@ -85,13 +85,20 @@ function stub(mistakes: unknown, failWith?: number) {
       calls.push(url.pathname + url.search);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       if (url.pathname === "/api/v1/readiness/students/2") {
-        return json({ student_id: 2, student_name: "Sara", subjects: [SUBJECT] });
+        return json({ student_id: 2, student_name: "Sara", subjects });
       }
       if (url.pathname === "/api/v1/students/2/mistakes") {
         if (state.failWith) {
           return new Response(JSON.stringify({ detail: "boom" }), { status: state.failWith });
         }
-        return json(mistakes);
+        // Keyed by the subject asked for, so a test with several subjects
+        // gets a distinct body per section rather than one shared answer.
+        const asked = Number(url.searchParams.get("subject_id"));
+        return json(
+          typeof mistakes === "object" && mistakes !== null && "bySubject" in mistakes
+            ? (mistakes as { bySubject: Record<number, unknown> }).bySubject[asked]
+            : mistakes,
+        );
       }
       return json([]);
     }),
@@ -220,4 +227,33 @@ test("a refetch that fails is reported, not papered over with the last good answ
   await waitFor(() => expect(screen.getByText(new RegExp(ABSENT.loadFailed))).toBeInTheDocument());
   expect(screen.queryByText("5 mistakes across 8 examined questions")).not.toBeInTheDocument();
   expect(screen.queryByText("By topic")).not.toBeInTheDocument();
+});
+
+test("every subject the student takes gets its own named section", async () => {
+  // A single section fed by the page's derived `subjectId` rendered the first
+  // subject's mistakes under a bare "Mistakes" heading and silently dropped
+  // every other subject — the tutor had no way to tell a subject was missing,
+  // or which one they were reading (cubic, PROD-2 at the scale of a subject).
+  const PHYSICS = { ...SUBJECT, subject_id: 4, subject_name: "Physics" };
+  stub(
+    {
+      bySubject: {
+        3: POPULATED,
+        4: { ...POPULATED, subject_id: 4, analysed_questions: 0, total: tally(0, 0, []) },
+      },
+    },
+    undefined,
+    [SUBJECT, PHYSICS],
+  );
+  renderPage();
+
+  // Named, so the numbers cannot be read against the wrong subject.
+  expect(await screen.findByText("Mistakes in Chemistry")).toBeInTheDocument();
+  expect(await screen.findByText("Mistakes in Physics")).toBeInTheDocument();
+
+  // And each section shows its own subject's answer, not the first one's.
+  const physics = (await screen.findByText("Mistakes in Physics")).closest("section")!;
+  expect(within(physics).getByText(new RegExp(ABSENT.noEvidence))).toBeInTheDocument();
+  const chemistry = (await screen.findByText("Mistakes in Chemistry")).closest("section")!;
+  expect(within(chemistry).getByText("5 mistakes across 8 examined questions")).toBeInTheDocument();
 });

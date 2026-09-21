@@ -99,7 +99,19 @@ export default function StudentDetailPage() {
         )}
       </div>
 
-      <MistakeRollupSection studentId={sid} subjectId={subjectId} />
+      {/* One per subject, each named. A single section fed by the page's
+          `subjectId` showed the first subject's mistakes under a bare
+          "Mistakes" heading and silently omitted every other subject the
+          student takes — a tutor reading it would have no way to tell (cubic,
+          PROD-2 applied to a whole subject rather than a number). */}
+      {readiness.data?.subjects.map((s) => (
+        <MistakeRollupSection
+          key={s.subject_id}
+          studentId={sid}
+          subjectId={s.subject_id}
+          subjectName={s.subject_name}
+        />
+      ))}
 
       {selectedTopic !== null && evidence.data && (
         <div className="rounded-lg border bg-white p-4">
@@ -330,30 +342,21 @@ function TallyList({
 function MistakeRollupSection({
   studentId,
   subjectId,
+  subjectName,
 }: {
   studentId: number;
-  subjectId: number | undefined;
+  subjectId: number;
+  subjectName: string;
 }) {
   const rollup = useQuery({
     queryKey: ["student-mistakes", studentId, subjectId],
-    queryFn: () => studentMistakes(studentId, subjectId!),
-    enabled: subjectId !== undefined,
+    queryFn: () => studentMistakes(studentId, subjectId),
   });
-
-  // Must stay the negation of `enabled` above. While the query is disabled it
-  // sits in `isPending` forever, so a guard that stopped matching would leave
-  // this section reading "Loading…" for a student with no subject at all.
-  //
-  // Nothing at all, rather than an absent-state line: there is no subject to
-  // ask about, and the subjects grid above has already said "No readiness data
-  // yet for this student." A second sentence here would answer the same
-  // condition twice, which is the drift lib/labels.ts exists to prevent.
-  if (subjectId === undefined) return null;
 
   const d = rollup.data;
   return (
-    <section className="rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">Mistakes</h3>
+    <section className="mt-4 rounded-lg border border-line bg-surface p-4">
+      <h3 className="font-medium text-ink-900">Mistakes in {subjectName}</h3>
       {rollup.isPending ? (
         <p className="mt-1 text-sm text-ink-500">Loading…</p>
       ) : rollup.isError || !d ? (
