@@ -520,7 +520,7 @@ test("the tutor can retag a mistake the AI proposed", async () => {
   renderPage();
 
   const picker = await screen.findByDisplayValue("careless");
-  fireEvent.change(picker, { target: { value: "2" } });
+  await pickCategory(picker, "2");
 
   await waitFor(() => expect(revisions).toHaveLength(1));
   expect(revisions[0].path).toBe("/api/v1/submissions/1/mistakes/55");
@@ -560,6 +560,24 @@ test("a mistake on an archived category still shows that category", async () => 
   await waitFor(() => expect(revisions).toHaveLength(1));
   expect(revisions[0].body).toEqual({ category_id: 9, severity: 3 });
 });
+
+/** Change the category picker, once it can actually take the value.
+
+    The select renders *before* the category list lands, showing the mistake's
+    own category as its only option (that fallback is what stops a live
+    category being mislabelled "archived"). Firing a change at that moment sets
+    the value to "" — there is no matching option — and the handler sends
+    `Number("")`, which is 0. The request goes out, so a test waiting only on
+    `revisions` passes while asserting the wrong body, and whether it happens
+    at all depends on which of two requests lands first. It passed locally and
+    failed on CI.
+
+    Waiting for the picker to be enabled is waiting for `categoryState` to be
+    "ready", which is exactly when the options exist. */
+async function pickCategory(picker: HTMLElement, value: string) {
+  await waitFor(() => expect(picker).toBeEnabled());
+  fireEvent.change(picker, { target: { value } });
+}
 
 test("a finalized submission can still be retagged", async () => {
   // Marks are locked once finalized; a tag is the tutor's own note about a
@@ -682,7 +700,7 @@ test("retagging does not discard marks the tutor has typed but not saved", async
   fireEvent.change(feedback, { target: { value: "Show your working" } });
 
   const picker = await screen.findByLabelText("Mistake category");
-  fireEvent.change(picker, { target: { value: "2" } });
+  await pickCategory(picker, "2");
   await waitFor(() => expect(revisions).toHaveLength(1));
 
   // The retag landing on screen comes first, and the draft assertion after

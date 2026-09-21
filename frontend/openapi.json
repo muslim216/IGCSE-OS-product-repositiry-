@@ -5840,6 +5840,63 @@
         }
       }
     },
+    "/api/v1/students/{student_id}/mistakes": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Student Mistakes",
+        "description": "Where this student's tagged mistakes fall across one subject's syllabus.\n\n`subject_id` is a query parameter, not a second path segment: a rollup is a\nread of one student filtered to one subject, and the student is the thing\nbeing addressed. Both ids are authorized before the service sees either \u2014\n`_tutor_student` for the student, `owned_subject` for the subject (`SEC-8`:\nsubjects are global, so subject-only scoping leaks across tenants). Both\nanswer **404** rather than 403, because integer keys are enumerable and a\n403 would confirm a row in another tenant exists (`API-7`, `SEC-9`).\n\nTutor-facing. The softer student-facing view is a separate surface (4.5)\nwith its own gate \u2014 severity is an internal weighting signal and reads as a\nverdict to the person who made the mistakes.",
+        "operationId": "student_mistakes_api_v1_students__student_id__mistakes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          },
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentMistakeRollup"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/subjects": {
       "get": {
         "tags": [
@@ -8601,6 +8658,58 @@
         ],
         "title": "BookletOut"
       },
+      "CategoryTally": {
+        "properties": {
+          "category_id": {
+            "type": "integer",
+            "title": "Category Id"
+          },
+          "category_name": {
+            "type": "string",
+            "title": "Category Name"
+          },
+          "mistakes": {
+            "type": "integer",
+            "title": "Mistakes"
+          },
+          "severity_total": {
+            "type": "integer",
+            "title": "Severity Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_id",
+          "category_name",
+          "mistakes",
+          "severity_total"
+        ],
+        "title": "CategoryTally",
+        "description": "How often one of the tutor's own categories came up in a bucket.\n\nNamed by id *and* name: the id is what a client filters or links on, the\nname is what the tutor reads and may rename tomorrow. Nothing branches on\nthe name (see `models.readiness_v2.MistakeCategory`)."
+      },
+      "ChapterMistakes": {
+        "properties": {
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "chapter_title": {
+            "type": "string",
+            "title": "Chapter Title"
+          },
+          "tally": {
+            "$ref": "#/components/schemas/MistakeTally"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "chapter_title",
+          "tally"
+        ],
+        "title": "ChapterMistakes",
+        "description": "Mistakes touching any topic of this chapter, counted once per chapter.\n\nA mistake on a question spanning two topics of the same chapter is one\nmistake here, and a mistake spanning two chapters counts in both."
+      },
       "ChapterOut": {
         "properties": {
           "id": {
@@ -10291,6 +10400,33 @@
         ],
         "title": "MistakeRow",
         "description": "What the tagging job decided about one question, as the tutor sees it.\n\n4.2 wrote these rows and nothing displayed them. They appear here because\n`AV-38` puts the revision on the marked-work view, and a tag nobody can\nsee is not one anybody can revise.\n\n**Tutor-only**, like `MarkRow.scheme_conflict` and for the same reason: the\nstudent's view is `StudentMarkRow`, which does not carry it. What the\nstudent is shown about their own mistake pattern is `AV-41`, in the\nhomework tab, and is 4.5's decision to make rather than this schema's."
+      },
+      "MistakeTally": {
+        "properties": {
+          "mistakes": {
+            "type": "integer",
+            "title": "Mistakes"
+          },
+          "severity_total": {
+            "type": "integer",
+            "title": "Severity Total"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryTally"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mistakes",
+          "severity_total",
+          "categories"
+        ],
+        "title": "MistakeTally",
+        "description": "One bucket's totals: how many mistakes, how heavy, and of what kinds."
       },
       "MockAssignGroup": {
         "properties": {
@@ -12685,6 +12821,58 @@
         ],
         "title": "StudentMarkRow"
       },
+      "StudentMistakeRollup": {
+        "properties": {
+          "student_id": {
+            "type": "integer",
+            "title": "Student Id"
+          },
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "analysed_questions": {
+            "type": "integer",
+            "title": "Analysed Questions"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MistakeTally"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicMistakes"
+            },
+            "type": "array",
+            "title": "Topics"
+          },
+          "topicless": {
+            "$ref": "#/components/schemas/MistakeTally"
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterMistakes"
+            },
+            "type": "array",
+            "title": "Chapters"
+          },
+          "chapterless": {
+            "$ref": "#/components/schemas/MistakeTally"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "subject_id",
+          "analysed_questions",
+          "total",
+          "topics",
+          "topicless",
+          "chapters",
+          "chapterless"
+        ],
+        "title": "StudentMistakeRollup",
+        "description": "One student, one subject, all time."
+      },
       "StudentPasswordReset": {
         "properties": {
           "password": {
@@ -14060,6 +14248,41 @@
           "student_count"
         ],
         "title": "TopicHeat"
+      },
+      "TopicMistakes": {
+        "properties": {
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          },
+          "topic_title": {
+            "type": "string",
+            "title": "Topic Title"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
+          "tally": {
+            "$ref": "#/components/schemas/MistakeTally"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic_id",
+          "topic_title",
+          "chapter_id",
+          "tally"
+        ],
+        "title": "TopicMistakes",
+        "description": "Mistakes **touching** this topic \u2014 not mistakes \"in\" it.\n\nA question tests several topics, so one mistake is counted under each of\nthem (decision 11). Label it as touching the topic wherever it is shown;\n\"mistakes in this topic\" invites a reader to add the rows up, and that\nover-counts. `StudentMistakeRollup.total` is the only subject figure."
       },
       "TopicOut": {
         "properties": {

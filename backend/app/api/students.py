@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession, assert_tutor, owned_subject
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor, owned_subject
 from app.models import (
     Group,
     GroupMember,
@@ -30,7 +30,9 @@ from app.schemas.crm import (
     TutorNoteOut,
 )
 from app.schemas.groups import InviteOut
+from app.schemas.mistake_rollup import StudentMistakeRollup
 from app.services.invites import build_invite
+from app.services.mistake_rollup import roll_up_mistakes
 from app.services.student_crm import get_student_crm
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -306,3 +308,26 @@ async def add_communication(
         body=comm.body,
         created_at=comm.created_at,
     )
+
+
+@router.get("/{student_id}/mistakes", response_model=StudentMistakeRollup)
+async def student_mistakes(
+    student_id: int, subject_id: int, db: DbSession, user: TutorUser
+) -> StudentMistakeRollup:
+    """Where this student's tagged mistakes fall across one subject's syllabus.
+
+    `subject_id` is a query parameter, not a second path segment: a rollup is a
+    read of one student filtered to one subject, and the student is the thing
+    being addressed. Both ids are authorized before the service sees either —
+    `_tutor_student` for the student, `owned_subject` for the subject (`SEC-8`:
+    subjects are global, so subject-only scoping leaks across tenants). Both
+    answer **404** rather than 403, because integer keys are enumerable and a
+    403 would confirm a row in another tenant exists (`API-7`, `SEC-9`).
+
+    Tutor-facing. The softer student-facing view is a separate surface (4.5)
+    with its own gate — severity is an internal weighting signal and reads as a
+    verdict to the person who made the mistakes.
+    """
+    student = await _tutor_student(db, user, student_id)
+    subject = await owned_subject(db, subject_id, user)
+    return await roll_up_mistakes(db, student_id=student.id, subject_id=subject.id)
