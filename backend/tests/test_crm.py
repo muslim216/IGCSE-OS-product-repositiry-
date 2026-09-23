@@ -1,6 +1,8 @@
 """Student CRM: profile, subject enrollments, notes, parent communications,
 and the aggregated /students/{id}/crm endpoint."""
 
+from app.db import async_session
+from tests.factories import write_v2_snapshot
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -123,6 +125,25 @@ async def test_crm_aggregate_endpoint(client, tutor, world):
         f"/api/v1/students/{world['student_id']}/crm", headers=world["student_headers"]
     )
     assert own.status_code == 200
+
+
+async def test_crm_reads_v2_readiness(client, tutor, world):
+    """The CRM's readiness list is served from build_summary_v2, not v1 —
+    proves student_crm.py reads the same engine as the profile."""
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=66.0,
+            predicted_grade="6",
+        )
+        await session.commit()
+
+    resp = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=tutor["headers"])
+    assert resp.status_code == 200, resp.text
+    subject = next(s for s in resp.json()["readiness"] if s["subject_id"] == world["subject_id"])
+    assert subject["score"] == 66.0
 
 
 async def test_crm_access_control(client, tutor, world):

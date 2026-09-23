@@ -83,7 +83,9 @@ export interface TopicEvidence {
   topic_id: number;
   topic_code: string;
   topic_title: string;
-  score: number;
+  /** null when there is no confident Topic Mastery row for this topic yet —
+      never a fabricated 0, which would claim a measurement never taken. */
+  score: number | null;
   confidence: string;
   evidence: EvidenceItem[];
 }

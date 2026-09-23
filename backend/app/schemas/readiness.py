@@ -88,7 +88,10 @@ class TopicEvidence(BaseModel):
     topic_id: int
     topic_code: str
     topic_title: str
-    score: float
+    # None when there is no Topic Mastery row with real confidence for this
+    # topic — never a fabricated 0.0, which would claim a measurement that
+    # was never taken (PROD-2).
+    score: float | None
     confidence: str
     evidence: list[EvidenceItem]
 

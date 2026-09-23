@@ -14297,7 +14297,14 @@
             "title": "Topic Title"
           },
           "score": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Score"
           },
           "confidence": {

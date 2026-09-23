@@ -4960,7 +4960,7 @@ export interface components {
             /** Topic Title */
             topic_title: string;
             /** Score */
-            score: number;
+            score: number | null;
             /** Confidence */
             confidence: string;
             /** Evidence */

@@ -4,13 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, StudentUser
 from app.models import (
-    AiSynthesisStatus,
     Evidence,
+    FactorConfidence,
     Group,
     GroupMember,
     ParentLink,
     ReadinessHistory,
-    ReadinessSnapshot,
     Subject,
     Topic,
     TopicReadiness,
@@ -24,7 +23,12 @@ from app.schemas.readiness import (
     TopicEvidence,
     TrendPoint,
 )
-from app.services.readiness_summary_v2 import build_summary_v2
+from app.services.readiness_shared import v2_score_points
+from app.services.readiness_summary_v2 import (
+    build_summary_v2,
+    latest_ready_snapshot,
+    topic_mastery_row,
+)
 
 router = APIRouter(prefix="/readiness", tags=["readiness"])
 
@@ -101,11 +105,25 @@ async def topic_evidence(
     topic = await db.get(Topic, topic_id)
     if topic is None or topic.subject_id not in (subject_ids or []):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
-    readiness = await db.scalar(
-        select(TopicReadiness).where(
-            TopicReadiness.student_id == student_id, TopicReadiness.topic_id == topic_id
+
+    snapshot = await latest_ready_snapshot(db, student_id, topic.subject_id)
+    score: float | None = None
+    confidence = FactorConfidence.no_data.value
+    if snapshot is not None:
+        row = await topic_mastery_row(db, snapshot, topic_id)
+        if row is not None and row.score is not None and row.confidence != FactorConfidence.no_data:
+            score, confidence = row.score, row.confidence.value
+    else:
+        # Until 5.3b: the summary serves v1 for a subject v2 has not answered,
+        # so the drill-down header must read the same engine as the bar.
+        legacy = await db.scalar(
+            select(TopicReadiness).where(
+                TopicReadiness.student_id == student_id, TopicReadiness.topic_id == topic_id
+            )
         )
-    )
+        if legacy is not None:
+            score, confidence = legacy.score, legacy.confidence.value
+
     evidence_rows = (
         await db.scalars(
             select(Evidence)
@@ -117,8 +135,8 @@ async def topic_evidence(
         topic_id=topic.id,
         topic_code=topic.code,
         topic_title=topic.title,
-        score=readiness.score if readiness else 0.0,
-        confidence=readiness.confidence.value if readiness else "none",
+        score=score,
+        confidence=confidence,
         evidence=[
             EvidenceItem(
                 source_type=e.source_type.value,
@@ -141,20 +159,14 @@ async def student_trend(student_id: int, db: DbSession, user: CurrentUser) -> li
     out: list[SubjectTrend] = []
     for subject_id in subject_ids or []:
         subject = await db.get(Subject, subject_id)
-        snapshots = (
-            await db.scalars(
-                select(ReadinessSnapshot)
-                .where(
-                    ReadinessSnapshot.student_id == student_id,
-                    ReadinessSnapshot.subject_id == subject_id,
-                    ReadinessSnapshot.status == AiSynthesisStatus.ready,
-                    ReadinessSnapshot.score.is_not(None),
-                )
-                .order_by(ReadinessSnapshot.created_at)
-            )
-        ).all()
-        points = [TrendPoint(recorded_at=s.created_at, score=s.score) for s in snapshots]
+        points = [
+            TrendPoint(recorded_at=at, score=s)
+            for at, s in await v2_score_points(db, student_id, subject_id)
+        ]
         if not points:
+            # Until 5.3b, paired with the summary fallback: a subject the
+            # summary serves from v1 must show the same trend line, not a
+            # blank one just because v2 has no scored snapshot yet.
             legacy = (
                 await db.scalars(
                     select(ReadinessHistory)
