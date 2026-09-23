@@ -205,7 +205,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
         )}
         {coverage && (
           <span className="text-xs tabular-nums text-ink-500">
-            {coverage} learners with evidence
+            {coverage} learners with a readiness score
           </span>
         )}
       </div>

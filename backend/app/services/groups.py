@@ -18,7 +18,7 @@ from app.models import (
 )
 from app.models.base import utcnow
 from app.schemas.groups import GroupSummary, NextLesson
-from app.services.class_readiness import latest_learner_snapshots
+from app.services.class_readiness import LearnerSnapshot, latest_learner_snapshots
 
 #: Submission states that are waiting on the tutor's eyes, mirroring the
 #: attention endpoint: an AI draft to confirm, an AI failure to handle, or
@@ -89,12 +89,22 @@ def soonest_slot(slots: list[ScheduleSlot], now: datetime) -> NextLesson | None:
     )
 
 
-async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, GroupSummary]:
+async def summaries(
+    session: AsyncSession,
+    group_ids: list[int],
+    snapshots_by_group: dict[int, dict[int, LearnerSnapshot]] | None = None,
+) -> dict[int, GroupSummary]:
     """Per-group counts for the class cards.
 
     Each aggregate is its own query rather than one wide join: joining members,
     assignments and submissions together would multiply the rows and inflate
     every count.
+
+    `snapshots_by_group` lets a caller that already ran `latest_learner_snapshots`
+    for these same `group_ids` pass the result straight through instead of this
+    function fetching it again — `services/today.py`'s `build_today` also needs
+    it for `class_scores()`, and running the window query twice for one request
+    is exactly the duplication fix round 1 caught.
     """
     if not group_ids:
         return {}
@@ -150,7 +160,8 @@ async def summaries(session: AsyncSession, group_ids: list[int]) -> dict[int, Gr
     # SEC-7: group_ids arrive already scoped to the authenticated tutor by the
     # callers in api/groups.py, so this inherits that scoping rather than
     # re-deriving it from a parameter.
-    snapshots_by_group = await latest_learner_snapshots(session, group_ids)
+    if snapshots_by_group is None:
+        snapshots_by_group = await latest_learner_snapshots(session, group_ids)
     covered: dict[int, int] = {
         gid: sum(1 for s in learners.values() if s.score is not None)
         for gid, learners in snapshots_by_group.items()

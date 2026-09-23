@@ -184,6 +184,36 @@ async def test_homework_completion_is_absent_not_zero_when_the_row_carries_no_co
     assert a["id"] not in detail.homework
 
 
+async def test_an_unresolved_topic_id_is_skipped_not_500(client, tutor, subject_id):
+    """A topic_mastery row's outerjoin to Topic leaves code/title null when the
+    topic_id no longer resolves — that row must be skipped, not built into a
+    TopicMean with no code, which `topic_code: str` (never optional) 500s on."""
+    group = await _class_with(client, tutor, subject_id)
+    a = await _student(client, tutor, group["id"], "A", "a01")
+    async with async_session() as session:
+        run_id = await write_v2_snapshot(
+            session, student_id=a["id"], subject_id=subject_id, score=70.0
+        )
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=a["id"],
+                subject_id=subject_id,
+                topic_id=999_999,  # no such Topic row
+                factor=ReadinessFactor.topic_mastery,
+                score=80.0,
+                confidence=FactorConfidence.high,
+                evidence_count=3,
+                detail={},
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        detail = await class_readiness(session, group["id"])
+    assert detail.topic_means == []
+
+
 async def test_class_readiness_query_count_is_flat_in_roster_size(client, tutor, subject_id):
     group = await _class_with(client, tutor, subject_id)
     solo = await _student(client, tutor, group["id"], "Solo", "solo01")

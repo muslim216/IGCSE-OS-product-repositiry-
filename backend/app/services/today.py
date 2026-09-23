@@ -30,7 +30,7 @@ from app.schemas.today import (
     ClassWeakTopic,
     TodayView,
 )
-from app.services.class_readiness import class_health, class_readiness
+from app.services.class_readiness import class_readiness, class_scores, latest_learner_snapshots
 from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
 from app.services.groups import review_queue_predicate
@@ -136,8 +136,13 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
     by a path or body parameter (SEC-7)."""
     lessons = await today_lessons(db, user.id, user.organization_id, user.time_zone)
     groups = await tutor_groups(db, user.id)
-    summaries = await group_summaries(db, [g.id for g in groups])
-    health = await class_health(db, [g.id for g in groups])
+    group_ids = [g.id for g in groups]
+    # One latest-snapshot read feeds both the class cards' coverage count and
+    # the strip's score. Calling class_health() here too would run this same
+    # window query a second time for the same group_ids (fix round 1).
+    snapshots = await latest_learner_snapshots(db, group_ids)
+    summaries = await group_summaries(db, group_ids, snapshots_by_group=snapshots)
+    health = class_scores(snapshots)
     overrides = await org_boundaries(db, user.organization_id)
 
     rows: list[ClassStripRow] = []
@@ -181,6 +186,13 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
     been a stable grade 4 all year is why the class carries its status and is not
     news. Both still appear under Learners — nothing is hidden, it is ordered.
 
+    Every enrolled learner appears under Learners (fix round 1), not only the
+    scored ones: a learner whose latest run found no evidence, or who has none
+    yet, is still listed — sorted after the scored learners, by name, with a
+    null score/grade/arrow — because their homework completion can be real
+    even when their score is not (5.1, AV-32), and hiding them entirely would
+    make the roster undercount the class.
+
     Score, grade and arrow all come from the learner's own **v2** snapshot
     series (services/class_readiness.py) — the same series their own profile
     reads. Before 5.3a this surface answered from v1 (TopicReadiness,
@@ -192,12 +204,16 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
     summary = (await group_summaries(db, [group.id]))[group.id]
     detail = await class_readiness(db, group.id)
     # Every scored learner's series in one query, not one per learner (PERF-1).
+    # Unscored learners are never looked up here — their `series.get(...)`
+    # below returns [] and trend_direction([]) is None, which is exactly what
+    # they must show: no score means no arrow to describe (PROD-2).
     series = await v2_score_series(db, [s.student_id for s in detail.scored], group.subject_id)
 
     learners: list[ClassLearnerRow] = []
-    for s in detail.scored:
+    for s in detail.scored + detail.unscored:
         # The snapshot's own grade — what the learner's profile prints — shown
-        # only while boundaries exist to stand behind it (PROD-2).
+        # only while boundaries exist to stand behind it (PROD-2). Always None
+        # for an unscored learner: class_readiness() never sets one for them.
         grade = s.predicted_grade if boundaries else None
         hw = detail.homework.get(s.student_id)
         learners.append(
@@ -227,7 +243,8 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
         member_count=summary.member_count,
         students_with_evidence=summary.students_with_evidence,
         needs_you=[r for r in learners if r.direction == "down"],
-        # Already lowest score first — class_readiness sorts `scored` this way.
+        # Already ordered: scored learners lowest score first, then unscored
+        # by name — class_readiness sorts each list this way.
         learners=learners,
         weak_topics=[
             ClassWeakTopic(

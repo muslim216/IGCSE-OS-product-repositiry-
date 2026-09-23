@@ -9,8 +9,12 @@ learner — so the same class could carry three different scores (RISK-5, PERF-1
 The class score is the mean of each enrolled learner's **latest ready** v2
 snapshot score — the same snapshot their own profile shows. A learner whose
 latest run found no evidence is omitted and counted, never averaged in as 0
-(PROD-2). Everything here is a fixed number of queries per call, whatever the
-roster size.
+(PROD-2). The class page's own learner list is broader than that denominator,
+though (fix round 1): every enrolled member gets a row there, unscored ones
+sorted after scored ones by name, because a learner whose homework is marked
+but whose run found no evidence still has a completion count to show (5.1,
+AV-32) — and their profile already shows them. Everything here is a fixed
+number of queries per call, whatever the roster size.
 """
 
 from collections import defaultdict
@@ -53,11 +57,19 @@ class TopicMean:
 @dataclass(frozen=True)
 class ClassReadiness:
     score: float | None
-    #: Scored learners only, lowest first.
+    #: Scored learners only, lowest first — the class score's own denominator.
     scored: list[LearnerSnapshot]
+    #: Every other enrolled learner, name order: a latest run that found no
+    #: evidence (score None), or no snapshot yet. score and predicted_grade
+    #: are always None here (PROD-2) — never a re-mapping of anything.
+    unscored: list[LearnerSnapshot]
     #: Topic Mastery averaged over scored learners' latest runs, lowest first.
     topic_means: list[TopicMean]
-    #: student_id -> (assignment_count, submitted_count); absent = no homework row.
+    #: student_id -> (assignment_count, submitted_count) from every enrolled
+    #: learner's latest ready run, scored or not — a no-evidence run still
+    #: persists its own homework_performance row (readiness_summary_v2.py),
+    #: so completion must not vanish with the headline score (AV-32).
+    #: Absent = no homework row (never enrolled, or no run at all).
     homework: dict[int, tuple[int, int]]
 
 
@@ -126,26 +138,71 @@ def _mean(learners: dict[int, LearnerSnapshot]) -> tuple[float | None, int]:
     return (round(sum(scores) / len(scores), 1), len(scores)) if scores else (None, 0)
 
 
+def class_scores(
+    snapshots_by_group: dict[int, dict[int, LearnerSnapshot]],
+) -> dict[int, tuple[float | None, int]]:
+    """Fold an already-fetched latest_learner_snapshots() result into
+    {group_id: (score, scored_count)} — class_health()'s shape, without
+    re-running its query. For a caller that already needs the snapshots for
+    another reason in the same request (services/today.py's build_today,
+    which also feeds them to groups.summaries()) — calling class_health()
+    there too would run the window query twice for the same group_ids."""
+    return {gid: _mean(learners) for gid, learners in snapshots_by_group.items()}
+
+
 async def class_health(
     session: AsyncSession, group_ids: list[int]
 ) -> dict[int, tuple[float | None, int]]:
     """{group_id: (class score or None, scored learner count)} for every class,
     in one query. (None, 0) for a class with nobody scored — never 0.0."""
-    snapshots = await latest_learner_snapshots(session, group_ids)
-    return {gid: _mean(snapshots[gid]) for gid in group_ids}
+    return class_scores(await latest_learner_snapshots(session, group_ids))
 
 
 async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadiness:
-    """The class page / Group Analytics detail: two queries, whatever the roster."""
+    """The class page / Group Analytics detail: three queries, whatever the roster."""
     learners = (await latest_learner_snapshots(session, [group_id]))[group_id]
     score, _ = _mean(learners)
     scored = sorted(
         (s for s in learners.values() if s.score is not None), key=lambda s: s.score or 0.0
     )
+    scored_ids = {s.student_id for s in scored}
+
+    # Every enrolled learner, not just the ones with a scored run: a learner
+    # whose latest run found no evidence, or who has no snapshot yet, still
+    # belongs on the class page (fix round 1) — their homework completion is
+    # independent of their score (5.1, AV-32) and their own profile already
+    # shows them. One query, flat in roster size — rows grow, not queries.
+    roster = (
+        await session.execute(
+            select(GroupMember.student_id, User.name)
+            .join(User, User.id == GroupMember.student_id)
+            .where(GroupMember.group_id == group_id)
+        )
+    ).all()
+    unscored = sorted(
+        (
+            LearnerSnapshot(
+                student_id=student_id,
+                student_name=name,
+                score=None,
+                predicted_grade=None,
+                evaluation_run_id=(
+                    learners[student_id].evaluation_run_id if student_id in learners else ""
+                ),
+            )
+            for student_id, name in roster
+            if student_id not in scored_ids
+        ),
+        key=lambda s: s.student_name,
+    )
+
     topic_scores: dict[int, list[float]] = defaultdict(list)
     meta: dict[int, tuple[str, str]] = {}
     homework: dict[int, tuple[int, int]] = {}
-    run_ids = [s.evaluation_run_id for s in scored]
+    # Every learner with *any* ready run, scored or not — a no-evidence run
+    # still persists its own homework_performance row, so a learner counted
+    # under `unscored` above can still carry a completion count.
+    run_ids = [s.evaluation_run_id for s in learners.values()]
     if run_ids:
         # Both factors from the learners' own latest runs in one statement —
         # an older run's topic score must not outvote the current one.
@@ -181,6 +238,10 @@ async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadines
                 and r.topic_id is not None
                 and r.score is not None
                 and r.confidence in CONFIDENT
+                # The outerjoin leaves code/title None for a topic_id that no
+                # longer resolves — skip it rather than build a TopicMean with
+                # no code, which `topic_code: str` (never optional) would 500 on.
+                and r.code is not None
             ):
                 topic_scores[r.topic_id].append(r.score)
                 meta[r.topic_id] = (r.code, r.title)
@@ -197,4 +258,6 @@ async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadines
         ),
         key=lambda t: t.avg_score,
     )
-    return ClassReadiness(score=score, scored=scored, topic_means=topic_means, homework=homework)
+    return ClassReadiness(
+        score=score, scored=scored, unscored=unscored, topic_means=topic_means, homework=homework
+    )

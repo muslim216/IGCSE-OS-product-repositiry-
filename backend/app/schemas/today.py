@@ -88,7 +88,9 @@ class ClassOverview(BaseModel):
     students_with_evidence: int = 0
     #: Learners whose direction is "down" — selected on direction, not level.
     needs_you: list[ClassLearnerRow]
-    #: Every enrolled learner with confident evidence, lowest score first.
+    #: Every enrolled learner (fix round 1) — scored ones first, lowest score
+    #: first, then unscored ones by name. An unscored row's score, grade and
+    #: direction are null; its homework counts can still be real (AV-32).
     learners: list[ClassLearnerRow]
     #: The class's weakest topics, lowest average first.
     weak_topics: list["ClassWeakTopic"]

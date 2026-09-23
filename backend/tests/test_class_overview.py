@@ -119,7 +119,12 @@ async def test_one_history_point_yields_no_direction_never_flat(client, tutor, s
     assert body["learners"][0]["direction"] is None
 
 
-async def test_a_learner_without_evidence_is_absent_not_zeroed(client, tutor, subject_id):
+async def test_a_learner_without_evidence_appears_unscored_not_absent(client, tutor, subject_id):
+    """Fix round 1: a learner with no snapshot at all still gets a row on the
+    class page — score, predicted_grade, status and direction are all null
+    (PROD-2), never a fabricated 0 and never a silently dropped learner. The
+    class's own score and coverage stay unaffected — Ghost never enters
+    either denominator."""
     group = await _class_with(client, tutor, subject_id)
     await client.post(
         f"/api/v1/groups/{group['id']}/students",
@@ -129,7 +134,12 @@ async def test_a_learner_without_evidence_is_absent_not_zeroed(client, tutor, su
     body = (
         await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
     ).json()
-    assert body["learners"] == []
+    assert [r["student_name"] for r in body["learners"]] == ["Ghost"]
+    row = body["learners"][0]
+    assert row["score"] is None
+    assert row["predicted_grade"] is None
+    assert row["status"] is None
+    assert row["direction"] is None
     assert body["member_count"] == 1
     assert body["students_with_evidence"] == 0
     assert body["score"] is None
@@ -175,6 +185,44 @@ async def test_learner_without_homework_row_reports_null_not_zero(client, tutor,
         await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
     ).json()["learners"][0]
     assert row["homework_assignment_count"] is None and row["homework_submitted_count"] is None
+
+
+async def test_class_page_lists_every_learner_scored_then_unscored_by_name(
+    client, tutor, subject_id
+):
+    """Fix round 1: a learner whose latest run found no evidence, and one who
+    has no snapshot at all, both still get a row — sorted after the scored
+    learner, by name. The class score stays the scored learner's own alone
+    (decision 13's denominator is unchanged; only the learner list widened),
+    and homework completion still reaches the no-evidence learner even though
+    their score does not (5.1, AV-32)."""
+    group = await _class_with(client, tutor, subject_id)
+    await _learner(client, tutor, group["id"], "Aya", "aya01", 80.0)
+    await _learner(client, tutor, group["id"], "Zed", "zed01", None, homework=(2, 1))
+    await client.post(
+        f"/api/v1/groups/{group['id']}/students",
+        json={"name": "Milo", "username": "milo01", "password": "password123"},
+        headers=tutor["headers"],
+    )
+
+    body = (
+        await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
+    ).json()
+    # Scored first, then the unscored two in name order — never omitted.
+    assert [r["student_name"] for r in body["learners"]] == ["Aya", "Milo", "Zed"]
+
+    by_name = {r["student_name"]: r for r in body["learners"]}
+    zed = by_name["Zed"]
+    assert zed["score"] is None
+    assert zed["predicted_grade"] is None
+    assert zed["status"] is None
+    assert (zed["homework_assignment_count"], zed["homework_submitted_count"]) == (2, 1)
+
+    milo = by_name["Milo"]
+    assert milo["score"] is None
+    assert milo["homework_assignment_count"] is None and milo["homework_submitted_count"] is None
+
+    assert body["score"] == 80.0  # the scored learner's own score, unaveraged with nothing
 
 
 async def test_class_overview_query_count_is_flat_in_roster_size(client, tutor, subject_id):

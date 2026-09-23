@@ -197,6 +197,14 @@ async def test_query_count_does_not_grow_with_group_count(client, tutor, subject
     The old home issued one analytics request per class, and each of those ran a
     db.get(User) plus a readiness select per learner. Here the whole home is one
     request whose query count is flat in the number of classes.
+
+    `baseline` is also pinned to an absolute number (fix round 1), not just
+    flatness: `latest_learner_snapshots()` feeds both `class_health()` (the
+    strip's score) and `groups.summaries()` (the coverage count), and it is
+    a window query over the whole roster — a caller that fetches it twice for
+    the same group_ids would still pass the flatness half of this assertion
+    (both runs would grow by the same doubled amount), so only the absolute
+    count catches that regression.
     """
 
     def count_queries():
@@ -218,6 +226,16 @@ async def test_query_count_does_not_grow_with_group_count(client, tutor, subject
     await client.get("/api/v1/today", headers=tutor["headers"])
     stop()
     baseline = len(queries)
+    # today_lessons (2: org fetch, schedule join) + tutor_groups (1) +
+    # latest_learner_snapshots (1, shared) + groups.summaries (4: members,
+    # published, awaiting, schedule slots — covered folds into the shared
+    # snapshots read) + org_boundaries (1) + pending_review_count (1) = 10,
+    # plus request-scoped auth/session bookkeeping. Pinned by measurement so a
+    # reviewer changing this number has to explain why, not just relax it.
+    assert baseline == 12, (
+        f"baseline query count is {baseline}, expected 12 — if this grew, check "
+        "whether latest_learner_snapshots() is now running twice for one request"
+    )
 
     # Five more classes, each with learners and evidence.
     for c in range(5):
