@@ -46,8 +46,7 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
     student's profile shows, because both read build_summary_v2."""
     lines: list[str] = [f"Student: {student.name}"]
     codes: dict[int, str] = dict(
-        # Row.tuple() is deprecated in favor of ._tuple() since SQLAlchemy 2.0.19.
-        row._tuple()  # noqa: SLF001
+        tuple(row)
         for row in (
             await session.execute(
                 select(Subject.id, Subject.code).where(Subject.id.in_(subject_ids or [0]))
@@ -59,34 +58,43 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
         lines.append(f"\n## {s.subject_name} ({s.exam_board} {codes.get(s.subject_id, '')})")
         if s.score is None:
             lines.append("No readiness data yet for this subject.")
-            continue
-        # One source since 2.4 (AV-11): no boundaries set means no predicted
-        # grade in the report either — the sentence drops rather than carrying a
-        # dash a model would then have to explain (PROD-2).
-        lines.append(
-            f"Overall readiness: {s.score}% (estimated grade: {s.predicted_grade})"
-            if s.predicted_grade
-            else f"Overall readiness: {s.score}% (no grade boundaries set for this subject)"
-        )
-        strong = sorted(s.topics, key=lambda t: t.score, reverse=True)[:3]
-        weak = sorted((t for t in s.topics if t.score <= WEAK_THRESHOLD), key=lambda t: t.score)[:5]
-        if strong:
+        else:
+            # One source since 2.4 (AV-11): no boundaries set means no predicted
+            # grade in the report either — the sentence drops rather than carrying
+            # a dash a model would then have to explain (PROD-2).
             lines.append(
-                "Strongest topics: "
-                + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in strong)
+                f"Overall readiness: {s.score}% (estimated grade: {s.predicted_grade})"
+                if s.predicted_grade
+                else f"Overall readiness: {s.score}% (no grade boundaries set for this subject)"
             )
-        if weak:
-            lines.append(
-                "Weakest topics: " + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in weak)
-            )
-        if s.direction is not None:
-            word = {"up": "improved", "down": "declined", "flat": "held steady"}[s.direction]
-            moved = (
-                f" ({s.month_delta:+.1f} points in the last 30 days)"
-                if s.month_delta is not None
-                else ""
-            )
-            lines.append(f"Trend: {word}{moved}")
+            strong = sorted(s.topics, key=lambda t: t.score, reverse=True)[:3]
+            weak = sorted(
+                (t for t in s.topics if t.score <= WEAK_THRESHOLD), key=lambda t: t.score
+            )[:5]
+            if strong:
+                lines.append(
+                    "Strongest topics: "
+                    + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in strong)
+                )
+            if weak:
+                lines.append(
+                    "Weakest topics: "
+                    + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in weak)
+                )
+            if s.direction is not None:
+                word = {"up": "improved", "down": "declined", "flat": "held steady"}[s.direction]
+                moved = (
+                    f" ({s.month_delta:+.1f} points in the last 30 days)"
+                    if s.month_delta is not None
+                    else ""
+                )
+                lines.append(f"Trend: {word}{moved}")
+        # Homework completion is independent of the readiness score: a
+        # ready, score=None run (no factor had evidence) still persists its
+        # homework_performance row, so "N of M handed in" is a fact the
+        # report can state even with no overall number to lead with
+        # (PROD-1). v1-fallback subjects never carry these counts (they are
+        # None there), so this naturally stays silent for them.
         if s.homework_assignment_count:
             lines.append(
                 f"Homework: submitted {s.homework_submitted_count} of "

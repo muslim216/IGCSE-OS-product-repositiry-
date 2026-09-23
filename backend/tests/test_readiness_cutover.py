@@ -27,6 +27,7 @@ from app.models import (
     WorkKind,
 )
 from app.services.grade_boundaries import set_org_boundaries
+from app.services.readiness_summary_v2 import build_summary_v2
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.work import create_work
 from tests.factories import make_subject
@@ -191,6 +192,18 @@ async def test_topic_drill_down_without_data_is_absent_not_zero(client, tutor, w
     ).json()
     assert body["score"] is None
     assert body["confidence"] == "no_data"
+
+
+async def test_a_duplicated_subject_id_yields_one_entry(tutor, world):  # noqa: F811
+    """A caller-supplied subject_ids list with a repeat must not produce two
+    SubjectReadiness rows for the same subject — de-duplicated, order kept."""
+    async with async_session() as session:
+        student = await session.get(User, world["student_id"])
+        summary = await build_summary_v2(
+            session, student, [world["subject_id"], world["subject_id"]]
+        )
+    assert len(summary.subjects) == 1
+    assert summary.subjects[0].subject_id == world["subject_id"]
 
 
 async def test_a_no_data_topic_is_omitted_rather_than_scored_zero(client, tutor, world):  # noqa: F811

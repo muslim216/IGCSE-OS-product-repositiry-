@@ -13,11 +13,14 @@ from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 async def test_report_facts_read_v2(tutor, world):  # noqa: F811
     now = datetime.now(timezone.utc)
     async with async_session() as session:
+        # A distinctive score on a run that is *not* the latest — proves only
+        # the latest run's factor rows are read, not every run for the subject.
         await write_v2_snapshot(
             session,
             student_id=world["student_id"],
             subject_id=world["subject_id"],
             score=50.0,
+            topics={world["topic1"]: (99.0, FactorConfidence.high)},
             created_at=now - timedelta(days=40),
         )
         await write_v2_snapshot(
@@ -43,6 +46,9 @@ async def test_report_facts_read_v2(tutor, world):  # noqa: F811
     assert "Atomic structure" not in facts.split("Weakest topics:")[1]
     assert "Trend: improved" in facts
     assert "Homework: submitted 4 of 5 assignments" in facts
+    # The earlier run's distinctive topic score must never surface — only the
+    # latest snapshot's evaluation_run_id is read.
+    assert "(99%)" not in facts
 
 
 async def test_report_facts_no_snapshot_says_so(tutor, world):  # noqa: F811
@@ -51,3 +57,25 @@ async def test_report_facts_no_snapshot_says_so(tutor, world):  # noqa: F811
         facts = await build_report_facts(session, student, [world["subject_id"]])
 
     assert "No readiness data yet for this subject." in facts
+
+
+async def test_report_facts_show_homework_line_even_with_no_score(tutor, world):  # noqa: F811
+    """A ready, score=None run (no factor had evidence) still persists its
+    homework_performance row — completion is a fact independent of the
+    missing score (PROD-1), so the homework line must still appear beside
+    the "no data" line rather than being swallowed by it."""
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=None,
+            homework=(3, 2),
+        )
+        await session.commit()
+
+        student = await session.get(User, world["student_id"])
+        facts = await build_report_facts(session, student, [world["subject_id"]])
+
+    assert "No readiness data yet for this subject." in facts
+    assert "Homework: submitted 2 of 3 assignments" in facts

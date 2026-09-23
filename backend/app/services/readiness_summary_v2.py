@@ -259,6 +259,12 @@ async def _subject_without_snapshot(
 async def build_summary_v2(
     db: AsyncSession, student: User, subject_ids: list[int]
 ) -> StudentReadinessSummary:
+    # A duplicated id would otherwise produce two SubjectReadiness entries for
+    # the same subject; `position` below assumes one entry per id, and a
+    # second entry for the same subject would silently survive the v1
+    # fallback's overwrite. De-duplicated here, order preserved, so the same
+    # list drives both the loop and the final sort.
+    subject_ids = list(dict.fromkeys(subject_ids))
     everything_updating, updating = await in_flight_subjects(db, student.id)
 
     subjects_out: list[SubjectReadiness] = []
