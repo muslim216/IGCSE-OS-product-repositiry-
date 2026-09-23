@@ -43,8 +43,11 @@ function subject(
 
 /** Answers the whole page; every path but the readiness summary and the
  *  mistake rollup answers empty so the rest of the profile renders without
- *  standing in the way — same convention as StudentMistakeRollup.test.tsx. */
-function stub(subjects: ReturnType<typeof subject>[]) {
+ *  standing in the way — same convention as StudentMistakeRollup.test.tsx.
+ *  Typed as `unknown[]`, not `ReturnType<typeof subject>[]`: a raw JSON
+ *  fixture needs to be able to omit keys entirely to model an older API
+ *  response (deploy skew), which the return type of `subject()` forbids. */
+function stub(subjects: unknown[]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -89,6 +92,19 @@ test("says nothing when there is no homework evidence to count", async () => {
   stub([subject(null, null)]);
   renderPage();
   // Wait for the card itself to have rendered before asserting an absence.
+  await screen.findByText("Chemistry");
+  expect(screen.queryByText(/handed in/)).not.toBeInTheDocument();
+});
+
+test("says nothing when an older API response omits the counts entirely", async () => {
+  // Deploy skew: Vercel ships the new frontend before Render ships the new
+  // API, so the response has no homework_assignment_count/
+  // homework_submitted_count keys at all — undefined, not null. A `!==
+  // null` guard would let that through and render "Homework:  of  handed
+  // in" (Fix round 1).
+  const { homework_assignment_count, homework_submitted_count, ...rest } = subject(5, 4);
+  stub([rest]);
+  renderPage();
   await screen.findByText("Chemistry");
   expect(screen.queryByText(/handed in/)).not.toBeInTheDocument();
 });

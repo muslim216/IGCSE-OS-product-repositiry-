@@ -257,6 +257,51 @@ async def test_homework_completion_counts_are_none_without_assignments(
     assert subject["homework_submitted_count"] is None
 
 
+async def test_a_pre_5_1_historical_run_has_no_homework_counts(client, tutor, world):  # noqa: F811
+    """Before Task 1, a homework_performance row's `detail` carried
+    `completion_rate`/`accuracy`/`on_time_rate` only — no `assignment_count`
+    or `submitted_count`, since those keys didn't exist yet. A pre-5.1 run
+    read through the ordinary tutor-facing endpoint must still serve a 200,
+    with the new counts simply absent (PROD-2), never a KeyError and never a
+    fabricated 0 (Fix round 1)."""
+    run_id = str(uuid.uuid4())
+    async with async_session() as session:
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                factor=ReadinessFactor.homework_performance,
+                score=80.0,
+                confidence=FactorConfidence.high,
+                evidence_count=4,
+                detail={"completion_rate": 1.0, "accuracy": 80.0, "on_time_rate": 1.0},
+            )
+        )
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                status=AiSynthesisStatus.ready,
+                score=72.0,
+                predicted_grade="6",
+                weak_topics=[],
+                rationale="historical, pre-5.1",
+                recommended_revision=None,
+            )
+        )
+        await session.commit()
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    assert resp.status_code == 200
+    subject = resp.json()["subjects"][0]
+    assert subject["homework_assignment_count"] is None
+    assert subject["homework_submitted_count"] is None
+
+
 async def test_a_queued_recompute_marks_the_score_as_updating(client, tutor, world):  # noqa: F811
     """Rather than serving a stale score as if it were current."""
     await _write_snapshot(world)
