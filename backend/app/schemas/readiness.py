@@ -21,6 +21,10 @@ class WeakTopic(BaseModel):
     topic_code: str
     topic_title: str
     score: float
+    # An AI-picked weak topic can rest on a tutor's estimate rather than
+    # marked work — self-declared data is labelled wherever it is shown, and
+    # a chip is a place it is shown (fix round 1, PROD-8, UX-20).
+    tutor_estimate: bool = False
 
 
 class SubjectReadiness(BaseModel):
@@ -249,6 +253,9 @@ class TopicHeat(BaseModel):
     topic_title: str
     avg_score: float
     student_count: int
+    # True when any contributing learner's score rests on a tutor's estimate
+    # rather than marked work alone (fix round 1, PROD-8, UX-20).
+    includes_tutor_estimate: bool = False
 
 
 class AgreementStats(BaseModel):

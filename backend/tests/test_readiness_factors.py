@@ -106,9 +106,11 @@ def test_time_decay_still_applies_to_the_estimate():
     assert old.score < 45.0
 
 
-def test_the_estimate_never_raises_confidence():
-    with_estimate = topic_mastery([_q(70.0)], NOW, estimate=_estimate(90.0))
-    assert with_estimate.confidence == topic_mastery([_q(70.0)], NOW).confidence
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5])  # crosses both _confidence_from_count thresholds
+def test_the_estimate_never_raises_confidence(n):
+    with_estimate = topic_mastery([_q(70.0)] * n, NOW, estimate=_estimate(90.0))
+    without_estimate = topic_mastery([_q(70.0)] * n, NOW)
+    assert with_estimate.confidence == without_estimate.confidence
 
 
 def test_no_estimate_no_label():

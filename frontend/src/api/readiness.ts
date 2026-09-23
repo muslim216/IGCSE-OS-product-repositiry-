@@ -20,6 +20,9 @@ export interface WeakTopic {
   topic_code: string;
   topic_title: string;
   score: number;
+  /** An AI-picked weak topic can be estimate-only itself — labelled the same
+      way the topic bar it matches is (fix round 1, PROD-8, UX-20). */
+  tutor_estimate: boolean;
 }
 
 export interface SubjectReadiness {
@@ -117,6 +120,9 @@ export interface TopicHeat {
   topic_title: string;
   avg_score: number;
   student_count: number;
+  /** True when any contributing learner's score rests on a tutor's estimate
+      rather than marked work alone (fix round 1, PROD-8, UX-20). */
+  includes_tutor_estimate: boolean;
 }
 
 export interface AgreementStats {

@@ -221,6 +221,9 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
               >
                 <span className="text-ink-700">
                   {t.topic_code} {t.topic_title}
+                  {t.includes_tutor_estimate && (
+                    <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                  )}
                 </span>
                 <span className="tabular-nums text-ink-500">
                   {Math.round(t.avg_score)}% · {t.student_count}

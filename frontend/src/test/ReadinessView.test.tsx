@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { SubjectReadinessCard } from "../components/ReadinessView";
-import type { SubjectReadiness, TopicReadiness } from "../api/readiness";
+import type { SubjectReadiness, TopicReadiness, WeakTopic } from "../api/readiness";
 
 const base: SubjectReadiness = {
   subject_id: 1,
@@ -82,6 +82,30 @@ test("says nothing extra when the score is marked work only", () => {
     tutor_estimate: false,
   };
   render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
+  expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
+});
+
+test("labels a focus-on chip whose weak topic rests on the tutor's estimate", () => {
+  const weak: WeakTopic = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 40,
+    tutor_estimate: true,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, weak_topics: [weak] }} />);
+  expect(screen.getByText("includes tutor estimate")).toBeInTheDocument();
+});
+
+test("says nothing extra on the chip when the weak topic is marked work only", () => {
+  const weak: WeakTopic = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 40,
+    tutor_estimate: false,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, weak_topics: [weak] }} />);
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });
 

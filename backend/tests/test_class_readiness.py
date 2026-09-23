@@ -248,3 +248,40 @@ async def test_class_readiness_query_count_is_flat_in_roster_size(client, tutor,
         f"query count grew from {baseline} to {grown} as the roster went 1 -> 6; "
         "class_readiness must not fan out per learner"
     )
+
+
+async def test_class_topic_mean_labels_the_tutor_estimate(client, tutor, subject_id):
+    """Fix round 1, item 3: a class mean is an average of individual topic
+    rows, and one row resting on a tutor's estimate is enough to make the
+    average lean on it too — a medium- or high-confidence class row can
+    still be carrying a fresh estimate underneath.
+
+    Discrimination: drop the `if "tutor_estimate" in (r.detail or {})` check
+    in `class_readiness.py` and the assertion below fails.
+    """
+    group = await _class_with(client, tutor, subject_id)
+    a = await _student(client, tutor, group["id"], "A", "a01")
+    async with async_session() as session:
+        topic_id = await session.scalar(select(Topic.id).where(Topic.subject_id == subject_id))
+        run_id = await write_v2_snapshot(
+            session, student_id=a["id"], subject_id=subject_id, score=70.0
+        )
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=a["id"],
+                subject_id=subject_id,
+                topic_id=topic_id,
+                factor=ReadinessFactor.topic_mastery,
+                score=40.0,
+                confidence=FactorConfidence.medium,
+                evidence_count=1,
+                detail={"tutor_estimate": {"pct": 40.0, "share": 1.0}},
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        detail = await class_readiness(session, group["id"])
+    mean = next(t for t in detail.topic_means if t.topic_id == topic_id)
+    assert mean.includes_tutor_estimate is True

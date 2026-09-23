@@ -147,15 +147,21 @@ async def _subject_from_snapshot(
         and row.confidence != FactorConfidence.no_data
     ]
     topic_out.sort(key=lambda t: t.topic_code)
+    # One lookup, shared by score and the label below — an AI-picked weak
+    # topic can be estimate-only at confidence `low` (fix round 1), and the
+    # chip has to say so exactly when the matching topic row does.
+    topic_out_by_id = {t.topic_id: t for t in topic_out}
 
     weak = [
         WeakTopic(
             topic_id=w["topic_id"],
             topic_code=topics[w["topic_id"]].code,
             topic_title=topics[w["topic_id"]].title,
-            score=next(
-                (t.score for t in topic_out if t.topic_id == w["topic_id"]),
-                0.0,
+            score=topic_out_by_id[w["topic_id"]].score if w["topic_id"] in topic_out_by_id else 0.0,
+            tutor_estimate=(
+                topic_out_by_id[w["topic_id"]].tutor_estimate
+                if w["topic_id"] in topic_out_by_id
+                else False
             ),
         )
         for w in snapshot.weak_topics

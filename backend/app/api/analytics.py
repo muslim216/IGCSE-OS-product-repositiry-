@@ -50,6 +50,7 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
             topic_title=t.topic_title,
             avg_score=t.avg_score,
             student_count=t.student_count,
+            includes_tutor_estimate=t.includes_tutor_estimate,
         )
         for t in detail.topic_means  # already lowest-first
     ]

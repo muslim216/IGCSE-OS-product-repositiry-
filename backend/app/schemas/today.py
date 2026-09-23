@@ -101,6 +101,9 @@ class ClassWeakTopic(BaseModel):
     topic_title: str
     avg_score: float
     student_count: int
+    # True when any contributing learner's score rests on a tutor's estimate
+    # rather than marked work alone (fix round 1, PROD-8, UX-20).
+    includes_tutor_estimate: bool = False
 
 
 ClassOverview.model_rebuild()

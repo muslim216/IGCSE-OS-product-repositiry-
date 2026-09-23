@@ -368,20 +368,25 @@ async def evaluate_subject_factors(
 
     topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
     # One query for every topic's estimate (PERF-1), not one per topic. Keyed
-    # by topic_id: seed_readiness upserts on source_ref, so there is at most
-    # one tutor_estimate row per (student, topic) for `.get` to find.
-    estimates = {
-        e.topic_id: TutorEstimate(pct=e.score_pct, occurred_at=e.occurred_at)
-        for e in (
-            await session.scalars(
-                select(Evidence).where(
-                    Evidence.student_id == student_id,
-                    Evidence.source_type == EvidenceSource.tutor_estimate,
-                    Evidence.topic_id.in_([t.id for t in topics] or [0]),
-                )
+    # by topic_id: seed_readiness upserts on source_ref, so there is normally
+    # at most one tutor_estimate row per (student, topic) — but "normally" is
+    # not "always" (no unique constraint; deferred, fix round 1), so this
+    # orders newest-first and `setdefault` keeps only the first row it sees
+    # per topic. Without the order_by, which of several rows wins is whatever
+    # order the database happens to return them in.
+    estimates: dict[int, TutorEstimate] = {}
+    for e in (
+        await session.scalars(
+            select(Evidence)
+            .where(
+                Evidence.student_id == student_id,
+                Evidence.source_type == EvidenceSource.tutor_estimate,
+                Evidence.topic_id.in_([t.id for t in topics] or [0]),
             )
-        ).all()
-    }
+            .order_by(Evidence.occurred_at.desc(), Evidence.id.desc())
+        )
+    ).all():
+        estimates.setdefault(e.topic_id, TutorEstimate(pct=e.score_pct, occurred_at=e.occurred_at))
     mastery_by_topic: dict[int, float | None] = {}
     for topic in topics:
         questions = await _marked_questions_for_topic(session, student_id, topic.id)

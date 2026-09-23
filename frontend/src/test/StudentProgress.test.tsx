@@ -121,13 +121,28 @@ test("no averaging grade means no sentence at all", () => {
 test("a weak topic with no evidence behind it says so rather than showing a score", async () => {
   stubFetch([
     subject({
-      weak_topics: [{ topic_id: 9, topic_code: "3.2", topic_title: "Rates", score: 41 }],
+      weak_topics: [
+        { topic_id: 9, topic_code: "3.2", topic_title: "Rates", score: 41, tutor_estimate: false },
+      ],
       topics: [],
     }),
   ]);
   renderProgress();
   expect(await screen.findByText("3.2 Rates")).toBeInTheDocument();
   expect(screen.getAllByText("not enough data yet").length).toBeGreaterThan(0);
+});
+
+test("a weak topic resting on the tutor's estimate is labelled under Why", async () => {
+  stubFetch([
+    subject({
+      weak_topics: [
+        { topic_id: 9, topic_code: "3.2", topic_title: "Rates", score: 41, tutor_estimate: true },
+      ],
+      topics: [],
+    }),
+  ]);
+  renderProgress();
+  expect(await screen.findByText("includes tutor estimate")).toBeInTheDocument();
 });
 
 test("coverage travels with the evidence disclosure", async () => {
@@ -150,4 +165,26 @@ test("coverage travels with the evidence disclosure", async () => {
   ]);
   renderProgress();
   expect(await screen.findByText(/2 of 4 topics carry evidence/)).toBeInTheDocument();
+});
+
+test("a topic resting on the tutor's estimate is labelled under Evidence", async () => {
+  stubFetch([
+    subject({
+      topics_with_evidence: 1,
+      topic_count: 1,
+      topics: [
+        {
+          topic_id: 1,
+          topic_code: "1.1",
+          topic_title: "Moles",
+          score: 40,
+          confidence: "low",
+          evidence_count: 1,
+          tutor_estimate: true,
+        },
+      ],
+    }),
+  ]);
+  renderProgress();
+  expect(await screen.findByText("includes tutor estimate")).toBeInTheDocument();
 });

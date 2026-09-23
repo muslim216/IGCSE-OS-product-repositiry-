@@ -52,6 +52,10 @@ class TopicMean:
     topic_title: str
     avg_score: float
     student_count: int
+    # True when any contributing learner's row rests on a tutor's estimate
+    # rather than marked work alone — a class average can lean on one fresh
+    # estimate same as an individual topic score can (fix round 1, PROD-8).
+    includes_tutor_estimate: bool = False
 
 
 @dataclass(frozen=True)
@@ -198,6 +202,7 @@ async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadines
 
     topic_scores: dict[int, list[float]] = defaultdict(list)
     meta: dict[int, tuple[str, str]] = {}
+    includes_estimate: dict[int, bool] = defaultdict(bool)
     homework: dict[int, tuple[int, int]] = {}
     # Every learner with *any* ready run, scored or not — a no-evidence run
     # still persists its own homework_performance row, so a learner counted
@@ -245,6 +250,12 @@ async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadines
             ):
                 topic_scores[r.topic_id].append(r.score)
                 meta[r.topic_id] = (r.code, r.title)
+                # One learner's row resting on an estimate is enough to label
+                # the whole class mean — the average blends a real number in
+                # (PROD-1), so the label travels with it (PROD-8), not just
+                # with runs where every contributor is an estimate.
+                if "tutor_estimate" in (r.detail or {}):
+                    includes_estimate[r.topic_id] = True
     topic_means = sorted(
         (
             TopicMean(
@@ -253,6 +264,7 @@ async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadines
                 topic_title=meta[tid][1],
                 avg_score=round(sum(v) / len(v), 1),
                 student_count=len(v),
+                includes_tutor_estimate=includes_estimate[tid],
             )
             for tid, v in topic_scores.items()
         ),

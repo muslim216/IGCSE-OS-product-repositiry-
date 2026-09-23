@@ -65,6 +65,9 @@ export interface ClassWeakTopic {
   topic_title: string;
   avg_score: number;
   student_count: number;
+  /** True when any contributing learner's score rests on a tutor's estimate
+      rather than marked work alone (fix round 1, PROD-8, UX-20). */
+  includes_tutor_estimate: boolean;
 }
 
 export interface ClassOverview {

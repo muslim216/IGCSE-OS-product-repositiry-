@@ -3175,6 +3175,11 @@ export interface components {
             avg_score: number;
             /** Student Count */
             student_count: number;
+            /**
+             * Includes Tutor Estimate
+             * @default false
+             */
+            includes_tutor_estimate: boolean;
         };
         /** ClassifiedOut */
         ClassifiedOut: {
@@ -4983,6 +4988,11 @@ export interface components {
             avg_score: number;
             /** Student Count */
             student_count: number;
+            /**
+             * Includes Tutor Estimate
+             * @default false
+             */
+            includes_tutor_estimate: boolean;
         };
         /**
          * TopicMistakes
@@ -5178,6 +5188,11 @@ export interface components {
             topic_title: string;
             /** Score */
             score: number;
+            /**
+             * Tutor Estimate
+             * @default false
+             */
+            tutor_estimate: boolean;
         };
         /** WeakTopicOut */
         WeakTopicOut: {

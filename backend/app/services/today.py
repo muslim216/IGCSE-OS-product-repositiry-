@@ -252,6 +252,7 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
                 topic_title=t.topic_title,
                 avg_score=t.avg_score,
                 student_count=t.student_count,
+                includes_tutor_estimate=t.includes_tutor_estimate,
             )
             for t in detail.topic_means[:5]
         ],

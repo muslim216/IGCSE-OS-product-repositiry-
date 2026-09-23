@@ -9057,6 +9057,11 @@
           "student_count": {
             "type": "integer",
             "title": "Student Count"
+          },
+          "includes_tutor_estimate": {
+            "type": "boolean",
+            "title": "Includes Tutor Estimate",
+            "default": false
           }
         },
         "type": "object",
@@ -14369,6 +14374,11 @@
           "student_count": {
             "type": "integer",
             "title": "Student Count"
+          },
+          "includes_tutor_estimate": {
+            "type": "boolean",
+            "title": "Includes Tutor Estimate",
+            "default": false
           }
         },
         "type": "object",
@@ -14885,6 +14895,11 @@
           "score": {
             "type": "number",
             "title": "Score"
+          },
+          "tutor_estimate": {
+            "type": "boolean",
+            "title": "Tutor Estimate",
+            "default": false
           }
         },
         "type": "object",
