@@ -281,6 +281,14 @@ async def test_historical_consistency_rows_still_load(client, tutor, world):
 
     resp = await client.get(f"/api/v1/readiness/v2/students/{student_id}", headers=tutor["headers"])
     assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["subjects"]) == 1
+    subject = data["subjects"][0]
+    consistency_factors = [f for f in subject["factors"] if f["factor"] == "consistency"]
+    assert len(consistency_factors) == 1
+    consistency = consistency_factors[0]
+    assert consistency["score"] == 80.0
+    assert consistency["evidence_count"] == 5
 
 
 async def test_an_unmarked_past_paper_attempt_is_omitted_not_scored_zero(client, tutor, world):

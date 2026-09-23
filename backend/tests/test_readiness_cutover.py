@@ -156,13 +156,13 @@ async def _empty_subject_with_group(client, tutor, world, *, code: str):  # noqa
         await session.commit()
         subject_id, org_id = subject.id, tutor_user.organization_id
 
-    group = (
-        await client.post(
-            "/api/v1/groups",
-            json={"name": code, "subject_id": subject_id},
-            headers=tutor["headers"],
-        )
-    ).json()
+    resp = await client.post(
+        "/api/v1/groups",
+        json={"name": code, "subject_id": subject_id},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201
+    group = resp.json()
     async with async_session() as session:
         session.add(GroupMember(group_id=group["id"], student_id=world["student_id"]))
         await session.commit()
@@ -227,7 +227,9 @@ async def test_homework_completion_counts_reach_the_profile_on_a_no_score_snapsh
     resp = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
-    subject = next(s for s in resp.json()["subjects"] if s["subject_id"] == subject_id)
+    subjects = [s for s in resp.json()["subjects"] if s["subject_id"] == subject_id]
+    assert len(subjects) == 1
+    subject = subjects[0]
     assert subject["score"] is None
     assert subject["homework_assignment_count"] == 2
     assert subject["homework_submitted_count"] == 1
@@ -252,7 +254,9 @@ async def test_homework_completion_counts_are_none_without_assignments(
     resp = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
-    subject = next(s for s in resp.json()["subjects"] if s["subject_id"] == subject_id)
+    subjects = [s for s in resp.json()["subjects"] if s["subject_id"] == subject_id]
+    assert len(subjects) == 1
+    subject = subjects[0]
     assert subject["homework_assignment_count"] is None
     assert subject["homework_submitted_count"] is None
 

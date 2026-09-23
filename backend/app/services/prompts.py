@@ -383,7 +383,7 @@ PROMPTS: dict[str, PromptTemplate] = {
     # v2: consistency is retired (task 5.1, AV-30) — six factors now, not
     # seven, and homework's own completion_rate/assignment_count/
     # submitted_count never reach this prompt either (AV-32); only its
-    # accuracy does (services/readiness_v2_ai.py:_factor_prompt_line).
+    # marked_count and accuracy do (services/readiness_v2_ai.py:_factor_prompt_line).
     "readiness": PromptTemplate(version="v2", system=READINESS),
     # v2: the instruction text moved out of the handler's user turn into this
     # system prompt, which also encodes the D3 rule on when a learner may be
