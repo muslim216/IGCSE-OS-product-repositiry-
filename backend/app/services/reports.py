@@ -74,12 +74,20 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
             if strong:
                 lines.append(
                     "Strongest topics: "
-                    + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in strong)
+                    + ", ".join(
+                        f"{t.topic_title} ({t.score:.0f}%"
+                        f"{', includes tutor estimate' if t.tutor_estimate else ''})"
+                        for t in strong
+                    )
                 )
             if weak:
                 lines.append(
                     "Weakest topics: "
-                    + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in weak)
+                    + ", ".join(
+                        f"{t.topic_title} ({t.score:.0f}%"
+                        f"{', includes tutor estimate' if t.tutor_estimate else ''})"
+                        for t in weak
+                    )
                 )
             if s.direction is not None:
                 word = {"up": "improved", "down": "declined", "flat": "held steady"}[s.direction]

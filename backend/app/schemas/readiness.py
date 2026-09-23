@@ -10,6 +10,10 @@ class TopicReadinessOut(BaseModel):
     score: float
     confidence: str
     evidence_count: int
+    # Whether this score rests partly or wholly on the tutor's self-declared
+    # starting estimate rather than marked work — self-declared data is
+    # labelled wherever it is shown, never blended in silently (PROD-8, UX-20).
+    tutor_estimate: bool = False
 
 
 class WeakTopic(BaseModel):

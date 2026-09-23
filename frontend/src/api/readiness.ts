@@ -9,6 +9,10 @@ export interface TopicReadiness {
   score: number;
   confidence: string;
   evidence_count: number;
+  /** Whether this score rests partly or wholly on the tutor's self-declared
+      starting estimate rather than marked work — labelled wherever shown,
+      never blended in silently (PROD-8, UX-20). */
+  tutor_estimate: boolean;
 }
 
 export interface WeakTopic {

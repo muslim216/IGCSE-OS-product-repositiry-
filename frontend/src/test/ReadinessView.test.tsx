@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { SubjectReadinessCard } from "../components/ReadinessView";
-import type { SubjectReadiness } from "../api/readiness";
+import type { SubjectReadiness, TopicReadiness } from "../api/readiness";
 
 const base: SubjectReadiness = {
   subject_id: 1,
@@ -55,6 +55,34 @@ test("surfaces the v2 rationale and revision plan when present", () => {
   );
   expect(screen.getByText(/weakest factor/)).toBeInTheDocument();
   expect(screen.getByText(/timed questions on bonding/)).toBeInTheDocument();
+});
+
+test("labels a topic whose score includes the tutor's estimate", () => {
+  const topic: TopicReadiness = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 40,
+    confidence: "low",
+    evidence_count: 1,
+    tutor_estimate: true,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
+  expect(screen.getByText("includes tutor estimate")).toBeInTheDocument();
+});
+
+test("says nothing extra when the score is marked work only", () => {
+  const topic: TopicReadiness = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 70,
+    confidence: "high",
+    evidence_count: 3,
+    tutor_estimate: false,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
+  expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });
 
 test("says so plainly when there is not enough evidence", () => {

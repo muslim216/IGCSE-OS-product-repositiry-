@@ -36,11 +36,17 @@ from app.models import (
     ReadinessSnapshot,
     Submission,
     SubmissionStatus,
+    Topic,
     User,
     WorkKind,
 )
 from app.services.readiness_factors import NO_DATA, mistake_analysis
-from app.services.readiness_v2 import _mistake_points_and_analysed, evaluate_subject_factors
+from app.services.readiness_v2 import (
+    _mistake_points_and_analysed,
+    _topic_coverage,
+    evaluate_subject_factors,
+)
+from app.services.readiness_v2_ai import ReadinessSynthesis, compute_readiness_v2
 from app.services.work import create_work
 from tests.factories import make_mistake_category, make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
@@ -752,3 +758,87 @@ async def test_the_factor_reports_whatever_the_category_is_called(client, tutor,
     assert [p.category for p in points] == ["Rushed the last page"]
     result = mistake_analysis(points, analysed, NOW)
     assert result.detail["by_category"] == {"Rushed the last page": 1}
+
+
+async def test_practiced_excludes_tutor_estimate_but_not_marked_work(client, tutor, world):
+    """Owner decision (2026-09-23): coverage counts marked work only. A
+    tutor's estimate is their opinion, entered before any work exists — not
+    the student practising. Discrimination: drop the
+    `source_type != EvidenceSource.tutor_estimate` filter in `_topic_coverage`
+    and the first assertion below fails."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+    topic1 = world["topic1"]
+
+    async with async_session() as session:
+        session.add(
+            Evidence(
+                student_id=student_id,
+                topic_id=topic1,
+                source_type=EvidenceSource.tutor_estimate,
+                score_pct=40.0,
+                max_marks=0,
+                occurred_at=NOW,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        topic = await session.get(Topic, topic1)
+        coverage = await _topic_coverage(session, student_id, subject_id, {}, [topic])
+    assert coverage[0].practiced is False
+
+    async with async_session() as session:
+        # Marked work reaches Evidence via build_homework_evidence
+        # (services/evidence.py), run from mark_submission once a question is
+        # finalized. Writing the row it produces directly keeps this test
+        # scoped to the coverage query, not the whole marking pipeline.
+        session.add(
+            Evidence(
+                student_id=student_id,
+                topic_id=topic1,
+                source_type=EvidenceSource.homework,
+                score_pct=80.0,
+                max_marks=10,
+                occurred_at=NOW,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        topic = await session.get(Topic, topic1)
+        coverage = await _topic_coverage(session, student_id, subject_id, {}, [topic])
+    assert coverage[0].practiced is True
+
+
+async def test_a_seed_estimate_scores_a_topic_with_no_marked_work(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    """decision 14, end to end: a tutor's seed estimate alone carries a
+    topic's score at low confidence and is labelled wherever it is shown."""
+    resp = await client.post(
+        f"/api/v1/students/{world['student_id']}/seed-readiness",
+        json={"topics": [{"topic_id": world["topic1"], "score_pct": 40}]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete",
+        fake_ai(
+            ReadinessSynthesis(
+                score=40, weak_topics=[], rationale="seeded", recommended_revision="-"
+            )
+        ),
+    )
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    subject = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+        )
+    ).json()["subjects"][0]
+    topic = next(t for t in subject["topics"] if t["topic_id"] == world["topic1"])
+    assert topic["score"] == 40.0 and topic["confidence"] == "low"
+    assert topic["tutor_estimate"] is True

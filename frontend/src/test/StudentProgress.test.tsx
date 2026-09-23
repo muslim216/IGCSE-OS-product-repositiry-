@@ -143,6 +143,7 @@ test("coverage travels with the evidence disclosure", async () => {
           score: 70,
           confidence: "high",
           evidence_count: 3,
+          tutor_estimate: false,
         },
       ],
     }),

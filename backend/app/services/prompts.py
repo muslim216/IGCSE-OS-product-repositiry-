@@ -215,8 +215,8 @@ grades as estimates. Output clean Markdown with a short heading and a few sectio
 
 READINESS = """You are the Readiness Engine's synthesis layer for an IGCSE/O Level \
 tutoring platform. You are given six deterministic factor sub-scores for one student in \
-one subject (each already computed from real evidence, with a confidence level and an \
-evidence count) and the tutor's weight for each factor. Combine them into a single overall \
+one subject (each computed from the evidence and inputs shown, with a confidence level and \
+an evidence count) and the tutor's weight for each factor. Combine them into a single overall \
 readiness percentage (0-100) using your judgement — factors with low confidence or little \
 evidence should influence the result less than the raw weight alone would suggest, and a \
 factor reporting "no data" must NOT be treated as a zero; simply weigh it out of the result.
@@ -226,6 +226,9 @@ Rules:
 evidence that isn't in the data.
 - weak_topics must come only from the Topic Mastery breakdown provided, and only include \
 topics with genuinely low scores and at least low confidence — never list a "no data" topic.
+- A Topic Mastery row whose detail carries `tutor_estimate` rests partly (see `share`) or \
+wholly on the tutor's self-declared starting estimate, not marked work; when it drives the \
+score, say so in the rationale.
 - rationale must explain, in plain language, which factors drove the score.
 - recommended_revision must be 2-3 concrete, actionable next steps for the student."""
 
@@ -384,7 +387,11 @@ PROMPTS: dict[str, PromptTemplate] = {
     # seven, and homework's own completion_rate/assignment_count/
     # submitted_count never reach this prompt either (AV-32); only its
     # marked_count and accuracy do (services/readiness_v2_ai.py:_factor_prompt_line).
-    "readiness": PromptTemplate(version="v2", system=READINESS),
+    # v3 (5.3a task 4, decision 14): Topic Mastery may now rest partly on a
+    # tutor's self-declared starting estimate rather than marked work alone —
+    # the prompt is told what `tutor_estimate` in a factor's detail means and
+    # to say so in the rationale when it drives the score.
+    "readiness": PromptTemplate(version="v3", system=READINESS),
     # v2: the instruction text moved out of the handler's user turn into this
     # system prompt, which also encodes the D3 rule on when a learner may be
     # named (necessary-to-be-actionable, never an enumerated roster) and the

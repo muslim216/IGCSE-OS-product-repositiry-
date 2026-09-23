@@ -24,6 +24,7 @@ from app.models import (
     AssignmentQuestion,
     AssignmentStatus,
     Evidence,
+    EvidenceSource,
     FactorEvaluation,
     Group,
     GroupMember,
@@ -47,6 +48,7 @@ from app.services.readiness_factors import (
     MistakePoint,
     PastPaperAttemptPoint,
     TopicCoverage,
+    TutorEstimate,
     assessment_performance,
     homework_performance,
     mistake_analysis,
@@ -244,11 +246,20 @@ async def _topic_coverage(
             )
         ).all()
     )
+    # Owner decision (2026-09-23): coverage counts marked work only. A tutor's
+    # estimate is their opinion entered before any work exists, not practice —
+    # excluded here so "practised" never reads a self-declared score as
+    # evidence the student has actually done anything (PROD-8). Homework,
+    # mocks and observations still count.
     practiced_ids = set(
         (
             await session.scalars(
                 select(Evidence.topic_id)
-                .where(Evidence.student_id == student_id, Evidence.topic_id.in_(topic_ids))
+                .where(
+                    Evidence.student_id == student_id,
+                    Evidence.topic_id.in_(topic_ids),
+                    Evidence.source_type != EvidenceSource.tutor_estimate,
+                )
                 .distinct()
             )
         ).all()
@@ -356,11 +367,28 @@ async def evaluate_subject_factors(
     rows: list[FactorEvaluation] = []
 
     topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
+    # One query for every topic's estimate (PERF-1), not one per topic. Keyed
+    # by topic_id: seed_readiness upserts on source_ref, so there is at most
+    # one tutor_estimate row per (student, topic) for `.get` to find.
+    estimates = {
+        e.topic_id: TutorEstimate(pct=e.score_pct, occurred_at=e.occurred_at)
+        for e in (
+            await session.scalars(
+                select(Evidence).where(
+                    Evidence.student_id == student_id,
+                    Evidence.source_type == EvidenceSource.tutor_estimate,
+                    Evidence.topic_id.in_([t.id for t in topics] or [0]),
+                )
+            )
+        ).all()
+    }
     mastery_by_topic: dict[int, float | None] = {}
     for topic in topics:
         questions = await _marked_questions_for_topic(session, student_id, topic.id)
-        result = topic_mastery(questions, now)
-        mastery_by_topic[topic.id] = result.score
+        result = topic_mastery(questions, now, estimate=estimates.get(topic.id))
+        # An estimate alone never claims mastery for coverage (PROD-8): only a
+        # score built from marked questions can mark a topic "mastered" below.
+        mastery_by_topic[topic.id] = result.score if questions else None
         rows.append(
             _factor_row(
                 evaluation_run_id,

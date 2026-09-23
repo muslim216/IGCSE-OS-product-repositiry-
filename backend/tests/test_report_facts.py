@@ -1,10 +1,18 @@
 """build_report_facts reads build_summary_v2 (5.3a Task 2), so a report states
 exactly the numbers the student's profile shows."""
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.db import async_session
-from app.models import FactorConfidence, User
+from app.models import (
+    AiSynthesisStatus,
+    FactorConfidence,
+    FactorEvaluation,
+    ReadinessFactor,
+    ReadinessSnapshot,
+    User,
+)
 from app.services.reports import build_report_facts
 from tests.factories import write_v2_snapshot
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
@@ -79,3 +87,45 @@ async def test_report_facts_show_homework_line_even_with_no_score(tutor, world):
 
     assert "No readiness data yet for this subject." in facts
     assert "Homework: submitted 2 of 3 assignments" in facts
+
+
+async def test_report_facts_label_a_topic_that_rests_on_the_tutor_estimate(
+    tutor,
+    world,  # noqa: F811
+):
+    """decision 14: self-declared data is labelled wherever it is shown
+    (PROD-8, UX-20) — including here, not just on the profile."""
+    run_id = str(uuid.uuid4())
+    async with async_session() as session:
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                topic_id=world["topic1"],
+                factor=ReadinessFactor.topic_mastery,
+                score=40.0,
+                confidence=FactorConfidence.low,
+                evidence_count=1,
+                detail={"tutor_estimate": {"pct": 40.0, "share": 1.0}},
+            )
+        )
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                status=AiSynthesisStatus.ready,
+                score=40.0,
+                predicted_grade=None,
+                weak_topics=[],
+                rationale="fixture",
+                recommended_revision=None,
+            )
+        )
+        await session.commit()
+
+        student = await session.get(User, world["student_id"])
+        facts = await build_report_facts(session, student, [world["subject_id"]])
+
+    assert "Atomic structure (40%, includes tutor estimate)" in facts

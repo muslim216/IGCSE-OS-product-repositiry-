@@ -15,6 +15,7 @@ from app.services.readiness_factors import (
     MistakePoint,
     PastPaperAttemptPoint,
     TopicCoverage,
+    TutorEstimate,
     _age_days,
     _decay,
     assessment_performance,
@@ -60,6 +61,62 @@ def test_topic_mastery_mixed_tiers_blend():
     # weighted = (0.8*100 + 1.3*40) / (0.8+1.3) = 132/2.1 = 62.9
     assert 60 <= result.score <= 65
     assert result.evidence_count == 2
+
+
+# ---- Topic Mastery: tutor estimate as a decaying prior (decision 14) ----
+# Port of tests/test_seeded_evidence.py:32-99 (v1's SEEDED_SOURCES semantics),
+# carried into v2's topic_mastery. That file stays until 5.3b.
+
+
+def _q(pct, days_ago=0, difficulty="medium"):
+    return MarkedQuestion(
+        difficulty=difficulty, pct=pct, occurred_at=NOW - timedelta(days=days_ago)
+    )
+
+
+def _estimate(pct, days_ago=0):
+    return TutorEstimate(pct=pct, occurred_at=NOW - timedelta(days=days_ago))
+
+
+def test_an_estimate_alone_carries_the_topic_at_low_confidence():
+    result = topic_mastery([], NOW, estimate=_estimate(40.0))
+    assert result.score == 40.0
+    assert result.confidence == FactorConfidence.low  # scored, but never confident
+    assert result.evidence_count == 1
+    assert result.detail["tutor_estimate"] == {"pct": 40.0, "share": 1.0}
+
+
+def test_the_estimate_gives_way_to_marked_questions_with_no_time_passing():
+    """The gate (decision 14): same day, same estimate, more marked work."""
+    scores = [
+        topic_mastery([_q(100.0)] * n, NOW, estimate=_estimate(0.0)).score for n in range(1, 4)
+    ]
+    assert scores == sorted(scores) and scores[0] < scores[-1]
+    assert scores[-1] > 95.0  # 300 / (3 + 0.4/4) = 96.8
+
+
+def test_the_estimate_is_never_deleted_only_outweighed():
+    result = topic_mastery([_q(100.0)] * 5, NOW, estimate=_estimate(0.0))
+    assert result.evidence_count == 6
+    assert result.score < 100.0
+
+
+def test_time_decay_still_applies_to_the_estimate():
+    old = topic_mastery([_q(40.0)], NOW, estimate=_estimate(80.0, days_ago=365))
+    assert old.score < 45.0
+
+
+def test_the_estimate_never_raises_confidence():
+    with_estimate = topic_mastery([_q(70.0)], NOW, estimate=_estimate(90.0))
+    assert with_estimate.confidence == topic_mastery([_q(70.0)], NOW).confidence
+
+
+def test_no_estimate_no_label():
+    assert "tutor_estimate" not in topic_mastery([_q(70.0)], NOW).detail
+
+
+def test_nothing_at_all_is_no_data():
+    assert topic_mastery([], NOW) is NO_DATA
 
 
 # ---- Past Paper Performance ----

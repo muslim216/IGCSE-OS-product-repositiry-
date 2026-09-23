@@ -278,14 +278,17 @@ async def seed_readiness(
     a second one: this is the tutor's current opinion, not a history of their
     opinions, and stacking them would let one topic be seeded into a score.
 
-    **Known gap (RISK-5).** The estimate's numeric value drives the v1 engine.
-    Readiness Engine v2 — the default served engine — computes topic mastery from
-    marked questions and reads Evidence only as a "practised" flag, so it does
-    not consume the estimate's percentage. This is not unique to seeding: every
-    Evidence-only source (tutor observations, entered mocks) has the same limit
-    under v2, and closing it means teaching v2 to score from Evidence, which is
-    the RISK-5 convergence work, not a cold-start change. Until then the seed's
-    number is fully honoured only where v1 answers.
+    Readiness Engine v2 — the default served engine — now reads the estimate's
+    percentage too (5.3a task 4, decision 14): Topic Mastery folds it in as a
+    labelled, decaying prior that a marked question overtakes, never deletes,
+    and that never by itself claims Syllabus Coverage's "mastered" (PROD-8).
+    A topic with only an estimate still shows "not practised" for coverage —
+    a tutor's opinion is not the student doing the work.
+
+    **Known gap (RISK-5), narrowed.** What remains is the other Evidence-only
+    sources: tutor observations and entered mocks still reach v2 only as a
+    "practised" flag, not as a score — the same convergence work as before,
+    now scoped to those two rather than to every Evidence-only source.
     """
     # Which subjects this tutor actually teaches *this* student. Authorizing the
     # student once is not enough: topics are global, so a tutor who teaches Sara

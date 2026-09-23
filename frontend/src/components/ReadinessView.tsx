@@ -123,6 +123,9 @@ export function SubjectReadinessCard({
               >
                 <div className="flex items-center gap-2 text-sm">
                   <span className="w-28 shrink-0 truncate text-slate-500">{t.topic_code}</span>
+                  {t.tutor_estimate && (
+                    <span className="text-xs text-ink-500">includes tutor estimate</span>
+                  )}
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className={`h-full ${barColor(t.score)}`}

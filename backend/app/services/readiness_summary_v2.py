@@ -138,6 +138,7 @@ async def _subject_from_snapshot(
             score=row.score,
             confidence=row.confidence.value,
             evidence_count=row.evidence_count,
+            tutor_estimate="tutor_estimate" in (row.detail or {}),
         )
         for row in rows
         # A factor with no evidence reports "no data" — never a fabricated 0.
