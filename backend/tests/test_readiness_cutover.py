@@ -9,16 +9,25 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
+    Assignment,
+    AssignmentStatus,
     FactorConfidence,
     FactorEvaluation,
+    GroupMember,
     Job,
     JobStatus,
     ReadinessFactor,
     ReadinessSnapshot,
     ReadinessWeights,
+    Submission,
+    SubmissionStatus,
     User,
+    WorkKind,
 )
 from app.services.grade_boundaries import set_org_boundaries
+from app.services.readiness_v2_ai import compute_readiness_v2
+from app.services.work import create_work
+from tests.factories import make_subject
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -134,6 +143,169 @@ async def test_a_no_data_topic_is_omitted_rather_than_scored_zero(client, tutor,
     assert resp.json()["subjects"][0]["topics"] == []
 
 
+async def _empty_subject_with_group(client, tutor, world, *, code: str):  # noqa: F811
+    """A subject with zero topics and a group the world student is enrolled
+    in — the one case where every deterministic factor reports no data, so
+    `compute_readiness_v2` takes the early-return branch (readiness_v2_ai.py
+    ~:288) with no AI call needed, and no ANTHROPIC_API_KEY is required."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        subject = await make_subject(
+            session, organization_id=tutor_user.organization_id, code=code, name=code
+        )
+        await session.commit()
+        subject_id, org_id = subject.id, tutor_user.organization_id
+
+    resp = await client.post(
+        "/api/v1/groups",
+        json={"name": code, "subject_id": subject_id},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201
+    group = resp.json()
+    async with async_session() as session:
+        session.add(GroupMember(group_id=group["id"], student_id=world["student_id"]))
+        await session.commit()
+    return subject_id, group["id"], org_id
+
+
+async def test_homework_completion_counts_reach_the_profile_on_a_no_score_snapshot(
+    client,
+    tutor,
+    world,  # noqa: F811
+):
+    """A student whose only activity in a subject is handed-in, unmarked
+    homework gets a "No evidence yet" snapshot with score=None
+    (readiness_v2_ai.py ~:288) — the completion counts must still reach the
+    profile: they are a fact shown beside readiness, not blended into the
+    missing score (PROD-2, controller ruling 5.1 task 3)."""
+    subject_id, group_id, org_id = await _empty_subject_with_group(
+        client, tutor, world, code="4XX2"
+    )
+
+    async with async_session() as session:
+        work1 = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="HW1",
+        )
+        session.add(
+            Assignment(
+                work_id=work1.id, group_id=group_id, title="HW1", status=AssignmentStatus.published
+            )
+        )
+        work2 = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="HW2",
+        )
+        session.add(
+            Assignment(
+                work_id=work2.id, group_id=group_id, title="HW2", status=AssignmentStatus.published
+            )
+        )
+        await session.flush()
+        # Handed in, unmarked — HW2 was never submitted at all.
+        session.add(
+            Submission(
+                student_id=world["student_id"],
+                status=SubmissionStatus.submitted,
+                work_id=work1.id,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": subject_id}
+        )
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subjects = [s for s in resp.json()["subjects"] if s["subject_id"] == subject_id]
+    assert len(subjects) == 1
+    subject = subjects[0]
+    assert subject["score"] is None
+    assert subject["homework_assignment_count"] == 2
+    assert subject["homework_submitted_count"] == 1
+
+
+async def test_homework_completion_counts_are_none_without_assignments(
+    client,
+    tutor,
+    world,  # noqa: F811
+):
+    """A missing `assignment_count`/`submitted_count` detail key means None,
+    never a fabricated 0 (PROD-2)."""
+    subject_id, _group_id, _org_id = await _empty_subject_with_group(
+        client, tutor, world, code="4XX3"
+    )
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": subject_id}
+        )
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subjects = [s for s in resp.json()["subjects"] if s["subject_id"] == subject_id]
+    assert len(subjects) == 1
+    subject = subjects[0]
+    assert subject["homework_assignment_count"] is None
+    assert subject["homework_submitted_count"] is None
+
+
+async def test_a_pre_5_1_historical_run_has_no_homework_counts(client, tutor, world):  # noqa: F811
+    """Before Task 1, a homework_performance row's `detail` carried
+    `completion_rate`/`accuracy`/`on_time_rate` only — no `assignment_count`
+    or `submitted_count`, since those keys didn't exist yet. A pre-5.1 run
+    read through the ordinary tutor-facing endpoint must still serve a 200,
+    with the new counts simply absent (PROD-2), never a KeyError and never a
+    fabricated 0 (Fix round 1)."""
+    run_id = str(uuid.uuid4())
+    async with async_session() as session:
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                factor=ReadinessFactor.homework_performance,
+                score=80.0,
+                confidence=FactorConfidence.high,
+                evidence_count=4,
+                detail={"completion_rate": 1.0, "accuracy": 80.0, "on_time_rate": 1.0},
+            )
+        )
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                status=AiSynthesisStatus.ready,
+                score=72.0,
+                predicted_grade="6",
+                weak_topics=[],
+                rationale="historical, pre-5.1",
+                recommended_revision=None,
+            )
+        )
+        await session.commit()
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    assert resp.status_code == 200
+    subject = resp.json()["subjects"][0]
+    assert subject["homework_assignment_count"] is None
+    assert subject["homework_submitted_count"] is None
+
+
 async def test_a_queued_recompute_marks_the_score_as_updating(client, tutor, world):  # noqa: F811
     """Rather than serving a stale score as if it were current."""
     await _write_snapshot(world)
@@ -241,7 +413,6 @@ async def test_weights_default_to_the_model_defaults(client, tutor):
     assert resp.status_code == 200
     body = resp.json()
     assert body["weight_topic_mastery"] == 1.0
-    assert body["weight_consistency"] == 1.0
     assert body["half_life_days"] == 45.0
 
 
@@ -253,7 +424,6 @@ async def test_saving_weights_persists_them(client, tutor):
         "weight_assessment_performance": 1.5,
         "weight_syllabus_coverage": 0.5,
         "weight_mistake_analysis": 1.0,
-        "weight_consistency": 0.0,
         "half_life_days": 30.0,
     }
     resp = await client.put("/api/v1/readiness/weights", json=payload, headers=tutor["headers"])
@@ -261,7 +431,7 @@ async def test_saving_weights_persists_them(client, tutor):
     assert resp.json()["weight_past_paper_performance"] == 2.5
 
     again = await client.get("/api/v1/readiness/weights", headers=tutor["headers"])
-    assert again.json()["weight_consistency"] == 0.0
+    assert again.json()["weight_syllabus_coverage"] == 0.5
     async with async_session() as session:
         rows = (await session.scalars(select(ReadinessWeights))).all()
         assert len(rows) == 1, "the org's weights are upserted, not duplicated"
@@ -277,7 +447,6 @@ async def test_saving_weights_recomputes_the_tutors_students(client, tutor, worl
         "weight_assessment_performance": 1.0,
         "weight_syllabus_coverage": 1.0,
         "weight_mistake_analysis": 1.0,
-        "weight_consistency": 1.0,
         "half_life_days": 45.0,
     }
     await client.put("/api/v1/readiness/weights", json=payload, headers=tutor["headers"])
@@ -297,7 +466,6 @@ async def test_weights_reject_out_of_range_values(client, tutor):
             "weight_assessment_performance": 1.0,
             "weight_syllabus_coverage": 1.0,
             "weight_mistake_analysis": 1.0,
-            "weight_consistency": 1.0,
             "half_life_days": 45.0,
         },
         headers=tutor["headers"],
@@ -318,12 +486,33 @@ async def test_students_cannot_read_or_change_the_weights(client, tutor, world):
                 "weight_assessment_performance": 1.0,
                 "weight_syllabus_coverage": 1.0,
                 "weight_mistake_analysis": 1.0,
-                "weight_consistency": 1.0,
                 "half_life_days": 45.0,
             },
             headers=headers,
         )
     ).status_code == 403
+
+
+async def test_extra_weight_consistency_key_is_not_returned(client, tutor):
+    # ReadinessWeightsUpdate has no `weight_consistency` field any more (AV-30);
+    # an extra key in the body is ignored by Pydantic rather than rejected, and
+    # must not reappear on the way back out.
+    resp = await client.put(
+        "/api/v1/readiness/weights",
+        json={
+            "weight_topic_mastery": 1.0,
+            "weight_past_paper_performance": 1.0,
+            "weight_homework_performance": 1.0,
+            "weight_assessment_performance": 1.0,
+            "weight_syllabus_coverage": 1.0,
+            "weight_mistake_analysis": 1.0,
+            "weight_consistency": 1.0,
+            "half_life_days": 45.0,
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert "weight_consistency" not in resp.json()
 
 
 async def test_a_student_sees_their_own_v2_readiness(client, tutor, world):  # noqa: F811

@@ -12031,10 +12031,6 @@
             "type": "number",
             "title": "Weight Mistake Analysis"
           },
-          "weight_consistency": {
-            "type": "number",
-            "title": "Weight Consistency"
-          },
           "half_life_days": {
             "type": "number",
             "title": "Half Life Days"
@@ -12048,7 +12044,6 @@
           "weight_assessment_performance",
           "weight_syllabus_coverage",
           "weight_mistake_analysis",
-          "weight_consistency",
           "half_life_days"
         ],
         "title": "ReadinessWeightsOut"
@@ -12091,12 +12086,6 @@
             "minimum": 0.0,
             "title": "Weight Mistake Analysis"
           },
-          "weight_consistency": {
-            "type": "number",
-            "maximum": 3.0,
-            "minimum": 0.0,
-            "title": "Weight Consistency"
-          },
           "half_life_days": {
             "type": "number",
             "maximum": 365.0,
@@ -12112,7 +12101,6 @@
           "weight_assessment_performance",
           "weight_syllabus_coverage",
           "weight_mistake_analysis",
-          "weight_consistency",
           "half_life_days"
         ],
         "title": "ReadinessWeightsUpdate"
@@ -13510,6 +13498,28 @@
             "type": "integer",
             "title": "Topic Count",
             "default": 0
+          },
+          "homework_assignment_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homework Assignment Count"
+          },
+          "homework_submitted_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homework Submitted Count"
           },
           "topics": {
             "items": {

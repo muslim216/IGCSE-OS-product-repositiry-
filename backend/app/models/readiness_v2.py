@@ -398,7 +398,6 @@ class ReadinessWeights(TimestampMixin, Base):
     weight_assessment_performance: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     weight_syllabus_coverage: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     weight_mistake_analysis: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
-    weight_consistency: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     half_life_days: Mapped[float] = mapped_column(Float, default=45.0, nullable=False)
 
 
@@ -409,6 +408,10 @@ class ReadinessFactor(str, enum.Enum):
     assessment_performance = "assessment_performance"
     syllabus_coverage = "syllabus_coverage"
     mistake_analysis = "mistake_analysis"
+    # Retired by AV-30 (task 5.1): never written by the engine any more. Kept
+    # only because factor_evaluations is append-only and holds historical runs
+    # with this value — removing the member makes SQLAlchemy raise LookupError
+    # loading them (non-native enum, DB-5). Do not reuse the name.
     consistency = "consistency"
 
 

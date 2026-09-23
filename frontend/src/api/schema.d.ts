@@ -4203,8 +4203,6 @@ export interface components {
             weight_syllabus_coverage: number;
             /** Weight Mistake Analysis */
             weight_mistake_analysis: number;
-            /** Weight Consistency */
-            weight_consistency: number;
             /** Half Life Days */
             half_life_days: number;
         };
@@ -4222,8 +4220,6 @@ export interface components {
             weight_syllabus_coverage: number;
             /** Weight Mistake Analysis */
             weight_mistake_analysis: number;
-            /** Weight Consistency */
-            weight_consistency: number;
             /** Half Life Days */
             half_life_days: number;
         };
@@ -4681,6 +4677,10 @@ export interface components {
              * @default 0
              */
             topic_count: number;
+            /** Homework Assignment Count */
+            homework_assignment_count?: number | null;
+            /** Homework Submitted Count */
+            homework_submitted_count?: number | null;
             /** Topics */
             topics: components["schemas"]["TopicReadinessOut"][];
             /** Weak Topics */

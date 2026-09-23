@@ -3,7 +3,7 @@
 Queries the DB, builds the plain dataclasses services/readiness_factors.py's
 pure functions need, and persists one FactorEvaluation row per factor for a
 (student, subject) computation run — topic-level for Topic Mastery,
-subject-level for the other six. This module does no AI calls and is kept
+subject-level for the other five. This module does no AI calls and is kept
 out of any HTTP request path; it's only ever invoked from the
 compute_readiness_v2 background job (Layer 2, services/readiness_v2_ai.py),
 per the "run out-of-band" rule for deterministic computation.
@@ -41,7 +41,6 @@ from app.models import (
 )
 from app.services.readiness_factors import (
     AssessmentPoint,
-    ConsistencyPoint,
     FactorResult,
     HomeworkPoint,
     MarkedQuestion,
@@ -49,7 +48,6 @@ from app.services.readiness_factors import (
     PastPaperAttemptPoint,
     TopicCoverage,
     assessment_performance,
-    consistency,
     homework_performance,
     mistake_analysis,
     past_paper_performance,
@@ -173,7 +171,12 @@ async def _homework_points(
     points: list[HomeworkPoint] = []
     for assignment, submission in rows:
         if submission is None or submission.status not in SETTLED_STATUSES:
-            points.append(HomeworkPoint(pct=None, on_time=None))
+            points.append(
+                HomeworkPoint(
+                    submitted=submission is not None,
+                    pct=None,
+                )
+            )
             continue
         marks = (
             await session.scalars(
@@ -188,25 +191,12 @@ async def _homework_points(
             )
         ) or 0
         total_final = sum(m.final_marks or 0 for m in marks)
+        # Pre-existing: an assignment with no questions divides by zero here and
+        # falls back to 0.0 rather than "no data" — a separate defect from this
+        # change, left as-is (noted in the 5.1 PR).
         pct = (total_final / total_max * 100) if total_max else 0.0
-        on_time = (
-            submission.submitted_at <= assignment.due_at if assignment.due_at is not None else None
-        )
-        points.append(HomeworkPoint(pct=pct, on_time=on_time))
+        points.append(HomeworkPoint(submitted=True, pct=pct))
     return points
-
-
-async def _consistency_points(
-    session: AsyncSession, student_id: int, subject_id: int
-) -> list[ConsistencyPoint]:
-    rows = await _homework_assignment_rows(session, student_id, subject_id)
-    return [
-        ConsistencyPoint(
-            due_at=assignment.due_at,
-            submitted_at=submission.submitted_at if submission is not None else None,
-        )
-        for assignment, submission in rows
-    ]
 
 
 async def _assessment_points(
@@ -441,17 +431,6 @@ async def evaluate_subject_factors(
             subject_id,
             ReadinessFactor.mistake_analysis,
             mistake_result,
-        )
-    )
-
-    consistency_result = consistency(await _consistency_points(session, student_id, subject_id))
-    rows.append(
-        _factor_row(
-            evaluation_run_id,
-            student_id,
-            subject_id,
-            ReadinessFactor.consistency,
-            consistency_result,
         )
     )
 

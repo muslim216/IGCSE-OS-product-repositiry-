@@ -7,14 +7,12 @@ from app.models import FactorConfidence
 from app.services.readiness_factors import (
     NO_DATA,
     AssessmentPoint,
-    ConsistencyPoint,
     HomeworkPoint,
     MarkedQuestion,
     MistakePoint,
     PastPaperAttemptPoint,
     TopicCoverage,
     assessment_performance,
-    consistency,
     homework_performance,
     mistake_analysis,
     past_paper_performance,
@@ -81,37 +79,43 @@ def test_past_paper_trend_improving():
 # ---- Homework Performance ----
 
 
-def test_homework_accuracy_averages_over_submitted_work_only():
-    """A missed assignment lowers completion; it must not be averaged into
-    accuracy as a zero (PROD-2). The regression this guards is a plausible
-    narrowing of `pct is not None` that keeps the full point count in the
-    denominator: that reads 50.0 here instead of 100.0."""
+def test_homework_score_is_accuracy_over_marked_work_only():
     points = [
-        HomeworkPoint(pct=100, on_time=True),
-        HomeworkPoint(pct=None, on_time=None),
+        HomeworkPoint(submitted=True, pct=80),
+        HomeworkPoint(submitted=True, pct=100),
+        HomeworkPoint(submitted=False, pct=None),
     ]
     result = homework_performance(points)
-    assert result.detail["accuracy"] == 100.0
+    assert result.score == 90.0  # completion no longer blended in (AV-32)
+    assert result.evidence_count == 2  # marked pieces, not assignments
+    assert result.detail["completion_rate"] == 0.67
+    assert result.detail["assignment_count"] == 3
+    assert result.detail["marked_count"] == 2
 
 
-def test_homework_no_submissions_scores_zero_completion():
-    points = [HomeworkPoint(pct=None, on_time=None), HomeworkPoint(pct=None, on_time=None)]
+def test_homework_nothing_marked_is_no_data_but_keeps_completion():
+    # Handed in, awaiting marking: no accuracy exists yet — never a 0 (PROD-2).
+    points = [HomeworkPoint(submitted=True, pct=None), HomeworkPoint(submitted=False, pct=None)]
     result = homework_performance(points)
-    assert result.score == 0.0
-    assert result.detail["accuracy"] is None
+    assert result.score is None
+    assert result.confidence == FactorConfidence.no_data
+    assert result.detail["completion_rate"] == 0.5  # submitted counts as done
+    assert result.detail["submitted_count"] == 1
 
 
-def test_homework_blends_accuracy_and_completion():
-    points = [
-        HomeworkPoint(pct=100, on_time=True),
-        HomeworkPoint(pct=100, on_time=True),
-        HomeworkPoint(pct=None, on_time=None),  # missed
-        HomeworkPoint(pct=None, on_time=None),  # missed
-    ]
-    result = homework_performance(points)
-    # accuracy=100, completion=0.5 -> 100*0.7 + 50*0.3 = 85
-    assert result.score == 85.0
-    assert result.detail["completion_rate"] == 0.5
+def test_homework_submitted_but_unmarked_counts_as_completed():
+    points = [HomeworkPoint(submitted=True, pct=None), HomeworkPoint(submitted=True, pct=70)]
+    assert homework_performance(points).detail["completion_rate"] == 1.0
+
+
+def test_homework_detail_carries_no_punctuality():
+    # Decision 5: punctuality is invisible until the weekly send (8.2).
+    result = homework_performance([HomeworkPoint(submitted=True, pct=50)])
+    assert "on_time_rate" not in result.detail
+
+
+def test_homework_no_assignments_is_no_data():
+    assert homework_performance([]) is NO_DATA
 
 
 # ---- Assessment Performance ----
@@ -176,25 +180,3 @@ def test_mistake_analysis_scores_a_clean_record_when_work_was_analysed():
     assert result is not NO_DATA
     assert result.score == 100.0
     assert result.detail["analysed_questions"] == 12
-
-
-# ---- Consistency ----
-
-
-def test_consistency_no_assignments_is_no_data():
-    assert consistency([]).confidence == FactorConfidence.no_data
-
-
-def test_consistency_rewards_completion_and_timeliness():
-    points = [
-        ConsistencyPoint(
-            due_at=NOW - timedelta(days=5), submitted_at=NOW - timedelta(days=6)
-        ),  # on time
-        ConsistencyPoint(
-            due_at=NOW - timedelta(days=5), submitted_at=NOW - timedelta(days=1)
-        ),  # late
-        ConsistencyPoint(due_at=NOW - timedelta(days=5), submitted_at=None),  # missed
-    ]
-    result = consistency(points)
-    # completion = 2/3, on_time = 1/3 -> 2/3*60 + 1/3*40 = 40 + 13.3 = 53.3
-    assert 50 <= result.score <= 55

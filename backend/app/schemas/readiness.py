@@ -55,6 +55,13 @@ class SubjectReadiness(BaseModel):
     # lets a surface say so instead of implying completeness (PROD-2).
     topics_with_evidence: int = 0
     topic_count: int = 0
+    # Completion is a fact, not part of the score (AV-32): "4 of 5 handed in"
+    # carries its own denominator (PROD-1) and is never blended into a number.
+    # Both None when the run has no homework_performance row for this subject
+    # or the subject fell back to v1 — never 0, which PROD-2 forbids for an
+    # absent measurement.
+    homework_assignment_count: int | None = None
+    homework_submitted_count: int | None = None
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
     # Which engine produced this. "v2" is the system of record; "v1" means no
@@ -207,7 +214,6 @@ class ReadinessWeightsOut(BaseModel):
     weight_assessment_performance: float
     weight_syllabus_coverage: float
     weight_mistake_analysis: float
-    weight_consistency: float
     half_life_days: float
 
 
@@ -218,7 +224,6 @@ class ReadinessWeightsUpdate(BaseModel):
     weight_assessment_performance: float = Field(ge=0, le=3)
     weight_syllabus_coverage: float = Field(ge=0, le=3)
     weight_mistake_analysis: float = Field(ge=0, le=3)
-    weight_consistency: float = Field(ge=0, le=3)
     half_life_days: float = Field(ge=7, le=365)
 
 

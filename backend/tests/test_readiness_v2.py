@@ -3,12 +3,14 @@
 every factor's DB-facing query and checks the resulting FactorEvaluation
 rows, without touching the (still-live) v1 engine."""
 
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 
 from app.db import async_session
 from app.models import (
+    AiSynthesisStatus,
     Assessment,
     AssessmentScore,
     AssessmentType,
@@ -17,6 +19,7 @@ from app.models import (
     AssignmentStatus,
     Evidence,
     EvidenceSource,
+    FactorConfidence,
     FactorEvaluation,
     Lesson,
     LessonTopic,
@@ -30,6 +33,7 @@ from app.models import (
     QuestionMark,
     QuestionTopic,
     ReadinessFactor,
+    ReadinessSnapshot,
     Submission,
     SubmissionStatus,
     User,
@@ -205,6 +209,7 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
     hw = by_factor[(ReadinessFactor.homework_performance, None)]
     assert hw.evidence_count == 1
     assert hw.detail["completion_rate"] == 1.0
+    assert hw.detail["submitted_count"] == 1
 
     assess = by_factor[(ReadinessFactor.assessment_performance, None)]
     assert assess.score == 70.0  # 14/20
@@ -218,9 +223,8 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
     assert mistakes.detail["analysed_questions"] == 1
     assert mistakes.detail["by_category"] == {"careless": 1}
 
-    cons = by_factor[(ReadinessFactor.consistency, None)]
-    assert cons.detail["completion_rate"] == 1.0
-    assert cons.detail["on_time_rate"] == 1.0  # submitted before due_at
+    # Retired by AV-30 (task 5.1): the engine never writes this factor any more.
+    assert not any(f == ReadinessFactor.consistency for f, _ in by_factor)
 
     # Persisted rows are queryable back out — the append-only audit trail.
     async with async_session() as session:
@@ -230,6 +234,61 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
             )
         ).all()
         assert len(persisted) == len(rows)
+
+
+async def test_historical_consistency_rows_still_load(client, tutor, world):
+    """`ReadinessFactor.consistency` is retired (AV-30) but not removed from
+    the enum: production holds FactorEvaluation rows with this value from
+    before the cutover, and the column is a non-native Enum with no CHECK
+    constraint (DB-5) — dropping the member would make SQLAlchemy raise
+    LookupError loading them. A historical run must still read back."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+    run_id = str(uuid.uuid4())
+
+    async with async_session() as session:
+        # Inserted as the raw string, not `ReadinessFactor.consistency` — the
+        # whole point of this test is what happens when that Python attribute
+        # is gone, so arrange must never touch it. If it did, deleting the
+        # enum member would raise AttributeError here, in setup, instead of
+        # where the discrimination check needs it to: the API read below.
+        await session.execute(
+            insert(FactorEvaluation.__table__).values(
+                evaluation_run_id=run_id,
+                student_id=student_id,
+                subject_id=subject_id,
+                factor="consistency",
+                score=80.0,
+                confidence=FactorConfidence.high,
+                evidence_count=5,
+                detail={"completion_rate": 1.0, "on_time_rate": 1.0},
+            )
+        )
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=run_id,
+                student_id=student_id,
+                subject_id=subject_id,
+                status=AiSynthesisStatus.ready,
+                score=80.0,
+                predicted_grade=None,
+                weak_topics=[],
+                rationale="historical",
+                recommended_revision=None,
+            )
+        )
+        await session.commit()
+
+    resp = await client.get(f"/api/v1/readiness/v2/students/{student_id}", headers=tutor["headers"])
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["subjects"]) == 1
+    subject = data["subjects"][0]
+    consistency_factors = [f for f in subject["factors"] if f["factor"] == "consistency"]
+    assert len(consistency_factors) == 1
+    consistency = consistency_factors[0]
+    assert consistency["score"] == 80.0
+    assert consistency["evidence_count"] == 5
 
 
 async def test_an_unmarked_past_paper_attempt_is_omitted_not_scored_zero(client, tutor, world):

@@ -26,6 +26,8 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     month_delta: null,
     topics_with_evidence: 2,
     topic_count: 4,
+    homework_assignment_count: null,
+    homework_submitted_count: null,
     topics: [],
     weak_topics: [],
     engine: "v2",

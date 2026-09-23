@@ -135,13 +135,12 @@ FACTOR_WEIGHT_ATTR = {
     ReadinessFactor.assessment_performance: "weight_assessment_performance",
     ReadinessFactor.syllabus_coverage: "weight_syllabus_coverage",
     ReadinessFactor.mistake_analysis: "weight_mistake_analysis",
-    ReadinessFactor.consistency: "weight_consistency",
 }
 DEFAULT_WEIGHTS = dict.fromkeys(FACTOR_WEIGHT_ATTR.values(), 1.0)
 
 # Max points the AI's synthesized score may diverge from the weighted average
 # of the deterministic factor scores before it is pulled back in line. The
-# prompt tells the model the seven factor scores are "not permitted to
+# prompt tells the model the six factor scores are "not permitted to
 # contradict" — this is what makes that a constraint the code enforces,
 # rather than only a request the model can ignore.
 SCORE_CONTRADICTION_TOLERANCE = 10.0
@@ -173,9 +172,9 @@ def _weighted_reference_score(
     the model: one score per factor, not per row. evaluate_subject_factors()
     persists Topic Mastery as one row per topic but every other factor as a
     single subject-level row — averaging over rows unweighted would let Topic
-    Mastery outvote the other six by however many topics the subject has.
+    Mastery outvote the other five by however many topics the subject has.
     Collapsing to one mean score per factor first (and damping by that
-    factor's weakest confidence) keeps the seven factors the prompt actually
+    factor's weakest confidence) keeps the six factors the prompt actually
     describes equally able to veto the AI's score, not "however many rows
     happen to exist".
 
@@ -262,9 +261,15 @@ def _factor_prompt_line(
         topic = topics_by_id.get(row.topic_id)
         label = f"{label} ({topic.title if topic else row.topic_id})"
     score_text = f"{row.score:.1f}" if row.score is not None else "no data"
+    detail = row.detail
+    if row.factor == ReadinessFactor.homework_performance:
+        # Completion must never reach the model that writes the readiness
+        # score (AV-32) — a filtered copy, never a mutation of `row.detail`,
+        # which is the persisted FactorEvaluation row.
+        detail = {k: v for k, v in detail.items() if k in ("marked_count", "accuracy")}
     return (
         f"- {label}: score={score_text}, confidence={row.confidence.value}, "
-        f"evidence_count={row.evidence_count}, tutor_weight={weight}, detail={row.detail}"
+        f"evidence_count={row.evidence_count}, tutor_weight={weight}, detail={detail}"
     )
 
 

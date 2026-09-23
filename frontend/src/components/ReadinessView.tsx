@@ -67,6 +67,22 @@ export function SubjectReadinessCard({
         </p>
       )}
 
+      {/* A fact, not a score (AV-32): shown even when there is no readiness
+          score yet, because handed-in-but-unmarked homework is real evidence
+          of effort the score itself can't carry. Both counts are null, not
+          0, when the run has no homework evidence to count — so this line is
+          simply absent rather than claiming "0 of 0" (PROD-2).
+          `!= null` (loose), not `!== null`: during a Vercel-ahead-of-Render
+          deploy skew the old API response omits these keys entirely, making
+          them `undefined` rather than `null` — a strict check would let that
+          through and render "Homework:  of  handed in". */}
+      {subject.homework_assignment_count != null && subject.homework_submitted_count != null && (
+        <p className="mt-2 text-sm text-ink-500">
+          Homework: {subject.homework_submitted_count} of {subject.homework_assignment_count} handed
+          in
+        </p>
+      )}
+
       {subject.rationale && <p className="mt-3 text-sm text-slate-600">{subject.rationale}</p>}
 
       {subject.recommended_revision && (

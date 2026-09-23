@@ -22,6 +22,7 @@ from app.services.readiness_v2_ai import (
     DEFAULT_WEIGHTS,
     ReadinessSynthesis,
     WeakTopicSuggestion,
+    _factor_prompt_line,
     _weighted_reference_score,
     compute_readiness_v2,
 )
@@ -46,7 +47,7 @@ def _row(factor, score, confidence=FactorConfidence.high):
 def test_weighted_reference_score_averages_per_factor_not_per_row():
     """Regression for the bug Qodo caught: Topic Mastery is persisted as one
     row per topic while every other factor gets exactly one row, so an
-    unweighted average over rows let Topic Mastery outvote the other six by
+    unweighted average over rows let Topic Mastery outvote the other five by
     however many topics the subject has. Five strong topic-mastery rows must
     not drown out one weak homework-performance row."""
     rows = [_row(ReadinessFactor.topic_mastery, 90.0) for _ in range(5)] + [
@@ -90,6 +91,26 @@ def test_weighted_reference_score_damps_low_confidence_factors():
     assert reference < 50.0
 
 
+def test_homework_prompt_line_excludes_completion():
+    """AV-32: completion must never reach the model that writes the
+    readiness score. Only marked_count and accuracy — the two homework
+    details tied to marked work — may reach the synthesis prompt."""
+    row = _row(ReadinessFactor.homework_performance, 90.0)
+    row.detail = {
+        "completion_rate": 0.5,
+        "assignment_count": 4,
+        "submitted_count": 3,
+        "marked_count": 2,
+        "accuracy": 90.0,
+    }
+    line = _factor_prompt_line(row, weight=1.0, topics_by_id={})
+    assert "completion_rate" not in line
+    assert "assignment_count" not in line
+    assert "submitted_count" not in line
+    assert "marked_count" in line
+    assert "accuracy" in line
+
+
 async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, world):
     # A subject with zero topics is the only case where every factor
     # (including Syllabus Coverage, which is otherwise always well-defined
@@ -124,7 +145,7 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
         assert snapshot.score is None
         assert "No evidence" in snapshot.rationale
 
-        # No AI call was needed, but the deterministic layer still ran: six
+        # No AI call was needed, but the deterministic layer still ran: five
         # subject-level factors (no topics -> no per-topic mastery rows).
         factor_rows = (
             await session.scalars(
@@ -134,7 +155,7 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
                 )
             )
         ).all()
-        assert len(factor_rows) == 6
+        assert len(factor_rows) == 5
         assert all(r.score is None for r in factor_rows)
 
 
@@ -161,7 +182,7 @@ async def test_syllabus_coverage_alone_still_triggers_ai_synthesis(client, tutor
                 select(FactorEvaluation).where(FactorEvaluation.student_id == world["student_id"])
             )
         ).all()
-        assert len(factor_rows) == 8  # 2 topics + 6 subject-level factors
+        assert len(factor_rows) == 7  # 2 topics + 5 subject-level factors
         coverage_row = next(r for r in factor_rows if r.factor.value == "syllabus_coverage")
         assert coverage_row.score == 0.0
 
@@ -289,7 +310,7 @@ async def test_compute_all_subjects_when_subject_id_omitted(client, tutor, world
 async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
     client, tutor, world, monkeypatch, fake_ai
 ):
-    """The prompt tells the model the seven factor scores are "not permitted
+    """The prompt tells the model the six factor scores are "not permitted
     to contradict" — this proves that's enforced in code, not just requested
     of the model. A wildly implausible score must not reach the tutor as-is."""
     async with async_session() as session:
