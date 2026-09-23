@@ -1,5 +1,6 @@
 import type { ReadinessStatus } from "../components/ui";
 import { api } from "./client";
+import type { components } from "./schema";
 
 export interface TopicReadiness {
   topic_id: number;
@@ -48,6 +49,11 @@ export interface SubjectReadiness {
       for the whole subject. */
   topics_with_evidence: number;
   topic_count: number;
+  /** Handed-in count over how many assignments exist — a fact shown beside
+      readiness, never blended into the score (AV-32). Both null when the
+      run has no homework evidence to count, never 0 (PROD-2). */
+  homework_assignment_count: number | null;
+  homework_submitted_count: number | null;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
   /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */
@@ -182,17 +188,9 @@ export interface Preferences {
 
 export const getPreferences = () => api<Preferences>("/api/v1/me/preferences");
 
-/** Readiness v2 weights: one per factor, per organization. */
-export interface ReadinessWeights {
-  weight_topic_mastery: number;
-  weight_past_paper_performance: number;
-  weight_homework_performance: number;
-  weight_assessment_performance: number;
-  weight_syllabus_coverage: number;
-  weight_mistake_analysis: number;
-  weight_consistency: number;
-  half_life_days: number;
-}
+/** Readiness v2 weights: one per factor, per organization (FE-4 — aliases
+    the generated schema rather than a hand-written duplicate). */
+export type ReadinessWeights = components["schemas"]["ReadinessWeightsOut"];
 
 export const getReadinessWeights = () => api<ReadinessWeights>("/api/v1/readiness/weights");
 export const updateReadinessWeights = (payload: ReadinessWeights) =>

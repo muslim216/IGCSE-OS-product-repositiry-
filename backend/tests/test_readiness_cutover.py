@@ -9,16 +9,25 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
+    Assignment,
+    AssignmentStatus,
     FactorConfidence,
     FactorEvaluation,
+    GroupMember,
     Job,
     JobStatus,
     ReadinessFactor,
     ReadinessSnapshot,
     ReadinessWeights,
+    Submission,
+    SubmissionStatus,
     User,
+    WorkKind,
 )
 from app.services.grade_boundaries import set_org_boundaries
+from app.services.readiness_v2_ai import compute_readiness_v2
+from app.services.work import create_work
+from tests.factories import make_subject
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
@@ -132,6 +141,120 @@ async def test_a_no_data_topic_is_omitted_rather_than_scored_zero(client, tutor,
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
     assert resp.json()["subjects"][0]["topics"] == []
+
+
+async def _empty_subject_with_group(client, tutor, world, *, code: str):  # noqa: F811
+    """A subject with zero topics and a group the world student is enrolled
+    in — the one case where every deterministic factor reports no data, so
+    `compute_readiness_v2` takes the early-return branch (readiness_v2_ai.py
+    ~:288) with no AI call needed, and no ANTHROPIC_API_KEY is required."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        subject = await make_subject(
+            session, organization_id=tutor_user.organization_id, code=code, name=code
+        )
+        await session.commit()
+        subject_id, org_id = subject.id, tutor_user.organization_id
+
+    group = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": code, "subject_id": subject_id},
+            headers=tutor["headers"],
+        )
+    ).json()
+    async with async_session() as session:
+        session.add(GroupMember(group_id=group["id"], student_id=world["student_id"]))
+        await session.commit()
+    return subject_id, group["id"], org_id
+
+
+async def test_homework_completion_counts_reach_the_profile_on_a_no_score_snapshot(
+    client,
+    tutor,
+    world,  # noqa: F811
+):
+    """A student whose only activity in a subject is handed-in, unmarked
+    homework gets a "No evidence yet" snapshot with score=None
+    (readiness_v2_ai.py ~:288) — the completion counts must still reach the
+    profile: they are a fact shown beside readiness, not blended into the
+    missing score (PROD-2, controller ruling 5.1 task 3)."""
+    subject_id, group_id, org_id = await _empty_subject_with_group(
+        client, tutor, world, code="4XX2"
+    )
+
+    async with async_session() as session:
+        work1 = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="HW1",
+        )
+        session.add(
+            Assignment(
+                work_id=work1.id, group_id=group_id, title="HW1", status=AssignmentStatus.published
+            )
+        )
+        work2 = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="HW2",
+        )
+        session.add(
+            Assignment(
+                work_id=work2.id, group_id=group_id, title="HW2", status=AssignmentStatus.published
+            )
+        )
+        await session.flush()
+        # Handed in, unmarked — HW2 was never submitted at all.
+        session.add(
+            Submission(
+                student_id=world["student_id"],
+                status=SubmissionStatus.submitted,
+                work_id=work1.id,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": subject_id}
+        )
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subject = next(s for s in resp.json()["subjects"] if s["subject_id"] == subject_id)
+    assert subject["score"] is None
+    assert subject["homework_assignment_count"] == 2
+    assert subject["homework_submitted_count"] == 1
+
+
+async def test_homework_completion_counts_are_none_without_assignments(
+    client,
+    tutor,
+    world,  # noqa: F811
+):
+    """A missing `assignment_count`/`submitted_count` detail key means None,
+    never a fabricated 0 (PROD-2)."""
+    subject_id, _group_id, _org_id = await _empty_subject_with_group(
+        client, tutor, world, code="4XX3"
+    )
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": subject_id}
+        )
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subject = next(s for s in resp.json()["subjects"] if s["subject_id"] == subject_id)
+    assert subject["homework_assignment_count"] is None
+    assert subject["homework_submitted_count"] is None
 
 
 async def test_a_queued_recompute_marks_the_score_as_updating(client, tutor, world):  # noqa: F811

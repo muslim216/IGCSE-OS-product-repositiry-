@@ -55,6 +55,13 @@ class SubjectReadiness(BaseModel):
     # lets a surface say so instead of implying completeness (PROD-2).
     topics_with_evidence: int = 0
     topic_count: int = 0
+    # Completion is a fact, not part of the score (AV-32): "4 of 5 handed in"
+    # carries its own denominator (PROD-1) and is never blended into a number.
+    # Both None when the run has no homework_performance row for this subject
+    # or the subject fell back to v1 — never 0, which PROD-2 forbids for an
+    # absent measurement.
+    homework_assignment_count: int | None = None
+    homework_submitted_count: int | None = None
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
     # Which engine produced this. "v2" is the system of record; "v1" means no

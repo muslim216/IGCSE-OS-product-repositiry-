@@ -13,11 +13,10 @@ const DEFAULTS: ReadinessWeights = {
   weight_assessment_performance: 1,
   weight_syllabus_coverage: 1,
   weight_mistake_analysis: 1,
-  weight_consistency: 1,
   half_life_days: 45,
 };
 
-/** The seven factors the Readiness Engine scores, in the order a tutor is
+/** The six factors the Readiness Engine scores, in the order a tutor is
  * most likely to care about them. */
 const FACTORS: { key: keyof ReadinessWeights; label: string; hint: string }[] = [
   {
@@ -49,11 +48,6 @@ const FACTORS: { key: keyof ReadinessWeights; label: string; hint: string }[] = 
     key: "weight_mistake_analysis",
     label: "Mistake analysis",
     hint: "Recurring mistakes and their severity",
-  },
-  {
-    key: "weight_consistency",
-    label: "Consistency",
-    hint: "How steady their performance is over time",
   },
 ];
 
@@ -118,7 +112,7 @@ export default function PreferencesPage() {
       <div>
         <h2 className="text-xl font-semibold text-slate-800">Preferences</h2>
         <p className="text-sm text-slate-500">
-          Control how much each of the seven readiness factors counts towards your students' scores.
+          Control how much each of the six readiness factors counts towards your students' scores.
           Saving recalculates everyone you teach.
         </p>
       </div>

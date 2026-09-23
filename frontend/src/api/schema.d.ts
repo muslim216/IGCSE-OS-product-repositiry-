@@ -4677,6 +4677,10 @@ export interface components {
              * @default 0
              */
             topic_count: number;
+            /** Homework Assignment Count */
+            homework_assignment_count?: number | null;
+            /** Homework Submitted Count */
+            homework_submitted_count?: number | null;
             /** Topics */
             topics: components["schemas"]["TopicReadinessOut"][];
             /** Weak Topics */

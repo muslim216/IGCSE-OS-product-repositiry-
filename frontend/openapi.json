@@ -13499,6 +13499,28 @@
             "title": "Topic Count",
             "default": 0
           },
+          "homework_assignment_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homework Assignment Count"
+          },
+          "homework_submitted_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homework Submitted Count"
+          },
           "topics": {
             "items": {
               "$ref": "#/components/schemas/TopicReadinessOut"

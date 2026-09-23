@@ -89,17 +89,39 @@ async def in_flight_subjects(db: AsyncSession, student_id: int) -> tuple[bool, s
 async def _subject_from_snapshot(
     db: AsyncSession, student: User, subject: Subject, snapshot: ReadinessSnapshot
 ) -> SubjectReadiness:
-    """Per-topic bars come from the same evaluation run the snapshot was
-    synthesized from, so the breakdown always matches the headline score."""
-    rows = (
+    """Per-topic bars and homework completion both come from the same
+    evaluation run the snapshot was synthesized from, so the breakdown always
+    matches the headline score — one query, not two, for the two factors this
+    surface reads."""
+    factor_rows = (
         await db.scalars(
             select(FactorEvaluation).where(
                 FactorEvaluation.evaluation_run_id == snapshot.evaluation_run_id,
-                FactorEvaluation.factor == ReadinessFactor.topic_mastery,
-                FactorEvaluation.topic_id.is_not(None),
+                FactorEvaluation.factor.in_(
+                    (ReadinessFactor.topic_mastery, ReadinessFactor.homework_performance)
+                ),
             )
         )
     ).all()
+    rows = [
+        r
+        for r in factor_rows
+        if r.factor == ReadinessFactor.topic_mastery and r.topic_id is not None
+    ]
+    # The homework_performance row is subject-level (topic_id IS NULL) and
+    # always exists for a v2-computed run — even the "no evidence yet" run
+    # (readiness_v2_ai.py ~:288) persists it before checking whether every
+    # factor came back with no score, so completion is a fact this profile can
+    # show even when the headline score itself is absent (PROD-2).
+    homework_row = next(
+        (
+            r
+            for r in factor_rows
+            if r.factor == ReadinessFactor.homework_performance and r.topic_id is None
+        ),
+        None,
+    )
+    homework_detail = homework_row.detail if homework_row is not None else {}
     topics = {
         t.id: t
         for t in (await db.scalars(select(Topic).where(Topic.subject_id == subject.id))).all()
@@ -184,6 +206,12 @@ async def _subject_from_snapshot(
         # subject, evidence or not.
         topics_with_evidence=len(topic_out),
         topic_count=len(topics),
+        # A missing key means the run had no homework evidence to count, not
+        # a rate of 0 — `homework_performance()`'s detail always carries both
+        # keys once any assignment exists, so `.get` only returns None here
+        # when the row itself is absent or genuinely has neither (PROD-2).
+        homework_assignment_count=homework_detail.get("assignment_count"),
+        homework_submitted_count=homework_detail.get("submitted_count"),
         topics=topic_out,
         weak_topics=weak[:5],
         rationale=snapshot.rationale,
