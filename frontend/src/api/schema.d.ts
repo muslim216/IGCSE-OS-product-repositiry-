@@ -4203,8 +4203,6 @@ export interface components {
             weight_syllabus_coverage: number;
             /** Weight Mistake Analysis */
             weight_mistake_analysis: number;
-            /** Weight Consistency */
-            weight_consistency: number;
             /** Half Life Days */
             half_life_days: number;
         };
@@ -4222,8 +4220,6 @@ export interface components {
             weight_syllabus_coverage: number;
             /** Weight Mistake Analysis */
             weight_mistake_analysis: number;
-            /** Weight Consistency */
-            weight_consistency: number;
             /** Half Life Days */
             half_life_days: number;
         };

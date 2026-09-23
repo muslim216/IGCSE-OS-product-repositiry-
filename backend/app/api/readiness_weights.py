@@ -1,4 +1,4 @@
-"""Tutor control over how the Readiness Engine weighs its seven factors.
+"""Tutor control over how the Readiness Engine weighs its six factors.
 
 Supersedes the v1 per-evidence-source sliders (api/preferences.py). Weights are
 per organization, and saving them recomputes every student the tutor teaches —
@@ -23,7 +23,6 @@ WEIGHT_FIELDS = (
     "weight_assessment_performance",
     "weight_syllabus_coverage",
     "weight_mistake_analysis",
-    "weight_consistency",
     "half_life_days",
 )
 

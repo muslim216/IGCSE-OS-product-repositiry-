@@ -241,7 +241,6 @@ async def test_weights_default_to_the_model_defaults(client, tutor):
     assert resp.status_code == 200
     body = resp.json()
     assert body["weight_topic_mastery"] == 1.0
-    assert body["weight_consistency"] == 1.0
     assert body["half_life_days"] == 45.0
 
 
@@ -253,7 +252,6 @@ async def test_saving_weights_persists_them(client, tutor):
         "weight_assessment_performance": 1.5,
         "weight_syllabus_coverage": 0.5,
         "weight_mistake_analysis": 1.0,
-        "weight_consistency": 0.0,
         "half_life_days": 30.0,
     }
     resp = await client.put("/api/v1/readiness/weights", json=payload, headers=tutor["headers"])
@@ -261,7 +259,7 @@ async def test_saving_weights_persists_them(client, tutor):
     assert resp.json()["weight_past_paper_performance"] == 2.5
 
     again = await client.get("/api/v1/readiness/weights", headers=tutor["headers"])
-    assert again.json()["weight_consistency"] == 0.0
+    assert again.json()["weight_syllabus_coverage"] == 0.5
     async with async_session() as session:
         rows = (await session.scalars(select(ReadinessWeights))).all()
         assert len(rows) == 1, "the org's weights are upserted, not duplicated"
@@ -277,7 +275,6 @@ async def test_saving_weights_recomputes_the_tutors_students(client, tutor, worl
         "weight_assessment_performance": 1.0,
         "weight_syllabus_coverage": 1.0,
         "weight_mistake_analysis": 1.0,
-        "weight_consistency": 1.0,
         "half_life_days": 45.0,
     }
     await client.put("/api/v1/readiness/weights", json=payload, headers=tutor["headers"])
@@ -297,7 +294,6 @@ async def test_weights_reject_out_of_range_values(client, tutor):
             "weight_assessment_performance": 1.0,
             "weight_syllabus_coverage": 1.0,
             "weight_mistake_analysis": 1.0,
-            "weight_consistency": 1.0,
             "half_life_days": 45.0,
         },
         headers=tutor["headers"],
@@ -318,12 +314,33 @@ async def test_students_cannot_read_or_change_the_weights(client, tutor, world):
                 "weight_assessment_performance": 1.0,
                 "weight_syllabus_coverage": 1.0,
                 "weight_mistake_analysis": 1.0,
-                "weight_consistency": 1.0,
                 "half_life_days": 45.0,
             },
             headers=headers,
         )
     ).status_code == 403
+
+
+async def test_extra_weight_consistency_key_is_not_returned(client, tutor):
+    # ReadinessWeightsUpdate has no `weight_consistency` field any more (AV-30);
+    # an extra key in the body is ignored by Pydantic rather than rejected, and
+    # must not reappear on the way back out.
+    resp = await client.put(
+        "/api/v1/readiness/weights",
+        json={
+            "weight_topic_mastery": 1.0,
+            "weight_past_paper_performance": 1.0,
+            "weight_homework_performance": 1.0,
+            "weight_assessment_performance": 1.0,
+            "weight_syllabus_coverage": 1.0,
+            "weight_mistake_analysis": 1.0,
+            "weight_consistency": 1.0,
+            "half_life_days": 45.0,
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert "weight_consistency" not in resp.json()
 
 
 async def test_a_student_sees_their_own_v2_readiness(client, tutor, world):  # noqa: F811

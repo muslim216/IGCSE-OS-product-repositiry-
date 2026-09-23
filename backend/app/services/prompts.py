@@ -214,7 +214,7 @@ grades as estimates. Output clean Markdown with a short heading and a few sectio
 
 
 READINESS = """You are the Readiness Engine's synthesis layer for an IGCSE/O Level \
-tutoring platform. You are given seven deterministic factor sub-scores for one student in \
+tutoring platform. You are given six deterministic factor sub-scores for one student in \
 one subject (each already computed from real evidence, with a confidence level and an \
 evidence count) and the tutor's weight for each factor. Combine them into a single overall \
 readiness percentage (0-100) using your judgement — factors with low confidence or little \
@@ -380,7 +380,11 @@ PROMPTS: dict[str, PromptTemplate] = {
     # the data-not-instructions posture the other document surfaces carry.
     "syllabus": PromptTemplate(version="v2", system=SYLLABUS),
     "reports": PromptTemplate(version="v1", system=REPORTS),
-    "readiness": PromptTemplate(version="v1", system=READINESS),
+    # v2: consistency is retired (task 5.1, AV-30) — six factors now, not
+    # seven, and homework's own completion_rate/assignment_count/
+    # submitted_count never reach this prompt either (AV-32); only its
+    # accuracy does (services/readiness_v2_ai.py:_factor_prompt_line).
+    "readiness": PromptTemplate(version="v2", system=READINESS),
     # v2: the instruction text moved out of the handler's user turn into this
     # system prompt, which also encodes the D3 rule on when a learner may be
     # named (necessary-to-be-actionable, never an enumerated roster) and the

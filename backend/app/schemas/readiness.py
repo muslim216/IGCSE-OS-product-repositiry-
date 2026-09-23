@@ -207,7 +207,6 @@ class ReadinessWeightsOut(BaseModel):
     weight_assessment_performance: float
     weight_syllabus_coverage: float
     weight_mistake_analysis: float
-    weight_consistency: float
     half_life_days: float
 
 
@@ -218,7 +217,6 @@ class ReadinessWeightsUpdate(BaseModel):
     weight_assessment_performance: float = Field(ge=0, le=3)
     weight_syllabus_coverage: float = Field(ge=0, le=3)
     weight_mistake_analysis: float = Field(ge=0, le=3)
-    weight_consistency: float = Field(ge=0, le=3)
     half_life_days: float = Field(ge=7, le=365)
 
 

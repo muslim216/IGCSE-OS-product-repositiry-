@@ -263,36 +263,3 @@ def mistake_analysis(
         evidence_count=len(mistakes),
         detail={"by_category": by_category, "analysed_questions": analysed_questions},
     )
-
-
-# ---- 7. Consistency ---------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ConsistencyPoint:
-    due_at: datetime | None
-    submitted_at: datetime | None  # None = never submitted
-
-
-def consistency(points: list[ConsistencyPoint]) -> FactorResult:
-    if not points:
-        return NO_DATA
-    completed = sum(1 for p in points if p.submitted_at is not None)
-    on_time = sum(
-        1
-        for p in points
-        if p.submitted_at is not None and (p.due_at is None or p.submitted_at <= p.due_at)
-    )
-    completion_rate = completed / len(points)
-    on_time_rate = on_time / len(points)
-    score = completion_rate * 60 + on_time_rate * 40
-    return FactorResult(
-        score=round(score, 1),
-        confidence=_confidence_from_count(len(points)),
-        evidence_count=len(points),
-        detail={
-            "completion_rate": round(completion_rate, 2),
-            "on_time_rate": round(on_time_rate, 2),
-            "assignment_count": len(points),
-        },
-    )
