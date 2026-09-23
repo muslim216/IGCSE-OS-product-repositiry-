@@ -3,8 +3,11 @@ no database, mirroring tests/test_readiness_engine.py's style for v1."""
 
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from app.models import FactorConfidence
 from app.services.readiness_factors import (
+    HALF_LIFE_DAYS,
     NO_DATA,
     AssessmentPoint,
     HomeworkPoint,
@@ -12,6 +15,8 @@ from app.services.readiness_factors import (
     MistakePoint,
     PastPaperAttemptPoint,
     TopicCoverage,
+    _age_days,
+    _decay,
     assessment_performance,
     homework_performance,
     mistake_analysis,
@@ -19,6 +24,7 @@ from app.services.readiness_factors import (
     syllabus_coverage,
     topic_mastery,
 )
+from app.services.readiness_shared import CONFIDENT
 
 NOW = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
@@ -180,3 +186,30 @@ def test_mistake_analysis_scores_a_clean_record_when_work_was_analysed():
     assert result is not NO_DATA
     assert result.score == 100.0
     assert result.detail["analysed_questions"] == 12
+
+
+# ---- Decay maths, now owned here rather than re-imported from v1 ----
+
+
+def test_decay_halves_at_the_half_life():
+    assert _decay(0) == 1.0
+    assert _decay(HALF_LIFE_DAYS) == pytest.approx(0.5)
+
+
+def test_age_treats_a_naive_timestamp_as_utc_and_never_goes_negative():
+    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    assert _age_days(datetime(2026, 5, 31), now) == pytest.approx(1.0)
+    assert _age_days(now + timedelta(days=2), now) == 0.0
+
+
+def test_the_v2_factor_module_does_not_import_v1():
+    # 5.3b deletes services/readiness.py; the v2 maths must not go with it.
+    import app.services.readiness_factors as mod
+
+    assert "app.services.readiness" not in {
+        getattr(v, "__module__", None) for v in vars(mod).values()
+    }
+
+
+def test_shared_confident_matches_medium_and_high():
+    assert {FactorConfidence.medium, FactorConfidence.high} == CONFIDENT

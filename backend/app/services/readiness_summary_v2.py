@@ -41,13 +41,13 @@ from app.schemas.readiness import (
 )
 from app.services.averaging import subject_averaging
 from app.services.grades import grade_band, predict_grade
-from app.services.readiness_summary import (
-    build_summary,
+from app.services.readiness_shared import (
     month_delta,
     scores_of,
     trend_direction,
     v2_score_points,
 )
+from app.services.readiness_summary import build_summary
 from app.services.readiness_v2_ai import in_flight_readiness_pairs, resolve_grade_boundaries
 
 # Job types whose presence means "a new score is on its way".

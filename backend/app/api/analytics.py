@@ -25,8 +25,6 @@ from app.schemas.readiness import (
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
-WEAK_THRESHOLD = 60.0
-
 
 @router.get("/groups/{group_id}", response_model=TutorAnalytics)
 async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> TutorAnalytics:

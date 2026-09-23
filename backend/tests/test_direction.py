@@ -20,7 +20,7 @@ from app.models import (
     Topic,
     TopicReadiness,
 )
-from app.services.readiness_summary import DIRECTION_NOISE_BAND, trend_direction
+from app.services.readiness_shared import DIRECTION_NOISE_BAND, trend_direction
 from tests.factories import subject_defaults
 
 NOW = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)

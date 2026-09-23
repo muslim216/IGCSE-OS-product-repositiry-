@@ -1,12 +1,13 @@
 """Readiness Engine v2, Layer 1 — deterministic, explainable factor
 sub-scores.
 
-Pure functions over plain dataclasses (no DB session, no I/O), exactly like
-services/readiness.py's v1 math — reusing its decay/confidence helpers as
-the internal library so the two engines share one notion of "recent
-evidence matters more." Each function returns a FactorResult: a score (or
-None for "no data"), a confidence level, an evidence count, and a JSON-safe
-detail dict — the same shape a FactorEvaluation row stores.
+Pure functions over plain dataclasses (no DB session, no I/O). Owns the decay
+helper v1 also imports — services/readiness.py re-imports HALF_LIFE_DAYS,
+_age_days and _decay from here, so the two engines share one notion of
+"recent evidence matters more" without v2 depending on v1. Each function
+returns a FactorResult: a score (or None for "no data"), a confidence level,
+an evidence count, and a JSON-safe detail dict — the same shape a
+FactorEvaluation row stores.
 
 Being pure and isolated means these unit-test without a database, and the
 DB-facing gathering step (services/readiness_v2.py) is the only place that
@@ -14,11 +15,24 @@ queries anything — kept out of any HTTP request path and run only from the
 compute_readiness_v2 background job.
 """
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
 from app.models import FactorConfidence
-from app.services.readiness import _age_days, _decay
+
+# Half-life of evidence relevance, in days.
+HALF_LIFE_DAYS = 45.0
+
+
+def _decay(age_days: float, half_life: float = HALF_LIFE_DAYS) -> float:
+    return math.pow(0.5, age_days / half_life)
+
+
+def _age_days(occurred_at: datetime, now: datetime) -> float:
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - occurred_at).total_seconds() / 86400.0)
 
 
 @dataclass(frozen=True)
