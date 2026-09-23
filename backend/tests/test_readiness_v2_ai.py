@@ -310,7 +310,7 @@ async def test_compute_all_subjects_when_subject_id_omitted(client, tutor, world
 async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
     client, tutor, world, monkeypatch, fake_ai
 ):
-    """The prompt tells the model the seven factor scores are "not permitted
+    """The prompt tells the model the six factor scores are "not permitted
     to contradict" — this proves that's enforced in code, not just requested
     of the model. A wildly implausible score must not reach the tutor as-is."""
     async with async_session() as session:

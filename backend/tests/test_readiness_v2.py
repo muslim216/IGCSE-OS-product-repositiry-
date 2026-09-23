@@ -6,7 +6,7 @@ rows, without touching the (still-live) v1 engine."""
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 
 from app.db import async_session
 from app.models import (
@@ -247,12 +247,17 @@ async def test_historical_consistency_rows_still_load(client, tutor, world):
     run_id = str(uuid.uuid4())
 
     async with async_session() as session:
-        session.add(
-            FactorEvaluation(
+        # Inserted as the raw string, not `ReadinessFactor.consistency` — the
+        # whole point of this test is what happens when that Python attribute
+        # is gone, so arrange must never touch it. If it did, deleting the
+        # enum member would raise AttributeError here, in setup, instead of
+        # where the discrimination check needs it to: the API read below.
+        await session.execute(
+            insert(FactorEvaluation.__table__).values(
                 evaluation_run_id=run_id,
                 student_id=student_id,
                 subject_id=subject_id,
-                factor=ReadinessFactor.consistency,
+                factor="consistency",
                 score=80.0,
                 confidence=FactorConfidence.high,
                 evidence_count=5,

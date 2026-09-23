@@ -173,7 +173,7 @@ async def _homework_points(
         if submission is None or submission.status not in SETTLED_STATUSES:
             points.append(
                 HomeworkPoint(
-                    submitted=submission is not None and submission.submitted_at is not None,
+                    submitted=submission is not None,
                     pct=None,
                 )
             )
