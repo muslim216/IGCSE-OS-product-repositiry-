@@ -120,50 +120,41 @@ def past_paper_performance(attempts: list[PastPaperAttemptPoint]) -> FactorResul
 
 @dataclass(frozen=True)
 class HomeworkPoint:
-    pct: float | None  # None = not submitted
-    on_time: bool | None  # None when not submitted or no due date
+    submitted: bool  # handed in — whether or not marking has finished
+    pct: float | None  # None until the submission is settled
 
 
 def homework_performance(points: list[HomeworkPoint]) -> FactorResult:
     if not points:
         return NO_DATA
-    # Held as the percentages themselves, not the points: the filter above is
-    # the only thing that makes `pct` non-optional, and a second `is not None`
+    # Narrowed once so `pct` is non-optional below — a second `is not None`
     # inside the average would divide a shrinking numerator by a fixed
-    # denominator — silently scoring a missing measurement as 0 (PROD-2). Narrow
-    # once, here, so that shape cannot be written.
-    submitted = [p.pct for p in points if p.pct is not None]
-    completion_rate = len(submitted) / len(points)
-    if not submitted:
+    # denominator, silently scoring a missing measurement as 0 (PROD-2).
+    marked = [p.pct for p in points if p.pct is not None]
+    submitted_count = sum(1 for p in points if p.submitted)
+    # Completion is a fact shown beside readiness, never inside the score
+    # (AV-32): acing half the work and skipping the rest is reported as
+    # exactly that, not blended into one number that hides which it was.
+    detail = {
+        "completion_rate": round(submitted_count / len(points), 2),
+        "assignment_count": len(points),
+        "submitted_count": submitted_count,
+        "marked_count": len(marked),
+        "accuracy": None,
+    }
+    if not marked:
+        # Nothing marked yet means no accuracy exists — the factor is omitted,
+        # not scored 0, while the completion fact above still stands.
         return FactorResult(
-            score=round(completion_rate * 100, 1),
-            confidence=_confidence_from_count(len(points)),
-            evidence_count=len(points),
-            detail={
-                "completion_rate": round(completion_rate, 2),
-                "accuracy": None,
-                "on_time_rate": None,
-            },
+            score=None, confidence=FactorConfidence.no_data, evidence_count=0, detail=detail
         )
-    accuracy = sum(submitted) / len(submitted)
-    on_time_points = [p for p in points if p.pct is not None and p.on_time is not None]
-    on_time_rate = (
-        sum(1 for p in on_time_points if p.on_time) / len(on_time_points)
-        if on_time_points
-        else None
-    )
-    # Blend accuracy with completion — acing every submitted assignment while
-    # skipping half of them isn't full homework performance.
-    score = accuracy * 0.7 + completion_rate * 100 * 0.3
+    accuracy = sum(marked) / len(marked)
+    detail["accuracy"] = round(accuracy, 1)
     return FactorResult(
-        score=round(score, 1),
-        confidence=_confidence_from_count(len(points)),
-        evidence_count=len(points),
-        detail={
-            "completion_rate": round(completion_rate, 2),
-            "accuracy": round(accuracy, 1),
-            "on_time_rate": round(on_time_rate, 2) if on_time_rate is not None else None,
-        },
+        score=round(accuracy, 1),
+        confidence=_confidence_from_count(len(marked)),
+        evidence_count=len(marked),
+        detail=detail,
     )
 
 

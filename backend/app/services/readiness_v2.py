@@ -173,7 +173,12 @@ async def _homework_points(
     points: list[HomeworkPoint] = []
     for assignment, submission in rows:
         if submission is None or submission.status not in SETTLED_STATUSES:
-            points.append(HomeworkPoint(pct=None, on_time=None))
+            points.append(
+                HomeworkPoint(
+                    submitted=submission is not None and submission.submitted_at is not None,
+                    pct=None,
+                )
+            )
             continue
         marks = (
             await session.scalars(
@@ -188,11 +193,11 @@ async def _homework_points(
             )
         ) or 0
         total_final = sum(m.final_marks or 0 for m in marks)
+        # Pre-existing: an assignment with no questions divides by zero here and
+        # falls back to 0.0 rather than "no data" — a separate defect from this
+        # change, left as-is (noted in the 5.1 PR).
         pct = (total_final / total_max * 100) if total_max else 0.0
-        on_time = (
-            submission.submitted_at <= assignment.due_at if assignment.due_at is not None else None
-        )
-        points.append(HomeworkPoint(pct=pct, on_time=on_time))
+        points.append(HomeworkPoint(submitted=True, pct=pct))
     return points
 
 
