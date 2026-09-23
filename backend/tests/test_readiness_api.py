@@ -7,13 +7,14 @@ from app.db import async_session
 from app.models import (
     Evidence,
     EvidenceSource,
+    FactorConfidence,
     Subject,
     Topic,
 )
 from app.services.grade_boundaries import set_org_boundaries
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
-from tests.factories import subject_defaults
+from tests.factories import subject_defaults, write_v2_snapshot
 
 
 @pytest.fixture
@@ -242,26 +243,18 @@ async def test_observation_with_rating_feeds_readiness(client, tutor, world):
 
 
 async def test_group_analytics_and_agreement(client, tutor, world):
-    # Enter a mock so there is readiness data.
-    await client.post(
-        "/api/v1/assessments",
-        json={
-            "subject_id": world["subject_id"],
-            "title": "Mock",
-            "type": "mock",
-            "date": "2026-06-15",
-            "scores": [
-                {
-                    "student_id": world["student_id"],
-                    "topic_id": world["topic2"],
-                    "marks": 5,
-                    "max_marks": 20,
-                },
-            ],
-        },
-        headers=tutor["headers"],
-    )
-    await process_one_job()
+    # Seed a v2 snapshot directly — Group Analytics reads class_readiness(),
+    # which is the learners' latest ready v2 snapshots, not the v1 tables a
+    # mock's job used to write (5.3a).
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=25.0,
+            topics={world["topic2"]: (25.0, FactorConfidence.high)},
+        )
+        await session.commit()
     analytics = await client.get(
         f"/api/v1/analytics/groups/{world['group']['id']}", headers=tutor["headers"]
     )

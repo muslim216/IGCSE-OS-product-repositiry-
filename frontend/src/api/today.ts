@@ -53,6 +53,11 @@ export interface ClassLearnerRow {
   predicted_grade: string | null;
   status: ReadinessStatus | null;
   direction: "up" | "flat" | "down" | null;
+  /** Handed-in count over how many assignments exist — a fact shown beside
+      readiness, never blended into the score (AV-32). Both null when the
+      run has no homework evidence to count, never 0 (PROD-2). */
+  homework_assignment_count: number | null;
+  homework_submitted_count: number | null;
 }
 
 export interface ClassWeakTopic {

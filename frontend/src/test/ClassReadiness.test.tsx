@@ -26,6 +26,8 @@ const OVERVIEW: ClassOverview = {
       predicted_grade: "3",
       status: "at_risk",
       direction: "down",
+      homework_assignment_count: null,
+      homework_submitted_count: null,
     },
     {
       student_id: 10,
@@ -34,6 +36,8 @@ const OVERVIEW: ClassOverview = {
       predicted_grade: "8",
       status: "on_track",
       direction: "up",
+      homework_assignment_count: null,
+      homework_submitted_count: null,
     },
   ],
   weak_topics: [],

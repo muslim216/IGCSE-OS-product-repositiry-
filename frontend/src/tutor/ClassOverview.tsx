@@ -38,6 +38,13 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
       ) : (
         <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
       )}
+      {/* A fact, not part of the score (AV-32) — same rule and loose `!= null`
+          as ReadinessView's profile line (deploy skew leaves these undefined). */}
+      {row.homework_assignment_count != null && row.homework_submitted_count != null && (
+        <span className="text-sm text-ink-500">
+          {row.homework_submitted_count} of {row.homework_assignment_count} handed in
+        </span>
+      )}
     </li>
   );
 }

@@ -8835,6 +8835,28 @@
               }
             ],
             "title": "Direction"
+          },
+          "homework_assignment_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homework Assignment Count"
+          },
+          "homework_submitted_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homework Submitted Count"
           }
         },
         "type": "object",

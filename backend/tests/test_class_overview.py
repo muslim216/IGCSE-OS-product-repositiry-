@@ -9,17 +9,11 @@ status and is not news. Both stay visible under Learners.
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
-from app.db import async_session
-from app.models import (
-    ReadinessConfidence,
-    ReadinessHistory,
-    Subject,
-    Topic,
-    TopicReadiness,
-)
-from tests.factories import subject_defaults
+from app.db import async_session, engine
+from app.models import FactorConfidence, Subject, Topic
+from tests.factories import subject_defaults, write_v2_snapshot
 
 
 @pytest.fixture
@@ -52,7 +46,13 @@ async def _class_with(client, tutor, subject_id):
     ).json()
 
 
-async def _learner(client, tutor, group_id, name, username, score, history=()):
+async def _learner(client, tutor, group_id, name, username, score, history=(), homework=None):
+    """Write the learner's readiness as v2 snapshots: one ready run per
+    `history` value, oldest first and 5 days apart, with the *final* one at
+    `score` — the same run the class page reads (services/class_readiness.py).
+    An empty `history` writes just that one. `homework` (assignment_count,
+    submitted_count), when given, lands on that final run only, since only the
+    latest run's homework_performance row is ever read."""
     student = (
         await client.post(
             f"/api/v1/groups/{group_id}/students",
@@ -62,24 +62,19 @@ async def _learner(client, tutor, group_id, name, username, score, history=()):
     ).json()
     async with async_session() as session:
         topic_id = await session.scalar(select(Topic.id))
-        session.add(
-            TopicReadiness(
+        subject_id = await session.scalar(select(Topic.subject_id))
+        points = list(history) or [score]
+        points[-1] = score  # the latest run is always the score under test
+        now = datetime.now(timezone.utc)
+        for i, value in enumerate(points):
+            await write_v2_snapshot(
+                session,
                 student_id=student["id"],
-                topic_id=topic_id,
-                score=score,
-                confidence=ReadinessConfidence.high,
-                evidence_count=3,
-            )
-        )
-        base = datetime.now(timezone.utc) - timedelta(days=30)
-        for i, h in enumerate(history):
-            session.add(
-                ReadinessHistory(
-                    student_id=student["id"],
-                    subject_id=(await session.scalar(select(Topic.subject_id))),
-                    score=h,
-                    recorded_at=base + timedelta(days=i * 5),
-                )
+                subject_id=subject_id,
+                score=value,
+                topics={topic_id: (value, FactorConfidence.high)},
+                homework=homework if i == len(points) - 1 else None,
+                created_at=now - timedelta(days=(len(points) - 1 - i) * 5),
             )
         await session.commit()
     return student
@@ -162,3 +157,56 @@ async def test_a_student_cannot_reach_the_class_overview(client, tutor, subject_
     headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
     resp = await client.get(f"/api/v1/today/classes/{group['id']}", headers=headers)
     assert resp.status_code == 403
+
+
+async def test_learner_row_carries_homework_completion(client, tutor, subject_id):
+    group = await _class_with(client, tutor, subject_id)
+    await _learner(client, tutor, group["id"], "Aya", "aya01", 70.0, homework=(5, 4))
+    row = (
+        await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
+    ).json()["learners"][0]
+    assert (row["homework_assignment_count"], row["homework_submitted_count"]) == (5, 4)
+
+
+async def test_learner_without_homework_row_reports_null_not_zero(client, tutor, subject_id):
+    group = await _class_with(client, tutor, subject_id)
+    await _learner(client, tutor, group["id"], "Aya", "aya01", 70.0)
+    row = (
+        await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
+    ).json()["learners"][0]
+    assert row["homework_assignment_count"] is None and row["homework_submitted_count"] is None
+
+
+async def test_class_overview_query_count_is_flat_in_roster_size(client, tutor, subject_id):
+    """The class page reads every scored learner's series in one query
+    (PERF-1) — this is the assertion that would catch a regression to one
+    v2_score_points call per learner."""
+    group = await _class_with(client, tutor, subject_id)
+    await _learner(client, tutor, group["id"], "Solo", "solo01", 70.0)
+
+    def count_queries():
+        queries: list[str] = []
+
+        def before(conn, cursor, statement, params, context, executemany):
+            queries.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", before)
+        return queries, lambda: event.remove(engine.sync_engine, "before_cursor_execute", before)
+
+    queries, stop = count_queries()
+    await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
+    stop()
+    baseline = len(queries)
+
+    for i in range(5):
+        await _learner(client, tutor, group["id"], f"S{i}", f"roster{i}", 60.0 + i)
+
+    queries, stop = count_queries()
+    await client.get(f"/api/v1/today/classes/{group['id']}", headers=tutor["headers"])
+    stop()
+    grown = len(queries)
+
+    assert grown == baseline, (
+        f"query count grew from {baseline} to {grown} as the roster went 1 -> 6; "
+        "the class page must not fan out per learner"
+    )

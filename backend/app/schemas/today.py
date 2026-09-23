@@ -65,6 +65,12 @@ class ClassLearnerRow(BaseModel):
     predicted_grade: str | None = None
     status: str | None = None
     direction: str | None = None
+    # Completion is a fact, not part of the score (AV-32): "4 of 5 handed in"
+    # carries its own denominator (PROD-1) and is never blended into a number.
+    # Both None when the learner's latest run has no homework_performance row
+    # — never 0, which PROD-2 forbids for an absent measurement.
+    homework_assignment_count: int | None = None
+    homework_submitted_count: int | None = None
 
 
 class ClassOverview(BaseModel):

@@ -3072,6 +3072,10 @@ export interface components {
             status?: string | null;
             /** Direction */
             direction?: string | null;
+            /** Homework Assignment Count */
+            homework_assignment_count?: number | null;
+            /** Homework Submitted Count */
+            homework_submitted_count?: number | null;
         };
         /**
          * ClassOverview

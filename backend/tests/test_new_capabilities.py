@@ -4,9 +4,9 @@ class briefs, and the homework attention list."""
 import pytest
 
 from app.db import async_session
-from app.models import Subject, Topic
+from app.models import FactorConfidence, Subject, Topic
 from app.workers.jobs import process_one_job
-from tests.factories import subject_defaults, subject_for_tutor
+from tests.factories import subject_defaults, subject_for_tutor, write_v2_snapshot
 
 
 @pytest.fixture
@@ -254,25 +254,19 @@ async def test_class_brief_without_evidence(client, tutor, world):
 
 
 async def test_class_brief_fails_gracefully_without_api_key(client, tutor, world):
-    await client.post(
-        "/api/v1/assessments",
-        json={
-            "subject_id": world["subject_id"],
-            "title": "Mock",
-            "type": "mock",
-            "date": "2026-06-15",
-            "scores": [
-                {
-                    "student_id": world["student_id"],
-                    "topic_id": world["topic_id"],
-                    "marks": 5,
-                    "max_marks": 20,
-                }
-            ],
-        },
-        headers=tutor["headers"],
-    )
-    await process_one_job()
+    # Group Analytics reads class_readiness() — the learners' latest ready v2
+    # snapshots (5.3a) — so evidence for this guard is seeded directly rather
+    # than through a mock's job, which writes v1 tables class_readiness never
+    # reads.
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=25.0,
+            topics={world["topic_id"]: (25.0, FactorConfidence.high)},
+        )
+        await session.commit()
     resp = await client.post(
         f"/api/v1/groups/{world['group']['id']}/brief", headers=tutor["headers"]
     )

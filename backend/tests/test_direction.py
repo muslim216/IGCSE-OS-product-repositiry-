@@ -108,9 +108,11 @@ async def world(client, tutor):
         "student_id": student["id"],
         "headers": {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"},
     }
-    # A current v1 score, so the summary has a value for an arrow to describe.
-    # Without one the score is None and the direction is correctly suppressed —
-    # which is its own test below, not the state these cases are exercising.
+    # A current v1 score. Since 5.3a, most tests below write their own ready
+    # v2 snapshot, and build_summary_v2 prefers it the moment one exists, so
+    # this row is inert for them. It still matters for
+    # test_v1_score_is_not_paired_with_a_v2_arrow, which calls the v1 engine
+    # directly and needs a real v1 score for its arrow to describe.
     async with async_session() as session:
         session.add(
             TopicReadiness(
@@ -150,41 +152,22 @@ async def test_no_history_reports_no_direction(client, tutor, world):
     assert await direction_from_api(client, world) is None
 
 
-async def test_a_subject_with_no_score_carries_no_arrow(client, tutor, world):
-    """Even with a full history, a subject reporting no score reports no
-    direction — the arrow describes the value shown, and there isn't one."""
-    from sqlalchemy import delete
-
-    async with async_session() as session:
-        await session.execute(
-            delete(TopicReadiness).where(TopicReadiness.student_id == world["student_id"])
-        )
-        await session.commit()
-    await record_history(world, [40.0, 55.0, 68.0])
-    resp = await client.get("/api/v1/readiness/me", headers=world["headers"])
-    subject = resp.json()["subjects"][0]
-    assert subject["score"] is None
-    assert subject["direction"] is None
-
-
-async def test_single_history_point_reports_no_direction(client, tutor, world):
-    await record_history(world, [55.0])
-    assert await direction_from_api(client, world) is None
-
-
-async def test_rising_history_reports_up(client, tutor, world):
-    await record_history(world, [40.0, 55.0, 68.0])
-    assert await direction_from_api(client, world) == "up"
+# test_a_subject_with_no_score_carries_no_arrow, test_single_history_point_reports_no_direction
+# and test_rising_history_reports_up are gone: the v2 section below
+# (test_v2_no_evidence_snapshot_carries_no_arrow, test_v2_single_snapshot_reports_no_direction,
+# test_v2_rising_snapshots_report_up) pins the same three cases through the
+# engine /readiness/me now actually reads (5.3a) — these v1-fixture versions
+# were only still passing via the v1 fallback.
 
 
 async def test_falling_history_reports_down(client, tutor, world):
-    await record_history(world, [68.0, 55.0, 40.0])
+    await write_snapshots(world, [68.0, 55.0, 40.0])
     assert await direction_from_api(client, world) == "down"
 
 
 async def test_direction_matches_the_trend_endpoint_series(client, tutor, world):
     """The arrow and the line are the same claim — both read one series."""
-    await record_history(world, [40.0, 55.0, 68.0])
+    await write_snapshots(world, [40.0, 55.0, 68.0])
     trend = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}/trend", headers=world["headers"]
     )

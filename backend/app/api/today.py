@@ -9,7 +9,10 @@ The aggregation itself lives in services/today.py; these handlers are
 request/response wiring and authorization only (BE-1, BE-2).
 
 group_analytics is deliberately left in place — the class page's tabs still use
-it. It simply stops being on the home's path.
+it. It simply stops being on the home's path. Since 5.3a it shares the same
+class_readiness() aggregation this module does (services/class_readiness.py),
+so it is no longer the per-learner loop the paragraph above describes — the
+home, the class page and Group Analytics now read one definition.
 """
 
 from fastapi import APIRouter, HTTPException, status

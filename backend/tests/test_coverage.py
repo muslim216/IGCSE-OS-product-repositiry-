@@ -9,16 +9,9 @@ numerator and denominator that let a surface tell them apart.
 import pytest
 
 from app.db import async_session
-from app.models import (
-    GroupMember,
-    ReadinessConfidence,
-    Subject,
-    Topic,
-    TopicReadiness,
-    User,
-)
+from app.models import FactorConfidence, GroupMember, Subject, Topic, User
 from app.services.groups import summaries
-from tests.factories import subject_defaults
+from tests.factories import subject_defaults, write_v2_snapshot
 
 
 @pytest.fixture
@@ -64,16 +57,10 @@ async def world(client, tutor):
     }
 
 
-async def add_readiness(student_id, topic_id, confidence, score=70.0):
+async def _snap(student_id, subject_id, score, topics=None):
     async with async_session() as session:
-        session.add(
-            TopicReadiness(
-                student_id=student_id,
-                topic_id=topic_id,
-                score=score,
-                confidence=confidence,
-                evidence_count=1,
-            )
+        await write_v2_snapshot(
+            session, student_id=student_id, subject_id=subject_id, score=score, topics=topics
         )
         await session.commit()
 
@@ -92,23 +79,36 @@ async def test_class_with_no_evidence_reports_zero_of_n(client, tutor, world):
 
 
 async def test_confident_evidence_counts_the_student(client, tutor, world):
-    await add_readiness(world["student_id"], world["topic1"], ReadinessConfidence.medium)
+    # Coverage no longer gates on per-topic confidence (5.3a) — a scored
+    # latest run is what counts, the same rule the class score is averaged
+    # over (decision 15).
+    await _snap(world["student_id"], world["subject_id"], 70.0)
     result = await summary_for(world["group_id"])
     assert result.students_with_evidence == 1
 
 
-async def test_low_confidence_does_not_count(client, tutor, world):
-    # "Confident" stays medium-or-better, as readiness_summary defines it.
-    await add_readiness(world["student_id"], world["topic1"], ReadinessConfidence.low)
+async def test_a_no_evidence_snapshot_does_not_count(client, tutor, world):
+    # A ready run that found no evidence carries a null score — omitted, not
+    # counted (PROD-2), same as the class score's own denominator.
+    await _snap(world["student_id"], world["subject_id"], None)
     result = await summary_for(world["group_id"])
     assert result.students_with_evidence == 0
 
 
 async def test_student_with_evidence_on_two_topics_counted_once(client, tutor, world):
-    # A student holds one readiness row per topic; without DISTINCT this would
-    # report 2 of 1 — more covered students than there are students.
-    await add_readiness(world["student_id"], world["topic1"], ReadinessConfidence.high)
-    await add_readiness(world["student_id"], world["topic2"], ReadinessConfidence.high)
+    # A student's latest run can cover several topics in one snapshot; they
+    # still count once — coverage is per (group, student), not per topic row
+    # (the old DISTINCT this pinned no longer applies: 5.3a reads one latest
+    # snapshot per learner, never one row per topic).
+    await _snap(
+        world["student_id"],
+        world["subject_id"],
+        70.0,
+        topics={
+            world["topic1"]: (70.0, FactorConfidence.high),
+            world["topic2"]: (65.0, FactorConfidence.high),
+        },
+    )
     result = await summary_for(world["group_id"])
     assert result.students_with_evidence == 1
     assert result.member_count == 1
@@ -128,8 +128,7 @@ async def test_student_in_two_groups_not_double_counted(client, tutor, world):
         session.add(GroupMember(group_id=second["id"], student_id=world["student_id"]))
         await session.commit()
 
-    await add_readiness(world["student_id"], world["topic1"], ReadinessConfidence.high)
-    await add_readiness(world["student_id"], world["topic2"], ReadinessConfidence.high)
+    await _snap(world["student_id"], world["subject_id"], 70.0)
 
     async with async_session() as session:
         both = await summaries(session, [world["group_id"], second["id"]])
@@ -148,26 +147,28 @@ async def test_another_subjects_evidence_does_not_count(client, tutor, world):
             grade_scale="9-1",
         )
         session.add(other)
-        await session.flush()
-        other_topic = Topic(subject_id=other.id, code="2.1", title="Cells", weight=1.0)
-        session.add(other_topic)
         await session.commit()
-        other_topic_id = other_topic.id
+        other_subject_id = other.id
 
-    await add_readiness(world["student_id"], other_topic_id, ReadinessConfidence.high)
+    await _snap(world["student_id"], other_subject_id, 70.0)
     result = await summary_for(world["group_id"])
     assert result.students_with_evidence == 0
 
 
 async def test_subject_coverage_counts_topics_with_evidence(client, tutor, world):
     """Per-subject coverage: topics carrying evidence over topics that exist."""
-    from app.services.readiness_summary import build_summary
+    from app.services.readiness_summary_v2 import build_summary_v2
 
-    await add_readiness(world["student_id"], world["topic1"], ReadinessConfidence.high)
+    await _snap(
+        world["student_id"],
+        world["subject_id"],
+        70.0,
+        topics={world["topic1"]: (70.0, FactorConfidence.high)},
+    )
 
     async with async_session() as session:
         student = await session.get(User, world["student_id"])
-        summary = await build_summary(session, student, [world["subject_id"]])
+        summary = await build_summary_v2(session, student, [world["subject_id"]])
 
     subject = summary.subjects[0]
     assert subject.topics_with_evidence == 1
@@ -175,11 +176,11 @@ async def test_subject_coverage_counts_topics_with_evidence(client, tutor, world
 
 
 async def test_subject_with_no_evidence_reports_zero_of_n(client, tutor, world):
-    from app.services.readiness_summary import build_summary
+    from app.services.readiness_summary_v2 import build_summary_v2
 
     async with async_session() as session:
         student = await session.get(User, world["student_id"])
-        summary = await build_summary(session, student, [world["subject_id"]])
+        summary = await build_summary_v2(session, student, [world["subject_id"]])
 
     subject = summary.subjects[0]
     assert subject.topics_with_evidence == 0

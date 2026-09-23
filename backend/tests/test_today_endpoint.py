@@ -5,23 +5,13 @@ fanned out one analytics call per class, each of which looped per learner, so th
 cost grew with the roster. If that regresses, nothing else here will notice.
 """
 
-from datetime import datetime, timezone
-
 import pytest
 from sqlalchemy import event, select
 
 from app.db import async_session, engine
-from app.models import (
-    Evidence,
-    EvidenceSource,
-    Group,
-    ReadinessConfidence,
-    Subject,
-    Topic,
-    TopicReadiness,
-)
+from app.models import Group, Subject, Topic
 from app.services.grade_boundaries import set_org_boundaries
-from tests.factories import make_past_paper, subject_defaults
+from tests.factories import make_past_paper, subject_defaults, write_v2_snapshot
 
 
 @pytest.fixture
@@ -79,28 +69,20 @@ async def _add_student(client, tutor, group_id, name, username):
     ).json()
 
 
-async def _give_readiness(student_id, score, confidence=ReadinessConfidence.high):
+async def _give_readiness(student_id, score, predicted_grade="6"):
+    """A ready v2 snapshot — what the strip's score and grade now read
+    (services/class_readiness.py). `predicted_grade` is unused by the strip's
+    own grade, which is always recomputed from the class's mean score and the
+    org's boundaries rather than read off any one snapshot, but every real run
+    carries one."""
     async with async_session() as session:
-        topic_id = await session.scalar(select(Topic.id))
-        session.add(
-            TopicReadiness(
-                student_id=student_id,
-                topic_id=topic_id,
-                score=score,
-                confidence=confidence,
-                evidence_count=3,
-            )
-        )
-        session.add(
-            Evidence(
-                student_id=student_id,
-                topic_id=topic_id,
-                source_type=EvidenceSource.homework,
-                score_pct=score,
-                max_marks=20,
-                occurred_at=datetime.now(timezone.utc),
-                source_ref=f"submission:{student_id}",
-            )
+        subject_id = await session.scalar(select(Topic.subject_id))
+        await write_v2_snapshot(
+            session,
+            student_id=student_id,
+            subject_id=subject_id,
+            score=score,
+            predicted_grade=predicted_grade,
         )
         await session.commit()
 
