@@ -11,12 +11,14 @@ Accounts created (password for all: demo1234):
 
 import asyncio
 import random
+import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
 from app.db import async_session
 from app.models import (
+    AiSynthesisStatus,
     Assessment,
     AssessmentScore,
     AssessmentType,
@@ -44,6 +46,7 @@ from app.models import (
     PastPaperAttempt,
     QuestionMark,
     QuestionTopic,
+    ReadinessSnapshot,
     ReadinessWeights,
     ResourceKind,
     ScheduleSlot,
@@ -60,8 +63,15 @@ from app.models import (
 )
 from app.security import hash_password
 from app.services import storage
-from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
+from app.services.grade_boundaries import (
+    defaults_for_scale,
+    resolve_grade_boundaries,
+    set_org_boundaries,
+)
+from app.services.grades import predict_grade
 from app.services.readiness import recompute_student
+from app.services.readiness_v2 import evaluate_subject_factors
+from app.services.readiness_v2_ai import _resolve_weight_dict, _weighted_reference_score
 from app.services.work import create_work
 
 PASSWORD = "demo1234"
@@ -173,6 +183,40 @@ async def build_subject(session, *, organization_id: int, data: dict) -> Subject
             )
     await session.flush()
     return subject
+
+
+async def write_demo_snapshot(session, student: User, subject_id: int, now: datetime) -> None:
+    """A v2 snapshot for demo data without calling a model (QA-8 in spirit).
+
+    Layer 1 runs for real; the score is Layer 1's own weighted reference — the
+    value compute_readiness_v2 clamps any AI answer to within ±10 of — so the
+    demo shows the engine's deterministic answer, labelled as exactly that."""
+    subject = await session.get(Subject, subject_id)
+    run_id = str(uuid.uuid4())
+    rows = await evaluate_subject_factors(session, student.id, subject_id, run_id, now)
+    weights = await _resolve_weight_dict(session, student.organization_id)
+    reference = _weighted_reference_score(rows, weights)
+    score = round(reference, 1) if reference is not None else None
+    boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
+    session.add(
+        ReadinessSnapshot(
+            evaluation_run_id=run_id,
+            student_id=student.id,
+            subject_id=subject_id,
+            status=AiSynthesisStatus.ready,
+            score=score,
+            predicted_grade=predict_grade(score, boundaries)
+            if score is not None and boundaries
+            else None,
+            weak_topics=[],
+            rationale=(
+                "Demo data: the weighted average of the factor scores. No AI synthesis ran."
+                if score is not None
+                else "No evidence yet for this subject."
+            ),
+            recommended_revision=None,
+        )
+    )
 
 
 async def main() -> None:
@@ -551,6 +595,7 @@ async def main() -> None:
 
         for student in students:
             await recompute_student(session, {"student_id": student.id})
+            await write_demo_snapshot(session, student, subject.id, now)
         await session.commit()
 
         print("demo data created — sign in as demo-tutor@example.com / demo1234")
