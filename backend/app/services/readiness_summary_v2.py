@@ -212,10 +212,13 @@ async def _subject_from_snapshot(
         direction=trend_direction(scores_of(points)) if snapshot.score is not None else None,
         # And the month's movement from those same points, for the same reason.
         month_delta=month_delta(points) if snapshot.score is not None else None,
-        # topic_out is already filtered to factors that had evidence, so its
-        # length is the covered count; the denominator is every topic in the
-        # subject, evidence or not.
-        topics_with_evidence=len(topic_out),
+        # topic_out is already filtered to factors that had evidence; the
+        # denominator is every topic in the subject, evidence or not. A tutor's
+        # estimate adds one to evidence_count but is not practice (owner,
+        # 2026-09-23), so an estimate-only topic is not counted as covered.
+        topics_with_evidence=sum(
+            1 for t in topic_out if t.evidence_count > (1 if t.tutor_estimate else 0)
+        ),
         topic_count=len(topics),
         # A missing key means the run had no homework evidence to count, not
         # a rate of 0 — `homework_performance()`'s detail always carries both

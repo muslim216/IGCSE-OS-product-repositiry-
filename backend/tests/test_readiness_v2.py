@@ -21,6 +21,7 @@ from app.models import (
     EvidenceSource,
     FactorConfidence,
     FactorEvaluation,
+    Group,
     Lesson,
     LessonTopic,
     Mistake,
@@ -40,6 +41,7 @@ from app.models import (
     User,
     WorkKind,
 )
+from app.services.narrative import _class_grounding, _parent_grounding
 from app.services.readiness_factors import NO_DATA, mistake_analysis
 from app.services.readiness_v2 import (
     _mistake_points_and_analysed,
@@ -842,6 +844,19 @@ async def test_a_seed_estimate_scores_a_topic_with_no_marked_work(
     topic = next(t for t in subject["topics"] if t["topic_id"] == world["topic1"])
     assert topic["score"] == 40.0 and topic["confidence"] == "low"
     assert topic["tutor_estimate"] is True
+    # An estimate is not practice (owner, 2026-09-23): the coverage count
+    # beside the topics must not claim evidence nothing was marked for.
+    assert subject["topics_with_evidence"] == 0
+
+    # And the AI narrative writers are told the score rests on the estimate,
+    # not handed it as marked evidence (PROD-8, sweep finding 1).
+    async with async_session() as session:
+        student = await session.get(User, world["student_id"])
+        parent_text = await _parent_grounding(session, student)
+        group = await session.scalar(select(Group))
+        class_text = await _class_grounding(session, group)
+    assert "tutor's starting estimate" in parent_text
+    assert "tutor's starting estimate" in class_text
 
 
 async def test_the_newest_duplicate_estimate_wins(client, tutor, world):

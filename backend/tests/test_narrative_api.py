@@ -284,7 +284,11 @@ async def test_prepare_again_enqueues_a_forced_refresh(client, tutor, world, mon
         return SimpleNamespace(
             weak_topics=[
                 SimpleNamespace(
-                    topic_title="Atoms", topic_code="1.3", avg_score=40, student_count=1
+                    topic_title="Atoms",
+                    topic_code="1.3",
+                    avg_score=40,
+                    student_count=1,
+                    includes_tutor_estimate=False,
                 )
             ],
             weak_students=[SimpleNamespace(student_name="Sara", score=44)],

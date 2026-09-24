@@ -56,6 +56,7 @@ async def test_handler_contributes_no_instruction_text(client, tutor, monkeypatc
                 topic_code="1.3",
                 avg_score=41,
                 student_count=3,
+                includes_tutor_estimate=False,
             )
         ],
         weak_students=[

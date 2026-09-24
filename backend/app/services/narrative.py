@@ -44,6 +44,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.schemas.readiness import SubjectReadiness
 from app.services.ai import AIUnavailableError, record_usage, text_complete
 from app.services.knowledge import resolve_org_tutor_id
 from app.services.prompts import get_prompt
@@ -118,6 +119,16 @@ async def _latest_evidence_at_for_student(
     )
 
 
+# Self-declared data is labelled wherever it is shown (PROD-8, UX-20), and a
+# model is an audience too: without this the prompt would pass an estimate-backed
+# score off as marked evidence in a paragraph a parent reads.
+ESTIMATE_LABEL = " (includes the tutor's starting estimate, not marked work)"
+
+
+def _estimate_note(s: SubjectReadiness) -> str:
+    return ESTIMATE_LABEL if any(t.tutor_estimate for t in s.topics) else ""
+
+
 async def _class_grounding(session: AsyncSession, group: Group) -> str:
     members = (
         await session.scalars(
@@ -129,6 +140,7 @@ async def _class_grounding(session: AsyncSession, group: Group) -> str:
     subject_name = ""
     low: list[str] = []
     on_track = 0
+    estimated = 0
     weak_topic_counts: dict[str, int] = {}
     for member in members:
         summary = await build_summary_v2(session, member, [group.subject_id])
@@ -136,21 +148,30 @@ async def _class_grounding(session: AsyncSession, group: Group) -> str:
             continue
         s = summary.subjects[0]
         subject_name = s.subject_name
+        if _estimate_note(s):
+            estimated += 1
         if s.status == "on_track":
             on_track += 1
         elif s.status is not None:
             score = f"{round(s.score)}%" if s.score is not None else "not enough data yet"
-            low.append(f"- {member.name}: {score} ({s.status})")
+            low.append(f"- {member.name}: {score} ({s.status}){_estimate_note(s)}")
         for wt in s.weak_topics:
-            weak_topic_counts[f"{wt.topic_code} {wt.topic_title}"] = (
-                weak_topic_counts.get(f"{wt.topic_code} {wt.topic_title}", 0) + 1
+            name = f"{wt.topic_code} {wt.topic_title}" + (
+                ESTIMATE_LABEL if wt.tutor_estimate else ""
             )
+            weak_topic_counts[name] = weak_topic_counts.get(name, 0) + 1
     weak_topics = sorted(weak_topic_counts.items(), key=lambda kv: -kv[1])[:5]
     weak_topics_text = "\n".join(f"- {name} (weak for {n} learners)" for name, n in weak_topics)
     return (
         "AUDIENCE: tutor\n"
         f"Class: {group.name} ({subject_name})\n"
-        f"Learners on track: {on_track} of {len(members)}\n\n"
+        f"Learners on track: {on_track} of {len(members)}\n"
+        + (
+            f"Learners whose readiness includes the tutor's starting estimate: {estimated}\n"
+            if estimated
+            else ""
+        )
+        + "\n"
         f"Weakest topics across the class:\n{weak_topics_text or '(none flagged)'}\n\n"
         f"Learners with lower readiness:\n" + ("\n".join(low) or "(none)")
     )
@@ -174,7 +195,7 @@ async def _parent_grounding(session: AsyncSession, student: User) -> str:
         direction = DIRECTION_WORDS.get(s.direction, "no trend yet")
         lines.append(
             f"- {s.subject_name}: {s.status}, predicted {grade} (estimate), {direction}, "
-            f"from {s.marked_piece_count} marked piece(s)"
+            f"from {s.marked_piece_count} marked piece(s){_estimate_note(s)}"
         )
     return f"AUDIENCE: parent\nChild: {student.name}\n\nSubjects:\n" + (
         "\n".join(lines) or "(no subjects yet)"
