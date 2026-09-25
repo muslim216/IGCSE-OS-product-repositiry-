@@ -699,7 +699,7 @@
           "assessments"
         ],
         "summary": "Seed Readiness",
-        "description": "A tutor's own starting assessment of a student, per topic.\n\nThis is step 5 of the cold start (spec \u00a77.1), and it deliberately cannot\nhappen earlier: students attach themselves by invite code, so a tutor\nfinishing setup has no students to rate. It is also optional, because for\nmany classes it never happens \u2014 the product has to work when it does not.\n\nWhat is written is `Evidence` with `source_type=tutor_estimate`, which means\nit goes through exactly the same pipeline as every other source and needs no\nparallel code path (PROD-9's shape, applied to a new source). It is\nself-declared and labelled as such wherever it is shown (PROD-8), and it\nloses weight against real marked work as that arrives (\u00a77.3).\n\nRe-seeding the same topic replaces the previous estimate rather than adding\na second one: this is the tutor's current opinion, not a history of their\nopinions, and stacking them would let one topic be seeded into a score.\n\nReadiness Engine v2 \u2014 the default served engine \u2014 now reads the estimate's\npercentage too (5.3a task 4, decision 14): Topic Mastery folds it in as a\nlabelled, decaying prior that a marked question overtakes, never deletes,\nand that never by itself claims Syllabus Coverage's \"mastered\" (PROD-8).\nA topic with only an estimate still shows \"not practised\" for coverage \u2014\na tutor's opinion is not the student doing the work.\n\n**Known gap (RISK-5), narrowed.** What remains is the other Evidence-only\nsources: tutor observations and entered mocks still reach v2 only as a\n\"practised\" flag, not as a score \u2014 the same convergence work as before,\nnow scoped to those two rather than to every Evidence-only source.",
+        "description": "A tutor's own starting assessment of a student, per topic.\n\nThis is step 5 of the cold start (spec \u00a77.1), and it deliberately cannot\nhappen earlier: students attach themselves by invite code, so a tutor\nfinishing setup has no students to rate. It is also optional, because for\nmany classes it never happens \u2014 the product has to work when it does not.\n\nWhat is written is `Evidence` with `source_type=tutor_estimate`, which means\nit goes through exactly the same pipeline as every other source and needs no\nparallel code path (PROD-9's shape, applied to a new source). It is\nself-declared and labelled as such wherever it is shown (PROD-8), and it\nloses weight against real marked work as that arrives (\u00a77.3).\n\nRe-seeding the same topic replaces the previous estimate rather than adding\na second one: this is the tutor's current opinion, not a history of their\nopinions, and stacking them would let one topic be seeded into a score.\n\nReadiness Engine v2 \u2014 the default served engine \u2014 now reads the estimate's\npercentage too (5.3a task 4, decision 14): Topic Mastery folds it in as a\nlabelled, decaying prior whose share shrinks as marked questions on the\ntopic accumulate (it is never deleted),\nand that never by itself claims Syllabus Coverage's \"mastered\" (PROD-8).\nA topic with only an estimate still shows \"not practised\" for coverage \u2014\na tutor's opinion is not the student doing the work.\n\n**Known gap (RISK-5), narrowed.** What remains is the other Evidence-only\nsources: tutor observations and entered mocks do not feed Topic Mastery \u2014\nobservations reach v2 only as a coverage \"practised\" flag, and mocks feed\nthe subject-level assessment factor \u2014 the same convergence work as before,\nnow scoped to those two rather than to every Evidence-only source.",
         "operationId": "seed_readiness_api_v1_students__student_id__seed_readiness_post",
         "security": [
           {
@@ -14337,6 +14337,11 @@
           "confidence": {
             "type": "string",
             "title": "Confidence"
+          },
+          "tutor_estimate": {
+            "type": "boolean",
+            "title": "Tutor Estimate",
+            "default": false
           },
           "evidence": {
             "items": {

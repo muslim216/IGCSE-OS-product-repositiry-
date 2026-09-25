@@ -130,6 +130,9 @@ export default function StudentDetailPage() {
             {evidence.data.score !== null ? (
               <>
                 Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence} confidence)
+                {evidence.data.tutor_estimate && (
+                  <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                )}{" "}
                 —{" "}
               </>
             ) : (

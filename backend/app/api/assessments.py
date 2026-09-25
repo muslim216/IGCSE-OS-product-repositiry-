@@ -280,14 +280,16 @@ async def seed_readiness(
 
     Readiness Engine v2 — the default served engine — now reads the estimate's
     percentage too (5.3a task 4, decision 14): Topic Mastery folds it in as a
-    labelled, decaying prior that a marked question overtakes, never deletes,
+    labelled, decaying prior whose share shrinks as marked questions on the
+    topic accumulate (it is never deleted),
     and that never by itself claims Syllabus Coverage's "mastered" (PROD-8).
     A topic with only an estimate still shows "not practised" for coverage —
     a tutor's opinion is not the student doing the work.
 
     **Known gap (RISK-5), narrowed.** What remains is the other Evidence-only
-    sources: tutor observations and entered mocks still reach v2 only as a
-    "practised" flag, not as a score — the same convergence work as before,
+    sources: tutor observations and entered mocks do not feed Topic Mastery —
+    observations reach v2 only as a coverage "practised" flag, and mocks feed
+    the subject-level assessment factor — the same convergence work as before,
     now scoped to those two rather than to every Evidence-only source.
     """
     # Which subjects this tutor actually teaches *this* student. Authorizing the

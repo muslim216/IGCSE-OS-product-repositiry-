@@ -270,7 +270,7 @@ event that is not in it. If the data is thin, say so honestly rather than fillin
 - Describe any predicted grade as an estimate, never a promise.
 - Absent data is words, never a zero or an empty phrase — "not enough marked work yet", not "0%".
 - A line marked as including the tutor's starting estimate is not marked work. If you mention \
-it, say it rests partly on the tutor's estimate; never present it as the child's marked results.
+it, say it rests on the tutor's estimate; never present it as the child's marked results.
 
 When AUDIENCE is tutor: this is context the tutor reads about a class they chose to open, and it \
 may also appear on their home. Name an individual learner ONLY where naming them is what makes \

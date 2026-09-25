@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 import app.services.readiness_v2_ai as readiness_v2_ai
 from app.db import async_session
-from app.models import AiSynthesisStatus, AiUsageEvent, ReadinessSnapshot, Subject, User
+from app.models import AiSynthesisStatus, AiUsageEvent, ReadinessSnapshot, Subject, User, UserRole
 from app.services.readiness_summary_v2 import build_summary_v2
 from seed import demo
 
@@ -24,9 +24,8 @@ async def test_demo_seed_writes_ready_v2_snapshots_without_ai(monkeypatch):
     await demo.main()
 
     async with async_session() as session:
-        students = (
-            await session.scalars(select(User).where(User.email.like("demo-student%")))
-        ).all()
+        # Every seeded learner, the username-only demo_ali included.
+        students = (await session.scalars(select(User).where(User.role == UserRole.student))).all()
         chemistry = await session.scalar(select(Subject).where(Subject.name == "Chemistry"))
         assert students and chemistry is not None
 

@@ -109,10 +109,12 @@ async def topic_evidence(
     snapshot = await latest_ready_snapshot(db, student_id, topic.subject_id)
     score: float | None = None
     confidence = FactorConfidence.no_data.value
+    tutor_estimate = False
     if snapshot is not None:
         row = await topic_mastery_row(db, snapshot, topic_id)
         if row is not None and row.score is not None and row.confidence != FactorConfidence.no_data:
             score, confidence = row.score, row.confidence.value
+            tutor_estimate = "tutor_estimate" in (row.detail or {})
     else:
         # Until 5.3b: the summary serves v1 for a subject v2 has not answered,
         # so the drill-down header must read the same engine as the bar.
@@ -137,6 +139,7 @@ async def topic_evidence(
         topic_title=topic.title,
         score=score,
         confidence=confidence,
+        tutor_estimate=tutor_estimate,
         evidence=[
             EvidenceItem(
                 source_type=e.source_type.value,

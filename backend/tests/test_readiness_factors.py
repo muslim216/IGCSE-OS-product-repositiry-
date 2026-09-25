@@ -263,11 +263,18 @@ def test_age_treats_a_naive_timestamp_as_utc_and_never_goes_negative():
 
 def test_the_v2_factor_module_does_not_import_v1():
     # 5.3b deletes services/readiness.py; the v2 maths must not go with it.
+    # An AST check, not vars(): an imported float constant has no __module__.
+    import ast
+    import inspect
+
     import app.services.readiness_factors as mod
 
-    assert "app.services.readiness" not in {
-        getattr(v, "__module__", None) for v in vars(mod).values()
+    imported = {
+        node.module
+        for node in ast.walk(ast.parse(inspect.getsource(mod)))
+        if isinstance(node, ast.ImportFrom)
     }
+    assert "app.services.readiness" not in imported
 
 
 def test_shared_confident_matches_medium_and_high():

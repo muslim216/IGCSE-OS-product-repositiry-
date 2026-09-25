@@ -763,7 +763,8 @@ async def test_the_factor_reports_whatever_the_category_is_called(client, tutor,
 
 
 async def test_practiced_excludes_tutor_estimate_but_not_marked_work(client, tutor, world):
-    """Owner decision (2026-09-23): coverage counts marked work only. A
+    """Owner decision (2026-09-23): a tutor's estimate never counts as
+    practice (other evidence, observations included, still can). A
     tutor's estimate is their opinion, entered before any work exists — not
     the student practising. Discrimination: drop the
     `source_type != EvidenceSource.tutor_estimate` filter in `_topic_coverage`
@@ -847,6 +848,13 @@ async def test_a_seed_estimate_scores_a_topic_with_no_marked_work(
     # An estimate is not practice (owner, 2026-09-23): the coverage count
     # beside the topics must not claim evidence nothing was marked for.
     assert subject["topics_with_evidence"] == 0
+    drill = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",
+            headers=tutor["headers"],
+        )
+    ).json()
+    assert drill["score"] == 40.0 and drill["tutor_estimate"] is True
 
     # And the AI narrative writers are told the score rests on the estimate,
     # not handed it as marked evidence (PROD-8, sweep finding 1).

@@ -94,6 +94,7 @@ export interface TopicEvidence {
       never a fabricated 0, which would claim a measurement never taken. */
   score: number | null;
   confidence: string;
+  tutor_estimate: boolean;
   evidence: EvidenceItem[];
 }
 

@@ -142,6 +142,7 @@ async def _class_grounding(session: AsyncSession, group: Group) -> str:
     on_track = 0
     estimated = 0
     weak_topic_counts: dict[str, int] = {}
+    estimated_topics: set[str] = set()
     for member in members:
         summary = await build_summary_v2(session, member, [group.subject_id])
         if not summary.subjects:
@@ -156,12 +157,15 @@ async def _class_grounding(session: AsyncSession, group: Group) -> str:
             score = f"{round(s.score)}%" if s.score is not None else "not enough data yet"
             low.append(f"- {member.name}: {score} ({s.status}){_estimate_note(s)}")
         for wt in s.weak_topics:
-            name = f"{wt.topic_code} {wt.topic_title}" + (
-                ESTIMATE_LABEL if wt.tutor_estimate else ""
-            )
+            name = f"{wt.topic_code} {wt.topic_title}"
             weak_topic_counts[name] = weak_topic_counts.get(name, 0) + 1
+            if wt.tutor_estimate:
+                estimated_topics.add(name)
     weak_topics = sorted(weak_topic_counts.items(), key=lambda kv: -kv[1])[:5]
-    weak_topics_text = "\n".join(f"- {name} (weak for {n} learners)" for name, n in weak_topics)
+    weak_topics_text = "\n".join(
+        f"- {name}{ESTIMATE_LABEL if name in estimated_topics else ''} (weak for {n} learners)"
+        for name, n in weak_topics
+    )
     return (
         "AUDIENCE: tutor\n"
         f"Class: {group.name} ({subject_name})\n"

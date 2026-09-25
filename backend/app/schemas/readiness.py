@@ -101,6 +101,9 @@ class TopicEvidence(BaseModel):
     # was never taken (PROD-2).
     score: float | None
     confidence: str
+    # The header score can rest on a tutor's estimate; labelled wherever it
+    # shows (PROD-8, owner 2026-09-23).
+    tutor_estimate: bool = False
     evidence: list[EvidenceItem]
 
 
