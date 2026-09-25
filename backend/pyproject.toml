@@ -6,7 +6,11 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
-    "sqlalchemy[asyncio]>=2.0",
+    # Capped because the floor alone let CI (and Render's next build) resolve
+    # 2.1.1 the day it shipped: its stricter typing failed mypy on four
+    # services nobody had touched. 2.0.x is what the code is verified against;
+    # moving to 2.1 is its own PR.
+    "sqlalchemy[asyncio]>=2.0,<2.1",
     "asyncpg>=0.29",
     "aiosqlite>=0.20",
     "alembic>=1.13",
