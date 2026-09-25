@@ -101,9 +101,14 @@ export function SubjectReadinessCard({
                 key={t.topic_id}
                 onClick={() => onTopicClick?.(t.topic_id)}
                 className="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-700 hover:bg-red-100"
-                title={`${Math.round(t.score)}%`}
+                title={`${Math.round(t.score)}%${
+                  t.tutor_estimate ? " — includes tutor estimate" : ""
+                }`}
               >
                 {t.topic_code} {t.topic_title}
+                {t.tutor_estimate && (
+                  <span className="ml-1 text-ink-500">includes tutor estimate</span>
+                )}
               </button>
             ))}
           </div>
@@ -123,6 +128,9 @@ export function SubjectReadinessCard({
               >
                 <div className="flex items-center gap-2 text-sm">
                   <span className="w-28 shrink-0 truncate text-slate-500">{t.topic_code}</span>
+                  {t.tutor_estimate && (
+                    <span className="text-xs text-ink-500">includes tutor estimate</span>
+                  )}
                   <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className={`h-full ${barColor(t.score)}`}

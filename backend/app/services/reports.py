@@ -2,29 +2,23 @@
 narrative report. The AI writes prose strictly from the factual block we build —
 it is told never to invent marks, grades, or facts not present in the data."""
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AiFeature,
-    Assignment,
     Group,
     GroupMember,
-    ReadinessConfidence,
-    ReadinessHistory,
     Report,
     ReportAudience,
     ReportStatus,
     Subject,
-    Submission,
-    Topic,
-    TopicReadiness,
     User,
 )
 from app.services.ai import record_usage, text_complete
-from app.services.grade_boundaries import boundaries_for, org_boundaries
-from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context
+from app.services.readiness_shared import WEAK_THRESHOLD
+from app.services.readiness_summary_v2 import build_summary_v2
 
 AUDIENCE_GUIDANCE = {
     ReportAudience.parent: (
@@ -48,99 +42,72 @@ AUDIENCE_GUIDANCE = {
 
 
 async def build_report_facts(session: AsyncSession, student: User, subject_ids: list[int]) -> str:
+    """The factual block the report prompt writes from — the same numbers the
+    student's profile shows, because both read build_summary_v2."""
     lines: list[str] = [f"Student: {student.name}"]
-    all_boundaries = await org_boundaries(session, student.organization_id)
-    for subject_id in subject_ids:
-        subject = await session.get(Subject, subject_id)
-        if subject is None:
-            continue
-        topics = {
-            t.id: t
-            for t in (
-                await session.scalars(select(Topic).where(Topic.subject_id == subject_id))
-            ).all()
-        }
-        rows = (
-            await session.scalars(
-                select(TopicReadiness).where(
-                    TopicReadiness.student_id == student.id,
-                    TopicReadiness.topic_id.in_(list(topics.keys()) or [0]),
-                )
+    codes: dict[int, str] = dict(
+        tuple(row)
+        for row in (
+            await session.execute(
+                select(Subject.id, Subject.code).where(Subject.id.in_(subject_ids or [0]))
             )
         ).all()
-        confident = [r for r in rows if r.confidence != ReadinessConfidence.none]
-        lines.append(f"\n## {subject.name} ({subject.exam_board} {subject.code})")
-        if not confident:
+    )
+    summary = await build_summary_v2(session, student, subject_ids)
+    for s in summary.subjects:
+        lines.append(f"\n## {s.subject_name} ({s.exam_board} {codes.get(s.subject_id, '')})")
+        if s.score is None:
             lines.append("No readiness data yet for this subject.")
-            continue
-        overall = round(
-            sum(topics[r.topic_id].weight * r.score for r in confident)
-            / sum(topics[r.topic_id].weight for r in confident),
-            1,
-        )
-        # One source since 2.4 (AV-11): no boundaries set means no predicted
-        # grade in the report either — the sentence drops rather than carrying a
-        # dash a model would then have to explain (PROD-2).
-        boundaries = boundaries_for(all_boundaries, subject)
-        grade = predict_grade(overall, boundaries) if boundaries else None
-        lines.append(
-            f"Overall readiness: {overall}% (estimated grade: {grade})"
-            if grade
-            else f"Overall readiness: {overall}% (no grade boundaries set for this subject)"
-        )
-
-        strong = sorted(confident, key=lambda r: r.score, reverse=True)[:3]
-        weak = sorted((r for r in confident if r.score <= 60), key=lambda r: r.score)[:5]
-        if strong:
+        else:
+            # One source since 2.4 (AV-11): no boundaries set means no predicted
+            # grade in the report either — the sentence drops rather than carrying
+            # a dash a model would then have to explain (PROD-2).
             lines.append(
-                "Strongest topics: "
-                + ", ".join(f"{topics[r.topic_id].title} ({r.score:.0f}%)" for r in strong)
+                f"Overall readiness: {s.score}% (estimated grade: {s.predicted_grade})"
+                if s.predicted_grade
+                else f"Overall readiness: {s.score}% (no grade boundaries set for this subject)"
             )
-        if weak:
+            strong = sorted(s.topics, key=lambda t: t.score, reverse=True)[:3]
+            weak = sorted(
+                (t for t in s.topics if t.score <= WEAK_THRESHOLD), key=lambda t: t.score
+            )[:5]
+            if strong:
+                lines.append(
+                    "Strongest topics: "
+                    + ", ".join(
+                        f"{t.topic_title} ({t.score:.0f}%"
+                        f"{', includes tutor estimate' if t.tutor_estimate else ''})"
+                        for t in strong
+                    )
+                )
+            if weak:
+                lines.append(
+                    "Weakest topics: "
+                    + ", ".join(
+                        f"{t.topic_title} ({t.score:.0f}%"
+                        f"{', includes tutor estimate' if t.tutor_estimate else ''})"
+                        for t in weak
+                    )
+                )
+            if s.direction is not None:
+                word = {"up": "improved", "down": "declined", "flat": "held steady"}[s.direction]
+                moved = (
+                    f" ({s.month_delta:+.1f} points in the last 30 days)"
+                    if s.month_delta is not None
+                    else ""
+                )
+                lines.append(f"Trend: {word}{moved}")
+        # Homework completion is independent of the readiness score: a
+        # ready, score=None run (no factor had evidence) still persists its
+        # homework_performance row, so "N of M handed in" is a fact the
+        # report can state even with no overall number to lead with
+        # (PROD-1). v1-fallback subjects never carry these counts (they are
+        # None there), so this naturally stays silent for them.
+        if s.homework_assignment_count:
             lines.append(
-                "Weakest topics: "
-                + ", ".join(f"{topics[r.topic_id].title} ({r.score:.0f}%)" for r in weak)
+                f"Homework: submitted {s.homework_submitted_count} of "
+                f"{s.homework_assignment_count} assignments"
             )
-
-        # Trend: compare earliest vs latest subject-readiness snapshot.
-        history = (
-            await session.scalars(
-                select(ReadinessHistory)
-                .where(
-                    ReadinessHistory.student_id == student.id,
-                    ReadinessHistory.subject_id == subject_id,
-                )
-                .order_by(ReadinessHistory.recorded_at)
-            )
-        ).all()
-        if len(history) >= 2:
-            delta = round(history[-1].score - history[0].score, 1)
-            direction = "improved" if delta > 1 else "declined" if delta < -1 else "held steady"
-            lines.append(f"Trend: {direction} ({delta:+.1f} points over {len(history)} snapshots)")
-
-        # Homework completion for this subject.
-        total = (
-            await session.scalar(
-                select(func.count(Assignment.id))
-                .join(Group, Group.id == Assignment.group_id)
-                .join(GroupMember, GroupMember.group_id == Group.id)
-                .where(
-                    GroupMember.student_id == student.id,
-                    Group.subject_id == subject_id,
-                    Assignment.status.in_(["published", "closed"]),
-                )
-            )
-        ) or 0
-        submitted = (
-            await session.scalar(
-                select(func.count(Submission.id))
-                .join(Assignment, Assignment.work_id == Submission.work_id)
-                .join(Group, Group.id == Assignment.group_id)
-                .where(Submission.student_id == student.id, Group.subject_id == subject_id)
-            )
-        ) or 0
-        if total:
-            lines.append(f"Homework: submitted {submitted} of {total} assignments")
     return "\n".join(lines)
 
 

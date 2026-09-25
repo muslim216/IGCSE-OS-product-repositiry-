@@ -61,7 +61,10 @@ function ClassRow({ row }: { row: ClassStripRow }) {
       )}
 
       {coverage && (
-        <span className="ml-auto text-xs tabular-nums text-ink-500" title="Learners with evidence">
+        <span
+          className="ml-auto text-xs tabular-nums text-ink-500"
+          title="Learners with a readiness score"
+        >
           {coverage}
         </span>
       )}

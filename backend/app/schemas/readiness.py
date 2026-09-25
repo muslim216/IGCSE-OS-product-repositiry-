@@ -10,6 +10,10 @@ class TopicReadinessOut(BaseModel):
     score: float
     confidence: str
     evidence_count: int
+    # Whether this score rests partly or wholly on the tutor's self-declared
+    # starting estimate rather than marked work — self-declared data is
+    # labelled wherever it is shown, never blended in silently (PROD-8, UX-20).
+    tutor_estimate: bool = False
 
 
 class WeakTopic(BaseModel):
@@ -17,6 +21,10 @@ class WeakTopic(BaseModel):
     topic_code: str
     topic_title: str
     score: float
+    # An AI-picked weak topic can rest on a tutor's estimate rather than
+    # marked work — self-declared data is labelled wherever it is shown, and
+    # a chip is a place it is shown (fix round 1, PROD-8, UX-20).
+    tutor_estimate: bool = False
 
 
 class SubjectReadiness(BaseModel):
@@ -88,8 +96,14 @@ class TopicEvidence(BaseModel):
     topic_id: int
     topic_code: str
     topic_title: str
-    score: float
+    # None when there is no Topic Mastery row with real confidence for this
+    # topic — never a fabricated 0.0, which would claim a measurement that
+    # was never taken (PROD-2).
+    score: float | None
     confidence: str
+    # The header score can rest on a tutor's estimate; labelled wherever it
+    # shows (PROD-8, owner 2026-09-23).
+    tutor_estimate: bool = False
     evidence: list[EvidenceItem]
 
 
@@ -242,6 +256,9 @@ class TopicHeat(BaseModel):
     topic_title: str
     avg_score: float
     student_count: int
+    # True when any contributing learner's score rests on a tutor's estimate
+    # rather than marked work alone (fix round 1, PROD-8, UX-20).
+    includes_tutor_estimate: bool = False
 
 
 class AgreementStats(BaseModel):

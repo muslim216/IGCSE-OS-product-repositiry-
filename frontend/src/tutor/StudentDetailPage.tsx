@@ -127,7 +127,17 @@ export default function StudentDetailPage() {
             </button>
           </div>
           <p className="mt-1 text-sm text-ink-500">
-            Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence} confidence) —
+            {evidence.data.score !== null ? (
+              <>
+                Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence} confidence)
+                {evidence.data.tutor_estimate && (
+                  <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                )}{" "}
+                —{" "}
+              </>
+            ) : (
+              "Not enough data yet — "
+            )}
             every score is explainable by the evidence below.
           </p>
           <ul className="mt-2 divide-y divide-line text-sm">

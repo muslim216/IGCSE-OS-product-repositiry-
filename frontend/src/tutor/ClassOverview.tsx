@@ -38,6 +38,13 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
       ) : (
         <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
       )}
+      {/* A fact, not part of the score (AV-32) — same rule and loose `!= null`
+          as ReadinessView's profile line (deploy skew leaves these undefined). */}
+      {row.homework_assignment_count != null && row.homework_submitted_count != null && (
+        <span className="text-sm text-ink-500">
+          {row.homework_submitted_count} of {row.homework_assignment_count} handed in
+        </span>
+      )}
     </li>
   );
 }
@@ -198,7 +205,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
         )}
         {coverage && (
           <span className="text-xs tabular-nums text-ink-500">
-            {coverage} learners with evidence
+            {coverage} learners with a readiness score
           </span>
         )}
       </div>
@@ -214,6 +221,9 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
               >
                 <span className="text-ink-700">
                   {t.topic_code} {t.topic_title}
+                  {t.includes_tutor_estimate && (
+                    <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                  )}
                 </span>
                 <span className="tabular-nums text-ink-500">
                   {Math.round(t.avg_score)}% · {t.student_count}

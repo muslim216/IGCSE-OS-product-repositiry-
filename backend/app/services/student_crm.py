@@ -26,7 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.readiness import SubjectReadiness
-from app.services.readiness_summary import build_summary
+from app.services.readiness_summary_v2 import build_summary_v2
 
 
 @dataclass(frozen=True)
@@ -96,7 +96,7 @@ async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
         )
 
     subject_ids = await enrolled_subject_ids(session, student.id)
-    readiness_summary = await build_summary(session, student, subject_ids)
+    readiness_summary = await build_summary_v2(session, student, subject_ids)
 
     homework_rows = (
         await session.execute(

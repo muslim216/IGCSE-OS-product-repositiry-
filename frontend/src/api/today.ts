@@ -53,6 +53,11 @@ export interface ClassLearnerRow {
   predicted_grade: string | null;
   status: ReadinessStatus | null;
   direction: "up" | "flat" | "down" | null;
+  /** Handed-in count over how many assignments exist — a fact shown beside
+      readiness, never blended into the score (AV-32). Both null when the
+      run has no homework evidence to count, never 0 (PROD-2). */
+  homework_assignment_count: number | null;
+  homework_submitted_count: number | null;
 }
 
 export interface ClassWeakTopic {
@@ -60,6 +65,9 @@ export interface ClassWeakTopic {
   topic_title: string;
   avg_score: number;
   student_count: number;
+  /** True when any contributing learner's score rests on a tutor's estimate
+      rather than marked work alone (fix round 1, PROD-8, UX-20). */
+  includes_tutor_estimate: boolean;
 }
 
 export interface ClassOverview {

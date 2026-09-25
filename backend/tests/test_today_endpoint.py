@@ -5,23 +5,13 @@ fanned out one analytics call per class, each of which looped per learner, so th
 cost grew with the roster. If that regresses, nothing else here will notice.
 """
 
-from datetime import datetime, timezone
-
 import pytest
 from sqlalchemy import event, select
 
 from app.db import async_session, engine
-from app.models import (
-    Evidence,
-    EvidenceSource,
-    Group,
-    ReadinessConfidence,
-    Subject,
-    Topic,
-    TopicReadiness,
-)
+from app.models import Group, Subject, Topic
 from app.services.grade_boundaries import set_org_boundaries
-from tests.factories import make_past_paper, subject_defaults
+from tests.factories import make_past_paper, subject_defaults, write_v2_snapshot
 
 
 @pytest.fixture
@@ -79,28 +69,20 @@ async def _add_student(client, tutor, group_id, name, username):
     ).json()
 
 
-async def _give_readiness(student_id, score, confidence=ReadinessConfidence.high):
+async def _give_readiness(student_id, score, predicted_grade="6"):
+    """A ready v2 snapshot — what the strip's score and grade now read
+    (services/class_readiness.py). `predicted_grade` is unused by the strip's
+    own grade, which is always recomputed from the class's mean score and the
+    org's boundaries rather than read off any one snapshot, but every real run
+    carries one."""
     async with async_session() as session:
-        topic_id = await session.scalar(select(Topic.id))
-        session.add(
-            TopicReadiness(
-                student_id=student_id,
-                topic_id=topic_id,
-                score=score,
-                confidence=confidence,
-                evidence_count=3,
-            )
-        )
-        session.add(
-            Evidence(
-                student_id=student_id,
-                topic_id=topic_id,
-                source_type=EvidenceSource.homework,
-                score_pct=score,
-                max_marks=20,
-                occurred_at=datetime.now(timezone.utc),
-                source_ref=f"submission:{student_id}",
-            )
+        subject_id = await session.scalar(select(Topic.subject_id))
+        await write_v2_snapshot(
+            session,
+            student_id=student_id,
+            subject_id=subject_id,
+            score=score,
+            predicted_grade=predicted_grade,
         )
         await session.commit()
 
@@ -215,6 +197,14 @@ async def test_query_count_does_not_grow_with_group_count(client, tutor, subject
     The old home issued one analytics request per class, and each of those ran a
     db.get(User) plus a readiness select per learner. Here the whole home is one
     request whose query count is flat in the number of classes.
+
+    `baseline` is also pinned to an absolute number (fix round 1), not just
+    flatness: `latest_learner_snapshots()` feeds both `class_health()` (the
+    strip's score) and `groups.summaries()` (the coverage count), and it is
+    a window query over the whole roster — a caller that fetches it twice for
+    the same group_ids would still pass the flatness half of this assertion
+    (both runs would grow by the same doubled amount), so only the absolute
+    count catches that regression.
     """
 
     def count_queries():
@@ -236,6 +226,16 @@ async def test_query_count_does_not_grow_with_group_count(client, tutor, subject
     await client.get("/api/v1/today", headers=tutor["headers"])
     stop()
     baseline = len(queries)
+    # today_lessons (2: org fetch, schedule join) + tutor_groups (1) +
+    # latest_learner_snapshots (1, shared) + groups.summaries (4: members,
+    # published, awaiting, schedule slots — covered folds into the shared
+    # snapshots read) + org_boundaries (1) + pending_review_count (1) = 10,
+    # plus request-scoped auth/session bookkeeping. Pinned by measurement so a
+    # reviewer changing this number has to explain why, not just relax it.
+    assert baseline == 12, (
+        f"baseline query count is {baseline}, expected 12 — if this grew, check "
+        "whether latest_learner_snapshots() is now running twice for one request"
+    )
 
     # Five more classes, each with learners and evidence.
     for c in range(5):

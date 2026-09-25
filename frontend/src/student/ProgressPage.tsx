@@ -104,6 +104,9 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
                 >
                   <span className="text-ink-700">
                     {t.topic_code} {t.topic_title}
+                    {t.tutor_estimate && (
+                      <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                    )}
                   </span>
                   <span className="tabular-nums text-ink-500">
                     {count === 0
@@ -128,6 +131,9 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
               >
                 <span className="text-ink-700">
                   {t.topic_code} {t.topic_title}
+                  {t.tutor_estimate && (
+                    <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                  )}
                 </span>
                 <span className="tabular-nums text-ink-500">
                   {t.evidence_count === 0

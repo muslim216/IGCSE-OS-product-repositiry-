@@ -252,6 +252,11 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
     # change is one versioned edit there, not a scatter across call sites (AI-6).
     weak_topics_text = "\n".join(
         f"- {t.topic_title} ({t.topic_code}): avg {t.avg_score}% across {t.student_count} students"
+        + (
+            " (includes the tutor's starting estimate, not marked work)"
+            if t.includes_tutor_estimate
+            else ""
+        )
         for t in analytics.weak_topics[:5]
     )
     weak_students_text = "\n".join(

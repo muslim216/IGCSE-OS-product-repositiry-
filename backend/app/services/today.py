@@ -7,7 +7,6 @@ class, each of which looped `db.get(User)` plus a readiness select per learner
 (PERF-1).
 """
 
-from collections import defaultdict
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
@@ -19,11 +18,8 @@ from app.models import (
     Group,
     GroupMember,
     Organization,
-    ReadinessHistory,
     ScheduleSlot,
     Submission,
-    Topic,
-    TopicReadiness,
     User,
 )
 from app.schemas.groups import UpcomingScheduleSlot
@@ -34,11 +30,12 @@ from app.schemas.today import (
     ClassWeakTopic,
     TodayView,
 )
+from app.services.class_readiness import class_readiness, class_scores, latest_learner_snapshots
 from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
-from app.services.groups import class_health, review_queue_predicate, weighted_learner_scores
+from app.services.groups import review_queue_predicate
 from app.services.groups import summaries as group_summaries
-from app.services.readiness_summary import CONFIDENT, trend_direction
+from app.services.readiness_shared import scores_of, trend_direction, v2_score_series
 from app.services.timezones import effective_timezone, today_weekday
 
 #: Exceptions first. A tutor opening their home is looking for what needs them,
@@ -139,8 +136,13 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
     by a path or body parameter (SEC-7)."""
     lessons = await today_lessons(db, user.id, user.organization_id, user.time_zone)
     groups = await tutor_groups(db, user.id)
-    summaries = await group_summaries(db, [g.id for g in groups])
-    health = await class_health(db, groups)
+    group_ids = [g.id for g in groups]
+    # One latest-snapshot read feeds both the class cards' coverage count and
+    # the strip's score. Calling class_health() here too would run this same
+    # window query a second time for the same group_ids (fix round 1).
+    snapshots = await latest_learner_snapshots(db, group_ids)
+    summaries = await group_summaries(db, group_ids, snapshots_by_group=snapshots)
+    health = class_scores(snapshots)
     overrides = await org_boundaries(db, user.organization_id)
 
     rows: list[ClassStripRow] = []
@@ -184,116 +186,74 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
     been a stable grade 4 all year is why the class carries its status and is not
     news. Both still appear under Learners — nothing is hidden, it is ordered.
 
-    Score and direction both come from the **v1** engine (TopicReadiness and
-    ReadinessHistory respectively). That pairing is deliberate and is what
-    readiness_summary.py requires: each engine reads its own history, so the
-    arrow always describes the score it sits beside (PROD-1). Mixing a v1 score
-    with a v2-derived arrow is the bug that rule exists to prevent. That this
-    surface answers from v1 while the student's own readiness answers from v2 is
-    RISK-5, pre-existing and out of scope here.
+    Every enrolled learner appears under Learners (fix round 1), not only the
+    scored ones: a learner whose latest run found no evidence, or who has none
+    yet, is still listed — sorted after the scored learners, by name, with a
+    null score/grade/arrow — because their homework completion can be real
+    even when their score is not (5.1, AV-32), and hiding them entirely would
+    make the roster undercount the class.
+
+    Score, grade and arrow all come from the learner's own **v2** snapshot
+    series (services/class_readiness.py) — the same series their own profile
+    reads. Before 5.3a this surface answered from v1 (TopicReadiness,
+    ReadinessHistory) while the student's own readiness answered from v2, so
+    the two could disagree (RISK-5); that gap is closed here.
     """
     overrides = await org_boundaries(db, user.organization_id)
     boundaries = boundaries_for(overrides, group.subject)
-    summaries = await group_summaries(db, [group.id])
-    summary = summaries[group.id]
-    class_score, _ = (await class_health(db, [group])).get(group.id, (None, 0))
-
-    members = (
-        await db.execute(
-            select(User.id, User.name)
-            .join(GroupMember, GroupMember.student_id == User.id)
-            .where(GroupMember.group_id == group.id)
-        )
-    ).all()
-    member_ids = [mid for mid, _ in members]
-    names: dict[int, str] = {row[0]: row[1] for row in members}
-
-    # Per-learner weighted readiness, from the same helper class_health folds
-    # into the class score above. Restating the formula here is what let the
-    # header and the rows under it drift apart (see weighted_learner_scores).
-    learner_scores = (await weighted_learner_scores(db, [group])).get(group.id, {})
-
-    # Topic detail is what the class page needs *on top of* that — the WHY under
-    # the verdict. It is its own read because it aggregates by topic, not by
-    # learner; both are bounded, so the pair does not grow with the roster.
-    topic_scores: dict[int, list[float]] = defaultdict(list)
-    topic_meta: dict[int, tuple[str, str]] = {}
-    if member_ids:
-        for topic_id, code, title, score in (
-            await db.execute(
-                select(Topic.id, Topic.code, Topic.title, TopicReadiness.score)
-                .join(Topic, Topic.id == TopicReadiness.topic_id)
-                .where(
-                    TopicReadiness.student_id.in_(member_ids),
-                    Topic.subject_id == group.subject_id,
-                    TopicReadiness.confidence.in_(CONFIDENT),
-                )
-            )
-        ).all():
-            topic_scores[topic_id].append(score)
-            topic_meta[topic_id] = (code, title)
-
-    # Direction for every learner from one history query, not one per learner.
-    series: dict[int, list[float]] = defaultdict(list)
-    if member_ids:
-        for student_id, score in (
-            await db.execute(
-                select(ReadinessHistory.student_id, ReadinessHistory.score)
-                .where(
-                    ReadinessHistory.student_id.in_(member_ids),
-                    ReadinessHistory.subject_id == group.subject_id,
-                )
-                .order_by(ReadinessHistory.recorded_at)
-            )
-        ).all():
-            series[student_id].append(score)
+    summary = (await group_summaries(db, [group.id]))[group.id]
+    detail = await class_readiness(db, group.id)
+    # Every scored learner's series in one query, not one per learner (PERF-1).
+    # Unscored learners are never looked up here — their `series.get(...)`
+    # below returns [] and trend_direction([]) is None, which is exactly what
+    # they must show: no score means no arrow to describe (PROD-2).
+    series = await v2_score_series(db, [s.student_id for s in detail.scored], group.subject_id)
 
     learners: list[ClassLearnerRow] = []
-    for student_id in member_ids:
-        raw = learner_scores.get(student_id)
-        if raw is None:
-            continue  # no confident evidence — absent, never a fabricated zero
-        score = round(raw, 1)
-        grade = predict_grade(score, boundaries) if boundaries else None
+    for s in detail.scored + detail.unscored:
+        # The snapshot's own grade — what the learner's profile prints — shown
+        # only while boundaries exist to stand behind it (PROD-2). Always None
+        # for an unscored learner: class_readiness() never sets one for them.
+        grade = s.predicted_grade if boundaries else None
+        hw = detail.homework.get(s.student_id)
         learners.append(
             ClassLearnerRow(
-                student_id=student_id,
-                student_name=names.get(student_id, "?"),
-                score=score,
+                student_id=s.student_id,
+                student_name=s.student_name,
+                score=s.score,
                 predicted_grade=grade,
                 status=grade_band(grade, boundaries),
-                direction=trend_direction(series.get(student_id, [])),
+                direction=trend_direction(scores_of(series.get(s.student_id, []))),
+                homework_assignment_count=hw[0] if hw else None,
+                homework_submitted_count=hw[1] if hw else None,
             )
         )
-    learners.sort(key=lambda r: r.score if r.score is not None else 0.0)
-
-    weak_topics = sorted(
-        (
-            ClassWeakTopic(
-                topic_code=topic_meta[tid][0],
-                topic_title=topic_meta[tid][1],
-                avg_score=round(sum(scores) / len(scores), 1),
-                student_count=len(scores),
-            )
-            for tid, scores in topic_scores.items()
-        ),
-        key=lambda t: t.avg_score,
-    )[:5]
 
     class_grade = (
-        predict_grade(class_score, boundaries) if class_score is not None and boundaries else None
+        predict_grade(detail.score, boundaries) if detail.score is not None and boundaries else None
     )
     return ClassOverview(
         group_id=group.id,
         name=group.name,
         subject_name=group.subject.name if group.subject else "",
-        score=class_score,
+        score=detail.score,
         predicted_grade=class_grade,
         status=grade_band(class_grade, boundaries),
         boundaries_missing=not boundaries,
         member_count=summary.member_count,
         students_with_evidence=summary.students_with_evidence,
         needs_you=[r for r in learners if r.direction == "down"],
+        # Already ordered: scored learners lowest score first, then unscored
+        # by name — class_readiness sorts each list this way.
         learners=learners,
-        weak_topics=weak_topics,
+        weak_topics=[
+            ClassWeakTopic(
+                topic_code=t.topic_code,
+                topic_title=t.topic_title,
+                avg_score=t.avg_score,
+                student_count=t.student_count,
+                includes_tutor_estimate=t.includes_tutor_estimate,
+            )
+            for t in detail.topic_means[:5]
+        ],
     )

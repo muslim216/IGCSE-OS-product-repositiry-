@@ -1,7 +1,7 @@
 import pytest
 
-from app.services.groups import class_health
-from tests.factories import subject_defaults
+from app.services.class_readiness import class_health
+from tests.factories import subject_defaults, write_v2_snapshot
 
 
 @pytest.fixture
@@ -243,31 +243,11 @@ async def test_next_lesson_picks_the_soonest_slot(client, tutor, group):
 # --------------------------------------------------------------------------- #
 
 
-async def _add_topic(subject_id: int, code: str, title: str = "Topic", weight: float = 1.0) -> int:
+async def _snap(student_id: int, subject_id: int, score: float | None) -> None:
     from app.db import async_session
-    from app.models import Topic
 
     async with async_session() as session:
-        topic = Topic(subject_id=subject_id, code=code, title=title, weight=weight)
-        session.add(topic)
-        await session.commit()
-        return topic.id
-
-
-async def _give_topic_readiness(student_id: int, topic_id: int, score: float, confidence: str):
-    from app.db import async_session
-    from app.models import ReadinessConfidence, TopicReadiness
-
-    async with async_session() as session:
-        session.add(
-            TopicReadiness(
-                student_id=student_id,
-                topic_id=topic_id,
-                score=score,
-                confidence=ReadinessConfidence(confidence),
-                evidence_count=3,
-            )
-        )
+        await write_v2_snapshot(session, student_id=student_id, subject_id=subject_id, score=score)
         await session.commit()
 
 
@@ -279,8 +259,8 @@ async def test_class_health_returns_empty_dict_for_no_groups():
 
 
 async def test_class_health_reports_absence_not_zero_with_no_evidence(client, tutor, group):
-    """A class with no confident evidence maps to (None, 0), never (0.0, 0),
-    which a surface would render as a real score (PROD-2)."""
+    """A class with no scored learner maps to (None, 0), never (0.0, 0), which
+    a surface would render as a real score (PROD-2)."""
     from app.db import async_session
     from app.models import Group
 
@@ -291,72 +271,13 @@ async def test_class_health_reports_absence_not_zero_with_no_evidence(client, tu
     )
     async with async_session() as session:
         g = await session.get(Group, group["id"])
-        result = await class_health(session, [g])
+        result = await class_health(session, [g.id])
     assert result[group["id"]] == (None, 0)
 
 
-async def test_class_health_weights_by_topic_weight(client, tutor, group, subject_id):
-    """SUM(weight * score) / SUM(weight) for one confident learner across two
-    topics of different weight."""
-    from app.db import async_session
-    from app.models import Group
-
-    student = (
-        await client.post(
-            f"/api/v1/groups/{group['id']}/students",
-            json={"name": "Aya", "username": "aya01", "password": "password123"},
-            headers=tutor["headers"],
-        )
-    ).json()
-    heavy = await _add_topic(subject_id, "1.1", weight=3.0)
-    light = await _add_topic(subject_id, "1.2", weight=1.0)
-    await _give_topic_readiness(student["id"], heavy, 80.0, "high")
-    await _give_topic_readiness(student["id"], light, 40.0, "high")
-
-    async with async_session() as session:
-        g = await session.get(Group, group["id"])
-        score, count = (await class_health(session, [g]))[group["id"]]
-    assert count == 1
-    assert score == round((3.0 * 80.0 + 1.0 * 40.0) / 4.0, 1)  # 70.0
-
-
-@pytest.mark.parametrize(
-    "confidence,expected",
-    [("high", (90.0, 1)), ("medium", (90.0, 1)), ("low", (None, 0))],
-)
-async def test_class_health_counts_only_confident_readiness(
-    client, tutor, group, subject_id, confidence, expected
-):
-    """Only medium/high confidence counts as confident evidence — a low-
-    confidence row must not silently produce a class score.
-
-    `medium` is here because it is the *inclusive* boundary: with only `high`
-    and `low` asserted, a filter that had narrowed to `high` alone would still
-    have passed both, and half the class's evidence would have vanished from
-    every class score with nothing to catch it.
-    """
-    from app.db import async_session
-    from app.models import Group
-
-    student = (
-        await client.post(
-            f"/api/v1/groups/{group['id']}/students",
-            json={"name": "Aya", "username": "aya01", "password": "password123"},
-            headers=tutor["headers"],
-        )
-    ).json()
-    topic = await _add_topic(subject_id, "1.1")
-    await _give_topic_readiness(student["id"], topic, 90.0, confidence)
-
-    async with async_session() as session:
-        g = await session.get(Group, group["id"])
-        score, count = (await class_health(session, [g]))[group["id"]]
-    assert (score, count) == expected
-
-
 async def test_class_health_means_across_contributing_learners(client, tutor, group, subject_id):
-    """The class score is the mean of each confident learner's own weighted
-    score, and the second return value counts how many learners contributed."""
+    """The class score is the mean of each scored learner's own latest v2
+    snapshot score, and the second return value counts how many contributed."""
     from app.db import async_session
     from app.models import Group
 
@@ -374,13 +295,12 @@ async def test_class_health_means_across_contributing_learners(client, tutor, gr
             headers=tutor["headers"],
         )
     ).json()
-    topic = await _add_topic(subject_id, "1.1")
-    await _give_topic_readiness(a["id"], topic, 80.0, "high")
-    await _give_topic_readiness(b["id"], topic, 40.0, "high")
+    await _snap(a["id"], subject_id, 80.0)
+    await _snap(b["id"], subject_id, 40.0)
 
     async with async_session() as session:
         g = await session.get(Group, group["id"])
-        score, count = (await class_health(session, [g]))[group["id"]]
+        score, count = (await class_health(session, [g.id]))[group["id"]]
     assert count == 2
     assert score == 60.0
 
@@ -413,13 +333,12 @@ async def test_class_health_scopes_two_classes_independently(client, tutor, subj
             headers=tutor["headers"],
         )
     ).json()
-    topic = await _add_topic(subject_id, "1.1")
-    await _give_topic_readiness(a["id"], topic, 90.0, "high")
-    await _give_topic_readiness(b["id"], topic, 30.0, "high")
+    await _snap(a["id"], subject_id, 90.0)
+    await _snap(b["id"], subject_id, 30.0)
 
     async with async_session() as session:
         groups = [await session.get(Group, group["id"]), await session.get(Group, other["id"])]
-        result = await class_health(session, groups)
+        result = await class_health(session, [g.id for g in groups])
     assert result[group["id"]] == (90.0, 1)
     assert result[other["id"]] == (30.0, 1)
 
@@ -427,8 +346,8 @@ async def test_class_health_scopes_two_classes_independently(client, tutor, subj
 async def test_class_health_ignores_topics_from_a_different_subject(
     client, tutor, group, subject_id
 ):
-    """Topics are global, so a student's readiness in a subject this class does
-    not teach must not leak into the class's score."""
+    """A student's readiness in a subject this class does not teach must not
+    leak into the class's score — snapshots are scoped by (student, subject)."""
     from app.db import async_session
     from app.models import Group, Subject
 
@@ -451,10 +370,9 @@ async def test_class_health_ignores_topics_from_a_different_subject(
             headers=tutor["headers"],
         )
     ).json()
-    physics_topic = await _add_topic(other_subject_id, "P1.1")
-    await _give_topic_readiness(student["id"], physics_topic, 95.0, "high")
+    await _snap(student["id"], other_subject_id, 95.0)
 
     async with async_session() as session:
         g = await session.get(Group, group["id"])
-        score, count = (await class_health(session, [g]))[group["id"]]
+        score, count = (await class_health(session, [g.id]))[group["id"]]
     assert (score, count) == (None, 0)

@@ -6,11 +6,15 @@ that run's topic_mastery FactorEvaluation rows supply the per-topic bars.
 
 Two deliberate behaviours:
 
-- **Fallback to v1.** A student with no ready snapshot yet (v2 never ran, or
-  its AI synthesis failed) falls back to services/readiness_summary.build_summary
-  rather than showing an empty page. v1's tables are still maintained, so the
-  fallback is real data, not a placeholder. This is what makes the cutover safe
-  to ship before every student has been recomputed.
+- **Fallback to v1, narrowed.** A subject with no ready snapshot yet (v2 never
+  ran, or every run's AI synthesis failed) is shown with the no-snapshot shape
+  below — never omitted, never a fabricated 0 (PROD-2). v1's
+  services/readiness_summary.build_summary is consulted for that subject, but
+  its answer is only used when v1 actually has a score: v1's tables are still
+  maintained, so where it has a real number that number is served and
+  labelled engine="v1" rather than the emptier no-snapshot shape. Where v1
+  has nothing either, the no-snapshot shape stands. Phase 5.3b deletes this
+  fallback once the post-deploy backfill (runbook R9) has run.
 - **"Updating" is derived from the job queue, not the snapshot.** A
   ReadinessSnapshot row only exists once a run has finished, so there is no
   in-progress row to read. Instead a pending or running compute_readiness_v2
@@ -19,7 +23,7 @@ Two deliberate behaviours:
   number as current.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -41,20 +45,20 @@ from app.schemas.readiness import (
 )
 from app.services.averaging import subject_averaging
 from app.services.grades import grade_band, predict_grade
-from app.services.readiness_summary import (
-    build_summary,
+from app.services.readiness_shared import (
     month_delta,
     scores_of,
     trend_direction,
     v2_score_points,
 )
+from app.services.readiness_summary import build_summary
 from app.services.readiness_v2_ai import in_flight_readiness_pairs, resolve_grade_boundaries
 
 # Job types whose presence means "a new score is on its way".
 _IN_FLIGHT = (JobStatus.pending, JobStatus.running)
 
 
-async def _latest_ready_snapshot(
+async def latest_ready_snapshot(
     db: AsyncSession, student_id: int, subject_id: int
 ) -> ReadinessSnapshot | None:
     return await db.scalar(
@@ -134,6 +138,7 @@ async def _subject_from_snapshot(
             score=row.score,
             confidence=row.confidence.value,
             evidence_count=row.evidence_count,
+            tutor_estimate="tutor_estimate" in (row.detail or {}),
         )
         for row in rows
         # A factor with no evidence reports "no data" — never a fabricated 0.
@@ -142,15 +147,21 @@ async def _subject_from_snapshot(
         and row.confidence != FactorConfidence.no_data
     ]
     topic_out.sort(key=lambda t: t.topic_code)
+    # One lookup, shared by score and the label below — an AI-picked weak
+    # topic can be estimate-only at confidence `low` (fix round 1), and the
+    # chip has to say so exactly when the matching topic row does.
+    topic_out_by_id = {t.topic_id: t for t in topic_out}
 
     weak = [
         WeakTopic(
             topic_id=w["topic_id"],
             topic_code=topics[w["topic_id"]].code,
             topic_title=topics[w["topic_id"]].title,
-            score=next(
-                (t.score for t in topic_out if t.topic_id == w["topic_id"]),
-                0.0,
+            score=topic_out_by_id[w["topic_id"]].score if w["topic_id"] in topic_out_by_id else 0.0,
+            tutor_estimate=(
+                topic_out_by_id[w["topic_id"]].tutor_estimate
+                if w["topic_id"] in topic_out_by_id
+                else False
             ),
         )
         for w in snapshot.weak_topics
@@ -201,10 +212,13 @@ async def _subject_from_snapshot(
         direction=trend_direction(scores_of(points)) if snapshot.score is not None else None,
         # And the month's movement from those same points, for the same reason.
         month_delta=month_delta(points) if snapshot.score is not None else None,
-        # topic_out is already filtered to factors that had evidence, so its
-        # length is the covered count; the denominator is every topic in the
-        # subject, evidence or not.
-        topics_with_evidence=len(topic_out),
+        # topic_out is already filtered to factors that had evidence; the
+        # denominator is every topic in the subject, evidence or not. A tutor's
+        # estimate adds one to evidence_count but is not practice (owner,
+        # 2026-09-23), so an estimate-only topic is not counted as covered.
+        topics_with_evidence=sum(
+            1 for t in topic_out if t.evidence_count > (1 if t.tutor_estimate else 0)
+        ),
         topic_count=len(topics),
         # A missing key means the run had no homework evidence to count, not
         # a rate of 0 — `homework_performance()`'s detail always carries both
@@ -219,38 +233,98 @@ async def _subject_from_snapshot(
     )
 
 
+async def _subject_without_snapshot(
+    db: AsyncSession, student: User, subject: Subject
+) -> SubjectReadiness:
+    """No ready snapshot yet: v2 never ran for this subject, or every run's AI
+    synthesis failed. The subject is still shown — as "not enough data yet",
+    never omitted and never a 0 (PROD-2). Marked-work averaging is real data
+    that does not depend on either engine, so it is still reported (PROD-1)."""
+    topic_count = (
+        await db.scalar(select(func.count(Topic.id)).where(Topic.subject_id == subject.id))
+    ) or 0
+    boundaries = await resolve_grade_boundaries(db, student.organization_id, subject)
+    averaging = await subject_averaging(db, student.id, subject.id)
+    return SubjectReadiness(
+        subject_id=subject.id,
+        subject_name=subject.name,
+        exam_board=subject.exam_board,
+        grade_scale=subject.grade_scale,
+        score=None,
+        predicted_grade=None,
+        status=None,
+        averaging_score=averaging.score,
+        averaging_grade=(
+            predict_grade(averaging.score, boundaries)
+            if averaging.score is not None and boundaries
+            else None
+        ),
+        marked_piece_count=averaging.marked_piece_count,
+        topic_count=topic_count,
+        topics=[],
+        weak_topics=[],
+    )
+
+
 async def build_summary_v2(
     db: AsyncSession, student: User, subject_ids: list[int]
 ) -> StudentReadinessSummary:
+    # A duplicated id would otherwise produce two SubjectReadiness entries for
+    # the same subject; `position` below assumes one entry per id, and a
+    # second entry for the same subject would silently survive the v1
+    # fallback's overwrite. De-duplicated here, order preserved, so the same
+    # list drives both the loop and the final sort.
+    subject_ids = list(dict.fromkeys(subject_ids))
     everything_updating, updating = await in_flight_subjects(db, student.id)
 
     subjects_out: list[SubjectReadiness] = []
-    fallback_needed: list[int] = []
+    without_snapshot: list[int] = []
     for subject_id in subject_ids:
         subject = await db.get(Subject, subject_id)
         if subject is None:
             continue
-        snapshot = await _latest_ready_snapshot(db, student.id, subject_id)
+        snapshot = await latest_ready_snapshot(db, student.id, subject_id)
         if snapshot is None:
-            fallback_needed.append(subject_id)
-            continue
-        out = await _subject_from_snapshot(db, student, subject, snapshot)
+            out = await _subject_without_snapshot(db, student, subject)
+            without_snapshot.append(subject_id)
+        else:
+            out = await _subject_from_snapshot(db, student, subject, snapshot)
+            out.computed_at = snapshot.created_at
         out.is_updating = everything_updating or subject_id in updating
-        out.computed_at = snapshot.created_at
         subjects_out.append(out)
 
-    if fallback_needed:
-        # No v2 result for these yet — serve v1's numbers rather than a blank
-        # page, and say so, so the UI can be honest about which engine spoke.
-        legacy = await build_summary(db, student, fallback_needed)
+    if without_snapshot:
+        # Until 5.3b: v1 still writes, so where it has a real score for a
+        # subject v2 has not answered yet, that number is served and labelled
+        # engine="v1". Where v1 has nothing either, the v2 no-snapshot shape
+        # above stands — which is exactly what every subject gets once 5.3b
+        # deletes these lines.
+        position = {s.subject_id: i for i, s in enumerate(subjects_out)}
+        legacy = await build_summary(db, student, without_snapshot)
         for legacy_subject in legacy.subjects:
+            if legacy_subject.score is None:
+                continue
             legacy_subject.engine = "v1"
-            legacy_subject.is_updating = (
-                everything_updating or legacy_subject.subject_id in updating
-            )
-        subjects_out.extend(legacy.subjects)
+            legacy_subject.is_updating = subjects_out[
+                position[legacy_subject.subject_id]
+            ].is_updating
+            subjects_out[position[legacy_subject.subject_id]] = legacy_subject
 
     subjects_out.sort(key=lambda s: subject_ids.index(s.subject_id))
     return StudentReadinessSummary(
         student_id=student.id, student_name=student.name, subjects=subjects_out
+    )
+
+
+async def topic_mastery_row(
+    db: AsyncSession, snapshot: ReadinessSnapshot, topic_id: int
+) -> FactorEvaluation | None:
+    """One topic's Topic Mastery row from the run a snapshot was built from —
+    so the drill-down header is the same number as the topic's bar."""
+    return await db.scalar(
+        select(FactorEvaluation).where(
+            FactorEvaluation.evaluation_run_id == snapshot.evaluation_run_id,
+            FactorEvaluation.factor == ReadinessFactor.topic_mastery,
+            FactorEvaluation.topic_id == topic_id,
+        )
     )

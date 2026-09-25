@@ -65,6 +65,12 @@ class ClassLearnerRow(BaseModel):
     predicted_grade: str | None = None
     status: str | None = None
     direction: str | None = None
+    # Completion is a fact, not part of the score (AV-32): "4 of 5 handed in"
+    # carries its own denominator (PROD-1) and is never blended into a number.
+    # Both None when the learner's latest run has no homework_performance row
+    # — never 0, which PROD-2 forbids for an absent measurement.
+    homework_assignment_count: int | None = None
+    homework_submitted_count: int | None = None
 
 
 class ClassOverview(BaseModel):
@@ -82,7 +88,9 @@ class ClassOverview(BaseModel):
     students_with_evidence: int = 0
     #: Learners whose direction is "down" — selected on direction, not level.
     needs_you: list[ClassLearnerRow]
-    #: Every enrolled learner with confident evidence, lowest score first.
+    #: Every enrolled learner (fix round 1) — scored ones first, lowest score
+    #: first, then unscored ones by name. An unscored row's score, grade and
+    #: direction are null; its homework counts can still be real (AV-32).
     learners: list[ClassLearnerRow]
     #: The class's weakest topics, lowest average first.
     weak_topics: list["ClassWeakTopic"]
@@ -93,6 +101,9 @@ class ClassWeakTopic(BaseModel):
     topic_title: str
     avg_score: float
     student_count: int
+    # True when any contributing learner's score rests on a tutor's estimate
+    # rather than marked work alone (fix round 1, PROD-8, UX-20).
+    includes_tutor_estimate: bool = False
 
 
 ClassOverview.model_rebuild()

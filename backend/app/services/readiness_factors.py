@@ -1,12 +1,13 @@
 """Readiness Engine v2, Layer 1 — deterministic, explainable factor
 sub-scores.
 
-Pure functions over plain dataclasses (no DB session, no I/O), exactly like
-services/readiness.py's v1 math — reusing its decay/confidence helpers as
-the internal library so the two engines share one notion of "recent
-evidence matters more." Each function returns a FactorResult: a score (or
-None for "no data"), a confidence level, an evidence count, and a JSON-safe
-detail dict — the same shape a FactorEvaluation row stores.
+Pure functions over plain dataclasses (no DB session, no I/O). Owns the decay
+helper v1 also imports — services/readiness.py re-imports HALF_LIFE_DAYS,
+_age_days and _decay from here, so the two engines share one notion of
+"recent evidence matters more" without v2 depending on v1. Each function
+returns a FactorResult: a score (or None for "no data"), a confidence level,
+an evidence count, and a JSON-safe detail dict — the same shape a
+FactorEvaluation row stores.
 
 Being pure and isolated means these unit-test without a database, and the
 DB-facing gathering step (services/readiness_v2.py) is the only place that
@@ -14,11 +15,24 @@ queries anything — kept out of any HTTP request path and run only from the
 compute_readiness_v2 background job.
 """
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 
 from app.models import FactorConfidence
-from app.services.readiness import _age_days, _decay
+
+# Half-life of evidence relevance, in days.
+HALF_LIFE_DAYS = 45.0
+
+
+def _decay(age_days: float, half_life: float = HALF_LIFE_DAYS) -> float:
+    return math.pow(0.5, age_days / half_life)
+
+
+def _age_days(occurred_at: datetime, now: datetime) -> float:
+    if occurred_at.tzinfo is None:
+        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - occurred_at).total_seconds() / 86400.0)
 
 
 @dataclass(frozen=True)
@@ -56,11 +70,39 @@ class MarkedQuestion:
     occurred_at: datetime
 
 
-def topic_mastery(questions: list[MarkedQuestion], now: datetime | None = None) -> FactorResult:
+# A tutor's starting estimate, relative to a medium-difficulty marked question
+# (1.0). v1's weight for the same source (services/readiness.py SOURCE_WEIGHTS),
+# carried over by decision 14: worth having — a class with nothing marked shows
+# a new tutor nothing — and worth the least, because it is the only input that
+# is not a mark on a piece of work (PROD-8).
+TUTOR_ESTIMATE_WEIGHT = 0.4
+
+
+@dataclass(frozen=True)
+class TutorEstimate:
+    """The tutor's self-declared starting score for one topic (Evidence with
+    source_type=tutor_estimate)."""
+
+    pct: float  # 0..100
+    occurred_at: datetime
+
+
+def topic_mastery(
+    questions: list[MarkedQuestion],
+    now: datetime | None = None,
+    estimate: TutorEstimate | None = None,
+) -> FactorResult:
     """Decay-weighted average across difficulty tiers — succeeding on harder
     questions counts for more, so familiarity with easy questions alone
-    doesn't read as mastery."""
-    if not questions:
+    doesn't read as mastery.
+
+    A tutor's estimate joins as a prior that gives way. Time decay alone would
+    not do that: the half-life discounts an estimate and a mark equally, so on
+    a quiet topic a September guess would keep its full relative weight into
+    May. Dividing its weight by one more than the marked questions makes each
+    mark push it further out of the answer; it is never deleted, because the
+    row is the record of what the score was built from (PROD-1)."""
+    if not questions and estimate is None:
         return NO_DATA
     now = now or datetime.now(timezone.utc)
     total_weight = 0.0
@@ -71,12 +113,31 @@ def topic_mastery(questions: list[MarkedQuestion], now: datetime | None = None) 
         total_weight += w
         weighted_sum += w * q.pct
         by_tier.setdefault(q.difficulty or "unrated", []).append(q.pct)
+    detail: dict = {
+        "by_difficulty": {tier: round(sum(v) / len(v), 1) for tier, v in by_tier.items()}
+    }
+    if estimate is not None:
+        w = (
+            TUTOR_ESTIMATE_WEIGHT
+            * _decay(_age_days(estimate.occurred_at, now))
+            / (1 + len(questions))
+        )
+        total_weight += w
+        weighted_sum += w * estimate.pct
+        # The label every reader shows (PROD-8): how much of this score is the
+        # tutor's own judgement rather than marked work.
+        detail["tutor_estimate"] = {
+            "pct": round(estimate.pct, 1),
+            "share": round(w / total_weight, 2),
+        }
     score = round(weighted_sum / total_weight, 1) if total_weight > 0 else None
-    detail = {"by_difficulty": {tier: round(sum(v) / len(v), 1) for tier, v in by_tier.items()}}
     return FactorResult(
         score=score,
-        confidence=_confidence_from_count(len(questions)),
-        evidence_count=len(questions),
+        # An estimate is never evidence of certainty: alone it is `low` (scored,
+        # so the bar shows; below CONFIDENT, so it names no class weakness), and
+        # beside marked work confidence comes from the marked work only.
+        confidence=(_confidence_from_count(len(questions)) if questions else FactorConfidence.low),
+        evidence_count=len(questions) + (1 if estimate is not None else 0),
         detail=detail,
     )
 

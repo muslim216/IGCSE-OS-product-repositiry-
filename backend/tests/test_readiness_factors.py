@@ -3,8 +3,11 @@ no database, mirroring tests/test_readiness_engine.py's style for v1."""
 
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from app.models import FactorConfidence
 from app.services.readiness_factors import (
+    HALF_LIFE_DAYS,
     NO_DATA,
     AssessmentPoint,
     HomeworkPoint,
@@ -12,6 +15,9 @@ from app.services.readiness_factors import (
     MistakePoint,
     PastPaperAttemptPoint,
     TopicCoverage,
+    TutorEstimate,
+    _age_days,
+    _decay,
     assessment_performance,
     homework_performance,
     mistake_analysis,
@@ -19,6 +25,7 @@ from app.services.readiness_factors import (
     syllabus_coverage,
     topic_mastery,
 )
+from app.services.readiness_shared import CONFIDENT
 
 NOW = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
@@ -54,6 +61,64 @@ def test_topic_mastery_mixed_tiers_blend():
     # weighted = (0.8*100 + 1.3*40) / (0.8+1.3) = 132/2.1 = 62.9
     assert 60 <= result.score <= 65
     assert result.evidence_count == 2
+
+
+# ---- Topic Mastery: tutor estimate as a decaying prior (decision 14) ----
+# Port of tests/test_seeded_evidence.py:32-99 (v1's SEEDED_SOURCES semantics),
+# carried into v2's topic_mastery. That file stays until 5.3b.
+
+
+def _q(pct, days_ago=0, difficulty="medium"):
+    return MarkedQuestion(
+        difficulty=difficulty, pct=pct, occurred_at=NOW - timedelta(days=days_ago)
+    )
+
+
+def _estimate(pct, days_ago=0):
+    return TutorEstimate(pct=pct, occurred_at=NOW - timedelta(days=days_ago))
+
+
+def test_an_estimate_alone_carries_the_topic_at_low_confidence():
+    result = topic_mastery([], NOW, estimate=_estimate(40.0))
+    assert result.score == 40.0
+    assert result.confidence == FactorConfidence.low  # scored, but never confident
+    assert result.evidence_count == 1
+    assert result.detail["tutor_estimate"] == {"pct": 40.0, "share": 1.0}
+
+
+def test_the_estimate_gives_way_to_marked_questions_with_no_time_passing():
+    """The gate (decision 14): same day, same estimate, more marked work."""
+    scores = [
+        topic_mastery([_q(100.0)] * n, NOW, estimate=_estimate(0.0)).score for n in range(1, 4)
+    ]
+    assert scores == sorted(scores) and scores[0] < scores[-1]
+    assert scores[-1] > 95.0  # 300 / (3 + 0.4/4) = 96.8
+
+
+def test_the_estimate_is_never_deleted_only_outweighed():
+    result = topic_mastery([_q(100.0)] * 5, NOW, estimate=_estimate(0.0))
+    assert result.evidence_count == 6
+    assert result.score < 100.0
+
+
+def test_time_decay_still_applies_to_the_estimate():
+    old = topic_mastery([_q(40.0)], NOW, estimate=_estimate(80.0, days_ago=365))
+    assert old.score < 45.0
+
+
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5])  # crosses both _confidence_from_count thresholds
+def test_the_estimate_never_raises_confidence(n):
+    with_estimate = topic_mastery([_q(70.0)] * n, NOW, estimate=_estimate(90.0))
+    without_estimate = topic_mastery([_q(70.0)] * n, NOW)
+    assert with_estimate.confidence == without_estimate.confidence
+
+
+def test_no_estimate_no_label():
+    assert "tutor_estimate" not in topic_mastery([_q(70.0)], NOW).detail
+
+
+def test_nothing_at_all_is_no_data():
+    assert topic_mastery([], NOW) is NO_DATA
 
 
 # ---- Past Paper Performance ----
@@ -180,3 +245,37 @@ def test_mistake_analysis_scores_a_clean_record_when_work_was_analysed():
     assert result is not NO_DATA
     assert result.score == 100.0
     assert result.detail["analysed_questions"] == 12
+
+
+# ---- Decay maths, now owned here rather than re-imported from v1 ----
+
+
+def test_decay_halves_at_the_half_life():
+    assert _decay(0) == 1.0
+    assert _decay(HALF_LIFE_DAYS) == pytest.approx(0.5)
+
+
+def test_age_treats_a_naive_timestamp_as_utc_and_never_goes_negative():
+    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    assert _age_days(datetime(2026, 5, 31), now) == pytest.approx(1.0)
+    assert _age_days(now + timedelta(days=2), now) == 0.0
+
+
+def test_the_v2_factor_module_does_not_import_v1():
+    # 5.3b deletes services/readiness.py; the v2 maths must not go with it.
+    # An AST check, not vars(): an imported float constant has no __module__.
+    import ast
+    import inspect
+
+    import app.services.readiness_factors as mod
+
+    imported = {
+        node.module
+        for node in ast.walk(ast.parse(inspect.getsource(mod)))
+        if isinstance(node, ast.ImportFrom)
+    }
+    assert "app.services.readiness" not in imported
+
+
+def test_shared_confident_matches_medium_and_high():
+    assert {FactorConfidence.medium, FactorConfidence.high} == CONFIDENT

@@ -21,6 +21,7 @@ from app.models import (
     EvidenceSource,
     FactorConfidence,
     FactorEvaluation,
+    Group,
     Lesson,
     LessonTopic,
     Mistake,
@@ -36,11 +37,18 @@ from app.models import (
     ReadinessSnapshot,
     Submission,
     SubmissionStatus,
+    Topic,
     User,
     WorkKind,
 )
+from app.services.narrative import _class_grounding, _parent_grounding
 from app.services.readiness_factors import NO_DATA, mistake_analysis
-from app.services.readiness_v2 import _mistake_points_and_analysed, evaluate_subject_factors
+from app.services.readiness_v2 import (
+    _mistake_points_and_analysed,
+    _topic_coverage,
+    evaluate_subject_factors,
+)
+from app.services.readiness_v2_ai import ReadinessSynthesis, compute_readiness_v2
 from app.services.work import create_work
 from tests.factories import make_mistake_category, make_past_paper
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
@@ -752,3 +760,221 @@ async def test_the_factor_reports_whatever_the_category_is_called(client, tutor,
     assert [p.category for p in points] == ["Rushed the last page"]
     result = mistake_analysis(points, analysed, NOW)
     assert result.detail["by_category"] == {"Rushed the last page": 1}
+
+
+async def test_practiced_excludes_tutor_estimate_but_not_marked_work(client, tutor, world):
+    """Owner decision (2026-09-23): a tutor's estimate never counts as
+    practice (other evidence, observations included, still can). A
+    tutor's estimate is their opinion, entered before any work exists — not
+    the student practising. Discrimination: drop the
+    `source_type != EvidenceSource.tutor_estimate` filter in `_topic_coverage`
+    and the first assertion below fails."""
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+    topic1 = world["topic1"]
+
+    async with async_session() as session:
+        session.add(
+            Evidence(
+                student_id=student_id,
+                topic_id=topic1,
+                source_type=EvidenceSource.tutor_estimate,
+                score_pct=40.0,
+                max_marks=0,
+                occurred_at=NOW,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        topic = await session.get(Topic, topic1)
+        coverage = await _topic_coverage(session, student_id, subject_id, {}, [topic])
+    assert coverage[0].practiced is False
+
+    async with async_session() as session:
+        # Marked work reaches Evidence via build_homework_evidence
+        # (services/evidence.py), run from mark_submission once a question is
+        # finalized. Writing the row it produces directly keeps this test
+        # scoped to the coverage query, not the whole marking pipeline.
+        session.add(
+            Evidence(
+                student_id=student_id,
+                topic_id=topic1,
+                source_type=EvidenceSource.homework,
+                score_pct=80.0,
+                max_marks=10,
+                occurred_at=NOW,
+            )
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        topic = await session.get(Topic, topic1)
+        coverage = await _topic_coverage(session, student_id, subject_id, {}, [topic])
+    assert coverage[0].practiced is True
+
+
+async def test_a_seed_estimate_scores_a_topic_with_no_marked_work(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    """decision 14, end to end: a tutor's seed estimate alone carries a
+    topic's score at low confidence and is labelled wherever it is shown."""
+    resp = await client.post(
+        f"/api/v1/students/{world['student_id']}/seed-readiness",
+        json={"topics": [{"topic_id": world["topic1"], "score_pct": 40}]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete",
+        fake_ai(
+            ReadinessSynthesis(
+                score=40, weak_topics=[], rationale="seeded", recommended_revision="-"
+            )
+        ),
+    )
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    subject = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+        )
+    ).json()["subjects"][0]
+    topic = next(t for t in subject["topics"] if t["topic_id"] == world["topic1"])
+    assert topic["score"] == 40.0 and topic["confidence"] == "low"
+    assert topic["tutor_estimate"] is True
+    # An estimate is not practice (owner, 2026-09-23): the coverage count
+    # beside the topics must not claim evidence nothing was marked for.
+    assert subject["topics_with_evidence"] == 0
+    drill = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",
+            headers=tutor["headers"],
+        )
+    ).json()
+    assert drill["score"] == 40.0 and drill["tutor_estimate"] is True
+
+    # And the AI narrative writers are told the score rests on the estimate,
+    # not handed it as marked evidence (PROD-8, sweep finding 1).
+    async with async_session() as session:
+        student = await session.get(User, world["student_id"])
+        parent_text = await _parent_grounding(session, student)
+        group = await session.scalar(select(Group))
+        class_text = await _class_grounding(session, group)
+    assert "tutor's starting estimate" in parent_text
+    assert "tutor's starting estimate" in class_text
+
+
+async def test_the_newest_duplicate_estimate_wins(client, tutor, world):
+    """No unique constraint on tutor_estimate rows exists yet (fix round 1,
+    deferred) — seed_readiness upserts on source_ref so duplicates should not
+    normally occur, but "should not normally" is not "cannot". If two rows
+    exist for one topic anyway, which one the gatherer reads must be
+    deterministic, and it must be the newest one, not whichever the database
+    happens to return first.
+
+    Discrimination: drop the gatherer's `order_by` and this becomes
+    nondeterministic — sometimes passing, sometimes not, because the two rows
+    are inserted in the same order every time in this test's setup. That is
+    exactly the failure mode an order-dependent assertion cannot reliably
+    catch, which is why the fix is checked by reading the code, not only by
+    this test staying green.
+    """
+    subject_id = world["subject_id"]
+    student_id = world["student_id"]
+    topic1 = world["topic1"]
+
+    async with async_session() as session:
+        # Inserted newest first, oldest second — the opposite of insertion
+        # order — so a gatherer with no `order_by` would read rows back in
+        # (roughly) that same insertion order and let the *older* row
+        # overwrite the newer one in the `estimates` dict, the wrong way
+        # round. That is what makes this test able to fail without the fix,
+        # rather than passing by accident because insertion order and recency
+        # happened to coincide.
+        session.add_all(
+            [
+                Evidence(
+                    student_id=student_id,
+                    topic_id=topic1,
+                    source_type=EvidenceSource.tutor_estimate,
+                    score_pct=90.0,
+                    max_marks=0,
+                    occurred_at=NOW,
+                ),
+                Evidence(
+                    student_id=student_id,
+                    topic_id=topic1,
+                    source_type=EvidenceSource.tutor_estimate,
+                    score_pct=30.0,
+                    max_marks=0,
+                    occurred_at=NOW - timedelta(days=10),
+                ),
+            ]
+        )
+        await session.commit()
+
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, student_id, subject_id, "dup-estimate-run", now=NOW
+        )
+
+    topic1_mastery = next(
+        r for r in rows if r.factor == ReadinessFactor.topic_mastery and r.topic_id == topic1
+    )
+    # No marked questions on this topic, so the estimate alone carries the
+    # score — the newer 90.0 if the fix works, the older 30.0 (or an
+    # unpredictable mix, depending on row order) if it does not.
+    assert topic1_mastery.score == 90.0
+    assert topic1_mastery.detail["tutor_estimate"]["pct"] == 90.0
+
+
+async def test_weak_topic_chip_labels_the_tutor_estimate(client, tutor, world):
+    """Fix round 1, item 2: an AI-picked weak topic can be estimate-only at
+    confidence `low` — the "Focus on these topics" chip must say so exactly
+    when the matching topic bar does, not stay silent because `WeakTopic`
+    never carried the flag."""
+    run_id = str(uuid.uuid4())
+    async with async_session() as session:
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                topic_id=world["topic1"],
+                factor=ReadinessFactor.topic_mastery,
+                score=40.0,
+                confidence=FactorConfidence.low,
+                evidence_count=1,
+                detail={"tutor_estimate": {"pct": 40.0, "share": 1.0}},
+            )
+        )
+        session.add(
+            ReadinessSnapshot(
+                evaluation_run_id=run_id,
+                student_id=world["student_id"],
+                subject_id=world["subject_id"],
+                status=AiSynthesisStatus.ready,
+                score=40.0,
+                predicted_grade=None,
+                weak_topics=[
+                    {
+                        "topic_id": world["topic1"],
+                        "topic_title": "Atomic structure",
+                        "reason": "Rests on an early estimate",
+                    }
+                ],
+                rationale="seeded",
+                recommended_revision=None,
+            )
+        )
+        await session.commit()
+
+    resp = await client.get(
+        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+    )
+    subject = resp.json()["subjects"][0]
+    weak = next(t for t in subject["weak_topics"] if t["topic_id"] == world["topic1"])
+    assert weak["tutor_estimate"] is True

@@ -202,7 +202,7 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-      # MinIO is NOT a service container — see the "Start MinIO" step below.
+      # The S3 store is NOT a service container — see the "Start an S3 stand-in" step below.
     env:
       # config.py rewrites the bare scheme to postgresql+asyncpg:// on the way in,
       # so this is the same URL shape a hosting provider hands out.
@@ -268,40 +268,31 @@ jobs:
             exit 1
           fi
 
-      # A step rather than a `services:` entry, which is where the first attempt
-      # at this went wrong. Service containers cannot override a container's
-      # command, and minio needs `server /data`; the obvious way round that —
-      # bitnami/minio, which starts unattended — no longer publishes a `latest`
-      # tag, so the job died on `manifest unknown` before running a single test.
-      # `docker run` takes the command directly and is the thing the runner can
-      # actually do.
-      #
-      # Pulled from quay.io and PINNED to a release tag. Both previous outages
-      # here were the same root cause: a floating tag on a registry we do not
-      # control. `minio/minio:latest` on Docker Hub started answering
-      # `pull access denied ... may require 'docker login'` (anonymous pulls are
-      # no longer served), which fails the whole job at `docker run` — exit 125,
-      # before any test runs, and with nothing wrong in the repo. quay.io is
-      # MinIO's own registry and serves anonymous pulls; the pin means a future
-      # upstream change breaks us on the day we choose to bump it, not on an
-      # unrelated PR.
-      - name: Start MinIO for the two-instance storage case
+      # An S3 stand-in installed from PyPI, not pulled as a container image.
+      # Every previous outage of this job was a registry we do not control
+      # withdrawing the MinIO image: bitnami/minio dropped its tags, Docker Hub
+      # stopped serving minio/minio anonymously, and on 2026-09-25 quay.io began
+      # answering `unauthorized` for the whole minio/minio repository — each one
+      # exit 125 before a test ran, with nothing wrong in the repo. moto's server
+      # speaks the S3 API the storage backend uses (get/head/put, presigned
+      # URLs) and ships through pip like every other test dependency. It is a
+      # stand-in: it proves both instances share one bucket, not MinIO's own
+      # behaviour.
+      - name: Start an S3 stand-in for the two-instance storage case
         run: |
           set -euo pipefail
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER=avora-ci \
-            -e MINIO_ROOT_PASSWORD=avora-ci-secret \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
-          # Poll the documented liveness endpoint rather than sleeping a guess:
-          # a fixed sleep is either flaky or slow, and this is the difference
-          # between the storage test running and the job failing on connect.
+          pip install "moto[server]>=5,<6"
+          moto_server -H 0.0.0.0 -p 9000 >/tmp/moto.log 2>&1 &
+          # Poll rather than sleep a guess: a fixed sleep is either flaky or
+          # slow, and this is the difference between the storage test running
+          # and the job failing on connect.
           for _ in $(seq 1 40); do
-            if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
-              echo "MinIO is up"; break
+            if curl -fsS http://localhost:9000/ >/dev/null 2>&1; then
+              echo "S3 stand-in is up"; break
             fi
-            sleep 2
+            sleep 1
           done
-          curl -fsS http://localhost:9000/minio/health/live >/dev/null
+          curl -fsS http://localhost:9000/ >/dev/null
           AWS_ACCESS_KEY_ID=avora-ci AWS_SECRET_ACCESS_KEY=avora-ci-secret \
             aws --endpoint-url http://localhost:9000 --region us-east-1 \
             s3 mb s3://avora-test
@@ -311,7 +302,7 @@ jobs:
       # above, and for a stronger reason: this is the suite most likely to be
       # cited as proof that scaling out is safe, so "it was green" must not be
       # able to mean "it never ran".
-      - name: Two-instance correctness suite (Postgres + Redis + MinIO)
+      - name: Two-instance correctness suite (Postgres + Redis + S3)
         env:
           TEST_REDIS_URL: redis://localhost:6379/0
           TEST_S3_ENDPOINT_URL: http://localhost:9000
@@ -324,7 +315,7 @@ jobs:
           TEST_DATABASE_URL="$DATABASE_URL" python -m pytest tests/test_two_instance.py -v -ra \
             | tee /tmp/two-instance.log
           if grep -qE "skipped|no tests ran" /tmp/two-instance.log; then
-            echo "::error::two-instance tests skipped or not collected — Postgres, Redis and MinIO must all be reachable"
+            echo "::error::two-instance tests skipped or not collected — Postgres, Redis and S3 must all be reachable"
             exit 1
           fi
 

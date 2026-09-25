@@ -13,7 +13,6 @@ unit-tested without a database. recompute_student() is the DB-facing entry
 point run from the job worker after marks are finalized or observations added.
 """
 
-import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -32,9 +31,11 @@ from app.models import (
     TopicReadiness,
     TutorPreferences,
 )
-
-# Half-life of evidence relevance, in days.
-HALF_LIFE_DAYS = 45.0
+from app.services.readiness_factors import (  # noqa: F401 - v1 re-import until 5.3b
+    HALF_LIFE_DAYS,
+    _age_days,
+    _decay,
+)
 
 SOURCE_WEIGHTS: dict[EvidenceSource, float] = {
     # A full past paper under exam conditions is the strongest signal there is.
@@ -77,10 +78,6 @@ class TopicResult:
     evidence_count: int
 
 
-def _decay(age_days: float, half_life: float = HALF_LIFE_DAYS) -> float:
-    return math.pow(0.5, age_days / half_life)
-
-
 def _confidence(
     points: list[EvidencePoint], now: datetime, half_life: float = HALF_LIFE_DAYS
 ) -> ReadinessConfidence:
@@ -99,12 +96,6 @@ def _confidence(
     if recent >= 2 and effective >= 1.2:
         return ReadinessConfidence.medium
     return ReadinessConfidence.low
-
-
-def _age_days(occurred_at: datetime, now: datetime) -> float:
-    if occurred_at.tzinfo is None:
-        occurred_at = occurred_at.replace(tzinfo=timezone.utc)
-    return max(0.0, (now - occurred_at).total_seconds() / 86400.0)
 
 
 def compute_topic(

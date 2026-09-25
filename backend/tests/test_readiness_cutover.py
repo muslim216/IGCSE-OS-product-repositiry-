@@ -16,15 +16,18 @@ from app.models import (
     GroupMember,
     Job,
     JobStatus,
+    ReadinessConfidence,
     ReadinessFactor,
     ReadinessSnapshot,
     ReadinessWeights,
     Submission,
     SubmissionStatus,
+    TopicReadiness,
     User,
     WorkKind,
 )
 from app.services.grade_boundaries import set_org_boundaries
+from app.services.readiness_summary_v2 import build_summary_v2
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.work import create_work
 from tests.factories import make_subject
@@ -115,24 +118,92 @@ async def test_the_newest_ready_snapshot_wins(client, tutor, world):  # noqa: F8
     assert resp.json()["subjects"][0]["score"] == 80.0
 
 
-async def test_a_failed_synthesis_is_not_served_as_a_score(client, tutor, world):  # noqa: F811
-    """A failed run must not present itself as a result — the app falls back to
-    v1 rather than showing a blank or a fabricated number."""
-    await _write_snapshot(world, score=None, status=AiSynthesisStatus.failed)
+async def test_a_subject_with_no_snapshot_and_no_v1_data_is_present_not_dropped(
+    client,
+    tutor,
+    world,  # noqa: F811
+):
+    """The branch 5.3b relies on: no v2 run and nothing in v1 either. The
+    subject still appears, as "not enough data yet", from v2 — never omitted
+    and never a 0 (PROD-2)."""
     resp = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
-    assert resp.json()["subjects"][0]["engine"] == "v1"
-
-
-async def test_falls_back_to_v1_when_v2_has_never_run(client, tutor, world):  # noqa: F811
-    resp = await client.get(
-        f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
-    )
-    assert resp.status_code == 200
     subject = resp.json()["subjects"][0]
+    assert subject["engine"] == "v2"
+    assert subject["score"] is None
+    assert subject["predicted_grade"] is None and subject["direction"] is None
+    assert subject["topics"] == [] and subject["topics_with_evidence"] == 0
+    assert subject["topic_count"] == 2
+    assert subject["computed_at"] is None
+
+
+async def test_a_failed_synthesis_is_not_served_as_a_score(client, tutor, world):  # noqa: F811
+    await _write_snapshot(world, score=None, status=AiSynthesisStatus.failed)
+    subject = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+        )
+    ).json()["subjects"][0]
+    assert subject["score"] is None
+    assert subject["rationale"] is None  # the failed run's text is never surfaced
+
+
+async def test_v1_still_answers_when_it_has_a_score_and_v2_has_none(client, tutor, world):  # noqa: F811
+    """Rollback-safe cutover until 5.3b: v1 still writes, so its number is real."""
+    async with async_session() as session:
+        session.add(
+            TopicReadiness(
+                student_id=world["student_id"],
+                topic_id=world["topic1"],
+                score=70.0,
+                confidence=ReadinessConfidence.high,
+                evidence_count=3,
+            )
+        )
+        await session.commit()
+    subject = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
+        )
+    ).json()["subjects"][0]
     assert subject["engine"] == "v1"
-    assert subject["rationale"] is None
+    assert subject["score"] == 70.0
+
+
+async def test_topic_drill_down_reads_the_v2_run(client, tutor, world):  # noqa: F811
+    await _write_snapshot(world, topic_score=55.0)
+    body = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",
+            headers=tutor["headers"],
+        )
+    ).json()
+    assert body["score"] == 55.0
+    assert body["confidence"] == "high"
+
+
+async def test_topic_drill_down_without_data_is_absent_not_zero(client, tutor, world):  # noqa: F811
+    body = (
+        await client.get(
+            f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic2']}/evidence",
+            headers=tutor["headers"],
+        )
+    ).json()
+    assert body["score"] is None
+    assert body["confidence"] == "no_data"
+
+
+async def test_a_duplicated_subject_id_yields_one_entry(tutor, world):  # noqa: F811
+    """A caller-supplied subject_ids list with a repeat must not produce two
+    SubjectReadiness rows for the same subject — de-duplicated, order kept."""
+    async with async_session() as session:
+        student = await session.get(User, world["student_id"])
+        summary = await build_summary_v2(
+            session, student, [world["subject_id"], world["subject_id"]]
+        )
+    assert len(summary.subjects) == 1
+    assert summary.subjects[0].subject_id == world["subject_id"]
 
 
 async def test_a_no_data_topic_is_omitted_rather_than_scored_zero(client, tutor, world):  # noqa: F811

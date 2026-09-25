@@ -9,6 +9,10 @@ export interface TopicReadiness {
   score: number;
   confidence: string;
   evidence_count: number;
+  /** Whether this score rests partly or wholly on the tutor's self-declared
+      starting estimate rather than marked work — labelled wherever shown,
+      never blended in silently (PROD-8, UX-20). */
+  tutor_estimate: boolean;
 }
 
 export interface WeakTopic {
@@ -16,6 +20,9 @@ export interface WeakTopic {
   topic_code: string;
   topic_title: string;
   score: number;
+  /** An AI-picked weak topic can be estimate-only itself — labelled the same
+      way the topic bar it matches is (fix round 1, PROD-8, UX-20). */
+  tutor_estimate: boolean;
 }
 
 export interface SubjectReadiness {
@@ -83,8 +90,11 @@ export interface TopicEvidence {
   topic_id: number;
   topic_code: string;
   topic_title: string;
-  score: number;
+  /** null when there is no confident Topic Mastery row for this topic yet —
+      never a fabricated 0, which would claim a measurement never taken. */
+  score: number | null;
   confidence: string;
+  tutor_estimate: boolean;
   evidence: EvidenceItem[];
 }
 
@@ -111,6 +121,9 @@ export interface TopicHeat {
   topic_title: string;
   avg_score: number;
   student_count: number;
+  /** True when any contributing learner's score rests on a tutor's estimate
+      rather than marked work alone (fix round 1, PROD-8, UX-20). */
+  includes_tutor_estimate: boolean;
 }
 
 export interface AgreementStats {

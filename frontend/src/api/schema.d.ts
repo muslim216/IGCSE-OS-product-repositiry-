@@ -366,14 +366,19 @@ export interface paths {
          *     a second one: this is the tutor's current opinion, not a history of their
          *     opinions, and stacking them would let one topic be seeded into a score.
          *
-         *     **Known gap (RISK-5).** The estimate's numeric value drives the v1 engine.
-         *     Readiness Engine v2 — the default served engine — computes topic mastery from
-         *     marked questions and reads Evidence only as a "practised" flag, so it does
-         *     not consume the estimate's percentage. This is not unique to seeding: every
-         *     Evidence-only source (tutor observations, entered mocks) has the same limit
-         *     under v2, and closing it means teaching v2 to score from Evidence, which is
-         *     the RISK-5 convergence work, not a cold-start change. Until then the seed's
-         *     number is fully honoured only where v1 answers.
+         *     Readiness Engine v2 — the default served engine — now reads the estimate's
+         *     percentage too (5.3a task 4, decision 14): Topic Mastery folds it in as a
+         *     labelled, decaying prior whose share shrinks as marked questions on the
+         *     topic accumulate (it is never deleted),
+         *     and that never by itself claims Syllabus Coverage's "mastered" (PROD-8).
+         *     A topic with only an estimate still shows "not practised" for coverage —
+         *     a tutor's opinion is not the student doing the work.
+         *
+         *     **Known gap (RISK-5), narrowed.** What remains is the other Evidence-only
+         *     sources: tutor observations and entered mocks do not feed Topic Mastery —
+         *     observations reach v2 only as a coverage "practised" flag, and mocks feed
+         *     the subject-level assessment factor — the same convergence work as before,
+         *     now scoped to those two rather than to every Evidence-only source.
          */
         post: operations["seed_readiness_api_v1_students__student_id__seed_readiness_post"];
         delete?: never;
@@ -3072,6 +3077,10 @@ export interface components {
             status?: string | null;
             /** Direction */
             direction?: string | null;
+            /** Homework Assignment Count */
+            homework_assignment_count?: number | null;
+            /** Homework Submitted Count */
+            homework_submitted_count?: number | null;
         };
         /**
          * ClassOverview
@@ -3168,6 +3177,11 @@ export interface components {
             avg_score: number;
             /** Student Count */
             student_count: number;
+            /**
+             * Includes Tutor Estimate
+             * @default false
+             */
+            includes_tutor_estimate: boolean;
         };
         /** ClassifiedOut */
         ClassifiedOut: {
@@ -4960,9 +4974,14 @@ export interface components {
             /** Topic Title */
             topic_title: string;
             /** Score */
-            score: number;
+            score: number | null;
             /** Confidence */
             confidence: string;
+            /**
+             * Tutor Estimate
+             * @default false
+             */
+            tutor_estimate: boolean;
             /** Evidence */
             evidence: components["schemas"]["EvidenceItem"][];
         };
@@ -4976,6 +4995,11 @@ export interface components {
             avg_score: number;
             /** Student Count */
             student_count: number;
+            /**
+             * Includes Tutor Estimate
+             * @default false
+             */
+            includes_tutor_estimate: boolean;
         };
         /**
          * TopicMistakes
@@ -5022,6 +5046,11 @@ export interface components {
             confidence: string;
             /** Evidence Count */
             evidence_count: number;
+            /**
+             * Tutor Estimate
+             * @default false
+             */
+            tutor_estimate: boolean;
         };
         /** TrendPoint */
         TrendPoint: {
@@ -5166,6 +5195,11 @@ export interface components {
             topic_title: string;
             /** Score */
             score: number;
+            /**
+             * Tutor Estimate
+             * @default false
+             */
+            tutor_estimate: boolean;
         };
         /** WeakTopicOut */
         WeakTopicOut: {

@@ -5,9 +5,22 @@
 that stays one edit next time rather than twenty-five.
 """
 
+import uuid
+from datetime import datetime
+
 from sqlalchemy import select
 
-from app.models import MistakeCategory, Organization, Subject, SubjectLevel
+from app.models import (
+    AiSynthesisStatus,
+    FactorConfidence,
+    FactorEvaluation,
+    MistakeCategory,
+    Organization,
+    ReadinessFactor,
+    ReadinessSnapshot,
+    Subject,
+    SubjectLevel,
+)
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 
 
@@ -159,3 +172,65 @@ async def make_past_paper(session, *, subject_id: int, organization_id: int, **k
     session.add(paper)
     await session.flush()
     return paper
+
+
+async def write_v2_snapshot(
+    session,
+    *,
+    student_id: int,
+    subject_id: int,
+    score: float | None,
+    predicted_grade: str | None = None,
+    topics: dict[int, tuple[float | None, FactorConfidence]] | None = None,
+    homework: tuple[int, int] | None = None,  # (assignment_count, submitted_count)
+    created_at: datetime | None = None,
+    status: AiSynthesisStatus = AiSynthesisStatus.ready,
+) -> str:
+    """One completed v2 run: the factor rows a reader needs plus the snapshot
+    synthesized from them, sharing one evaluation_run_id. Replaces every test
+    fixture that wrote TopicReadiness/ReadinessHistory (5.3a)."""
+    run_id = str(uuid.uuid4())
+    for topic_id, (topic_score, confidence) in (topics or {}).items():
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=student_id,
+                subject_id=subject_id,
+                topic_id=topic_id,
+                factor=ReadinessFactor.topic_mastery,
+                score=topic_score,
+                confidence=confidence,
+                evidence_count=0 if topic_score is None else 3,
+                detail={},
+            )
+        )
+    if homework is not None:
+        session.add(
+            FactorEvaluation(
+                evaluation_run_id=run_id,
+                student_id=student_id,
+                subject_id=subject_id,
+                topic_id=None,
+                factor=ReadinessFactor.homework_performance,
+                score=None,
+                confidence=FactorConfidence.no_data,
+                evidence_count=0,
+                detail={"assignment_count": homework[0], "submitted_count": homework[1]},
+            )
+        )
+    session.add(
+        ReadinessSnapshot(
+            evaluation_run_id=run_id,
+            student_id=student_id,
+            subject_id=subject_id,
+            status=status,
+            score=score,
+            predicted_grade=predicted_grade,
+            weak_topics=[],
+            rationale="fixture",
+            recommended_revision=None,
+            **({"created_at": created_at} if created_at else {}),
+        )
+    )
+    await session.flush()
+    return run_id

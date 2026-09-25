@@ -13,6 +13,8 @@ function learner(over: Partial<ClassOverview["learners"][number]> = {}) {
     predicted_grade: "6",
     status: "needs_attention" as const,
     direction: "down" as const,
+    homework_assignment_count: null,
+    homework_submitted_count: null,
     ...over,
   };
 }
@@ -134,4 +136,57 @@ test("a subject with no boundaries offers the action that fixes it", async () =>
   renderPanel();
   expect(await screen.findByText("no grade boundaries set")).toBeInTheDocument();
   expect(screen.getByText("Set them →")).toBeInTheDocument();
+});
+
+test("a learner's homework completion is shown as a fact beside their score", async () => {
+  const done = learner({ homework_assignment_count: 5, homework_submitted_count: 4 });
+  stubFetch({ ...BASE, learners: [done] });
+  renderPanel();
+
+  expect(await screen.findByText("4 of 5 handed in")).toBeInTheDocument();
+});
+
+test("no homework row renders no completion line, never 0 of 0", async () => {
+  stubFetch({ ...BASE, learners: [learner()] });
+  renderPanel();
+
+  await screen.findByText("Sara");
+  expect(screen.queryByText(/handed in/)).not.toBeInTheDocument();
+});
+
+test("a class weak topic that leans on a tutor estimate is labelled", async () => {
+  stubFetch({
+    ...BASE,
+    weak_topics: [
+      {
+        topic_code: "1.3",
+        topic_title: "Atomic structure",
+        avg_score: 40,
+        student_count: 2,
+        includes_tutor_estimate: true,
+      },
+    ],
+  });
+  renderPanel();
+
+  expect(await screen.findByText("includes tutor estimate")).toBeInTheDocument();
+});
+
+test("a class weak topic from marked work alone carries no estimate label", async () => {
+  stubFetch({
+    ...BASE,
+    weak_topics: [
+      {
+        topic_code: "1.3",
+        topic_title: "Atomic structure",
+        avg_score: 40,
+        student_count: 2,
+        includes_tutor_estimate: false,
+      },
+    ],
+  });
+  renderPanel();
+
+  await screen.findByText("1.3 Atomic structure");
+  expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });
