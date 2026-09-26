@@ -25,7 +25,7 @@ async def test_a_future_dated_job_is_not_claimed_until_it_is_due(client):
     async with async_session() as session:
         await enqueue(
             session,
-            "recompute_readiness",
+            "compute_readiness_v2",
             {"student_id": 1},
             run_after=datetime.now(timezone.utc) + timedelta(hours=1),
         )
@@ -43,7 +43,7 @@ async def test_a_future_dated_job_is_not_claimed_until_it_is_due(client):
 
 async def test_a_job_with_no_run_after_is_claimed_immediately(client):
     async with async_session() as session:
-        await enqueue(session, "recompute_readiness", {"student_id": 1})
+        await enqueue(session, "compute_readiness_v2", {"student_id": 1})
         await session.commit()
     assert await process_one_job() is True
 

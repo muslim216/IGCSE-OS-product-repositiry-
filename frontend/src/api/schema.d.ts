@@ -1680,24 +1680,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/preferences": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Preferences */
-        get: operations["get_preferences_api_v1_me_preferences_get"];
-        /** Update Preferences */
-        put: operations["update_preferences_api_v1_me_preferences_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/readiness/me": {
         parameters: {
             query?: never;
@@ -1761,9 +1743,8 @@ export interface paths {
         };
         /**
          * Student Trend
-         * @description Score over time. Reads v2 snapshots, falling back to v1's history for a
-         *     subject that has no scored snapshot yet — same cutover rule as the summary,
-         *     so a student never loses their trend line mid-migration.
+         * @description Score over time, from scored v2 snapshots. A subject with none is
+         *     omitted rather than drawn as an empty line.
          */
         get: operations["student_trend_api_v1_readiness_students__student_id__trend_get"];
         put?: never;
@@ -4118,32 +4099,6 @@ export interface components {
             /** Has Mark Scheme */
             has_mark_scheme: boolean;
         };
-        /** PreferencesOut */
-        PreferencesOut: {
-            /** Weight Mock */
-            weight_mock: number;
-            /** Weight Homework */
-            weight_homework: number;
-            /** Weight Quiz */
-            weight_quiz: number;
-            /** Weight Observation */
-            weight_observation: number;
-            /** Half Life Days */
-            half_life_days: number;
-        };
-        /** PreferencesUpdate */
-        PreferencesUpdate: {
-            /** Weight Mock */
-            weight_mock: number;
-            /** Weight Homework */
-            weight_homework: number;
-            /** Weight Quiz */
-            weight_quiz: number;
-            /** Weight Observation */
-            weight_observation: number;
-            /** Half Life Days */
-            half_life_days: number;
-        };
         /** QuestionIn */
         QuestionIn: {
             /** Number */
@@ -4699,11 +4654,6 @@ export interface components {
             topics: components["schemas"]["TopicReadinessOut"][];
             /** Weak Topics */
             weak_topics: components["schemas"]["WeakTopic"][];
-            /**
-             * Engine
-             * @default v2
-             */
-            engine: string;
             /**
              * Is Updating
              * @default false
@@ -8186,59 +8136,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PastPaperAttemptOut"] | null;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_preferences_api_v1_me_preferences_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferencesOut"];
-                };
-            };
-        };
-    };
-    update_preferences_api_v1_me_preferences_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreferencesUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreferencesOut"];
                 };
             };
             /** @description Validation Error */

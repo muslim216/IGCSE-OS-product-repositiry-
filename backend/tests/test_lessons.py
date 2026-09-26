@@ -85,8 +85,6 @@ async def test_lesson_observation_feeds_readiness(client, tutor, world):
     )
     assert obs.status_code == 201, obs.text
 
-    assert await process_one_job() is True  # recompute_readiness
-
     ev = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",
         headers=tutor["headers"],

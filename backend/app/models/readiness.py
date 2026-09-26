@@ -11,7 +11,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,9 +29,9 @@ class EvidenceSource(str, enum.Enum):
     # filled but before any work has been marked. **Self-declared** — it is not
     # a mark on a piece of work, and PROD-8 requires it to be labelled as such
     # wherever it is shown. It is also the only source that loses weight as
-    # rival evidence arrives (SEEDED_SOURCES in services/readiness.py), so a
-    # first impression corrects itself within weeks instead of being carried all
-    # year.
+    # rival evidence arrives (TUTOR_ESTIMATE_WEIGHT and its decay in
+    # services/readiness_factors.py), so a first impression corrects itself
+    # within weeks instead of being carried all year.
     tutor_estimate = "tutor_estimate"
 
 
@@ -62,46 +61,6 @@ class Evidence(Base):
     # Where this came from, e.g. "submission:42" or "assessment:7" — for drill-down.
     source_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     label: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
-
-class ReadinessConfidence(str, enum.Enum):
-    none = "none"
-    low = "low"
-    medium = "medium"
-    high = "high"
-
-
-class TopicReadiness(Base):
-    """Current readiness snapshot per (student, topic). Recomputed from evidence."""
-
-    __tablename__ = "topic_readiness"
-    __table_args__ = (UniqueConstraint("student_id", "topic_id"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), nullable=False)
-    score: Mapped[float] = mapped_column(Float, nullable=False)  # 0..100
-    confidence: Mapped[ReadinessConfidence] = mapped_column(
-        Enum(ReadinessConfidence, native_enum=False, length=8), nullable=False
-    )
-    evidence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
-    )
-
-
-class ReadinessHistory(Base):
-    """Point-in-time subject readiness snapshots for trend charts."""
-
-    __tablename__ = "readiness_history"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
-    score: Mapped[float] = mapped_column(Float, nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
-    )
 
 
 class TutorObservation(TimestampMixin, Base):
@@ -150,18 +109,3 @@ class AssessmentScore(Base):
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     marks: Mapped[int] = mapped_column(Integer, nullable=False)
     max_marks: Mapped[int] = mapped_column(Integer, nullable=False)
-
-
-class TutorPreferences(TimestampMixin, Base):
-    """Per-tutor readiness-engine weights, editable from the Preferences tab.
-    Falls back to the engine's built-in defaults when no row exists."""
-
-    __tablename__ = "tutor_preferences"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
-    weight_mock: Mapped[float] = mapped_column(Float, default=1.5, nullable=False)
-    weight_homework: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
-    weight_quiz: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
-    weight_observation: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
-    half_life_days: Mapped[float] = mapped_column(Float, default=45.0, nullable=False)

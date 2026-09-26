@@ -3,9 +3,8 @@ ever reads the latest already-computed ReadinessSnapshot per subject — never
 triggers a computation itself, per the "idempotent reads" rule; v2 only
 ever runs from the compute_readiness_v2 background job.
 
-Kept separate from api/readiness.py (v1, still what the product actually
-serves) so this stays a pure validation/comparison surface until the v2
-cutover is decided — see docs/avora-architecture.md."""
+Kept separate from api/readiness.py, which serves the product's own summary
+shape; this exposes the raw snapshots and factor rows."""
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select

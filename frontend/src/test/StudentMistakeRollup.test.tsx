@@ -33,7 +33,6 @@ const SUBJECT = {
   homework_submitted_count: null,
   topics: [],
   weak_topics: [],
-  engine: "v2",
   is_updating: false,
   computed_at: null,
   rationale: null,

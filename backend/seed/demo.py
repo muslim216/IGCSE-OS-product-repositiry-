@@ -56,7 +56,6 @@ from app.models import (
     SubmissionFile,
     SubmissionStatus,
     Topic,
-    TutorPreferences,
     User,
     UserRole,
     WorkKind,
@@ -69,7 +68,6 @@ from app.services.grade_boundaries import (
     set_org_boundaries,
 )
 from app.services.grades import predict_grade
-from app.services.readiness import recompute_student
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.services.readiness_v2_ai import _resolve_weight_dict, _weighted_reference_score
 from app.services.work import create_work
@@ -513,10 +511,7 @@ async def main() -> None:
             ]
         )
 
-        # Tutor preferences (defaults, just so the row exists to edit).
-        session.add(TutorPreferences(tutor_id=tutor.id))
-        # Readiness v2 factor weights (defaults) — the row readiness v2's
-        # shadow computation reads once READINESS_V2_SHADOW_ENABLED is on.
+        # Readiness v2 factor weights (defaults), so the row exists to edit.
         session.add(ReadinessWeights(organization_id=org.id, tutor_id=tutor.id))
 
         # A past paper attempt — distinct from classifieds (see CLAUDE.md):
@@ -594,7 +589,6 @@ async def main() -> None:
         await session.commit()
 
         for student in students:
-            await recompute_student(session, {"student_id": student.id})
             await write_demo_snapshot(session, student, subject.id, now)
         await session.commit()
 

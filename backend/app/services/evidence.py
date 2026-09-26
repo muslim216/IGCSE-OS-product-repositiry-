@@ -29,9 +29,7 @@ async def build_homework_evidence(session: AsyncSession, submission: Submission)
     Handles every kind of submission — homework, past paper and mock — since all
     three are Submission/QuestionMark rows. Which question and topic tables to
     read, and which evidence source the marks become, come from
-    submission_kind.kind_of rather than from a branch written here: a past
-    paper's marks weigh more than homework's and a mock's more again (see
-    readiness.SOURCE_WEIGHTS)."""
+    submission_kind.kind_of rather than from a branch written here."""
     kind = kind_of(submission)
     question_model = kind.question_model
     rows: Sequence[Any] = (

@@ -4687,76 +4687,6 @@
         }
       }
     },
-    "/api/v1/me/preferences": {
-      "get": {
-        "tags": [
-          "preferences"
-        ],
-        "summary": "Get Preferences",
-        "operationId": "get_preferences_api_v1_me_preferences_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreferencesOut"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      },
-      "put": {
-        "tags": [
-          "preferences"
-        ],
-        "summary": "Update Preferences",
-        "operationId": "update_preferences_api_v1_me_preferences_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreferencesUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreferencesOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
-      }
-    },
     "/api/v1/readiness/me": {
       "get": {
         "tags": [
@@ -4893,7 +4823,7 @@
           "readiness"
         ],
         "summary": "Student Trend",
-        "description": "Score over time. Reads v2 snapshots, falling back to v1's history for a\nsubject that has no scored snapshot yet \u2014 same cutover rule as the summary,\nso a student never loses their trend line mid-migration.",
+        "description": "Score over time, from scored v2 snapshots. A subject with none is\nomitted rather than drawn as an empty line.",
         "operationId": "student_trend_api_v1_readiness_students__student_id__trend_get",
         "security": [
           {
@@ -11770,82 +11700,6 @@
         ],
         "title": "PastPaperQuestionOut"
       },
-      "PreferencesOut": {
-        "properties": {
-          "weight_mock": {
-            "type": "number",
-            "title": "Weight Mock"
-          },
-          "weight_homework": {
-            "type": "number",
-            "title": "Weight Homework"
-          },
-          "weight_quiz": {
-            "type": "number",
-            "title": "Weight Quiz"
-          },
-          "weight_observation": {
-            "type": "number",
-            "title": "Weight Observation"
-          },
-          "half_life_days": {
-            "type": "number",
-            "title": "Half Life Days"
-          }
-        },
-        "type": "object",
-        "required": [
-          "weight_mock",
-          "weight_homework",
-          "weight_quiz",
-          "weight_observation",
-          "half_life_days"
-        ],
-        "title": "PreferencesOut"
-      },
-      "PreferencesUpdate": {
-        "properties": {
-          "weight_mock": {
-            "type": "number",
-            "maximum": 3.0,
-            "minimum": 0.0,
-            "title": "Weight Mock"
-          },
-          "weight_homework": {
-            "type": "number",
-            "maximum": 3.0,
-            "minimum": 0.0,
-            "title": "Weight Homework"
-          },
-          "weight_quiz": {
-            "type": "number",
-            "maximum": 3.0,
-            "minimum": 0.0,
-            "title": "Weight Quiz"
-          },
-          "weight_observation": {
-            "type": "number",
-            "maximum": 3.0,
-            "minimum": 0.0,
-            "title": "Weight Observation"
-          },
-          "half_life_days": {
-            "type": "number",
-            "maximum": 365.0,
-            "minimum": 7.0,
-            "title": "Half Life Days"
-          }
-        },
-        "type": "object",
-        "required": [
-          "weight_mock",
-          "weight_homework",
-          "weight_quiz",
-          "weight_observation",
-          "half_life_days"
-        ],
-        "title": "PreferencesUpdate"
-      },
       "QuestionIn": {
         "properties": {
           "number": {
@@ -13561,11 +13415,6 @@
             },
             "type": "array",
             "title": "Weak Topics"
-          },
-          "engine": {
-            "type": "string",
-            "title": "Engine",
-            "default": "v2"
           },
           "is_updating": {
             "type": "boolean",

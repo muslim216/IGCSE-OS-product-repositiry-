@@ -116,10 +116,10 @@ class Settings(BaseSettings):
     ai_model_pricing: str = "{}"
     # Readiness Engine v2 is now what the readiness UI/API serve. This is the
     # kill switch, not a shadow flag: turning it off stops v2 runs being
-    # enqueued, and since services/readiness_summary_v2.py falls back to v1 for
-    # any subject with no snapshot, the app degrades to the v1 engine instead
-    # of breaking. Kept under its original name so an existing deployment's
-    # env var keeps working.
+    # enqueued, and since 5.3b deleted v1 there is nothing behind it — every
+    # score freezes at its last snapshot and a subject without one shows "not
+    # enough data yet". Kept under its original name so an existing
+    # deployment's env var keeps working.
     readiness_v2_shadow_enabled: bool = True
     # Readiness v2 synthesis is an expensive AI call, and auto-marking can
     # finalize a burst of submissions in seconds. Triggers for the same

@@ -101,8 +101,8 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
         # ready, score=None run (no factor had evidence) still persists its
         # homework_performance row, so "N of M handed in" is a fact the
         # report can state even with no overall number to lead with
-        # (PROD-1). v1-fallback subjects never carry these counts (they are
-        # None there), so this naturally stays silent for them.
+        # (PROD-1). A subject with no snapshot never carries these counts
+        # (they are None there), so this naturally stays silent for it.
         if s.homework_assignment_count:
             lines.append(
                 f"Homework: submitted {s.homework_submitted_count} of "

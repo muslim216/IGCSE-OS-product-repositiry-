@@ -66,15 +66,12 @@ class SubjectReadiness(BaseModel):
     # Completion is a fact, not part of the score (AV-32): "4 of 5 handed in"
     # carries its own denominator (PROD-1) and is never blended into a number.
     # Both None when the run has no homework_performance row for this subject
-    # or the subject fell back to v1 — never 0, which PROD-2 forbids for an
+    # or the subject has no snapshot yet — never 0, which PROD-2 forbids for an
     # absent measurement.
     homework_assignment_count: int | None = None
     homework_submitted_count: int | None = None
     topics: list[TopicReadinessOut]
     weak_topics: list[WeakTopic]
-    # Which engine produced this. "v2" is the system of record; "v1" means no
-    # v2 snapshot exists yet for this subject and the legacy engine answered.
-    engine: str = "v2"
     # A recompute is queued or running: the score below is the last known one,
     # not the current one. The UI should say so rather than imply it is fresh.
     is_updating: bool = False
@@ -197,25 +194,6 @@ class MyAssessmentScore(BaseModel):
     marks: int
     max_marks: int
     pct: float
-
-
-# ---- Tutor preferences (readiness weights) ----
-
-
-class PreferencesOut(BaseModel):
-    weight_mock: float
-    weight_homework: float
-    weight_quiz: float
-    weight_observation: float
-    half_life_days: float
-
-
-class PreferencesUpdate(BaseModel):
-    weight_mock: float = Field(ge=0, le=3)
-    weight_homework: float = Field(ge=0, le=3)
-    weight_quiz: float = Field(ge=0, le=3)
-    weight_observation: float = Field(ge=0, le=3)
-    half_life_days: float = Field(ge=7, le=365)
 
 
 # ---- Readiness v2 weights (per factor, per organization) ----

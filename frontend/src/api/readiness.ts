@@ -63,8 +63,6 @@ export interface SubjectReadiness {
   homework_submitted_count: number | null;
   topics: TopicReadiness[];
   weak_topics: WeakTopic[];
-  /** "v2" is the system of record; "v1" means no v2 snapshot exists yet. */
-  engine: string;
   /** A recompute is queued or running — the score shown is the last known one. */
   is_updating: boolean;
   computed_at: string | null;
@@ -191,16 +189,6 @@ export interface MyAssessmentScore {
 
 export const myAssessmentScores = () => api<MyAssessmentScore[]>("/api/v1/me/assessments");
 
-export interface Preferences {
-  weight_mock: number;
-  weight_homework: number;
-  weight_quiz: number;
-  weight_observation: number;
-  half_life_days: number;
-}
-
-export const getPreferences = () => api<Preferences>("/api/v1/me/preferences");
-
 /** Readiness v2 weights: one per factor, per organization (FE-4 — aliases
     the generated schema rather than a hand-written duplicate). */
 export type ReadinessWeights = components["schemas"]["ReadinessWeightsOut"];
@@ -211,8 +199,6 @@ export const updateReadinessWeights = (payload: ReadinessWeights) =>
     method: "PUT",
     body: JSON.stringify(payload),
   });
-export const updatePreferences = (payload: Preferences) =>
-  api<Preferences>("/api/v1/me/preferences", { method: "PUT", body: JSON.stringify(payload) });
 
 /** A tutor's own starting estimate for a student, per topic. Self-declared: it
     is stored as `tutor_estimate` evidence, labelled as such wherever it is

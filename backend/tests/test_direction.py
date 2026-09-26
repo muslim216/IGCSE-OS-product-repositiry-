@@ -13,12 +13,9 @@ import pytest
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
-    ReadinessConfidence,
-    ReadinessHistory,
     ReadinessSnapshot,
     Subject,
     Topic,
-    TopicReadiness,
 )
 from app.services.readiness_shared import DIRECTION_NOISE_BAND, trend_direction
 from tests.factories import subject_defaults
@@ -108,38 +105,7 @@ async def world(client, tutor):
         "student_id": student["id"],
         "headers": {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"},
     }
-    # A current v1 score. Since 5.3a, most tests below write their own ready
-    # v2 snapshot, and build_summary_v2 prefers it the moment one exists, so
-    # this row is inert for them. It still matters for
-    # test_v1_score_is_not_paired_with_a_v2_arrow, which calls the v1 engine
-    # directly and needs a real v1 score for its arrow to describe.
-    async with async_session() as session:
-        session.add(
-            TopicReadiness(
-                student_id=world["student_id"],
-                topic_id=topic_id,
-                score=68.0,
-                confidence=ReadinessConfidence.high,
-                evidence_count=4,
-            )
-        )
-        await session.commit()
     return world
-
-
-async def record_history(world, scores):
-    """Write a v1 history series, oldest first."""
-    async with async_session() as session:
-        for offset, score in enumerate(scores):
-            session.add(
-                ReadinessHistory(
-                    student_id=world["student_id"],
-                    subject_id=world["subject_id"],
-                    score=score,
-                    recorded_at=NOW - timedelta(days=len(scores) - offset),
-                )
-            )
-        await session.commit()
 
 
 async def direction_from_api(client, world):
@@ -220,23 +186,3 @@ async def test_v2_no_evidence_snapshot_carries_no_arrow(client, tutor, world):
     subject = resp.json()["subjects"][0]
     assert subject["score"] is None
     assert subject["direction"] is None
-
-
-async def test_v1_score_is_not_paired_with_a_v2_arrow(client, tutor, world):
-    """build_summary is the v1 engine and reports v1's score, so its arrow must
-    come from v1 history — never from a v2 series the score did not come from."""
-    from app.db import async_session as session_factory
-    from app.models import User
-    from app.services.readiness_summary import build_summary
-
-    await record_history(world, [60.0, 61.0])  # v1 history: flat
-    await write_snapshots(world, [10.0, 90.0])  # v2 snapshots: sharply up
-
-    async with session_factory() as session:
-        student = await session.get(User, world["student_id"])
-        summary = await build_summary(session, student, [world["subject_id"]])
-
-    subject = summary.subjects[0]
-    assert subject.score == 68.0  # v1's own number
-    # "flat" from v1 history — not the "up" the v2 series would have given.
-    assert subject.direction == "flat"
