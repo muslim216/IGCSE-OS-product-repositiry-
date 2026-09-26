@@ -41,3 +41,36 @@ async def test_already_pending_wildcard_covers_every_subject_for_that_student(cl
     assert (9, 1) in pending
     assert (9, 2) in pending
     assert (8, 1) not in pending
+
+
+async def test_an_observation_only_pair_is_not_backfilled(client, tutor):
+    """PROD-15: historical observation evidence does not make a (student,
+    subject) pair readiness-bearing, so the backfill queues no run for it."""
+    from app.models import Evidence, EvidenceSource, Subject, Topic
+    from seed.recompute_readiness import pairs_with_evidence
+    from tests.factories import subject_defaults
+
+    async with async_session() as session:
+        subject = Subject(
+            **await subject_defaults(session),
+            exam_board="Edexcel IGCSE",
+            code="X1",
+            name="X",
+            grade_scale="9-1",
+        )
+        session.add(subject)
+        await session.flush()
+        topic = Topic(subject_id=subject.id, code="1", title="t", weight=1.0)
+        session.add(topic)
+        await session.flush()
+        session.add(
+            Evidence(
+                student_id=tutor["user"]["id"],
+                topic_id=topic.id,
+                source_type=EvidenceSource.observation,
+                score_pct=80.0,
+                max_marks=0,
+            )
+        )
+        await session.commit()
+        assert await pairs_with_evidence(session) == []

@@ -21,6 +21,7 @@ from app.schemas.readiness import (
     TopicEvidence,
     TrendPoint,
 )
+from app.services.evidence import COUNTS_FOR_READINESS
 from app.services.readiness_shared import v2_score_points
 from app.services.readiness_summary_v2 import (
     build_summary_v2,
@@ -117,7 +118,11 @@ async def topic_evidence(
     evidence_rows = (
         await db.scalars(
             select(Evidence)
-            .where(Evidence.student_id == student_id, Evidence.topic_id == topic_id)
+            .where(
+                Evidence.student_id == student_id,
+                Evidence.topic_id == topic_id,
+                COUNTS_FOR_READINESS,
+            )
             .order_by(Evidence.occurred_at.desc())
         )
     ).all()

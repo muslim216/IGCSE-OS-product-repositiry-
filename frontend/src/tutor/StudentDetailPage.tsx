@@ -232,7 +232,8 @@ export default function StudentDetailPage() {
       <div className="rounded-lg border bg-white p-4">
         <h3 className="font-medium text-slate-800">Add an observation</h3>
         <p className="mt-1 text-sm text-slate-500">
-          A rating on a topic feeds into readiness as your professional judgement.
+          Observations stay on this profile as your professional judgement. They never change a
+          readiness score.
         </p>
         <form onSubmit={onObserve} className="mt-3 space-y-3">
           <div className="flex flex-wrap gap-2">

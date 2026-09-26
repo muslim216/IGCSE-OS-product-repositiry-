@@ -46,6 +46,7 @@ from app.models import (
 )
 from app.schemas.readiness import SubjectReadiness
 from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.evidence import COUNTS_FOR_READINESS
 from app.services.knowledge import resolve_org_tutor_id
 from app.services.prompts import get_prompt
 from app.services.readiness_summary_v2 import build_summary_v2
@@ -104,7 +105,11 @@ async def _latest_evidence_at_for_group(session: AsyncSession, group: Group) -> 
             .select_from(Evidence)
             .join(Topic, Topic.id == Evidence.topic_id)
             .join(GroupMember, GroupMember.student_id == Evidence.student_id)
-            .where(GroupMember.group_id == group.id, Topic.subject_id == group.subject_id)
+            .where(
+                GroupMember.group_id == group.id,
+                Topic.subject_id == group.subject_id,
+                COUNTS_FOR_READINESS,
+            )
         )
     )
 
@@ -114,7 +119,9 @@ async def _latest_evidence_at_for_student(
 ) -> datetime | None:
     return _aware(
         await session.scalar(
-            select(func.max(Evidence.occurred_at)).where(Evidence.student_id == student_id)
+            select(func.max(Evidence.occurred_at)).where(
+                Evidence.student_id == student_id, COUNTS_FOR_READINESS
+            )
         )
     )
 
@@ -536,7 +543,7 @@ async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
             select(distinct(User.id))
             .join(GroupMember, GroupMember.student_id == User.id)
             .join(Evidence, Evidence.student_id == User.id)
-            .where(User.role == UserRole.student)
+            .where(User.role == UserRole.student, COUNTS_FOR_READINESS)
         )
     ).all()
 

@@ -205,12 +205,8 @@ async def create_observation(
     if shares is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in your groups")
 
-    subject_id_for_recompute: int | None = None
-    if body.topic_id is not None:
-        topic = await db.get(Topic, body.topic_id)
-        if topic is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
-        subject_id_for_recompute = topic.subject_id
+    if body.topic_id is not None and await db.get(Topic, body.topic_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
 
     observation = TutorObservation(
         tutor_id=user.id,
@@ -222,21 +218,8 @@ async def create_observation(
     db.add(observation)
     await db.flush()
 
-    # A rating on a specific topic feeds readiness as observation evidence.
-    if body.rating is not None and body.topic_id is not None:
-        db.add(
-            Evidence(
-                student_id=body.student_id,
-                topic_id=body.topic_id,
-                source_type=EvidenceSource.observation,
-                score_pct=float(body.rating),
-                max_marks=0,
-                occurred_at=datetime.now(timezone.utc),
-                source_ref=f"observation:{observation.id}",
-                label="Tutor observation",
-            )
-        )
-        await enqueue_v2_shadow(db, body.student_id, subject_id_for_recompute)
+    # The rating stays on the observation, which belongs to the student
+    # profile. It is not readiness evidence and queues no recompute (PROD-15).
     await db.commit()
     return ObservationOut(
         id=observation.id,

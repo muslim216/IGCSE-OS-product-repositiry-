@@ -44,6 +44,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db import async_session
 from app.models import Evidence, Topic
+from app.services.evidence import COUNTS_FOR_READINESS
 from app.services.readiness_summary_v2 import _IN_FLIGHT
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced, in_flight_readiness_pairs
 
@@ -63,6 +64,7 @@ async def pairs_with_evidence(session) -> list[tuple[int, int]]:
         await session.execute(
             select(Evidence.student_id, Topic.subject_id)
             .join(Topic, Topic.id == Evidence.topic_id)
+            .where(COUNTS_FOR_READINESS)
             .distinct()
             .order_by(Evidence.student_id, Topic.subject_id)
         )

@@ -711,3 +711,40 @@ async def test_sweep_reenqueue_honours_the_configured_interval(monkeypatch):
     run_after = _aware(sweep.run_after)
     delta = run_after - before
     assert timedelta(hours=4, minutes=59) < delta <= timedelta(hours=5, minutes=1)
+
+
+async def test_an_observation_does_not_make_a_narrative_stale(client, tutor):
+    """PROD-15: a historical observation row is not readiness evidence, so it
+    is not "new evidence" that would re-trigger a parent narrative."""
+    from datetime import datetime, timezone
+
+    from app.models import Evidence, EvidenceSource, Subject, Topic
+    from app.services.narrative import _latest_evidence_at_for_student
+    from tests.factories import subject_defaults
+
+    student_id = tutor["user"]["id"]
+    async with async_session() as session:
+        subject = Subject(
+            **await subject_defaults(session),
+            exam_board="Edexcel IGCSE",
+            code="N1",
+            name="N",
+            grade_scale="9-1",
+        )
+        session.add(subject)
+        await session.flush()
+        topic = Topic(subject_id=subject.id, code="1", title="t", weight=1.0)
+        session.add(topic)
+        await session.flush()
+        session.add(
+            Evidence(
+                student_id=student_id,
+                topic_id=topic.id,
+                source_type=EvidenceSource.observation,
+                score_pct=80.0,
+                max_marks=0,
+                occurred_at=datetime.now(timezone.utc),
+            )
+        )
+        await session.commit()
+        assert await _latest_evidence_at_for_student(session, student_id) is None
