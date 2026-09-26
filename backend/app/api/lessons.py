@@ -1,13 +1,9 @@
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, assert_tutor
 from app.models import (
-    Evidence,
-    EvidenceSource,
     Group,
     GroupMember,
     Lesson,
@@ -26,7 +22,6 @@ from app.schemas.lessons import (
     LessonTopicsUpdate,
     LessonUpdate,
 )
-from app.services.readiness_v2_ai import enqueue_v2_shadow
 
 router = APIRouter(prefix="/lessons", tags=["lessons"])
 
@@ -179,22 +174,8 @@ async def add_lesson_observation(
     db.add(observation)
     await db.flush()
 
-    # A rating on a specific topic feeds readiness as observation evidence —
-    # same pattern as the free-floating tutor observation (api/assessments.py).
-    if body.rating is not None and topic is not None:
-        db.add(
-            Evidence(
-                student_id=body.student_id,
-                topic_id=topic.id,
-                source_type=EvidenceSource.observation,
-                score_pct=float(body.rating),
-                max_marks=0,
-                occurred_at=datetime.now(timezone.utc),
-                source_ref=f"lesson_observation:{observation.id}",
-                label="Lesson observation",
-            )
-        )
-        await enqueue_v2_shadow(db, body.student_id, topic.subject_id)
+    # The rating stays on the observation, which belongs to the student
+    # profile. It is not readiness evidence and queues no recompute (PROD-15).
     await db.commit()
     return LessonObservationOut(
         id=observation.id,

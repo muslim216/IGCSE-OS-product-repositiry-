@@ -82,7 +82,7 @@ async def test_evaluate_subject_factors_end_to_end(client, tutor, world):
             Evidence(
                 student_id=student_id,
                 topic_id=topic1,
-                source_type=EvidenceSource.observation,
+                source_type=EvidenceSource.quiz,
                 score_pct=60.0,
                 max_marks=0,
                 occurred_at=NOW - timedelta(days=3),
@@ -978,3 +978,36 @@ async def test_weak_topic_chip_labels_the_tutor_estimate(client, tutor, world):
     subject = resp.json()["subjects"][0]
     weak = next(t for t in subject["weak_topics"] if t["topic_id"] == world["topic1"])
     assert weak["tutor_estimate"] is True
+
+
+async def test_historical_observation_evidence_is_not_practice(client, tutor, world):  # noqa: F811
+    """PROD-15: an observation row written before the rule is kept, but it no
+    longer marks a topic as practised; a quiz on the other topic still does."""
+    from app.models import Topic
+    from app.services.readiness_v2 import _topic_coverage
+
+    async with async_session() as session:
+        for topic_id, source in (
+            (world["topic1"], EvidenceSource.observation),
+            (world["topic2"], EvidenceSource.quiz),
+        ):
+            session.add(
+                Evidence(
+                    student_id=world["student_id"],
+                    topic_id=topic_id,
+                    source_type=source,
+                    score_pct=70.0,
+                    max_marks=0,
+                )
+            )
+        await session.commit()
+        topics = (
+            await session.scalars(
+                select(Topic).where(Topic.subject_id == world["subject_id"]).order_by(Topic.id)
+            )
+        ).all()
+        coverage = await _topic_coverage(
+            session, world["student_id"], world["subject_id"], {}, topics
+        )
+    practiced = {t.id: c.practiced for t, c in zip(topics, coverage, strict=True)}
+    assert practiced == {world["topic1"]: False, world["topic2"]: True}

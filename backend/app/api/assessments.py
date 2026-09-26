@@ -205,12 +205,8 @@ async def create_observation(
     if shares is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in your groups")
 
-    subject_id_for_recompute: int | None = None
-    if body.topic_id is not None:
-        topic = await db.get(Topic, body.topic_id)
-        if topic is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
-        subject_id_for_recompute = topic.subject_id
+    if body.topic_id is not None and await db.get(Topic, body.topic_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
 
     observation = TutorObservation(
         tutor_id=user.id,
@@ -222,21 +218,8 @@ async def create_observation(
     db.add(observation)
     await db.flush()
 
-    # A rating on a specific topic feeds readiness as observation evidence.
-    if body.rating is not None and body.topic_id is not None:
-        db.add(
-            Evidence(
-                student_id=body.student_id,
-                topic_id=body.topic_id,
-                source_type=EvidenceSource.observation,
-                score_pct=float(body.rating),
-                max_marks=0,
-                occurred_at=datetime.now(timezone.utc),
-                source_ref=f"observation:{observation.id}",
-                label="Tutor observation",
-            )
-        )
-        await enqueue_v2_shadow(db, body.student_id, subject_id_for_recompute)
+    # The rating stays on the observation, which belongs to the student
+    # profile. It is not readiness evidence and queues no recompute (PROD-15).
     await db.commit()
     return ObservationOut(
         id=observation.id,
@@ -277,11 +260,9 @@ async def seed_readiness(
     A topic with only an estimate still shows "not practised" for coverage —
     a tutor's opinion is not the student doing the work.
 
-    **Known gap (RISK-5), narrowed.** What remains is the other Evidence-only
-    sources: tutor observations and entered mocks do not feed Topic Mastery —
-    observations reach v2 only as a coverage "practised" flag, and mocks feed
-    the subject-level assessment factor — the same convergence work as before,
-    now scoped to those two rather than to every Evidence-only source.
+    Entered mocks do not feed Topic Mastery either; they feed the subject-level
+    assessment factor. Tutor observations feed nothing: they belong to the
+    student profile, not readiness (PROD-15).
     """
     # Which subjects this tutor actually teaches *this* student. Authorizing the
     # student once is not enough: topics are global, so a tutor who teaches Sara

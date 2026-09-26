@@ -1,8 +1,8 @@
 """Turn finalized academic events into readiness evidence rows.
 
 Only finalized work — homework, past papers and mocks — plus entered
-assessment/observation data becomes evidence; nothing provisional (like an AI
-draft) ever influences readiness.
+assessment data becomes evidence; nothing provisional (like an AI draft) ever
+influences readiness. A tutor observation is not evidence at all (PROD-15).
 """
 
 from collections.abc import Sequence
@@ -14,10 +14,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     Evidence,
+    EvidenceSource,
     QuestionMark,
     Submission,
 )
 from app.services.submission_kind import kind_of
+
+# PROD-15: an observation belongs to the student profile, never to readiness.
+# Nothing writes `observation` evidence any more; rows written before the rule
+# are kept as history (owner, 2026-09-26: filter, don't delete) and excluded by
+# this predicate wherever evidence is read.
+COUNTS_FOR_READINESS = Evidence.source_type != EvidenceSource.observation
 
 
 async def build_homework_evidence(session: AsyncSession, submission: Submission) -> set[int]:

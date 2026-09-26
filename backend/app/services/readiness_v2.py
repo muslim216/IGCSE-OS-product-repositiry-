@@ -40,6 +40,7 @@ from app.models import (
     Submission,
     Topic,
 )
+from app.services.evidence import COUNTS_FOR_READINESS
 from app.services.readiness_factors import (
     AssessmentPoint,
     FactorResult,
@@ -249,8 +250,8 @@ async def _topic_coverage(
     # Owner decision (2026-09-23): coverage counts marked work only. A tutor's
     # estimate is their opinion entered before any work exists, not practice —
     # excluded here so "practised" never reads a self-declared score as
-    # evidence the student has actually done anything (PROD-8). Homework,
-    # mocks and observations still count.
+    # evidence the student has actually done anything (PROD-8). Nor does an
+    # observation: it is a profile note, not practice (PROD-15).
     practiced_ids = set(
         (
             await session.scalars(
@@ -259,6 +260,7 @@ async def _topic_coverage(
                     Evidence.student_id == student_id,
                     Evidence.topic_id.in_(topic_ids),
                     Evidence.source_type != EvidenceSource.tutor_estimate,
+                    COUNTS_FOR_READINESS,
                 )
                 .distinct()
             )

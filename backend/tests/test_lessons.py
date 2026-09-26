@@ -4,7 +4,7 @@ observations, and the assignments.lesson_id link."""
 from sqlalchemy import select
 
 from app.db import async_session
-from app.models import Job
+from app.models import Evidence, Job
 from app.workers.jobs import process_one_job
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -69,7 +69,7 @@ async def test_set_lesson_topics(client, tutor, world):
     assert {t["id"] for t in replaced.json()["topics"]} == {world["topic1"]}
 
 
-async def test_lesson_observation_feeds_readiness(client, tutor, world):
+async def test_lesson_observation_stays_on_the_profile(client, tutor, world):
     create = await client.post(
         "/api/v1/lessons",
         json={"group_id": world["group"]["id"], "date": "2026-07-14"},
@@ -89,29 +89,24 @@ async def test_lesson_observation_feeds_readiness(client, tutor, world):
     )
     assert obs.status_code == 201, obs.text
 
+    # A rated, topic-tagged observation belongs to the student profile: no
+    # readiness evidence, no recompute (PROD-15).
     async with async_session() as session:
-        jobs = [(j.type, j.payload) for j in (await session.scalars(select(Job))).all()]
-    # The rated observation queues one v2 run, and no v1 job.
-    assert jobs == [
-        (
-            "compute_readiness_v2",
-            {"student_id": world["student_id"], "subject_id": world["subject_id"]},
-        )
-    ]
-
-    ev = await client.get(
-        f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",
-        headers=tutor["headers"],
-    )
-    assert ev.status_code == 200
-    assert ev.json()["evidence"][0]["source_type"] == "observation"
-    assert ev.json()["evidence"][0]["score_pct"] == 85.0
+        assert (
+            await session.scalars(
+                select(Evidence).where(Evidence.student_id == world["student_id"])
+            )
+        ).all() == []
+        assert (
+            await session.scalars(select(Job).where(Job.type == "compute_readiness_v2"))
+        ).all() == []
 
     listing = await client.get(
         f"/api/v1/lessons/{lesson_id}/observations", headers=tutor["headers"]
     )
     assert listing.status_code == 200
-    assert len(listing.json()) == 1
+    # The rating is kept on the observation itself — that is where it lives now.
+    assert [o["rating"] for o in listing.json()] == [85]
 
 
 async def test_lesson_observation_without_rating_no_evidence(client, tutor, world):

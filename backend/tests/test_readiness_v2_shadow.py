@@ -10,21 +10,35 @@ from app.workers.jobs import process_one_job
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
+async def _enter_a_mock(client, tutor, world):  # noqa: F811
+    """Marked work: an entered assessment queues a v2 run. (An observation no
+    longer does — PROD-15.)"""
+    return await client.post(
+        "/api/v1/assessments",
+        json={
+            "subject_id": world["subject_id"],
+            "title": "Mock",
+            "type": "mock",
+            "date": "2026-06-15",
+            "scores": [
+                {
+                    "student_id": world["student_id"],
+                    "topic_id": world["topic1"],
+                    "marks": 16,
+                    "max_marks": 20,
+                }
+            ],
+        },
+        headers=tutor["headers"],
+    )
+
+
 async def test_v2_switched_off_enqueues_nothing(client, tutor, world, monkeypatch):
     """READINESS_V2_SHADOW_ENABLED=false is the kill switch — v2 stops being
     computed, and since 5.3b there is no v1 behind it: nothing is queued."""
     monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", False)
-    resp = await client.post(
-        "/api/v1/observations",
-        json={
-            "student_id": world["student_id"],
-            "topic_id": world["topic1"],
-            "comment": "Doing well",
-            "rating": 80,
-        },
-        headers=tutor["headers"],
-    )
-    assert resp.status_code == 201
+    resp = await _enter_a_mock(client, tutor, world)
+    assert resp.status_code == 201, resp.text
     async with async_session() as session:
         assert (await session.scalars(select(Job))).all() == []
 
@@ -32,17 +46,8 @@ async def test_v2_switched_off_enqueues_nothing(client, tutor, world, monkeypatc
 async def test_v2_enqueues_and_creates_a_snapshot(client, tutor, world, monkeypatch):
     assert get_settings().readiness_v2_shadow_enabled is True, "v2 is on by default"
 
-    resp = await client.post(
-        "/api/v1/observations",
-        json={
-            "student_id": world["student_id"],
-            "topic_id": world["topic1"],
-            "comment": "Doing well",
-            "rating": 80,
-        },
-        headers=tutor["headers"],
-    )
-    assert resp.status_code == 201
+    resp = await _enter_a_mock(client, tutor, world)
+    assert resp.status_code == 201, resp.text
 
     # compute_readiness_v2 is queued but debounced (see
     # enqueue_readiness_v2_debounced), so it is not yet due and the worker
@@ -76,7 +81,7 @@ async def test_v2_enqueues_and_creates_a_snapshot(client, tutor, world, monkeypa
         for f in subject["factors"]
         if f["factor"] == "topic_mastery" and f["topic_id"] == world["topic1"]
     )
-    assert topic1_factor["score"] is None  # observation feeds Evidence, not QuestionMark
+    assert topic1_factor["score"] is None  # an assessment is not a marked question
 
 
 async def test_v2_endpoint_idempotent_before_any_snapshot(client, tutor, world):

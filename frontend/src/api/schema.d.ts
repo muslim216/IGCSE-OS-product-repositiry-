@@ -374,11 +374,9 @@ export interface paths {
          *     A topic with only an estimate still shows "not practised" for coverage —
          *     a tutor's opinion is not the student doing the work.
          *
-         *     **Known gap (RISK-5), narrowed.** What remains is the other Evidence-only
-         *     sources: tutor observations and entered mocks do not feed Topic Mastery —
-         *     observations reach v2 only as a coverage "practised" flag, and mocks feed
-         *     the subject-level assessment factor — the same convergence work as before,
-         *     now scoped to those two rather than to every Evidence-only source.
+         *     Entered mocks do not feed Topic Mastery either; they feed the subject-level
+         *     assessment factor. Tutor observations feed nothing: they belong to the
+         *     student profile, not readiness (PROD-15).
          */
         post: operations["seed_readiness_api_v1_students__student_id__seed_readiness_post"];
         delete?: never;

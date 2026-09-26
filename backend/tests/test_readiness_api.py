@@ -250,7 +250,9 @@ async def test_tutor_only_sees_own_students_readiness(client, world):
     assert resp.status_code == 404
 
 
-async def test_observation_with_rating_feeds_readiness(client, tutor, world):
+async def test_observation_with_rating_is_not_readiness_evidence(client, tutor, world):
+    """PROD-15: an observation is a profile note. Its rating writes no evidence
+    and queues no recompute."""
     resp = await client.post(
         "/api/v1/observations",
         json={
@@ -262,14 +264,39 @@ async def test_observation_with_rating_feeds_readiness(client, tutor, world):
         headers=tutor["headers"],
     )
     assert resp.status_code == 201
-    await process_one_job()
+    assert resp.json()["rating"] == 85  # kept on the observation itself
+    async with async_session() as session:
+        assert (
+            await session.scalars(
+                select(Evidence).where(Evidence.student_id == world["student_id"])
+            )
+        ).all() == []
+        assert (
+            await session.scalars(select(Job).where(Job.type == "compute_readiness_v2"))
+        ).all() == []
+
+
+async def test_historical_observation_evidence_is_hidden_from_the_drill_down(client, tutor, world):
+    """Rows written before PROD-15 are kept (owner: filter, don't delete) but
+    never shown as readiness evidence."""
+    async with async_session() as session:
+        for source, pct in ((EvidenceSource.observation, 85.0), (EvidenceSource.quiz, 60.0)):
+            session.add(
+                Evidence(
+                    student_id=world["student_id"],
+                    topic_id=world["topic1"],
+                    source_type=source,
+                    score_pct=pct,
+                    max_marks=0,
+                )
+            )
+        await session.commit()
     ev = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",
         headers=tutor["headers"],
     )
     assert ev.status_code == 200
-    assert ev.json()["evidence"][0]["source_type"] == "observation"
-    assert ev.json()["evidence"][0]["score_pct"] == 85.0
+    assert [e["source_type"] for e in ev.json()["evidence"]] == ["quiz"]
 
 
 async def test_group_analytics_and_agreement(client, tutor, world):
