@@ -204,7 +204,20 @@ async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypat
         assert ev[0].source_type == EvidenceSource.homework
         assert ev[0].score_pct == 80.0
 
-    # The v2 run the finalize queued, synthesised by a stand-in model (QA-8).
+    async with async_session() as session:
+        jobs = [
+            (j.type, j.payload)
+            for j in (await session.scalars(select(Job).where(Job.type.like("%readiness%")))).all()
+        ]
+    # Finalize queued one v2 run, and no v1 job.
+    assert jobs == [
+        (
+            "compute_readiness_v2",
+            {"student_id": world["student_id"], "subject_id": world["subject_id"]},
+        )
+    ]
+
+    # That run, synthesised by a stand-in model (QA-8).
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
         fake_ai(

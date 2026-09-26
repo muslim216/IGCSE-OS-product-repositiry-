@@ -7,8 +7,11 @@ have no reader and no writer left. Closes RISK-5.
 
 Pending `recompute_readiness` jobs are deleted too: the handler is gone, so a
 job queued by the previous release would otherwise fail with "No handler
-registered" and sit in the failed-jobs list as noise. Running ones are left to
-the worker that claimed them.
+registered" and sit in the failed-jobs list as noise. A running one is marked
+failed rather than deleted: the old worker that claimed it can still write its
+outcome over that row (it may itself fail, the tables being gone), and if that
+worker died instead, a failed row is never reclaimed into a new worker with no
+handler for it.
 
 **The downgrade recreates the three tables empty.** Their rows are not
 restored — v1's scores were derived from `evidence`, which this migration does
@@ -33,6 +36,10 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute("DELETE FROM jobs WHERE type = 'recompute_readiness' AND status = 'pending'")
+    op.execute(
+        "UPDATE jobs SET status = 'failed', error = 'readiness v1 deleted (0055)' "
+        "WHERE type = 'recompute_readiness' AND status = 'running'"
+    )
     op.drop_table("topic_readiness")
     op.drop_table("readiness_history")
     op.drop_table("tutor_preferences")

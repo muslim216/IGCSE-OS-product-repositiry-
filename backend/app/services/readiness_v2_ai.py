@@ -11,9 +11,10 @@ deterministic Layer 1 rows are still committed and a snapshot is still
 written with status="failed" — the evaluation as a whole never silently
 disappears, only the AI's contribution to it.
 
-enqueue_v2_shadow() is the name every evidence writer calls: it only
-enqueues compute_readiness_v2 when settings.readiness_v2_shadow_enabled is
-on — the kill switch, named from when v2 ran in the shadow of v1."""
+enqueue_readiness_v2_debounced() is the one way a run is queued
+(enqueue_v2_shadow() is an older alias for it). It only enqueues
+compute_readiness_v2 when settings.readiness_v2_shadow_enabled is on — the
+kill switch, named from when v2 ran in the shadow of v1."""
 
 import logging
 import uuid
