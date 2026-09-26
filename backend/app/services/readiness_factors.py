@@ -1,10 +1,7 @@
 """Readiness Engine v2, Layer 1 — deterministic, explainable factor
 sub-scores.
 
-Pure functions over plain dataclasses (no DB session, no I/O). Owns the decay
-helper v1 also imports — services/readiness.py re-imports HALF_LIFE_DAYS,
-_age_days and _decay from here, so the two engines share one notion of
-"recent evidence matters more" without v2 depending on v1. Each function
+Pure functions over plain dataclasses (no DB session, no I/O). Each function
 returns a FactorResult: a score (or None for "no data"), a confidence level,
 an evidence count, and a JSON-safe detail dict — the same shape a
 FactorEvaluation row stores.
@@ -71,10 +68,10 @@ class MarkedQuestion:
 
 
 # A tutor's starting estimate, relative to a medium-difficulty marked question
-# (1.0). v1's weight for the same source (services/readiness.py SOURCE_WEIGHTS),
-# carried over by decision 14: worth having — a class with nothing marked shows
-# a new tutor nothing — and worth the least, because it is the only input that
-# is not a mark on a piece of work (PROD-8).
+# (1.0). The weight v1 gave the same source, carried over by decision 14: worth
+# having — a class with nothing marked shows a new tutor nothing — and worth the
+# least, because it is the only input that is not a mark on a piece of work
+# (PROD-8).
 TUTOR_ESTIMATE_WEIGHT = 0.4
 
 

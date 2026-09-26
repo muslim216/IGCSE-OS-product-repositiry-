@@ -435,7 +435,7 @@ async def test_the_tutor_can_review_and_finalize_a_mock_submission(
         # — reading it off the missing arm crashed the finalize outright.
         recomputes = [
             j.payload
-            for j in (await session.scalars(select(Job).where(Job.type == "recompute_readiness")))
+            for j in (await session.scalars(select(Job).where(Job.type == "compute_readiness_v2")))
         ]
         assert recomputes and all(p["subject_id"] == subject["id"] for p in recomputes)
 

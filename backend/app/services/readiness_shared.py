@@ -1,8 +1,6 @@
-"""Readiness helpers with no dependency on the v1 engine — trend direction,
-the score-window maths behind "this month", and the v2 history queries that
-feed them. readiness_summary.py (v1) and readiness_summary_v2.py (v2) both
-import from here, which is what lets 5.3b delete v1 without taking these
-helpers with it.
+"""Readiness helpers shared across surfaces — trend direction, the
+score-window maths behind "this month", and the v2 history queries that feed
+them.
 """
 
 from collections import defaultdict
@@ -22,7 +20,6 @@ WEAK_THRESHOLD = 60.0
 # the two things that ask the question must agree: whether a topic is weak
 # enough to surface, and whether a student counts as covered by their class's
 # readiness picture (services/groups.py imports this for the latter).
-# Built on FactorConfidence: the v2 row's confidence; the v1 enum dies in 5.3b.
 CONFIDENT = frozenset({FactorConfidence.medium, FactorConfidence.high})
 
 # A net change of this many points (or less) across the trend counts as no

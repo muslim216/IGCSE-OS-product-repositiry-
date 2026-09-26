@@ -1,6 +1,6 @@
 """Tutor control over how the Readiness Engine weighs its six factors.
 
-Supersedes the v1 per-evidence-source sliders (api/preferences.py). Weights are
+This replaced the v1 per-evidence-source sliders (deleted in 5.3b). Weights are
 per organization, and saving them recomputes every student the tutor teaches —
 otherwise the sliders would appear to do nothing until the next piece of
 evidence arrived.

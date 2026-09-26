@@ -9,10 +9,8 @@ from app.models import (
     Group,
     GroupMember,
     ParentLink,
-    ReadinessHistory,
     Subject,
     Topic,
-    TopicReadiness,
     User,
     UserRole,
 )
@@ -115,16 +113,6 @@ async def topic_evidence(
         if row is not None and row.score is not None and row.confidence != FactorConfidence.no_data:
             score, confidence = row.score, row.confidence.value
             tutor_estimate = "tutor_estimate" in (row.detail or {})
-    else:
-        # Until 5.3b: the summary serves v1 for a subject v2 has not answered,
-        # so the drill-down header must read the same engine as the bar.
-        legacy = await db.scalar(
-            select(TopicReadiness).where(
-                TopicReadiness.student_id == student_id, TopicReadiness.topic_id == topic_id
-            )
-        )
-        if legacy is not None:
-            score, confidence = legacy.score, legacy.confidence.value
 
     evidence_rows = (
         await db.scalars(
@@ -155,9 +143,8 @@ async def topic_evidence(
 
 @router.get("/students/{student_id}/trend", response_model=list[SubjectTrend])
 async def student_trend(student_id: int, db: DbSession, user: CurrentUser) -> list[SubjectTrend]:
-    """Score over time. Reads v2 snapshots, falling back to v1's history for a
-    subject that has no scored snapshot yet — same cutover rule as the summary,
-    so a student never loses their trend line mid-migration."""
+    """Score over time, from scored v2 snapshots. A subject with none is
+    omitted rather than drawn as an empty line."""
     subject_ids = await visible_subject_ids(db, user, student_id)
     out: list[SubjectTrend] = []
     for subject_id in subject_ids or []:
@@ -166,21 +153,6 @@ async def student_trend(student_id: int, db: DbSession, user: CurrentUser) -> li
             TrendPoint(recorded_at=at, score=s)
             for at, s in await v2_score_points(db, student_id, subject_id)
         ]
-        if not points:
-            # Until 5.3b, paired with the summary fallback: a subject the
-            # summary serves from v1 must show the same trend line, not a
-            # blank one just because v2 has no scored snapshot yet.
-            legacy = (
-                await db.scalars(
-                    select(ReadinessHistory)
-                    .where(
-                        ReadinessHistory.student_id == student_id,
-                        ReadinessHistory.subject_id == subject_id,
-                    )
-                    .order_by(ReadinessHistory.recorded_at)
-                )
-            ).all()
-            points = [TrendPoint(recorded_at=p.recorded_at, score=p.score) for p in legacy]
         if not points:
             continue
         out.append(SubjectTrend(subject_id=subject_id, subject_name=subject.name, points=points))

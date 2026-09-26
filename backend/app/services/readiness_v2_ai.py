@@ -11,11 +11,10 @@ deterministic Layer 1 rows are still committed and a snapshot is still
 written with status="failed" — the evaluation as a whole never silently
 disappears, only the AI's contribution to it.
 
-enqueue_v2_shadow() is how callers dual-run v2 alongside v1: it only
-enqueues compute_readiness_v2 when settings.readiness_v2_shadow_enabled is
-on, so v2 accumulates snapshots in the background for comparison without
-affecting what any existing endpoint serves (see api/readiness_v2.py for the
-read-only endpoints that expose them)."""
+enqueue_readiness_v2_debounced() is the one way a run is queued
+(enqueue_v2_shadow() is an older alias for it). It only enqueues
+compute_readiness_v2 when settings.readiness_v2_shadow_enabled is on — the
+kill switch, named from when v2 ran in the shadow of v1."""
 
 import logging
 import uuid

@@ -33,7 +33,6 @@ function subject(
     homework_submitted_count,
     topics: [],
     weak_topics: [],
-    engine: "v2",
     is_updating: false,
     computed_at: null,
     rationale: null,

@@ -201,8 +201,9 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
     """
     overrides = await org_boundaries(db, user.organization_id)
     boundaries = boundaries_for(overrides, group.subject)
-    summary = (await group_summaries(db, [group.id]))[group.id]
-    detail = await class_readiness(db, group.id)
+    snapshots = await latest_learner_snapshots(db, [group.id])
+    summary = (await group_summaries(db, [group.id], snapshots_by_group=snapshots))[group.id]
+    detail = await class_readiness(db, group.id, learners=snapshots[group.id])
     # Every scored learner's series in one query, not one per learner (PERF-1).
     # Unscored learners are never looked up here — their `series.get(...)`
     # below returns [] and trend_direction([]) is None, which is exactly what

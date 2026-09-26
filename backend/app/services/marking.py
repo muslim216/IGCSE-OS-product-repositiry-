@@ -604,11 +604,6 @@ async def record_marks_as_evidence(
     # rolled up against somebody's past paper (`PROD-1`).
     if kind_of(submission) is PAST_PAPER:
         await _upsert_attempt_rollup(session, submission)
-    await enqueue(
-        session,
-        "recompute_readiness",
-        {"student_id": submission.student_id, "subject_id": subject_id},
-    )
     await enqueue_readiness_v2_debounced(session, submission.student_id, subject_id)
     # Mistake tagging is queued from here rather than a router because marks
     # settling is the event that makes tagging possible, and it happens on two

@@ -1,5 +1,6 @@
-"""WS5: Readiness v2 is what the live readiness API serves — with a v1
-fallback, an honest "updating" state, and tutor-editable factor weights."""
+"""WS5: Readiness v2 is what the live readiness API serves — with an honest
+"updating" state and tutor-editable factor weights. Since 5.3b there is no v1
+engine behind it."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -16,13 +17,11 @@ from app.models import (
     GroupMember,
     Job,
     JobStatus,
-    ReadinessConfidence,
     ReadinessFactor,
     ReadinessSnapshot,
     ReadinessWeights,
     Submission,
     SubmissionStatus,
-    TopicReadiness,
     User,
     WorkKind,
 )
@@ -97,7 +96,6 @@ async def test_readiness_is_served_from_the_v2_snapshot(client, tutor, world):  
     )
     assert resp.status_code == 200
     subject = resp.json()["subjects"][0]
-    assert subject["engine"] == "v2"
     assert subject["score"] == 72.0
     assert subject["predicted_grade"] == "6"
     assert subject["rationale"].startswith("Homework performance")
@@ -118,19 +116,15 @@ async def test_the_newest_ready_snapshot_wins(client, tutor, world):  # noqa: F8
     assert resp.json()["subjects"][0]["score"] == 80.0
 
 
-async def test_a_subject_with_no_snapshot_and_no_v1_data_is_present_not_dropped(
-    client,
-    tutor,
-    world,  # noqa: F811
-):
-    """The branch 5.3b relies on: no v2 run and nothing in v1 either. The
-    subject still appears, as "not enough data yet", from v2 — never omitted
-    and never a 0 (PROD-2)."""
+async def test_a_subject_with_no_snapshot_is_present_not_dropped(client, tutor, world):  # noqa: F811
+    """No v2 run yet, and no other engine to fall back to since 5.3b. The
+    subject still appears, as "not enough data yet" — never omitted and never
+    a 0 (PROD-2)."""
     resp = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
     )
     subject = resp.json()["subjects"][0]
-    assert subject["engine"] == "v2"
+    assert "engine" not in subject  # one engine; the v1/v2 label went with v1
     assert subject["score"] is None
     assert subject["predicted_grade"] is None and subject["direction"] is None
     assert subject["topics"] == [] and subject["topics_with_evidence"] == 0
@@ -147,28 +141,6 @@ async def test_a_failed_synthesis_is_not_served_as_a_score(client, tutor, world)
     ).json()["subjects"][0]
     assert subject["score"] is None
     assert subject["rationale"] is None  # the failed run's text is never surfaced
-
-
-async def test_v1_still_answers_when_it_has_a_score_and_v2_has_none(client, tutor, world):  # noqa: F811
-    """Rollback-safe cutover until 5.3b: v1 still writes, so its number is real."""
-    async with async_session() as session:
-        session.add(
-            TopicReadiness(
-                student_id=world["student_id"],
-                topic_id=world["topic1"],
-                score=70.0,
-                confidence=ReadinessConfidence.high,
-                evidence_count=3,
-            )
-        )
-        await session.commit()
-    subject = (
-        await client.get(
-            f"/api/v1/readiness/students/{world['student_id']}", headers=tutor["headers"]
-        )
-    ).json()["subjects"][0]
-    assert subject["engine"] == "v1"
-    assert subject["score"] == 70.0
 
 
 async def test_topic_drill_down_reads_the_v2_run(client, tutor, world):  # noqa: F811
@@ -591,7 +563,6 @@ async def test_a_student_sees_their_own_v2_readiness(client, tutor, world):  # n
     resp = await client.get("/api/v1/readiness/me", headers=world["student_headers"])
     assert resp.status_code == 200
     subject = resp.json()["subjects"][0]
-    assert subject["engine"] == "v2"
     assert subject["score"] == 72.0
 
 

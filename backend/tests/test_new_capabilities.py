@@ -1,4 +1,4 @@
-"""Tests for group resources, tutor preferences, student exams, today-lessons,
+"""Tests for group resources, student exams, today-lessons,
 class briefs, and the homework attention list."""
 
 import pytest
@@ -133,67 +133,13 @@ async def test_unrelated_student_cannot_see_resources(client, tutor, world):
     assert resp.status_code == 404
 
 
-# ---- Tutor preferences ----
+# ---- Tutor preferences (v1, deleted in 5.3b) ----
 
 
-async def test_default_preferences(client, tutor):
+async def test_v1_preferences_route_is_gone(client, tutor):
+    """The v2 weights live at /readiness/weights; the v1 sliders went with v1."""
     resp = await client.get("/api/v1/me/preferences", headers=tutor["headers"])
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["weight_mock"] == 1.5
-    assert body["half_life_days"] == 45.0
-
-
-async def test_updating_preferences_changes_readiness(client, tutor, world):
-    await client.post(
-        "/api/v1/assessments",
-        json={
-            "subject_id": world["subject_id"],
-            "title": "Mock",
-            "type": "mock",
-            "date": "2026-06-15",
-            "scores": [
-                {
-                    "student_id": world["student_id"],
-                    "topic_id": world["topic_id"],
-                    "marks": 18,
-                    "max_marks": 20,
-                }
-            ],
-        },
-        headers=tutor["headers"],
-    )
-    await process_one_job()
-
-    baseline = await client.get("/api/v1/readiness/me", headers=world["student_headers"])
-    baseline_score = baseline.json()["subjects"][0]["score"]
-    assert baseline_score == 90.0  # single mock, full weight either way
-
-    update = await client.put(
-        "/api/v1/me/preferences",
-        json={
-            "weight_mock": 3.0,
-            "weight_homework": 1.0,
-            "weight_quiz": 0.8,
-            "weight_observation": 0.5,
-            "half_life_days": 10.0,
-        },
-        headers=tutor["headers"],
-    )
-    assert update.status_code == 200
-    # Preference save enqueues a recompute for every affected student.
-    assert await process_one_job() is True
-
-    after = await client.get("/api/v1/readiness/me", headers=world["student_headers"])
-    # A single-source topic score is weight-invariant, but half-life should
-    # not change a same-day score either — this proves the save round-trips
-    # and recompute re-ran without breaking anything.
-    assert after.json()["subjects"][0]["score"] == 90.0
-
-
-async def test_only_tutor_can_set_preferences(client, world):
-    resp = await client.get("/api/v1/me/preferences", headers=world["student_headers"])
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 # ---- Student exams ----

@@ -1,6 +1,10 @@
 """Lessons core entity: dated lesson events, topics covered, per-student
 observations, and the assignments.lesson_id link."""
 
+from sqlalchemy import select
+
+from app.db import async_session
+from app.models import Job
 from app.workers.jobs import process_one_job
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -85,7 +89,15 @@ async def test_lesson_observation_feeds_readiness(client, tutor, world):
     )
     assert obs.status_code == 201, obs.text
 
-    assert await process_one_job() is True  # recompute_readiness
+    async with async_session() as session:
+        jobs = [(j.type, j.payload) for j in (await session.scalars(select(Job))).all()]
+    # The rated observation queues one v2 run, and no v1 job.
+    assert jobs == [
+        (
+            "compute_readiness_v2",
+            {"student_id": world["student_id"], "subject_id": world["subject_id"]},
+        )
+    ]
 
     ev = await client.get(
         f"/api/v1/readiness/students/{world['student_id']}/topics/{world['topic1']}/evidence",

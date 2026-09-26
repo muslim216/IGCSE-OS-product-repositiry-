@@ -1,5 +1,5 @@
-"""Readiness Engine v2 Phase 4: shadow-run dual-enqueue behind the
-readiness_v2_shadow_enabled flag, and the read-only /readiness/v2 endpoints."""
+"""Readiness Engine v2: the enqueue behind the readiness_v2_shadow_enabled
+kill switch, and the read-only /readiness/v2 endpoints."""
 
 from sqlalchemy import select
 
@@ -10,9 +10,9 @@ from app.workers.jobs import process_one_job
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
-async def test_v2_switched_off_enqueues_only_v1(client, tutor, world, monkeypatch):
+async def test_v2_switched_off_enqueues_nothing(client, tutor, world, monkeypatch):
     """READINESS_V2_SHADOW_ENABLED=false is the kill switch — v2 stops being
-    computed and the app runs on v1 alone."""
+    computed, and since 5.3b there is no v1 behind it: nothing is queued."""
     monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", False)
     resp = await client.post(
         "/api/v1/observations",
@@ -25,12 +25,11 @@ async def test_v2_switched_off_enqueues_only_v1(client, tutor, world, monkeypatc
         headers=tutor["headers"],
     )
     assert resp.status_code == 201
-    # Exactly one job (v1's recompute_readiness) — nothing else queued.
-    assert await process_one_job() is True
-    assert await process_one_job() is False
+    async with async_session() as session:
+        assert (await session.scalars(select(Job))).all() == []
 
 
-async def test_v2_enqueues_alongside_v1_and_creates_a_snapshot(client, tutor, world, monkeypatch):
+async def test_v2_enqueues_and_creates_a_snapshot(client, tutor, world, monkeypatch):
     assert get_settings().readiness_v2_shadow_enabled is True, "v2 is on by default"
 
     resp = await client.post(
@@ -45,10 +44,9 @@ async def test_v2_enqueues_alongside_v1_and_creates_a_snapshot(client, tutor, wo
     )
     assert resp.status_code == 201
 
-    # v1's recompute_readiness runs immediately; v2's compute_readiness_v2 is
-    # queued but debounced (see enqueue_readiness_v2_debounced), so it is not
-    # yet due and the worker finds nothing else to claim.
-    assert await process_one_job() is True
+    # compute_readiness_v2 is queued but debounced (see
+    # enqueue_readiness_v2_debounced), so it is not yet due and the worker
+    # finds nothing to claim.
     assert await process_one_job() is False
 
     async with async_session() as session:

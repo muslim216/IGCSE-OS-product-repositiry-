@@ -162,9 +162,18 @@ async def class_health(
     return class_scores(await latest_learner_snapshots(session, group_ids))
 
 
-async def class_readiness(session: AsyncSession, group_id: int) -> ClassReadiness:
-    """The class page / Group Analytics detail: three queries, whatever the roster."""
-    learners = (await latest_learner_snapshots(session, [group_id]))[group_id]
+async def class_readiness(
+    session: AsyncSession,
+    group_id: int,
+    learners: dict[int, LearnerSnapshot] | None = None,
+) -> ClassReadiness:
+    """The class page / Group Analytics detail: three queries, whatever the roster.
+
+    `learners` is this group's entry from an already-run latest_learner_snapshots()
+    — the class page needs it for groups.summaries() too, and the window query
+    should run once per request, not once per consumer."""
+    if learners is None:
+        learners = (await latest_learner_snapshots(session, [group_id]))[group_id]
     score, _ = _mean(learners)
     scored = sorted(
         (s for s in learners.values() if s.score is not None), key=lambda s: s.score or 0.0

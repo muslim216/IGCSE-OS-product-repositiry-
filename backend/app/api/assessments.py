@@ -25,7 +25,6 @@ from app.schemas.readiness import (
     SeedReadinessIn,
 )
 from app.services.readiness_v2_ai import enqueue_v2_shadow
-from app.workers.jobs import enqueue
 
 router = APIRouter(tags=["assessments"])
 
@@ -122,9 +121,6 @@ async def create_assessment(
         affected_students.add(s.student_id)
 
     for student_id in affected_students:
-        await enqueue(
-            db, "recompute_readiness", {"student_id": student_id, "subject_id": subject.id}
-        )
         await enqueue_v2_shadow(db, student_id, subject.id)
     await db.commit()
     return AssessmentOut(
@@ -240,11 +236,6 @@ async def create_observation(
                 label="Tutor observation",
             )
         )
-        await enqueue(
-            db,
-            "recompute_readiness",
-            {"student_id": body.student_id, "subject_id": subject_id_for_recompute},
-        )
         await enqueue_v2_shadow(db, body.student_id, subject_id_for_recompute)
     await db.commit()
     return ObservationOut(
@@ -353,9 +344,6 @@ async def seed_readiness(
         row.label = "Tutor's starting estimate (self-declared)"
 
     for subject_id in {topics[topic_id].subject_id for topic_id in topic_ids}:
-        await enqueue(
-            db, "recompute_readiness", {"student_id": student_id, "subject_id": subject_id}
-        )
         await enqueue_v2_shadow(db, student_id, subject_id)
     await db.commit()
     return {"seeded": len(topic_ids)}

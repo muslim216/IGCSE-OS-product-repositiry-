@@ -29,7 +29,6 @@ from app.services.narrative import (
     generate_narrative,
     sweep_parent_narratives,
 )
-from app.services.readiness import recompute_student
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
 from app.services.syllabus_extraction import extract_syllabus
@@ -63,10 +62,8 @@ def register_all() -> None:
     # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,
     # because it does nothing when a summary is already present.
     register_handler(SUMMARISE_JOB, summarise_marking_rules)
-    register_handler("recompute_readiness", recompute_student)
     # Readiness v2 is what the readiness UI/API serve
-    # (services/readiness_summary_v2.py), falling back to v1 for any
-    # (student, subject) with no snapshot yet. Runs are enqueued debounced per
+    # (services/readiness_summary_v2.py). Runs are enqueued debounced per
     # (student, subject) so a burst of auto-finalized submissions costs one
     # synthesis, not one each.
     register_handler("compute_readiness_v2", compute_readiness_v2)

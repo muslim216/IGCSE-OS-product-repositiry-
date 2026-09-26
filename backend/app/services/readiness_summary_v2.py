@@ -6,15 +6,10 @@ that run's topic_mastery FactorEvaluation rows supply the per-topic bars.
 
 Two deliberate behaviours:
 
-- **Fallback to v1, narrowed.** A subject with no ready snapshot yet (v2 never
-  ran, or every run's AI synthesis failed) is shown with the no-snapshot shape
-  below — never omitted, never a fabricated 0 (PROD-2). v1's
-  services/readiness_summary.build_summary is consulted for that subject, but
-  its answer is only used when v1 actually has a score: v1's tables are still
-  maintained, so where it has a real number that number is served and
-  labelled engine="v1" rather than the emptier no-snapshot shape. Where v1
-  has nothing either, the no-snapshot shape stands. Phase 5.3b deletes this
-  fallback once the post-deploy backfill (runbook R9) has run.
+- **No snapshot is shown, never omitted.** A subject with no ready snapshot
+  yet (v2 never ran, or every run's AI synthesis failed) gets the no-snapshot
+  shape below — never a fabricated 0 (PROD-2). There is no other engine to
+  fall back to since 5.3b deleted v1.
 - **"Updating" is derived from the job queue, not the snapshot.** A
   ReadinessSnapshot row only exists once a run has finished, so there is no
   in-progress row to read. Instead a pending or running compute_readiness_v2
@@ -51,7 +46,6 @@ from app.services.readiness_shared import (
     trend_direction,
     v2_score_points,
 )
-from app.services.readiness_summary import build_summary
 from app.services.readiness_v2_ai import in_flight_readiness_pairs, resolve_grade_boundaries
 
 # Job types whose presence means "a new score is on its way".
@@ -270,15 +264,12 @@ async def build_summary_v2(
     db: AsyncSession, student: User, subject_ids: list[int]
 ) -> StudentReadinessSummary:
     # A duplicated id would otherwise produce two SubjectReadiness entries for
-    # the same subject; `position` below assumes one entry per id, and a
-    # second entry for the same subject would silently survive the v1
-    # fallback's overwrite. De-duplicated here, order preserved, so the same
-    # list drives both the loop and the final sort.
+    # the same subject. De-duplicated here, order preserved, so the same list
+    # drives both the loop and the final sort.
     subject_ids = list(dict.fromkeys(subject_ids))
     everything_updating, updating = await in_flight_subjects(db, student.id)
 
     subjects_out: list[SubjectReadiness] = []
-    without_snapshot: list[int] = []
     for subject_id in subject_ids:
         subject = await db.get(Subject, subject_id)
         if subject is None:
@@ -286,29 +277,11 @@ async def build_summary_v2(
         snapshot = await latest_ready_snapshot(db, student.id, subject_id)
         if snapshot is None:
             out = await _subject_without_snapshot(db, student, subject)
-            without_snapshot.append(subject_id)
         else:
             out = await _subject_from_snapshot(db, student, subject, snapshot)
             out.computed_at = snapshot.created_at
         out.is_updating = everything_updating or subject_id in updating
         subjects_out.append(out)
-
-    if without_snapshot:
-        # Until 5.3b: v1 still writes, so where it has a real score for a
-        # subject v2 has not answered yet, that number is served and labelled
-        # engine="v1". Where v1 has nothing either, the v2 no-snapshot shape
-        # above stands — which is exactly what every subject gets once 5.3b
-        # deletes these lines.
-        position = {s.subject_id: i for i, s in enumerate(subjects_out)}
-        legacy = await build_summary(db, student, without_snapshot)
-        for legacy_subject in legacy.subjects:
-            if legacy_subject.score is None:
-                continue
-            legacy_subject.engine = "v1"
-            legacy_subject.is_updating = subjects_out[
-                position[legacy_subject.subject_id]
-            ].is_updating
-            subjects_out[position[legacy_subject.subject_id]] = legacy_subject
 
     subjects_out.sort(key=lambda s: subject_ids.index(s.subject_id))
     return StudentReadinessSummary(

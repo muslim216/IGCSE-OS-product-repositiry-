@@ -2,7 +2,7 @@
 subject's boundary list — never a percentage threshold (UX-28) — and is absent
 when there is no grade, no boundaries, or the grade is unknown (PROD-2)."""
 
-from app.services.grades import grade_band
+from app.services.grades import grade_band, predict_grade
 
 # A full 9-1 IGCSE scale, highest grade first — the shape stored on Subject.
 NINE_TO_ONE = [
@@ -82,3 +82,35 @@ def test_grade_absent_from_list_returns_none():
 def test_no_grade_returns_none():
     # A subject with no confident evidence has predicted_grade None.
     assert grade_band(None, NINE_TO_ONE) is None
+
+
+# predict_grade maps a score through tutor-entered boundaries (PROD-6). Moved
+# here from test_readiness_engine.py when 5.3b deleted the v1 engine it sat beside.
+
+
+def test_predict_grade_9_1():
+    boundaries = [
+        {"grade": "9", "min": 90},
+        {"grade": "7", "min": 70},
+        {"grade": "4", "min": 40},
+        {"grade": "U", "min": 0},
+    ]
+    assert predict_grade(95, boundaries) == "9"
+    assert predict_grade(72, boundaries) == "7"
+    assert predict_grade(40, boundaries) == "4"
+    assert predict_grade(10, boundaries) == "U"
+
+
+def test_predict_grade_o_level():
+    boundaries = [
+        {"grade": "A*", "min": 90},
+        {"grade": "A", "min": 80},
+        {"grade": "C", "min": 60},
+        {"grade": "U", "min": 0},
+    ]
+    assert predict_grade(85, boundaries) == "A"
+    assert predict_grade(60, boundaries) == "C"
+
+
+def test_predict_grade_empty_boundaries():
+    assert predict_grade(50, []) == "—"

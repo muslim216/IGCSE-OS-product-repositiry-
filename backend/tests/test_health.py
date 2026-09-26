@@ -108,7 +108,7 @@ async def test_readiness_reports_the_database_and_the_queue(client):
 
 async def test_readiness_counts_queued_work_and_its_age(client):
     async with async_session() as session:
-        await enqueue(session, "recompute_readiness", {"student_id": 1})
+        await enqueue(session, "compute_readiness_v2", {"student_id": 1})
         await session.commit()
 
     body = (await client.get("/api/v1/health/ready")).json()

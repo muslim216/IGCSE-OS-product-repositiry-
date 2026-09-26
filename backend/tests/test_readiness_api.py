@@ -8,10 +8,12 @@ from app.models import (
     Evidence,
     EvidenceSource,
     FactorConfidence,
+    Job,
     Subject,
     Topic,
 )
 from app.services.grade_boundaries import set_org_boundaries
+from app.services.readiness_v2_ai import ReadinessSynthesis, compute_readiness_v2
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import subject_defaults, write_v2_snapshot
@@ -75,7 +77,7 @@ async def world(client, tutor):
     }
 
 
-async def test_mock_entry_produces_readiness_and_grade(client, tutor, world):
+async def test_mock_entry_produces_evidence_and_queues_a_v2_run(client, tutor, world):
     resp = await client.post(
         "/api/v1/assessments",
         json={
@@ -102,24 +104,29 @@ async def test_mock_entry_produces_readiness_and_grade(client, tutor, world):
     )
     assert resp.status_code == 201, resp.text
 
-    assert await process_one_job() is True  # recompute_readiness
+    async with async_session() as session:
+        ev = (
+            await session.scalars(
+                select(Evidence)
+                .where(Evidence.student_id == world["student_id"])
+                .order_by(Evidence.topic_id)
+            )
+        ).all()
+        assert [(e.source_type, e.score_pct) for e in ev] == [
+            (EvidenceSource.mock, 90.0),
+            (EvidenceSource.mock, 40.0),
+        ]
+        jobs = (await session.scalars(select(Job))).all()
+    # One v2 run for the (student, subject) — and no v1 job, whose handler is gone.
+    assert [(j.type, j.payload) for j in jobs] == [
+        (
+            "compute_readiness_v2",
+            {"student_id": world["student_id"], "subject_id": world["subject_id"]},
+        )
+    ]
 
-    summary = await client.get("/api/v1/readiness/me", headers=world["student_headers"])
-    assert summary.status_code == 200
-    body = summary.json()
-    subject = body["subjects"][0]
-    # topic1 = 90%, topic2 = 40%, weighted (1*90 + 2*40)/3 = 56.7
-    assert subject["score"] == pytest.approx(56.7, abs=0.2)
-    assert subject["predicted_grade"] == "4"  # 56.7 -> grade 4
-    # Band is positional: this subject's boundary list is [9, 7, 4, U], so "4"
-    # sits at index 2 — inside the top band — regardless of the 56.7 percentage.
-    assert subject["status"] == "on_track"
-    # Weak topics need medium+ confidence; a single mock is low confidence,
-    # so nothing is surfaced as weak yet.
-    assert subject["weak_topics"] == []
 
-
-async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypatch):
+async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypatch, fake_ai):
     from app.models import AssignmentQuestion, QuestionTopic
     from tests.test_homework import fake_marking  # noqa: F401 - shared fixtures
 
@@ -197,7 +204,30 @@ async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypat
         assert ev[0].source_type == EvidenceSource.homework
         assert ev[0].score_pct == 80.0
 
-    await process_one_job()  # recompute
+    async with async_session() as session:
+        jobs = [
+            (j.type, j.payload)
+            for j in (await session.scalars(select(Job).where(Job.type.like("%readiness%")))).all()
+        ]
+    # Finalize queued one v2 run, and no v1 job.
+    assert jobs == [
+        (
+            "compute_readiness_v2",
+            {"student_id": world["student_id"], "subject_id": world["subject_id"]},
+        )
+    ]
+
+    # That run, synthesised by a stand-in model (QA-8).
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete",
+        fake_ai(
+            ReadinessSynthesis(score=80.0, weak_topics=[], rationale="r", recommended_revision="r")
+        ),
+    )
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
     summary = await client.get("/api/v1/readiness/me", headers=world["student_headers"])
     subject = summary.json()["subjects"][0]
     topic1 = next(t for t in subject["topics"] if t["topic_id"] == world["topic1"])

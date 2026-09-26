@@ -43,7 +43,6 @@ async def test_demo_seed_writes_ready_v2_snapshots_without_ai(monkeypatch):
         main_student = next(s for s in students if s.email == "demo-student@example.com")
         summary = await build_summary_v2(session, main_student, [chemistry.id])
         [entry] = summary.subjects
-        assert entry.engine == "v2"
         assert entry.score is not None
 
         assert await session.scalar(select(func.count()).select_from(AiUsageEvent)) == 0

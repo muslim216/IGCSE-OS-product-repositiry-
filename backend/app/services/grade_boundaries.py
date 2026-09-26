@@ -112,7 +112,7 @@ def _as_bands(rows) -> list[dict]:
 async def org_boundaries(session: AsyncSession, organization_id: int) -> dict[int, list[dict]]:
     """Every boundary this organization has set, keyed by subject, in one query.
 
-    The aggregate surfaces (today, the v1 summary, reports) walk several subjects
+    The aggregate surfaces (today, the /readiness/v2 view) walk several subjects
     at once; calling `resolve_grade_boundaries` per subject would reintroduce the
     per-row round trip those aggregates exist to remove.
     """
