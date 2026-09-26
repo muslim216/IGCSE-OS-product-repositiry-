@@ -1009,4 +1009,5 @@ async def test_historical_observation_evidence_is_not_practice(client, tutor, wo
         coverage = await _topic_coverage(
             session, world["student_id"], world["subject_id"], {}, topics
         )
-    assert [c.practiced for c in coverage] == [False, True]
+    practiced = {t.id: c.practiced for t, c in zip(topics, coverage, strict=True)}
+    assert practiced == {world["topic1"]: False, world["topic2"]: True}

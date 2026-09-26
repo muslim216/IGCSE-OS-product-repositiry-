@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
   createObservation,
+  listObservations,
   seedStudentReadiness,
   studentReadiness,
   topicEvidence,
+  type Observation,
 } from "../api/readiness";
 import { listTopics } from "../api/syllabus";
 import { studentMistakes, type MistakeTally } from "../api/students";
@@ -42,6 +44,10 @@ export default function StudentDetailPage() {
     enabled: subjectId !== undefined,
   });
 
+  const observations = useQuery({
+    queryKey: ["observations", sid],
+    queryFn: () => listObservations(sid),
+  });
   const [obs, setObs] = useState({ topic_id: "", comment: "", rating: "" });
   const addObservation = useMutation({
     mutationFn: () =>
@@ -53,7 +59,8 @@ export default function StudentDetailPage() {
       }),
     onSuccess: () => {
       setObs({ topic_id: "", comment: "", rating: "" });
-      queryClient.invalidateQueries({ queryKey: ["student-readiness", sid] });
+      // An observation changes the profile's list, never readiness (PROD-15).
+      queryClient.invalidateQueries({ queryKey: ["observations", sid] });
     },
   });
 
@@ -278,8 +285,69 @@ export default function StudentDetailPage() {
             <p className="text-sm text-red-600">Could not save the observation.</p>
           )}
         </form>
+        <ObservationList
+          observations={observations}
+          topicName={(id) => {
+            const t = topics.data?.find((x) => x.id === id);
+            return t ? `${t.code} ${t.title}` : null;
+          }}
+        />
       </div>
     </div>
+  );
+}
+
+/* Saved observations. This list is the only place an observation is shown:
+   since PROD-15 it is a profile note and never appears as readiness evidence,
+   so without it a tutor's note would be written and never seen again. A
+   failed load gets its own line, never the empty-state wording (UX-19). */
+function ObservationList({
+  observations,
+  topicName,
+}: {
+  observations: UseQueryResult<Observation[]>;
+  topicName: (topicId: number) => string | null;
+}) {
+  return (
+    <section aria-labelledby="saved-observations" className="mt-4 border-t border-line pt-3">
+      <h4 id="saved-observations" className="text-sm font-medium text-ink-700">
+        Saved observations
+      </h4>
+      <ObservationRows observations={observations} topicName={topicName} />
+    </section>
+  );
+}
+
+function ObservationRows({
+  observations,
+  topicName,
+}: {
+  observations: UseQueryResult<Observation[]>;
+  topicName: (topicId: number) => string | null;
+}) {
+  if (observations.isLoading) return <p className="mt-2 text-sm text-ink-500">Loading…</p>;
+  if (observations.isError)
+    return <p className="mt-2 text-sm text-risk-600">Could not load observations.</p>;
+  const rows = observations.data ?? [];
+  if (rows.length === 0) return <p className="mt-2 text-sm text-ink-500">No observations yet.</p>;
+  return (
+    <ul className="mt-2 divide-y divide-line">
+      {rows.map((o) => (
+        <li key={o.id} className="py-2 text-sm">
+          <p className="text-ink-500">
+            {new Date(o.created_at).toLocaleDateString()}
+            {" · "}
+            {o.topic_id === null
+              ? "General"
+              : // Topics load for the subject in view; a note on another
+                // subject's topic still names which one, never a bare "Topic".
+                (topicName(o.topic_id) ?? `Topic #${o.topic_id}`)}
+            {o.rating !== null && ` · Rating ${o.rating}/100`}
+          </p>
+          <p className="mt-0.5 whitespace-pre-line text-ink-900">{o.comment}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 

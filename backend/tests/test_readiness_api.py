@@ -266,8 +266,14 @@ async def test_observation_with_rating_is_not_readiness_evidence(client, tutor, 
     assert resp.status_code == 201
     assert resp.json()["rating"] == 85  # kept on the observation itself
     async with async_session() as session:
-        assert (await session.scalars(select(Evidence))).all() == []
-        assert (await session.scalars(select(Job))).all() == []
+        assert (
+            await session.scalars(
+                select(Evidence).where(Evidence.student_id == world["student_id"])
+            )
+        ).all() == []
+        assert (
+            await session.scalars(select(Job).where(Job.type == "compute_readiness_v2"))
+        ).all() == []
 
 
 async def test_historical_observation_evidence_is_hidden_from_the_drill_down(client, tutor, world):

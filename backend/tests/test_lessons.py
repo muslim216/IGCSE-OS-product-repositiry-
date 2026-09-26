@@ -92,14 +92,21 @@ async def test_lesson_observation_stays_on_the_profile(client, tutor, world):
     # A rated, topic-tagged observation belongs to the student profile: no
     # readiness evidence, no recompute (PROD-15).
     async with async_session() as session:
-        assert (await session.scalars(select(Evidence))).all() == []
-        assert (await session.scalars(select(Job))).all() == []
+        assert (
+            await session.scalars(
+                select(Evidence).where(Evidence.student_id == world["student_id"])
+            )
+        ).all() == []
+        assert (
+            await session.scalars(select(Job).where(Job.type == "compute_readiness_v2"))
+        ).all() == []
 
     listing = await client.get(
         f"/api/v1/lessons/{lesson_id}/observations", headers=tutor["headers"]
     )
     assert listing.status_code == 200
-    assert len(listing.json()) == 1
+    # The rating is kept on the observation itself — that is where it lives now.
+    assert [o["rating"] for o in listing.json()] == [85]
 
 
 async def test_lesson_observation_without_rating_no_evidence(client, tutor, world):

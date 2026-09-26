@@ -74,3 +74,17 @@ async def test_an_observation_only_pair_is_not_backfilled(client, tutor):
         )
         await session.commit()
         assert await pairs_with_evidence(session) == []
+
+        # Positive control: readiness-bearing evidence on the same topic makes the
+        # pair appear, so the empty list above is the filter, not a broken query.
+        session.add(
+            Evidence(
+                student_id=tutor["user"]["id"],
+                topic_id=topic.id,
+                source_type=EvidenceSource.quiz,
+                score_pct=70.0,
+                max_marks=0,
+            )
+        )
+        await session.commit()
+        assert await pairs_with_evidence(session) == [(tutor["user"]["id"], subject.id)]

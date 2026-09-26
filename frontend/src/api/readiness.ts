@@ -212,9 +212,16 @@ export const seedStudentReadiness = (
     body: JSON.stringify({ topics }),
   });
 
+/** A tutor's note on a student. It belongs to the profile and never feeds
+    readiness (PROD-15). */
+export type Observation = components["schemas"]["ObservationOut"];
+
 export const createObservation = (payload: {
   student_id: number;
   topic_id: number | null;
   comment: string;
   rating: number | null;
-}) => api<unknown>("/api/v1/observations", { method: "POST", body: JSON.stringify(payload) });
+}) => api<Observation>("/api/v1/observations", { method: "POST", body: JSON.stringify(payload) });
+
+export const listObservations = (studentId: number) =>
+  api<Observation[]>(`/api/v1/students/${studentId}/observations`);
