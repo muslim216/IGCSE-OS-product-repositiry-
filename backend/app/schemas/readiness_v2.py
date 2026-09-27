@@ -13,6 +13,19 @@ class FactorEvaluationOut(BaseModel):
     detail: dict
 
 
+class ChapterReadinessOut(BaseModel):
+    """A chapter's Topic Mastery rolled up from its topics in the same run
+    (task 5.2, AV-9): a mean weighted by evidence count, `score` null when no
+    topic beneath has any (`PROD-2`). API only for now (decision 7)."""
+
+    chapter_id: int
+    title: str
+    score: float | None
+    confidence: str
+    evidence_count: int
+    detail: dict
+
+
 class WeakTopicOut(BaseModel):
     topic_id: int
     topic_title: str | None
@@ -31,6 +44,8 @@ class ReadinessSnapshotOut(BaseModel):
     error: str | None
     created_at: datetime
     factors: list[FactorEvaluationOut]
+    #: In teaching order. Empty for a run from before task 5.2.
+    chapters: list[ChapterReadinessOut]
 
 
 class StudentReadinessV2Summary(BaseModel):

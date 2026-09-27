@@ -23,6 +23,7 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    Chapter,
     Evidence,
     EvidenceSource,
     FactorEvaluation,
@@ -51,6 +52,7 @@ from app.services.readiness_factors import (
     TopicCoverage,
     TutorEstimate,
     assessment_performance,
+    chapter_mastery,
     homework_performance,
     mistake_analysis,
     past_paper_performance,
@@ -70,12 +72,14 @@ def _factor_row(
     factor: ReadinessFactor,
     result: FactorResult,
     topic_id: int | None = None,
+    chapter_id: int | None = None,
 ) -> FactorEvaluation:
     return FactorEvaluation(
         evaluation_run_id=evaluation_run_id,
         student_id=student_id,
         subject_id=subject_id,
         topic_id=topic_id,
+        chapter_id=chapter_id,
         factor=factor,
         score=result.score,
         confidence=result.confidence,
@@ -364,7 +368,13 @@ async def evaluate_subject_factors(
     """Layer 1: compute every deterministic factor for one (student, subject)
     and persist one FactorEvaluation row per factor — topic-level rows for
     Topic Mastery, one subject-level row each for the rest. Returns the rows
-    (already added to the session and flushed) for Layer 2 to read back."""
+    (already added to the session and flushed) for Layer 2 to read back.
+
+    Also persists one rolled-up Topic Mastery row per chapter (task 5.2), but
+    does **not** return them: they restate the topic rows, so handing them to
+    Layer 2 would count Topic Mastery twice in the prompt and in
+    `_weighted_reference_score`. They are read back from the table by
+    `api/readiness_v2.py`."""
     now = now or datetime.now(timezone.utc)
     rows: list[FactorEvaluation] = []
 
@@ -390,9 +400,12 @@ async def evaluate_subject_factors(
     ).all():
         estimates.setdefault(e.topic_id, TutorEstimate(pct=e.score_pct, occurred_at=e.occurred_at))
     mastery_by_topic: dict[int, float | None] = {}
+    results_by_chapter: dict[int, list[FactorResult]] = {}
     for topic in topics:
         questions = await _marked_questions_for_topic(session, student_id, topic.id)
         result = topic_mastery(questions, now, estimate=estimates.get(topic.id))
+        if topic.chapter_id is not None:
+            results_by_chapter.setdefault(topic.chapter_id, []).append(result)
         # An estimate alone never claims mastery for coverage (PROD-8): only a
         # score built from marked questions can mark a topic "mastered" below.
         mastery_by_topic[topic.id] = result.score if questions else None
@@ -469,7 +482,24 @@ async def evaluate_subject_factors(
         )
     )
 
-    for row in rows:
-        session.add(row)
+    # Every chapter gets a row, one with no scored topic included: it says
+    # "no data" explicitly rather than being absent (PROD-2). A topic with no
+    # chapter (pre-2.3 flat syllabus) rolls up into nothing.
+    chapter_ids = (
+        await session.scalars(select(Chapter.id).where(Chapter.subject_id == subject_id))
+    ).all()
+    chapter_rows = [
+        _factor_row(
+            evaluation_run_id,
+            student_id,
+            subject_id,
+            ReadinessFactor.topic_mastery,
+            chapter_mastery(results_by_chapter.get(chapter_id, [])),
+            chapter_id=chapter_id,
+        )
+        for chapter_id in chapter_ids
+    ]
+
+    session.add_all(rows + chapter_rows)
     await session.flush()
     return rows

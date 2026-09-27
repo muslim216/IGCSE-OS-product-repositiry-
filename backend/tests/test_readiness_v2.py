@@ -17,6 +17,7 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    Chapter,
     Evidence,
     EvidenceSource,
     FactorConfidence,
@@ -1011,3 +1012,93 @@ async def test_historical_observation_evidence_is_not_practice(client, tutor, wo
         )
     practiced = {t.id: c.practiced for t, c in zip(topics, coverage, strict=True)}
     assert practiced == {world["topic1"]: False, world["topic2"]: True}
+
+
+async def _two_chapters(world) -> tuple[int, int]:
+    """Both world topics under "Bonding" (taught second); "Moles" (taught
+    first) has no topics at all."""
+    async with async_session() as session:
+        bonding = Chapter(subject_id=world["subject_id"], code="2", title="Bonding", position=2)
+        moles = Chapter(subject_id=world["subject_id"], code="1", title="Moles", position=1)
+        session.add_all([bonding, moles])
+        await session.flush()
+        for topic_id in (world["topic1"], world["topic2"]):
+            (await session.get(Topic, topic_id)).chapter_id = bonding.id
+        await session.commit()
+        return bonding.id, moles.id
+
+
+async def test_chapter_rows_are_persisted_but_never_reach_layer_2(client, tutor, world):
+    bonding, moles = await _two_chapters(world)
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, world["student_id"], world["subject_id"], "chapter-run", now=NOW
+        )
+        await session.commit()
+    # Layer 2 gets the factors only: a chapter row restates its topics, and
+    # would count Topic Mastery twice in the prompt and the reference score.
+    assert all(r.chapter_id is None for r in rows)
+    async with async_session() as session:
+        persisted = (
+            await session.scalars(
+                select(FactorEvaluation).where(
+                    FactorEvaluation.evaluation_run_id == "chapter-run",
+                    FactorEvaluation.chapter_id.is_not(None),
+                )
+            )
+        ).all()
+    assert {r.chapter_id for r in persisted} == {bonding, moles}
+    for r in persisted:
+        assert r.factor == ReadinessFactor.topic_mastery and r.topic_id is None
+        assert r.score is None and r.confidence == FactorConfidence.no_data  # nothing marked
+
+
+async def test_the_v2_response_carries_chapters_in_teaching_order(
+    client, tutor, world, monkeypatch, fake_ai
+):
+    bonding, moles = await _two_chapters(world)
+    resp = await client.post(
+        f"/api/v1/students/{world['student_id']}/seed-readiness",
+        json={"topics": [{"topic_id": world["topic1"], "score_pct": 40}]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete",
+        fake_ai(
+            ReadinessSynthesis(
+                score=40, weak_topics=[], rationale="seeded", recommended_revision="-"
+            )
+        ),
+    )
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    subject = (
+        await client.get(
+            f"/api/v1/readiness/v2/students/{world['student_id']}", headers=tutor["headers"]
+        )
+    ).json()["subjects"][0]
+    assert subject["chapters"] == [
+        {
+            "chapter_id": moles,
+            "title": "Moles",
+            "score": None,  # no topics, so no data — never 0 (PROD-2)
+            "confidence": "no_data",
+            "evidence_count": 0,
+            "detail": {},
+        },
+        {
+            "chapter_id": bonding,
+            "title": "Bonding",
+            "score": 40.0,  # topic2 has nothing and is left out, not averaged in as 0
+            "confidence": "low",
+            "evidence_count": 1,
+            "detail": {"topics_scored": 1, "topics_total": 2, "topics_with_estimate": 1},
+        },
+    ]
+    # Served as chapters, never as a subject-level Topic Mastery factor.
+    assert all(
+        f["topic_id"] is not None for f in subject["factors"] if f["factor"] == "topic_mastery"
+    )
