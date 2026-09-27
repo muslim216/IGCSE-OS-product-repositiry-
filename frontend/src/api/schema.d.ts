@@ -3028,6 +3028,28 @@ export interface components {
             /** Position */
             position: number;
         };
+        /**
+         * ChapterReadinessOut
+         * @description A chapter's Topic Mastery rolled up from its topics in the same run
+         *     (task 5.2, AV-9): a mean weighted by evidence count, `score` null when no
+         *     topic beneath has any (`PROD-2`). API only for now (decision 7).
+         */
+        ChapterReadinessOut: {
+            /** Chapter Id */
+            chapter_id: number;
+            /** Title */
+            title: string;
+            /** Score */
+            score: number | null;
+            /** Confidence */
+            confidence: string;
+            /** Evidence Count */
+            evidence_count: number;
+            /** Detail */
+            detail: {
+                [key: string]: unknown;
+            };
+        };
         /** ClassBrief */
         ClassBrief: {
             /** Brief */
@@ -4155,6 +4177,8 @@ export interface components {
             created_at: string;
             /** Factors */
             factors: components["schemas"]["FactorEvaluationOut"][];
+            /** Chapters */
+            chapters: components["schemas"]["ChapterReadinessOut"][];
         };
         /** ReadinessWeightsOut */
         ReadinessWeightsOut: {

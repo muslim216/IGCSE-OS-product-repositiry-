@@ -45,6 +45,7 @@ from app.services.ai import record_usage, require_parsed, structured_complete
 from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
+from app.services.readiness_factors import CONFIDENCE_RANK
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.workers.jobs import enqueue
 
@@ -156,12 +157,6 @@ CONFIDENCE_MULTIPLIER = {
     FactorConfidence.low: 0.4,
     FactorConfidence.no_data: 0.0,
 }
-_CONFIDENCE_RANK = {
-    FactorConfidence.no_data: 0,
-    FactorConfidence.low: 1,
-    FactorConfidence.medium: 2,
-    FactorConfidence.high: 3,
-}
 
 
 def _weighted_reference_score(
@@ -196,7 +191,7 @@ def _weighted_reference_score(
         # above filters None out, which is the point: it cannot become wrong.
         scores = [row.score for row in rows if row.score is not None]
         factor_score = sum(scores) / len(scores)
-        weakest = min(rows, key=lambda row: _CONFIDENCE_RANK[row.confidence])
+        weakest = min(rows, key=lambda row: CONFIDENCE_RANK[row.confidence])
         weight = weights[FACTOR_WEIGHT_ATTR[factor]] * CONFIDENCE_MULTIPLIER[weakest.confidence]
         weighted_sum += factor_score * weight
         total_weight += weight

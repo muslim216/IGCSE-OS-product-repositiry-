@@ -10,6 +10,7 @@ from app.services.readiness_factors import (
     HALF_LIFE_DAYS,
     NO_DATA,
     AssessmentPoint,
+    FactorResult,
     HomeworkPoint,
     MarkedQuestion,
     MistakePoint,
@@ -19,6 +20,7 @@ from app.services.readiness_factors import (
     _age_days,
     _decay,
     assessment_performance,
+    chapter_mastery,
     homework_performance,
     mistake_analysis,
     past_paper_performance,
@@ -279,3 +281,47 @@ def test_the_v2_factor_module_does_not_import_v1():
 
 def test_shared_confident_matches_medium_and_high():
     assert {FactorConfidence.medium, FactorConfidence.high} == CONFIDENT
+
+
+# ---- Chapter rollup (5.2, AV-9) ------------------------------------------
+
+
+def _topic(score, count, confidence=FactorConfidence.medium, detail=None):
+    return FactorResult(
+        score=score, confidence=confidence, evidence_count=count, detail=detail or {}
+    )
+
+
+def test_chapter_score_is_topic_scores_weighted_by_evidence_count():
+    result = chapter_mastery([_topic(80.0, 3), _topic(40.0, 1)])
+    assert result.score == 70.0  # (80*3 + 40*1) / 4, not the plain mean 60
+    assert result.evidence_count == 4
+
+
+def test_a_chapter_with_no_evidence_is_none_not_zero():
+    result = chapter_mastery([NO_DATA, NO_DATA])
+    assert result.score is None
+    assert result.confidence == FactorConfidence.no_data
+    assert result.evidence_count == 0
+    # And a chapter with no topics at all says the same, rather than dividing by zero.
+    assert chapter_mastery([]).score is None
+
+
+def test_a_chapter_mixing_evidenced_and_bare_topics_uses_only_the_evidenced():
+    result = chapter_mastery([_topic(60.0, 2), NO_DATA, NO_DATA])
+    assert result.score == 60.0  # a bare topic never drags the chapter towards 0 (PROD-2)
+    assert result.evidence_count == 2
+    assert result.detail == {"topics_scored": 1, "topics_total": 3, "topics_with_estimate": 0}
+
+
+def test_chapter_confidence_is_its_weakest_scored_topic():
+    result = chapter_mastery(
+        [_topic(90.0, 5, FactorConfidence.high), _topic(50.0, 1, FactorConfidence.low), NO_DATA]
+    )
+    assert result.confidence == FactorConfidence.low
+
+
+def test_a_chapter_counts_the_topics_resting_on_a_tutor_estimate():
+    estimated = _topic(70.0, 1, FactorConfidence.low, {"tutor_estimate": {"pct": 70.0}})
+    result = chapter_mastery([estimated, _topic(50.0, 1)])
+    assert result.detail["topics_with_estimate"] == 1  # the PROD-8 label

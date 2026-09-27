@@ -43,6 +43,15 @@ class FactorResult:
 NO_DATA = FactorResult(score=None, confidence=FactorConfidence.no_data, evidence_count=0, detail={})
 
 
+#: Weakest to strongest — for picking a group's weakest confidence.
+CONFIDENCE_RANK = {
+    FactorConfidence.no_data: 0,
+    FactorConfidence.low: 1,
+    FactorConfidence.medium: 2,
+    FactorConfidence.high: 3,
+}
+
+
 def _confidence_from_count(n: int, *, medium_at: int = 2, high_at: int = 4) -> FactorConfidence:
     if n <= 0:
         return FactorConfidence.no_data
@@ -136,6 +145,37 @@ def topic_mastery(
         confidence=(_confidence_from_count(len(questions)) if questions else FactorConfidence.low),
         evidence_count=len(questions) + (1 if estimate is not None else 0),
         detail=detail,
+    )
+
+
+def chapter_mastery(topics: list[FactorResult]) -> FactorResult:
+    """A chapter's Topic Mastery, rolled up from its topics' results in the
+    same run (AV-9, E7) — a mean weighted by evidence count, so a topic with
+    one marked question moves the chapter less than one with ten.
+
+    A topic with no score is left out of both sides of the division: a bare
+    topic says nothing about the chapter, and counting it would drag the
+    chapter towards a 0 nobody measured (PROD-2). No scored topic at all is
+    NO_DATA. Confidence is the weakest scored topic's — the same damping
+    `_weighted_reference_score` applies — so a chapter never claims more
+    certainty than its thinnest part."""
+    scored = [t for t in topics if t.score is not None and t.evidence_count > 0]
+    if not scored:
+        return NO_DATA
+    count = sum(t.evidence_count for t in scored)
+    return FactorResult(
+        score=round(
+            sum(t.score * t.evidence_count for t in scored if t.score is not None) / count, 1
+        ),
+        confidence=min((t.confidence for t in scored), key=CONFIDENCE_RANK.__getitem__),
+        evidence_count=count,
+        detail={
+            "topics_scored": len(scored),
+            "topics_total": len(topics),
+            # How much of the chapter rests on the tutor's own judgement rather
+            # than marked work — the label PROD-8 requires wherever it shows.
+            "topics_with_estimate": sum(1 for t in scored if "tutor_estimate" in t.detail),
+        },
     )
 
 

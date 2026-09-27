@@ -12,8 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession
 from app.api.readiness import visible_subject_ids
-from app.models import FactorEvaluation, ReadinessSnapshot, Subject, Topic, User, UserRole
+from app.models import (
+    Chapter,
+    FactorEvaluation,
+    ReadinessSnapshot,
+    Subject,
+    Topic,
+    User,
+    UserRole,
+)
 from app.schemas.readiness_v2 import (
+    ChapterReadinessOut,
     FactorEvaluationOut,
     ReadinessSnapshotOut,
     StudentReadinessV2Summary,
@@ -50,6 +59,21 @@ async def _snapshot_out(
             )
         )
     ).all()
+    # A chapter row restates its topics' rows (task 5.2), so it is served as a
+    # chapter, never as a factor.
+    chapter_rows = {r.chapter_id: r for r in factor_rows if r.chapter_id is not None}
+    factor_rows = [r for r in factor_rows if r.chapter_id is None]
+    chapters = (
+        (
+            await db.scalars(
+                select(Chapter)
+                .where(Chapter.id.in_(chapter_rows))
+                .order_by(Chapter.position, Chapter.id)
+            )
+        ).all()
+        if chapter_rows
+        else []
+    )
     topic_ids = {r.topic_id for r in factor_rows if r.topic_id is not None}
     topics_by_id = {}
     if topic_ids:
@@ -88,6 +112,17 @@ async def _snapshot_out(
                 detail=r.detail,
             )
             for r in factor_rows
+        ],
+        chapters=[
+            ChapterReadinessOut(
+                chapter_id=c.id,
+                title=c.title,
+                score=chapter_rows[c.id].score,
+                confidence=chapter_rows[c.id].confidence.value,
+                evidence_count=chapter_rows[c.id].evidence_count,
+                detail=chapter_rows[c.id].detail,
+            )
+            for c in chapters
         ],
     )
 

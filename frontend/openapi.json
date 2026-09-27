@@ -8699,6 +8699,53 @@
         ],
         "title": "ChapterOut"
       },
+      "ChapterReadinessOut": {
+        "properties": {
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "confidence": {
+            "type": "string",
+            "title": "Confidence"
+          },
+          "evidence_count": {
+            "type": "integer",
+            "title": "Evidence Count"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "title",
+          "score",
+          "confidence",
+          "evidence_count",
+          "detail"
+        ],
+        "title": "ChapterReadinessOut",
+        "description": "A chapter's Topic Mastery rolled up from its topics in the same run\n(task 5.2, AV-9): a mean weighted by evidence count, `score` null when no\ntopic beneath has any (`PROD-2`). API only for now (decision 7)."
+      },
       "ClassBrief": {
         "properties": {
           "brief": {
@@ -11868,6 +11915,13 @@
             },
             "type": "array",
             "title": "Factors"
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterReadinessOut"
+            },
+            "type": "array",
+            "title": "Chapters"
           }
         },
         "type": "object",
@@ -11882,7 +11936,8 @@
           "recommended_revision",
           "error",
           "created_at",
-          "factors"
+          "factors",
+          "chapters"
         ],
         "title": "ReadinessSnapshotOut"
       },

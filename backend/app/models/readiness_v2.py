@@ -28,6 +28,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -439,6 +440,13 @@ class FactorEvaluation(Base):
             "student_id",
             "subject_id",
         ),
+        # Composite so a chapter row cannot name another subject's chapter; see
+        # Topic.__table_args__. MATCH SIMPLE skips it while chapter_id is NULL.
+        ForeignKeyConstraint(
+            ["subject_id", "chapter_id"],
+            ["chapters.subject_id", "chapters.id"],
+            name="fk_factor_evaluations_subject_id_chapter_id_chapters",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -447,6 +455,10 @@ class FactorEvaluation(Base):
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     # Set for topic-level factors (Topic Mastery); null for subject-level ones.
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
+    # Set only on a chapter's rolled-up Topic Mastery row (task 5.2, AV-9);
+    # topic_id is then null. Such a row is a summary of that run's topic rows,
+    # never a factor in its own right — Layer 2 never sees it.
+    chapter_id: Mapped[int | None] = mapped_column(nullable=True)
     factor: Mapped[ReadinessFactor] = mapped_column(
         Enum(ReadinessFactor, native_enum=False, length=32), nullable=False
     )
