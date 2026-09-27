@@ -29,6 +29,7 @@ from app.schemas.readiness_v2 import (
     WeakTopicOut,
 )
 from app.services.grade_boundaries import boundaries_for, org_boundaries
+from app.services.readiness_config import ReadinessConfig, resolve_readiness_config
 
 router = APIRouter(prefix="/readiness/v2", tags=["readiness-v2"])
 
@@ -51,6 +52,7 @@ async def _snapshot_out(
     snapshot: ReadinessSnapshot,
     subject: Subject,
     boundaries: list[dict],
+    config: ReadinessConfig,
 ) -> ReadinessSnapshotOut:
     factor_rows = (
         await db.scalars(
@@ -110,6 +112,7 @@ async def _snapshot_out(
                 confidence=r.confidence.value,
                 evidence_count=r.evidence_count,
                 detail=r.detail,
+                enabled=r.factor in config.enabled,
             )
             for r in factor_rows
         ],
@@ -159,8 +162,13 @@ async def student_readiness_v2(
         snapshot = await _latest_snapshot(db, student_id, subject_id)
         if snapshot is None:
             continue
+        # Resolved once per subject, not per factor row (PERF-1), against the
+        # student's organization — the one synthesis resolved it with.
+        config = await resolve_readiness_config(db, student.organization_id, subject_id)
         subjects_out.append(
-            await _snapshot_out(db, snapshot, subject, boundaries_for(all_boundaries, subject))
+            await _snapshot_out(
+                db, snapshot, subject, boundaries_for(all_boundaries, subject), config
+            )
         )
     return StudentReadinessV2Summary(
         student_id=student.id, student_name=student.name, subjects=subjects_out

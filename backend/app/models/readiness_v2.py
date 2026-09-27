@@ -35,6 +35,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     text,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -384,14 +385,35 @@ class GradeBoundary(Base):
 
 class ReadinessWeights(TimestampMixin, Base):
     """Supersedes TutorPreferences — one weight per readiness factor (not
-    per evidence source), plus the decay half-life as an advanced setting."""
+    per evidence source), plus the decay half-life as an advanced setting.
+
+    One account row (`subject_id` NULL) per organization, plus at most one
+    override per subject (task 5.4a). Read them only through
+    `services/readiness_config.resolve_readiness_config`, which owns the
+    whole-row precedence (decision 8)."""
 
     __tablename__ = "readiness_weights"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "subject_id",
+            name="uq_readiness_weights_organization_id_subject_id",
+        ),
+        # The constraint above cannot hold the account row to one: Postgres
+        # treats NULLs as distinct, so two NULL-subject rows both pass it
+        # (RISK-3). The partial index is what does.
+        Index(
+            "uq_readiness_weights_account_row",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("subject_id IS NULL"),
+            sqlite_where=text("subject_id IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    organization_id: Mapped[int] = mapped_column(
-        ForeignKey("organizations.id"), nullable=False, unique=True
-    )
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    subject_id: Mapped[int | None] = mapped_column(ForeignKey("subjects.id"), nullable=True)
     tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     weight_topic_mastery: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     weight_past_paper_performance: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
@@ -400,6 +422,26 @@ class ReadinessWeights(TimestampMixin, Base):
     weight_syllabus_coverage: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     weight_mistake_analysis: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     half_life_days: Mapped[float] = mapped_column(Float, default=45.0, nullable=False)
+    # A switched-off factor is still computed and stored; synthesis just never
+    # sees it (task 5.4a).
+    enabled_topic_mastery: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
+    enabled_past_paper_performance: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
+    enabled_homework_performance: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
+    enabled_assessment_performance: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
+    enabled_syllabus_coverage: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
+    enabled_mistake_analysis: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true(), nullable=False
+    )
 
 
 class ReadinessFactor(str, enum.Enum):

@@ -1,9 +1,10 @@
 """Readiness Engine v2 — Layer 2: AI synthesis.
 
 Takes the Layer 1 FactorEvaluation rows for one (student, subject) run (see
-services/readiness_v2.py), the organization's ReadinessWeights, and the
-tutor's Knowledge Base, and asks the AI to synthesize the final readiness
-score, weak topics, rationale, and a revision plan.
+services/readiness_v2.py), the resolved factor config
+(services/readiness_config.py), and the tutor's Knowledge Base, and asks the
+AI to synthesize the final readiness score, weak topics, rationale, and a
+revision plan.
 
 Every ReadinessSnapshot carries the evaluation_run_id linking it back to the
 exact FactorEvaluation rows it was built from. If the AI call fails, the
@@ -36,7 +37,6 @@ from app.models import (
     JobStatus,
     ReadinessFactor,
     ReadinessSnapshot,
-    ReadinessWeights,
     Subject,
     Topic,
     User,
@@ -45,6 +45,11 @@ from app.services.ai import record_usage, require_parsed, structured_complete
 from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.grades import predict_grade
 from app.services.knowledge import build_tutor_context, resolve_org_tutor_id
+from app.services.readiness_config import (
+    DEFAULT_WEIGHTS,
+    FACTOR_WEIGHT_ATTR,
+    resolve_readiness_config,
+)
 from app.services.readiness_factors import CONFIDENCE_RANK
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.workers.jobs import enqueue
@@ -56,7 +61,9 @@ log = logging.getLogger("readiness_v2_ai")
 # keep working. Declared in __all__ so the re-export is intentional and a lint
 # pass that strips "unused" imports cannot silently break those readers
 # (CodeRabbit) — even though line 238 also uses it directly today.
-__all__ = ["resolve_grade_boundaries"]
+# DEFAULT_WEIGHTS and FACTOR_WEIGHT_ATTR moved to services/readiness_config.py
+# with the resolver in task 5.4a; re-exported on the same reasoning.
+__all__ = ["DEFAULT_WEIGHTS", "FACTOR_WEIGHT_ATTR", "resolve_grade_boundaries"]
 
 
 async def in_flight_readiness_pairs(
@@ -127,16 +134,6 @@ async def enqueue_v2_shadow(
     coalescing, so there is no un-debounced path."""
     await enqueue_readiness_v2_debounced(db, student_id, subject_id)
 
-
-FACTOR_WEIGHT_ATTR = {
-    ReadinessFactor.topic_mastery: "weight_topic_mastery",
-    ReadinessFactor.past_paper_performance: "weight_past_paper_performance",
-    ReadinessFactor.homework_performance: "weight_homework_performance",
-    ReadinessFactor.assessment_performance: "weight_assessment_performance",
-    ReadinessFactor.syllabus_coverage: "weight_syllabus_coverage",
-    ReadinessFactor.mistake_analysis: "weight_mistake_analysis",
-}
-DEFAULT_WEIGHTS = dict.fromkeys(FACTOR_WEIGHT_ATTR.values(), 1.0)
 
 # Max points the AI's synthesized score may diverge from the weighted average
 # of the deterministic factor scores before it is pulled back in line. The
@@ -232,15 +229,6 @@ class ReadinessSynthesis(BaseModel):
     recommended_revision: str
 
 
-async def _resolve_weight_dict(session: AsyncSession, organization_id: int) -> dict[str, float]:
-    weights = await session.scalar(
-        select(ReadinessWeights).where(ReadinessWeights.organization_id == organization_id)
-    )
-    if weights is None:
-        return dict(DEFAULT_WEIGHTS)
-    return {attr: getattr(weights, attr) for attr in DEFAULT_WEIGHTS}
-
-
 # resolve_grade_boundaries used to live here, which put the precedence rule for
 # every surface in the module that talks to a model. It now lives in
 # services/grade_boundaries.py beside the writer that makes it reachable, and is
@@ -278,6 +266,13 @@ async def _synthesize_subject(
     factor_rows = await evaluate_subject_factors(
         session, student.id, subject_id, evaluation_run_id, now
     )
+    # A factor the tutor switched off is still computed and stored above — the
+    # run stays reconstructable, and switching it back on needs no backfill —
+    # but it is removed here, once, so nothing below sees it: not the prompt,
+    # not the weighted reference, not the "no evidence" check. Sending it with
+    # weight 0 instead would still put its number in front of the model.
+    config = await resolve_readiness_config(session, student.organization_id, subject_id)
+    factor_rows = [row for row in factor_rows if row.factor in config.enabled]
 
     if all(row.score is None for row in factor_rows):
         session.add(
@@ -295,7 +290,7 @@ async def _synthesize_subject(
         )
         return
 
-    weights = await _resolve_weight_dict(session, student.organization_id)
+    weights = config.weights
     topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
     topics_by_id = {t.id: t for t in topics}
 

@@ -4923,6 +4923,29 @@
         ],
         "summary": "Get Weights",
         "operationId": "get_weights_api_v1_readiness_weights_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4933,13 +4956,18 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -4947,15 +4975,38 @@
         ],
         "summary": "Update Weights",
         "operationId": "update_weights_api_v1_readiness_weights_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject Id"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReadinessWeightsUpdate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {
@@ -4978,12 +5029,46 @@
               }
             }
           }
-        },
+        }
+      },
+      "delete": {
+        "tags": [
+          "readiness"
+        ],
+        "summary": "Delete Subject Override",
+        "description": "Remove a subject's override, so it falls back to the account row.\n`subject_id` is required: the account row is not an override and has\nnothing to fall back to.",
+        "operationId": "delete_subject_override_api_v1_readiness_weights_delete",
         "security": [
           {
             "HTTPBearer": []
           }
-        ]
+        ],
+        "parameters": [
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Subject Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/reports/generate": {
@@ -9332,6 +9417,10 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Detail"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
           }
         },
         "type": "object",
@@ -9342,7 +9431,8 @@
           "score",
           "confidence",
           "evidence_count",
-          "detail"
+          "detail",
+          "enabled"
         ],
         "title": "FactorEvaluationOut"
       },
@@ -11967,9 +12057,53 @@
             "type": "number",
             "title": "Weight Mistake Analysis"
           },
+          "enabled_topic_mastery": {
+            "type": "boolean",
+            "title": "Enabled Topic Mastery"
+          },
+          "enabled_past_paper_performance": {
+            "type": "boolean",
+            "title": "Enabled Past Paper Performance"
+          },
+          "enabled_homework_performance": {
+            "type": "boolean",
+            "title": "Enabled Homework Performance"
+          },
+          "enabled_assessment_performance": {
+            "type": "boolean",
+            "title": "Enabled Assessment Performance"
+          },
+          "enabled_syllabus_coverage": {
+            "type": "boolean",
+            "title": "Enabled Syllabus Coverage"
+          },
+          "enabled_mistake_analysis": {
+            "type": "boolean",
+            "title": "Enabled Mistake Analysis"
+          },
           "half_life_days": {
             "type": "number",
             "title": "Half Life Days"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "subject",
+              "account",
+              "default"
+            ],
+            "title": "Source"
           }
         },
         "type": "object",
@@ -11980,7 +12114,15 @@
           "weight_assessment_performance",
           "weight_syllabus_coverage",
           "weight_mistake_analysis",
-          "half_life_days"
+          "enabled_topic_mastery",
+          "enabled_past_paper_performance",
+          "enabled_homework_performance",
+          "enabled_assessment_performance",
+          "enabled_syllabus_coverage",
+          "enabled_mistake_analysis",
+          "half_life_days",
+          "subject_id",
+          "source"
         ],
         "title": "ReadinessWeightsOut"
       },
@@ -12021,6 +12163,36 @@
             "maximum": 3.0,
             "minimum": 0.0,
             "title": "Weight Mistake Analysis"
+          },
+          "enabled_topic_mastery": {
+            "type": "boolean",
+            "title": "Enabled Topic Mastery",
+            "default": true
+          },
+          "enabled_past_paper_performance": {
+            "type": "boolean",
+            "title": "Enabled Past Paper Performance",
+            "default": true
+          },
+          "enabled_homework_performance": {
+            "type": "boolean",
+            "title": "Enabled Homework Performance",
+            "default": true
+          },
+          "enabled_assessment_performance": {
+            "type": "boolean",
+            "title": "Enabled Assessment Performance",
+            "default": true
+          },
+          "enabled_syllabus_coverage": {
+            "type": "boolean",
+            "title": "Enabled Syllabus Coverage",
+            "default": true
+          },
+          "enabled_mistake_analysis": {
+            "type": "boolean",
+            "title": "Enabled Mistake Analysis",
+            "default": true
           },
           "half_life_days": {
             "type": "number",

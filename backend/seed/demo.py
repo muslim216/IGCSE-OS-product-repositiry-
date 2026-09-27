@@ -68,8 +68,9 @@ from app.services.grade_boundaries import (
     set_org_boundaries,
 )
 from app.services.grades import predict_grade
+from app.services.readiness_config import resolve_readiness_config
 from app.services.readiness_v2 import evaluate_subject_factors
-from app.services.readiness_v2_ai import _resolve_weight_dict, _weighted_reference_score
+from app.services.readiness_v2_ai import _weighted_reference_score
 from app.services.work import create_work
 
 PASSWORD = "demo1234"
@@ -192,8 +193,10 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
     subject = await session.get(Subject, subject_id)
     run_id = str(uuid.uuid4())
     rows = await evaluate_subject_factors(session, student.id, subject_id, run_id, now)
-    weights = await _resolve_weight_dict(session, student.organization_id)
-    reference = _weighted_reference_score(rows, weights)
+    config = await resolve_readiness_config(session, student.organization_id, subject_id)
+    # Switched-off factors are left out exactly as synthesis leaves them out.
+    counted = [row for row in rows if row.factor in config.enabled]
+    reference = _weighted_reference_score(counted, config.weights)
     score = round(reference, 1) if reference is not None else None
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
     session.add(

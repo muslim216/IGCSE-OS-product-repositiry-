@@ -11,6 +11,10 @@ class FactorEvaluationOut(BaseModel):
     confidence: str
     evidence_count: int
     detail: dict
+    #: Whether the tutor's *current* config counts this factor (task 5.4a) —
+    #: read-time config, not what applied when the run was synthesized. A
+    #: config save enqueues a recompute, so the two converge.
+    enabled: bool
 
 
 class ChapterReadinessOut(BaseModel):
