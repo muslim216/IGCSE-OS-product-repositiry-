@@ -1794,6 +1794,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/custom-criteria": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Criteria */
+        get: operations["read_criteria_api_v1_custom_criteria_get"];
+        put?: never;
+        /** Add Criterion */
+        post: operations["add_criterion_api_v1_custom_criteria_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/custom-criteria/{criterion_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit Criterion */
+        patch: operations["edit_criterion_api_v1_custom_criteria__criterion_id__patch"];
+        trace?: never;
+    };
     "/api/v1/reports/generate": {
         parameters: {
             query?: never;
@@ -2051,6 +2086,41 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/custom-criteria": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Student Custom Criteria */
+        get: operations["student_custom_criteria_api_v1_students__student_id__custom_criteria_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/custom-criteria/{criterion_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Score Custom Criterion */
+        put: operations["score_custom_criterion_api_v1_students__student_id__custom_criteria__criterion_id__put"];
+        post?: never;
+        /** Clear Custom Criterion */
+        delete: operations["clear_custom_criterion_api_v1_students__student_id__custom_criteria__criterion_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3244,6 +3314,49 @@ export interface components {
             total_final: number | null;
             /** Total Max */
             total_max: number;
+        };
+        /** CustomCriterionCreate */
+        CustomCriterionCreate: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            /** Subject Id */
+            subject_id?: number | null;
+        };
+        /** CustomCriterionOut */
+        CustomCriterionOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Subject Id */
+            subject_id: number | null;
+            /** Archived At */
+            archived_at: string | null;
+            /** Created By Id */
+            created_by_id: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** CustomCriterionScoreIn */
+        CustomCriterionScoreIn: {
+            /** Score */
+            score: number;
+        };
+        /** CustomCriterionUpdate */
+        CustomCriterionUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Archived */
+            archived?: boolean | null;
         };
         /**
          * DraftPaper
@@ -4496,6 +4609,29 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+        };
+        /** StudentCriterionScoreOut */
+        StudentCriterionScoreOut: {
+            /** Criterion Id */
+            criterion_id: number;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Subject Id */
+            subject_id: number | null;
+            /** Score */
+            score: number | null;
+            /** Updated At */
+            updated_at: string | null;
+            /** Updated By Id */
+            updated_by_id: number | null;
+            /**
+             * Source
+             * @default tutor
+             * @constant
+             */
+            source: "tutor";
         };
         /**
          * StudentCrmOut
@@ -8468,6 +8604,105 @@ export interface operations {
             };
         };
     };
+    read_criteria_api_v1_custom_criteria_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomCriterionOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_criterion_api_v1_custom_criteria_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomCriterionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomCriterionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_criterion_api_v1_custom_criteria__criterion_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                criterion_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomCriterionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomCriterionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generate_api_v1_reports_generate_post: {
         parameters: {
             query?: never;
@@ -8984,6 +9219,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StudentMistakeRollup"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    student_custom_criteria_api_v1_students__student_id__custom_criteria_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentCriterionScoreOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    score_custom_criterion_api_v1_students__student_id__custom_criteria__criterion_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+                criterion_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomCriterionScoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentCriterionScoreOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_custom_criterion_api_v1_students__student_id__custom_criteria__criterion_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+                criterion_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
