@@ -1,6 +1,7 @@
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TopicReadinessOut(BaseModel):
@@ -196,7 +197,17 @@ class MyAssessmentScore(BaseModel):
     pct: float
 
 
-# ---- Readiness v2 weights (per factor, per organization) ----
+# ---- Readiness v2 weights (per factor; per organization or per subject) ----
+
+
+READINESS_FACTORS = (
+    "topic_mastery",
+    "past_paper_performance",
+    "homework_performance",
+    "assessment_performance",
+    "syllabus_coverage",
+    "mistake_analysis",
+)
 
 
 class ReadinessWeightsOut(BaseModel):
@@ -206,7 +217,17 @@ class ReadinessWeightsOut(BaseModel):
     weight_assessment_performance: float
     weight_syllabus_coverage: float
     weight_mistake_analysis: float
+    enabled_topic_mastery: bool
+    enabled_past_paper_performance: bool
+    enabled_homework_performance: bool
+    enabled_assessment_performance: bool
+    enabled_syllabus_coverage: bool
+    enabled_mistake_analysis: bool
     half_life_days: float
+    #: The scope asked for; None is the account-wide row.
+    subject_id: int | None
+    #: Where these values came from — "subject" means an override exists.
+    source: Literal["subject", "account", "default"]
 
 
 class ReadinessWeightsUpdate(BaseModel):
@@ -216,7 +237,22 @@ class ReadinessWeightsUpdate(BaseModel):
     weight_assessment_performance: float = Field(ge=0, le=3)
     weight_syllabus_coverage: float = Field(ge=0, le=3)
     weight_mistake_analysis: float = Field(ge=0, le=3)
+    # Default on, so a client that predates the switches (task 5.4a) keeps
+    # every factor counting rather than silently turning them off.
+    enabled_topic_mastery: bool = True
+    enabled_past_paper_performance: bool = True
+    enabled_homework_performance: bool = True
+    enabled_assessment_performance: bool = True
+    enabled_syllabus_coverage: bool = True
+    enabled_mistake_analysis: bool = True
     half_life_days: float = Field(ge=7, le=365)
+
+    @model_validator(mode="after")
+    def _at_least_one_factor(self) -> "ReadinessWeightsUpdate":
+        # A readiness score built from no factors is not a score.
+        if not any(getattr(self, f"enabled_{f}") for f in READINESS_FACTORS):
+            raise ValueError("At least one readiness factor must stay switched on")
+        return self
 
 
 # ---- Tutor analytics ----

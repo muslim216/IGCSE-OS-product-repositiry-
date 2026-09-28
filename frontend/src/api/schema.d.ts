@@ -1782,7 +1782,13 @@ export interface paths {
         /** Update Weights */
         put: operations["update_weights_api_v1_readiness_weights_put"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete Subject Override
+         * @description Remove a subject's override, so it falls back to the account row.
+         *     `subject_id` is required: the account row is not an override and has
+         *     nothing to fall back to.
+         */
+        delete: operations["delete_subject_override_api_v1_readiness_weights_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3289,6 +3295,8 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+            /** Enabled */
+            enabled: boolean;
         };
         /** GradeBand */
         GradeBand: {
@@ -4194,8 +4202,27 @@ export interface components {
             weight_syllabus_coverage: number;
             /** Weight Mistake Analysis */
             weight_mistake_analysis: number;
+            /** Enabled Topic Mastery */
+            enabled_topic_mastery: boolean;
+            /** Enabled Past Paper Performance */
+            enabled_past_paper_performance: boolean;
+            /** Enabled Homework Performance */
+            enabled_homework_performance: boolean;
+            /** Enabled Assessment Performance */
+            enabled_assessment_performance: boolean;
+            /** Enabled Syllabus Coverage */
+            enabled_syllabus_coverage: boolean;
+            /** Enabled Mistake Analysis */
+            enabled_mistake_analysis: boolean;
             /** Half Life Days */
             half_life_days: number;
+            /** Subject Id */
+            subject_id: number | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "subject" | "account" | "default";
         };
         /** ReadinessWeightsUpdate */
         ReadinessWeightsUpdate: {
@@ -4211,6 +4238,36 @@ export interface components {
             weight_syllabus_coverage: number;
             /** Weight Mistake Analysis */
             weight_mistake_analysis: number;
+            /**
+             * Enabled Topic Mastery
+             * @default true
+             */
+            enabled_topic_mastery: boolean;
+            /**
+             * Enabled Past Paper Performance
+             * @default true
+             */
+            enabled_past_paper_performance: boolean;
+            /**
+             * Enabled Homework Performance
+             * @default true
+             */
+            enabled_homework_performance: boolean;
+            /**
+             * Enabled Assessment Performance
+             * @default true
+             */
+            enabled_assessment_performance: boolean;
+            /**
+             * Enabled Syllabus Coverage
+             * @default true
+             */
+            enabled_syllabus_coverage: boolean;
+            /**
+             * Enabled Mistake Analysis
+             * @default true
+             */
+            enabled_mistake_analysis: boolean;
             /** Half Life Days */
             half_life_days: number;
         };
@@ -8318,7 +8375,9 @@ export interface operations {
     };
     get_weights_api_v1_readiness_weights_get: {
         parameters: {
-            query?: never;
+            query?: {
+                subject_id?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8334,11 +8393,22 @@ export interface operations {
                     "application/json": components["schemas"]["ReadinessWeightsOut"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     update_weights_api_v1_readiness_weights_put: {
         parameters: {
-            query?: never;
+            query?: {
+                subject_id?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8357,6 +8427,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ReadinessWeightsOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_subject_override_api_v1_readiness_weights_delete: {
+        parameters: {
+            query: {
+                subject_id: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -189,16 +189,27 @@ export interface MyAssessmentScore {
 
 export const myAssessmentScores = () => api<MyAssessmentScore[]>("/api/v1/me/assessments");
 
-/** Readiness v2 weights: one per factor, per organization (FE-4 — aliases
-    the generated schema rather than a hand-written duplicate). */
+/** Readiness v2 weights and on/off switches: one per factor, for the account
+    or one subject's override (FE-4 — aliases the generated schema rather than
+    a hand-written duplicate). `subjectId` null is the account row. */
 export type ReadinessWeights = components["schemas"]["ReadinessWeightsOut"];
+export type ReadinessWeightsUpdate = components["schemas"]["ReadinessWeightsUpdate"];
 
-export const getReadinessWeights = () => api<ReadinessWeights>("/api/v1/readiness/weights");
-export const updateReadinessWeights = (payload: ReadinessWeights) =>
-  api<ReadinessWeights>("/api/v1/readiness/weights", {
+const weightsPath = (subjectId: number | null) =>
+  subjectId === null
+    ? "/api/v1/readiness/weights"
+    : `/api/v1/readiness/weights?subject_id=${subjectId}`;
+
+export const getReadinessWeights = (subjectId: number | null = null) =>
+  api<ReadinessWeights>(weightsPath(subjectId));
+export const updateReadinessWeights = (subjectId: number | null, payload: ReadinessWeightsUpdate) =>
+  api<ReadinessWeights>(weightsPath(subjectId), {
     method: "PUT",
     body: JSON.stringify(payload),
   });
+/** Drop a subject's override so it falls back to the account settings. */
+export const removeReadinessOverride = (subjectId: number) =>
+  api<void>(weightsPath(subjectId), { method: "DELETE" });
 
 /** A tutor's own starting estimate for a student, per topic. Self-declared: it
     is stored as `tutor_estimate` evidence, labelled as such wherever it is
