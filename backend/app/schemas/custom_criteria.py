@@ -8,7 +8,7 @@ appear (`PROD-8`, `UX-20`).
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 def _strip(value: object, info: ValidationInfo) -> object:
@@ -35,18 +35,14 @@ class CustomCriterionUpdate(BaseModel):
     # one should be told it did not happen.
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=120)
+    # Omittable but never null: Pydantic does not validate a default, so an
+    # omitted field stays None while an explicit `null` fails the `str`/`bool`
+    # type — and the published contract says the same thing (`FE-4`).
+    name: str = Field(default=None, min_length=1, max_length=120)  # type: ignore[assignment]
     description: str | None = Field(default=None, max_length=2000)
-    archived: bool | None = None
+    archived: bool = None  # type: ignore[assignment]
 
     _trim = field_validator("name", "description", mode="before")(_strip)
-
-    @model_validator(mode="after")
-    def _name_and_archived_are_not_nullable(self) -> "CustomCriterionUpdate":
-        for field in ("name", "archived"):
-            if field in self.model_fields_set and getattr(self, field) is None:
-                raise ValueError(f"{field} cannot be null")
-        return self
 
 
 class CustomCriterionOut(BaseModel):

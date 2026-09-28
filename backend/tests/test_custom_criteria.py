@@ -129,10 +129,11 @@ async def test_a_blank_name_is_refused(client, tutor):
         await client.post(BASE, json={"name": "   "}, headers=tutor["headers"])
     ).status_code == 422
     created = await _create(client, tutor["headers"])
-    resp = await client.patch(
-        f"{BASE}/{created['id']}", json={"name": None}, headers=tutor["headers"]
-    )
-    assert resp.status_code == 422
+    for null_body in ({"name": None}, {"archived": None}):
+        resp = await client.patch(
+            f"{BASE}/{created['id']}", json=null_body, headers=tutor["headers"]
+        )
+        assert resp.status_code == 422, null_body
 
 
 # ---- Scope ----

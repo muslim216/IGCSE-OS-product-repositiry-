@@ -3352,11 +3352,11 @@ export interface components {
         /** CustomCriterionUpdate */
         CustomCriterionUpdate: {
             /** Name */
-            name?: string | null;
+            name?: string;
             /** Description */
             description?: string | null;
             /** Archived */
-            archived?: boolean | null;
+            archived?: boolean;
         };
         /**
          * DraftPaper
