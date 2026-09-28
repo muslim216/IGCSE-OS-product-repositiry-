@@ -3,6 +3,11 @@ from app.models.base import Base
 from app.models.booklets import Booklet, BookletStatus
 from app.models.classroom import ClassroomCourseLink, ClassroomWorkLink, GoogleAccount
 from app.models.crm import ParentCommunication, StudentProfile, StudentSubject, TutorNote
+from app.models.custom_criteria import (
+    CustomCriterion,
+    CustomCriterionScore,
+    CustomCriterionScoreAudit,
+)
 from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
 from app.models.homework import (
     SETTLED_STATUSES,
@@ -86,6 +91,9 @@ __all__ = [
     "Classified",
     "ClassroomCourseLink",
     "ClassroomWorkLink",
+    "CustomCriterion",
+    "CustomCriterionScore",
+    "CustomCriterionScoreAudit",
     "Evidence",
     "EvidenceSource",
     "FactorConfidence",

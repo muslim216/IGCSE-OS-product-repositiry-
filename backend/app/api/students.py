@@ -1,5 +1,8 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor, owned_subject
@@ -29,13 +32,22 @@ from app.schemas.crm import (
     TutorNoteCreate,
     TutorNoteOut,
 )
+from app.schemas.custom_criteria import CustomCriterionScoreIn, StudentCriterionScoreOut
 from app.schemas.groups import InviteOut
 from app.schemas.mistake_rollup import StudentMistakeRollup
+from app.services.custom_criteria import (
+    CriterionConflict,
+    CriterionNotFound,
+    clear_score,
+    criteria_for_student,
+    set_score,
+)
 from app.services.invites import build_invite
 from app.services.mistake_rollup import roll_up_mistakes
 from app.services.student_crm import get_student_crm
 
 router = APIRouter(prefix="/students", tags=["students"])
+log = logging.getLogger("api")
 
 
 async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> User:
@@ -331,3 +343,95 @@ async def student_mistakes(
     student = await _tutor_student(db, user, student_id)
     subject = await owned_subject(db, subject_id, user)
     return await roll_up_mistakes(db, student_id=student.id, subject_id=subject.id)
+
+
+# ---- Custom criteria scores (task 5.4b) ----
+#
+# Hand-entered by a tutor, shown beside readiness and never in it. The tutor
+# must teach the student (`_tutor_student`) and own the criterion; either
+# failing is a 404 (`API-7`). Only this tutor-facing surface exposes them until
+# 5.4c labels them "tutor-entered" on the profile, reports and parent view.
+
+
+def _criterion_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, CriterionNotFound):
+        return HTTPException(status.HTTP_404_NOT_FOUND, "Criterion not found")
+    return HTTPException(status.HTTP_409_CONFLICT, str(exc))
+
+
+@router.get("/{student_id}/custom-criteria", response_model=list[StudentCriterionScoreOut])
+async def student_custom_criteria(
+    student_id: int, db: DbSession, user: TutorUser
+) -> list[StudentCriterionScoreOut]:
+    student = await _tutor_student(db, user, student_id)
+    rows = await criteria_for_student(db, user.organization_id, student.id)
+    return [
+        StudentCriterionScoreOut(
+            criterion_id=criterion.id,
+            name=criterion.name,
+            description=criterion.description,
+            subject_id=criterion.subject_id,
+            score=None if score is None else score.score,
+            updated_at=None if score is None else score.updated_at,
+            updated_by_id=None if score is None else score.updated_by_id,
+        )
+        for criterion, score in rows
+    ]
+
+
+@router.put("/{student_id}/custom-criteria/{criterion_id}", response_model=StudentCriterionScoreOut)
+async def score_custom_criterion(
+    student_id: int,
+    criterion_id: int,
+    body: CustomCriterionScoreIn,
+    db: DbSession,
+    user: TutorUser,
+) -> StudentCriterionScoreOut:
+    student = await _tutor_student(db, user, student_id)
+    try:
+        criterion, score = await set_score(
+            db, user.organization_id, student.id, criterion_id, body.score, user.id
+        )
+        await db.commit()
+    except (CriterionNotFound, CriterionConflict) as exc:
+        raise _criterion_error(exc) from exc
+    except IntegrityError as exc:
+        # Two tutors giving this student their first score on this criterion
+        # at the same moment; the unique constraint kept one. Say so rather
+        # than 500 — the tutor re-reads and decides whether to overwrite.
+        # Logged, because the same catch would also hide a CHECK or FK
+        # violation behind this benign message.
+        log.warning(
+            "custom criterion score conflict student=%s criterion=%s",
+            student.id,
+            criterion_id,
+            exc_info=exc,
+        )
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Someone else scored this at the same moment. Reload to see their score.",
+        ) from exc
+    return StudentCriterionScoreOut(
+        criterion_id=criterion.id,
+        name=criterion.name,
+        description=criterion.description,
+        subject_id=criterion.subject_id,
+        score=score.score,
+        updated_at=score.updated_at,
+        updated_by_id=score.updated_by_id,
+    )
+
+
+@router.delete(
+    "/{student_id}/custom-criteria/{criterion_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def clear_custom_criterion(
+    student_id: int, criterion_id: int, db: DbSession, user: TutorUser
+) -> None:
+    student = await _tutor_student(db, user, student_id)
+    try:
+        await clear_score(db, user.organization_id, student.id, criterion_id, user.id)
+    except (CriterionNotFound, CriterionConflict) as exc:
+        raise _criterion_error(exc) from exc
+    await db.commit()
