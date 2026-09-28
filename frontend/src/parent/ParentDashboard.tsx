@@ -5,6 +5,7 @@ import { studentNarrative } from "../api/narrative";
 import { studentReadiness, type SubjectReadiness } from "../api/readiness";
 import { DirectionMark, EmptyState, StatusBadge } from "../components/ui";
 import { ReportsPanel } from "../components/ReportsPanel";
+import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { ABSENT } from "../lib/labels";
 import { parentVerdict, provenance, whatYouCanDo } from "../lib/parent";
@@ -172,6 +173,10 @@ export default function ParentDashboard() {
           </section>
         </>
       )}
+
+      {/* The tutor's hand scores for this child, beside readiness and never
+          in it (owner decisions 6 and 18). */}
+      {selected !== null && <CustomCriteriaPanel studentId={selected} />}
 
       {selected !== null && (
         <ReportsPanel studentId={selected} audiences={["parent"]} canGenerate={false} />

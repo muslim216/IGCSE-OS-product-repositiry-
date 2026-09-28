@@ -1,4 +1,5 @@
 import TimezoneSetting from "./TimezoneSetting";
+import CustomCriteriaSetting from "./CustomCriteriaSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 
 /**
@@ -16,6 +17,7 @@ export default function SettingsPage() {
       <h2 className="text-xl font-semibold text-ink-900">Settings</h2>
       <TimezoneSetting />
       <MyTimezoneSetting />
+      <CustomCriteriaSetting />
     </div>
   );
 }

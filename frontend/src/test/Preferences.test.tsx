@@ -33,7 +33,7 @@ function config(subjectId: number | null, source: string, overrides: object = {}
   };
 }
 
-function stub(subjectSource: "subject" | "account", { failSave = false } = {}) {
+function stub(subjectSource: "subject" | "account", { failSave = false, refuseSave = false } = {}) {
   const calls: { method: string; url: string; body?: Record<string, unknown> }[] = [];
   let source = subjectSource;
   let accountTopicMastery = 1;
@@ -56,6 +56,13 @@ function stub(subjectSource: "subject" | "account", { failSave = false } = {}) {
         }
         if (method === "PUT") {
           if (failSave) return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+          if (refuseSave)
+            return new Response(
+              JSON.stringify({
+                detail: [{ loc: ["body"], msg: "Value error, switch on at least one factor" }],
+              }),
+              { status: 422 },
+            );
           if (subjectId !== null) source = "subject";
           else accountTopicMastery = body.weight_topic_mastery;
           return json({
@@ -200,4 +207,64 @@ test("a failed save's message does not follow the tutor to another scope", async
   });
   await screen.findByText(/using your account settings/i);
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("a subject inheriting the account can be customised, copying the account values", async () => {
+  const calls = stub("account");
+  renderPage();
+  await screen.findByRole("option", { name: /chemistry/i });
+  fireEvent.change(screen.getByRole("combobox", { name: /settings for/i }), {
+    target: { value: "7" },
+  });
+
+  // An edit made before customising is what gets saved, not the inherited value.
+  fireEvent.change(await screen.findByRole("slider", { name: "Topic mastery" }), {
+    target: { value: "2" },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /customise for this subject/i }));
+
+  await waitFor(() =>
+    expect(calls.some((c) => c.method === "PUT" && c.url.endsWith("subject_id=7"))).toBe(true),
+  );
+  const put = calls.find((c) => c.method === "PUT")!;
+  expect(put.body!.weight_topic_mastery).toBe(2);
+  expect(await screen.findByText(/this subject has its own settings/i)).toBeTruthy();
+  expect(screen.getByRole("button", { name: /remove override/i })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /customise for this subject/i })).toBeNull();
+});
+
+test("the account scope offers no customise action", async () => {
+  stub("account");
+  renderPage();
+  await screen.findByRole("slider", { name: "Topic mastery" });
+  expect(screen.queryByRole("button", { name: /customise for this subject/i })).toBeNull();
+});
+
+test("an unsaved edit does not follow the tutor to another scope", async () => {
+  stub("subject");
+  renderPage();
+  const topicMastery = async () =>
+    ((await screen.findByRole("slider", { name: "Topic mastery" })) as HTMLInputElement).value;
+  await screen.findByRole("option", { name: /chemistry/i });
+  expect(await topicMastery()).toBe("1");
+  fireEvent.change(screen.getByRole("slider", { name: "Topic mastery" }), {
+    target: { value: "3" },
+  });
+
+  fireEvent.change(screen.getByRole("combobox", { name: /settings for/i }), {
+    target: { value: "7" },
+  });
+  await waitFor(async () => expect(await topicMastery()).toBe("2.5"));
+
+  fireEvent.change(screen.getByRole("combobox", { name: /settings for/i }), {
+    target: { value: "" },
+  });
+  await waitFor(async () => expect(await topicMastery()).toBe("1"));
+});
+
+test("the server's refusal is shown in its own words", async () => {
+  stub("account", { refuseSave: true });
+  renderPage();
+  fireEvent.click(await screen.findByRole("button", { name: /^save$/i }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/at least one factor/i);
 });

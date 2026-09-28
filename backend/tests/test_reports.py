@@ -175,3 +175,93 @@ async def test_unrelated_parent_cannot_generate(client, tutor, world):
     )
     # A tutor who doesn't teach this student cannot see them.
     assert resp.status_code in (403, 404)
+
+
+# ---- Tutor-entered criteria (task 5.4c, owner decision 19) ----
+#
+# Appended after the AI writes, as a fixed list: the model never reads them, so
+# it cannot fold a tutor's hand score into prose that sounds measured.
+
+
+def _capturing_text_complete(calls: list[dict]):
+    from app.services.ai import AiProvider, AiResponse
+
+    async def _call(**kwargs) -> AiResponse:
+        calls.append(kwargs)
+        return AiResponse(
+            provider=AiProvider.anthropic, model="test", prompt_version="test", text="# Report"
+        )
+
+    return _call
+
+
+async def _generate(client, tutor, world, **body) -> dict:
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": world["student_id"], "audience": "parent", **body},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True
+    detail = await client.get(f"/api/v1/reports/{resp.json()['id']}", headers=tutor["headers"])
+    assert detail.json()["status"] == "ready", detail.text
+    return detail.json()
+
+
+async def test_report_lists_tutor_entered_criteria_the_ai_never_saw(
+    client, tutor, world, monkeypatch
+):
+    calls: list[dict] = []
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete(calls))
+    for name in ("Exam technique", "Confidence"):
+        resp = await client.post(
+            "/api/v1/custom-criteria", json={"name": name}, headers=tutor["headers"]
+        )
+        assert resp.status_code == 201, resp.text
+        if name == "Exam technique":
+            scored = await client.put(
+                f"/api/v1/students/{world['student_id']}/custom-criteria/{resp.json()['id']}",
+                json={"score": 70},
+                headers=tutor["headers"],
+            )
+            assert scored.status_code == 200, scored.text
+
+    content = (await _generate(client, tutor, world))["content"]
+
+    assert content.startswith("# Report")
+    assert "## Tutor-entered criteria" in content
+    assert "- Exam technique: 70 / 100 (tutor-entered)" in content
+    assert "- Confidence: Not scored" in content
+    [call] = calls
+    assert "Exam technique" not in repr(call)
+    assert "Confidence" not in repr(call)
+
+
+async def test_report_has_no_criteria_section_without_criteria(client, tutor, world, monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete(calls))
+    content = (await _generate(client, tutor, world))["content"]
+    assert content == "# Report"
+
+
+def test_criteria_section_keeps_to_the_reports_subject():
+    from app.models import CustomCriterion, CustomCriterionScore
+    from app.services.reports import criteria_section
+
+    everywhere = CustomCriterion(name="Confidence", subject_id=None)
+    chemistry = CustomCriterion(name="Practicals", subject_id=1)
+    physics = CustomCriterion(name="Graphs", subject_id=2)
+    rows = [
+        (everywhere, None),
+        (chemistry, CustomCriterionScore(score=0)),
+        (physics, CustomCriterionScore(score=40)),
+    ]
+
+    one = criteria_section(rows, subject_id=1)
+    assert "- Confidence: Not scored" in one
+    # Zero is a score, not an absence.
+    assert "- Practicals: 0 / 100 (tutor-entered)" in one
+    assert "Graphs" not in one
+    assert "- Graphs: 40 / 100 (tutor-entered)" in criteria_section(rows, subject_id=None)
+    assert criteria_section([], subject_id=None) == ""
+    assert criteria_section([(physics, None)], subject_id=1) == ""

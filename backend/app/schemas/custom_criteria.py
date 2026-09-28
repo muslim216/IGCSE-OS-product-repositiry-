@@ -16,8 +16,12 @@ def _strip(value: object, info: ValidationInfo) -> object:
     # `min_length` and a blank description becomes absent rather than spaces.
     if not isinstance(value, str):
         return value
-    value = value.strip()
-    return (value or None) if info.field_name == "description" else value
+    if info.field_name == "description":
+        return value.strip() or None
+    # A name is one line everywhere it appears. A report prints it into its
+    # Markdown, so a newline in one could forge a heading inside a document a
+    # parent reads as Avora's own — collapse every run of whitespace instead.
+    return " ".join(value.split())
 
 
 class CustomCriterionCreate(BaseModel):

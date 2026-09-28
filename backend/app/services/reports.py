@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     AiFeature,
+    CustomCriterion,
+    CustomCriterionScore,
     Group,
     GroupMember,
     Report,
@@ -16,6 +18,7 @@ from app.models import (
     User,
 )
 from app.services.ai import record_usage, text_complete
+from app.services.custom_criteria import criteria_for_student
 from app.services.knowledge import build_tutor_context
 from app.services.readiness_shared import WEAK_THRESHOLD
 from app.services.readiness_summary_v2 import build_summary_v2
@@ -127,6 +130,33 @@ async def _visible_subjects(
     return list(enrolled)
 
 
+def criteria_section(
+    rows: list[tuple[CustomCriterion, CustomCriterionScore | None]], subject_id: int | None
+) -> str:
+    """The tutor's hand scores as a fixed list for the end of a report (owner
+    decision 19). Appended after the AI has written, never passed to it: the
+    model must not blend a tutor's judgement into prose that reads as measured
+    (decision 6). A bullet list, not a table, because the report `Markdown`
+    renderer draws lists and not tables. Unscored says so — never 0 (`PROD-2`)."""
+    lines = [
+        f"- {criterion.name}: "
+        + ("Not scored" if score is None else f"{score.score} / 100 (tutor-entered)")
+        for criterion, score in rows
+        if subject_id is None or criterion.subject_id in (None, subject_id)
+    ]
+    if not lines:
+        return ""
+    return "\n".join(
+        [
+            "## Tutor-entered criteria",
+            "",
+            "Scored by the tutor, not measured by Avora. Not part of the readiness score.",
+            "",
+            *lines,
+        ]
+    )
+
+
 async def _write_report(
     audience: ReportAudience,
     facts: str,
@@ -190,6 +220,12 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
             student_id=report.student_id,
             kb_context=kb_context,
         )
+        criteria = criteria_section(
+            await criteria_for_student(session, student.organization_id, student.id),
+            report.subject_id,
+        )
+        if criteria:
+            report.content = f"{report.content}\n\n{criteria}"
         report.status = ReportStatus.ready
         from app.models.base import utcnow
 
