@@ -13,6 +13,7 @@ import { listTopics } from "../api/syllabus";
 import { studentMistakes, type MistakeTally } from "../api/students";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
+import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import { ABSENT, sourceLabel } from "../lib/labels";
 
 export default function StudentDetailPage() {
@@ -105,6 +106,9 @@ export default function StudentDetailPage() {
           <p className="text-slate-500">No readiness data yet for this student.</p>
         )}
       </div>
+
+      {/* Beside readiness, never in it (owner decision 6). */}
+      <CustomCriteriaPanel studentId={sid} editable />
 
       {/* One per subject, each named. A single section fed by the page's
           `subjectId` showed the first subject's mistakes under a bare

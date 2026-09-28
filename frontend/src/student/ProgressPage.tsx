@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { myReadiness, type SubjectReadiness } from "../api/readiness";
 import { DirectionMark, EmptyState } from "../components/ui";
 import { ReportsPanel } from "../components/ReportsPanel";
+import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import { ABSENT } from "../lib/labels";
 import { GAP_SENTENCE, gradeGap, movementSentence } from "../lib/student";
 
@@ -183,6 +184,8 @@ export default function ProgressPage() {
       {subjects.map((s) => (
         <SubjectProgress key={s.subject_id} subject={s} />
       ))}
+      {/* Beside readiness, never in it (owner decisions 6 and 18). */}
+      <CustomCriteriaPanel studentId={readiness.data.student_id} />
       {/* Written reports are the last rung of the hierarchy — detail, under the
           numbers and their explanation. They moved here with the rest of the
           student's backward-looking view when the old Readiness page was

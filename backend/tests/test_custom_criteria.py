@@ -124,6 +124,11 @@ async def test_the_subject_cannot_be_changed_after_creation(client, tutor, world
     assert resp.status_code == 422
 
 
+async def test_a_name_is_one_line(client, tutor):
+    created = await _create(client, tutor["headers"], name="Exam\n# Fake heading\n  technique")
+    assert created["name"] == "Exam # Fake heading technique"
+
+
 async def test_a_blank_name_is_refused(client, tutor):
     assert (
         await client.post(BASE, json={"name": "   "}, headers=tutor["headers"])
@@ -326,24 +331,69 @@ async def test_a_student_the_tutor_does_not_teach_is_not_found(client, tutor, wo
     assert await _audit(rival["student_id"], mine["id"]) == []
 
 
-async def test_students_and_parents_are_refused_on_every_route(client, tutor, world):  # noqa: F811
-    criterion = await _create(client, tutor["headers"])
+async def _parent_of(client, tutor_headers, student_id: int, email: str) -> dict:
     code = (
-        await client.post(
-            f"/api/v1/students/{world['student_id']}/parent-code", headers=tutor["headers"]
-        )
+        await client.post(f"/api/v1/students/{student_id}/parent-code", headers=tutor_headers)
     ).json()["code"]
     parent = await client.post(
         "/api/v1/auth/register/parent",
-        json={
-            "link_code": code,
-            "name": "Parent",
-            "email": "parent@example.com",
-            "password": "password123",
-        },
+        json={"link_code": code, "name": "Parent", "email": email, "password": "password123"},
     )
     assert parent.status_code == 201, parent.text
-    parent_headers = {"Authorization": f"Bearer {parent.json()['tokens']['access_token']}"}
+    return {"Authorization": f"Bearer {parent.json()['tokens']['access_token']}"}
+
+
+async def _second_student(client, tutor_headers, group_id: int) -> dict:
+    student = (
+        await client.post(
+            f"/api/v1/groups/{group_id}/students",
+            json={"name": "Lina", "username": "lina01", "password": "password123"},
+            headers=tutor_headers,
+        )
+    ).json()
+    login = await client.post(
+        "/api/v1/auth/login", json={"identifier": "lina01", "password": "password123"}
+    )
+    return {
+        "id": student["id"],
+        "headers": {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"},
+    }
+
+
+async def test_a_student_and_their_linked_parent_read_the_scores(client, tutor, world):  # noqa: F811
+    """Decision 18: the student and their parent see the tutor's scores."""
+    criterion = await _create(client, tutor["headers"])
+    score_url = _scores_url(world["student_id"], criterion["id"])
+    assert (
+        await client.put(score_url, json={"score": 70}, headers=tutor["headers"])
+    ).status_code == 200
+    parent_headers = await _parent_of(
+        client, tutor["headers"], world["student_id"], "parent@example.com"
+    )
+
+    for headers in (world["student_headers"], parent_headers):
+        resp = await client.get(_scores_url(world["student_id"]), headers=headers)
+        assert resp.status_code == 200, resp.text
+        [row] = resp.json()
+        assert (row["name"], row["score"], row["source"]) == ("Exam technique", 70, "tutor")
+
+
+async def test_nobody_reads_another_familys_scores(client, tutor, world):  # noqa: F811
+    await _create(client, tutor["headers"])
+    other = await _second_student(client, tutor["headers"], world["group"]["id"])
+    other_parent = await _parent_of(client, tutor["headers"], other["id"], "other@example.com")
+    # Another student, and a parent linked only to another student.
+    for headers in (other["headers"], other_parent):
+        resp = await client.get(_scores_url(world["student_id"]), headers=headers)
+        assert resp.status_code in (403, 404), resp.text
+
+
+async def test_students_and_parents_cannot_manage_or_score(client, tutor, world):  # noqa: F811
+    """Reading is widened (decision 18); every write stays tutor-only."""
+    criterion = await _create(client, tutor["headers"])
+    parent_headers = await _parent_of(
+        client, tutor["headers"], world["student_id"], "parent@example.com"
+    )
     score_url = _scores_url(world["student_id"], criterion["id"])
 
     for headers in (world["student_headers"], parent_headers):
@@ -351,7 +401,6 @@ async def test_students_and_parents_are_refused_on_every_route(client, tutor, wo
             client.get(BASE, headers=headers),
             client.post(BASE, json={"name": "x"}, headers=headers),
             client.patch(f"{BASE}/{criterion['id']}", json={"name": "x"}, headers=headers),
-            client.get(_scores_url(world["student_id"]), headers=headers),
             client.put(score_url, json={"score": 1}, headers=headers),
             client.delete(score_url, headers=headers),
         ]

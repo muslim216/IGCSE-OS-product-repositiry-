@@ -202,6 +202,19 @@ export default function PreferencesPage() {
         <div className="space-y-5 rounded-lg border border-line bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-ink-500">{sourceNote(prefs.data)}</p>
+            {prefs.data.subject_id !== null && prefs.data.source !== "subject" && (
+              <button
+                // Saves the draft on screen — the inherited values plus any
+                // edit already made — as this subject's own override. Sending
+                // `prefs.data` would store the unedited values while the
+                // sliders kept showing the edit as if it had saved.
+                onClick={() => save.mutate({ scope: subjectId, payload: form })}
+                disabled={save.isPending}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+              >
+                Customise for this subject
+              </button>
+            )}
             {prefs.data.subject_id !== null && prefs.data.source === "subject" && (
               <button
                 onClick={() => remove.mutate(prefs.data.subject_id!)}
@@ -265,7 +278,7 @@ export default function PreferencesPage() {
           </div>
           {(save.isError || remove.isError) && (
             <p className="text-sm text-risk-600" role="alert">
-              That did not save. {ABSENT.loadFailed}
+              That did not save. {(save.error ?? remove.error)?.message || ABSENT.loadFailed}
             </p>
           )}
         </div>

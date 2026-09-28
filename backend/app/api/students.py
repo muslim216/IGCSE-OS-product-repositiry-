@@ -347,10 +347,11 @@ async def student_mistakes(
 
 # ---- Custom criteria scores (task 5.4b) ----
 #
-# Hand-entered by a tutor, shown beside readiness and never in it. The tutor
-# must teach the student (`_tutor_student`) and own the criterion; either
-# failing is a 404 (`API-7`). Only this tutor-facing surface exposes them until
-# 5.4c labels them "tutor-entered" on the profile, reports and parent view.
+# Hand-entered by a tutor, shown beside readiness and never in it. Writes need
+# a tutor who teaches the student (`_tutor_student`) and owns the criterion;
+# either failing is a 404 (`API-7`). Reading is wider (owner decision 18): the
+# student sees their own scores and a linked parent their child's, each
+# labelled "tutor-entered" by the client from `source` (`PROD-8`).
 
 
 def _criterion_error(exc: Exception) -> HTTPException:
@@ -361,10 +362,12 @@ def _criterion_error(exc: Exception) -> HTTPException:
 
 @router.get("/{student_id}/custom-criteria", response_model=list[StudentCriterionScoreOut])
 async def student_custom_criteria(
-    student_id: int, db: DbSession, user: TutorUser
+    student_id: int, db: DbSession, user: CurrentUser
 ) -> list[StudentCriterionScoreOut]:
-    student = await _tutor_student(db, user, student_id)
-    rows = await criteria_for_student(db, user.organization_id, student.id)
+    student = await _viewable_student(db, user, student_id)
+    # The student's organization, not the caller's: that is whose criteria
+    # apply, and for a tutor who teaches them it is the same one.
+    rows = await criteria_for_student(db, student.organization_id, student.id)
     return [
         StudentCriterionScoreOut(
             criterion_id=criterion.id,
