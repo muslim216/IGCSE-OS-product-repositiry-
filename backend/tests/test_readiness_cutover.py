@@ -69,17 +69,9 @@ async def _write_snapshot(
                 status=status,
                 score=score,
                 predicted_grade=predicted_grade,
-                # The shape `compute_readiness_v2` actually stores, `topic_title`
-                # included: `/readiness/v2` validates these rows through
-                # `WeakTopicOut`, which requires the key, so a fixture missing it
-                # 500s that endpoint for a reason no product code would ever hit.
-                weak_topics=[
-                    {
-                        "topic_id": world["topic1"],
-                        "topic_title": "Ionic bonding",
-                        "reason": "Weak on bonding",
-                    }
-                ],
+                # What `compute_readiness_v2` stores since 5.6: weak topics are
+                # derived from the factor row above at read time.
+                weak_topics=[],
                 rationale="Homework performance is carrying the score.",
                 recommended_revision="Two past paper questions on bonding.",
                 **({"created_at": created_at} if created_at else {}),

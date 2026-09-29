@@ -50,7 +50,7 @@ async def test_report_facts_read_v2(tutor, world):  # noqa: F811
         facts = await build_report_facts(session, student, [world["subject_id"]])
 
     assert "Overall readiness: 72.0%" in facts
-    assert "Weakest topics: Ionic bonding (45%)" in facts  # 45 <= WEAK_THRESHOLD
+    assert "Weakest topics: Ionic bonding (45%)" in facts  # 45 <= the default threshold of 60
     assert "Atomic structure" not in facts.split("Weakest topics:")[1]
     assert "Trend: improved" in facts
     assert "Homework: submitted 4 of 5 assignments" in facts

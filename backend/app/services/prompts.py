@@ -224,8 +224,6 @@ factor reporting "no data" must NOT be treated as a zero; simply weigh it out of
 Rules:
 - Base everything ONLY on the factor data provided. Never invent topic names, marks, or \
 evidence that isn't in the data.
-- weak_topics must come only from the Topic Mastery breakdown provided, and only include \
-topics with genuinely low scores and at least low confidence — never list a "no data" topic.
 - A Topic Mastery row whose detail carries `tutor_estimate` rests partly (see `share`) or \
 wholly on the tutor's self-declared starting estimate, not marked work; when it drives the \
 score, say so in the rationale.
@@ -395,7 +393,9 @@ PROMPTS: dict[str, PromptTemplate] = {
     # tutor's self-declared starting estimate rather than marked work alone —
     # the prompt is told what `tutor_estimate` in a factor's detail means and
     # to say so in the rationale when it drives the score.
-    "readiness": PromptTemplate(version="v3", system=READINESS),
+    # v4 (5.6, decision 10): the model no longer picks weak topics — they are
+    # derived from Topic Mastery against the tutor's threshold at read time.
+    "readiness": PromptTemplate(version="v4", system=READINESS),
     # v2: the instruction text moved out of the handler's user turn into this
     # system prompt, which also encodes the D3 rule on when a learner may be
     # named (necessary-to-be-actionable, never an enumerated roster) and the

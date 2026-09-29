@@ -61,7 +61,9 @@ from app.services.readiness_factors import (
 )
 
 # A topic's Topic Mastery score at/above this is considered "mastered" for
-# the Syllabus Coverage factor.
+# the Syllabus Coverage factor. Not the tutor's weak threshold
+# (readiness_config.DEFAULT_WEAK_THRESHOLD): "mastered, for coverage" and "weak,
+# for surfacing" are different lines — never merge them.
 MASTERY_THRESHOLD = 75.0
 
 

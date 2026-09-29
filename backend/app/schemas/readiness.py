@@ -22,7 +22,7 @@ class WeakTopic(BaseModel):
     topic_code: str
     topic_title: str
     score: float
-    # An AI-picked weak topic can rest on a tutor's estimate rather than
+    # A weak topic can rest on a tutor's estimate rather than
     # marked work — self-declared data is labelled wherever it is shown, and
     # a chip is a place it is shown (fix round 1, PROD-8, UX-20).
     tutor_estimate: bool = False
@@ -224,6 +224,7 @@ class ReadinessWeightsOut(BaseModel):
     enabled_syllabus_coverage: bool
     enabled_mistake_analysis: bool
     half_life_days: float
+    weak_threshold: float
     #: The scope asked for; None is the account-wide row.
     subject_id: int | None
     #: Where these values came from — "subject" means an override exists.
@@ -246,6 +247,11 @@ class ReadinessWeightsUpdate(BaseModel):
     enabled_syllabus_coverage: bool = True
     enabled_mistake_analysis: bool = True
     half_life_days: float = Field(ge=7, le=365)
+    # Optional so a client that predates the threshold (task 5.6) is not
+    # refused — the frontend and API deploy separately. Omitted means "keep
+    # what this scope resolves to now", never "reset to 60": a parsed default
+    # would silently overwrite a tutor's value on every such save.
+    weak_threshold: float | None = Field(default=None, ge=0, le=100)
 
     @model_validator(mode="after")
     def _at_least_one_factor(self) -> "ReadinessWeightsUpdate":

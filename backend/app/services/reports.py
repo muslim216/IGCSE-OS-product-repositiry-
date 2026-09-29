@@ -20,7 +20,6 @@ from app.models import (
 from app.services.ai import record_usage, text_complete
 from app.services.custom_criteria import criteria_for_student
 from app.services.knowledge import build_tutor_context
-from app.services.readiness_shared import WEAK_THRESHOLD
 from app.services.readiness_summary_v2 import build_summary_v2
 
 AUDIENCE_GUIDANCE = {
@@ -71,9 +70,8 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
                 else f"Overall readiness: {s.score}% (no grade boundaries set for this subject)"
             )
             strong = sorted(s.topics, key=lambda t: t.score, reverse=True)[:3]
-            weak = sorted(
-                (t for t in s.topics if t.score <= WEAK_THRESHOLD), key=lambda t: t.score
-            )[:5]
+            # Already the tutor's threshold for this subject, lowest first.
+            weak = s.weak_topics
             if strong:
                 lines.append(
                     "Strongest topics: "

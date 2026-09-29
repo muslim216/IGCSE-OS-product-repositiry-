@@ -12550,6 +12550,10 @@
             "type": "number",
             "title": "Half Life Days"
           },
+          "weak_threshold": {
+            "type": "number",
+            "title": "Weak Threshold"
+          },
           "subject_id": {
             "anyOf": [
               {
@@ -12586,6 +12590,7 @@
           "enabled_syllabus_coverage",
           "enabled_mistake_analysis",
           "half_life_days",
+          "weak_threshold",
           "subject_id",
           "source"
         ],
@@ -12664,6 +12669,19 @@
             "maximum": 365.0,
             "minimum": 7.0,
             "title": "Half Life Days"
+          },
+          "weak_threshold": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weak Threshold"
           }
         },
         "type": "object",
@@ -15559,18 +15577,19 @@
             ],
             "title": "Topic Title"
           },
-          "reason": {
-            "type": "string",
-            "title": "Reason"
+          "score": {
+            "type": "number",
+            "title": "Score"
           }
         },
         "type": "object",
         "required": [
           "topic_id",
           "topic_title",
-          "reason"
+          "score"
         ],
-        "title": "WeakTopicOut"
+        "title": "WeakTopicOut",
+        "description": "Derived from this run's Topic Mastery rows and the tutor's current\nthreshold (task 5.6) \u2014 the score is the reason; the AI no longer writes one."
       }
     },
     "securitySchemes": {

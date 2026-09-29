@@ -4329,6 +4329,8 @@ export interface components {
             enabled_mistake_analysis: boolean;
             /** Half Life Days */
             half_life_days: number;
+            /** Weak Threshold */
+            weak_threshold: number;
             /** Subject Id */
             subject_id: number | null;
             /**
@@ -4383,6 +4385,8 @@ export interface components {
             enabled_mistake_analysis: boolean;
             /** Half Life Days */
             half_life_days: number;
+            /** Weak Threshold */
+            weak_threshold?: number | null;
         };
         /** RefreshRequest */
         RefreshRequest: {
@@ -5366,14 +5370,18 @@ export interface components {
              */
             tutor_estimate: boolean;
         };
-        /** WeakTopicOut */
+        /**
+         * WeakTopicOut
+         * @description Derived from this run's Topic Mastery rows and the tutor's current
+         *     threshold (task 5.6) — the score is the reason; the AI no longer writes one.
+         */
         WeakTopicOut: {
             /** Topic Id */
             topic_id: number;
             /** Topic Title */
             topic_title: string | null;
-            /** Reason */
-            reason: string;
+            /** Score */
+            score: number;
         };
     };
     responses: never;

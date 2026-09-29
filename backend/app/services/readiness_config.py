@@ -29,6 +29,10 @@ FACTOR_WEIGHT_ATTR = {
 DEFAULT_WEIGHTS = dict.fromkeys(FACTOR_WEIGHT_ATTR.values(), 1.0)
 #: Mirrors the model's column default.
 DEFAULT_HALF_LIFE_DAYS = 45.0
+#: Mirrors the model's column default. Topic Mastery at or below this is shown
+#: as weak (decision 10). Not MASTERY_THRESHOLD (readiness_v2.py): that line is
+#: "mastered, for coverage", this one "weak, for surfacing" — never merge them.
+DEFAULT_WEAK_THRESHOLD = 60.0
 
 ConfigSource = Literal["subject", "account", "default"]
 
@@ -42,6 +46,7 @@ class ReadinessConfig:
     weights: dict[str, float]
     enabled: frozenset[ReadinessFactor]
     half_life_days: float
+    weak_threshold: float
     source: ConfigSource
 
 
@@ -50,6 +55,7 @@ def config_from_row(row: ReadinessWeights, source: ConfigSource) -> ReadinessCon
         weights={attr: getattr(row, attr) for attr in DEFAULT_WEIGHTS},
         enabled=frozenset(f for f in FACTOR_WEIGHT_ATTR if getattr(row, enabled_attr(f))),
         half_life_days=row.half_life_days,
+        weak_threshold=row.weak_threshold,
         source=source,
     )
 
@@ -82,5 +88,6 @@ async def resolve_readiness_config(
         weights=dict(DEFAULT_WEIGHTS),
         enabled=frozenset(FACTOR_WEIGHT_ATTR),
         half_life_days=DEFAULT_HALF_LIFE_DAYS,
+        weak_threshold=DEFAULT_WEAK_THRESHOLD,
         source="default",
     )

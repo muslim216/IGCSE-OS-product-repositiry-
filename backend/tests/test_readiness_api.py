@@ -220,9 +220,7 @@ async def test_homework_finalize_feeds_readiness(client, tutor, world, monkeypat
     # That run, synthesised by a stand-in model (QA-8).
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
-        fake_ai(
-            ReadinessSynthesis(score=80.0, weak_topics=[], rationale="r", recommended_revision="r")
-        ),
+        fake_ai(ReadinessSynthesis(score=80.0, rationale="r", recommended_revision="r")),
     )
     async with async_session() as session:
         await compute_readiness_v2(

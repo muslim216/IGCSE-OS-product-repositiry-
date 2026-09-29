@@ -27,6 +27,7 @@ function config(subjectId: number | null, source: string, overrides: object = {}
     ...Object.fromEntries(FACTORS.map((f) => [`weight_${f}`, 1])),
     ...Object.fromEntries(FACTORS.map((f) => [`enabled_${f}`, true])),
     half_life_days: 45,
+    weak_threshold: 60,
     subject_id: subjectId,
     source,
     ...overrides,
@@ -267,4 +268,39 @@ test("the server's refusal is shown in its own words", async () => {
   renderPage();
   fireEvent.click(await screen.findByRole("button", { name: /^save$/i }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/at least one factor/i);
+});
+
+test("an edited weak threshold is what Save sends, and an empty one cannot be saved", async () => {
+  const calls = stub("account");
+  renderPage();
+  const input = (await screen.findByRole("spinbutton", {
+    name: /weak topic threshold/i,
+  })) as HTMLInputElement;
+  expect(input.value).toBe("60");
+
+  fireEvent.change(input, { target: { value: "" } });
+  const save = screen.getByRole("button", { name: /^save$/i }) as HTMLButtonElement;
+  await waitFor(() => expect(save.disabled).toBe(true));
+
+  fireEvent.change(input, { target: { value: "45" } });
+  await waitFor(() => expect(save.disabled).toBe(false));
+  fireEvent.click(save);
+  await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+  expect(calls.find((c) => c.method === "PUT")!.body!.weak_threshold).toBe(45);
+});
+
+test("a threshold-only save does not claim a recompute; a weight change does", async () => {
+  stub("account");
+  renderPage();
+  const input = await screen.findByRole("spinbutton", { name: /weak topic threshold/i });
+  fireEvent.change(input, { target: { value: "50" } });
+  fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+  expect(await screen.findByText("Saved.")).toBeTruthy();
+  expect(screen.queryByText(/recomputing/i)).toBeNull();
+
+  fireEvent.change(screen.getByRole("slider", { name: /half-life/i }), {
+    target: { value: "30" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+  expect(await screen.findByText(/recomputing readiness/i)).toBeTruthy();
 });

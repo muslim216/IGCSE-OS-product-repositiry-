@@ -33,6 +33,7 @@ from app.models import (
     Topic,
     User,
 )
+from app.services.readiness_config import resolve_readiness_config
 from app.services.readiness_shared import CONFIDENT
 
 
@@ -282,3 +283,14 @@ async def class_readiness(
     return ClassReadiness(
         score=score, scored=scored, unscored=unscored, topic_means=topic_means, homework=homework
     )
+
+
+async def weak_topic_means(
+    session: AsyncSession, group: Group, detail: ClassReadiness
+) -> list[TopicMean]:
+    """The class's weak topics: means at or below the threshold resolved for
+    the class's own (organization, subject), lowest first (task 5.6). One
+    filter, so Group Analytics and the class page cannot disagree about which
+    topics a class is weak on."""
+    config = await resolve_readiness_config(session, group.organization_id, group.subject_id)
+    return [t for t in detail.topic_means if t.avg_score <= config.weak_threshold]
