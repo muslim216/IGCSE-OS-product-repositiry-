@@ -53,6 +53,17 @@ const FACTORS: { weight: WeightKey; enabled: EnabledKey; label: string; hint: st
   },
 ];
 
+/** Mirrors the API's own test for whether a save recomputes: any score input
+ * changed. The weak threshold is not one — it is applied when read. Unknown
+ * previous values (nothing cached) count as a change, the safe claim. */
+function rescores(next: ReadinessWeights, prev: ReadinessWeights | undefined): boolean {
+  if (!prev) return true;
+  return (
+    next.half_life_days !== prev.half_life_days ||
+    FACTORS.some((f) => next[f.weight] !== prev[f.weight] || next[f.enabled] !== prev[f.enabled])
+  );
+}
+
 function Slider({
   label,
   value,
@@ -130,20 +141,26 @@ export default function PreferencesPage() {
       setForm(prefs.data);
     }
   }, [prefs.data, prefs.isFetching, hydratedFor]);
-  const [saved, setSaved] = useState(false);
+  // "rescoring" | "threshold": a threshold-only save recomputes nothing (the
+  // API skips it — weak topics are read against the threshold at display
+  // time), so the banner must not claim a recompute is on its way.
+  const [saved, setSaved] = useState<"rescoring" | "threshold" | null>(null);
 
   // Each mutation carries the scope it was sent for: its callbacks settle after
   // the tutor may have switched the selector, and must not act on the new one.
   const save = useMutation({
     mutationFn: ({ scope, payload }: { scope: number | null; payload: ReadinessWeights }) =>
       updateReadinessWeights(scope, payload),
-    onSuccess: (data, { scope }) => {
+    onSuccess: (data, { scope, payload }) => {
+      // Read before the cache is overwritten: what this scope resolved to
+      // until now, which is what the API compared the save against.
+      const before = queryClient.getQueryData<ReadinessWeights>(["readiness-weights", scope]);
       // Saving the account row changes what every subject without an override
       // shows, so every scope is refetched, not only this one.
       void queryClient.invalidateQueries({ queryKey: ["readiness-weights"] });
       queryClient.setQueryData(["readiness-weights", scope], data);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setSaved(rescores(payload, before) ? "rescoring" : "threshold");
+      setTimeout(() => setSaved(null), 2000);
     },
   });
 
@@ -163,6 +180,15 @@ export default function PreferencesPage() {
   const ready = form !== null && prefs.data !== undefined && hydratedFor === subjectId;
   // Mirrors the API's own refusal: a score from no factors is not a score.
   const noneEnabled = form !== null && FACTORS.every((f) => !form[f.enabled]);
+  // A cleared box is NaN, never sent: the API would refuse it, and 0 would
+  // silently hide every weak topic.
+  const badThreshold =
+    form !== null &&
+    !(
+      Number.isFinite(form.weak_threshold) &&
+      form.weak_threshold >= 0 &&
+      form.weak_threshold <= 100
+    );
 
   return (
     <div className="max-w-xl space-y-4">
@@ -181,7 +207,7 @@ export default function PreferencesPage() {
           // A message about the last scope's save must not read as this one's.
           save.reset();
           remove.reset();
-          setSaved(false);
+          setSaved(null);
           setSubjectId(e.target.value === "" ? null : Number(e.target.value));
         }}
         className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
@@ -209,7 +235,7 @@ export default function PreferencesPage() {
                 // `prefs.data` would store the unedited values while the
                 // sliders kept showing the edit as if it had saved.
                 onClick={() => save.mutate({ scope: subjectId, payload: form })}
-                disabled={save.isPending}
+                disabled={save.isPending || noneEnabled || badThreshold}
                 className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
               >
                 Customise for this subject
@@ -257,6 +283,26 @@ export default function PreferencesPage() {
             step={1}
             onChange={(v) => setForm({ ...form, half_life_days: v })}
           />
+          <label className="block text-sm">
+            <span className="font-medium text-ink-700">Weak topic threshold</span>
+            <span className="mt-1 flex items-center gap-1">
+              <input
+                type="number"
+                aria-label="Weak topic threshold"
+                min={0}
+                max={100}
+                step={1}
+                value={Number.isNaN(form.weak_threshold) ? "" : form.weak_threshold}
+                onChange={(e) => setForm({ ...form, weak_threshold: e.target.valueAsNumber })}
+                className="w-20 rounded-md border border-line-control bg-surface px-2 py-1 text-sm"
+              />
+              <span className="text-ink-500">%</span>
+            </span>
+            <span className="mt-1 block text-xs text-ink-500">
+              Topics at or below this mastery score are shown as weak. Takes effect straight away;
+              no scores are recalculated.
+            </span>
+          </label>
           <p className="text-xs text-ink-500">
             Higher weights count that factor more; a shorter half-life makes recent evidence
             dominate faster. A factor with no evidence is weighed out of the score rather than
@@ -266,14 +312,21 @@ export default function PreferencesPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => save.mutate({ scope: subjectId, payload: form })}
-              disabled={save.isPending || noneEnabled}
+              disabled={save.isPending || noneEnabled || badThreshold}
               className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
             >
               {save.isPending ? "Saving…" : "Save"}
             </button>
-            {saved && <span className="text-sm text-ok-700">Saved — recomputing readiness…</span>}
+            {saved && (
+              <span className="text-sm text-ok-700">
+                {saved === "rescoring" ? "Saved — recomputing readiness…" : "Saved."}
+              </span>
+            )}
             {noneEnabled && (
               <span className="text-sm text-risk-600">Keep at least one factor switched on.</span>
+            )}
+            {badThreshold && (
+              <span className="text-sm text-risk-600">Enter a threshold from 0 to 100.</span>
             )}
           </div>
           {(save.isError || remove.isError) && (

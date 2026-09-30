@@ -217,14 +217,10 @@ def _enforce_factor_score_constraint(score: float, reference: float | None) -> f
     return clamped
 
 
-class WeakTopicSuggestion(BaseModel):
-    topic_id: int = Field(description="Must be one of the topic ids in the Topic Mastery breakdown")
-    reason: str = Field(description="Why this topic needs attention, from the data only")
-
-
 class ReadinessSynthesis(BaseModel):
+    # No weak_topics: since 5.6 they are derived from Topic Mastery against the
+    # tutor's threshold at read time (decision 10), never picked by the model.
     score: float = Field(ge=0, le=100)
-    weak_topics: list[WeakTopicSuggestion]
     rationale: str
     recommended_revision: str
 
@@ -307,7 +303,7 @@ async def _synthesize_subject(
         f"Student: {student.name}\n"
         f"Subject: {subject.name} ({subject.exam_board} {subject.code})\n\n"
         f"Factor sub-scores:\n{factors_text}\n\n"
-        "Synthesize the overall readiness score, weak topics, rationale, and recommended revision."
+        "Synthesize the overall readiness score, rationale, and recommended revision."
     )
 
     try:
@@ -352,19 +348,6 @@ async def _synthesize_subject(
     # column is nullable for exactly this (AV-11, PROD-2).
     grade = predict_grade(score, boundaries) if boundaries else None
 
-    valid_topic_ids = {
-        row.topic_id for row in factor_rows if row.factor == ReadinessFactor.topic_mastery
-    }
-    weak_topics = [
-        {
-            "topic_id": w.topic_id,
-            "topic_title": topics_by_id[w.topic_id].title if w.topic_id in topics_by_id else None,
-            "reason": w.reason,
-        }
-        for w in result.weak_topics
-        if w.topic_id in valid_topic_ids
-    ]
-
     session.add(
         ReadinessSnapshot(
             evaluation_run_id=evaluation_run_id,
@@ -373,7 +356,7 @@ async def _synthesize_subject(
             status=AiSynthesisStatus.ready,
             score=score,
             predicted_grade=grade,
-            weak_topics=weak_topics,
+            weak_topics=[],
             rationale=result.rationale,
             recommended_revision=result.recommended_revision,
         )

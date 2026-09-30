@@ -1,8 +1,9 @@
 """Serves the readiness UI/API from Readiness Engine v2.
 
 v2 is the system of record for what the app shows: the latest ReadinessSnapshot
-per subject supplies the overall score, predicted grade and weak topics, and
-that run's topic_mastery FactorEvaluation rows supply the per-topic bars.
+per subject supplies the overall score and predicted grade, and that run's
+topic_mastery FactorEvaluation rows supply the per-topic bars and — against the
+tutor's threshold — the weak topics.
 
 Two deliberate behaviours:
 
@@ -17,6 +18,8 @@ Two deliberate behaviours:
   say "recalculating" over the last known score instead of presenting a stale
   number as current.
 """
+
+from collections.abc import Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +43,7 @@ from app.schemas.readiness import (
 )
 from app.services.averaging import subject_averaging
 from app.services.grades import grade_band, predict_grade
+from app.services.readiness_config import resolve_readiness_config
 from app.services.readiness_shared import (
     month_delta,
     scores_of,
@@ -50,6 +54,28 @@ from app.services.readiness_v2_ai import in_flight_readiness_pairs, resolve_grad
 
 # Job types whose presence means "a new score is on its way".
 _IN_FLIGHT = (JobStatus.pending, JobStatus.running)
+
+#: How many weak topics a surface lists.
+WEAK_TOPIC_LIMIT = 5
+
+
+def weak_topic_rows(rows: Sequence[FactorEvaluation], threshold: float) -> list[FactorEvaluation]:
+    """A run's weak topics, lowest first (task 5.6, decision 10): Topic Mastery
+    rows with a score, confidence better than no_data, at or below the tutor's
+    threshold. Deterministic and read-time — the AI no longer picks them, so a
+    threshold change shows at once with no recompute. A "no data" topic is
+    never weak: it has no measurement to be weak on (PROD-2)."""
+    weak = [
+        r
+        for r in rows
+        if r.factor == ReadinessFactor.topic_mastery
+        and r.topic_id is not None
+        and r.chapter_id is None
+        and r.score is not None
+        and r.confidence != FactorConfidence.no_data
+        and r.score <= threshold
+    ]
+    return sorted(weak, key=lambda r: (r.score, r.topic_id))[:WEAK_TOPIC_LIMIT]
 
 
 async def latest_ready_snapshot(
@@ -141,25 +167,28 @@ async def _subject_from_snapshot(
         and row.confidence != FactorConfidence.no_data
     ]
     topic_out.sort(key=lambda t: t.topic_code)
-    # One lookup, shared by score and the label below — an AI-picked weak
-    # topic can be estimate-only at confidence `low` (fix round 1), and the
-    # chip has to say so exactly when the matching topic row does.
+    # One lookup, so a weak topic's chip carries the same estimate label as
+    # its bar — an estimate-only topic can be weak at confidence `low` (fix
+    # round 1).
     topic_out_by_id = {t.topic_id: t for t in topic_out}
-
+    config = await resolve_readiness_config(db, student.organization_id, subject.id)
     weak = [
         WeakTopic(
-            topic_id=w["topic_id"],
-            topic_code=topics[w["topic_id"]].code,
-            topic_title=topics[w["topic_id"]].title,
-            score=topic_out_by_id[w["topic_id"]].score if w["topic_id"] in topic_out_by_id else 0.0,
-            tutor_estimate=(
-                topic_out_by_id[w["topic_id"]].tutor_estimate
-                if w["topic_id"] in topic_out_by_id
-                else False
-            ),
+            topic_id=t.topic_id,
+            topic_code=t.topic_code,
+            topic_title=t.topic_title,
+            score=t.score,
+            tutor_estimate=t.tutor_estimate,
         )
-        for w in snapshot.weak_topics
-        if isinstance(w, dict) and w.get("topic_id") in topics
+        for t in (
+            topic_out_by_id[r.topic_id]
+            # Only rows that made a bar, so a topic deleted since the run can
+            # never take one of the five places.
+            for r in weak_topic_rows(
+                [r for r in rows if r.topic_id in topic_out_by_id], config.weak_threshold
+            )
+            if r.topic_id is not None  # always true; narrows the type
+        )
     ]
 
     # Band and averaging both map through the same list the snapshot's
@@ -221,7 +250,7 @@ async def _subject_from_snapshot(
         homework_assignment_count=homework_detail.get("assignment_count"),
         homework_submitted_count=homework_detail.get("submitted_count"),
         topics=topic_out,
-        weak_topics=weak[:5],
+        weak_topics=weak,
         rationale=snapshot.rationale,
         recommended_revision=snapshot.recommended_revision,
     )

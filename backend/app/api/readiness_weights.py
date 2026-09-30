@@ -9,6 +9,10 @@ Since task 5.4a a subject may carry its own override row, which replaces the
 account row whole (decision 8) — the precedence lives in
 services/readiness_config.py, not here. `?subject_id=` picks the scope; no
 parameter is the account row.
+
+The weak-topic threshold (task 5.6) rides on the same row but is read at
+display time, so a save that changes only the threshold recomputes nothing —
+each recompute is an AI call per student in scope.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -20,6 +24,7 @@ from app.models import Group, GroupMember, ReadinessWeights, Subject, User
 from app.schemas.readiness import ReadinessWeightsOut, ReadinessWeightsUpdate
 from app.services.readiness_config import (
     FACTOR_WEIGHT_ATTR,
+    config_from_row,
     enabled_attr,
     resolve_readiness_config,
 )
@@ -31,6 +36,7 @@ WRITABLE_FIELDS = (
     *FACTOR_WEIGHT_ATTR.values(),
     *(enabled_attr(f) for f in FACTOR_WEIGHT_ATTR),
     "half_life_days",
+    "weak_threshold",
 )
 
 
@@ -68,6 +74,7 @@ async def _out(db: AsyncSession, user: User, subject_id: int | None) -> Readines
         **config.weights,
         **{enabled_attr(f): f in config.enabled for f in FACTOR_WEIGHT_ATTR},
         half_life_days=config.half_life_days,
+        weak_threshold=config.weak_threshold,
         subject_id=subject_id,
         source=config.source,
     )
@@ -117,6 +124,9 @@ async def update_weights(
     body: ReadinessWeightsUpdate, db: DbSession, user: TutorUser, subject_id: int | None = None
 ) -> ReadinessWeightsOut:
     await _check_subject(db, user, subject_id)
+    # What applied before this save — for a first save in this scope, the
+    # fallback it replaces, which is exactly what scores were built on.
+    before = await resolve_readiness_config(db, user.organization_id, subject_id)
     weights = await _scope_row(db, user, subject_id)
     if weights is None:
         weights = ReadinessWeights(
@@ -125,7 +135,17 @@ async def update_weights(
         db.add(weights)
     for field in WRITABLE_FIELDS:
         setattr(weights, field, getattr(body, field))
-    await _recompute(db, user, subject_id)
+    if body.weak_threshold is None:
+        weights.weak_threshold = before.weak_threshold
+    after = config_from_row(weights, before.source)
+    # The threshold is not in this comparison: weak topics are derived when
+    # read, so changing it alone changes no score.
+    if (after.weights, after.enabled, after.half_life_days) != (
+        before.weights,
+        before.enabled,
+        before.half_life_days,
+    ):
+        await _recompute(db, user, subject_id)
     await db.commit()
     return await _out(db, user, subject_id)
 

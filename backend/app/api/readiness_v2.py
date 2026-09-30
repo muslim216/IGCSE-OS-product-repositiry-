@@ -30,6 +30,7 @@ from app.schemas.readiness_v2 import (
 )
 from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.readiness_config import ReadinessConfig, resolve_readiness_config
+from app.services.readiness_summary_v2 import weak_topic_rows
 
 router = APIRouter(prefix="/readiness/v2", tags=["readiness-v2"])
 
@@ -98,7 +99,21 @@ async def _snapshot_out(
         # are set again. `services/readiness_summary_v2.py` does the same thing
         # for `/readiness/*`, which is the surface the product actually serves.
         predicted_grade=snapshot.predicted_grade if boundaries else None,
-        weak_topics=[WeakTopicOut(**w) for w in snapshot.weak_topics],
+        # Read-time, against the tutor's current threshold (task 5.6) — the
+        # snapshot's stored AI list is legacy and never read.
+        weak_topics=[
+            WeakTopicOut(
+                topic_id=r.topic_id,
+                topic_title=topics_by_id[r.topic_id].title if r.topic_id in topics_by_id else None,
+                score=r.score,
+            )
+            for r in weak_topic_rows(
+                # As the summary does: a topic deleted since the run never
+                # takes one of the five places.
+                [r for r in factor_rows if r.topic_id in topics_by_id],
+                config.weak_threshold,
+            )
+        ],
         rationale=snapshot.rationale,
         recommended_revision=snapshot.recommended_revision,
         error=snapshot.error,

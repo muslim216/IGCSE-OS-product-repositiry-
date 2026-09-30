@@ -30,7 +30,12 @@ from app.schemas.today import (
     ClassWeakTopic,
     TodayView,
 )
-from app.services.class_readiness import class_readiness, class_scores, latest_learner_snapshots
+from app.services.class_readiness import (
+    class_readiness,
+    class_scores,
+    latest_learner_snapshots,
+    weak_topic_means,
+)
 from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
 from app.services.groups import review_queue_predicate
@@ -255,6 +260,6 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
                 student_count=t.student_count,
                 includes_tutor_estimate=t.includes_tutor_estimate,
             )
-            for t in detail.topic_means[:5]
+            for t in (await weak_topic_means(db, group, detail))[:5]
         ],
     )

@@ -21,7 +21,6 @@ from app.services.grade_boundaries import set_org_boundaries
 from app.services.readiness_v2_ai import (
     DEFAULT_WEIGHTS,
     ReadinessSynthesis,
-    WeakTopicSuggestion,
     _factor_prompt_line,
     _weighted_reference_score,
     compute_readiness_v2,
@@ -236,7 +235,7 @@ async def test_ai_unavailable_writes_failed_snapshot_but_keeps_factors(client, t
         assert assessment_row.score == 75.0  # 15/20
 
 
-async def test_ai_synthesis_success_filters_invalid_weak_topics(
+async def test_ai_synthesis_success_stores_the_score_and_no_weak_topics(
     client, tutor, world, monkeypatch, fake_ai
 ):
     async with async_session() as session:
@@ -263,13 +262,9 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
 
     # Close to the weighted factor reference (50.0 here — see the dedicated
     # score-enforcement tests below) so this test exercises only what it's
-    # named for: weak-topic filtering, not the score-contradiction clamp.
+    # named for: a stored synthesis, not the score-contradiction clamp.
     fake_result = ReadinessSynthesis(
         score=45.0,
-        weak_topics=[
-            WeakTopicSuggestion(topic_id=world["topic1"], reason="Low assessment score"),
-            WeakTopicSuggestion(topic_id=999999, reason="Hallucinated topic that doesn't exist"),
-        ],
         rationale="Assessment performance is the only signal so far and it's weak.",
         recommended_revision="Do another topic quiz and a past paper attempt.",
     )
@@ -289,9 +284,8 @@ async def test_ai_synthesis_success_filters_invalid_weak_topics(
         assert snapshot.status == AiSynthesisStatus.ready
         assert snapshot.score == 45.0
         assert snapshot.predicted_grade is not None
-        # The hallucinated topic_id (999999) must be filtered out.
-        assert len(snapshot.weak_topics) == 1
-        assert snapshot.weak_topics[0]["topic_id"] == world["topic1"]
+        # Weak topics are derived at read time since 5.6; the column is legacy.
+        assert snapshot.weak_topics == []
 
 
 async def test_compute_all_subjects_when_subject_id_omitted(client, tutor, world):
@@ -339,7 +333,6 @@ async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
     # that flatly contradicts them.
     fake_result = ReadinessSynthesis(
         score=5.0,
-        weak_topics=[],
         rationale="Deliberately implausible for this test.",
         recommended_revision="N/A",
     )
@@ -412,7 +405,6 @@ async def test_synthesis_without_boundaries_stores_no_predicted_grade(
         fake_ai(
             ReadinessSynthesis(
                 score=45.0,
-                weak_topics=[],
                 rationale="Only one weak assessment so far.",
                 recommended_revision="Sit a past paper and re-test the weak topic.",
             )

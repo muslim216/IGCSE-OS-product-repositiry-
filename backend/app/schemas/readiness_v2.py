@@ -31,9 +31,12 @@ class ChapterReadinessOut(BaseModel):
 
 
 class WeakTopicOut(BaseModel):
+    """Derived from this run's Topic Mastery rows and the tutor's current
+    threshold (task 5.6) — the score is the reason; the AI no longer writes one."""
+
     topic_id: int
     topic_title: str | None
-    reason: str
+    score: float
 
 
 class ReadinessSnapshotOut(BaseModel):

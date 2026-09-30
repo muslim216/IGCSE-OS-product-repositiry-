@@ -17,7 +17,7 @@ from app.schemas.readiness import (
     TutorAnalytics,
     WeakStudent,
 )
-from app.services.class_readiness import class_readiness
+from app.services.class_readiness import class_readiness, weak_topic_means
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -52,7 +52,7 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
             student_count=t.student_count,
             includes_tutor_estimate=t.includes_tutor_estimate,
         )
-        for t in detail.topic_means  # already lowest-first
+        for t in await weak_topic_means(db, group, detail)  # already lowest-first
     ]
 
     # AI agreement rate on finalized submissions in this group.

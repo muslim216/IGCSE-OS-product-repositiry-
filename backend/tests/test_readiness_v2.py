@@ -828,11 +828,7 @@ async def test_a_seed_estimate_scores_a_topic_with_no_marked_work(
     assert resp.status_code == 201
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
-        fake_ai(
-            ReadinessSynthesis(
-                score=40, weak_topics=[], rationale="seeded", recommended_revision="-"
-            )
-        ),
+        fake_ai(ReadinessSynthesis(score=40, rationale="seeded", recommended_revision="-")),
     )
     async with async_session() as session:
         await compute_readiness_v2(
@@ -933,7 +929,7 @@ async def test_the_newest_duplicate_estimate_wins(client, tutor, world):
 
 
 async def test_weak_topic_chip_labels_the_tutor_estimate(client, tutor, world):
-    """Fix round 1, item 2: an AI-picked weak topic can be estimate-only at
+    """Fix round 1, item 2: a weak topic can be estimate-only at
     confidence `low` — the "Focus on these topics" chip must say so exactly
     when the matching topic bar does, not stay silent because `WeakTopic`
     never carried the flag."""
@@ -960,13 +956,7 @@ async def test_weak_topic_chip_labels_the_tutor_estimate(client, tutor, world):
                 status=AiSynthesisStatus.ready,
                 score=40.0,
                 predicted_grade=None,
-                weak_topics=[
-                    {
-                        "topic_id": world["topic1"],
-                        "topic_title": "Atomic structure",
-                        "reason": "Rests on an early estimate",
-                    }
-                ],
+                weak_topics=[],
                 rationale="seeded",
                 recommended_revision=None,
             )
@@ -1065,11 +1055,7 @@ async def test_the_v2_response_carries_chapters_in_teaching_order(
     assert resp.status_code == 201
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
-        fake_ai(
-            ReadinessSynthesis(
-                score=40, weak_topics=[], rationale="seeded", recommended_revision="-"
-            )
-        ),
+        fake_ai(ReadinessSynthesis(score=40, rationale="seeded", recommended_revision="-")),
     )
     async with async_session() as session:
         await compute_readiness_v2(

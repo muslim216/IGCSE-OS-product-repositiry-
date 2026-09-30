@@ -12,14 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AiSynthesisStatus, FactorConfidence, ReadinessSnapshot
 
-# Topics at or below this score (with enough confidence) are surfaced as weak.
-# The one copy until 5.6 makes it tutor-set (decision 10).
-WEAK_THRESHOLD = 60.0
-
-# Evidence at this confidence or better counts as real. One definition, because
-# the two things that ask the question must agree: whether a topic is weak
-# enough to surface, and whether a student counts as covered by their class's
-# readiness picture (services/groups.py imports this for the latter).
+# Evidence at this confidence or better counts as real for a class: only such a
+# Topic Mastery row enters its topic's class mean (services/class_readiness.py).
+# A student's own weak topics take any scored row that is not no_data
+# (decision 10), so a low-confidence estimate still shows, labelled, on their
+# profile without naming a weakness for the whole class.
 CONFIDENT = frozenset({FactorConfidence.medium, FactorConfidence.high})
 
 # A net change of this many points (or less) across the trend counts as no

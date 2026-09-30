@@ -422,6 +422,11 @@ class ReadinessWeights(TimestampMixin, Base):
     weight_syllabus_coverage: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     weight_mistake_analysis: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     half_life_days: Mapped[float] = mapped_column(Float, default=45.0, nullable=False)
+    # Topic Mastery at or below this is surfaced as weak (task 5.6, decision
+    # 10). Read at display time, so changing it never needs a recompute.
+    weak_threshold: Mapped[float] = mapped_column(
+        Float, default=60.0, server_default="60", nullable=False
+    )
     # A switched-off factor is still computed and stored; synthesis just never
     # sees it (task 5.4a).
     enabled_topic_mastery: Mapped[bool] = mapped_column(
@@ -550,6 +555,9 @@ class ReadinessSnapshot(Base):
     )
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     predicted_grade: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Legacy, unread since 5.6: the AI's weak-topic picks. Weak topics are now
+    # derived at read time from this run's Topic Mastery rows and the tutor's
+    # threshold (decision 10); new runs write []. Kept so old rows stay intact.
     weak_topics: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     recommended_revision: Mapped[str | None] = mapped_column(Text, nullable=True)

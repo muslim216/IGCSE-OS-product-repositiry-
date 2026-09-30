@@ -162,9 +162,7 @@ async def test_a_disabled_factor_is_stored_but_never_reaches_synthesis(
     assert resp.status_code == 200, resp.text
 
     prompts: list[str] = []
-    inner = fake_ai(
-        ReadinessSynthesis(score=0, weak_topics=[], rationale="r", recommended_revision="-")
-    )
+    inner = fake_ai(ReadinessSynthesis(score=0, rationale="r", recommended_revision="-"))
 
     async def spy(**kwargs):
         prompts.append(kwargs["content"][0]["text"])
@@ -385,9 +383,7 @@ async def test_v2_factors_say_whether_they_are_switched_on(
     )
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
-        fake_ai(
-            ReadinessSynthesis(score=40, weak_topics=[], rationale="r", recommended_revision="-")
-        ),
+        fake_ai(ReadinessSynthesis(score=40, rationale="r", recommended_revision="-")),
     )
     async with async_session() as session:
         await compute_readiness_v2(
@@ -461,13 +457,19 @@ async def test_a_save_recomputes_the_whole_organization_but_not_other_overrides(
         kid_id, physics_id = kid.id, physics.id
     await _recompute_jobs()
 
-    resp = await client.put("/api/v1/readiness/weights", json=_body(), headers=tutor["headers"])
+    # A real change: a save that leaves the scores' inputs as they were
+    # recomputes nothing (task 5.6).
+    resp = await client.put(
+        "/api/v1/readiness/weights", json=_body(weight_topic_mastery=2.0), headers=tutor["headers"]
+    )
     assert resp.status_code == 200, resp.text
     # Physics is absent: it has its own override, which this save did not touch.
     assert await _recompute_jobs() == {(world["student_id"], subject), (kid_id, subject)}
 
     resp = await client.put(
-        f"/api/v1/readiness/weights?subject_id={physics_id}", json=_body(), headers=tutor["headers"]
+        f"/api/v1/readiness/weights?subject_id={physics_id}",
+        json=_body(half_life_days=30.0),
+        headers=tutor["headers"],
     )
     assert resp.status_code == 200, resp.text
     assert await _recompute_jobs() == {(kid_id, physics_id)}
