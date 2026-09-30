@@ -258,6 +258,13 @@ class ReadinessWeightsUpdate(BaseModel):
         # A readiness score built from no factors is not a score.
         if not any(getattr(self, f"enabled_{f}") for f in READINESS_FACTORS):
             raise ValueError("At least one readiness factor must stay switched on")
+        # Nor is one where every counted factor weighs 0: synthesis would have
+        # no reference to hold the model's score to (5.5).
+        if not any(
+            getattr(self, f"enabled_{f}") and getattr(self, f"weight_{f}") > 0
+            for f in READINESS_FACTORS
+        ):
+            raise ValueError("At least one switched-on factor needs a weight above 0")
         return self
 
 

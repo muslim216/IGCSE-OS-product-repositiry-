@@ -169,9 +169,8 @@ def _weighted_reference_score(
     describes equally able to veto the AI's score, not "however many rows
     happen to exist".
 
-    None when no factor has a score — that case never reaches synthesis (see
-    the "no evidence" branch above), but this stays defensive rather than
-    assuming that."""
+    None when no factor has a score, or every scored one weighs 0 — synthesis
+    treats that as "not enough data yet" and never calls the model (5.5)."""
     by_factor: dict[ReadinessFactor, list[FactorEvaluation]] = {}
     for row in factor_rows:
         if row.score is None:
@@ -270,7 +269,13 @@ async def _synthesize_subject(
     config = await resolve_readiness_config(session, student.organization_id, subject_id)
     factor_rows = [row for row in factor_rows if row.factor in config.enabled]
 
-    if all(row.score is None for row in factor_rows):
+    # No reference means nothing to hold the model's score to: no factor has
+    # a score, or every one that does weighs 0 (all switched-on weights at 0,
+    # or only no_data rows). Either way there is no evidence the tutor lets
+    # count, so the honest answer is "not enough data yet" — never a number
+    # the model made up unclamped (5.5, PROD-2).
+    reference_score = _weighted_reference_score(factor_rows, config.weights)
+    if reference_score is None:
         session.add(
             ReadinessSnapshot(
                 evaluation_run_id=evaluation_run_id,
@@ -341,7 +346,6 @@ async def _synthesize_subject(
             feature=AiFeature.readiness,
         )
     result = require_parsed(response)
-    reference_score = _weighted_reference_score(factor_rows, weights)
     score = _enforce_factor_score_constraint(result.score, reference_score)
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
     # No boundaries means no grade — not "—" stored as though it were one. The

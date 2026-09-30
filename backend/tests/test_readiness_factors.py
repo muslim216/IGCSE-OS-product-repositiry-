@@ -204,6 +204,13 @@ def test_syllabus_coverage_no_topics():
     assert syllabus_coverage([]).confidence == FactorConfidence.no_data
 
 
+def test_syllabus_coverage_with_nothing_taught_is_no_data_not_zero():
+    """Untaught topics are an absence, not a 0% measurement (PROD-2, 5.5)."""
+    result = syllabus_coverage([TopicCoverage(taught=False, practiced=True, mastered=False)])
+    assert result.score is None
+    assert result.confidence == FactorConfidence.no_data
+
+
 def test_syllabus_coverage_blends_taught_practiced_mastered():
     topics = [
         TopicCoverage(taught=True, practiced=True, mastered=True),
