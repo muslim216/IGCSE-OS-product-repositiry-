@@ -300,6 +300,13 @@ def syllabus_coverage(topics: list[TopicCoverage]) -> FactorResult:
     if not topics:
         return NO_DATA
     taught = sum(1 for t in topics if t.taught)
+    # Practiced and mastered only count taught topics, so with nothing taught
+    # the score could only be 0 — an absence dressed as a measurement
+    # (PROD-2). It also carried no_data confidence, and a 0.0 beside no_data
+    # let a student with no evidence at all past synthesis's "no evidence"
+    # check to an unclamped model score (5.5, AV-36).
+    if taught == 0:
+        return NO_DATA
     practiced = sum(1 for t in topics if t.taught and t.practiced)
     mastered = sum(1 for t in topics if t.taught and t.mastered)
     total = len(topics)

@@ -1,6 +1,6 @@
 """Readiness Engine v2 — Layer 2 (AI synthesis) job handler tests."""
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import select
 
@@ -12,8 +12,11 @@ from app.models import (
     AssessmentType,
     FactorConfidence,
     FactorEvaluation,
+    Lesson,
+    LessonTopic,
     ReadinessFactor,
     ReadinessSnapshot,
+    ReadinessWeights,
     Subject,
     User,
 )
@@ -158,10 +161,21 @@ async def test_no_topics_yields_ready_snapshot_with_no_score(client, tutor, worl
         assert all(r.score is None for r in factor_rows)
 
 
-async def test_syllabus_coverage_alone_still_triggers_ai_synthesis(client, tutor, world):
-    """A subject with topics but zero other evidence isn't "no data" —
-    Syllabus Coverage legitimately reports 0% — so synthesis is attempted
-    (and fails gracefully here, since no ANTHROPIC_API_KEY is configured)."""
+async def test_a_student_with_nothing_taught_or_marked_is_not_enough_data(
+    client, tutor, world, monkeypatch
+):
+    """Cold start (5.5, AV-36, PROD-2). With nothing taught, Syllabus Coverage
+    is no data like every other factor — not "0%". Until 5.5 it stored 0.0
+    beside a no_data confidence, which let the run past the "no evidence"
+    check to the model; no_data weighs 0, so nothing clamped the model's
+    answer and a brand-new student got an invented score. The owner chose
+    "not enough data yet" (2026-09-30), reversing this test's old claim that
+    the 0% was data."""
+
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("no evidence must never reach the model")
+
+    monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", must_not_be_called)
     async with async_session() as session:
         await compute_readiness_v2(
             session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
@@ -173,8 +187,8 @@ async def test_syllabus_coverage_alone_still_triggers_ai_synthesis(client, tutor
                 select(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
             )
         ).one()
-        assert snapshot.status == AiSynthesisStatus.failed
-        assert "ANTHROPIC_API_KEY" in snapshot.error
+        assert snapshot.status == AiSynthesisStatus.ready
+        assert snapshot.score is None
 
         factor_rows = (
             await session.scalars(
@@ -182,8 +196,114 @@ async def test_syllabus_coverage_alone_still_triggers_ai_synthesis(client, tutor
             )
         ).all()
         assert len(factor_rows) == 7  # 2 topics + 5 subject-level factors
-        coverage_row = next(r for r in factor_rows if r.factor.value == "syllabus_coverage")
-        assert coverage_row.score == 0.0
+        assert all(r.score is None for r in factor_rows)
+
+
+async def _teach_topic1(world) -> int:  # noqa: F811
+    async with async_session() as session:
+        org_id = await session.scalar(
+            select(User.organization_id).where(User.email == "tutor@example.com")
+        )
+        lesson = Lesson(
+            organization_id=org_id,
+            group_id=world["group"]["id"],
+            date=date.today() - timedelta(days=3),
+            duration_min=60,
+        )
+        session.add(lesson)
+        await session.flush()
+        session.add(LessonTopic(lesson_id=lesson.id, topic_id=world["topic1"]))
+        await session.commit()
+        return org_id
+
+
+async def test_taught_topics_alone_still_reach_synthesis(
+    client,
+    tutor,
+    world,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The legitimate sibling of the cold-start fix: a taught topic is real
+    coverage data, so the run is scored — only *nothing taught* is no data."""
+    await _teach_topic1(world)
+    monkeypatch.setattr(
+        "app.services.readiness_v2_ai.structured_complete",
+        fake_ai(ReadinessSynthesis(score=20, rationale="r", recommended_revision="-")),
+    )
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    async with async_session() as session:
+        snapshot = (
+            await session.scalars(
+                select(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
+            )
+        ).one()
+    assert snapshot.score is not None
+
+
+async def test_evidence_that_every_weight_zeroes_out_is_not_enough_data(
+    client,
+    tutor,
+    world,
+    monkeypatch,  # noqa: F811
+):
+    """With every switched-on factor at weight 0 there is no reference to
+    clamp the model to, so its score would stand unchecked. A row like that
+    can only come from before the API refused it — synthesis still says
+    "not enough data yet" and never calls the model (5.5, PROD-2)."""
+    org_id = await _teach_topic1(world)
+    async with async_session() as session:
+        tutor_id = await session.scalar(select(User.id).where(User.email == "tutor@example.com"))
+        session.add(
+            ReadinessWeights(
+                organization_id=org_id,
+                tutor_id=tutor_id,
+                **dict.fromkeys(DEFAULT_WEIGHTS, 0.0),
+            )
+        )
+        await session.commit()
+
+    async def must_not_be_called(*args, **kwargs):
+        raise AssertionError("an unreferenced score must never reach the model")
+
+    monkeypatch.setattr("app.services.readiness_v2_ai.structured_complete", must_not_be_called)
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    async with async_session() as session:
+        snapshot = (
+            await session.scalars(
+                select(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
+            )
+        ).one()
+    assert snapshot.status == AiSynthesisStatus.ready and snapshot.score is None
+
+
+async def test_a_config_where_every_counted_weight_is_zero_is_refused(client, tutor):
+    body = {
+        f"weight_{f}": 0.0
+        for f in (
+            "topic_mastery",
+            "past_paper_performance",
+            "homework_performance",
+            "assessment_performance",
+            "syllabus_coverage",
+            "mistake_analysis",
+        )
+    }
+    body |= {f"enabled_{f[7:]}": True for f in body}
+    body["half_life_days"] = 45.0
+    resp = await client.put("/api/v1/readiness/weights", json=body, headers=tutor["headers"])
+    assert resp.status_code == 422
+    assert "weight above 0" in resp.text
+    # A zero weight on a switched-off factor does not count against it.
+    body |= {"weight_topic_mastery": 1.0}
+    resp = await client.put("/api/v1/readiness/weights", json=body, headers=tutor["headers"])
+    assert resp.status_code == 200, resp.text
 
 
 async def test_ai_unavailable_writes_failed_snapshot_but_keeps_factors(client, tutor, world):
