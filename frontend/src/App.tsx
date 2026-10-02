@@ -21,6 +21,9 @@ import ParentJoinPage from "./auth/ParentJoinPage";
 import { homePathFor, ProtectedRoute } from "./auth/ProtectedRoute";
 import AppShell from "./components/AppShell";
 import LandingPage from "./marketing/LandingPage";
+import PrivacyPolicyPage from "./legal/PrivacyPolicyPage";
+import { NotFoundPage } from "./components/page";
+import { BrandedLoading } from "./components/brand";
 import GroupsPage from "./tutor/GroupsPage";
 import GroupLayout from "./tutor/GroupLayout";
 import HomeworkTab from "./tutor/tabs/HomeworkTab";
@@ -62,12 +65,11 @@ import SitPastPaperPage from "./student/SitPastPaperPage";
 import StudentMocksPage from "./student/MocksPage";
 import SitMockPage from "./student/SitMockPage";
 import ParentDashboard from "./parent/ParentDashboard";
+import AccountPage from "./components/AccountPage";
 
 function Home() {
   const { user, loading } = useAuth();
-  if (loading) {
-    return <div className="flex h-screen items-center justify-center text-slate-500">Loading…</div>;
-  }
+  if (loading) return <BrandedLoading />;
   // Signed out, show what the product is rather than bouncing to a login form.
   return user ? <Navigate to={homePathFor(user)} replace /> : <LandingPage />;
 }
@@ -103,12 +105,13 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/signup" element={<TutorSignupPage />} />
       <Route path="/join/:code" element={<JoinPage />} />
       <Route path="/parent-join/:code" element={<ParentJoinPage />} />
 
       <Route element={<ProtectedRoute roles={["tutor", "admin"]} />}>
-        <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} />}>
+        <Route element={<AppShell title="Tutor" nav={TUTOR_NAV} accountPath="/tutor/settings" />}>
           <Route path="/tutor" element={<TodayDashboard />} />
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
@@ -146,7 +149,9 @@ export default function App() {
       </Route>
 
       <Route element={<ProtectedRoute roles={["student"]} />}>
-        <Route element={<AppShell title="Student" nav={STUDENT_NAV} />}>
+        <Route
+          element={<AppShell title="Student" nav={STUDENT_NAV} accountPath="/student/account" />}
+        >
           <Route path="/student" element={<StudentHomePage />} />
           <Route path="/student/welcome" element={<WelcomePage />} />
           <Route path="/student/progress" element={<ProgressPage />} />
@@ -169,16 +174,19 @@ export default function App() {
           <Route path="/student/mocks" element={<StudentMocksPage />} />
           <Route path="/student/mocks/:mockId" element={<SitMockPage />} />
           <Route path="/student/exams" element={<ExamsPage />} />
+          <Route path="/student/account" element={<AccountPage />} />
         </Route>
       </Route>
 
       <Route element={<ProtectedRoute roles={["parent"]} />}>
-        <Route element={<AppShell title="Parent" />}>
+        <Route element={<AppShell title="Parent" accountPath="/parent/account" />}>
           <Route path="/parent" element={<ParentDashboard />} />
+          <Route path="/parent/account" element={<AccountPage />} />
         </Route>
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* A real 404, not a silent bounce to "/": a mistyped link should say so. */}
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

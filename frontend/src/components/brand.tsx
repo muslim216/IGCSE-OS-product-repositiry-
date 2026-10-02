@@ -104,6 +104,22 @@ export function EspressoSection({
 }
 
 /**
+ * The full-screen state while the session is being restored on first load: the
+ * mark, gently breathing, rather than a line of grey "Loading…" text.
+ */
+export function BrandedLoading() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading avora"
+      className="flex h-screen items-center justify-center bg-canvas"
+    >
+      <AvoraMark className="h-10 w-10 animate-pulse text-brand-600" />
+    </div>
+  );
+}
+
+/**
  * The paper grain overlay — mounted once per top-level layout. An inline SVG
  * turbulence filter (not an external asset), fixed above content only to tint
  * it. Barely visible by design; positioning and blend live in `.avora-grain`.

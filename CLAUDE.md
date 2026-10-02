@@ -129,7 +129,7 @@ uvicorn app.main:app --reload        # http://localhost:8000, OpenAPI docs at /d
 .venv/bin/ruff check --fix .         # and fix what is mechanical
 .venv/bin/ruff format .              # format (CI runs `--check`, which never writes)
 
-python -m seed.load_syllabus         # load the 5 built-in subject topic trees
+# (No built-in syllabuses since AV-8: a tutor uploads their own, and seed.demo builds its own subject.)
 python -m seed.demo                  # idempotent demo tutor/students/parent with ~90d of data
 python -m seed.recompute_readiness   # queue a v2 run for every (student, subject) with evidence
                                      # — the backfill after a factor's maths changes (runbook R9)

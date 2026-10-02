@@ -139,7 +139,7 @@ test("eight healthy classes collapse to one line", async () => {
   // One summarising line, not eight rows — and nothing is hidden: every class
   // name still appears on that line.
   expect(await screen.findByText(/8 classes on track/)).toBeInTheDocument();
-  expect(screen.getByText(/Class 1 8/)).toBeInTheDocument();
+  expect(screen.getByText(/Class 1 · Grade 8/)).toBeInTheDocument();
 });
 
 test("the verdict counts classes needing attention, in words", async () => {

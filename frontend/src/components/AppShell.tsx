@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InitialsAvatar } from "./ui";
 import { AvoraGrain, AvoraLockup } from "./brand";
 import ActivityMenu from "./ActivityMenu";
+import { ErrorBoundary } from "./page";
 
 export interface NavItem {
   to: string;
@@ -120,8 +121,18 @@ function MoreTab({ items }: { items: NavItem[] }) {
   );
 }
 
-export default function AppShell({ title, nav = [] }: { title: string; nav?: NavItem[] }) {
+export default function AppShell({
+  title,
+  nav = [],
+  accountPath,
+}: {
+  title: string;
+  nav?: NavItem[];
+  /** Where the avatar leads: the reader's own settings. */
+  accountPath: string;
+}) {
   const { user, signOut } = useAuth();
+  const { pathname } = useLocation();
   const mainNav = nav.filter((item) => item.slot !== "bottom");
   const bottomNav = nav.filter((item) => item.slot === "bottom");
 
@@ -140,16 +151,21 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex">
         <div className="flex flex-col gap-8">
           <Brand />
-          <div className="flex flex-col gap-1">
-            <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-              {title}
-            </span>
-            <nav aria-label={`${title} navigation`} className="flex flex-col gap-0.5">
-              {mainNav.map((item) => (
-                <SidebarLink key={item.to} item={item} />
-              ))}
-            </nav>
-          </div>
+          {/* A role heading over an empty list read as a broken sidebar (the
+              parent role has one screen and no nav), so it only renders with
+              something under it. */}
+          {mainNav.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <span className="px-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+                {title}
+              </span>
+              <nav aria-label={`${title} navigation`} className="flex flex-col gap-0.5">
+                {mainNav.map((item) => (
+                  <SidebarLink key={item.to} item={item} />
+                ))}
+              </nav>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-1 border-t border-line pt-4">
@@ -163,12 +179,18 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
               product does not have. Removed rather than repointed: the guidance
               belongs on Today itself, which is where PRs 13-15 put it. */}
 
-          <div className="mt-2 flex items-center gap-2.5 px-1">
-            <InitialsAvatar name={user?.name ?? "?"} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
-              <p className="truncate text-xs text-ink-500">{title}</p>
-            </div>
+          <div className="mt-2 flex items-center gap-1 px-1">
+            <NavLink
+              to={accountPath}
+              className="-ml-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 transition hover:bg-surface"
+              aria-label={`Your account: ${user?.name ?? ""}`}
+            >
+              <InitialsAvatar name={user?.name ?? "?"} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
+                <p className="truncate text-xs text-ink-500">{title} · Account</p>
+              </div>
+            </NavLink>
             <ActivityMenu />
             <button
               onClick={signOut}
@@ -187,7 +209,9 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
           <div className="flex items-center gap-2 text-sm">
-            <span className="truncate text-ink-500">{user?.name}</span>
+            <NavLink to={accountPath} aria-label="Your account" className="rounded-full">
+              <InitialsAvatar name={user?.name ?? "?"} size="sm" />
+            </NavLink>
             <ActivityMenu />
             <button
               onClick={signOut}
@@ -202,7 +226,10 @@ export default function AppShell({ title, nav = [] }: { title: string; nav?: Nav
 
       <main className="min-w-0 flex-1 px-4 py-6 pb-tabbar md:px-10 md:py-8">
         <div className="mx-auto max-w-6xl">
-          <Outlet />
+          {/* Keyed by route so leaving a crashed page clears the error. */}
+          <ErrorBoundary key={pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </main>
 

@@ -137,7 +137,7 @@ This is a migration that was started deliberately and paused deliberately — th
 
 It matters more than a typical piece of unfinished work because of what the product sells. Avora's differentiator is that its numbers are trustworthy and traceable. A tutor who catches the same student showing two different scores doesn't file a bug report — they stop trusting the number. And once the number isn't trusted, there's no reason to pay for the product.
 
-It's covered as weakness #3 in the [weaknesses document](../Product-Overview-and-Weaknesses.md).
+It's covered as weakness #3 in the [weaknesses document](../docs/archive/2026-08-external-review/Product-Overview-and-Weaknesses.md).
 
 ---
 

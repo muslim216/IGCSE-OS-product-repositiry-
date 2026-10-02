@@ -7,6 +7,10 @@ Accounts created (password for all: demo1234):
   student: demo-student@example.com  (email account)
   student: demo_ali                  (username-only account)
   parent:  demo-parent@example.com   (linked to demo-student)
+
+The people, class and work are fictional but realistic on purpose: this is
+what a prospective tutor is shown, and "Demo Tutor" marking "Sara Student"
+in a class of two read as a toy rather than a working practice.
 """
 
 import asyncio
@@ -189,7 +193,9 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
 
     Layer 1 runs for real; the score is Layer 1's own weighted reference — the
     value compute_readiness_v2 clamps any AI answer to within ±10 of — so the
-    demo shows the engine's deterministic answer, labelled as exactly that."""
+    demo shows the engine's deterministic answer. The rationale says what the
+    number is (a weighted average) rather than how the seed produced it — it is
+    rendered to tutors, and seed internals do not belong on a product screen."""
     subject = await session.get(Subject, subject_id)
     run_id = str(uuid.uuid4())
     rows = await evaluate_subject_factors(session, student.id, subject_id, run_id, now)
@@ -211,7 +217,7 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
             else None,
             weak_topics=[],
             rationale=(
-                "Demo data: the weighted average of the factor scores. No AI synthesis ran."
+                "Calculated from the weighted average of this student's readiness factors."
                 if score is not None
                 else "No evidence yet for this subject."
             ),
@@ -228,7 +234,7 @@ async def main() -> None:
             return
 
         pw = hash_password(PASSWORD)
-        org = Organization(name="Demo Tutor's Organization")
+        org = Organization(name="Haddad Tutoring")
         session.add(org)
         await session.flush()
 
@@ -242,21 +248,21 @@ async def main() -> None:
             email="demo-tutor@example.com",
             password_hash=pw,
             role=UserRole.tutor,
-            name="Demo Tutor",
+            name="Layla Haddad",
             organization_id=org.id,
         )
         student1 = User(
             email="demo-student@example.com",
             password_hash=pw,
             role=UserRole.student,
-            name="Sara Student",
+            name="Sara Al-Mansouri",
             organization_id=org.id,
         )
         parent = User(
             email="demo-parent@example.com",
             password_hash=pw,
             role=UserRole.parent,
-            name="Demo Parent",
+            name="Huda Al-Mansouri",
             organization_id=org.id,
         )
         session.add_all([tutor, student1, parent])
@@ -266,18 +272,37 @@ async def main() -> None:
             username="demo_ali",
             password_hash=pw,
             role=UserRole.student,
-            name="Ali Student",
+            name="Ali Rahman",
             created_by_id=tutor.id,
             organization_id=org.id,
         )
         session.add(student2)
+        # The rest of the class: username-only accounts, as a tutor creates them
+        # for students without an email address.
+        classmates = [
+            User(
+                username=username,
+                password_hash=pw,
+                role=UserRole.student,
+                name=name,
+                created_by_id=tutor.id,
+                organization_id=org.id,
+            )
+            for username, name in [
+                ("demo_omar", "Omar Khalid"),
+                ("demo_mariam", "Mariam Youssef"),
+                ("demo_noor", "Noor Siddiqui"),
+                ("demo_yusuf", "Yusuf Benali"),
+            ]
+        ]
+        session.add_all(classmates)
         await session.flush()
 
         group = Group(
             organization_id=org.id,
             tutor_id=tutor.id,
             subject_id=subject.id,
-            name="Chemistry — Year 10",
+            name="Year 10 Chemistry",
         )
         session.add(group)
         await session.flush()
@@ -315,6 +340,7 @@ async def main() -> None:
             [
                 GroupMember(group_id=group.id, student_id=student1.id),
                 GroupMember(group_id=group.id, student_id=student2.id),
+                *[GroupMember(group_id=group.id, student_id=c.id) for c in classmates],
                 ParentLink(parent_id=parent.id, student_id=student1.id),
                 *fixed_slots,
             ]
@@ -329,7 +355,7 @@ async def main() -> None:
         if not topics:
             raise SystemExit("Demo subject has no topics — check CHEMISTRY above")
 
-        students = [student1, student2]
+        students = [student1, student2, *classmates]
         now = datetime.now(timezone.utc)
         rng = random.Random(42)
 
@@ -351,7 +377,7 @@ async def main() -> None:
                             score_pct=round(score, 1),
                             max_marks=20,
                             occurred_at=now - timedelta(days=days_ago),
-                            label=f"Demo evidence ({source.value})",
+                            label=f"{source.value.replace('_', ' ').capitalize()} — {topic.title}",
                         )
                     )
         await session.flush()
@@ -373,7 +399,7 @@ async def main() -> None:
                 lesson_id=lesson.id,
                 student_id=student1.id,
                 topic_id=topics[0].id,
-                body="Sara answered confidently in class — ready for harder questions.",
+                body="Answered confidently in class — ready for harder questions.",
                 rating=80,
             )
         )
@@ -388,7 +414,7 @@ async def main() -> None:
             organization_id=org.id,
             tutor_id=tutor.id,
             subject_id=subject.id,
-            title="Demo classified — Atomic structure",
+            title="Atomic structure — practice questions",
             file_path=classified_key,
             file_name="atomic-structure.pdf",
             file_mime="application/pdf",
@@ -434,6 +460,28 @@ async def main() -> None:
             session.add(QuestionTopic(question_id=q.id, topic_id=topic.id))
             questions.append(q)
 
+        # Feedback a tutor would actually write, varied by how well the answer
+        # did — the same sentence on every question read as placeholder text.
+        feedback_by_band = {
+            "high": [
+                "Clear and complete — exactly what the mark scheme looks for.",
+                "Well explained, with the key terms used correctly.",
+            ],
+            "mid": [
+                "Right idea. Add a specific example to secure the last mark.",
+                "Good start — the explanation needs one more step to be complete.",
+            ],
+            "low": [
+                "Revisit the definition: the answer mixes up protons and neutrons.",
+                "Show the electron transfer explicitly — say which atom loses electrons.",
+            ],
+        }
+
+        def feedback_for(marks: int, max_marks: int) -> str:
+            ratio = marks / max_marks
+            band = "high" if ratio >= 0.85 else "mid" if ratio >= 0.6 else "low"
+            return rng.choice(feedback_by_band[band])
+
         for student in students:
             submission = Submission(
                 work_id=assignment.work_id,
@@ -454,18 +502,118 @@ async def main() -> None:
                 )
             )
             for q in questions:
-                marks = round(q.max_marks * rng.uniform(0.6, 0.95))
+                marks = round(q.max_marks * rng.uniform(0.55, 0.95))
+                feedback = feedback_for(marks, q.max_marks)
                 session.add(
                     QuestionMark(
                         submission_id=submission.id,
                         question_id=q.id,
                         ai_marks=marks,
-                        ai_feedback="Good understanding, minor detail missing.",
+                        ai_feedback=feedback,
                         ai_confidence=MarkConfidence.high,
                         final_marks=marks,
-                        final_feedback="Nice work — see the marked-up notes.",
+                        final_feedback=feedback,
                     )
                 )
+        await session.flush()
+
+        # A second homework, still in flight: most of the class handed in, two
+        # answers the AI was unsure about wait in the tutor's review queue, and
+        # one student has not handed in yet. This is the loop the product
+        # exists for, so the demo should show it running, not finished.
+        hw2_work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=group.organization_id,
+            subject_id=group.subject_id,
+            title="HW2 — Ionic bonding",
+        )
+        assignment2 = Assignment(
+            work_id=hw2_work.id,
+            group_id=group.id,
+            lesson_id=lesson.id,
+            classified_id=classified.id,
+            title="HW2 — Ionic bonding",
+            status=AssignmentStatus.published,
+            due_at=now + timedelta(days=3),
+        )
+        session.add(assignment2)
+        await session.flush()
+        bonding = topics[min(2, len(topics) - 1)]
+        hw2_questions = []
+        for number, summary, max_marks in [
+            ("1", "Draw a dot-and-cross diagram for sodium chloride", 3),
+            ("2", "Explain why magnesium oxide has a high melting point", 4),
+            ("3", "Predict the formula of the compound formed by calcium and chlorine", 2),
+        ]:
+            q = AssignmentQuestion(
+                assignment_id=assignment2.id,
+                position=len(hw2_questions),
+                number=number,
+                text_summary=summary,
+                max_marks=max_marks,
+                has_mark_scheme=True,
+            )
+            session.add(q)
+            await session.flush()
+            session.add(QuestionTopic(question_id=q.id, topic_id=bonding.id))
+            hw2_questions.append(q)
+
+        # Everyone but the last student handed in; two submissions carry one
+        # answer the AI was not sure about.
+        unsure = {student2.id, classmates[1].id}
+        for student in students[:-1]:
+            waiting = student.id in unsure
+            submission = Submission(
+                work_id=assignment2.work_id,
+                student_id=student.id,
+                status=SubmissionStatus.needs_review
+                if waiting
+                else SubmissionStatus.auto_finalized,
+                finalized_at=None if waiting else now,
+            )
+            session.add(submission)
+            await session.flush()
+            session.add(
+                SubmissionFile(
+                    submission_id=submission.id,
+                    position=0,
+                    path=classified.file_path,
+                    name="ionic-bonding.pdf",
+                    mime="application/pdf",
+                )
+            )
+            for i, q in enumerate(hw2_questions):
+                marks = round(q.max_marks * rng.uniform(0.5, 1.0))
+                if waiting and i == 1:
+                    session.add(
+                        QuestionMark(
+                            submission_id=submission.id,
+                            question_id=q.id,
+                            ai_marks=marks,
+                            ai_feedback=(
+                                "The answer mentions strong forces but does not say they act "
+                                "between oppositely charged ions — unclear whether the scheme's "
+                                "second point is met."
+                            ),
+                            ai_confidence=MarkConfidence.low,
+                            needs_review=True,
+                        )
+                    )
+                else:
+                    feedback = feedback_for(marks, q.max_marks)
+                    session.add(
+                        QuestionMark(
+                            submission_id=submission.id,
+                            question_id=q.id,
+                            ai_marks=marks,
+                            ai_feedback=feedback,
+                            ai_confidence=MarkConfidence.high,
+                            auto_finalized=not waiting,
+                            final_marks=None if waiting else marks,
+                            final_feedback=None if waiting else feedback,
+                        )
+                    )
         await session.flush()
 
         # One mock assessment with per-topic scores.

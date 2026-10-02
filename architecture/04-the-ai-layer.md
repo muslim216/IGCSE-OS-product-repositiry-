@@ -112,7 +112,7 @@ Two things follow from letting marks count automatically, and the team names bot
 
 There's also nothing measuring whether the confidence threshold is set correctly. How often do tutors override an automatic mark? How often do students appeal one? Both numbers already exist in the database and neither is being calculated. Until they are, the threshold is running on judgement rather than evidence.
 
-Both are in the [weaknesses document](../Product-Overview-and-Weaknesses.md) as weakness #4.
+Both are in the [weaknesses document](../docs/archive/2026-08-external-review/Product-Overview-and-Weaknesses.md) as weakness #4.
 
 ---
 
