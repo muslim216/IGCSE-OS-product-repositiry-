@@ -69,6 +69,13 @@ from app.models.syllabus import (
     SyllabusUploadStatus,
     Topic,
 )
+from app.models.teaching_plan import (
+    PlanBreak,
+    PlanSlot,
+    PlanSlotProvenance,
+    TeachingPlan,
+    TeachingPlanStatus,
+)
 from app.models.users import User, UserRole
 from app.models.work import AssessableWork, WorkKind
 from app.models.workers import WorkerHeartbeat
@@ -132,6 +139,9 @@ __all__ = [
     "PastPaperAttempt",
     "PastPaperQuestion",
     "PastPaperQuestionTopic",
+    "PlanBreak",
+    "PlanSlot",
+    "PlanSlotProvenance",
     "QuestionDifficulty",
     "MarkOverrideAudit",
     "QuestionMark",
@@ -156,6 +166,8 @@ __all__ = [
     "SubmissionStatus",
     "SyllabusUpload",
     "SyllabusUploadStatus",
+    "TeachingPlan",
+    "TeachingPlanStatus",
     "Topic",
     "TutorNote",
     "TutorObservation",
