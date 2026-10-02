@@ -100,7 +100,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What does it cost?",
-    a: "Nothing while avora is in its pilot. Paid plans will be announced before the pilot ends, and pilot tutors will hear first.",
+    a: "Nothing while avora is in its pilot. After it, $19 a month plus $5 for each student who had work marked that month — a tutor with 15 students pays $94. Pilot tutors get 40% off for their first 12 months, and students and parents never pay.",
   },
 ];
 
@@ -386,9 +386,33 @@ export default function LandingPage() {
               </div>
               <div className="rounded-xl border border-line bg-surface-muted/60 p-8">
                 <h3 className="font-display text-2xl text-ink-900">After the pilot</h3>
-                <p className="mt-4 leading-relaxed text-ink-700">
-                  Paid plans will be announced before the pilot ends. Pilot tutors hear first, and
-                  nothing changes on your account without notice.
+                {/* Priced per active student because that is what costs us money:
+                    every marked submission is a model call, so a flat tier would
+                    lose money on the busiest tutors. AED is shown as an approximate
+                    conversion; billing is in USD. */}
+                <p className="mt-4 font-display text-4xl text-ink-900">
+                  $19<span className="ml-1.5 text-base text-ink-500">/ month</span>
+                </p>
+                <p className="mt-1 text-ink-700">+ $5 per active student each month</p>
+                <p className="mt-1 text-xs text-ink-500">≈ AED 70 + AED 18 per student</p>
+                <dl className="mt-6 space-y-2.5 text-sm text-ink-700">
+                  {[
+                    ["5 students", "$44 / month"],
+                    ["15 students", "$94 / month"],
+                    ["30 students", "$169 / month"],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-4 border-b border-line pb-2">
+                      <dt>{k}</dt>
+                      <dd className="tabular-nums text-ink-900">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="mt-4 text-sm leading-relaxed text-ink-700">
+                  An active student is one who had work marked that month — students who take a
+                  month off cost you nothing.
+                </p>
+                <p className="mt-4 rounded-lg bg-brand-50 p-3 text-sm text-brand-700">
+                  Pilot tutors get 40% off for their first 12 months on a paid plan.
                 </p>
                 <p className="mt-4 text-sm text-ink-500">
                   Students and parents never pay — they join through their tutor.
