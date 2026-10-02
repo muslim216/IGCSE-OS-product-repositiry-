@@ -23,6 +23,11 @@ type PaperRow = NonNullable<Awaited<ReturnType<typeof listPastPapers>>>[number];
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** What a paper is called to the tutor. Until the AI has read it a paper has
+ *  no name, and several "Untitled paper" rows name none of them — the file is
+ *  what the tutor uploaded and will recognise. */
+const nameOf = (p: PaperRow) => (p.title === null && p.paper_name ? p.paper_name : p.display_title);
+
 /** The one status line a paper gets — never two.
  *
  * Written as early returns rather than nested ternaries because the ordering
@@ -63,7 +68,7 @@ function statusLine(p: PaperRow): string {
  * polls while any paper is being read, and a detail request for every row on
  * every poll would be spent on panels nobody opened.
  */
-function PaperQuestions({ paperId }: { paperId: number }) {
+function PaperQuestions({ paperId, name }: { paperId: number; name: string }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const detail = useQuery({
@@ -82,7 +87,9 @@ function PaperQuestions({ paperId }: { paperId: number }) {
         onClick={() => setOpen((o) => !o)}
         className="font-medium text-brand-600 hover:text-brand-700"
       >
-        {open ? "Hide questions and topics" : "Questions and topics"}
+        {/* One name whatever the state — `aria-expanded` already says which —
+            and the paper's, since every read paper has this button. */}
+        Questions and topics<span className="sr-only"> for {name}</span>
       </button>
       {open && (
         <div id={panelId} className="mt-2">
@@ -155,6 +162,16 @@ export default function PastPapersPage() {
     queryClient.invalidateQueries({ queryKey: ["assignments-attention"] });
   }
 
+  // A fixed paper's row takes the server's answer at once rather than after the
+  // refetch: until then the cached row still offered both fixes, and a second
+  // press was refused (409) as the paper was already being read.
+  function showFixed(updated: PaperRow) {
+    queryClient.setQueryData<PaperRow[]>(["past-papers"], (rows) =>
+      rows?.map((row) => (row.id === updated.id ? updated : row)),
+    );
+    refreshLists();
+  }
+
   const hide = useMutation({
     mutationFn: hidePastPaper,
     onSuccess: () => {
@@ -163,15 +180,21 @@ export default function PastPapersPage() {
     },
   });
 
-  const retry = useMutation({ mutationFn: retryPastPaper, onSuccess: refreshLists });
+  const retry = useMutation({
+    mutationFn: retryPastPaper,
+    onSuccess: showFixed,
+    // A refusal usually means the row is out of date — someone else fixed it.
+    onError: refreshLists,
+  });
 
   const replace = useMutation({
     mutationFn: ({ id, file }: { id: number; file: File }) => replacePastPaper(id, file),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       setReplacing(null);
       setCopy(null);
-      refreshLists();
+      showFixed(updated);
     },
+    onError: refreshLists,
   });
 
   const upload = useMutation({
@@ -327,9 +350,7 @@ export default function PastPapersPage() {
                     <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
                       <div className="min-w-0">
                         <p className="font-medium text-ink-900">{p.display_title}</p>
-                        {/* Until the AI has read it a paper has no name, and
-                            several "Untitled paper" rows name none of them. The
-                            file is what the tutor uploaded and will recognise. */}
+                        {/* The file names an unread paper (`nameOf`). */}
                         {p.title === null && p.paper_name && (
                           <p className="text-xs text-ink-500">{p.paper_name}</p>
                         )}
@@ -359,7 +380,9 @@ export default function PastPapersPage() {
                             )}
                           </>
                         )}
-                        {p.question_count > 0 && <PaperQuestions paperId={p.id} />}
+                        {p.question_count > 0 && (
+                          <PaperQuestions paperId={p.id} name={p.display_title} />
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-4 text-sm">
                         {p.extraction_error && (
@@ -374,10 +397,7 @@ export default function PastPapersPage() {
                               onClick={() => retry.mutate(p.id)}
                             >
                               Try again
-                              <span className="sr-only">
-                                {" "}
-                                to read {p.paper_name ?? p.display_title}
-                              </span>
+                              <span className="sr-only"> to read {nameOf(p)}</span>
                             </Button>
                             <Button
                               variant="secondary"
@@ -389,7 +409,7 @@ export default function PastPapersPage() {
                               }}
                             >
                               Upload a clearer copy
-                              <span className="sr-only"> of {p.paper_name ?? p.display_title}</span>
+                              <span className="sr-only"> of {nameOf(p)}</span>
                             </Button>
                           </>
                         )}
@@ -408,7 +428,7 @@ export default function PastPapersPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          aria-label={`Remove ${p.display_title}`}
+                          aria-label={`Remove ${nameOf(p)}`}
                           onClick={() => {
                             hide.reset();
                             setHiding(p);
@@ -436,12 +456,9 @@ export default function PastPapersPage() {
               // students send for it waits until someone fixes it — and once it
               // is off this list, nobody will.
               <p>
-                <span className="font-medium text-ink-900">
-                  {hiding.paper_name ?? hiding.display_title}
-                </span>{" "}
-                will no longer appear here, but students keep it, and nothing they send for it can
-                be marked until it's read. Trying again or uploading a clearer copy fixes it for
-                them.
+                <span className="font-medium text-ink-900">{nameOf(hiding)}</span> will no longer
+                appear here, but students keep it, and nothing they send for it can be marked until
+                it's read. Trying again or uploading a clearer copy fixes it for them.
               </p>
             ) : (
               <p>
@@ -475,11 +492,9 @@ export default function PastPapersPage() {
         <form onSubmit={onReplace}>
           <p className="text-sm text-ink-500">
             It replaces{" "}
-            <span className="font-medium text-ink-900">
-              {replacing?.paper_name ?? replacing?.display_title}
-            </span>{" "}
-            and is read straight away. Use a copy of the same paper: students keep it, and any
-            answers they've sent are marked against it.
+            <span className="font-medium text-ink-900">{replacing && nameOf(replacing)}</span> and
+            is read straight away. Use a copy of the same paper: students keep it, and any answers
+            they've sent are marked against it.
           </p>
           <Field label="Question paper" className="mt-4">
             <FileInput

@@ -114,7 +114,7 @@ async def _marked_questions_by_topic(
     session: AsyncSession, student_id: int, topic_ids: Sequence[int]
 ) -> dict[int, list[MarkedQuestion]]:
     """Every settled, marked question the student answered, under each topic
-    it is tagged with: one query per kind of work, not one per topic (`PERF-1`).
+    it is tagged with: one query per kind of work, not one per topic (`PERF-5`).
 
     A question tagged with two topics counts towards both, as homework always
     has; a question tagged with none counts towards no topic. Every topic asked
@@ -421,13 +421,15 @@ async def evaluate_subject_factors(
 
     `half_life_days` is the tutor's setting for this subject
     (`ReadinessConfig.half_life_days`). The caller resolves it — this module
-    stays free of the config lookup — and it reaches every factor that decays;
-    past papers, homework and coverage do not decay, so they take none."""
+    stays free of the config lookup — and it reaches every factor that decays.
+    The Past Paper, Homework and Coverage factors do not, so they take none;
+    a past-paper or homework mark still decays inside Topic Mastery, which
+    does."""
     now = now or datetime.now(timezone.utc)
     rows: list[FactorEvaluation] = []
 
     topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
-    # One query for every topic's estimate (PERF-1), not one per topic. Keyed
+    # One query for every topic's estimate (PERF-5), not one per topic. Keyed
     # by topic_id: seed_readiness upserts on source_ref, so there is normally
     # at most one tutor_estimate row per (student, topic) — but "normally" is
     # not "always" (no unique constraint; deferred, fix round 1), so this

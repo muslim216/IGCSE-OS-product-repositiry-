@@ -15,6 +15,7 @@ Two rules specific to past papers:
 - **The mark scheme is tutor-only.** Students can read the question paper.
 """
 
+import logging
 from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
@@ -56,6 +57,8 @@ from app.services.extraction import queue_past_paper_read
 from app.services.submission_kind import PAST_PAPER
 from app.services.work import create_work, parent_of
 from app.workers.jobs import enqueue
+
+log = logging.getLogger("api")
 
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
 
@@ -501,6 +504,22 @@ async def hide_past_paper(past_paper_id: int, db: DbSession, user: TutorUser) ->
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+async def _discard(key: str, *, why: str) -> None:
+    """Delete a stored file nothing points at any more, never fatally.
+
+    The same guard as `_discard` in `api/teaching_guidance.py`, for the same
+    reason: by the time this runs the request's outcome is decided. A storage
+    backend that will not delete must not turn a committed replacement into a
+    500 — the tutor would be told the copy didn't upload, and the retry they
+    then make is refused, because the paper is already being read — nor bury
+    a failed request's own error under a second one.
+    """
+    try:
+        await storage.delete_file(key)
+    except Exception:  # noqa: BLE001 — cleanup must not decide the response
+        log.exception("could not delete an unreferenced past-paper file (%s): %s", why, key)
+
+
 def _require_unread(paper: PastPaper) -> None:
     """Reading again and swapping the file are for a paper the AI could not
     read, and only that.
@@ -568,8 +587,14 @@ async def replace_past_paper_file(
     try:
         saved, name, mime = await storage.save_upload(paper, organization_id=user.organization_id)
         past_paper.paper_path = saved
-        past_paper.paper_name = name
+        # The client's own filename, so nothing bounds it; clamped to the
+        # column rather than left for Postgres to refuse (`RISK-3`).
+        past_paper.paper_name = name[:255]
         past_paper.paper_mime = mime
+        # The new file is the whole paper, not pages cut from the booklet, so
+        # the page range no longer says where it came from (`PROD-1`).
+        past_paper.first_page = None
+        past_paper.last_page = None
         past_paper.extraction_error = None
         await queue_past_paper_read(db, past_paper.id)
         await db.commit()
@@ -579,12 +604,12 @@ async def replace_past_paper_file(
         # `upload_past_paper`: a stored object no row points at is lost for good.
         await db.rollback()
         if saved is not None:
-            await storage.delete_file(saved)
+            await _discard(saved, why="replacement not saved")
         raise
     # The old file goes once nothing points at it. A booklet of one shares its
     # file with its only paper — the booklet records what arrived — so that
     # copy stays. A paper cut from a larger booklet owns its slice outright,
     # and a slice no row references can never be found to clean up later.
     if replaced and (booklet is None or replaced != booklet.file_path):
-        await storage.delete_file(replaced)
+        await _discard(replaced, why="replaced by a clearer copy")
     return _out(past_paper, 0, for_tutor=True)

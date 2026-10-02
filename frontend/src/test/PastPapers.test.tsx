@@ -186,8 +186,12 @@ const unreadable = {
 
 type Call = { method: string; url: string; body?: BodyInit | null };
 
+/** The unreadable paper once a fix has been accepted: its read is under way. */
+const beingRead = { ...unreadable, extraction_error: null };
+
 function recordFetch(papers: unknown[], detail?: unknown) {
   const calls: Call[] = [];
+  let fixed = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -195,9 +199,13 @@ function recordFetch(papers: unknown[], detail?: unknown) {
       const method = init?.method ?? "GET";
       calls.push({ method, url, body: init?.body });
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
-      if (method !== "GET") return json(unreadable);
+      if (method !== "GET") {
+        fixed = true;
+        return json(beingRead);
+      }
       if (/\/past-papers\/\d+$/.test(url)) return json(detail);
-      if (url.includes("/past-papers")) return json(papers);
+      if (url.includes("/past-papers"))
+        return json(fixed ? papers.map((p) => (p === unreadable ? beingRead : p)) : papers);
       return json([]);
     }),
   );
@@ -283,7 +291,8 @@ test("the to-do link lands on the paper it names", async () => {
 test("removing an unreadable paper says its answers can't be marked, not that nobody is affected", async () => {
   recordFetch([unreadable]);
   renderPage(<TutorPastPapersPage />);
-  fireEvent.click(await screen.findByRole("button", { name: "Remove Untitled paper" }));
+  // Named by its file: several unread rows would otherwise all be "Untitled paper".
+  fireEvent.click(await screen.findByRole("button", { name: "Remove 0620_w26_qp_21.pdf" }));
   expect(await screen.findByText(/nothing they send for it can be marked/)).toBeInTheDocument();
   expect(screen.queryByText(/is unaffected/)).not.toBeInTheDocument();
 });
@@ -311,7 +320,9 @@ test("a read paper shows which topics each question's marks count towards", asyn
     ],
   });
   renderPage(<TutorPastPapersPage />);
-  const toggle = await screen.findByRole("button", { name: "Questions and topics" });
+  const toggle = await screen.findByRole("button", {
+    name: `Questions and topics for ${paper.display_title}`,
+  });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(toggle);
 
@@ -319,4 +330,15 @@ test("a read paper shows which topics each question's marks count towards", asyn
   expect(screen.getByText(/No topic/)).toBeInTheDocument();
   // A mark that counts towards nothing is called out, not left to be noticed.
   expect(screen.getByText(/1 question isn't linked to a topic/)).toBeInTheDocument();
+});
+
+test("a paper whose fix was accepted stops offering it straight away", async () => {
+  // Until the refetch lands, the cached row still offered both fixes, and a
+  // second press was refused because the paper was already being read.
+  recordFetch([unreadable]);
+  renderPage(<TutorPastPapersPage />);
+  fireEvent.click(await screen.findByRole("button", { name: /^Try again/ }));
+  expect(await screen.findByText(/Reading the questions out of the paper/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Try again/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Upload a clearer copy/ })).not.toBeInTheDocument();
 });

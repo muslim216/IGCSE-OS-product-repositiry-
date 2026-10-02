@@ -29,6 +29,7 @@ from app.models import (
     MistakeSource,
     Mock,
     MockQuestion,
+    MockQuestionTopic,
     PastPaperAttempt,
     PastPaperQuestion,
     PastPaperQuestionTopic,
@@ -1387,3 +1388,23 @@ async def test_a_past_paper_ages_from_when_it_was_marked_not_the_students_date(
     )
     # Both settled a day ago, so both weigh the same: the 0 counts in full.
     assert (await _topic_rows(world))[world["topic1"]].score == 50.0
+
+
+async def test_a_mock_mark_does_not_feed_topic_mastery_yet(client, tutor, world):
+    """Pinned until the owner decides whether mocks count (2026-10-02). A mock
+    added to `TOPIC_MASTERY_KINDS` by accident would move every student's topic
+    scores with nobody having chosen it."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await _mock_submission_with_mistake(
+            session,
+            org_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            student_id=world["student_id"],
+        )
+        question = await session.scalar(select(MockQuestion))
+        session.add(MockQuestionTopic(question_id=question.id, topic_id=world["topic1"]))
+        await session.commit()
+
+    assert (await _topic_rows(world))[world["topic1"]].score is None

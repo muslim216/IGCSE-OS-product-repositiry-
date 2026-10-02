@@ -1352,6 +1352,8 @@ async def test_replacing_a_paper_cut_from_a_booklet_deletes_the_old_slice(
             paper_path="slice-1.pdf",
             paper_name="booklet — Paper 1.pdf",
             paper_mime="application/pdf",
+            first_page=12,
+            last_page=23,
             extraction_error="No questions were found in the past paper",
         )
         await session.commit()
@@ -1368,6 +1370,12 @@ async def test_replacing_a_paper_cut_from_a_booklet_deletes_the_old_slice(
     )
     assert resp.status_code == 200, resp.text
     assert deleted == ["slice-1.pdf"]
+    # The new file is the whole paper, not pages 12-23 of the booklet, and the
+    # row no longer claims it was (`PROD-1`).
+    async with async_session() as session:
+        replaced = await session.get(PastPaper, paper_id)
+        assert replaced.first_page is None
+        assert replaced.last_page is None
 
 
 async def test_a_rejected_copy_leaves_the_paper_as_it_was(client, tutor, unreadable_paper):
@@ -1521,3 +1529,178 @@ async def test_a_question_classified_under_no_topic_says_so(
     )
     [question] = detail.json()["questions"]
     assert question["topics"] == []
+
+
+async def test_a_re_read_that_fails_in_the_database_still_says_why(
+    client,
+    tutor,
+    unreadable_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """Two questions read with the same number break the paper's unique
+    (past_paper_id, number) at flush. Committing the reason on top of that
+    failed too, and since a fix clears the reason before it queues the read,
+    the paper was stranded "being read": off the to-do list, and refused by
+    both fixes."""
+    from app.services.extraction import ExtractedQuestion, PastPaperExtractionResult
+
+    question = {"text_summary": "x", "max_marks": 2, "topic_codes": [], "has_mark_scheme": True}
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete",
+        fake_ai(
+            PastPaperExtractionResult(
+                title="T",
+                session_label="S",
+                paper_number="P",
+                questions=[
+                    ExtractedQuestion(number="1", **question),
+                    ExtractedQuestion(number="1", **question),
+                ],
+            )
+        ),
+    )
+    paper_id = unreadable_paper["id"]
+    retry = await client.post(
+        f"/api/v1/past-papers/{paper_id}/retry-extraction", headers=tutor["headers"]
+    )
+    assert retry.status_code == 200, retry.text
+    assert await process_one_job() is True  # the read, failing at flush
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, paper_id)
+        assert paper.extraction_error
+    # Back on the to-do list, and fixable again.
+    assert len(_items_for(await _attention(client, tutor["headers"]), paper_id)) == 1
+    again = await client.post(
+        f"/api/v1/past-papers/{paper_id}/retry-extraction", headers=tutor["headers"]
+    )
+    assert again.status_code == 200, again.text
+
+
+async def test_a_topic_code_read_twice_is_one_tag_not_a_failed_read(
+    client,
+    tutor,
+    subject,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    from app.services.extraction import ExtractedQuestion, PastPaperExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete",
+        fake_ai(
+            PastPaperExtractionResult(
+                title="Cambridge IGCSE Chemistry 0620/41",
+                session_label="November 2026",
+                paper_number="Paper 4",
+                questions=[
+                    ExtractedQuestion(
+                        number="1",
+                        text_summary="Define an isotope",
+                        max_marks=2,
+                        topic_codes=["1.3", "1.3"],
+                        has_mark_scheme=True,
+                    )
+                ],
+            )
+        ),
+    )
+    created = await _upload(client, tutor, subject)
+    assert await process_one_job() is True
+    detail = await client.get(
+        f"/api/v1/past-papers/{created.json()['id']}", headers=tutor["headers"]
+    )
+    assert detail.json()["extraction_error"] is None
+    [question] = detail.json()["questions"]
+    assert [t["code"] for t in question["topics"]] == ["1.3"]
+
+
+async def test_a_retry_the_worker_already_claimed_is_queued_afresh(unreadable_paper):
+    """Read, then written: between the two the worker can claim the waiting
+    retry, and a running job has read the old state — on a replaced paper, the
+    file about to be deleted. Bringing forward a job that is no longer waiting
+    must queue a new one rather than rewrite the running one."""
+    from app.services.extraction import _run_now
+
+    payload = {"past_paper_id": unreadable_paper["id"]}
+    async with async_session() as session:
+        waiting = (await session.scalars(select(Job).where(Job.status == JobStatus.pending))).all()
+        assert [job.payload for job in waiting] == [payload]
+        # The worker's claim lands after the read above.
+        claimed = waiting[0]
+        claimed.status = JobStatus.running
+        claimed.attempts = 2
+        await session.commit()
+
+        await _run_now(session, "extract_past_paper", [payload], waiting=waiting)
+        await session.commit()
+
+    async with async_session() as session:
+        jobs = (await session.scalars(select(Job).order_by(Job.id))).all()
+        running = [job for job in jobs if job.status == JobStatus.running]
+        pending = [job for job in jobs if job.status == JobStatus.pending]
+        assert [job.attempts for job in running] == [2]  # left alone
+        assert [job.payload for job in pending] == [payload]  # queued afresh
+
+
+async def test_a_storage_error_on_the_old_file_does_not_fail_the_replacement(
+    client,
+    tutor,
+    subject,
+    monkeypatch,  # noqa: F811
+):
+    """The replacement is committed before the old slice is deleted. A storage
+    backend refusing that delete must not report the replacement as failed:
+    the tutor would try again and be refused, the paper already being read."""
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        booklet = Booklet(
+            organization_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject["id"],
+            status=BookletStatus.applied,
+            file_path="booklet.pdf",
+            file_name="booklet.pdf",
+            file_mime="application/pdf",
+        )
+        session.add(booklet)
+        await session.flush()
+        paper = await make_past_paper(
+            session,
+            organization_id=tutor_user.organization_id,
+            subject_id=subject["id"],
+            booklet=booklet,
+            tutor_id=tutor_user.id,
+            paper_path="slice-1.pdf",
+            paper_name="booklet — Paper 1.pdf",
+            paper_mime="application/pdf",
+            extraction_error="No questions were found in the past paper",
+        )
+        await session.commit()
+        paper_id = paper.id
+
+    async def _refuse(path, *args, **kwargs):
+        raise RuntimeError("storage is down")
+
+    monkeypatch.setattr(storage, "delete_file", _refuse)
+    resp = await client.put(
+        f"/api/v1/past-papers/{paper_id}/paper", files=_clearer_copy(), headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["paper_name"] == "clearer.pdf"
+
+
+async def test_a_very_long_file_name_is_kept_to_the_column(client, tutor, unreadable_paper):
+    """The name is the client's own and unbounded; Postgres refuses a value
+    longer than the column, which SQLite never would (`RISK-3`)."""
+    long_name = "a" * 300 + ".pdf"
+    resp = await client.put(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/paper",
+        files=[("paper", (long_name, PDF_BYTES, "application/pdf"))],
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    async with async_session() as session:
+        paper = await session.get(PastPaper, unreadable_paper["id"])
+        assert len(paper.paper_name) == 255

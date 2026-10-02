@@ -22,7 +22,7 @@ const FACTORS: { weight: WeightKey; enabled: EnabledKey; label: string; hint: st
     weight: "weight_topic_mastery",
     enabled: "enabled_topic_mastery",
     label: "Topic mastery",
-    hint: "Per-topic marks from classifieds and homework",
+    hint: "Per-topic marks from homework and past papers",
   },
   {
     weight: "weight_past_paper_performance",
