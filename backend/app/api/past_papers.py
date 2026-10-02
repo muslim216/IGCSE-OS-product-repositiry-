@@ -33,14 +33,17 @@ from app.models import (
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
+    PastPaperQuestionTopic,
     Subject,
     Submission,
     SubmissionFile,
+    Topic,
     User,
     UserRole,
     WorkKind,
 )
 from app.models.base import utcnow
+from app.schemas.groups import TopicOut
 from app.schemas.past_paper import (
     PastPaperAttemptOut,
     PastPaperDetail,
@@ -49,6 +52,7 @@ from app.schemas.past_paper import (
 )
 from app.services import storage
 from app.services.attempts import open_attempt
+from app.services.extraction import queue_past_paper_read
 from app.services.submission_kind import PAST_PAPER
 from app.services.work import create_work, parent_of
 from app.workers.jobs import enqueue
@@ -120,6 +124,27 @@ async def _question_counts(db, past_paper_ids: Sequence[int]) -> dict[int, int]:
         .group_by(PastPaperQuestion.past_paper_id)
     )
     return dict(rows.all())
+
+
+async def _question_topics(db, question_ids: Sequence[int]) -> dict[int, list[TopicOut]]:
+    """Every question's syllabus topics in one round trip, not one per question.
+
+    The same answer `_question_rows` in `api/assignments.py` gives homework:
+    which topics a question's marks count towards. A question missing from the
+    result was classified under none, so its marks count towards no topic.
+    """
+    if not question_ids:
+        return {}
+    rows = await db.execute(
+        select(PastPaperQuestionTopic.question_id, Topic)
+        .join(Topic, Topic.id == PastPaperQuestionTopic.topic_id)
+        .where(PastPaperQuestionTopic.question_id.in_(question_ids))
+        .order_by(Topic.id)
+    )
+    topics: dict[int, list[TopicOut]] = {}
+    for question_id, topic in rows.all():
+        topics.setdefault(question_id, []).append(TopicOut.model_validate(topic))
+    return topics
 
 
 def _out(paper: PastPaper, count: int, *, for_tutor: bool) -> PastPaperOut:
@@ -325,6 +350,7 @@ async def past_paper_detail(
             .order_by(PastPaperQuestion.position)
         )
     ).all()
+    topics = await _question_topics(db, [q.id for q in questions])
     return PastPaperDetail(
         **base.model_dump(),
         questions=[
@@ -334,6 +360,7 @@ async def past_paper_detail(
                 text_summary=q.text_summary,
                 max_marks=q.max_marks,
                 has_mark_scheme=q.has_mark_scheme,
+                topics=topics.get(q.id, []),
             )
             for q in questions
         ],
@@ -472,3 +499,92 @@ async def hide_past_paper(past_paper_id: int, db: DbSession, user: TutorUser) ->
         paper.hidden_at = utcnow()
         await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _require_unread(paper: PastPaper) -> None:
+    """Reading again and swapping the file are for a paper the AI could not
+    read, and only that.
+
+    A paper still being read has its extraction job in flight; a second would
+    race it for the same question list — harmless by `BE-6`, but two model
+    calls billed for one paper. A paper that was read has questions students
+    may already have been marked against, and changing the file under those
+    marks would leave them scored against a paper nobody can open.
+    """
+    if paper.extraction_error is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Only a paper that couldn't be read can be read again or replaced",
+        )
+
+
+@router.post("/{past_paper_id}/retry-extraction", response_model=PastPaperOut)
+async def retry_past_paper_extraction(
+    past_paper_id: int, db: DbSession, user: TutorUser
+) -> PastPaperOut:
+    """Try reading a paper again (owner decision, 2026-10-02: an unreadable
+    paper is the tutor's to check and fix).
+
+    For a failure in the reading rather than the paper — the model was
+    unavailable or timed out. A scan nobody can read fails the same way twice,
+    which is what `replace_past_paper_file` below is for.
+
+    Any tutor in the paper's organization, like the rest of the shelf
+    (`_visible_paper`); another organization's paper is a 404 (`API-7`).
+    """
+    paper = await _visible_paper(db, user, past_paper_id)
+    _require_unread(paper)
+    paper.extraction_error = None
+    await queue_past_paper_read(db, paper.id)
+    await db.commit()
+    # A failed extraction keeps no questions — the job clears the list before
+    # it reads — so the count is 0 until the job just queued fills it.
+    return _out(paper, 0, for_tutor=True)
+
+
+@router.put("/{past_paper_id}/paper", response_model=PastPaperOut)
+async def replace_past_paper_file(
+    past_paper_id: int,
+    db: DbSession,
+    user: TutorUser,
+    paper: Annotated[UploadFile, File()],
+) -> PastPaperOut:
+    """Swap a clearer copy in for a paper the AI could not read, and read that.
+
+    The same row carries on rather than a second upload sitting beside it.
+    Students already have this one — taking it off the tutor's shelf does not
+    take it off theirs (`hide_past_paper`) — and anyone who has sent answers
+    for it is marked against whatever this row's questions turn out to be. A
+    fresh upload would leave those answers tied to the unreadable copy for good.
+
+    Only the question paper: it is what the questions are read from. A mark
+    scheme, if there is one, stays as it is.
+    """
+    past_paper = await _visible_paper(db, user, past_paper_id)
+    _require_unread(past_paper)
+    booklet = await db.get(Booklet, past_paper.booklet_id)
+    replaced = past_paper.paper_path
+    saved: str | None = None
+    try:
+        saved, name, mime = await storage.save_upload(paper, organization_id=user.organization_id)
+        past_paper.paper_path = saved
+        past_paper.paper_name = name
+        past_paper.paper_mime = mime
+        past_paper.extraction_error = None
+        await queue_past_paper_read(db, past_paper.id)
+        await db.commit()
+    except Exception:
+        # Every failure leaves the paper as it was — still unread, still on the
+        # tutor's list — and takes the new file with it, for the same reason as
+        # `upload_past_paper`: a stored object no row points at is lost for good.
+        await db.rollback()
+        if saved is not None:
+            await storage.delete_file(saved)
+        raise
+    # The old file goes once nothing points at it. A booklet of one shares its
+    # file with its only paper — the booklet records what arrived — so that
+    # copy stays. A paper cut from a larger booklet owns its slice outright,
+    # and a slice no row references can never be found to clean up later.
+    if replaced and (booklet is None or replaced != booklet.file_path):
+        await storage.delete_file(replaced)
+    return _out(past_paper, 0, for_tutor=True)

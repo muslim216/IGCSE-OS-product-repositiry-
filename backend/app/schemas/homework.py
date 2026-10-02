@@ -141,7 +141,15 @@ class AssignmentDetail(BaseModel):
 
 
 class AssignmentAttention(BaseModel):
-    assignment_id: int
+    """One thing on the tutor's to-do list that the review queue does not hold.
+
+    Exactly one of the two ids is set: homework, or a past paper the AI could
+    not read (owner decision, 2026-10-02 — an unreadable paper is the tutor's to
+    check and fix). The same shape `ReviewQueueItem` uses for the same choice.
+    """
+
+    assignment_id: int | None
+    past_paper_id: int | None = None
     assignment_title: str
     reason: str
     detail: str | None

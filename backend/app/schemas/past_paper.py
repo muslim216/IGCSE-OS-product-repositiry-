@@ -2,6 +2,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
+from app.schemas.groups import TopicOut
+
 
 class PastPaperQuestionOut(BaseModel):
     id: int
@@ -9,6 +11,12 @@ class PastPaperQuestionOut(BaseModel):
     text_summary: str
     max_marks: int
     has_mark_scheme: bool
+    # The syllabus topics this question was classified under when the paper
+    # was read. Since 2026-10-02 they are what carry a past-paper mark into the
+    # student's topic scores (owner decision), so they travel with the question
+    # where the tutor can check them (`PROD-1`). Empty means the mark counts
+    # towards no topic — the shape `QuestionOut` uses for homework.
+    topics: list[TopicOut]
 
 
 class PastPaperOut(BaseModel):

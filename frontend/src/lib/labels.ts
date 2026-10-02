@@ -9,12 +9,13 @@
 /** Why a piece of work is waiting on the tutor.
  *
  * Exactly these four, matching what the backend sends: `extraction_failed`
- * from api/assignments.py, and the three Submission statuses that endpoint
- * filters to — `ai_failed`, `ai_marked`, `needs_review`. A reason added to the
- * backend is added here in the same change (FE-4).
+ * from api/assignments.py — homework or a past paper whose questions the AI
+ * could not read — and the three Submission statuses that endpoint filters to:
+ * `ai_failed`, `ai_marked`, `needs_review`. A reason added to the backend is
+ * added here in the same change (FE-4).
  */
 export const REASON_LABELS: Record<string, string> = {
-  extraction_failed: "Question extraction failed",
+  extraction_failed: "Couldn't read the questions",
   ai_failed: "AI marking failed",
   ai_marked: "AI-marked — awaiting your review",
   needs_review: "Some marks need your decision",

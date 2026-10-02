@@ -318,3 +318,38 @@ test("no student is named outside the review list", async () => {
   // The class strip carries class names, never a roster of learners.
   expect(screen.queryByText("Aya Hassan")).not.toBeInTheDocument();
 });
+
+test("an unreadable past paper under NEEDS YOU links to the shelf that fixes it", async () => {
+  // Owner decision, 2026-10-02: a paper the AI couldn't read is the tutor's
+  // to check and fix, and the fix lives on the past-papers shelf.
+  stubFetch(
+    {
+      classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
+      lessons: [],
+      review_count: 0,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+    },
+    null,
+    [
+      {
+        assignment_id: null,
+        past_paper_id: 9,
+        assignment_title: "0620_w26_qp_21.pdf",
+        reason: "extraction_failed",
+        detail: "No questions were found in the past paper",
+        submission_id: null,
+        student_name: null,
+      },
+    ],
+  );
+  renderDashboard();
+
+  const link = await screen.findByRole("link", { name: /0620_w26_qp_21\.pdf/ });
+  expect(link).toHaveAttribute("href", "/tutor/past-papers#paper-9");
+  expect(link).toHaveTextContent("past paper");
+  expect(screen.getByText("Couldn't read the questions")).toBeInTheDocument();
+  // Something needs the tutor, so the day is not called clear.
+  expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
+});

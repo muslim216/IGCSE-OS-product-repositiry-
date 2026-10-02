@@ -17,6 +17,8 @@ from app.models import (
     BookletStatus,
     Classified,
     Group,
+    Job,
+    JobStatus,
     Mock,
     MockQuestion,
     MockQuestionTopic,
@@ -26,11 +28,14 @@ from app.models import (
     PastPaperQuestionTopic,
     QuestionMark,
     QuestionTopic,
+    Submission,
+    SubmissionStatus,
     Topic,
 )
 from app.services import pdf, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.knowledge import build_tutor_context
+from app.workers.jobs import enqueue
 
 
 class ExtractedQuestion(BaseModel):
@@ -223,6 +228,68 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
         paper.extraction_error = str(exc) or exc.__class__.__name__
         await session.commit()
         raise
+    await _mark_waiting_attempts(session, paper)
+
+
+async def _mark_waiting_attempts(session: AsyncSession, paper: PastPaper) -> None:
+    """Queue marking for answers that arrived before the paper could be read.
+
+    A student can log an attempt as soon as a paper is on their list: before
+    extraction has finished, or after it has failed, since students keep a
+    paper the AI could not read (`hide_past_paper`). Marking that attempt
+    raises "questions haven't been extracted yet", its one retry comes 60s
+    later, and after that it sits in `ai_failed` with nothing that would ever
+    try it again — however soon the tutor fixes the paper. The question list
+    arriving is the event it was waiting for.
+
+    Only `ai_failed`. A `submitted` attempt already has its marking job queued,
+    and a second would mark the same pages twice and bill for both. That also
+    makes a re-run harmless (`BE-6`): an attempt queued here is `submitted`.
+    """
+    waiting = (
+        await session.scalars(
+            select(Submission).where(
+                Submission.work_id == paper.work_id,
+                Submission.status == SubmissionStatus.ai_failed,
+            )
+        )
+    ).all()
+    for submission in waiting:
+        submission.status = SubmissionStatus.submitted
+        submission.ai_error = None
+        await _run_now(session, "mark_submission", {"submission_id": submission.id})
+
+
+async def queue_past_paper_read(session: AsyncSession, past_paper_id: int) -> None:
+    """Read a paper's questions again, now — the tutor's fix for a paper the AI
+    could not read (owner decision, 2026-10-02)."""
+    await _run_now(session, "extract_past_paper", {"past_paper_id": past_paper_id})
+
+
+async def _run_now(session: AsyncSession, job_type: str, payload: dict) -> None:
+    """Queue a job to run now, bringing forward the retry already waiting for
+    the same work instead of queueing a second beside it.
+
+    A failed job is retried once, a minute later (`RETRY_BACKOFF_SECONDS`), and
+    the moment a tutor presses "Try again" is usually inside that minute. Two
+    jobs would do the same work twice and pay for both model calls — harmless
+    by `BE-6`, but billed. The waiting retry is made a fresh job instead, due
+    now with its attempts back to zero: whatever made it fail is what has just
+    changed. A job already running is not caught here — it has read the old
+    state, so the second run is the one that sees the new.
+
+    Payloads are compared in Python because `payload` is JSON, which Postgres
+    cannot compare for equality (as in `services/narrative.py`).
+    """
+    pending = await session.scalars(
+        select(Job).where(Job.type == job_type, Job.status == JobStatus.pending)
+    )
+    for job in pending.all():
+        if job.payload == payload:
+            job.run_after = None
+            job.attempts = 0
+            return
+    await enqueue(session, job_type, payload)
 
 
 async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int) -> bool:

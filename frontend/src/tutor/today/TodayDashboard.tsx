@@ -7,6 +7,7 @@ import { listGroups } from "../../api/groups";
 import { myOrganization } from "../../api/auth";
 import { useMyTimezone } from "../../auth/AuthContext";
 import { assignmentsNeedingAttention } from "../../api/homework";
+import { attentionHref } from "../../lib/attention";
 import { StatusBadge, useToast } from "../../components/ui";
 import { Button, buttonClasses } from "../../components/controls";
 import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
@@ -226,11 +227,7 @@ export default function TodayDashboard() {
                 className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-2.5"
               >
                 <Link
-                  to={
-                    item.submission_id
-                      ? `/tutor/submissions/${item.submission_id}`
-                      : `/tutor/assignments/${item.assignment_id}`
-                  }
+                  to={attentionHref(item)}
                   className="font-medium text-brand-600 hover:text-brand-700"
                 >
                   {item.assignment_title}
@@ -238,6 +235,9 @@ export default function TodayDashboard() {
                       be two identical rows. */}
                   {item.student_name && (
                     <span className="font-normal text-ink-500"> · {item.student_name}</span>
+                  )}
+                  {item.past_paper_id && (
+                    <span className="font-normal text-ink-500"> · past paper</span>
                   )}
                 </Link>
                 <span className="text-warn-700">{REASON_LABELS[item.reason] ?? item.reason}</span>

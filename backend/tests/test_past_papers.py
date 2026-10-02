@@ -12,6 +12,8 @@ from app.models import (
     BookletStatus,
     Evidence,
     EvidenceSource,
+    Job,
+    JobStatus,
     Mistake,
     MistakeSource,
     MistakeTopic,
@@ -22,14 +24,18 @@ from app.models import (
     Submission,
     SubmissionStatus,
     Topic,
+    User,
+    UserRole,
     WorkKind,
 )
+from app.security import create_access_token, hash_password
 from app.services import storage
 from app.services.submission_kind import PAST_PAPER, kind_of
 from app.services.work import create_work, parent_of
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
-from tests.factories import make_mistake_category, subject_defaults
+from tests.factories import make_mistake_category, make_past_paper, subject_defaults
+from tests.test_admin_org_scope import _admin_headers
 
 
 def _extraction_double(fake_ai):
@@ -1047,3 +1053,471 @@ async def test_re_extraction_leaves_a_marked_question_list_alone(
             )
         ).all()
         assert [q.id for q in after] == [q.id for q in before]
+
+
+# --- An unreadable paper is the tutor's to check and fix ---------------------
+#
+# Owner decision, 2026-10-02: a past paper the AI could not read goes on the
+# tutor's to-do list, and the shelf offers the fix — read it again, or swap in
+# a clearer copy. Students keep the paper throughout (`hide_past_paper`), so
+# anyone who already sent answers is marked once it has been read.
+
+
+def _fail_extraction(monkeypatch, fake_ai):
+    from app.services.extraction import ExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete", fake_ai(ExtractionResult(questions=[]))
+    )
+
+
+@pytest.fixture
+async def unreadable_paper(client, tutor, subject, monkeypatch, fake_ai):  # noqa: F811
+    _fail_extraction(monkeypatch, fake_ai)
+    created = await _upload(client, tutor, subject)
+    assert created.status_code == 201, created.text
+    assert await process_one_job() is True  # extraction, which fails
+    async with async_session() as session:
+        paper = await session.get(PastPaper, created.json()["id"])
+        assert paper.extraction_error
+    return created.json()
+
+
+async def _attention(client, headers) -> list[dict]:
+    resp = await client.get("/api/v1/assignments/attention", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _items_for(items: list[dict], paper_id: int) -> list[dict]:
+    return [item for item in items if item["past_paper_id"] == paper_id]
+
+
+async def _other_tutor_headers(client) -> dict:
+    other = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Other", "email": "other-shelf@example.com", "password": "password123"},
+    )
+    assert other.status_code == 201, other.text
+    return {"Authorization": f"Bearer {other.json()['tokens']['access_token']}"}
+
+
+def _clearer_copy(content: bytes = PDF_BYTES) -> list:
+    return [("paper", ("clearer.pdf", content, "application/pdf"))]
+
+
+async def test_an_unreadable_paper_goes_on_the_tutors_to_do_list(client, tutor, unreadable_paper):
+    [item] = _items_for(await _attention(client, tutor["headers"]), unreadable_paper["id"])
+    assert item["reason"] == "extraction_failed"
+    assert item["assignment_id"] is None
+    assert item["submission_id"] is None
+    # Unread means unnamed, so the tutor is shown the file they uploaded rather
+    # than one more "Untitled paper" — their own metadata, nothing invented.
+    assert item["assignment_title"] == "paper.pdf"
+    assert "No questions were found" in item["detail"]
+
+
+async def test_a_paper_that_was_read_is_not_on_the_to_do_list(client, tutor, past_paper):
+    assert _items_for(await _attention(client, tutor["headers"]), past_paper["id"]) == []
+
+
+async def test_a_paper_taken_off_the_shelf_leaves_the_to_do_list(client, tutor, unreadable_paper):
+    removed = await client.delete(
+        f"/api/v1/past-papers/{unreadable_paper['id']}", headers=tutor["headers"]
+    )
+    assert removed.status_code == 204
+    assert _items_for(await _attention(client, tutor["headers"]), unreadable_paper["id"]) == []
+
+
+async def test_another_organizations_unreadable_paper_never_reaches_my_list(
+    client, unreadable_paper
+):
+    """QA-12's negative case: the list is the reader's own organization's,
+    admins included (`SEC-7`)."""
+    other = await _other_tutor_headers(client)
+    assert _items_for(await _attention(client, other), unreadable_paper["id"]) == []
+    foreign_admin = await _admin_headers()
+    assert _items_for(await _attention(client, foreign_admin), unreadable_paper["id"]) == []
+
+
+async def test_an_admin_sees_an_unreadable_paper_and_a_colleague_does_not(client, unreadable_paper):
+    """The homework rule, applied to papers: the to-do belongs to the tutor who
+    uploaded it, and an admin oversees their whole organization."""
+    async with async_session() as session:
+        org_id = (await session.get(PastPaper, unreadable_paper["id"])).organization_id
+        colleague = User(
+            email="colleague@example.com",
+            password_hash=hash_password("password123"),
+            role=UserRole.tutor,
+            name="Colleague",
+            organization_id=org_id,
+        )
+        session.add(colleague)
+        await session.commit()
+        colleague_headers = {
+            "Authorization": f"Bearer {create_access_token(colleague.id, colleague.token_version)}"
+        }
+    admin = await _admin_headers(org_id)
+    assert len(_items_for(await _attention(client, admin), unreadable_paper["id"])) == 1
+    assert _items_for(await _attention(client, colleague_headers), unreadable_paper["id"]) == []
+
+
+async def test_trying_again_reads_the_paper_and_takes_it_off_the_list(
+    client,
+    tutor,
+    unreadable_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    resp = await client.post(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/retry-extraction",
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["extraction_error"] is None
+    # Off the list as soon as the read is under way — the shelf shows it being
+    # read — rather than once it lands.
+    assert _items_for(await _attention(client, tutor["headers"]), unreadable_paper["id"]) == []
+
+    assert await process_one_job() is True
+    detail = await client.get(
+        f"/api/v1/past-papers/{unreadable_paper['id']}", headers=tutor["headers"]
+    )
+    assert detail.json()["question_count"] == 2
+    assert detail.json()["display_title"].startswith("Cambridge IGCSE Chemistry")
+
+
+async def test_trying_again_brings_the_waiting_retry_forward_instead_of_reading_twice(
+    client, tutor, unreadable_paper
+):
+    """The failed read already has its one automatic retry waiting a minute out,
+    and a tutor pressing "Try again" is usually inside that minute. A second job
+    beside it would read — and bill — the same paper twice."""
+    resp = await client.post(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/retry-extraction",
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    async with async_session() as session:
+        [job] = (
+            await session.scalars(
+                select(Job).where(Job.type == "extract_past_paper", Job.status == JobStatus.pending)
+            )
+        ).all()
+        assert job.run_after is None  # due now, not in a minute
+        assert job.attempts == 0  # a fresh read, with its own retry to come
+
+
+async def test_trying_again_after_the_retries_ran_out_queues_a_new_read(
+    client, tutor, unreadable_paper
+):
+    async with async_session() as session:
+        for job in (await session.scalars(select(Job))).all():
+            job.status = JobStatus.failed
+        await session.commit()
+    resp = await client.post(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/retry-extraction",
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    async with async_session() as session:
+        pending = (await session.scalars(select(Job).where(Job.status == JobStatus.pending))).all()
+        assert [job.payload for job in pending] == [{"past_paper_id": unreadable_paper["id"]}]
+
+
+async def test_a_paper_that_was_read_cannot_be_read_again_or_replaced(client, tutor, past_paper):
+    """Its questions may already carry marks, and a new file under them would
+    leave those marks scored against a paper nobody can open."""
+    retry = await client.post(
+        f"/api/v1/past-papers/{past_paper['id']}/retry-extraction", headers=tutor["headers"]
+    )
+    assert retry.status_code == 409
+    replace = await client.put(
+        f"/api/v1/past-papers/{past_paper['id']}/paper",
+        files=_clearer_copy(),
+        headers=tutor["headers"],
+    )
+    assert replace.status_code == 409
+
+
+async def test_a_paper_still_being_read_is_not_read_a_second_time(client, tutor, subject):
+    created = await _upload(client, tutor, subject)
+    resp = await client.post(
+        f"/api/v1/past-papers/{created.json()['id']}/retry-extraction", headers=tutor["headers"]
+    )
+    assert resp.status_code == 409
+
+
+async def test_another_organization_cannot_fix_a_paper(client, unreadable_paper):
+    """QA-12: a 404, not a 403 — the id is enumerable (`API-7`) — and the paper
+    is left exactly as it was."""
+    other = await _other_tutor_headers(client)
+    paper_id = unreadable_paper["id"]
+    retry = await client.post(f"/api/v1/past-papers/{paper_id}/retry-extraction", headers=other)
+    assert retry.status_code == 404
+    replace = await client.put(
+        f"/api/v1/past-papers/{paper_id}/paper", files=_clearer_copy(), headers=other
+    )
+    assert replace.status_code == 404
+    async with async_session() as session:
+        paper = await session.get(PastPaper, paper_id)
+        assert paper.extraction_error
+        assert paper.paper_name == "paper.pdf"
+
+
+async def test_a_student_cannot_fix_a_paper(client, student, unreadable_paper):
+    paper_id = unreadable_paper["id"]
+    retry = await client.post(
+        f"/api/v1/past-papers/{paper_id}/retry-extraction", headers=student["headers"]
+    )
+    assert retry.status_code == 403
+    replace = await client.put(
+        f"/api/v1/past-papers/{paper_id}/paper", files=_clearer_copy(), headers=student["headers"]
+    )
+    assert replace.status_code == 403
+
+
+async def test_a_clearer_copy_replaces_the_unreadable_one_and_is_read(
+    client,
+    tutor,
+    unreadable_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    deleted: list[str] = []
+    real_delete = storage.delete_file
+
+    async def _delete(path, *args, **kwargs):
+        deleted.append(path)
+        return await real_delete(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "delete_file", _delete)
+    async with async_session() as session:
+        original = (await session.get(PastPaper, unreadable_paper["id"])).paper_path
+
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    resp = await client.put(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/paper",
+        files=_clearer_copy(),
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["paper_name"] == "clearer.pdf"
+    assert resp.json()["extraction_error"] is None
+
+    assert await process_one_job() is True
+    async with async_session() as session:
+        paper = await session.get(PastPaper, unreadable_paper["id"])
+        assert paper.paper_path != original
+        assert paper.extraction_error is None
+        questions = (
+            await session.scalars(
+                select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == paper.id)
+            )
+        ).all()
+        assert len(questions) == 2
+    # A booklet of one shares its file with its paper; the booklet still
+    # records what arrived, so the original is kept.
+    assert deleted == []
+
+
+async def test_replacing_a_paper_cut_from_a_booklet_deletes_the_old_slice(
+    client,
+    tutor,
+    subject,
+    monkeypatch,  # noqa: F811
+):
+    """A paper cut from a larger booklet owns its slice outright. Replaced and
+    left on disk, nothing would point at it, so nothing could ever clean it up."""
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        booklet = Booklet(
+            organization_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=subject["id"],
+            status=BookletStatus.applied,
+            file_path="booklet.pdf",
+            file_name="booklet.pdf",
+            file_mime="application/pdf",
+        )
+        session.add(booklet)
+        await session.flush()
+        paper = await make_past_paper(
+            session,
+            organization_id=tutor_user.organization_id,
+            subject_id=subject["id"],
+            booklet=booklet,
+            tutor_id=tutor_user.id,
+            paper_path="slice-1.pdf",
+            paper_name="booklet — Paper 1.pdf",
+            paper_mime="application/pdf",
+            extraction_error="No questions were found in the past paper",
+        )
+        await session.commit()
+        paper_id = paper.id
+
+    deleted: list[str] = []
+
+    async def _delete(path, *args, **kwargs):
+        deleted.append(path)
+
+    monkeypatch.setattr(storage, "delete_file", _delete)
+    resp = await client.put(
+        f"/api/v1/past-papers/{paper_id}/paper", files=_clearer_copy(), headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    assert deleted == ["slice-1.pdf"]
+
+
+async def test_a_rejected_copy_leaves_the_paper_as_it_was(client, tutor, unreadable_paper):
+    """PNG bytes claiming to be a PDF fail the magic-byte check (`SEC-15`)
+    before anything is stored, and the paper stays unread and on the list."""
+    resp = await client.put(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/paper",
+        files=_clearer_copy(PNG_BYTES),
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 415, resp.text
+    async with async_session() as session:
+        paper = await session.get(PastPaper, unreadable_paper["id"])
+        assert paper.extraction_error
+        assert paper.paper_name == "paper.pdf"
+    assert len(_items_for(await _attention(client, tutor["headers"]), unreadable_paper["id"])) == 1
+
+
+async def test_a_copy_that_cannot_be_queued_takes_its_file_with_it(
+    client,
+    tutor,
+    unreadable_paper,
+    monkeypatch,  # noqa: F811
+):
+    """The new file is on disk before the read is queued; a failure there owns
+    its cleanup, as `upload_past_paper`'s does."""
+
+    async def _explode(*args, **kwargs):
+        raise RuntimeError("queue is down")
+
+    monkeypatch.setattr("app.api.past_papers.queue_past_paper_read", _explode)
+    saved: list[str] = []
+    deleted: list[str] = []
+    real_save = storage.save_upload
+    real_delete = storage.delete_file
+
+    async def _save(*args, **kwargs):
+        result = await real_save(*args, **kwargs)
+        saved.append(result[0])
+        return result
+
+    async def _delete(path, *args, **kwargs):
+        deleted.append(path)
+        return await real_delete(path, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "save_upload", _save)
+    monkeypatch.setattr(storage, "delete_file", _delete)
+
+    with pytest.raises(RuntimeError):
+        await client.put(
+            f"/api/v1/past-papers/{unreadable_paper['id']}/paper",
+            files=_clearer_copy(),
+            headers=tutor["headers"],
+        )
+    assert saved, "the test proves nothing if nothing was stored"
+    assert deleted == saved
+    async with async_session() as session:
+        paper = await session.get(PastPaper, unreadable_paper["id"])
+        assert paper.extraction_error
+        assert paper.paper_name == "paper.pdf"
+
+
+async def test_answers_sent_before_the_paper_could_be_read_are_marked_once_it_is(
+    client,
+    tutor,
+    student,
+    unreadable_paper,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The paper stays on the student's list while it is unreadable, so answers
+    can arrive for it. Marking them fails for want of questions, and nothing
+    else would ever try again — the paper being read is what they wait for."""
+    resp = await _log_attempt(client, student, unreadable_paper["id"])
+    assert resp.status_code == 201, resp.text
+    assert await process_one_job() is True  # marking, with no questions to mark
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+        assert submission.status == SubmissionStatus.ai_failed
+
+    monkeypatch.setattr("app.services.extraction.structured_complete", _extraction_double(fake_ai))
+    monkeypatch.setattr("app.services.marking.structured_complete", _marking_double(fake_ai))
+    fixed = await client.post(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/retry-extraction",
+        headers=tutor["headers"],
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert await process_one_job() is True  # the read
+
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+        assert submission.status == SubmissionStatus.submitted
+        assert submission.ai_error is None
+        # One marking job: the failed marking's own retry, brought forward.
+        marking = (
+            await session.scalars(
+                select(Job).where(Job.type == "mark_submission", Job.status == JobStatus.pending)
+            )
+        ).all()
+        assert len(marking) == 1
+        assert marking[0].run_after is None
+
+    assert await process_one_job() is True  # the marking
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+        assert submission.status == SubmissionStatus.auto_finalized
+
+
+async def test_each_question_says_which_topics_it_counts_towards(
+    client, tutor, subject, past_paper
+):
+    """Past-paper marks feed the student's topic scores through these tags, so
+    the tutor can see them (`PROD-1`)."""
+    detail = await client.get(f"/api/v1/past-papers/{past_paper['id']}", headers=tutor["headers"])
+    topics = {q["number"]: [t["title"] for t in q["topics"]] for q in detail.json()["questions"]}
+    assert topics == {"1": ["Atomic structure"], "2": ["Ionic bonding"]}
+
+
+async def test_a_question_classified_under_no_topic_says_so(
+    client,
+    tutor,
+    subject,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    from app.services.extraction import ExtractedQuestion, PastPaperExtractionResult
+
+    monkeypatch.setattr(
+        "app.services.extraction.structured_complete",
+        fake_ai(
+            PastPaperExtractionResult(
+                title="Cambridge IGCSE Chemistry 0620/41",
+                session_label="November 2026",
+                paper_number="Paper 4",
+                questions=[
+                    ExtractedQuestion(
+                        number="1",
+                        text_summary="A question on no syllabus topic the subject has",
+                        max_marks=3,
+                        topic_codes=["9.9"],
+                        has_mark_scheme=True,
+                    )
+                ],
+            )
+        ),
+    )
+    created = await _upload(client, tutor, subject)
+    assert await process_one_job() is True
+    detail = await client.get(
+        f"/api/v1/past-papers/{created.json()['id']}", headers=tutor["headers"]
+    )
+    [question] = detail.json()["questions"]
+    assert question["topics"] == []

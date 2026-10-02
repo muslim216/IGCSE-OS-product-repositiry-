@@ -954,7 +954,7 @@
           "assignments"
         ],
         "summary": "Assignments Needing Attention",
-        "description": "Surfaces homework that needs a tutor's eyes: failed extraction/marking,\nor AI-marked submissions still waiting to be finalized.",
+        "description": "Surfaces work that needs a tutor's eyes: homework or a past paper whose\nquestions could not be read, failed marking, or AI-marked submissions still\nwaiting to be finalized.",
         "operationId": "assignments_needing_attention_api_v1_assignments_attention_get",
         "responses": {
           "200": {
@@ -4499,6 +4499,62 @@
             }
           }
         }
+      },
+      "put": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Replace Past Paper File",
+        "description": "Swap a clearer copy in for a paper the AI could not read, and read that.\n\nThe same row carries on rather than a second upload sitting beside it.\nStudents already have this one \u2014 taking it off the tutor's shelf does not\ntake it off theirs (`hide_past_paper`) \u2014 and anyone who has sent answers\nfor it is marked against whatever this row's questions turn out to be. A\nfresh upload would leave those answers tied to the unreadable copy for good.\n\nOnly the question paper: it is what the questions are read from. A mark\nscheme, if there is one, stays as it is.",
+        "operationId": "replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "past_paper_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Past Paper Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PastPaperOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/past-papers/{past_paper_id}/mark-scheme": {
@@ -4670,6 +4726,54 @@
                     }
                   ],
                   "title": "Response My Attempt Api V1 Past Papers  Past Paper Id  My Attempt Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/past-papers/{past_paper_id}/retry-extraction": {
+      "post": {
+        "tags": [
+          "past-papers"
+        ],
+        "summary": "Retry Past Paper Extraction",
+        "description": "Try reading a paper again (owner decision, 2026-10-02: an unreadable\npaper is the tutor's to check and fix).\n\nFor a failure in the reading rather than the paper \u2014 the model was\nunavailable or timed out. A scan nobody can read fails the same way twice,\nwhich is what `replace_past_paper_file` below is for.\n\nAny tutor in the paper's organization, like the rest of the shelf\n(`_visible_paper`); another organization's paper is a 404 (`API-7`).",
+        "operationId": "retry_past_paper_extraction_api_v1_past_papers__past_paper_id__retry_extraction_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "past_paper_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Past Paper Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PastPaperOut"
                 }
               }
             }
@@ -7971,8 +8075,26 @@
       "AssignmentAttention": {
         "properties": {
           "assignment_id": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Assignment Id"
+          },
+          "past_paper_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Past Paper Id"
           },
           "assignment_title": {
             "type": "string",
@@ -8025,7 +8147,8 @@
           "submission_id",
           "student_name"
         ],
-        "title": "AssignmentAttention"
+        "title": "AssignmentAttention",
+        "description": "One thing on the tutor's to-do list that the review queue does not hold.\n\nExactly one of the two ids is set: homework, or a past paper the AI could\nnot read (owner decision, 2026-10-02 \u2014 an unreadable paper is the tutor's to\ncheck and fix). The same shape `ReviewQueueItem` uses for the same choice."
       },
       "AssignmentCreate": {
         "properties": {
@@ -8553,6 +8676,20 @@
           "attempted_at"
         ],
         "title": "Body_log_attempt_api_v1_past_papers__past_paper_id__attempts_post"
+      },
+      "Body_replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put": {
+        "properties": {
+          "paper": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Paper"
+          }
+        },
+        "type": "object",
+        "required": [
+          "paper"
+        ],
+        "title": "Body_replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put"
       },
       "Body_sit_mock_api_v1_mocks__mock_id__submissions_post": {
         "properties": {
@@ -12290,6 +12427,13 @@
           "has_mark_scheme": {
             "type": "boolean",
             "title": "Has Mark Scheme"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicOut"
+            },
+            "type": "array",
+            "title": "Topics"
           }
         },
         "type": "object",
@@ -12298,7 +12442,8 @@
           "number",
           "text_summary",
           "max_marks",
-          "has_mark_scheme"
+          "has_mark_scheme",
+          "topics"
         ],
         "title": "PastPaperQuestionOut"
       },
