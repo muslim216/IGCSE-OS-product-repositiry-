@@ -242,6 +242,25 @@ textarea::placeholder {
 }
 .avora-control:disabled {
   border-color: var(--color-line-strong);
+  /* The element rule above gives every field the surface fill, unlayered, so
+     the layered `disabled:bg-surface-muted` in the control classes never
+     showed and a disabled field looked editable. */
+  background-color: var(--color-surface-muted);
+}
+
+/* The chevron for <Select>, whose native arrow `appearance-none` removes. It
+   lives here rather than in an arbitrary `bg-[url(...)]` utility: a class
+   attribute splits at whitespace, so an SVG written into one is cut into
+   fragments at its first space and Tailwind generates nothing — which is how
+   the arrow went missing. Longhands only: the `background` shorthand would
+   reset the fill, and being unlayered it would beat `bg-surface`. The colour
+   is ink-500 written out, because an image in a data URI is its own document
+   and cannot read var(--color-ink-500); change the two together. */
+.avora-select {
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%23786351%22%3E%3Cpath%20d%3D%22M5.3%207.3a1%201%200%200%201%201.4%200L10%2010.6l3.3-3.3a1%201%200%201%201%201.4%201.4l-4%204a1%201%200%200%201-1.4%200l-4-4a1%201%200%200%201%200-1.4z%22%2F%3E%3C%2Fsvg%3E");
+  background-position: right 0.6rem center;
+  background-repeat: no-repeat;
+  background-size: 1.1rem;
 }
 
 /* Text */

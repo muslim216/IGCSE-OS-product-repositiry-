@@ -198,6 +198,13 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   const c = overview.data;
   const hasSummary = Boolean(narrative.data?.text);
   const preparing = prepare.isPending || awaitedSince !== null;
+  // Nothing can be prepared for a class without evidence: POST /brief answers
+  // "not enough evidence" without queueing the narrative job, and the job
+  // itself writes nothing without marked evidence. Offering the button there
+  // sent the panel polling for a minute for a row that never comes. This is
+  // that endpoint's own test — no scored learner and no weak topic — read off
+  // the same class readiness this overview is built from.
+  const canPrepare = c.students_with_evidence > 0 || c.weak_topics.length > 0;
 
   // A class nobody has joined gets the empty room rather than a dashboard.
   if (c.member_count === 0) return <EmptyRoom groupId={groupId} />;
@@ -308,7 +315,11 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
           had not. */}
       <section className="border-t border-line pt-4">
         <h2 className="avora-label mb-2">Class summary</h2>
-        {narrative.data?.text ? (
+        {/* Loading is its own state: "No summary yet" before the request has
+            answered is a claim about a row nobody has read (PROD-2). */}
+        {narrative.isPending ? (
+          <SectionSkeleton rows={2} label="Loading the class summary" />
+        ) : narrative.data?.text ? (
           <p className="max-w-prose text-sm leading-relaxed text-ink-700">
             {narrative.data.text}
             {(narrative.isFetching || awaitedSince !== null) && (
@@ -323,22 +334,31 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
           <p className="text-sm text-ink-500" aria-live="polite">
             Writing the summary — it appears here in a moment.
           </p>
-        ) : (
+        ) : canPrepare ? (
           <p className="max-w-prose text-sm text-ink-500">
             No summary yet. One is written once work is marked, or you can prepare one now.
           </p>
+        ) : (
+          <p className="max-w-prose text-sm text-ink-500">
+            No summary yet. One is written once work is marked.
+          </p>
         )}
         {/* The label follows the state: "again" only makes sense once there is
-            something on screen to redo. */}
-        <Button
-          variant="secondary"
-          size="sm"
-          className="mt-3"
-          loading={prepare.isPending}
-          onClick={() => prepare.mutate()}
-        >
-          {hasSummary ? "Prepare again" : "Prepare summary"}
-        </Button>
+            something on screen to redo — so it waits for the narrative to
+            answer. Busy for the whole wait, not just the POST: the job runs
+            after the request returns, and a second press meanwhile queues a
+            second forced regeneration. */}
+        {canPrepare && !narrative.isPending && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            loading={preparing}
+            onClick={() => prepare.mutate()}
+          >
+            {hasSummary ? "Prepare again" : "Prepare summary"}
+          </Button>
+        )}
         {prepare.isError && <p className="mt-2 text-sm text-ink-500">{ABSENT.aiUnavailable}</p>}
       </section>
     </SectionCard>

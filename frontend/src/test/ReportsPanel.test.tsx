@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { ReportsPanel } from "../components/ReportsPanel";
@@ -60,6 +60,51 @@ test("a failed report says so in words and never shows the stored error", async 
   fireEvent.click(screen.getByRole("button", { name: /Progress report — September/ }));
   expect(await screen.findByText(/This report couldn't be written/)).toBeInTheDocument();
   expect(screen.queryByText(/overloaded/)).not.toBeInTheDocument();
+});
+
+test("a list that fails to load can be retried from where the failure is shown", async () => {
+  // The message used to end "Try again." with nothing on screen to try it with.
+  let listCalls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/api/v1/reports" && listCalls++ === 0) {
+        return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+  renderPanel();
+  const failure = await screen.findByRole("alert");
+  expect(failure).toHaveTextContent("Reports didn't load");
+  fireEvent.click(within(failure).getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("No reports yet")).toBeInTheDocument();
+});
+
+test("a report that fails to open can be retried", async () => {
+  let openCalls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+      if (url.pathname === "/api/v1/reports") return json([{ ...FAILED, status: "ready" }]);
+      if (url.pathname === "/api/v1/reports/4") {
+        if (openCalls++ === 0) {
+          return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+        }
+        return json({ ...FAILED, status: "ready", content: "Steady progress in algebra." });
+      }
+      return json([]);
+    }),
+  );
+  renderPanel();
+  fireEvent.click(await screen.findByRole("button", { name: /Progress report — September/ }));
+  const failure = await screen.findByRole("alert");
+  expect(failure).toHaveTextContent("This report didn't open");
+  fireEvent.click(within(failure).getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Steady progress in algebra.")).toBeInTheDocument();
 });
 
 test("a reader who cannot generate is told where reports come from", async () => {

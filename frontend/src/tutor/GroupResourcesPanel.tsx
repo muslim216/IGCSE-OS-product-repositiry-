@@ -20,7 +20,18 @@ const KIND_LABEL: Record<Resource["kind"], string> = {
   recording: "Recording",
 };
 
+/**
+ * Keyed by class, so everything below starts over with each one. Moving from
+ * one class's Resources tab to another's can keep this mounted — same route
+ * element, and a class already in the cache never drops the layout to its
+ * skeleton — and an open "Remove …?" dialog then carried over: confirming it
+ * would delete a file from the class the tutor had just left.
+ */
 export function GroupResourcesPanel({ groupId }: { groupId: number }) {
+  return <ResourcesPanel key={groupId} groupId={groupId} />;
+}
+
+function ResourcesPanel({ groupId }: { groupId: number }) {
   const queryClient = useQueryClient();
   const resources = useQuery({
     queryKey: ["resources", groupId],
@@ -130,7 +141,16 @@ export function GroupResourcesPanel({ groupId }: { groupId: number }) {
       >
         <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
           <Field label="Type">
-            <Select value={kind} onChange={(e) => setKind(e.target.value as "file" | "recording")}>
+            <Select
+              value={kind}
+              onChange={(e) => {
+                setKind(e.target.value as "file" | "recording");
+                // The picker unmounts with the type and comes back empty, so a
+                // file kept from before the switch would be invisible — yet Add
+                // would still upload it.
+                setFile(null);
+              }}
+            >
               <option value="recording">Recording link</option>
               <option value="file">File</option>
             </Select>

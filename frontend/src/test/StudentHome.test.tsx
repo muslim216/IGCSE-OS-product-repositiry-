@@ -124,6 +124,53 @@ test("DO precedes YOU DID in DOM order", async () => {
   expect(headings.indexOf("Do")).toBeLessThan(headings.indexOf("You did"));
 });
 
+test("the outline starts at the verdict's h1, with the strip above it as a named region", async () => {
+  // §5.1 puts the strip above the verdict, so its label cannot be an <h2>: a
+  // heading ahead of the page's <h1> starts the outline at level two.
+  stubFetch([subject()], []);
+  const { container } = renderHome();
+
+  await screen.findByText("74%");
+  expect(container.querySelector("h1, h2, h3, h4, h5, h6")?.tagName).toBe("H1");
+  const strip = screen.getByRole("region", { name: "Your subjects" });
+  expect(strip).toContainElement(screen.getByText("74%"));
+});
+
+test.each([
+  [true, false, "Couldn't load your subjects."],
+  [false, true, "Couldn't load your homework."],
+  [true, true, "Couldn't load your home."],
+])(
+  "a failed load names what failed (readiness %s, homework %s)",
+  async (readinessFails, homeworkFails, title) => {
+    // Either request failing replaces the page; "your subjects" over a
+    // homework failure would point the student at the wrong thing.
+    const fail = () => new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/readiness/me")) {
+          return readinessFails
+            ? fail()
+            : new Response(
+                JSON.stringify({ student_id: 1, student_name: "Sara", subjects: [subject()] }),
+                { status: 200 },
+              );
+        }
+        if (url.includes("/me/assignments")) {
+          return homeworkFails ? fail() : new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(JSON.stringify([]), { status: 200 });
+      }),
+    );
+    renderHome();
+
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Couldn't load your/)).toHaveLength(1);
+  },
+);
+
 test("a subject without evidence renders words, not a zero", async () => {
   stubFetch([subject({ score: null, predicted_grade: null, status: null, direction: null })], []);
   const { container } = renderHome();

@@ -32,10 +32,16 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * The failure's own text is the job's raw exception, so it is not the status
  * line: the line says what happened and what to do, and the raw reason sits
  * behind "What went wrong" for anyone who needs it.
+ *
+ * "What to do" is only what the tutor can actually do. It once said "Remove it
+ * and upload it again", but Remove hides a paper from this list alone —
+ * students keep it (`hide_past_paper`) — and the API offers no way to re-run a
+ * past paper's extraction. That advice left the unreadable paper on every
+ * student's list beside its replacement while telling the tutor it was gone.
  */
 function statusLine(p: PaperRow): string {
   if (p.extraction_error)
-    return "Couldn't read this paper. Remove it and upload it again — a clear PDF works best.";
+    return "Couldn't read this paper. Upload a clearer copy — a clean PDF works best. Students still see this one; removing it only takes it off your list.";
   if (p.question_count > 0) {
     const marks = p.total_marks ? ` · ${p.total_marks} marks` : "";
     return `${plural(p.question_count, "question", "questions")}${marks}`;

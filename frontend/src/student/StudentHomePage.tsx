@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarClock, Check } from "lucide-react";
@@ -41,7 +41,10 @@ import { dueVerdict, monthlyGains, recentlyMarked, subjectStrip } from "../lib/s
  * **The verdict is the page title.** It is the one sentence UX-27 says the
  * surface opens with, so it is the <h1> rather than a line under a generic
  * "Home" heading that would push it down the screen. The subject strip stays
- * above it, as §5.1 draws it: the polish pass moved neither section.
+ * above it, as §5.1 draws it: the polish pass moved neither section. So the
+ * strip's label is not a heading — an <h2> ahead of the <h1> would start the
+ * page's outline at level two — and the strip is a region named by that label
+ * instead, which a screen reader can still jump to.
  *
  * Personal settings (the time-zone control) used to sit at the bottom of this
  * page because a student had no settings screen. They now live on the
@@ -109,6 +112,7 @@ export default function StudentHomePage() {
   // The signed-in identity already carries time_zone, so no extra request is
   // needed to know which midnight this reader's dates turn over on.
   const myZone = useMyTimezone();
+  const stripLabelId = useId();
   const readiness = useQuery({ queryKey: ["my-readiness"], queryFn: myReadiness });
   const lessons = useQuery({ queryKey: ["my-lessons"], queryFn: myLessons });
   const assignments = useQuery({ queryKey: ["my-assignments"], queryFn: myAssignments });
@@ -131,13 +135,21 @@ export default function StudentHomePage() {
   }
 
   // A failed load is stated. Rendering nothing would read as "you have no
-  // subjects and nothing to do", which is a different and wrong claim.
+  // subjects and nothing to do", which is a different and wrong claim. Either
+  // request failing lands here, so the title names the one that did — "your
+  // subjects" over a homework failure points the student at the wrong thing.
   if (readiness.isError || assignments.isError) {
     return (
       <div className="max-w-3xl">
         <PageHeader title="Home" />
         <ErrorState
-          title="Couldn't load your subjects."
+          title={
+            !assignments.isError
+              ? "Couldn't load your subjects."
+              : !readiness.isError
+                ? "Couldn't load your homework."
+                : "Couldn't load your home."
+          }
           error={readiness.error ?? assignments.error}
           onRetry={() => {
             void readiness.refetch();
@@ -151,8 +163,10 @@ export default function StudentHomePage() {
   return (
     <div className="max-w-3xl space-y-6">
       {strip.length > 0 && (
-        <section>
-          <h2 className="avora-label mb-2">Your subjects</h2>
+        <section aria-labelledby={stripLabelId}>
+          <p id={stripLabelId} className="avora-label mb-2">
+            Your subjects
+          </p>
           <ul className="grid gap-3 sm:grid-cols-2">
             {strip.map((s) => (
               <SubjectChip

@@ -151,16 +151,25 @@ export function Modal({
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // The latest onClose, read through a ref so the effect below runs once per
+  // opening. Callers pass an inline function, so it is a new one on every
+  // parent render; with it in the effect's deps, any background refetch above
+  // the dialog re-ran the effect and pulled focus off the button the user was
+  // on, back to the panel.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
     panelRef.current?.focus();
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

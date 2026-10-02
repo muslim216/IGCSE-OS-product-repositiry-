@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
@@ -132,6 +132,39 @@ test("the narrative section states its absence rather than rendering an empty bl
   // find, not get: the section shows a skeleton until the narrative request
   // has answered, rather than claiming "nothing written" before it knows.
   expect(await screen.findByText(/Nothing written yet/)).toBeInTheDocument();
+});
+
+test("a summary that failed to load says so and can be retried", async () => {
+  // A failed request knows nothing about whether a summary exists, so it must
+  // not fall through to "Nothing written yet" — that tells a parent there is
+  // nothing to read when the truth is we could not ask.
+  let narrativeFails = true;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+      if (url.includes("/me/children")) return json([{ id: 2, name: "Sara", role: "student" }]);
+      if (url.includes("/narrative")) {
+        return narrativeFails
+          ? json({ detail: "boom" }, 500)
+          : json({ text: "Chemistry is moving up.", generated_at: null, prompt_version: null });
+      }
+      if (url.includes("/readiness/students/")) {
+        return json({ student_id: 2, student_name: "Sara", subjects: [subject()] });
+      }
+      return json([]);
+    }),
+  );
+  renderParent();
+
+  expect(await screen.findByText("We couldn't load the summary.")).toBeInTheDocument();
+  expect(screen.queryByText(/Nothing written yet/)).not.toBeInTheDocument();
+
+  narrativeFails = false;
+  fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+  expect(await screen.findByText("Chemistry is moving up.")).toBeInTheDocument();
+  expect(screen.queryByText("We couldn't load the summary.")).not.toBeInTheDocument();
 });
 
 test("a stored narrative is read, never generated here", async () => {

@@ -6,14 +6,7 @@ import { useGroupContext } from "../GroupLayout";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { buttonClasses } from "../../components/controls";
 import { ErrorState, SectionSkeleton } from "../../components/page";
-
-/** Where a piece of homework is in its life, in words a tutor would use. */
-const STATUS: Record<string, { label: string; classes: string }> = {
-  extracting: { label: "Reading the paper…", classes: "bg-surface-muted text-ink-700" },
-  extraction_failed: { label: "Couldn't read the paper", classes: "bg-risk-100 text-risk-600" },
-  review: { label: "Check the questions", classes: "bg-warn-100 text-warn-700" },
-  closed: { label: "Closed", classes: "bg-surface-muted text-ink-700" },
-};
+import { assignmentStatus } from "../../lib/assignmentStatus";
 
 function StatusBadge({ status, submissionCount }: { status: string; submissionCount: number }) {
   if (status === "published")
@@ -22,10 +15,7 @@ function StatusBadge({ status, submissionCount }: { status: string; submissionCo
         {submissionCount} handed in
       </span>
     );
-  const known = STATUS[status] ?? {
-    label: "In progress",
-    classes: "bg-surface-muted text-ink-700",
-  };
+  const known = assignmentStatus(status);
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${known.classes}`}>
       {known.label}

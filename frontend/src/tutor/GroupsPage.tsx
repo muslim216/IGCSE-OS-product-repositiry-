@@ -130,27 +130,37 @@ export default function GroupsPage() {
                   autoFocus
                 />
               </Field>
-              <Field
-                label="Subject"
-                error={
-                  subjects.isError ? "Subjects didn't load. Refresh the page to try again." : null
-                }
-              >
-                <Select
-                  value={subjectId}
-                  onChange={(e) => setSubjectId(Number(e.target.value))}
-                  required
-                >
-                  <option value="" disabled>
-                    {subjects.isLoading ? "Loading subjects…" : "Choose a subject"}
-                  </option>
-                  {subjects.data?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} — {s.exam_board} {s.code}
+              {/* Retried in place: a refresh would also throw away the class
+                  name already typed beside it. */}
+              <div>
+                <Field label="Subject" error={subjects.isError ? "Subjects didn't load." : null}>
+                  <Select
+                    value={subjectId}
+                    onChange={(e) => setSubjectId(Number(e.target.value))}
+                    required
+                  >
+                    <option value="" disabled>
+                      {subjects.isLoading ? "Loading subjects…" : "Choose a subject"}
                     </option>
-                  ))}
-                </Select>
-              </Field>
+                    {subjects.data?.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} — {s.exam_board} {s.code}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {subjects.isError && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2"
+                    loading={subjects.isFetching}
+                    onClick={() => subjects.refetch()}
+                  >
+                    Try again
+                  </Button>
+                )}
+              </div>
             </div>
             {create.isError && (
               <p role="alert" className="mt-3 text-sm text-risk-600">

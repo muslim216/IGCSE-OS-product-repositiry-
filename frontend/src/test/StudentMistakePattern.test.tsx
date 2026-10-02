@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
@@ -42,6 +42,10 @@ const BIOLOGY = {
   total_mistakes: 0,
   categories: [],
 };
+
+/** The section's failure title — the third wording, distinct from both the
+ *  absent and the clean-record sentences. */
+const LOAD_FAILED = "Couldn't load your mistake pattern.";
 
 /** Answers the page; `mistakes` is what `/me/mistakes` returns, or a status to
  *  fail it with. The assignment list answers empty so it stays out of the way. */
@@ -122,9 +126,22 @@ test("a failed request reads as an error, not as an empty or clean record", asyn
   stub(null, 500);
   renderPage();
 
-  expect(await screen.findByText(new RegExp(ABSENT.loadFailed))).toBeInTheDocument();
+  expect(await screen.findByText(LOAD_FAILED)).toBeInTheDocument();
   expect(screen.queryByText(/No mistakes noted/)).not.toBeInTheDocument();
   expect(screen.queryByText(new RegExp(ABSENT.noEvidence))).not.toBeInTheDocument();
+});
+
+test("a failed request can be retried in place", async () => {
+  // The old wording sent the student to the browser's refresh button, which
+  // reloads every other section of the page with it.
+  const state = stub([CHEMISTRY], 500);
+  renderPage();
+  await screen.findByText(LOAD_FAILED);
+
+  state.failWith = undefined;
+  fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+  expect(await screen.findByText("5 mistakes across 4 questions looked at")).toBeInTheDocument();
+  expect(screen.queryByText(LOAD_FAILED)).not.toBeInTheDocument();
 });
 
 test("severity never reaches the screen, even when the server sends it", async () => {
@@ -169,6 +186,6 @@ test("a refetch that fails is reported, not papered over with the last good answ
   state.failWith = 500;
   await client.invalidateQueries({ queryKey: ["my-mistakes"] });
 
-  await waitFor(() => expect(screen.getByText(new RegExp(ABSENT.loadFailed))).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText(LOAD_FAILED)).toBeInTheDocument());
   expect(screen.queryByText("5 mistakes across 4 questions looked at")).not.toBeInTheDocument();
 });

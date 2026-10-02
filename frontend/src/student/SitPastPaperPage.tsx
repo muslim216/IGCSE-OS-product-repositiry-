@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Clock } from "lucide-react";
 import { getPastPaper, logAttempt, myAttempt, pastPaperPaperPath } from "../api/pastPapers";
@@ -39,6 +39,10 @@ export default function SitPastPaperPage() {
   });
 
   const [files, setFiles] = useState<File[]>([]);
+  // Bumped after a successful upload so the file picker forgets the names it
+  // was showing — the files have gone, and still listing them would read as
+  // "not sent yet".
+  const [pickerKey, setPickerKey] = useState(0);
   const [attemptedAt, setAttemptedAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [timed, setTimed] = useState(true);
   const [minutes, setMinutes] = useState("");
@@ -54,6 +58,7 @@ export default function SitPastPaperPage() {
       }),
     onSuccess: () => {
       setFiles([]);
+      setPickerKey((k) => k + 1);
       queryClient.invalidateQueries({ queryKey: ["past-paper-attempt", id] });
     },
     onError: (err) => setError(friendlyError(err, "Your answers couldn't be uploaded. Try again.")),
@@ -128,8 +133,20 @@ export default function SitPastPaperPage() {
             {a.timed ? "under timed conditions" : "untimed"}
             {a.time_taken_minutes ? `, took ${a.time_taken_minutes} minutes` : ""}.
           </p>
+          {/* Where the result goes, not where its detail is: a student has no
+              per-question view of a past paper — the attempt carries only its
+              total — and Progress shows grades and topics, not marks. The
+              result does feed Progress: the averaging grade, and the
+              prediction's past-paper factor. */}
           <p className="mt-3 text-sm text-ink-500">
-            Your per-question marks and feedback are in your progress.
+            This result counts towards your{" "}
+            <Link
+              to="/student/progress"
+              className="font-medium text-brand-600 hover:text-brand-700"
+            >
+              progress
+            </Link>
+            .
           </p>
         </SectionCard>
       ) : a?.status === "being_marked" ? (
@@ -152,6 +169,7 @@ export default function SitPastPaperPage() {
             </div>
             <Field label="Your answers">
               <FileInput
+                key={pickerKey}
                 multiple
                 accept="application/pdf,image/*"
                 onFiles={setFiles}

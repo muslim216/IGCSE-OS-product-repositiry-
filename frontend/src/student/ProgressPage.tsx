@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { myReadiness, type SubjectReadiness } from "../api/readiness";
+import { myReadiness, type SubjectReadiness, type TopicReadiness } from "../api/readiness";
 import { DirectionMark, EmptyState, SectionCard } from "../components/ui";
 import { ErrorState, PageHeader, PageSkeleton } from "../components/page";
 import { ReportsPanel } from "../components/ReportsPanel";
@@ -32,9 +32,10 @@ import {
 
 const PROGRESS_DESCRIPTION = "How each subject is going, and the work it's based on.";
 
-/** The marker on a topic whose score rests partly on the tutor's own starting
-    judgement rather than marked work (PROD-8, UX-20). One wording, so the
-    legend below can explain exactly the words the reader saw. */
+/** The marker on a topic whose score rests partly — or, before anything on it
+    is marked, wholly — on the tutor's own starting judgement rather than marked
+    work (PROD-8, UX-20). One wording, so the legend below can explain exactly
+    the words the reader saw. */
 const ESTIMATE_BADGE = "Includes tutor's estimate";
 
 function EstimateBadge() {
@@ -81,19 +82,39 @@ function GradeTile({
   );
 }
 
-function pieces(n: number): string {
-  return `${n} ${n === 1 ? "piece" : "pieces"} of work`;
+/** How many marked questions a topic's score rests on.
+ *
+ * `evidence_count` also counts the tutor's starting estimate, as one, beside
+ * the marked questions (`topic_mastery` in services/readiness_factors.py) — and
+ * an estimate is not marked work. The backend subtracts it the same way for
+ * `topics_with_evidence`. Without this, a topic with nothing marked read "40%
+ * across 1 piece of work" (PROD-8). The unit is questions, not pieces: one
+ * piece of homework can put several questions on one topic. */
+function markedQuestions(topic: TopicReadiness): number {
+  return Math.max(0, topic.evidence_count - (topic.tutor_estimate ? 1 : 0));
+}
+
+/** The right-hand side of a topic row: its score and what that rests on. A
+    score with no marked work behind it is the tutor's estimate alone, and says
+    so rather than claiming a count of work the student never did. */
+function topicBasis(score: number, topic: TopicReadiness | undefined): string {
+  const marked = topic ? markedQuestions(topic) : 0;
+  if (marked > 0) {
+    return `${Math.round(score)}% across ${marked} marked ${marked === 1 ? "question" : "questions"}`;
+  }
+  if (topic?.tutor_estimate) return `${Math.round(score)}% · no marked work yet`;
+  return ABSENT.noEvidence;
 }
 
 function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
   const gap = gradeGap(subject);
   const movement = movementSentence(subject.month_delta);
   const thin = thinEvidenceNote(subject.marked_piece_count);
-  // Weak topics carry the WHY; the evidence count comes from the topic rows,
+  // Weak topics carry the WHY; what a score rests on comes from the topic rows,
   // which is where it is recorded. A weak topic the engine flagged but that has
   // no evidence behind it says so rather than showing a score as if it were
-  // measured.
-  const evidenceByTopic = new Map(subject.topics.map((t) => [t.topic_id, t.evidence_count]));
+  // measured, and one resting only on the tutor's estimate says that instead.
+  const topicById = new Map(subject.topics.map((t) => [t.topic_id, t]));
   const anyEstimate =
     subject.topics.some((t) => t.tutor_estimate) ||
     subject.weak_topics.some((t) => t.tutor_estimate);
@@ -149,26 +170,21 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
             These topics are below the level your tutor looks for in this subject.
           </p>
           <ul className="mt-2 divide-y divide-line border-t border-line text-sm">
-            {subject.weak_topics.map((t) => {
-              const count = evidenceByTopic.get(t.topic_id) ?? 0;
-              return (
-                <li
-                  key={t.topic_id}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2"
-                >
-                  <span className="min-w-0">
-                    <span className="text-ink-900">{t.topic_title}</span>
-                    <span className="ml-2 text-xs text-ink-500">{t.topic_code}</span>
-                    {t.tutor_estimate && <EstimateBadge />}
-                  </span>
-                  <span className="tabular-nums text-ink-500">
-                    {count === 0
-                      ? ABSENT.noEvidence
-                      : `${Math.round(t.score)}% across ${pieces(count)}`}
-                  </span>
-                </li>
-              );
-            })}
+            {subject.weak_topics.map((t) => (
+              <li
+                key={t.topic_id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2"
+              >
+                <span className="min-w-0">
+                  <span className="text-ink-900">{t.topic_title}</span>
+                  <span className="ml-2 text-xs text-ink-500">{t.topic_code}</span>
+                  {t.tutor_estimate && <EstimateBadge />}
+                </span>
+                <span className="tabular-nums text-ink-500">
+                  {topicBasis(t.score, topicById.get(t.topic_id))}
+                </span>
+              </li>
+            ))}
           </ul>
         </div>
       )}
@@ -189,16 +205,15 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
                   <span className="ml-2 text-xs text-ink-500">{t.topic_code}</span>
                   {t.tutor_estimate && <EstimateBadge />}
                 </span>
-                <span className="tabular-nums text-ink-500">
-                  {t.evidence_count === 0
-                    ? ABSENT.noEvidence
-                    : `${Math.round(t.score)}% across ${pieces(t.evidence_count)}`}
-                </span>
+                <span className="tabular-nums text-ink-500">{topicBasis(t.score, t)}</span>
               </li>
             ))}
           </ul>
+          {/* "Marked work", not "evidence": the count leaves out a topic resting
+              only on the tutor's estimate, which the list above shows as one
+              with no marked work yet — the two have to agree. */}
           <p className="mt-2 text-xs text-ink-500">
-            {subject.topics_with_evidence} of {subject.topic_count} topics have evidence so far.
+            {subject.topics_with_evidence} of {subject.topic_count} topics have marked work so far.
           </p>
         </details>
       )}
@@ -210,7 +225,8 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
         <p className="max-w-prose text-xs leading-relaxed text-ink-500">
           <span className="font-medium text-ink-700">Tutor&apos;s estimate:</span> part of that
           topic&apos;s score comes from where your tutor judged you to be before much of your work
-          was marked. It counts for less as your marked work comes in.
+          was marked — all of it, where nothing on that topic has been marked yet. It counts for
+          less as your marked work comes in.
         </p>
       )}
     </SectionCard>

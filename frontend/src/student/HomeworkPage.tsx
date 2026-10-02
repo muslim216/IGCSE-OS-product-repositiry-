@@ -98,7 +98,11 @@ function MistakePatternSection() {
         ) : mistakes.isError || !d ? (
           // Never an empty list and never the clean-record line: a request that
           // failed knows nothing about this work (PROD-2).
-          <p className="text-sm text-risk-600">Couldn&apos;t load this. {ABSENT.loadFailed}</p>
+          <ErrorState
+            title="Couldn't load your mistake pattern."
+            error={mistakes.error}
+            onRetry={() => void mistakes.refetch()}
+          />
         ) : (
           <ul className="divide-y divide-line border-t border-line">
             {d.map((p) => (
@@ -160,7 +164,7 @@ export default function HomeworkPage() {
                   <div className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
                     {a.submission_status === "marked" && a.my_total !== null && (
                       <span className="text-sm font-medium tabular-nums text-ink-900">
-                        {a.my_total}/{a.total_marks} marks
+                        {a.my_total}/{plural(a.total_marks, "mark", "marks")}
                       </span>
                     )}
                     <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${badge.cls}`}>

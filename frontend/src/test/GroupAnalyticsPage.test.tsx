@@ -73,13 +73,16 @@ test("a weakest topic from marked work alone carries no estimate label", async (
   renderPage();
 
   await screen.findByText("Atomic structure");
+  // The code is still rendered — beside the title, in its own element.
+  expect(screen.getByText("1.3")).toBeInTheDocument();
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });
 
 test("no weak topic beside scored students is not reported as 'no readiness data'", async () => {
-  // Students can carry readiness while no topic's class average is at or below
-  // the weak threshold — the topic list is empty for a different reason, and
-  // saying "no readiness data" beside 58% and 62% contradicted the page.
+  // Students can carry readiness while the topic list is empty — no topic has
+  // enough confident, tagged work yet, or none is at or below the threshold —
+  // and saying "no readiness data" beside 58% and 62% contradicted the page.
+  // Nor does it claim nothing is weak: the API cannot tell those two apart.
   stubFetch({
     ...BASE,
     weak_students: [
@@ -89,6 +92,7 @@ test("no weak topic beside scored students is not reported as 'no readiness data
   });
   renderPage();
 
-  expect(await screen.findByText("No topic stands out as weak right now.")).toBeInTheDocument();
+  expect(await screen.findByText("No weak topics to show yet.")).toBeInTheDocument();
   expect(screen.queryByText(/No readiness data/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/stands out as weak/)).not.toBeInTheDocument();
 });

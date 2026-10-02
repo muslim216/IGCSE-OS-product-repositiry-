@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, CheckCircle2, ClipboardCheck, FileText, type LucideIcon } from "lucide-react";
 import { myActivity } from "../api/activity";
 import { useMyTimezone } from "../auth/AuthContext";
 import { formatDayMonth } from "../lib/timezones";
+import { Button } from "./controls";
 import { SectionSkeleton } from "./page";
 
 /** An icon per kind of item, so the list can be scanned without reading every
@@ -56,6 +57,7 @@ export default function ActivityMenu() {
   const [placement, setPlacement] = useState<CSSProperties>({});
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
   const myZone = useMyTimezone();
   const activity = useQuery({
     queryKey: ["activity"],
@@ -79,12 +81,25 @@ export default function ActivityMenu() {
     function onResize() {
       setOpen(false);
     }
+    // So does scrolling an element the bell sits in — the desktop sidebar is
+    // its own scroll container. Scroll events do not bubble, hence the capture
+    // phase. The page itself is left out: the sidebar and the mobile header
+    // are both sticky, so a page scroll never moves the bell, and over-scrolling
+    // the panel's list chains into one. The list is not an ancestor of the
+    // bell, so scrolling through it keeps the panel open too.
+    function onScroll(e: Event) {
+      if (e.target instanceof Element && trigger.current && e.target.contains(trigger.current)) {
+        setOpen(false);
+      }
+    }
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onResize);
     };
   }, [open]);
@@ -102,8 +117,11 @@ export default function ActivityMenu() {
           setOpen((v) => !v);
         }}
         aria-label={count > 0 ? `Activity, ${count} waiting` : "Activity"}
+        // A disclosure, not a menu: `aria-haspopup` would announce a menu and
+        // promise arrow-key navigation, but the panel is plain links reached
+        // with Tab, straight after this button.
         aria-expanded={open}
-        aria-haspopup="true"
+        aria-controls={open ? panelId : undefined}
         className="relative grid h-8 w-8 place-items-center rounded-md text-ink-500 transition-colors hover:bg-surface-muted hover:text-ink-900"
       >
         <Bell aria-hidden className="h-4 w-4" />
@@ -118,6 +136,7 @@ export default function ActivityMenu() {
           and the mobile header narrower still. */}
       {open && (
         <div
+          id={panelId}
           style={placement}
           className="fixed z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-line bg-surface shadow-lg"
         >
@@ -132,9 +151,18 @@ export default function ActivityMenu() {
           ) : activity.isError ? (
             // A failed request knows nothing about what is waiting, so it must
             // not read as "nothing waiting on you".
-            <p className="px-4 py-6 text-center text-sm text-ink-500">
-              Activity couldn&apos;t be loaded. It will try again shortly.
-            </p>
+            <div className="px-4 py-6 text-center">
+              <p className="text-sm text-ink-500">Activity couldn&apos;t be loaded.</p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-3"
+                loading={activity.isFetching}
+                onClick={() => void activity.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
           ) : items.length === 0 ? (
             <div className="px-4 py-8 text-center">
               <CheckCircle2 aria-hidden className="mx-auto h-6 w-6 text-ok-700" />

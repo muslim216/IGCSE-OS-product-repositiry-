@@ -123,12 +123,14 @@ export default function GroupAnalyticsPage() {
             /* Not "no readiness data": a class can have every learner scored
                and still list no topic here. A topic is listed only when its
                class average — from confident, topic-tagged marked work — is at
-               or below the weak-topic threshold, so an empty list means "none
-               is weak yet", which is a different claim from "no data". */
+               or below the weak-topic threshold. So an empty list is either
+               "no topic has enough such work yet" or "none is at or below the
+               threshold", and the API does not say which: the copy claims
+               neither, and the line under it names both conditions. */
             <div className="mt-3 text-sm text-ink-500">
               {hasReadiness ? (
                 <>
-                  <p>No topic stands out as weak right now.</p>
+                  <p>No weak topics to show yet.</p>
                   <p className="mt-1">
                     A topic shows here once there's enough marked work tagged to it and the class
                     average is at or below your{" "}

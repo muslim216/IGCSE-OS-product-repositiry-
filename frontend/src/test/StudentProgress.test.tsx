@@ -165,13 +165,14 @@ test("coverage travels with the evidence disclosure", async () => {
     }),
   ]);
   renderProgress();
-  expect(await screen.findByText(/2 of 4 topics have evidence/)).toBeInTheDocument();
+  expect(await screen.findByText(/2 of 4 topics have marked work/)).toBeInTheDocument();
 });
 
 test("a topic resting on the tutor's estimate is labelled under Evidence", async () => {
   stubFetch([
     subject({
-      topics_with_evidence: 1,
+      // The backend leaves an estimate-only topic out of this count.
+      topics_with_evidence: 0,
       topic_count: 1,
       topics: [
         {
@@ -186,8 +187,59 @@ test("a topic resting on the tutor's estimate is labelled under Evidence", async
       ],
     }),
   ]);
-  renderProgress();
+  const { container } = renderProgress();
   expect(await screen.findByText("Includes tutor's estimate")).toBeInTheDocument();
+  // The estimate is the one item behind this score, and it is not work the
+  // student did: "40% across 1 piece of work" claimed a marked piece nobody
+  // marked (PROD-8).
+  expect(screen.getByText("40% · no marked work yet")).toBeInTheDocument();
+  expect(container.textContent).not.toMatch(/across 1/);
+});
+
+test("an estimate-only weak topic says so under Why, not a count of work", async () => {
+  const rates = {
+    topic_id: 9,
+    topic_code: "3.2",
+    topic_title: "Rates",
+    score: 41,
+    confidence: "low",
+    evidence_count: 1,
+    tutor_estimate: true,
+  };
+  stubFetch([
+    subject({
+      weak_topics: [
+        { topic_id: 9, topic_code: "3.2", topic_title: "Rates", score: 41, tutor_estimate: true },
+      ],
+      topics: [rates],
+    }),
+  ]);
+  const { container } = renderProgress();
+  // Once under Why and once in the evidence list, and the same words both times.
+  expect(await screen.findAllByText("41% · no marked work yet")).toHaveLength(2);
+  expect(container.textContent).not.toMatch(/piece of work/);
+});
+
+test("a topic's count of work leaves out the tutor's estimate", async () => {
+  // evidence_count is three marked questions plus the estimate.
+  stubFetch([
+    subject({
+      topics: [
+        {
+          topic_id: 1,
+          topic_code: "1.1",
+          topic_title: "Moles",
+          score: 55,
+          confidence: "medium",
+          evidence_count: 4,
+          tutor_estimate: true,
+        },
+      ],
+    }),
+  ]);
+  renderProgress();
+  expect(await screen.findByText("55% across 3 marked questions")).toBeInTheDocument();
+  expect(screen.getByText("Includes tutor's estimate")).toBeInTheDocument();
 });
 
 test("a gap between the two grades is explained, not only stated", async () => {

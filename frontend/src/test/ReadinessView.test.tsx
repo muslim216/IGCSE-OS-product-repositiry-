@@ -150,7 +150,9 @@ test("markers are explained in words, not left to a tooltip or a bare '?'", () =
   render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
   expect(screen.queryByText("?")).not.toBeInTheDocument();
   expect(screen.getByText("Low confidence")).toBeInTheDocument();
-  expect(screen.getByText(/only a little marked work/)).toBeInTheDocument();
+  // "Evidence", never "marked work": this topic is the tutor's estimate alone,
+  // which the backend scores at `low` with no marked work behind it at all.
+  expect(screen.getByText(/only a little evidence/)).not.toHaveTextContent(/marked work/);
   expect(screen.getByText(/starting level a tutor entered/)).toBeInTheDocument();
 });
 
@@ -166,7 +168,7 @@ test("no legend appears when no row carries a marker", () => {
   };
   render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
   expect(screen.queryByText(/starting level a tutor entered/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/only a little marked work/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/only a little evidence/)).not.toBeInTheDocument();
 });
 
 test("the AI-written explanation is labelled as AI-written", () => {

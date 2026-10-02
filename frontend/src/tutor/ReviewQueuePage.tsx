@@ -40,15 +40,16 @@ export default function ReviewQueuePage() {
   const attentionItems = (attention.data ?? []).filter(
     (a) => a.submission_id == null || !queued.has(a.submission_id),
   );
-  const loading = queue.isLoading || attention.isLoading;
+  // Each list renders as soon as it has arrived: one slow request must not hide
+  // the other's work behind a skeleton. The attention list does wait for the
+  // queue, though — it is filtered against it, and shown first it would list
+  // queued work twice until the queue landed.
+  const queueEmpty = !queue.isLoading && !queue.isError && queueItems.length === 0;
+  const attentionReady = !queue.isLoading && !attention.isLoading;
   // "All caught up" is a claim about both lists, so it is only made when both
   // actually loaded. A failed request knows nothing about what is waiting.
   const allClear =
-    !loading &&
-    !queue.isError &&
-    !attention.isError &&
-    queueItems.length === 0 &&
-    attentionItems.length === 0;
+    attentionReady && queueEmpty && !attention.isError && attentionItems.length === 0;
 
   return (
     <div>
@@ -58,7 +59,9 @@ export default function ReviewQueuePage() {
       />
 
       <div className="space-y-6">
-        {loading ? (
+        {/* Also held while an empty queue waits on the attention list: what
+            goes here then — that list, or "all caught up" — is not known yet. */}
+        {queue.isLoading || (queueEmpty && attention.isLoading) ? (
           <SectionCard>
             <SectionSkeleton rows={4} label="Loading your review queue" />
           </SectionCard>
@@ -114,7 +117,7 @@ export default function ReviewQueuePage() {
           )
         )}
 
-        {attention.isError && !loading && (
+        {attention.isError && (
           <div
             role="alert"
             className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface px-5 py-4 text-sm text-ink-700"
@@ -126,7 +129,7 @@ export default function ReviewQueuePage() {
           </div>
         )}
 
-        {attentionItems.length > 0 && (
+        {attentionReady && attentionItems.length > 0 && (
           <SectionCard>
             <SectionTitle title="Needs your attention" count={attentionItems.length} />
             <ul className="-mx-5 mt-3 divide-y divide-line border-t border-line">

@@ -89,11 +89,14 @@ const CONTROL =
  * Default sizing a caller can override. Without tailwind-merge, two width
  * utilities on one element resolve by their order in the generated CSS, not
  * the order written — so `w-full` from here could silently beat a caller's
- * `w-24`. A default is dropped when the caller supplies the same dimension.
+ * `w-24`. A default is dropped only when the caller supplies the same
+ * dimension unprefixed. A responsive `sm:w-24` overrides nothing below `sm`,
+ * so `w-full` stays for small screens (Tailwind emits the variant later, so it
+ * still wins from `sm` up) — and because a match must start with the
+ * dimension, neither a variant nor `min-h-*` / `max-w-*` is mistaken for one.
  */
 function sized(defaults: string, className: string): string {
-  const has = (prefix: string) =>
-    className.split(/\s+/).some((c) => c.replace(/^[a-z]+:/, "").startsWith(prefix));
+  const has = (prefix: string) => className.split(/\s+/).some((c) => c.startsWith(prefix));
   return defaults
     .split(" ")
     .filter((d) => {
@@ -113,10 +116,11 @@ export function Input({ className = "", ...rest }: InputHTMLAttributes<HTMLInput
   );
 }
 
+/** `avora-select` (index.css) draws the chevron that `appearance-none` removes. */
 export function Select({ className = "", ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={`${sized("h-10 w-full", className)} appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22 fill=%22%23786351%22><path d=%22M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4z%22/></svg>')] bg-[length:1.1rem] bg-[right_0.6rem_center] bg-no-repeat pr-9 ${CONTROL} ${className}`}
+      className={`${sized("h-10 w-full", className)} avora-select appearance-none pr-9 ${CONTROL} ${className}`}
       {...rest}
     />
   );
@@ -154,12 +158,22 @@ export function Field({
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
-  const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
+  // The control's own description and invalid state are kept, not replaced:
+  // cloneElement overwrites a prop it is given, so passing only the Field's
+  // ids would silently drop whatever the caller had already wired up. The hint
+  // is only referenced while it is rendered — an error replaces it below.
+  const describedBy = [
+    children.props["aria-describedby"],
+    hint && !error ? hintId : null,
+    error ? errorId : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const control = isValidElement(children)
     ? cloneElement(children, {
         id: children.props.id ?? id,
         "aria-describedby": describedBy || undefined,
-        "aria-invalid": error ? true : undefined,
+        "aria-invalid": error ? true : children.props["aria-invalid"],
       })
     : children;
   return (

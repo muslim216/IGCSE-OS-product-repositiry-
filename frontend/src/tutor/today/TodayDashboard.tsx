@@ -4,6 +4,8 @@ import { BookOpen, CalendarPlus, ChevronRight, Ruler, Users } from "lucide-react
 import { useQuery } from "@tanstack/react-query";
 import { todayView, type ClassStripRow } from "../../api/today";
 import { listGroups } from "../../api/groups";
+import { myOrganization } from "../../api/auth";
+import { useMyTimezone } from "../../auth/AuthContext";
 import { assignmentsNeedingAttention } from "../../api/homework";
 import { StatusBadge, useToast } from "../../components/ui";
 import { Button, buttonClasses } from "../../components/controls";
@@ -92,6 +94,16 @@ export default function TodayDashboard() {
   // Only the lesson modal needs full Group objects; the surface itself renders
   // from the aggregate, so this never gates what the tutor reads.
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
+  // The zone the API decided "today" in: the tutor's own override, else the
+  // organization's, else UTC (`effective_timezone`). The organization is only
+  // asked for when there is no override to win over it.
+  const myZone = useMyTimezone();
+  const org = useQuery({
+    queryKey: ["my-organization"],
+    queryFn: myOrganization,
+    enabled: !myZone,
+  });
+  const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
   if (today.isLoading) return <PageSkeleton rows={3} label="Loading today" />;
 
@@ -127,7 +139,7 @@ export default function TodayDashboard() {
     <div className="space-y-8">
       {/* The verdict is the first thing read and the primary target. */}
       <PageHeader
-        eyebrow={todayLabel()}
+        eyebrow={dayZone ? todayLabel(dayZone) : undefined}
         title={line1}
         documentTitle="Today"
         description={line2 ?? undefined}
@@ -254,13 +266,20 @@ export default function TodayDashboard() {
   );
 }
 
-/** "Thursday 2 October" — the day this page is about, in the reader's locale. */
-function todayLabel(): string {
-  return new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+/** "Thursday 2 October" — the day this page is about, in the reader's locale.
+ *
+ * Dated in the zone the lessons below were chosen in, not the browser's: a
+ * tutor whose device clock and organization disagree across midnight was shown
+ * one day's date over another day's lessons. Until that zone is known the
+ * eyebrow is left out rather than guessed. A zone the browser cannot load
+ * falls back to UTC, which is what the server does with it too (`now_in`). */
+function todayLabel(timeZone: string): string {
+  const options: Intl.DateTimeFormatOptions = { weekday: "long", day: "numeric", month: "long" };
+  try {
+    return new Date().toLocaleDateString(undefined, { ...options, timeZone });
+  } catch {
+    return new Date().toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
+  }
 }
 
 const SETUP_STEPS = [

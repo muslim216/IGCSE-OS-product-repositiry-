@@ -153,10 +153,15 @@ export default function ParentDashboard() {
             // lets assistive technology announce which child is active (CodeRabbit).
             aria-pressed={selected === c.id}
             onClick={() => setActiveChild(c.id)}
+            // An unselected chip's edge is its boundary, so `avora-control`
+            // draws it, hover included: a `border-line-control` utility loses
+            // to the unlayered `.border` rule in index.css and renders the
+            // decorative hairline, under WCAG 1.4.11's 3:1. The selected chip
+            // has no border to lose — its terracotta fill is the boundary.
             className={`h-8 rounded-full px-4 text-sm font-medium transition-colors ${
               selected === c.id
                 ? "bg-brand-600 text-canvas"
-                : "border border-line-control bg-surface text-ink-700 hover:border-ink-700"
+                : "avora-control border bg-surface text-ink-700"
             }`}
           >
             {c.name}
@@ -211,6 +216,15 @@ export default function ParentDashboard() {
           <Section title="How it's going">
             {narrative.isLoading ? (
               <SectionSkeleton rows={2} label="Loading the summary" />
+            ) : narrative.isError ? (
+              // Before the absence below: a request that failed knows nothing
+              // about whether a summary exists, and "nothing written yet" would
+              // tell a parent there is nothing to read when we could not ask.
+              <ErrorState
+                title="We couldn't load the summary."
+                error={narrative.error}
+                onRetry={() => void narrative.refetch()}
+              />
             ) : narrative.data?.text ? (
               <p className="max-w-prose text-sm leading-relaxed text-ink-700">
                 {narrative.data.text}

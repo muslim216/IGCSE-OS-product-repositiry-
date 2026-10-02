@@ -111,6 +111,13 @@ function Slider({
   );
 }
 
+/** A weight as the next save will send it. Not `toFixed(1)`: the slider steps
+ * in tenths, but the API stores any value from 0 to 3, so a saved 1.25 read
+ * "1.3" on screen and to a screen reader while 1.25 was what got submitted. */
+function formatWeight(weight: number): string {
+  return Number.isInteger(weight) ? weight.toFixed(1) : String(weight);
+}
+
 function sourceNote(data: ReadinessWeights): string | null {
   if (data.subject_id === null) {
     return data.source === "default"
@@ -246,7 +253,10 @@ export default function PreferencesPage() {
                   // edit already made — as this subject's own override. Sending
                   // `prefs.data` would store the unedited values while the
                   // sliders kept showing the edit as if it had saved.
-                  onClick={() => save.mutate({ scope: subjectId, payload: form })}
+                  onClick={() => {
+                    remove.reset();
+                    save.mutate({ scope: subjectId, payload: form });
+                  }}
                   disabled={save.isPending || noneEnabled || badThreshold}
                 >
                   Customise for this subject
@@ -256,7 +266,10 @@ export default function PreferencesPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => remove.mutate(prefs.data.subject_id!)}
+                  onClick={() => {
+                    save.reset();
+                    remove.mutate(prefs.data.subject_id!);
+                  }}
                   loading={remove.isPending}
                 >
                   Remove override
@@ -275,7 +288,7 @@ export default function PreferencesPage() {
                     value={form[factor.weight]}
                     display={
                       form[factor.enabled]
-                        ? `Weight ${form[factor.weight].toFixed(1)}`
+                        ? `Weight ${formatWeight(form[factor.weight])}`
                         : "Switched off"
                     }
                     min={0}
@@ -361,7 +374,10 @@ export default function PreferencesPage() {
 
             <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
               <Button
-                onClick={() => save.mutate({ scope: subjectId, payload: form })}
+                onClick={() => {
+                  remove.reset();
+                  save.mutate({ scope: subjectId, payload: form });
+                }}
                 disabled={noneEnabled || badThreshold}
                 loading={save.isPending}
               >
@@ -376,10 +392,16 @@ export default function PreferencesPage() {
                 <span className="text-sm text-risk-600">Keep at least one factor switched on.</span>
               )}
             </div>
+            {/* One line for both actions, so each resets the other's failure
+                when it starts: the line then always speaks for the last one
+                tried — a failed removal is not reported as a failed save. */}
             {(save.isError || remove.isError) && (
               <p className="text-sm text-risk-600" role="alert">
-                That didn't save.{" "}
-                {friendlyError(save.error ?? remove.error, "Try again in a moment.")}
+                {remove.isError ? "That override wasn't removed." : "That didn't save."}{" "}
+                {friendlyError(
+                  remove.isError ? remove.error : save.error,
+                  "Try again in a moment.",
+                )}
               </p>
             )}
           </SectionCard>

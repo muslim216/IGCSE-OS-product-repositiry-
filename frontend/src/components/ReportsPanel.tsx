@@ -7,7 +7,7 @@ import { formatDayMonth } from "../lib/timezones";
 import { useMyTimezone } from "../auth/AuthContext";
 import { Markdown } from "./Markdown";
 import { Button, Select } from "./controls";
-import { SectionSkeleton } from "./page";
+import { ErrorState, SectionSkeleton } from "./page";
 import { EmptyState, SectionCard, SectionHeader } from "./ui";
 
 type Audience = "student" | "tutor" | "parent";
@@ -114,9 +114,11 @@ export function ReportsPanel({
         {reports.isPending ? (
           <SectionSkeleton rows={2} label="Loading reports" />
         ) : reports.isError ? (
-          <p className="text-sm text-ink-500">
-            {friendlyError(reports.error, "Reports couldn't be loaded. Try again.")}
-          </p>
+          <ErrorState
+            title="Reports didn't load"
+            error={reports.error}
+            onRetry={() => void reports.refetch()}
+          />
         ) : reports.data.length === 0 ? (
           <EmptyState
             title="No reports yet"
@@ -160,9 +162,20 @@ export function ReportsPanel({
           {opened.isPending ? (
             <SectionSkeleton rows={4} label="Loading the report" />
           ) : opened.isError ? (
-            <p className="text-sm text-ink-500">
-              {friendlyError(opened.error, "This report couldn't be opened. Try again.")}
-            </p>
+            // A way out as well as a retry: only the loaded report carries the
+            // Close button below, so a report that kept failing held the panel.
+            <div className="space-y-2">
+              <ErrorState
+                title="This report didn't open"
+                error={opened.error}
+                onRetry={() => void opened.refetch()}
+              />
+              <div className="flex justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setOpenId(null)}>
+                  Close
+                </Button>
+              </div>
+            </div>
           ) : (
             <>
               <div className="flex items-center justify-between gap-3">

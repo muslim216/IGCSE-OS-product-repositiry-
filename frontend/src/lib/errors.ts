@@ -28,3 +28,18 @@ export function shouldRetry(failureCount: number, err: unknown): boolean {
   if (err instanceof ApiError && err.status < 500) return false;
   return failureCount < 2;
 }
+
+/** Whether the server looked at an invite code and refused it — 404 for a code
+    that does not exist, 410 for one that is spent or expired (`check_usable`).
+    Only that earns "isn't valid". No connection, a 5xx, or a 408/429 says
+    nothing about the link, and calling it invalid would send a student or
+    parent back to the tutor for a new one they do not need. */
+export function inviteRefused(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    err.status !== 408 &&
+    err.status !== 429
+  );
+}

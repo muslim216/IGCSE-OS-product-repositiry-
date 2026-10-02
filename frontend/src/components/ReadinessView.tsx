@@ -218,7 +218,9 @@ export function SubjectReadinessCard({
           {anyLowConfidence && (
             <div>
               <dt className="inline font-medium text-ink-700">Low confidence: </dt>
-              <dd className="inline">only a little marked work is behind this topic so far.</dd>
+              {/* "Evidence", not "marked work": a topic resting on the tutor's
+                  estimate alone is low confidence with no marked work at all. */}
+              <dd className="inline">only a little evidence is behind this topic so far.</dd>
             </div>
           )}
         </dl>

@@ -288,7 +288,10 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
         title={upload.title}
         meta={<StatusChip status={upload.status} />}
         actions={
-          editable && (
+          // A failed extraction can leave no draft at all, and the API
+          // refuses to apply nothing ("No syllabus draft to apply yet").
+          editable &&
+          draft && (
             <Button
               onClick={() => apply.mutate()}
               // Also while a draft save is in flight: a tutor who picks a

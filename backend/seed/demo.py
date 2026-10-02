@@ -584,13 +584,17 @@ async def main() -> None:
                 )
         await session.flush()
 
-        # A second homework, still in flight: most of the class handed in, two
-        # answers the AI was unsure about wait in the tutor's review queue, and
+        # A second homework, still in flight: most of the class handed in, one
+        # answer the AI was unsure about waits in the tutor's review queue, and
         # one student has not handed in yet. This is the loop the product
         # exists for, so the demo should show it running, not finished.
         # HW2 has its own question paper: pointing it at HW1's atomic-structure
-        # paper would make marking read the wrong questions.
+        # paper would make marking read the wrong questions. It carries a mark
+        # scheme too, because marking.py only lets a confident mark count on its
+        # own when a scheme was attached — without one, the auto-finalized
+        # marks below would be ones the real pipeline could never produce.
         bonding_key = storage.new_key(org.id, "application/pdf")
+        bonding_scheme_key = storage.new_key(org.id, "application/pdf")
         bonding_paper = Classified(
             organization_id=org.id,
             tutor_id=tutor.id,
@@ -599,10 +603,14 @@ async def main() -> None:
             file_path=bonding_key,
             file_name="ionic-bonding.pdf",
             file_mime="application/pdf",
+            mark_scheme_path=bonding_scheme_key,
+            mark_scheme_name="ionic-bonding-mark-scheme.pdf",
+            mark_scheme_mime="application/pdf",
         )
         session.add(bonding_paper)
         await session.flush()
         await storage.get_storage().upload(bonding_key, FAKE_PDF_BYTES, "application/pdf")
+        await storage.get_storage().upload(bonding_scheme_key, FAKE_PDF_BYTES, "application/pdf")
 
         hw2_work = await create_work(
             session,
@@ -652,9 +660,11 @@ async def main() -> None:
         # proposes but is unsure of.
         page_marks = [3, 3, 2]
 
-        # Everyone but the last student handed in; two submissions carry one
-        # answer the AI was not sure about.
-        unsure = {student2.id, classmates[1].id}
+        # Everyone but the last student handed in. Only Ali's submission carries
+        # an answer the AI was not sure about: its feedback describes what is on
+        # his handwritten page, and beside anyone else's placeholder file it
+        # would describe work the tutor cannot see.
+        unsure = {student2.id}
         for student in students[:-1]:
             waiting = student.id in unsure
             has_page = student.id == student2.id

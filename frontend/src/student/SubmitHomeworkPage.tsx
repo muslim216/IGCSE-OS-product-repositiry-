@@ -230,7 +230,13 @@ function MarkedQuestion({
     onError: (err) => setError(friendlyError(err, "Your request couldn't be sent. Try again.")),
   });
 
-  const canAsk = submissionId !== null && mark.question_id !== null && mark.remark_status === null;
+  // A question with no mark has nothing to contest: the server refuses the
+  // request with a 409, so offering it would only ever end in an error.
+  const canAsk =
+    submissionId !== null &&
+    mark.question_id !== null &&
+    mark.final_marks !== null &&
+    mark.remark_status === null;
 
   return (
     <SectionCard>

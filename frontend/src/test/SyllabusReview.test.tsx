@@ -37,7 +37,7 @@ const DRAFT = {
   ],
 };
 
-function stub(status = "review") {
+function stub(status = "review", draft: typeof DRAFT | null = DRAFT) {
   const puts: unknown[] = [];
   vi.stubGlobal(
     "fetch",
@@ -57,7 +57,7 @@ function stub(status = "review") {
           error: null,
           subject_id: null,
           created_at: "2026-06-01",
-          draft: DRAFT,
+          draft,
         });
       if (method === "PUT" && path === "/api/v1/syllabus-uploads/1/draft") {
         const sent = JSON.parse(String(init?.body));
@@ -168,4 +168,29 @@ test("editing a failed extraction clears the retry button", async () => {
   await waitFor(() => expect(screen.queryByRole("button", { name: "Try again" })).toBeNull());
   // The tutor's edit is still on screen, not replaced by the server echo.
   expect(screen.getByDisplayValue("Principles")).toBeTruthy();
+});
+
+test("a failed extraction with no draft offers no Apply", async () => {
+  // The API refuses to apply nothing ("No syllabus draft to apply yet"), so
+  // the button would only ever produce that error.
+  stub("extraction_failed", null);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <SyllabusUploadPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByText("Chemistry 4CH1"));
+
+  expect(await screen.findByText("We couldn't read this syllabus.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Apply/ })).not.toBeInTheDocument();
+});
+
+test("a failed extraction that still has a draft can be applied", async () => {
+  stub("extraction_failed");
+  await openDraft();
+  expect(screen.getByRole("button", { name: /Apply/ })).toBeInTheDocument();
 });

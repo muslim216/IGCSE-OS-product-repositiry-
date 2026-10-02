@@ -43,7 +43,11 @@ export default function GuidancePanel({
 
       <div className="mt-3" aria-live="polite">
         {pending ? (
-          <SectionSkeleton rows={3} label="Preparing guidance" />
+          // On a surface: skeleton bars are drawn in surface-muted, this
+          // panel's own fill, and would otherwise be invisible against it.
+          <div className="rounded-lg bg-surface p-3">
+            <SectionSkeleton rows={3} label="Preparing guidance" />
+          </div>
         ) : error ? (
           <p className="text-sm text-risk-600">{error}</p>
         ) : body ? (

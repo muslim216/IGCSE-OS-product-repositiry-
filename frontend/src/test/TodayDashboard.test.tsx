@@ -258,6 +258,48 @@ test("with no classes the surface offers the one useful action", async () => {
   expect(screen.getByRole("link", { name: /Create a class/ })).toBeInTheDocument();
 });
 
+test("the page is dated in the organization's day, the one its lessons were chosen in", async () => {
+  // 10:30 UTC on 2 October is already 3 October in Kiritimati (UTC+14) and
+  // still 2 October on any device clock — so a browser-dated eyebrow would sit
+  // a day off over the organization's list of lessons.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-02T10:30:00Z") });
+  try {
+    stubFetch({
+      classes: [classRow()],
+      lessons: [],
+      review_count: 0,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+    });
+    const answer = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).includes("/me/organization")
+          ? new Response(JSON.stringify({ id: 1, name: "Org", timezone: "Pacific/Kiritimati" }), {
+              status: 200,
+            })
+          : answer(input, init),
+      ),
+    );
+    const label = (timeZone?: string) =>
+      new Date().toLocaleDateString(undefined, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        timeZone,
+      });
+    expect(label("Pacific/Kiritimati")).not.toBe(label());
+
+    renderDashboard();
+    expect(await screen.findByText(label("Pacific/Kiritimati"))).toBeInTheDocument();
+    expect(screen.queryByText(label())).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("no student is named outside the review list", async () => {
   // D3, as narrowed: the home never renders an enumerated list of named learners.
   // The class strip names classes; only NEEDS YOU names work, by its title.

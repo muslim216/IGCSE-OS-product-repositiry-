@@ -4,8 +4,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { joinWithInvite, previewInvite, registerParent } from "../api/groups";
 import { useAuth } from "./AuthContext";
 import { Button, Field, Input } from "../components/controls";
-import { SectionSkeleton } from "../components/page";
-import { friendlyError } from "../lib/errors";
+import { ErrorState, SectionSkeleton } from "../components/page";
+import { friendlyError, inviteRefused } from "../lib/errors";
 import { AuthAlt, AuthLayout, authLink } from "./AuthLayout";
 
 export default function ParentJoinPage() {
@@ -36,6 +36,17 @@ export default function ParentJoinPage() {
     return (
       <AuthLayout documentTitle="Invitation" title="Checking your invitation…">
         <SectionSkeleton rows={3} label="Checking invitation" />
+      </AuthLayout>
+    );
+  }
+  if (preview.isError && !inviteRefused(preview.error)) {
+    return (
+      <AuthLayout documentTitle="Invitation" title="Parent invitation">
+        <ErrorState
+          title="We couldn't check this invitation."
+          error={preview.error}
+          onRetry={() => void preview.refetch()}
+        />
       </AuthLayout>
     );
   }

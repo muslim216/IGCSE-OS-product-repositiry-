@@ -1,9 +1,10 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import ClassOverviewPanel from "../tutor/ClassOverview";
 import type { ClassOverview } from "../api/today";
+import { ABSENT } from "../lib/labels";
 
 function learner(over: Partial<ClassOverview["learners"][number]> = {}) {
   return {
@@ -49,16 +50,17 @@ function stubFetch(overview: ClassOverview, narrative: string | null = null) {
   );
 }
 
+/** Returns the client, so a test can tell when a mutation has settled. */
 function renderPanel() {
-  return render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <ClassOverviewPanel groupId={5} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return client;
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -135,8 +137,46 @@ test("with no summary yet, the control offers to prepare one rather than 'again'
   stubFetch({ ...BASE, learners: [learner()] }, null);
   renderPanel();
 
-  expect(await screen.findByRole("button", { name: "Prepare summary" })).toBeInTheDocument();
+  // Only said once the narrative has answered — while it loads, neither this
+  // nor the button is on screen, so the label below is the resolved state's.
+  expect(await screen.findByText(/No summary yet/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Prepare summary" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Prepare again" })).not.toBeInTheDocument();
+});
+
+test("a class with no evidence is not offered a summary that cannot be written", async () => {
+  // POST /brief answers "not enough evidence" without queueing anything, so a
+  // button here polled for a minute for a summary that was never coming.
+  stubFetch(
+    {
+      ...BASE,
+      score: null,
+      predicted_grade: null,
+      status: null,
+      students_with_evidence: 0,
+      learners: [learner({ score: null, predicted_grade: null, status: null, direction: null })],
+    },
+    null,
+  );
+  renderPanel();
+
+  expect(
+    await screen.findByText("No summary yet. One is written once work is marked."),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Prepare/ })).not.toBeInTheDocument();
+});
+
+test("the control stays busy while the new summary is written, not only while the request is out", async () => {
+  stubFetch({ ...BASE, learners: [learner()] }, "Sara is finding bonding hard.");
+  const client = renderPanel();
+  fireEvent.click(await screen.findByRole("button", { name: "Prepare again" }));
+
+  // The request has answered and the panel is waiting on the background job…
+  expect(await screen.findByText(ABSENT.updating)).toBeInTheDocument();
+  await waitFor(() => expect(client.isMutating()).toBe(0));
+  await act(async () => {});
+  // …so a second press now would only queue a second forced regeneration.
+  expect(screen.getByRole("button", { name: "Prepare again" })).toBeDisabled();
 });
 
 test("grades are labelled as grades, never a bare number", async () => {

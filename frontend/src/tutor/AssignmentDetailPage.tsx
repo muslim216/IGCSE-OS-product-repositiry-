@@ -14,6 +14,7 @@ import { listTopics } from "../api/syllabus";
 import { getGroup } from "../api/groups";
 import { ApiError } from "../api/client";
 import { friendlyError } from "../lib/errors";
+import { assignmentStatus } from "../lib/assignmentStatus";
 import { EmptyState, SectionCard } from "../components/ui";
 import { Button, buttonClasses, inputClasses } from "../components/controls";
 import {
@@ -27,14 +28,6 @@ import {
 interface EditableQuestion extends QuestionIn {
   key: number;
 }
-
-const STATUS: Record<string, { label: string; classes: string }> = {
-  extracting: { label: "Reading the paper…", classes: "bg-surface-muted text-ink-700" },
-  extraction_failed: { label: "Couldn't read the paper", classes: "bg-risk-100 text-risk-600" },
-  review: { label: "Check the questions, then publish", classes: "bg-warn-100 text-warn-700" },
-  published: { label: "Published", classes: "bg-ok-100 text-ok-700" },
-  closed: { label: "Closed", classes: "bg-surface-muted text-ink-700" },
-};
 
 /** A submission's state, in words — never the raw enum. */
 const SUBMISSION_STATUS: Record<string, { label: string; classes: string }> = {
@@ -163,10 +156,9 @@ export default function AssignmentDetailPage() {
   }
   const a = assignment.data;
   const editable = a.status === "review" || a.status === "extraction_failed";
-  const status = STATUS[a.status] ?? {
-    label: "In progress",
-    classes: "bg-surface-muted text-ink-700",
-  };
+  // The one screen that names the step after checking: the Publish button is
+  // right here in the header, where the class's homework list has none.
+  const status = assignmentStatus(a.status, { review: "Check the questions, then publish" });
   const totalMarks = rows.reduce((sum, r) => sum + (r.max_marks || 0), 0);
 
   function update(key: number, patch: Partial<EditableQuestion>) {

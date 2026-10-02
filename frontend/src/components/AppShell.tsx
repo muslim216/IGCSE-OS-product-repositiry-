@@ -132,7 +132,7 @@ export default function AppShell({
   accountPath: string;
 }) {
   const { user, signOut } = useAuth();
-  const { pathname } = useLocation();
+  const { pathname, key: navigation } = useLocation();
   const mainNav = nav.filter((item) => item.slot !== "bottom");
   const bottomNav = nav.filter((item) => item.slot === "bottom");
 
@@ -226,8 +226,13 @@ export default function AppShell({
 
       <main className="min-w-0 flex-1 px-4 py-6 pb-tabbar md:px-10 md:py-8">
         <div className="mx-auto max-w-6xl">
-          {/* Keyed by route so leaving a crashed page clears the error. */}
-          <ErrorBoundary key={pathname}>
+          {/* Keyed by route, so each page mounts fresh, and reset by every
+              navigation, so leaving a crash clears it even when only the query
+              string changes. Keying on the navigation instead would also
+              remount a healthy page each time its own nav link is clicked (a
+              same-URL click is a replace with a new key), dropping anything
+              unsaved on it. */}
+          <ErrorBoundary key={pathname} resetKey={navigation}>
             <Outlet />
           </ErrorBoundary>
         </div>

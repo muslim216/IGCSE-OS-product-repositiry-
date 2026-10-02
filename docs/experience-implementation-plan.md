@@ -341,6 +341,7 @@ student's own grades and topics only; no classmate's value appears in any state 
 | A subject not submitted for weeks | as above | that row carries the gap | narrative names it | *"{name} hasn't submitted work in Maths for three weeks."* |
 | Narrative refreshing | unchanged | unchanged | previous text + `Updating…` | unchanged |
 | Tutor regenerated it | unchanged | unchanged | previous text + `Updating…`, then the new text — **never blank in between** | unchanged |
+| Narrative failed to load | unchanged | unchanged | *"We couldn't load the summary."* + Retry — never *"Nothing written yet"*, which claims there is no summary | unchanged |
 | Parent linked to 2+ children | child chips first, then the whole screen for the selected child | — | — | — |
 
 **On the child switcher:** spec §6 says *one screen, no navigation*, and the current

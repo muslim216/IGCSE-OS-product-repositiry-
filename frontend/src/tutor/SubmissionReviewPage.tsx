@@ -620,8 +620,11 @@ function MistakeTag({
     <div className="mt-3 rounded border border-line bg-surface-muted p-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-ink-700">Mistake</span>
+        {/* `avora-control`, not `border-line-control`: the unlayered `.border`
+            rule in index.css beats that layered utility and drew these at the
+            hairline, under the 3:1 a control's edge needs. */}
         <select
-          className="rounded border border-line-control bg-surface px-2 py-1 text-sm disabled:opacity-50"
+          className="avora-control rounded border bg-surface px-2 py-1 text-sm disabled:opacity-50"
           aria-label="Mistake category"
           value={mistake.category_id}
           disabled={revise.isPending || !canPickCategory}
@@ -655,7 +658,7 @@ function MistakeTag({
           ))}
         </select>
         <select
-          className="rounded border border-line-control bg-surface px-2 py-1 text-sm disabled:opacity-50"
+          className="avora-control rounded border bg-surface px-2 py-1 text-sm disabled:opacity-50"
           aria-label="Severity"
           value={mistake.severity}
           disabled={revise.isPending}

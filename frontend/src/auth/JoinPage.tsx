@@ -4,8 +4,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { joinWithInvite, previewInvite, registerStudent } from "../api/groups";
 import { useAuth } from "./AuthContext";
 import { Button, Field, Input } from "../components/controls";
-import { SectionSkeleton } from "../components/page";
-import { friendlyError } from "../lib/errors";
+import { ErrorState, SectionSkeleton } from "../components/page";
+import { friendlyError, inviteRefused } from "../lib/errors";
 import { AuthAlt, AuthLayout, authLink } from "./AuthLayout";
 
 export default function JoinPage() {
@@ -40,6 +40,19 @@ export default function JoinPage() {
     return (
       <AuthLayout documentTitle="Invitation" title="Checking your invitation…">
         <SectionSkeleton rows={3} label="Checking invitation" />
+      </AuthLayout>
+    );
+  }
+  // A failure that says nothing about the link is offered a retry, not told
+  // the invitation is invalid (see inviteRefused).
+  if (preview.isError && !inviteRefused(preview.error)) {
+    return (
+      <AuthLayout documentTitle="Invitation" title="Join a class">
+        <ErrorState
+          title="We couldn't check this invitation."
+          error={preview.error}
+          onRetry={() => void preview.refetch()}
+        />
       </AuthLayout>
     );
   }

@@ -184,7 +184,21 @@ export default function StudentDetailPage() {
                 <SectionSkeleton rows={3} label="Loading evidence" />
               </div>
             ) : evidence.isError || !evidence.data ? (
-              <p className="mt-2 text-sm text-ink-500">{ABSENT.loadFailed}</p>
+              // A retry here rather than "refresh the page", which would also
+              // close this panel and drop the topic the tutor had opened.
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <p role="alert" className="text-sm text-ink-500">
+                  {ABSENT.loadFailedRetry}
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={evidence.isFetching}
+                  onClick={() => evidence.refetch()}
+                >
+                  Try again
+                </Button>
+              </div>
             ) : (
               <>
                 <p className="mt-1 text-sm text-ink-500">

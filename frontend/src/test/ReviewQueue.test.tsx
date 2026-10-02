@@ -48,6 +48,40 @@ test("a failed second list never reads as all caught up", async () => {
   expect(screen.queryByText("You're all caught up.")).not.toBeInTheDocument();
 });
 
+test("a loaded queue is shown while the second list is still on its way", async () => {
+  // One loading gate over both requests hid a queue that had already arrived
+  // for as long as the attention list took.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (path === "/api/v1/assignments/attention") return new Promise<Response>(() => {});
+      return new Response(
+        JSON.stringify([
+          {
+            submission_id: 8,
+            assignment_id: 2,
+            past_paper_id: null,
+            mock_id: null,
+            assignment_title: "HW2 — Ionic bonding",
+            student_id: 4,
+            student_name: "Ali Rahman",
+            submitted_at: "2026-10-01T10:00:00Z",
+            unsure_count: 1,
+            remark_request_count: 0,
+          },
+        ]),
+        { status: 200 },
+      );
+    }),
+  );
+  renderPage();
+
+  expect(await screen.findByText("HW2 — Ionic bonding")).toBeInTheDocument();
+  // Nothing is claimed about the list that has not answered.
+  expect(screen.queryByText("You're all caught up.")).not.toBeInTheDocument();
+});
+
 test("a submission already in the queue is not listed a second time below it", async () => {
   const queueItem = {
     submission_id: 8,

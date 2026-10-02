@@ -51,10 +51,21 @@ const ALL_CLASSES = { to: "/tutor/classes", label: "All classes" };
 export default function GroupLayout() {
   const { groupId } = useParams();
   const id = Number(groupId);
-  const group = useQuery({ queryKey: ["group", id], queryFn: () => getGroup(id) });
+  // A class URL whose id is not a whole number names no class at all. Asked
+  // anyway, it came back a 422 and read as "This class didn't load" with a
+  // retry that could never succeed, so it is answered here as not found.
+  const validId = Number.isInteger(id);
+  const group = useQuery({
+    queryKey: ["group", id],
+    queryFn: () => getGroup(id),
+    enabled: validId,
+  });
 
   if (group.isLoading) return <PageSkeleton label="Loading class" />;
-  if (group.isError && group.error instanceof ApiError && group.error.status === 404) {
+  if (
+    !validId ||
+    (group.isError && group.error instanceof ApiError && group.error.status === 404)
+  ) {
     return (
       <NotFoundState
         title="We couldn't find that class"

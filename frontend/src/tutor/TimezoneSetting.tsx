@@ -44,7 +44,9 @@ export default function TimezoneSetting() {
         </div>
       ) : org.isError ? (
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-risk-600">Your organisation's time zone didn't load.</p>
+          <p role="alert" className="text-sm text-risk-600">
+            Your organisation's time zone didn't load.
+          </p>
           <Button variant="secondary" size="sm" onClick={() => org.refetch()}>
             Try again
           </Button>

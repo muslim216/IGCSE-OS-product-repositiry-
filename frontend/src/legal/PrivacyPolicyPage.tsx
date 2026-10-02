@@ -369,11 +369,14 @@ export default function PrivacyPolicyPage() {
                   unless it is needed to investigate misuse.
                 </li>
                 <li>
-                  <strong>Minimal data.</strong> We send the AI only what each task needs. To mark
-                  work: the pages, the questions and the mark scheme. For readiness summaries and
-                  reports: the student's name, the subject, the scores avora has worked out for them
-                  (from marked work and any estimates their tutor entered), and the tutor's own
-                  teaching notes for that subject. Never students' contact details.
+                  <strong>Minimal data.</strong> We send the AI only what each task needs, together
+                  with the tutor's own guidance where it applies — their marking rules, their notes
+                  on the paper and their teaching notes for the subject. To mark work: the student's
+                  pages, the questions and the mark scheme, without the student's name. To pull
+                  questions out of a paper: the paper itself. For readiness summaries and reports:
+                  the student's name, the subject, and the scores avora has worked out for them
+                  (from marked work and any estimates their tutor entered). Never students' contact
+                  details.
                 </li>
               </ul>
               <p>

@@ -219,8 +219,9 @@ Every routed page composes the same pieces rather than restating classes:
   browser-tab title via `useDocumentTitle`), `PageSkeleton` / `SectionSkeleton`, `ErrorState`
   (with retry), `NotFoundState`, `NotFoundPage` (the public 404 for unknown URLs),
   `ConfirmDialog` (never `window.confirm`), and `ErrorBoundary` (mounted in `AppShell`, keyed by
-  the router location, so a render crash shows a recoverable message instead of a blank page
-  and any navigation clears it).
+  route and reset on every navigation through its `resetKey`, so a render crash shows a
+  recoverable message instead of a blank page, and any navigation clears it without remounting
+  a healthy page whose own link was clicked).
 - `components/controls.tsx` — `Button` (primary / secondary / ghost / danger; `loading`),
   `buttonClasses()` for links, `Input` / `Select` / `Textarea`, `Field` (ties the label to its
   control by id and wires hint and error to `aria-describedby`), and `FileInput` (a styled

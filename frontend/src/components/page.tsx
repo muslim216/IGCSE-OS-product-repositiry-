@@ -1,4 +1,4 @@
-import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
+import { Component, useCallback, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Compass, RefreshCw } from "lucide-react";
 import { Button, buttonClasses } from "./controls";
@@ -234,8 +234,14 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  // Escape and the backdrop are ways to cancel too, so they are shut while the
+  // action is in flight: closing then would read as "cancelled" while the
+  // request carries on and the action happens regardless.
+  const dismiss = useCallback(() => {
+    if (!busy) onCancel();
+  }, [busy, onCancel]);
   return (
-    <Modal open={open} onClose={onCancel} title={title}>
+    <Modal open={open} onClose={dismiss} title={title}>
       <div className="text-sm leading-relaxed text-ink-700">{body}</div>
       <div className="mt-6 flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel} disabled={busy}>
@@ -249,16 +255,34 @@ export function ConfirmDialog({
   );
 }
 
+type ErrorBoundaryProps = {
+  children: ReactNode;
+  /** A new value clears a caught crash, so the children get another render. */
+  resetKey?: unknown;
+};
+type ErrorBoundaryState = { failed: boolean; resetKey: unknown };
+
 /**
  * Catches a render crash so one broken component shows a recoverable message
- * instead of a blank white page. Keyed by route at the call site, so moving to
- * another page clears it.
+ * instead of a blank white page. AppShell passes the current navigation as
+ * `resetKey`, so moving anywhere — another page, or the same page with a
+ * different query — clears it.
  */
-export class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { failed: false, resetKey: this.props.resetKey };
 
-  static getDerivedStateFromError() {
+  static getDerivedStateFromError(): Partial<ErrorBoundaryState> {
     return { failed: true };
+  }
+
+  // Reset during render rather than after it (componentDidUpdate): when the
+  // navigation that changed the key is itself the one that crashes, a reset
+  // after the fallback commits would render the crash a second time.
+  static getDerivedStateFromProps(
+    props: ErrorBoundaryProps,
+    state: ErrorBoundaryState,
+  ): Partial<ErrorBoundaryState> | null {
+    return props.resetKey === state.resetKey ? null : { failed: false, resetKey: props.resetKey };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {

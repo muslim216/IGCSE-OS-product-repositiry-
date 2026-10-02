@@ -304,11 +304,26 @@ export default function AssignmentCreatePage() {
                   />
                 </Field>
               )}
-              <Field label="Title" optional hint="Leave it empty to use the file name.">
+              {/* Optional only when there is something to name the homework
+                  after — the file, or the reused paper's own title. With
+                  neither, the title is all an empty assignment has, and
+                  `canSubmit` already requires it. */}
+              <Field
+                label="Title"
+                optional={file !== null || reuseId !== ""}
+                hint={
+                  file
+                    ? "Leave it empty to use the file name."
+                    : reuseId !== ""
+                      ? "Leave it empty to use that paper's title."
+                      : undefined
+                }
+              >
                 <Input
                   placeholder="e.g. HW3 — Atomic structure"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
+                  required={file === null && reuseId === ""}
                 />
               </Field>
               {file && (

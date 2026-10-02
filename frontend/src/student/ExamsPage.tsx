@@ -37,7 +37,11 @@ export default function ExamsPage() {
           />
         </SectionCard>
       ) : (
-        <SectionCard className="overflow-x-auto p-0">
+        // `p-0!`, not `p-0`: SectionCard always carries `p-5`, and the two set
+        // the same property in the same layer, so whichever Tailwind emits
+        // last wins — `p-5` — and a plain `p-0` left the table inset from the
+        // card's edges. The important modifier is the override that holds.
+        <SectionCard className="overflow-x-auto p-0!">
           <table className="w-full text-sm">
             <caption className="sr-only">Your exam scores</caption>
             <thead className="border-b border-line text-left text-xs text-ink-500">
