@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
 import {
   applySyllabusUpload,
   getSyllabusUpload,
@@ -14,20 +15,54 @@ import {
   type SyllabusUploadDetail,
 } from "../api/syllabusUpload";
 import { ApiError } from "../api/client";
+import { Button, Field, FileInput, Input, inputClasses, Select } from "../components/controls";
+import {
+  ErrorState,
+  NotFoundState,
+  PageHeader,
+  PageSkeleton,
+  SectionSkeleton,
+} from "../components/page";
+import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
+import { friendlyError } from "../lib/errors";
 
-const STATUS_LABEL: Record<string, string> = {
-  extracting: "AI is reading the syllabus…",
-  extraction_failed: "Extraction failed",
-  review: "Review the chapters, then apply",
-  applied: "Applied",
+/** Each status as a short chip, and in the words a tutor would use. The tone
+ *  carries meaning only alongside the words, never instead of them (UX-15). */
+const STATUS: Record<string, { label: string; tone: string }> = {
+  extracting: { label: "Reading it now…", tone: "bg-surface-muted text-ink-700" },
+  extraction_failed: { label: "Couldn't read it", tone: "bg-risk-100 text-risk-600" },
+  review: { label: "Ready for you to check", tone: "bg-warn-100 text-warn-700" },
+  applied: { label: "In use", tone: "bg-ok-100 text-ok-700" },
 };
 
-const STATUS_CLASS: Record<string, string> = {
-  extracting: "bg-amber-100 text-amber-700",
-  extraction_failed: "bg-red-100 text-red-700",
-  review: "bg-amber-100 text-amber-700",
-  applied: "bg-green-100 text-green-700",
-};
+function StatusChip({ status }: { status: string }) {
+  const known = STATUS[status];
+  return (
+    <span
+      className={`inline-block shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${known?.tone ?? "bg-surface-muted text-ink-700"}`}
+    >
+      {known?.label ?? "Status unknown"}
+    </span>
+  );
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The way back from a syllabus to the list. The list and the detail share one
+ *  route, so this is a button rather than PageHeader's link — styled the same,
+ *  so it reads as the same control it is on every other page. */
+function BackButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-3 inline-flex items-center gap-1 text-sm text-ink-500 transition-colors hover:text-brand-600"
+    >
+      <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+      {children}
+    </button>
+  );
+}
 
 function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
   const queryClient = useQueryClient();
@@ -43,7 +78,7 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
       setFile(null);
       onUploaded(result.id);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err, "That syllabus didn't upload. Try again.")),
   });
 
   function onSubmit(e: FormEvent) {
@@ -53,41 +88,38 @@ function UploadForm({ onUploaded }: { onUploaded: (id: number) => void }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="rounded-lg border bg-white p-4">
-      <h3 className="font-medium text-slate-800">Upload a syllabus</h3>
-      <p className="mt-1 text-sm text-slate-500">
-        Upload the exam board's syllabus PDF and the AI drafts the chapters and their topics —
-        review and edit them, then apply it to make the subject available for groups and homework.
-      </p>
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Name (optional)</label>
-          <input
-            className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="e.g. AQA GCSE Physics 8463"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+    <SectionCard>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <SectionHeader
+          title="Upload a syllabus"
+          description="The AI drafts the chapters and their topics from the exam board's PDF. You check and edit them, then apply it to use the subject with your classes and homework."
+        />
+        <div className="grid items-start gap-4 sm:grid-cols-2">
+          <Field label="Syllabus" hint="The exam board's PDF.">
+            <FileInput
+              accept="application/pdf"
+              prompt="Choose the syllabus PDF"
+              onFiles={(files) => setFile(files[0] ?? null)}
+            />
+          </Field>
+          <Field label="Name" optional hint="Leave it blank to use the file's name.">
+            <Input
+              placeholder="e.g. AQA GCSE Physics 8463"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </Field>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Syllabus PDF</label>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 text-sm"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={!file || upload.isPending}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {upload.isPending ? "Uploading…" : "Upload & extract"}
-        </button>
-      </div>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-    </form>
+        {error && (
+          <p role="alert" className="text-sm text-risk-600">
+            {error}
+          </p>
+        )}
+        <Button type="submit" disabled={!file} loading={upload.isPending}>
+          Upload and read it
+        </Button>
+      </form>
+    </SectionCard>
   );
 }
 
@@ -159,14 +191,14 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
     // the response carries the draft as it was when this request was sent, and
     // a later keystroke may already have moved past it. Status matters:
     // editing a failed extraction flips it to `review`, and a cache still
-    // reading `extraction_failed` leaves "Retry extraction" on screen, one
+    // reading `extraction_failed` leaves the retry button on screen, one
     // click away from re-running the AI over the tutor's edits (cubic).
     onSuccess: (saved) =>
       queryClient.setQueryData(["syllabus-upload", id], (old?: SyllabusUploadDetail) =>
         old ? { ...saved, draft: old.draft } : saved,
       ),
     onError: (err) => {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(friendlyError(err, "Your last change didn't save. Try it again."));
       queryClient.invalidateQueries({ queryKey: ["syllabus-upload", id] });
     },
   });
@@ -182,12 +214,31 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["syllabus-uploads"] });
       queryClient.invalidateQueries({ queryKey: ["subjects"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err, "That didn't apply. Try again.")),
   });
 
-  if (detail.isLoading) return <p className="text-slate-500">Loading…</p>;
+  const back = <BackButton onClick={onBack}>All syllabuses</BackButton>;
+  if (detail.isLoading) return <PageSkeleton rows={5} label="Loading the syllabus" />;
+  if (detail.isError && detail.error instanceof ApiError && detail.error.status === 404) {
+    return (
+      <div>
+        {back}
+        <NotFoundState
+          title="We couldn't find that syllabus"
+          body="It may have been removed. Your other syllabuses are still on the list."
+        />
+      </div>
+    );
+  }
   const upload = detail.data;
-  if (!upload) return <p className="text-red-600">Not found.</p>;
+  if (detail.isError || !upload) {
+    return (
+      <div>
+        {back}
+        <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+      </div>
+    );
+  }
   const editable = upload.status === "review" || upload.status === "extraction_failed";
 
   const draft = upload.draft;
@@ -225,242 +276,287 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
     });
   }
 
+  const dt = "text-xs font-medium text-ink-500";
+  const dd = "mt-1 text-sm text-ink-900";
+  const cell = inputClasses;
+
   return (
-    <div className="space-y-4">
-      <button onClick={onBack} className="text-sm text-blue-600 hover:underline">
-        ← All syllabus uploads
-      </button>
-      <div className="flex items-center gap-3">
-        <h2 className="text-xl font-semibold text-slate-800">{upload.title}</h2>
-        <span
-          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[upload.status]}`}
-        >
-          {STATUS_LABEL[upload.status]}
-        </span>
-      </div>
+    <div>
+      {back}
+      <PageHeader
+        eyebrow="Syllabus"
+        title={upload.title}
+        meta={<StatusChip status={upload.status} />}
+        actions={
+          editable && (
+            <Button
+              onClick={() => apply.mutate()}
+              // Also while a draft save is in flight: a tutor who picks a
+              // level and clicks straight through would otherwise send apply
+              // before the level reaches the server, and be told to choose
+              // the level they just chose (cubic).
+              disabled={saveDraft.isPending}
+              loading={apply.isPending}
+            >
+              Apply — use it with my classes
+            </Button>
+          )
+        }
+      />
 
-      {upload.status === "extracting" && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          The AI is reading the syllabus and drafting the chapters — this can take a minute for long
-          documents. The page refreshes automatically.
-        </div>
-      )}
+      <div className="space-y-6">
+        {error && (
+          <p role="alert" className="rounded-lg bg-risk-100 p-3 text-sm text-risk-600">
+            {error}
+          </p>
+        )}
 
-      {upload.status === "extraction_failed" && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <p className="font-medium">Extraction failed: {upload.error}</p>
-          <button
-            onClick={() => retry.mutate()}
-            // Re-running extraction replaces the draft, so it must not be
-            // reachable while an edit is still in flight — for that window the
-            // status has not flipped to `review` yet and this button is still
-            // on screen (cubic).
-            disabled={retry.isPending || saveDraft.isPending}
-            className="mt-2 rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700 disabled:opacity-40"
+        {upload.status === "extracting" && (
+          <div
+            role="status"
+            className="flex items-start gap-3 rounded-lg bg-surface-muted p-4 text-sm text-ink-700"
           >
-            Retry extraction
-          </button>
-        </div>
-      )}
-
-      {draft && (
-        <section className="rounded-lg border bg-white p-4">
-          <div className="grid gap-3 sm:grid-cols-5">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Exam board
-              </p>
-              <p className="text-sm text-slate-700">{draft.exam_board}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Code</p>
-              <p className="text-sm text-slate-700">{draft.code}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Subject</p>
-              <p className="text-sm text-slate-700">{draft.name}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Grade scale
-              </p>
-              <p className="text-sm text-slate-700">{draft.grade_scale}</p>
-            </div>
-            <div>
-              {editable ? (
-                <>
-                  <label
-                    htmlFor="syllabus-level"
-                    className="block text-xs font-medium uppercase tracking-wide text-slate-500"
-                  >
-                    Level
-                  </label>
-                  <select
-                    id="syllabus-level"
-                    className="mt-0.5 rounded border border-slate-300 px-1.5 py-1 text-sm"
-                    value={draft.level ?? ""}
-                    onChange={(e) => {
-                      const current = latestDraft();
-                      if (current)
-                        saveDraft.mutate({ ...current, level: e.target.value as SubjectLevel });
-                    }}
-                  >
-                    {/* The document may not state a level, and nothing guesses one
-                      for the tutor (AV-7, PROD-2) — so "not set" is a real
-                      option to sit in, and applying refuses until it is set. */}
-                    <option value="" disabled>
-                      Choose a level
-                    </option>
-                    {LEVELS.map((l) => (
-                      <option key={l.value} value={l.value}>
-                        {l.label}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Level
-                  </p>
-                  <p className="text-sm text-slate-700">
-                    {LEVELS.find((l) => l.value === draft.level)?.label ?? "Not set"}
-                  </p>
-                </>
-              )}
-            </div>
+            <Loader2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-brand-600" />
+            <p>
+              The AI is reading the syllabus and drafting its chapters. Long documents can take a
+              minute — this page updates by itself.
+            </p>
           </div>
+        )}
 
-          <div className="mt-4 flex items-center justify-between">
-            <h3 className="font-medium text-slate-800">
-              {draft.chapters.length} chapters, {topicCount} topics
-            </h3>
-            {editable && (
-              <button
-                onClick={() => apply.mutate()}
-                // Also while a draft save is in flight: a tutor who picks a
-                // level and clicks straight through would otherwise send apply
-                // before the level reaches the server, and be told to choose
-                // the level they just chose (cubic).
-                disabled={apply.isPending || saveDraft.isPending}
-                className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
-              >
-                {apply.isPending ? "Applying…" : "Apply — make available for groups"}
-              </button>
+        {upload.status === "extraction_failed" && (
+          <div className="rounded-lg bg-risk-100 p-4 text-sm">
+            <p className="font-medium text-risk-600">We couldn't read this syllabus.</p>
+            <p className="mt-1 text-ink-700">
+              Try again, or upload a clearer copy of the PDF. You can also fix the draft below by
+              hand.
+            </p>
+            {upload.error && (
+              <details className="mt-2 text-xs text-ink-500">
+                <summary className="cursor-pointer">What went wrong</summary>
+                <p className="mt-1">{upload.error}</p>
+              </details>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-3"
+              onClick={() => retry.mutate()}
+              // Re-running extraction replaces the draft, so it must not be
+              // reachable while an edit is still in flight — for that window the
+              // status has not flipped to `review` yet and this button is still
+              // on screen (cubic).
+              disabled={saveDraft.isPending}
+              loading={retry.isPending}
+            >
+              Try again
+            </Button>
+            {retry.isError && (
+              <p role="alert" className="mt-2 text-risk-600">
+                {friendlyError(retry.error, "That didn't start. Try again.")}
+              </p>
             )}
           </div>
-          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        )}
 
-          <div className="mt-3 space-y-4">
-            {/* Keyed by index deliberately, against the usual rule: a chapter's
-                code is what the tutor is editing, so keying on it would change
-                the key on every keystroke and pull focus out of the input. The
-                list is never reordered or filtered here. */}
-            {draft.chapters.map((chapter, chapterIndex) => (
-              <div key={chapterIndex} className="rounded-md border border-slate-200">
-                <div className="flex items-center gap-2 border-b bg-slate-50 px-3 py-2">
-                  {editable ? (
-                    <>
-                      <label className="sr-only" htmlFor={`chapter-code-${chapterIndex}`}>
-                        Chapter code
+        {draft && (
+          <SectionCard>
+            <dl className="grid gap-4 sm:grid-cols-5">
+              <div>
+                <dt className={dt}>Exam board</dt>
+                <dd className={dd}>{draft.exam_board}</dd>
+              </div>
+              <div>
+                <dt className={dt}>Code</dt>
+                <dd className={dd}>{draft.code}</dd>
+              </div>
+              <div>
+                <dt className={dt}>Subject</dt>
+                <dd className={dd}>{draft.name}</dd>
+              </div>
+              <div>
+                <dt className={dt}>Grade scale</dt>
+                <dd className={dd}>{draft.grade_scale}</dd>
+              </div>
+              <div>
+                {editable ? (
+                  <>
+                    <dt>
+                      <label htmlFor="syllabus-level" className={dt}>
+                        Level
                       </label>
-                      <input
-                        id={`chapter-code-${chapterIndex}`}
-                        className="w-20 rounded border border-slate-300 px-1.5 py-1 text-sm"
-                        value={chapter.code}
-                        onChange={(e) => setChapterField(chapterIndex, { code: e.target.value })}
-                      />
-                      <label className="sr-only" htmlFor={`chapter-title-${chapterIndex}`}>
-                        Chapter title
-                      </label>
-                      <input
-                        id={`chapter-title-${chapterIndex}`}
-                        className="w-full rounded border border-slate-300 px-1.5 py-1 text-sm font-medium"
-                        value={chapter.title}
-                        onChange={(e) => setChapterField(chapterIndex, { title: e.target.value })}
-                      />
-                    </>
-                  ) : (
-                    <p className="text-sm font-medium text-slate-800">
-                      {chapter.code} {chapter.title}
-                    </p>
-                  )}
-                </div>
-
-                {chapter.topics.length === 0 ? (
-                  <p className="px-3 py-2 text-sm text-slate-500">No topics in this chapter.</p>
+                    </dt>
+                    <dd className="mt-1">
+                      <Select
+                        id="syllabus-level"
+                        value={draft.level ?? ""}
+                        onChange={(e) => {
+                          const current = latestDraft();
+                          if (current)
+                            saveDraft.mutate({ ...current, level: e.target.value as SubjectLevel });
+                        }}
+                      >
+                        {/* The document may not state a level, and nothing guesses one
+                          for the tutor (AV-7, PROD-2) — so "not set" is a real
+                          option to sit in, and applying refuses until it is set. */}
+                        <option value="" disabled>
+                          Choose a level
+                        </option>
+                        {LEVELS.map((l) => (
+                          <option key={l.value} value={l.value}>
+                            {l.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </dd>
+                  </>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-slate-500">
-                        <th className="py-1.5 pl-3 pr-2 font-medium">Code</th>
-                        <th className="py-1.5 pr-2 font-medium">Topic</th>
-                        <th className="py-1.5 pr-3 font-medium">Weight</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {flatten(chapter.topics).map(({ path, node }) => (
-                        <tr key={path.join(".")} className="border-b align-top last:border-0">
-                          <td
-                            className="py-1.5 pr-2 pl-3"
-                            style={{ paddingLeft: `${12 + (path.length - 1) * 16}px` }}
-                          >
-                            {editable ? (
-                              <input
-                                aria-label="Topic code"
-                                className="w-20 rounded border border-slate-300 px-1.5 py-1"
-                                value={node.code}
-                                onChange={(e) =>
-                                  setTopicField(chapterIndex, path, { code: e.target.value })
-                                }
-                              />
-                            ) : (
-                              node.code
-                            )}
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            {editable ? (
-                              <input
-                                aria-label="Topic title"
-                                className="w-full rounded border border-slate-300 px-1.5 py-1"
-                                value={node.title}
-                                onChange={(e) =>
-                                  setTopicField(chapterIndex, path, { title: e.target.value })
-                                }
-                              />
-                            ) : (
-                              node.title
-                            )}
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            {editable ? (
-                              <input
-                                type="number"
-                                aria-label="Topic weight"
-                                step={0.1}
-                                min={0.1}
-                                className="w-20 rounded border border-slate-300 px-1.5 py-1"
-                                value={node.weight}
-                                onChange={(e) =>
-                                  setTopicField(chapterIndex, path, {
-                                    weight: Number(e.target.value),
-                                  })
-                                }
-                              />
-                            ) : (
-                              node.weight
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <>
+                    <dt className={dt}>Level</dt>
+                    <dd className={dd}>
+                      {LEVELS.find((l) => l.value === draft.level)?.label ?? "Not set"}
+                    </dd>
+                  </>
                 )}
               </div>
-            ))}
-          </div>
-        </section>
-      )}
+            </dl>
+
+            <div className="mt-6 border-t border-line pt-5">
+              <SectionHeader
+                title={`${plural(draft.chapters.length, "chapter", "chapters")}, ${plural(topicCount, "topic", "topics")}`}
+                description={
+                  editable
+                    ? "Correct any code or title the AI got wrong. Each change saves as you type."
+                    : undefined
+                }
+              />
+
+              <div className="mt-4 space-y-4">
+                {/* Keyed by index deliberately, against the usual rule: a chapter's
+                    code is what the tutor is editing, so keying on it would change
+                    the key on every keystroke and pull focus out of the input. The
+                    list is never reordered or filtered here. */}
+                {draft.chapters.map((chapter, chapterIndex) => (
+                  <div key={chapterIndex} className="overflow-hidden rounded-lg border border-line">
+                    <div className="flex items-center gap-2 border-b border-line bg-surface-muted px-3 py-2">
+                      {editable ? (
+                        <>
+                          <label className="sr-only" htmlFor={`chapter-code-${chapterIndex}`}>
+                            Chapter code
+                          </label>
+                          <div className="w-20 shrink-0">
+                            <input
+                              id={`chapter-code-${chapterIndex}`}
+                              className={cell}
+                              value={chapter.code}
+                              onChange={(e) =>
+                                setChapterField(chapterIndex, { code: e.target.value })
+                              }
+                            />
+                          </div>
+                          <label className="sr-only" htmlFor={`chapter-title-${chapterIndex}`}>
+                            Chapter title
+                          </label>
+                          <input
+                            id={`chapter-title-${chapterIndex}`}
+                            className={`${cell} font-medium`}
+                            value={chapter.title}
+                            onChange={(e) =>
+                              setChapterField(chapterIndex, { title: e.target.value })
+                            }
+                          />
+                        </>
+                      ) : (
+                        <p className="text-sm font-medium text-ink-900">
+                          {chapter.title}
+                          <span className="ml-2 font-normal text-ink-500">{chapter.code}</span>
+                        </p>
+                      )}
+                    </div>
+
+                    {chapter.topics.length === 0 ? (
+                      <p className="px-3 py-3 text-sm text-ink-500">No topics in this chapter.</p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-line text-left text-xs text-ink-500">
+                            <th className="py-2 pl-3 pr-2 font-medium">Code</th>
+                            <th className="py-2 pr-2 font-medium">Topic</th>
+                            <th className="py-2 pr-3 font-medium">Weight</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flatten(chapter.topics).map(({ path, node }) => (
+                            <tr
+                              key={path.join(".")}
+                              className="border-b border-line align-middle last:border-0"
+                            >
+                              <td
+                                className="py-1.5 pr-2 pl-3 text-ink-500"
+                                style={{ paddingLeft: `${12 + (path.length - 1) * 16}px` }}
+                              >
+                                {editable ? (
+                                  <div className="w-20">
+                                    <input
+                                      aria-label="Topic code"
+                                      className={cell}
+                                      value={node.code}
+                                      onChange={(e) =>
+                                        setTopicField(chapterIndex, path, { code: e.target.value })
+                                      }
+                                    />
+                                  </div>
+                                ) : (
+                                  node.code
+                                )}
+                              </td>
+                              <td className="py-1.5 pr-2 text-ink-900">
+                                {editable ? (
+                                  <input
+                                    aria-label="Topic title"
+                                    className={cell}
+                                    value={node.title}
+                                    onChange={(e) =>
+                                      setTopicField(chapterIndex, path, { title: e.target.value })
+                                    }
+                                  />
+                                ) : (
+                                  node.title
+                                )}
+                              </td>
+                              <td className="py-1.5 pr-3 tabular-nums text-ink-700">
+                                {editable ? (
+                                  <div className="w-20">
+                                    <input
+                                      type="number"
+                                      aria-label="Topic weight"
+                                      step={0.1}
+                                      min={0.1}
+                                      className={cell}
+                                      value={node.weight}
+                                      onChange={(e) =>
+                                        setTopicField(chapterIndex, path, {
+                                          weight: Number(e.target.value),
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                ) : (
+                                  node.weight
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </SectionCard>
+        )}
+      </div>
     </div>
   );
 }
@@ -474,36 +570,49 @@ export default function SyllabusUploadPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-800">Syllabuses</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Upload an exam board syllabus and the AI drafts its chapters and topics for you to review
-          before they power teaching plans, readiness tracking and homework.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Syllabuses"
+        description="Upload an exam board's syllabus and the AI drafts its chapters and topics. You check them before they shape teaching plans, readiness and homework."
+        back={{ to: "/tutor/library", label: "Library" }}
+      />
 
-      <UploadForm onUploaded={setSelectedId} />
+      <div className="space-y-6">
+        <UploadForm onUploaded={setSelectedId} />
 
-      <div className="rounded-lg border bg-white p-4">
-        <h3 className="font-medium text-slate-800">Your uploads</h3>
-        <ul className="mt-2 divide-y">
-          {uploads.data?.map((u) => (
-            <li key={u.id} className="flex items-center justify-between py-2 text-sm">
-              <button onClick={() => setSelectedId(u.id)} className="text-blue-600 hover:underline">
-                {u.title}
-              </button>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_CLASS[u.status]}`}
-              >
-                {STATUS_LABEL[u.status]}
-              </span>
-            </li>
-          ))}
-          {uploads.data?.length === 0 && (
-            <li className="py-2 text-sm text-slate-500">No syllabuses uploaded yet.</li>
-          )}
-        </ul>
+        <SectionCard>
+          <SectionHeader title="Your syllabuses" />
+          <div className="mt-3">
+            {uploads.isLoading ? (
+              <SectionSkeleton rows={3} label="Loading your syllabuses" />
+            ) : uploads.isError ? (
+              <ErrorState error={uploads.error} onRetry={() => uploads.refetch()} />
+            ) : uploads.data?.length === 0 ? (
+              <EmptyState
+                title="No syllabuses uploaded yet."
+                hint="Upload one above to build its chapters and topics."
+              />
+            ) : (
+              <ul className="-mx-2 divide-y divide-line">
+                {uploads.data?.map((u) => (
+                  <li key={u.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(u.id)}
+                      className="group flex w-full items-center gap-3 rounded-md px-2 py-3 text-left text-sm transition-colors hover:bg-surface-muted"
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium text-ink-900 group-hover:text-brand-600">
+                        {u.title}
+                      </span>
+                      <StatusChip status={u.status} />
+                      <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-500" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </SectionCard>
       </div>
     </div>
   );

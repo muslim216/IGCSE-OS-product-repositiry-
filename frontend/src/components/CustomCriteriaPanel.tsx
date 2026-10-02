@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clearCriterionScore,
@@ -7,6 +7,8 @@ import {
   type StudentCriterionScore,
 } from "../api/customCriteria";
 import { ABSENT } from "../lib/labels";
+import { friendlyError } from "../lib/errors";
+import { Button, Input } from "./controls";
 import { EmptyState, SectionCard, SectionHeader } from "./ui";
 
 /**
@@ -76,6 +78,7 @@ function CriterionRow({
   editable: boolean;
 }) {
   const queryClient = useQueryClient();
+  const inputId = useId();
   const [draft, setDraft] = useState(row.score === null ? "" : String(row.score));
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["student-criteria", studentId] });
@@ -111,39 +114,45 @@ function CriterionRow({
       </div>
       {editable && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
+          <label htmlFor={inputId} className="sr-only">
+            Score for {row.name}
+          </label>
+          <Input
+            id={inputId}
             type="number"
             min={0}
             max={100}
             step={1}
-            aria-label={`Score for ${row.name}`}
+            inputMode="numeric"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            className="w-20 rounded-md border border-line-control bg-canvas px-2 py-1 text-sm text-ink-900"
+            className="h-8 w-24"
           />
-          <button
-            type="button"
+          <span className="text-xs text-ink-500">out of 100</span>
+          <Button
+            size="sm"
             aria-label={`Save score for ${row.name}`}
+            loading={save.isPending}
             disabled={!valid || busy || value === row.score}
             onClick={() => save.mutate(value)}
-            className="rounded-md bg-brand-600 px-3 py-1 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
           >
             Save
-          </button>
+          </Button>
           {row.score !== null && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               aria-label={`Clear score for ${row.name}`}
+              loading={clear.isPending}
               disabled={busy}
               onClick={() => clear.mutate()}
-              className="text-sm font-medium text-ink-500 hover:text-ink-700 disabled:opacity-50"
             >
               Clear
-            </button>
+            </Button>
           )}
           {error && (
             <p role="alert" className="w-full text-sm text-risk-600">
-              {error.message || ABSENT.loadFailed}
+              {friendlyError(error, ABSENT.loadFailed)}
             </p>
           )}
         </div>

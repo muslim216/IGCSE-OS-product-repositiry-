@@ -183,14 +183,14 @@ export function NotFoundPage() {
   useDocumentTitle("Page not found");
   const navigate = useNavigate();
   return (
-    <div className="flex min-h-screen flex-col bg-canvas">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-canvas">
       <AvoraGrain />
       <header className="mx-auto w-full max-w-5xl px-6 py-5">
         <Link to="/" aria-label="avora home" className="inline-block">
           <AvoraLockup />
         </Link>
       </header>
-      <main className="relative mx-auto flex w-full max-w-5xl flex-1 items-center overflow-hidden px-6">
+      <main className="relative mx-auto flex w-full max-w-5xl flex-1 items-center px-6">
         <GhostMark className="-right-24 top-1/2 -translate-y-1/2" />
         <div className="relative py-20">
           <p className="avora-label">Error 404</p>

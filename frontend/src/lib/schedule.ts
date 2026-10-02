@@ -21,13 +21,14 @@ export const DURATION_OPTIONS: SelectOption<number>[] = [
   { value: 180, label: "3 hours" },
 ];
 
-/** "17:00" / "17:00:00" -> "5:00 PM". Tolerates the seconds the API sends back. */
+/** "17:00:00" / "7:00" -> "17:00" / "07:00". Tolerates the seconds the API sends back.
+ *
+ * 24-hour, because the Today page prints a lesson's start as the API's own
+ * "HH:MM" — and the same lesson read "5:00 PM" on the class page and "17:00"
+ * on Today, which looks like two different times to a reader skimming both. */
 export function formatTime(value: string): string {
-  const [rawHour, minute] = value.split(":");
-  const hour = Number(rawHour);
-  const suffix = hour < 12 ? "AM" : "PM";
-  const display = hour % 12 === 0 ? 12 : hour % 12;
-  return `${display}:${minute} ${suffix}`;
+  const [rawHour, minute = "00"] = value.split(":");
+  return `${rawHour.padStart(2, "0")}:${minute.slice(0, 2)}`;
 }
 
 /** Quarter-hour slots across a plausible teaching day, as a dropdown. */
@@ -46,7 +47,7 @@ export function formatDuration(minutes: number): string {
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
-/** Compact slot label for cards: "Tue 5:00 PM". */
+/** Compact slot label for cards: "Tue 17:00". */
 export function formatSlot(weekday: number, startTime: string): string {
   return `${WEEKDAYS[weekday]?.slice(0, 3) ?? "?"} ${formatTime(startTime)}`;
 }

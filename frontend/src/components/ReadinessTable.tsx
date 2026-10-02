@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 import type { LearnerRow } from "../lib/readiness";
+import { ABSENT } from "../lib/labels";
+import { Skeleton } from "./page";
 import { EmptyState, InitialsAvatar, ReadinessBar, StatusBadge } from "./ui";
 
 export type ReadinessFilter = "all" | "needs_attention" | "on_track";
@@ -22,7 +24,7 @@ function SkeletonRows() {
       {[0, 1, 2].map((i) => (
         <tr key={i} className="border-t border-line">
           <td colSpan={5} className="px-2 py-3">
-            <span aria-hidden className="block h-4 w-full animate-pulse rounded bg-surface-muted" />
+            <Skeleton className="h-4 w-full" />
           </td>
         </tr>
       ))}
@@ -97,17 +99,19 @@ export default function ReadinessTable({
               }`}
             >
               {tab.label}
-              <span className="ml-1.5 tabular-nums opacity-70">{counts[tab.id]}</span>
+              {/* The count names its unit for a screen reader; sighted readers
+                  take it from the tab label and the sentence above. */}
+              <span className="ml-1.5 tabular-nums opacity-70">
+                {counts[tab.id]}
+                <span className="sr-only"> {counts[tab.id] === 1 ? "learner" : "learners"}</span>
+              </span>
             </button>
           ))}
         </div>
       )}
 
       {error && rows.length === 0 ? (
-        <EmptyState
-          title="Readiness evidence couldn't be loaded."
-          hint="This is usually temporary — refresh the page to try again."
-        />
+        <EmptyState title="Readiness evidence couldn't be loaded." hint={ABSENT.loadFailed} />
       ) : loading && rows.length === 0 ? (
         <table className="mt-3 w-full">
           <caption className="sr-only">Loading learner readiness</caption>
@@ -130,7 +134,7 @@ export default function ReadinessTable({
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Learner readiness, lowest first</caption>
             <thead>
-              <tr className="text-xs uppercase tracking-wide text-ink-500">
+              <tr className="text-xs text-ink-500">
                 <th scope="col" className="py-2 pr-3 font-medium">
                   Learner
                 </th>

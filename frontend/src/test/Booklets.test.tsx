@@ -111,10 +111,12 @@ test("a booklet the AI could not read shows why, and offers to try again", async
     { ...booklet, status: "extraction_failed", error: "The file was not a readable PDF" },
   ]);
   renderPage();
-  expect(
-    await screen.findByText(/Couldn't read this booklet: The file was not a readable PDF/),
-  ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(await screen.findByText(/Couldn't read this booklet/)).toBeVisible();
+  // The job's own reason is raw exception text, so it sits behind "What went
+  // wrong" rather than in the status line — but it is still on the page.
+  expect(screen.getByText("What went wrong")).toBeVisible();
+  expect(screen.getByText("The file was not a readable PDF")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() =>
     expect(calls.some((c) => c.url.endsWith("/booklets/1/retry") && c.method === "POST")).toBe(
       true,

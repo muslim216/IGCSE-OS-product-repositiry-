@@ -62,7 +62,7 @@ test("creates a criterion for one subject", async () => {
   const calls = stub();
   renderSetting();
   await screen.findByRole("option", { name: /chemistry/i });
-  fireEvent.change(screen.getByRole("textbox", { name: /new criterion name/i }), {
+  fireEvent.change(screen.getByRole("textbox", { name: /criterion name/i }), {
     target: { value: "Practicals" },
   });
   fireEvent.change(screen.getByRole("combobox", { name: /applies to/i }), {

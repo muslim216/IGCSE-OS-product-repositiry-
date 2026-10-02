@@ -1,7 +1,28 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { generateReport, getReport, listReports } from "../api/reports";
+import { FileText } from "lucide-react";
+import { generateReport, getReport, listReports, type Report } from "../api/reports";
+import { friendlyError } from "../lib/errors";
+import { formatDayMonth } from "../lib/timezones";
+import { useMyTimezone } from "../auth/AuthContext";
 import { Markdown } from "./Markdown";
+import { Button, Select } from "./controls";
+import { SectionSkeleton } from "./page";
+import { EmptyState, SectionCard, SectionHeader } from "./ui";
+
+type Audience = "student" | "tutor" | "parent";
+
+const AUDIENCE_LABEL: Record<Audience, string> = {
+  student: "Student report",
+  tutor: "Tutor report",
+  parent: "Parent report",
+};
+
+const STATUS: Record<Report["status"], { label: string; classes: string }> = {
+  ready: { label: "Ready", classes: "bg-ok-100 text-ok-700" },
+  generating: { label: "Writing…", classes: "bg-warn-100 text-warn-700" },
+  failed: { label: "Couldn't be written", classes: "bg-risk-100 text-risk-600" },
+};
 
 /**
  * Reusable reports panel. `audiences` are the report types the current viewer
@@ -13,10 +34,12 @@ export function ReportsPanel({
   canGenerate = true,
 }: {
   studentId: number;
-  audiences: ("student" | "tutor" | "parent")[];
+  audiences: Audience[];
   canGenerate?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const myZone = useMyTimezone();
+  const selectId = useId();
   const reports = useQuery({
     queryKey: ["reports", studentId],
     queryFn: () => listReports(studentId),
@@ -41,93 +64,136 @@ export function ReportsPanel({
     },
   });
 
+  // Who writes the reports, in the reader's own terms. A student and a parent
+  // cannot generate one, so they are told where new ones come from instead.
+  const description = canGenerate
+    ? "Written summaries of progress for the student, their parent or you."
+    : audiences[0] === "parent"
+      ? "The tutor writes these. New ones appear here."
+      : "Your tutor writes these. New ones appear here.";
+
   return (
-    <div className="rounded-lg border bg-white p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-medium text-slate-800">Reports</h3>
+    <SectionCard>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionHeader title="Reports" description={description} />
         {canGenerate && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {audiences.length > 1 && (
-              <select
-                className="rounded border border-slate-300 px-2 py-1 text-sm"
-                value={audience}
-                onChange={(e) => setAudience(e.target.value as typeof audience)}
-              >
-                {audiences.map((a) => (
-                  <option key={a} value={a}>
-                    {a} report
-                  </option>
-                ))}
-              </select>
+              <>
+                <label htmlFor={selectId} className="sr-only">
+                  Who the report is for
+                </label>
+                <Select
+                  id={selectId}
+                  className="h-8 w-auto"
+                  value={audience}
+                  onChange={(e) => setAudience(e.target.value as Audience)}
+                >
+                  {audiences.map((a) => (
+                    <option key={a} value={a}>
+                      {AUDIENCE_LABEL[a]}
+                    </option>
+                  ))}
+                </Select>
+              </>
             )}
-            <button
-              onClick={() => generate.mutate()}
-              disabled={generate.isPending}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-            >
+            <Button size="sm" loading={generate.isPending} onClick={() => generate.mutate()}>
               Generate report
-            </button>
+            </Button>
           </div>
         )}
       </div>
 
-      {!canGenerate && (
-        <p className="mt-1 text-sm text-slate-500">
-          Your tutor generates reports — new ones appear here.
+      {generate.isError && (
+        <p role="alert" className="mt-3 text-sm text-risk-600">
+          {friendlyError(generate.error, "The report couldn't be started. Try again.")}
         </p>
       )}
 
-      <ul className="mt-3 divide-y text-sm">
-        {reports.data?.map((r) => (
-          <li key={r.id} className="flex items-center justify-between py-2">
-            <button
-              onClick={() => setOpenId(r.id)}
-              className="text-left text-blue-600 hover:underline"
-            >
-              {r.title}
-            </button>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs ${
-                r.status === "ready"
-                  ? "bg-green-100 text-green-700"
-                  : r.status === "failed"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-amber-100 text-amber-700"
-              }`}
-            >
-              {r.status === "generating" ? "generating…" : r.status}
-            </span>
-          </li>
-        ))}
-        {reports.data?.length === 0 && <li className="py-2 text-slate-500">No reports yet.</li>}
-      </ul>
+      <div className="mt-4">
+        {reports.isPending ? (
+          <SectionSkeleton rows={2} label="Loading reports" />
+        ) : reports.isError ? (
+          <p className="text-sm text-ink-500">
+            {friendlyError(reports.error, "Reports couldn't be loaded. Try again.")}
+          </p>
+        ) : reports.data.length === 0 ? (
+          <EmptyState
+            title="No reports yet"
+            hint={
+              canGenerate
+                ? "Generate one to summarise this student's progress."
+                : "When one is written, it will appear here."
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-line border-t border-line text-sm">
+            {reports.data.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOpenId(r.id)}
+                  aria-expanded={openId === r.id}
+                  className="flex min-w-0 items-center gap-2 text-left font-medium text-brand-600 hover:text-brand-700"
+                >
+                  <FileText aria-hidden className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{r.title}</span>
+                </button>
+                <span className="flex shrink-0 items-center gap-3">
+                  <span className="text-xs tabular-nums text-ink-500">
+                    {formatDayMonth(new Date(r.created_at), myZone)}
+                  </span>
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-xs font-medium ${STATUS[r.status].classes}`}
+                  >
+                    {STATUS[r.status].label}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
-      {openId !== null && opened.data && (
-        <div className="mt-4 rounded-lg border bg-slate-50 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-600">{opened.data.title}</span>
-            <button
-              onClick={() => setOpenId(null)}
-              className="text-sm text-slate-400 hover:text-slate-700"
-            >
-              Close
-            </button>
-          </div>
-          <div className="mt-3">
-            {opened.data.status === "generating" && (
-              <p className="text-sm text-slate-500">Writing the report…</p>
-            )}
-            {opened.data.status === "failed" && (
-              <p className="text-sm text-red-600">
-                Could not generate this report ({opened.data.error}).
-              </p>
-            )}
-            {opened.data.status === "ready" && opened.data.content && (
-              <Markdown content={opened.data.content} />
-            )}
-          </div>
+      {openId !== null && (
+        <div className="mt-4 rounded-lg border border-line bg-canvas p-4">
+          {opened.isPending ? (
+            <SectionSkeleton rows={4} label="Loading the report" />
+          ) : opened.isError ? (
+            <p className="text-sm text-ink-500">
+              {friendlyError(opened.error, "This report couldn't be opened. Try again.")}
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-ink-900">{opened.data.title}</span>
+                <Button variant="ghost" size="sm" onClick={() => setOpenId(null)}>
+                  Close
+                </Button>
+              </div>
+              <div className="mt-3">
+                {opened.data.status === "generating" && (
+                  <p className="text-sm text-ink-500" aria-live="polite">
+                    Writing the report… this usually takes under a minute.
+                  </p>
+                )}
+                {/* The stored error is a diagnostic for the operator, not a
+                    sentence for this reader — it is never shown raw. */}
+                {opened.data.status === "failed" && (
+                  <p className="text-sm text-risk-600">
+                    {canGenerate
+                      ? "This report couldn't be written. Generate it again in a minute."
+                      : "This report couldn't be written. Your tutor can try again."}
+                  </p>
+                )}
+                {opened.data.status === "ready" && opened.data.content && (
+                  <Markdown content={opened.data.content} />
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
-    </div>
+    </SectionCard>
   );
 }

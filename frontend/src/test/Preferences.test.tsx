@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import PreferencesPage from "../tutor/PreferencesPage";
@@ -90,7 +91,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PreferencesPage />
+      <MemoryRouter>
+        <PreferencesPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

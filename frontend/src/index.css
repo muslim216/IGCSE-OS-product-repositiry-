@@ -225,6 +225,25 @@ textarea::placeholder {
   border-color: var(--color-line);
 }
 
+/* Control edges. The `.border` rule above is unlayered, so it beats every
+   layered `border-*` colour utility — including `border-line-control` — and
+   left form fields drawn in the decorative hairline, below the 3:1 that WCAG
+   1.4.11 requires of a control boundary. The shared controls in
+   components/controls.tsx carry these classes instead; being unlayered and
+   declared after `.border`, they win the cascade on their own. */
+.avora-control {
+  border-color: var(--color-line-control);
+}
+.avora-control:hover {
+  border-color: var(--color-ink-700);
+}
+.avora-control:focus {
+  border-color: var(--color-brand-600);
+}
+.avora-control:disabled {
+  border-color: var(--color-line-strong);
+}
+
 /* Text */
 .text-slate-800 {
   color: var(--color-ink-900);

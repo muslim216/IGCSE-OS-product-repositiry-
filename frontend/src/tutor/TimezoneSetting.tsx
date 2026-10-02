@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myOrganization, setOrganizationTimezone } from "../api/auth";
-import { ApiError } from "../api/client";
+import { Button, Select } from "../components/controls";
+import { SectionSkeleton } from "../components/page";
+import { friendlyError } from "../lib/errors";
 import { supportedTimezones, detectedTimezone } from "../lib/timezones";
 
 /**
@@ -31,15 +33,22 @@ export default function TimezoneSetting() {
 
   return (
     <div className="rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">Time zone</h3>
+      <h3 className="font-medium text-ink-900">Your organisation's time zone</h3>
       <p className="mt-1 text-sm text-ink-500">
         Used for anything that names a day — today's lessons, and the weekly update parents get.
       </p>
 
       {org.isLoading ? (
-        <p className="mt-3 text-sm text-ink-500">Loading…</p>
+        <div className="mt-4">
+          <SectionSkeleton rows={2} label="Loading your time zone" />
+        </div>
       ) : org.isError ? (
-        <p className="mt-3 text-sm text-risk-600">Couldn't load your time zone.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <p className="text-sm text-risk-600">Your organisation's time zone didn't load.</p>
+          <Button variant="secondary" size="sm" onClick={() => org.refetch()}>
+            Try again
+          </Button>
+        </div>
       ) : (
         <>
           <p className="mt-3 text-sm text-ink-700">
@@ -56,36 +65,36 @@ export default function TimezoneSetting() {
             <label htmlFor="org-timezone" className="sr-only">
               Time zone
             </label>
-            <select
-              id="org-timezone"
-              value={current ?? ""}
-              disabled={save.isPending}
-              onChange={(e) => save.mutate(e.target.value || null)}
-              className="rounded-md border border-line-control bg-canvas px-3 py-2 text-sm text-ink-900"
-            >
-              <option value="">Not set (UTC)</option>
-              {options.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
+            <div className="w-full sm:w-72">
+              <Select
+                id="org-timezone"
+                value={current ?? ""}
+                disabled={save.isPending}
+                onChange={(e) => save.mutate(e.target.value || null)}
+              >
+                <option value="">Not set (UTC)</option>
+                {options.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
             {detected && detected !== current && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 disabled={save.isPending}
                 onClick={() => save.mutate(detected)}
-                className="rounded-md border border-line px-3 py-2 text-sm text-ink-700 transition hover:bg-surface-muted"
               >
                 Use this device's ({detected})
-              </button>
+              </Button>
             )}
           </div>
 
           {save.isError && (
-            <p className="mt-2 text-sm text-risk-600">
-              {save.error instanceof ApiError ? save.error.message : "Couldn't save that."}
+            <p role="alert" className="mt-2 text-sm text-risk-600">
+              {friendlyError(save.error, "That didn't save. Try again.")}
             </p>
           )}
         </>

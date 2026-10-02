@@ -8,8 +8,11 @@ import {
   type MistakeCategories,
   type MistakeCategoryItem,
 } from "../api/mistakeCategories";
-import { EmptyState, useToast } from "../components/ui";
-import { ABSENT } from "../lib/labels";
+import { Plus } from "lucide-react";
+import { Button, buttonClasses, Field, Input, Select, Textarea } from "../components/controls";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { EmptyState, SectionCard, useToast } from "../components/ui";
+import { friendlyError } from "../lib/errors";
 
 /**
  * The mistake-category editor — a per-(organization, subject) list the tutor
@@ -166,10 +169,19 @@ export default function MistakeCategoriesPage() {
     tooMany ||
     draft.some((_, i) => nameError(i) !== null || descriptionError(i) !== null);
 
+  const header = (
+    <PageHeader
+      title="Mistake categories"
+      description="The words used to sort what went wrong on a marked answer. These are your organisation's own — nothing forces every tutor of every subject to sort mistakes the same way."
+      back={{ to: "/tutor/library", label: "Library" }}
+    />
+  );
+
   if (subjects.isLoading) {
     return (
-      <div aria-busy="true">
-        <span aria-hidden className="block h-24 w-full animate-pulse rounded bg-surface-muted" />
+      <div>
+        {header}
+        <SectionSkeleton rows={4} label="Loading your subjects" />
       </div>
     );
   }
@@ -177,181 +189,190 @@ export default function MistakeCategoriesPage() {
   // did not arrive that they have none sends them off to add a syllabus they
   // already have, and hides the fact that anything went wrong (PROD-2, UX-19).
   if (subjects.isError) {
-    return <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>;
+    return (
+      <div>
+        {header}
+        <ErrorState error={subjects.error} onRetry={() => subjects.refetch()} />
+      </div>
+    );
   }
   if (!subjects.data || subjects.data.length === 0) {
     return (
-      <EmptyState
-        title="No subjects yet."
-        hint="Mistake categories are set per subject — add a syllabus first."
-      />
+      <div>
+        {header}
+        <SectionCard>
+          <EmptyState
+            title="No subjects yet."
+            hint="Mistake categories are set per subject — add a syllabus first."
+          />
+        </SectionCard>
+      </div>
     );
   }
 
+  // The server's own reason for a rejected save, not a generic one. "Refresh
+  // the page to try again" is wrong advice for a rejected save, and it is the
+  // wrong advice precisely when the tutor most needs the real message — a stale
+  // row, or a rule the checks below did not mirror. A stale row arrives as a
+  // 404 whose detail names it, which friendlyError would replace with its
+  // generic "couldn't find that", so that one is passed through as written.
+  const saveError =
+    save.error instanceof ApiError && save.error.status === 404 && save.error.message
+      ? save.error.message
+      : friendlyError(save.error, "Your categories didn't save. Try again.");
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="font-display text-xl font-semibold text-ink-900">Mistake categories</h2>
-        <p className="mt-1 max-w-prose text-sm text-ink-500">
-          The words used to sort what went wrong on a marked answer. These are your organisation's
-          own — nothing forces every tutor of every subject to sort mistakes the same way.
-        </p>
-      </div>
+    <div className="max-w-3xl">
+      {header}
 
-      <select
-        aria-label="Subject"
-        value={selected ?? ""}
-        onChange={(e) => setSubjectId(Number(e.target.value))}
-        className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
-      >
-        {subjects.data.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name} ({s.exam_board} {s.code})
-          </option>
-        ))}
-      </select>
-
-      {/* The editor appears only once the *draft* belongs to the selected
-          subject — not merely once the query's answer does. Switching to a
-          subject already in the cache renders its data synchronously, while
-          `draft` still holds the previous subject's rows until the effect above
-          runs: one render with Save enabled, pointed at the new subject,
-          carrying the old subject's list. Gating on the loaded data's
-          `subject_id` passed in exactly that render, because the data had
-          already arrived and only the draft was behind (cubic). */}
-      {categories.isError ? (
-        // Before the hydration gate, not after: a failed load never hydrates,
-        // so testing it second would leave the skeleton pulsing forever with
-        // nothing saying the request had failed.
-        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
-      ) : categories.isLoading || !categories.data || hydratedFor !== selected ? (
-        <span aria-hidden className="block h-32 w-full animate-pulse rounded bg-surface-muted" />
-      ) : (
-        <>
-          {categories.data.source === "none" ? (
-            // <output> rather than a div with role="status": it carries that
-            // role implicitly and is announced by assistive tech that does not
-            // honour the attribute on a generic element (SonarCloud).
-            <output className="block rounded-lg border border-line bg-warn-100 p-3 text-sm text-warn-700">
-              {sourceNote(categories.data)}
-            </output>
-          ) : (
-            <p className="text-sm text-ink-500">{sourceNote(categories.data)}</p>
-          )}
-
-          <ul className="max-w-2xl space-y-3">
-            {draft.map((category, i) => (
-              <li key={category.key} className="space-y-2 rounded-lg border border-line p-3">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 space-y-2">
-                    <label htmlFor={`category-name-${category.key}`} className="sr-only">
-                      Category {i + 1} name
-                    </label>
-                    <input
-                      id={`category-name-${category.key}`}
-                      aria-invalid={nameError(i) !== null}
-                      aria-describedby={
-                        nameError(i) !== null ? `category-name-error-${category.key}` : undefined
-                      }
-                      value={category.name}
-                      onChange={(e) =>
-                        setDraft(
-                          draft.map((c, j) => (i === j ? { ...c, name: e.target.value } : c)),
-                        )
-                      }
-                      placeholder="Category name"
-                      className="w-full rounded-md border border-line-control px-2 py-1 text-sm"
-                    />
-                    <label htmlFor={`category-description-${category.key}`} className="sr-only">
-                      Description for {category.name || `category ${i + 1}`}
-                    </label>
-                    <textarea
-                      id={`category-description-${category.key}`}
-                      aria-invalid={descriptionError(i) !== null}
-                      aria-describedby={
-                        descriptionError(i) !== null
-                          ? `category-description-error-${category.key}`
-                          : undefined
-                      }
-                      value={category.description}
-                      onChange={(e) =>
-                        setDraft(
-                          draft.map((c, j) =>
-                            i === j ? { ...c, description: e.target.value } : c,
-                          ),
-                        )
-                      }
-                      placeholder="Description (optional) — read by the AI that tags mistakes with this category"
-                      rows={2}
-                      className="w-full rounded-md border border-line-control px-2 py-1 text-sm"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeRow(i)}
-                    className="shrink-0 text-sm text-ink-500 hover:text-risk-600"
-                  >
-                    Remove<span className="sr-only"> {category.name || `category ${i + 1}`}</span>
-                  </button>
-                </div>
-                {nameError(i) && (
-                  <p id={`category-name-error-${category.key}`} className="text-sm text-risk-600">
-                    {nameError(i)}
-                  </p>
-                )}
-                {descriptionError(i) && (
-                  <p
-                    id={`category-description-error-${category.key}`}
-                    className="text-sm text-risk-600"
-                  >
-                    {descriptionError(i)}
-                  </p>
-                )}
-              </li>
+      <div className="space-y-6">
+        <Field label="Subject" className="max-w-sm">
+          <Select value={selected ?? ""} onChange={(e) => setSubjectId(Number(e.target.value))}>
+            {subjects.data.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.exam_board} {s.code})
+              </option>
             ))}
-          </ul>
+          </Select>
+        </Field>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              ref={addButton}
-              onClick={() =>
-                setDraft([...draft, { id: null, name: "", description: "", key: draftKey() }])
-              }
-              disabled={draft.length >= 40}
-              className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
-            >
-              Add a category
-            </button>
-            <button
-              type="button"
-              onClick={() => save.mutate()}
-              disabled={save.isPending || invalid}
-              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-            >
-              {save.isPending ? "Saving…" : "Save categories"}
-            </button>
-          </div>
+        {/* The editor appears only once the *draft* belongs to the selected
+            subject — not merely once the query's answer does. Switching to a
+            subject already in the cache renders its data synchronously, while
+            `draft` still holds the previous subject's rows until the effect above
+            runs: one render with Save enabled, pointed at the new subject,
+            carrying the old subject's list. Gating on the loaded data's
+            `subject_id` passed in exactly that render, because the data had
+            already arrived and only the draft was behind (cubic). */}
+        {categories.isError ? (
+          // Before the hydration gate, not after: a failed load never hydrates,
+          // so testing it second would leave the skeleton pulsing forever with
+          // nothing saying the request had failed.
+          <ErrorState error={categories.error} onRetry={() => categories.refetch()} />
+        ) : categories.isLoading || !categories.data || hydratedFor !== selected ? (
+          <SectionCard>
+            <SectionSkeleton rows={5} label="Loading mistake categories" />
+          </SectionCard>
+        ) : (
+          <SectionCard className="space-y-4">
+            {categories.data.source === "none" ? (
+              // <output> rather than a div with role="status": it carries that
+              // role implicitly and is announced by assistive tech that does not
+              // honour the attribute on a generic element (SonarCloud).
+              <output className="block rounded-lg bg-warn-100 p-3 text-sm text-warn-700">
+                {sourceNote(categories.data)}
+              </output>
+            ) : (
+              <p className="text-sm text-ink-500">{sourceNote(categories.data)}</p>
+            )}
 
-          {draft.length === 0 && (
-            <p className="text-sm text-ink-500">Add at least one category before saving.</p>
-          )}
-          {/* Empty and duplicate names used to be reported here, as page
-              footnotes that never said which row was wrong. They are on the
-              rows now. This one stays: it is about the list, not a field. */}
-          {tooMany && <p className="text-sm text-risk-600">Up to 40 categories.</p>}
-          {save.isError && (
-            <p className="text-sm text-risk-600" role="alert">
-              {/* The server's own reason, not a generic one. "Refresh the page
-                  to try again" is wrong advice for a rejected save, and it is
-                  the wrong advice precisely when the tutor most needs the real
-                  message — a stale row, or a rule the checks below did not
-                  mirror. */}
-              {save.error instanceof ApiError ? save.error.message : ABSENT.loadFailed}
-            </p>
-          )}
-        </>
-      )}
+            <ul className="space-y-3">
+              {draft.map((category, i) => (
+                <li
+                  key={category.key}
+                  className="space-y-2 rounded-lg border border-line bg-canvas p-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 space-y-2">
+                      <label htmlFor={`category-name-${category.key}`} className="sr-only">
+                        Category {i + 1} name
+                      </label>
+                      <Input
+                        id={`category-name-${category.key}`}
+                        aria-invalid={nameError(i) !== null}
+                        aria-describedby={
+                          nameError(i) !== null ? `category-name-error-${category.key}` : undefined
+                        }
+                        value={category.name}
+                        onChange={(e) =>
+                          setDraft(
+                            draft.map((c, j) => (i === j ? { ...c, name: e.target.value } : c)),
+                          )
+                        }
+                        placeholder="Category name"
+                        className="font-medium"
+                      />
+                      <label htmlFor={`category-description-${category.key}`} className="sr-only">
+                        Description for {category.name || `category ${i + 1}`}
+                      </label>
+                      <Textarea
+                        id={`category-description-${category.key}`}
+                        aria-invalid={descriptionError(i) !== null}
+                        aria-describedby={
+                          descriptionError(i) !== null
+                            ? `category-description-error-${category.key}`
+                            : undefined
+                        }
+                        value={category.description}
+                        onChange={(e) =>
+                          setDraft(
+                            draft.map((c, j) =>
+                              i === j ? { ...c, description: e.target.value } : c,
+                            ),
+                          )
+                        }
+                        placeholder="Description (optional) — the AI reads this when it tags a mistake with this category"
+                        rows={2}
+                      />
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => removeRow(i)}>
+                      Remove<span className="sr-only"> {category.name || `category ${i + 1}`}</span>
+                    </Button>
+                  </div>
+                  {nameError(i) && (
+                    <p id={`category-name-error-${category.key}`} className="text-sm text-risk-600">
+                      {nameError(i)}
+                    </p>
+                  )}
+                  {descriptionError(i) && (
+                    <p
+                      id={`category-description-error-${category.key}`}
+                      className="text-sm text-risk-600"
+                    >
+                      {descriptionError(i)}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+
+            {draft.length === 0 && (
+              <p className="text-sm text-ink-500">Add at least one category before saving.</p>
+            )}
+            {/* Empty and duplicate names used to be reported here, as page
+                footnotes that never said which row was wrong. They are on the
+                rows now. This one stays: it is about the list, not a field. */}
+            {tooMany && <p className="text-sm text-risk-600">You can have up to 40 categories.</p>}
+
+            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              {/* A plain <button> with the shared classes rather than <Button>:
+                  removing a row focuses this one, and <Button> takes no ref. */}
+              <button
+                type="button"
+                ref={addButton}
+                onClick={() =>
+                  setDraft([...draft, { id: null, name: "", description: "", key: draftKey() }])
+                }
+                disabled={draft.length >= 40}
+                className={buttonClasses("ghost", "md")}
+              >
+                <Plus aria-hidden className="h-4 w-4" />
+                Add a category
+              </button>
+              <span className="flex-1" />
+              <Button onClick={() => save.mutate()} disabled={invalid} loading={save.isPending}>
+                Save categories
+              </Button>
+            </div>
+
+            {save.isError && (
+              <p className="text-sm text-risk-600" role="alert">
+                {saveError}
+              </p>
+            )}
+          </SectionCard>
+        )}
+      </div>
       {toast}
     </div>
   );

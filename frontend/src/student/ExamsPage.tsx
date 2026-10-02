@@ -1,58 +1,87 @@
 import { useQuery } from "@tanstack/react-query";
 import { myAssessmentScores } from "../api/readiness";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { EmptyState, SectionCard } from "../components/ui";
+import { formatDayMonth } from "../lib/timezones";
 
-function scoreColor(pct: number): string {
-  if (pct >= 70) return "text-green-700";
-  if (pct >= 50) return "text-amber-700";
-  return "text-red-600";
-}
+/* Scores are shown in one neutral colour. They used to be coloured green /
+   amber / red against a literal 70% and 50%, which UX-28 forbids: a band is a
+   grade's position in the subject's own boundaries, and a single assessment
+   score has no grade to place. The number and its percentage carry the meaning. */
 
 export default function ExamsPage() {
   const scores = useQuery({ queryKey: ["my-assessments"], queryFn: myAssessmentScores });
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-800">Exams</h2>
-        <p className="text-sm text-slate-500">
-          Your mock and test scores, as entered by your tutor.
-        </p>
-      </div>
+    <div className="max-w-4xl space-y-6">
+      <PageHeader
+        title="Exams"
+        description="Your mock and test scores, as entered by your tutor."
+      />
 
-      <div className="overflow-hidden rounded-lg border bg-white">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500">
-            <tr>
-              <th className="px-4 py-2 font-medium">Assessment</th>
-              <th className="px-4 py-2 font-medium">Subject</th>
-              <th className="px-4 py-2 font-medium">Topic</th>
-              <th className="px-4 py-2 font-medium">Date</th>
-              <th className="px-4 py-2 text-right font-medium">Score</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {scores.data?.map((s, i) => (
-              <tr key={i}>
-                <td className="px-4 py-2 text-slate-700">{s.title}</td>
-                <td className="px-4 py-2 text-slate-500">{s.subject_name}</td>
-                <td className="px-4 py-2 text-slate-500">{s.topic_title ?? "Overall"}</td>
-                <td className="px-4 py-2 text-slate-500">
-                  {new Date(s.date).toLocaleDateString(undefined, {
-                    day: "numeric",
-                    month: "short",
-                  })}
-                </td>
-                <td className={`px-4 py-2 text-right font-medium ${scoreColor(s.pct)}`}>
-                  {s.marks}/{s.max_marks} ({s.pct}%)
-                </td>
+      {scores.isPending ? (
+        <SectionCard>
+          <SectionSkeleton rows={3} label="Loading your exam scores" />
+        </SectionCard>
+      ) : scores.isError ? (
+        <ErrorState
+          title="Couldn't load your exam scores."
+          error={scores.error}
+          onRetry={() => void scores.refetch()}
+        />
+      ) : scores.data.length === 0 ? (
+        <SectionCard>
+          <EmptyState
+            title="No exam scores recorded yet."
+            hint="When your tutor enters a mock or test score, it will appear here."
+          />
+        </SectionCard>
+      ) : (
+        <SectionCard className="overflow-x-auto p-0">
+          <table className="w-full text-sm">
+            <caption className="sr-only">Your exam scores</caption>
+            <thead className="border-b border-line text-left text-xs text-ink-500">
+              <tr>
+                <th scope="col" className="px-4 py-2.5 font-medium">
+                  Assessment
+                </th>
+                <th scope="col" className="px-4 py-2.5 font-medium">
+                  Subject
+                </th>
+                <th scope="col" className="px-4 py-2.5 font-medium">
+                  Topic
+                </th>
+                <th scope="col" className="px-4 py-2.5 font-medium">
+                  Date
+                </th>
+                <th scope="col" className="px-4 py-2.5 text-right font-medium">
+                  Score
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {scores.data?.length === 0 && (
-          <p className="p-4 text-sm text-slate-500">No exam scores recorded yet.</p>
-        )}
-      </div>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {scores.data.map((s, i) => (
+                <tr key={i}>
+                  <th scope="row" className="px-4 py-2.5 text-left font-medium text-ink-900">
+                    {s.title}
+                  </th>
+                  <td className="px-4 py-2.5 text-ink-700">{s.subject_name}</td>
+                  <td className="px-4 py-2.5 text-ink-700">{s.topic_title ?? "Whole paper"}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-ink-500">
+                    {/* A calendar date, not an instant: read in UTC so a zone
+                        west of Greenwich does not show it as the day before. */}
+                    {formatDayMonth(new Date(`${s.date}T00:00:00Z`), "UTC")}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink-900">
+                    {s.marks}/{s.max_marks} marks
+                    <span className="ml-2 text-ink-500">{s.pct}%</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </SectionCard>
+      )}
     </div>
   );
 }

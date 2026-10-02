@@ -4,9 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { classOverview, type ClassLearnerRow } from "../api/today";
 import { createInvite, generateClassBrief } from "../api/groups";
 import { groupNarrative } from "../api/narrative";
-import { DirectionMark, StatusBadge } from "../components/ui";
+import { DirectionMark, SectionCard, StatusBadge } from "../components/ui";
+import { Button } from "../components/controls";
+import { SectionSkeleton } from "../components/page";
 import { ABSENT } from "../lib/labels";
-import { coverageLabel } from "../lib/verdict";
+import { friendlyError } from "../lib/errors";
 
 /**
  * The class page's headline: verdict → WHY → NEEDS YOU, then the roster.
@@ -20,31 +22,38 @@ import { coverageLabel } from "../lib/verdict";
 
 function LearnerRow({ row }: { row: ClassLearnerRow }) {
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2.5">
-      <Link
-        to={`/tutor/students/${row.student_id}`}
-        className="font-medium text-ink-900 hover:text-brand-600"
-      >
-        {row.student_name}
-      </Link>
-      {row.predicted_grade && (
-        <span className="font-display text-[15px] tabular-nums text-ink-900">
-          {row.predicted_grade}
-        </span>
-      )}
-      <DirectionMark direction={row.direction} />
-      {row.status ? (
-        <StatusBadge status={row.status} />
-      ) : (
-        <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
-      )}
-      {/* A fact, not part of the score (AV-32) — same rule and loose `!= null`
-          as ReadinessView's profile line (deploy skew leaves these undefined). */}
-      {row.homework_assignment_count != null && row.homework_submitted_count != null && (
-        <span className="text-sm text-ink-500">
-          {row.homework_submitted_count} of {row.homework_assignment_count} handed in
-        </span>
-      )}
+    <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line py-2.5">
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        <Link
+          to={`/tutor/students/${row.student_id}`}
+          className="font-medium text-ink-900 hover:text-brand-600"
+        >
+          {row.student_name}
+        </Link>
+        {/* A fact, not part of the score (AV-32) — same rule and loose `!= null`
+            as ReadinessView's profile line (deploy skew leaves these undefined). */}
+        {row.homework_assignment_count != null && row.homework_submitted_count != null && (
+          <span className="text-sm text-ink-500">
+            {row.homework_submitted_count} of {row.homework_assignment_count} handed in
+          </span>
+        )}
+      </span>
+      <span className="flex items-center gap-2.5">
+        {/* The learner's predicted grade, said as one — a bare "6" beside a name
+            reads as anything from a rank to a score out of ten. */}
+        {row.predicted_grade && (
+          <span className="text-sm tabular-nums text-ink-700">
+            Grade{" "}
+            <span className="font-display text-[15px] text-ink-900">{row.predicted_grade}</span>
+          </span>
+        )}
+        <DirectionMark direction={row.direction} />
+        {row.status ? (
+          <StatusBadge status={row.status} />
+        ) : (
+          <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
+        )}
+      </span>
     </li>
   );
 }
@@ -66,36 +75,41 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
  * gives a new tutor a reason to open Avora tomorrow, in the exact window when
  * the product can otherwise show them nothing.
  */
-function EmptyRoom({ groupId, name }: { groupId: number; name: string }) {
+function EmptyRoom({ groupId }: { groupId: number }) {
   const [link, setLink] = useState<string | null>(null);
   const invite = useMutation({
     mutationFn: () => createInvite(groupId),
     onSuccess: (created) => setLink(`${window.location.origin}/join/${created.code}`),
   });
 
+  // The class's name is the page title directly above, so the room opens on
+  // the one fact that matters here rather than repeating it.
   return (
-    <section className="space-y-3 rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-display text-lg font-semibold text-ink-900">{name}</h3>
-      <p className="text-sm text-ink-700">No one has joined yet.</p>
-      <p className="text-sm text-ink-500">
+    <SectionCard className="space-y-3">
+      <h2 className="text-lg text-ink-900">No one has joined yet.</h2>
+      <p className="max-w-prose text-sm text-ink-500">
         Readiness appears once you've marked their first work — there is nothing to set up in the
         meantime.
       </p>
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="sm"
+        loading={invite.isPending}
         onClick={() => invite.mutate()}
-        disabled={invite.isPending}
-        className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-60"
       >
-        {invite.isPending ? "Preparing…" : "Share again →"}
-      </button>
+        Share again
+      </Button>
       {link && (
         <p className="break-all rounded-md bg-surface-muted px-3 py-2 font-mono text-xs text-ink-700">
           {link}
         </p>
       )}
-      {invite.isError && <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>}
-    </section>
+      {invite.isError && (
+        <p role="alert" className="text-sm text-risk-600">
+          {friendlyError(invite.error, "Couldn't make a new invite link. Try again.")}
+        </p>
+      )}
+    </SectionCard>
   );
 }
 
@@ -160,7 +174,9 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
 
   if (overview.isLoading) {
     return (
-      <span aria-hidden className="block h-20 w-full animate-pulse rounded bg-surface-muted" />
+      <SectionCard>
+        <SectionSkeleton rows={3} label="Loading the class overview" />
+      </SectionCard>
     );
   }
   // A failed load is stated, not rendered as nothing: an empty region here reads
@@ -168,25 +184,34 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   // Same treatment ClassNarrative and TodayDashboard give the same condition.
   if (overview.isError || !overview.data) {
     return (
-      <section className="rounded-lg border border-line bg-surface p-4">
-        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
-      </section>
+      <SectionCard className="flex flex-wrap items-center justify-between gap-3">
+        <p role="alert" className="text-sm text-ink-500">
+          {ABSENT.loadFailedRetry}
+        </p>
+        <Button variant="secondary" size="sm" onClick={() => overview.refetch()}>
+          Try again
+        </Button>
+      </SectionCard>
     );
   }
 
   const c = overview.data;
-  const coverage = coverageLabel(c);
+  const hasSummary = Boolean(narrative.data?.text);
+  const preparing = prepare.isPending || awaitedSince !== null;
 
   // A class nobody has joined gets the empty room rather than a dashboard.
-  if (c.member_count === 0) return <EmptyRoom groupId={groupId} name={c.name} />;
+  if (c.member_count === 0) return <EmptyRoom groupId={groupId} />;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
+    <SectionCard className="space-y-6">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {c.status ? (
           <>
-            <span className="font-display text-2xl font-semibold text-ink-900">
-              {c.predicted_grade}
+            <span className="flex items-baseline gap-2">
+              <span className="text-sm text-ink-500">Predicted grade</span>
+              <span className="font-display text-2xl font-semibold text-ink-900">
+                {c.predicted_grade}
+              </span>
             </span>
             <StatusBadge status={c.status} />
           </>
@@ -203,30 +228,38 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
         ) : (
           <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
         )}
-        {coverage && (
-          <span className="text-xs tabular-nums text-ink-500">
-            {coverage} learners with a readiness score
-          </span>
-        )}
+        {/* Coverage, so a status drawn from part of the class never reads as
+            one drawn from all of it. member_count is non-zero here: the empty
+            room returned above. */}
+        <span className="text-sm text-ink-500">
+          Readiness scores for {c.students_with_evidence} of {c.member_count}{" "}
+          {c.member_count === 1 ? "learner" : "learners"}
+        </span>
       </div>
 
       {c.weak_topics.length > 0 && (
         <section>
-          <h3 className="avora-label mb-2">Why</h3>
+          <h2 className="avora-label">Why</h2>
+          <p className="mb-2 mt-1 text-sm text-ink-500">
+            The topics pulling the class down, by class average.
+          </p>
           <ul className="text-sm">
             {c.weak_topics.map((t) => (
               <li
                 key={t.topic_code}
-                className="flex items-center justify-between border-t border-line py-2"
+                className="flex items-center justify-between gap-4 border-t border-line py-2"
               >
-                <span className="text-ink-700">
-                  {t.topic_code} {t.topic_title}
+                <span className="min-w-0 text-ink-700">
+                  {t.topic_title}
+                  <span className="ml-2 text-xs text-ink-500">{t.topic_code}</span>
                   {t.includes_tutor_estimate && (
-                    <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                    <span className="ml-2 text-xs text-ink-500">includes tutor estimate</span>
                   )}
                 </span>
-                <span className="tabular-nums text-ink-500">
-                  {Math.round(t.avg_score)}% · {t.student_count}
+                <span className="shrink-0 tabular-nums text-ink-500">
+                  <span className="font-medium text-ink-900">{Math.round(t.avg_score)}%</span>
+                  {" · "}
+                  {t.student_count} {t.student_count === 1 ? "learner" : "learners"}
                 </span>
               </li>
             ))}
@@ -236,7 +269,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
 
       {c.needs_you.length > 0 && (
         <section>
-          <h3 className="avora-label mb-2">Needs you</h3>
+          <h2 className="avora-label mb-2">Needs you</h2>
           <p className="mb-1 text-sm text-ink-500">
             {c.needs_you.length === 1
               ? "One learner has declined recently."
@@ -252,7 +285,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
 
       {c.learners.length > 0 && (
         <section>
-          <h3 className="avora-label mb-2">Learners</h3>
+          <h2 className="avora-label mb-2">Learners</h2>
           <ul>
             {c.learners.map((row) => (
               <LearnerRow key={row.student_id} row={row} />
@@ -274,7 +307,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
           one as parent-facing told the tutor they had checked something they
           had not. */}
       <section className="border-t border-line pt-4">
-        <h3 className="avora-label mb-2">Class summary</h3>
+        <h2 className="avora-label mb-2">Class summary</h2>
         {narrative.data?.text ? (
           <p className="max-w-prose text-sm leading-relaxed text-ink-700">
             {narrative.data.text}
@@ -286,21 +319,28 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
           </p>
         ) : narrative.isError ? (
           <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
+        ) : preparing ? (
+          <p className="text-sm text-ink-500" aria-live="polite">
+            Writing the summary — it appears here in a moment.
+          </p>
         ) : (
-          <p className="text-sm text-ink-500">
-            Nothing written yet — a summary appears once work is marked.
+          <p className="max-w-prose text-sm text-ink-500">
+            No summary yet. One is written once work is marked, or you can prepare one now.
           </p>
         )}
-        <button
-          type="button"
+        {/* The label follows the state: "again" only makes sense once there is
+            something on screen to redo. */}
+        <Button
+          variant="secondary"
+          size="sm"
+          className="mt-3"
+          loading={prepare.isPending}
           onClick={() => prepare.mutate()}
-          disabled={prepare.isPending}
-          className="mt-2 text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-60"
         >
-          {prepare.isPending ? "Preparing…" : "Prepare again"}
-        </button>
-        {prepare.isError && <p className="mt-1 text-sm text-ink-500">{ABSENT.aiUnavailable}</p>}
+          {hasSummary ? "Prepare again" : "Prepare summary"}
+        </Button>
+        {prepare.isError && <p className="mt-2 text-sm text-ink-500">{ABSENT.aiUnavailable}</p>}
       </section>
-    </div>
+    </SectionCard>
   );
 }

@@ -188,7 +188,7 @@ export default function AppShell({
               <InitialsAvatar name={user?.name ?? "?"} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink-900">{user?.name}</p>
-                <p className="truncate text-xs text-ink-500">{title} · Account</p>
+                <p className="truncate text-xs text-ink-500">{title}</p>
               </div>
             </NavLink>
             <ActivityMenu />

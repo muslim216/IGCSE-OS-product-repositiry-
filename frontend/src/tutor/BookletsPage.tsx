@@ -14,29 +14,43 @@ import {
   type DraftPaper,
 } from "../api/booklets";
 import { listSubjects } from "../api/groups";
+import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import { AuthFileLink } from "../components/AuthFile";
-import { ApiError } from "../api/client";
+import { Button, Field, FileInput, inputClasses, Select } from "../components/controls";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
+import { friendlyError } from "../lib/errors";
 
 /** Whatever the job is doing right now, said once, in the tutor's terms.
  *
  * `paper_count` is deliberately not rendered until there are papers: a booklet
  * mid-read has none yet, and "0 papers" would be a measurement we have not
  * taken presented as one we have (`PROD-2`, `UX-19`).
+ *
+ * A failure's own text is the job's raw exception, so it is not the status
+ * line: the line says what happened, and the reason sits behind "What went
+ * wrong" beside the retry.
  */
 function statusLine(b: Booklet): string {
   switch (b.status) {
     case "extracting":
       return "Reading the list of papers out of this booklet…";
     case "extraction_failed":
-      return b.error ? `Couldn't read this booklet: ${b.error}` : "Couldn't read this booklet.";
+      return "Couldn't read this booklet. Try again, or upload a clearer PDF.";
     case "review":
       return "Ready for you to check.";
     case "applying":
       return "Cutting the papers out now…";
     case "applied":
-      return b.paper_count > 0 ? `Done — ${b.paper_count} papers.` : "Done.";
-    default:
-      return b.status;
+      return b.paper_count > 0
+        ? `Done — cut into ${b.paper_count} ${b.paper_count === 1 ? "paper" : "papers"}.`
+        : "Done.";
+    default: {
+      // A status added to the API before this screen knows it: readable, never
+      // the raw enum.
+      const words = b.status.replace(/_/g, " ");
+      return words.charAt(0).toUpperCase() + words.slice(1);
+    }
   }
 }
 
@@ -48,7 +62,7 @@ const BLANK: DraftPaper = {
   last_page: 1,
 };
 
-const cell = "w-full rounded border border-line bg-surface px-2 py-1 text-sm text-ink-900";
+const cell = `${inputClasses} min-w-[6rem]`;
 
 /**
  * The tutor's correction of the AI's list, then their approval of it.
@@ -78,7 +92,7 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
     queryClient.invalidateQueries({ queryKey: ["booklets"] });
     queryClient.invalidateQueries({ queryKey: ["booklet", booklet.id] });
   };
-  const onError = (err: unknown) => setError(err instanceof ApiError ? err.message : String(err));
+  const onError = (err: unknown) => setError(friendlyError(err, "That didn't save. Try again."));
 
   const save = useMutation({
     mutationFn: () =>
@@ -116,18 +130,17 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
   const mismatch = booklet.draft?.scheme_mismatch;
 
   return (
-    <div className="space-y-3 rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">Check the papers in {booklet.display_title}</h3>
-      <p className="text-sm text-ink-500">
-        This is what the AI read off the booklet. Change anything that is wrong, add a paper it
-        missed, drop one it invented — your list is the one that gets cut.
-      </p>
+    <div className="space-y-4 rounded-xl border border-line bg-canvas p-4">
+      <div>
+        <h3 className="font-medium text-ink-900">Check the papers in {booklet.display_title}</h3>
+        <p className="mt-1 text-sm text-ink-500">
+          This is what the AI read off the booklet. Change anything that is wrong, add a paper it
+          missed, drop one it invented — your list is the one that gets cut.
+        </p>
+      </div>
 
       {mismatch && (
-        <div
-          role="alert"
-          className="rounded-md border border-risk-600 bg-risk-100 p-3 text-sm text-ink-900"
-        >
+        <div role="alert" className="rounded-lg bg-risk-100 p-3 text-sm text-ink-900">
           <strong className="block font-semibold">
             The mark scheme doesn&apos;t agree with the question paper
           </strong>
@@ -147,19 +160,21 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wider text-ink-500">
-                <th className="py-1 pr-2">Title</th>
-                <th className="py-1 pr-2">Session</th>
-                <th className="py-1 pr-2">Paper</th>
-                <th className="py-1 pr-2">First page</th>
-                <th className="py-1 pr-2">Last page</th>
-                <th className="py-1" />
+              <tr className="text-left text-xs font-medium text-ink-500">
+                <th className="pb-2 pr-2 font-medium">Title</th>
+                <th className="pb-2 pr-2 font-medium">Session</th>
+                <th className="pb-2 pr-2 font-medium">Paper number</th>
+                <th className="pb-2 pr-2 font-medium">First page</th>
+                <th className="pb-2 pr-2 font-medium">Last page</th>
+                <th className="pb-2">
+                  <span className="sr-only">Order and remove</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {rows.map(({ key, paper: p }, i) => (
-                <tr key={key} className="border-t border-line align-top">
-                  <td className="py-1 pr-2">
+                <tr key={key} className="border-t border-line align-middle">
+                  <td className="py-2 pr-2">
                     <input
                       aria-label={`Title, paper ${i + 1}`}
                       value={p.title}
@@ -167,7 +182,7 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
                       className={cell}
                     />
                   </td>
-                  <td className="py-1 pr-2">
+                  <td className="py-2 pr-2">
                     <input
                       aria-label={`Session, paper ${i + 1}`}
                       value={p.session_label}
@@ -175,7 +190,7 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
                       className={cell}
                     />
                   </td>
-                  <td className="py-1 pr-2">
+                  <td className="py-2 pr-2">
                     <input
                       aria-label={`Paper number, paper ${i + 1}`}
                       value={p.paper_number}
@@ -183,51 +198,53 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
                       className={cell}
                     />
                   </td>
-                  <td className="py-1 pr-2">
+                  <td className="py-2 pr-2">
                     <input
                       type="number"
                       aria-label={`First page, paper ${i + 1}`}
                       value={p.first_page}
                       onChange={(e) => edit(i, { first_page: Number(e.target.value) })}
-                      className={cell}
+                      className={`${cell} tabular-nums`}
                     />
                   </td>
-                  <td className="py-1 pr-2">
+                  <td className="py-2 pr-2">
                     <input
                       type="number"
                       aria-label={`Last page, paper ${i + 1}`}
                       value={p.last_page}
                       onChange={(e) => edit(i, { last_page: Number(e.target.value) })}
-                      className={cell}
+                      className={`${cell} tabular-nums`}
                     />
                   </td>
-                  <td className="whitespace-nowrap py-1 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => move(i, -1)}
-                      disabled={i === 0}
-                      aria-label={`Move paper ${i + 1} up`}
-                      className="px-1 text-brand-600 hover:underline disabled:opacity-40"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => move(i, 1)}
-                      disabled={i === papers.length - 1}
-                      aria-label={`Move paper ${i + 1} down`}
-                      className="px-1 text-brand-600 hover:underline disabled:opacity-40"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRows((current) => current.filter((_, n) => n !== i))}
-                      aria-label={`Remove paper ${i + 1}`}
-                      className="px-1 text-risk-600 hover:underline"
-                    >
-                      Remove
-                    </button>
+                  <td className="whitespace-nowrap py-2">
+                    <span className="flex items-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => move(i, -1)}
+                        disabled={i === 0}
+                        aria-label={`Move paper ${i + 1} up`}
+                      >
+                        <ArrowUp aria-hidden className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => move(i, 1)}
+                        disabled={i === papers.length - 1}
+                        aria-label={`Move paper ${i + 1} down`}
+                      >
+                        <ArrowDown aria-hidden className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setRows((current) => current.filter((_, n) => n !== i))}
+                        aria-label={`Remove paper ${i + 1}`}
+                      >
+                        Remove
+                      </Button>
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -236,38 +253,41 @@ function DraftEditor({ booklet }: Readonly<{ booklet: BookletDetail }>) {
         </div>
       )}
 
-      {error && <p className="text-sm text-risk-600">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-risk-600">
+          {error}
+        </p>
+      )}
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="ghost"
           onClick={() => setRows((current) => [...current, asRow({ ...BLANK })])}
-          className="rounded-md border border-line-strong px-3 py-2 text-sm text-ink-700"
         >
+          <Plus aria-hidden className="h-4 w-4" />
           Add a paper
-        </button>
-        <button
-          type="button"
+        </Button>
+        <span className="flex-1" />
+        <Button
+          variant="secondary"
           onClick={() => {
             setError(null);
             save.mutate();
           }}
-          disabled={save.isPending}
-          className="rounded-md border border-line-strong px-3 py-2 text-sm text-ink-700 disabled:opacity-50"
+          loading={save.isPending}
         >
-          {save.isPending ? "Saving…" : "Save changes"}
-        </button>
-        <button
-          type="button"
+          Save changes
+        </Button>
+        <Button
           onClick={() => {
             setError(null);
             approve.mutate();
           }}
-          disabled={approve.isPending || save.isPending || papers.length === 0}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-surface hover:bg-brand-700 disabled:opacity-50"
+          loading={approve.isPending}
+          disabled={save.isPending || papers.length === 0}
         >
-          {approve.isPending ? "Approving…" : "Approve and cut the papers"}
-        </button>
+          Approve and cut the papers
+        </Button>
       </div>
       <p className="text-xs text-ink-500">
         Save first if you have changed anything — approving cuts the list the server is holding.
@@ -301,6 +321,9 @@ export default function BookletsPage() {
   const [subjectId, setSubjectId] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [markScheme, setMarkScheme] = useState<File | null>(null);
+  // Bumped after an upload so both pickers remount: clearing the files alone
+  // would leave them still naming what was just sent.
+  const [pickerKey, setPickerKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const upload = useMutation({
@@ -309,15 +332,16 @@ export default function BookletsPage() {
     onSuccess: () => {
       setFile(null);
       setMarkScheme(null);
+      setPickerKey((k) => k + 1);
       queryClient.invalidateQueries({ queryKey: ["booklets"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err, "That booklet didn't upload. Try again.")),
   });
 
+  // Its failure is shown on the booklet it was for, not in the upload form.
   const retry = useMutation({
     mutationFn: retryBookletExtraction,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["booklets"] }),
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
   });
 
   const ready = subjectId && file;
@@ -333,122 +357,159 @@ export default function BookletsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="font-display text-xl font-semibold text-ink-900">Booklets</h2>
-        <p className="text-sm text-ink-500">
-          One PDF holding several whole past papers. The AI reads out what is inside, you check the
-          list, and each paper is cut into its own past paper for students to sit.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Booklets"
+        description="One PDF holding several whole past papers. The AI reads out what is inside, you check the list, and each paper is cut into its own past paper for students to sit."
+        back={{ to: "/tutor/library", label: "Library" }}
+      />
 
-      <form onSubmit={onSubmit} className="space-y-3 rounded-lg border border-line bg-surface p-4">
-        <h3 className="font-medium text-ink-900">Add a booklet</h3>
-        <p className="text-xs text-ink-500">
-          A booklet must be a PDF — the papers are cut out of it by page. A single paper, or a photo
-          of one, goes on the Past papers page instead.
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <select
-            value={subjectId}
-            onChange={(e) => setSubjectId(e.target.value)}
-            className="rounded border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink-900"
-          >
-            <option value="">Subject…</option>
-            {subjects.data?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.exam_board})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm text-ink-700">
-            <span>Booklet (PDF)</span>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="mt-1 block w-full text-sm"
+      <div className="space-y-6">
+        <SectionCard>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <SectionHeader
+              title="Add a booklet"
+              description="A booklet must be a PDF — the papers are cut out of it by page. A single paper, or a photo of one, goes on the Past papers page instead."
             />
-          </label>
-          <label className="text-sm text-ink-700">
-            Mark schemes <span className="text-ink-500">(optional)</span>
-            <input
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => setMarkScheme(e.target.files?.[0] ?? null)}
-              className="mt-1 block w-full text-sm"
-            />
-          </label>
-        </div>
-        <p className="text-xs text-ink-500">
-          {markScheme
-            ? "The schemes are read too, and checked against the paper list — you're told if the two disagree."
-            : "Without the mark schemes, no mark is finalized for you — every one comes to you to check before it counts, and nothing double-checks where one paper ends and the next begins."}{" "}
-          Students can open the booklet but never the mark schemes.
-        </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Subject">
+                <Select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                  <option value="">Choose a subject</option>
+                  {subjects.data?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.exam_board})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
 
-        {error && <p className="text-sm text-risk-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={!ready || upload.isPending}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-surface hover:bg-brand-700 disabled:opacity-50"
-        >
-          {upload.isPending ? "Uploading…" : "Add booklet"}
-        </button>
-      </form>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Booklet">
+                <FileInput
+                  key={`booklet-${pickerKey}`}
+                  accept="application/pdf"
+                  prompt="Choose the booklet"
+                  hint="PDF only"
+                  onFiles={(files) => setFile(files[0] ?? null)}
+                />
+              </Field>
+              <Field label="Mark schemes" optional>
+                <FileInput
+                  key={`schemes-${pickerKey}`}
+                  accept="application/pdf"
+                  prompt="Choose the mark schemes"
+                  hint="PDF only"
+                  onFiles={(files) => setMarkScheme(files[0] ?? null)}
+                />
+              </Field>
+            </div>
+            <p className="text-sm text-ink-500">
+              {markScheme
+                ? "The schemes are read too, and checked against the paper list — you're told if the two disagree."
+                : "Without the mark schemes, no mark is finalized for you — every one comes to you to check before it counts, and nothing double-checks where one paper ends and the next begins."}{" "}
+              Students can open the booklet but never the mark schemes.
+            </p>
 
-      <div className="rounded-lg border border-line bg-surface p-4">
-        <h3 className="font-medium text-ink-900">Your booklets</h3>
-        <ul className="mt-2 divide-y divide-line text-sm">
-          {rows.map((b) => (
-            <li key={b.id} className="py-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="font-medium text-ink-900">{b.display_title}</div>
-                  <div className="text-ink-500" aria-live="polite">
-                    {statusLine(b)}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs">
-                  {b.status === "review" && (
-                    <button
-                      type="button"
-                      onClick={() => setOpenId(openId === b.id ? null : b.id)}
-                      className="text-brand-600 hover:underline"
-                    >
-                      {openId === b.id ? "Close" : "Check the papers"}
-                    </button>
-                  )}
-                  {b.status === "extraction_failed" && (
-                    <button
-                      type="button"
-                      onClick={() => retry.mutate(b.id)}
-                      disabled={retry.isPending}
-                      className="text-brand-600 hover:underline disabled:opacity-50"
-                    >
-                      Retry
-                    </button>
-                  )}
-                  <AuthFileLink path={bookletFilePath(b.id)} label="Booklet" />
-                  {b.mark_scheme_name ? (
-                    <AuthFileLink path={bookletMarkSchemePath(b.id)} label="Mark schemes" />
-                  ) : (
-                    <span className="text-ink-500">No mark schemes</span>
-                  )}
-                </div>
-              </div>
-              {openId === b.id && detail.data?.id === b.id && (
-                <div className="mt-3">
-                  <DraftEditor key={b.id} booklet={detail.data} />
-                </div>
-              )}
-            </li>
-          ))}
-          {booklets.data?.length === 0 && <li className="py-2 text-ink-500">No booklets yet.</li>}
-        </ul>
+            {error && (
+              <p role="alert" className="text-sm text-risk-600">
+                {error}
+              </p>
+            )}
+            <Button type="submit" disabled={!ready} loading={upload.isPending}>
+              Add booklet
+            </Button>
+          </form>
+        </SectionCard>
+
+        <SectionCard>
+          <SectionHeader title="Your booklets" />
+          <div className="mt-3">
+            {booklets.isLoading ? (
+              <SectionSkeleton rows={3} label="Loading your booklets" />
+            ) : booklets.isError ? (
+              <ErrorState error={booklets.error} onRetry={() => booklets.refetch()} />
+            ) : rows.length === 0 ? (
+              <EmptyState
+                title="No booklets yet."
+                hint="Add one above and the AI starts reading it straight away."
+              />
+            ) : (
+              <ul className="divide-y divide-line text-sm">
+                {rows.map((b) => (
+                  <li key={b.id} className="py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-ink-900">{b.display_title}</p>
+                        <p
+                          className={
+                            b.status === "extraction_failed" ? "text-risk-600" : "text-ink-500"
+                          }
+                          aria-live="polite"
+                        >
+                          {statusLine(b)}
+                        </p>
+                        {b.status === "extraction_failed" && b.error && (
+                          <details className="mt-1 text-xs text-ink-500">
+                            <summary className="cursor-pointer">What went wrong</summary>
+                            <p className="mt-1">{b.error}</p>
+                          </details>
+                        )}
+                        {retry.isError && retry.variables === b.id && (
+                          <p role="alert" className="mt-1 text-risk-600">
+                            {friendlyError(retry.error, "That didn't start. Try again.")}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-sm">
+                        {b.status === "review" && (
+                          <Button
+                            variant={openId === b.id ? "ghost" : "secondary"}
+                            size="sm"
+                            aria-expanded={openId === b.id}
+                            onClick={() => setOpenId(openId === b.id ? null : b.id)}
+                          >
+                            {openId === b.id ? "Close" : "Check the papers"}
+                          </Button>
+                        )}
+                        {b.status === "extraction_failed" && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => retry.mutate(b.id)}
+                            loading={retry.isPending && retry.variables === b.id}
+                            disabled={retry.isPending}
+                          >
+                            Try again
+                          </Button>
+                        )}
+                        <AuthFileLink path={bookletFilePath(b.id)} label="Booklet" />
+                        {b.mark_scheme_name ? (
+                          <AuthFileLink path={bookletMarkSchemePath(b.id)} label="Mark schemes" />
+                        ) : (
+                          <span className="text-ink-500">No mark schemes</span>
+                        )}
+                      </div>
+                    </div>
+                    {openId === b.id && (
+                      <div className="mt-3">
+                        {detail.isLoading ? (
+                          <SectionSkeleton rows={4} label="Loading the papers" />
+                        ) : detail.isError ? (
+                          <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+                        ) : (
+                          detail.data?.id === b.id && (
+                            <DraftEditor key={b.id} booklet={detail.data} />
+                          )
+                        )}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </SectionCard>
       </div>
     </div>
   );

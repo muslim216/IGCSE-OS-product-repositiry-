@@ -5,7 +5,9 @@ import { listGroups } from "../api/groups";
 import { classOverview } from "../api/today";
 import type { LearnerRow } from "../lib/readiness";
 import ReadinessTable, { type ReadinessFilter } from "../components/ReadinessTable";
-import { EmptyState } from "../components/ui";
+import { EmptyState, SectionCard } from "../components/ui";
+import { Field, Select, buttonClasses } from "../components/controls";
+import { ErrorState, PageHeader } from "../components/page";
 import { ABSENT } from "../lib/labels";
 
 /**
@@ -57,51 +59,59 @@ export default function ClassReadinessPage() {
   }, [overview.data]);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="font-display text-xl font-semibold text-ink-900">Class readiness</h2>
-        <p className="text-sm text-ink-500">
-          Drill into a class's readiness, and flag learners who need attention.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Class readiness"
+        description="How ready each learner in a class is for the exam, and who needs attention."
+      />
 
-      {groups.data && groups.data.length === 0 ? (
-        <EmptyState
-          title="You haven't set up a class yet."
-          hint="Create a class and share its code — readiness appears once learners join and work is marked."
+      {groups.isError ? (
+        <ErrorState
+          title="Your classes didn't load"
+          error={groups.error}
+          onRetry={() => groups.refetch()}
         />
+      ) : groups.data && groups.data.length === 0 ? (
+        <SectionCard>
+          <EmptyState
+            title="You haven't set up a class yet."
+            hint="Create a class and share its code — readiness appears once learners join and work is marked."
+            action={
+              <Link to="/tutor/classes" className={buttonClasses("primary", "md")}>
+                Go to your classes
+              </Link>
+            }
+          />
+        </SectionCard>
       ) : (
-        <>
+        <div className="space-y-6">
           {groups.data && groups.data.length > 1 && (
-            <label className="block text-sm">
-              <span className="sr-only">Choose a class</span>
-              <select
-                className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink-900"
-                value={activeId ?? ""}
-                onChange={(e) => setGroupId(Number(e.target.value))}
-              >
+            <Field label="Class" className="max-w-xs">
+              <Select value={activeId ?? ""} onChange={(e) => setGroupId(Number(e.target.value))}>
                 {groups.data.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.name}
                   </option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </Field>
           )}
 
           {overview.data?.boundaries_missing ? (
-            <EmptyState
-              title={ABSENT.noBoundaries}
-              hint="Readiness needs this subject's grade boundaries before it can band a learner."
-              action={
-                <Link
-                  to="/tutor/library"
-                  className="font-medium text-brand-600 hover:text-brand-700"
-                >
-                  {ABSENT.noBoundariesAction}
-                </Link>
-              }
-            />
+            <SectionCard>
+              <EmptyState
+                title={ABSENT.noBoundaries}
+                hint="Readiness needs this subject's grade boundaries before it can band a learner."
+                action={
+                  <Link
+                    to="/tutor/boundaries"
+                    className="font-medium text-brand-600 hover:text-brand-700"
+                  >
+                    {ABSENT.noBoundariesAction}
+                  </Link>
+                }
+              />
+            </SectionCard>
           ) : (
             <ReadinessTable
               rows={rows}
@@ -111,7 +121,7 @@ export default function ClassReadinessPage() {
               error={overview.isError}
             />
           )}
-        </>
+        </div>
       )}
     </div>
   );

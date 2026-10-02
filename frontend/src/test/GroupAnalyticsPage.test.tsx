@@ -72,6 +72,23 @@ test("a weakest topic from marked work alone carries no estimate label", async (
   });
   renderPage();
 
-  await screen.findByText("1.3 Atomic structure");
+  await screen.findByText("Atomic structure");
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
+});
+
+test("no weak topic beside scored students is not reported as 'no readiness data'", async () => {
+  // Students can carry readiness while no topic's class average is at or below
+  // the weak threshold — the topic list is empty for a different reason, and
+  // saying "no readiness data" beside 58% and 62% contradicted the page.
+  stubFetch({
+    ...BASE,
+    weak_students: [
+      { student_id: 1, student_name: "Sara", subject_name: "Chemistry", score: 58 },
+      { student_id: 2, student_name: "Omar", subject_name: "Chemistry", score: 62 },
+    ],
+  });
+  renderPage();
+
+  expect(await screen.findByText("No topic stands out as weak right now.")).toBeInTheDocument();
+  expect(screen.queryByText(/No readiness data/)).not.toBeInTheDocument();
 });

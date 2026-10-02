@@ -110,15 +110,19 @@ export function monthlyGains(subjects: SubjectReadiness[]): SubjectReadiness[] {
     .sort((a, b) => (b.month_delta ?? 0) - (a.month_delta ?? 0));
 }
 
-/** "You're up 6 this month." / "You're steady this month." / absent.
+/** "You're up 6 readiness points this month." / "You're steady this month." / absent.
+ *
+ * The unit is spelled out because a bare "up 6" leaves a student guessing
+ * whether it is marks, percent or grades — and a number that has to be guessed
+ * at is read as the most alarming of the three.
  *
  * null when there is no month to compare against — a student in their first
  * weeks is told so by the caller rather than being handed a fabricated zero. */
 export function movementSentence(delta: number | null): string | null {
   if (delta === null) return null;
   if (Math.abs(delta) <= MOVEMENT_NOISE_BAND) return "You're steady this month.";
-  if (delta > 0) return `You're up ${Math.round(delta)} this month.`;
-  return `You're down ${Math.round(Math.abs(delta))} this month.`;
+  if (delta > 0) return `You're up ${Math.round(delta)} readiness points this month.`;
+  return `You're down ${Math.round(Math.abs(delta))} readiness points this month.`;
 }
 
 export type Gap = "above" | "below" | "equal";
@@ -161,3 +165,34 @@ export const GAP_SENTENCE: Record<Gap, string> = {
   below: "Your predicted grade is below the average of your marked work so far.",
   equal: "Your predicted grade matches the average of your marked work so far.",
 };
+
+/** Why the two can differ at all — the question a student is left with when
+ * they see a predicted 6 beside an average of 8 and are told nothing else.
+ *
+ * Same constraint as GAP_SENTENCE: it describes how each number is *worked
+ * out*, never a claim about this student's record that nothing computed. The
+ * prediction is weighted and recency-aware and counts course coverage among
+ * its factors (experience-design §3.3); the tutor can switch factors off,
+ * hence "things like" rather than a list. Absent when the grades match —
+ * there is nothing to explain. */
+export const GAP_REASON: Record<Exclude<Gap, "equal">, string> = {
+  above:
+    "They're worked out differently: your average is just the marks you've had, while your predicted grade also weighs things like how recent each piece is — so recent progress can show up there first.",
+  below:
+    "They're worked out differently: your average is just the marks you've had, while your predicted grade also weighs things like how much of the course your work has covered so far. It will move as more of your work is marked.",
+};
+
+/** Fewer marked pieces than this and the average is called an early picture.
+ *
+ * Not a statistical cut-off — a copy rule. One or two pieces can put an
+ * average two grades away from the prediction, and a student shown that with
+ * no caveat reads it as a settled fact about themselves. */
+export const THIN_EVIDENCE_PIECES = 3;
+
+/** "Your average comes from just one marked piece, …" — or null when there is
+ * enough work behind it (or none at all, which the screen states separately). */
+export function thinEvidenceNote(markedPieces: number): string | null {
+  if (markedPieces <= 0 || markedPieces >= THIN_EVIDENCE_PIECES) return null;
+  const pieces = `${countWord(markedPieces)} marked piece${markedPieces === 1 ? "" : "s"}`;
+  return `Your average comes from just ${pieces}, so treat it as an early picture.`;
+}

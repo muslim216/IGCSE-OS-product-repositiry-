@@ -1,20 +1,29 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, ClipboardList, Users } from "lucide-react";
+import { CalendarClock, ClipboardList, Plus, Users } from "lucide-react";
 import { createGroup, listGroups, listSubjects, type Group } from "../api/groups";
 import { formatSlot } from "../lib/schedule";
-import { EmptyState } from "../components/ui";
+import { friendlyError } from "../lib/errors";
+import { EmptyState, SectionCard } from "../components/ui";
+import { Button, Field, Input, Select } from "../components/controls";
+import { ErrorState, PageHeader, Skeleton } from "../components/page";
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 function ClassCard({ group }: { group: Group }) {
   return (
     <Link
       to={`/tutor/groups/${group.id}`}
-      className="group flex flex-col gap-3 rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)] transition hover:border-brand-600"
+      className="group flex flex-col gap-4 rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)] transition hover:border-brand-600"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-medium text-ink-900">{group.name}</p>
+          <p className="truncate font-medium text-ink-900 group-hover:text-brand-600">
+            {group.name}
+          </p>
           <p className="mt-0.5 truncate text-sm text-ink-500">
             {group.subject.exam_board} {group.subject.code} · {group.subject.name}
           </p>
@@ -26,23 +35,41 @@ function ClassCard({ group }: { group: Group }) {
         )}
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-500">
+      <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-ink-500">
         <span className="flex items-center gap-1.5">
           <Users aria-hidden className="h-4 w-4" />
-          {group.member_count} student{group.member_count === 1 ? "" : "s"}
+          {plural(group.member_count, "student", "students")}
         </span>
         <span className="flex items-center gap-1.5">
           <ClipboardList aria-hidden className="h-4 w-4" />
-          {group.published_assignment_count} homework
+          {plural(group.published_assignment_count, "piece of homework", "pieces of homework")}
         </span>
         {group.next_lesson && (
           <span className="flex items-center gap-1.5 text-brand-600">
             <CalendarClock aria-hidden className="h-4 w-4" />
-            Next {formatSlot(group.next_lesson.weekday, group.next_lesson.start_time)}
+            Next lesson {formatSlot(group.next_lesson.weekday, group.next_lesson.start_time)}
           </span>
         )}
       </div>
     </Link>
+  );
+}
+
+function ClassCardsSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading classes"
+      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+    >
+      {Array.from({ length: 3 }, (_, i) => (
+        <div key={i} className="rounded-xl border border-line bg-surface p-5">
+          <Skeleton className="h-5 w-2/3" />
+          <Skeleton className="mt-2 h-4 w-1/2" />
+          <Skeleton className="mt-6 h-4 w-3/4" />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -58,11 +85,16 @@ export default function GroupsPage() {
     mutationFn: () => createGroup(name, subjectId as number),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["groups"] });
-      setShowForm(false);
-      setName("");
-      setSubjectId("");
+      closeForm();
     },
   });
+
+  function closeForm() {
+    setShowForm(false);
+    setName("");
+    setSubjectId("");
+    create.reset();
+  }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -71,78 +103,101 @@ export default function GroupsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Your classes</h2>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium hover:bg-brand-700"
-        >
-          {showForm ? "Cancel" : "New class"}
-        </button>
-      </div>
+      <PageHeader
+        title="Your classes"
+        description="Each class is one subject with its own students, homework and timetable. Open one to see how it's doing."
+        actions={
+          !showForm && (
+            <Button onClick={() => setShowForm(true)}>
+              <Plus aria-hidden className="h-4 w-4" />
+              New class
+            </Button>
+          )
+        }
+      />
 
       {showForm && (
-        <form
-          onSubmit={onSubmit}
-          className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface p-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-ink-700">Class name</label>
-            <input
-              className="mt-1 rounded-md border border-line px-3 py-2"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Chemistry — Year 10"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-ink-700">Subject</label>
-            <select
-              className="mt-1 rounded-md border border-line px-3 py-2"
-              value={subjectId}
-              onChange={(e) => setSubjectId(Number(e.target.value))}
-              required
-            >
-              <option value="" disabled>
-                Choose a subject…
-              </option>
-              {subjects.data?.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.exam_board} {s.code} — {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-          >
-            Create
-          </button>
-          {create.isError && <p className="text-sm text-risk-600">Could not create the class.</p>}
-        </form>
+        <SectionCard className="mb-6">
+          <form onSubmit={onSubmit}>
+            <h2 className="text-lg text-ink-900">New class</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Class name">
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Chemistry — Year 10"
+                  required
+                  autoFocus
+                />
+              </Field>
+              <Field
+                label="Subject"
+                error={
+                  subjects.isError ? "Subjects didn't load. Refresh the page to try again." : null
+                }
+              >
+                <Select
+                  value={subjectId}
+                  onChange={(e) => setSubjectId(Number(e.target.value))}
+                  required
+                >
+                  <option value="" disabled>
+                    {subjects.isLoading ? "Loading subjects…" : "Choose a subject"}
+                  </option>
+                  {subjects.data?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} — {s.exam_board} {s.code}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            {create.isError && (
+              <p role="alert" className="mt-3 text-sm text-risk-600">
+                {friendlyError(create.error, "Couldn't create the class. Try again.")}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={closeForm} disabled={create.isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" loading={create.isPending}>
+                Create class
+              </Button>
+            </div>
+          </form>
+        </SectionCard>
       )}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {groups.data?.map((g) => (
-          <ClassCard key={g.id} group={g} />
-        ))}
-      </div>
-      {groups.data?.length === 0 && !showForm && (
-        <EmptyState
-          title="No classes yet"
-          hint="Create your first class, then invite students or add accounts for them."
-          action={
-            <button
-              onClick={() => setShowForm(true)}
-              className="rounded-md bg-brand-600 px-3 py-1.5 font-medium hover:bg-brand-700"
-            >
-              New class
-            </button>
-          }
+      {groups.isLoading ? (
+        <ClassCardsSkeleton />
+      ) : groups.isError ? (
+        <ErrorState
+          title="Your classes didn't load"
+          error={groups.error}
+          onRetry={() => groups.refetch()}
         />
+      ) : groups.data && groups.data.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {groups.data.map((g) => (
+            <ClassCard key={g.id} group={g} />
+          ))}
+        </div>
+      ) : (
+        !showForm && (
+          <SectionCard>
+            <EmptyState
+              title="No classes yet"
+              hint="Create your first class, then invite students or add accounts for them."
+              action={
+                <Button onClick={() => setShowForm(true)}>
+                  <Plus aria-hidden className="h-4 w-4" />
+                  New class
+                </Button>
+              }
+            />
+          </SectionCard>
+        )
       )}
     </div>
   );

@@ -7,7 +7,10 @@ import {
   updateReadinessWeights,
   type ReadinessWeights,
 } from "../api/readiness";
-import { ABSENT } from "../lib/labels";
+import { Button, Field, Input, Select } from "../components/controls";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { SectionCard } from "../components/ui";
+import { friendlyError } from "../lib/errors";
 
 type WeightKey = Extract<keyof ReadinessWeights, `weight_${string}`>;
 type EnabledKey = Extract<keyof ReadinessWeights, `enabled_${string}`>;
@@ -67,6 +70,7 @@ function rescores(next: ReadinessWeights, prev: ReadinessWeights | undefined): b
 function Slider({
   label,
   value,
+  display,
   min,
   max,
   step,
@@ -75,6 +79,8 @@ function Slider({
 }: {
   label: string;
   value: number;
+  /** The value as read aloud on screen — a bare number never says what it is. */
+  display: string;
   min: number;
   max: number;
   step: number;
@@ -83,20 +89,23 @@ function Slider({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between text-sm">
-        <span className="font-medium text-ink-700">{label}</span>
-        <span className="text-ink-500">{value}</span>
+      <div className="flex items-baseline justify-between gap-3 text-sm">
+        <span className="font-medium text-ink-900">{label}</span>
+        <span className={`tabular-nums ${disabled ? "text-ink-500" : "text-ink-700"}`}>
+          {display}
+        </span>
       </div>
       <input
         type="range"
         aria-label={label}
+        aria-valuetext={display}
         min={min}
         max={max}
         step={step}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1 w-full accent-brand-600 disabled:opacity-50"
+        className="mt-2 w-full accent-brand-600 disabled:opacity-50"
       />
     </div>
   );
@@ -191,151 +200,191 @@ export default function PreferencesPage() {
     );
 
   return (
-    <div className="max-w-xl space-y-4">
-      <div>
-        <h2 className="text-xl font-semibold text-ink-900">Preferences</h2>
-        <p className="text-sm text-ink-500">
-          Control how much each of the six readiness factors counts towards your students' scores,
-          for all subjects or one. Saving recalculates everyone you teach.
-        </p>
-      </div>
+    <div className="max-w-2xl">
+      <PageHeader
+        title="Preferences"
+        description="How much each of the six readiness factors counts towards your students' scores, for all subjects or just one. Saving a change to the factors recalculates everyone you teach."
+        back={{ to: "/tutor/library", label: "Library" }}
+      />
 
-      <select
-        aria-label="Settings for"
-        value={subjectId ?? ""}
-        onChange={(e) => {
-          // A message about the last scope's save must not read as this one's.
-          save.reset();
-          remove.reset();
-          setSaved(null);
-          setSubjectId(e.target.value === "" ? null : Number(e.target.value));
-        }}
-        className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
-      >
-        <option value="">All subjects</option>
-        {subjects.data?.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name} ({s.exam_board} {s.code})
-          </option>
-        ))}
-      </select>
+      <div className="space-y-6">
+        <Field label="Settings for" className="max-w-sm">
+          <Select
+            value={subjectId ?? ""}
+            onChange={(e) => {
+              // A message about the last scope's save must not read as this one's.
+              save.reset();
+              remove.reset();
+              setSaved(null);
+              setSubjectId(e.target.value === "" ? null : Number(e.target.value));
+            }}
+          >
+            <option value="">All subjects</option>
+            {subjects.data?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.exam_board} {s.code})
+              </option>
+            ))}
+          </Select>
+        </Field>
 
-      {prefs.isError ? (
-        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
-      ) : !ready ? (
-        <span aria-hidden className="block h-64 w-full animate-pulse rounded bg-surface-muted" />
-      ) : (
-        <div className="space-y-5 rounded-lg border border-line bg-surface p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-ink-500">{sourceNote(prefs.data)}</p>
-            {prefs.data.subject_id !== null && prefs.data.source !== "subject" && (
-              <button
-                // Saves the draft on screen — the inherited values plus any
-                // edit already made — as this subject's own override. Sending
-                // `prefs.data` would store the unedited values while the
-                // sliders kept showing the edit as if it had saved.
-                onClick={() => save.mutate({ scope: subjectId, payload: form })}
-                disabled={save.isPending || noneEnabled || badThreshold}
-                className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
-              >
-                Customise for this subject
-              </button>
-            )}
-            {prefs.data.subject_id !== null && prefs.data.source === "subject" && (
-              <button
-                onClick={() => remove.mutate(prefs.data.subject_id!)}
-                disabled={remove.isPending}
-                className="text-sm font-medium text-risk-600 hover:underline disabled:opacity-50"
-              >
-                {remove.isPending ? "Removing…" : "Remove override"}
-              </button>
-            )}
-          </div>
-          {FACTORS.map((factor) => (
-            <div key={factor.weight} className="space-y-1">
-              <label className="flex items-center gap-2 text-sm text-ink-700">
-                <input
-                  type="checkbox"
-                  aria-label={`Counts towards readiness: ${factor.label}`}
-                  checked={form[factor.enabled]}
-                  onChange={(e) => setForm({ ...form, [factor.enabled]: e.target.checked })}
-                  className="accent-brand-600"
-                />
-                Counts towards readiness
-              </label>
-              <Slider
-                label={factor.label}
-                value={form[factor.weight]}
-                min={0}
-                max={3}
-                step={0.1}
-                disabled={!form[factor.enabled]}
-                onChange={(v) => setForm({ ...form, [factor.weight]: v })}
-              />
-              <p className="text-xs text-ink-500">{factor.hint}</p>
+        {prefs.isError ? (
+          <ErrorState error={prefs.error} onRetry={() => prefs.refetch()} />
+        ) : !ready ? (
+          <SectionCard>
+            <SectionSkeleton rows={8} label="Loading readiness settings" />
+          </SectionCard>
+        ) : (
+          <SectionCard className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-muted px-3 py-2.5">
+              <p className="text-sm text-ink-700">{sourceNote(prefs.data)}</p>
+              {prefs.data.subject_id !== null && prefs.data.source !== "subject" && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  // Saves the draft on screen — the inherited values plus any
+                  // edit already made — as this subject's own override. Sending
+                  // `prefs.data` would store the unedited values while the
+                  // sliders kept showing the edit as if it had saved.
+                  onClick={() => save.mutate({ scope: subjectId, payload: form })}
+                  disabled={save.isPending || noneEnabled || badThreshold}
+                >
+                  Customise for this subject
+                </Button>
+              )}
+              {prefs.data.subject_id !== null && prefs.data.source === "subject" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => remove.mutate(prefs.data.subject_id!)}
+                  loading={remove.isPending}
+                >
+                  Remove override
+                </Button>
+              )}
             </div>
-          ))}
-          <Slider
-            label="Recency half-life (days)"
-            value={form.half_life_days}
-            min={7}
-            max={180}
-            step={1}
-            onChange={(v) => setForm({ ...form, half_life_days: v })}
-          />
-          <label className="block text-sm">
-            <span className="font-medium text-ink-700">Weak topic threshold</span>
-            <span className="mt-1 flex items-center gap-1">
-              <input
-                type="number"
-                aria-label="Weak topic threshold"
-                min={0}
-                max={100}
-                step={1}
-                value={Number.isNaN(form.weak_threshold) ? "" : form.weak_threshold}
-                onChange={(e) => setForm({ ...form, weak_threshold: e.target.valueAsNumber })}
-                className="w-20 rounded-md border border-line-control bg-surface px-2 py-1 text-sm"
-              />
-              <span className="text-ink-500">%</span>
-            </span>
-            <span className="mt-1 block text-xs text-ink-500">
-              Topics at or below this mastery score are shown as weak. Takes effect straight away;
-              no scores are recalculated.
-            </span>
-          </label>
-          <p className="text-xs text-ink-500">
-            Higher weights count that factor more; a shorter half-life makes recent evidence
-            dominate faster. A factor with no evidence is weighed out of the score rather than
-            counted as zero. A switched-off factor is still worked out and shown, but never counts.
-          </p>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => save.mutate({ scope: subjectId, payload: form })}
-              disabled={save.isPending || noneEnabled || badThreshold}
-              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-            >
-              {save.isPending ? "Saving…" : "Save"}
-            </button>
-            {saved && (
-              <span className="text-sm text-ok-700">
-                {saved === "rescoring" ? "Saved — recomputing readiness…" : "Saved."}
-              </span>
-            )}
-            {noneEnabled && (
-              <span className="text-sm text-risk-600">Keep at least one factor switched on.</span>
-            )}
-            {badThreshold && (
-              <span className="text-sm text-risk-600">Enter a threshold from 0 to 100.</span>
-            )}
-          </div>
-          {(save.isError || remove.isError) && (
-            <p className="text-sm text-risk-600" role="alert">
-              That did not save. {(save.error ?? remove.error)?.message || ABSENT.loadFailed}
+            <fieldset className="space-y-5">
+              <legend className="mb-1 text-sm font-medium text-ink-900">
+                What counts, and how much
+              </legend>
+              {FACTORS.map((factor) => (
+                <div key={factor.weight} className="space-y-1.5 border-t border-line pt-4">
+                  <Slider
+                    label={factor.label}
+                    value={form[factor.weight]}
+                    display={
+                      form[factor.enabled]
+                        ? `Weight ${form[factor.weight].toFixed(1)}`
+                        : "Switched off"
+                    }
+                    min={0}
+                    max={3}
+                    step={0.1}
+                    disabled={!form[factor.enabled]}
+                    onChange={(v) => setForm({ ...form, [factor.weight]: v })}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-ink-500">{factor.hint}</p>
+                    <label className="flex items-center gap-2 text-xs text-ink-700">
+                      <input
+                        type="checkbox"
+                        aria-label={`Counts towards readiness: ${factor.label}`}
+                        checked={form[factor.enabled]}
+                        onChange={(e) => setForm({ ...form, [factor.enabled]: e.target.checked })}
+                        className="h-4 w-4 accent-brand-600"
+                      />
+                      Counts towards readiness
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </fieldset>
+
+            <div className="space-y-5 border-t border-line pt-5">
+              <div className="space-y-1.5">
+                <Slider
+                  label="Recency half-life"
+                  value={form.half_life_days}
+                  display={`${form.half_life_days} days`}
+                  min={7}
+                  max={180}
+                  step={1}
+                  onChange={(v) => setForm({ ...form, half_life_days: v })}
+                />
+                <p className="text-xs text-ink-500">
+                  How long it takes a piece of evidence to count half as much as something new.
+                </p>
+              </div>
+              {/* Spelled out rather than a <Field>: the box is a few digits wide
+                  while its hint runs the full width, and Field sizes both alike. */}
+              <div>
+                <label htmlFor="weak-threshold" className="block text-sm font-medium text-ink-900">
+                  Weak topic threshold (%)
+                </label>
+                <div className="mt-1.5 w-24">
+                  <Input
+                    id="weak-threshold"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    aria-invalid={badThreshold || undefined}
+                    aria-describedby={badThreshold ? "weak-threshold-error" : "weak-threshold-hint"}
+                    value={Number.isNaN(form.weak_threshold) ? "" : form.weak_threshold}
+                    onChange={(e) => setForm({ ...form, weak_threshold: e.target.valueAsNumber })}
+                    className="tabular-nums"
+                  />
+                </div>
+                {badThreshold ? (
+                  <p
+                    id="weak-threshold-error"
+                    role="alert"
+                    className="mt-1.5 text-xs text-risk-600"
+                  >
+                    Enter a threshold from 0 to 100.
+                  </p>
+                ) : (
+                  <p id="weak-threshold-hint" className="mt-1.5 text-xs text-ink-500">
+                    Topics at or below this mastery score are shown as weak. Takes effect straight
+                    away; no scores are recalculated.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <p className="text-xs leading-relaxed text-ink-500">
+              A higher weight counts that factor more; a shorter half-life lets recent evidence take
+              over faster. A factor with no evidence is left out of the score rather than counted as
+              zero. A switched-off factor is still worked out and shown, but never counts.
             </p>
-          )}
-        </div>
-      )}
+
+            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <Button
+                onClick={() => save.mutate({ scope: subjectId, payload: form })}
+                disabled={noneEnabled || badThreshold}
+                loading={save.isPending}
+              >
+                Save
+              </Button>
+              {saved && (
+                <span role="status" className="text-sm text-ok-700">
+                  {saved === "rescoring" ? "Saved — recomputing readiness…" : "Saved."}
+                </span>
+              )}
+              {noneEnabled && (
+                <span className="text-sm text-risk-600">Keep at least one factor switched on.</span>
+              )}
+            </div>
+            {(save.isError || remove.isError) && (
+              <p className="text-sm text-risk-600" role="alert">
+                That didn't save.{" "}
+                {friendlyError(save.error ?? remove.error, "Try again in a moment.")}
+              </p>
+            )}
+          </SectionCard>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import SyllabusUploadPage from "../tutor/SyllabusUploadPage";
@@ -83,7 +84,9 @@ async function openDraft(expectSummary = "2 chapters, 4 topics") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <SyllabusUploadPage />
+      <MemoryRouter>
+        <SyllabusUploadPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   fireEvent.click(await screen.findByText("Chemistry 4CH1"));
@@ -151,18 +154,18 @@ test("a second edit does not drop the first", async () => {
 
 test("editing a failed extraction clears the retry button", async () => {
   // A cache still reading `extraction_failed` after the edit succeeded leaves
-  // "Retry extraction" on screen — one click from re-running the AI over the
-  // tutor's own corrections (cubic).
+  // the retry ("Try again") on screen — one click from re-running the AI over
+  // the tutor's own corrections (cubic).
   const puts = stub("extraction_failed");
   await openDraft();
-  expect(screen.getByText("Retry extraction")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 
   fireEvent.change(screen.getByDisplayValue("Principles of chemistry"), {
     target: { value: "Principles" },
   });
 
   await waitFor(() => expect(puts).toHaveLength(1));
-  await waitFor(() => expect(screen.queryByText("Retry extraction")).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Try again" })).toBeNull());
   // The tutor's edit is still on screen, not replaced by the server echo.
   expect(screen.getByDisplayValue("Principles")).toBeTruthy();
 });

@@ -1,6 +1,7 @@
 import { Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import { Markdown } from "./Markdown";
+import { SectionSkeleton } from "./page";
 
 /*
  * Reusable surface for evidence-grounded guidance. The structure is fixed so
@@ -34,19 +35,15 @@ export default function GuidancePanel({
   secondaryActions?: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-line bg-surface-muted p-4">
+    <div className="rounded-xl border border-line bg-surface-muted p-4">
       <p className="flex items-start gap-2 text-xs text-ink-500">
         <Sparkles aria-hidden className="mt-px h-4 w-4 shrink-0 text-brand-600" />
         <span>{evidenceNote}</span>
       </p>
 
-      <div className="mt-3">
+      <div className="mt-3" aria-live="polite">
         {pending ? (
-          <div className="space-y-2" aria-hidden>
-            <span className="block h-3 w-full animate-pulse rounded bg-line" />
-            <span className="block h-3 w-5/6 animate-pulse rounded bg-line" />
-            <span className="block h-3 w-2/3 animate-pulse rounded bg-line" />
-          </div>
+          <SectionSkeleton rows={3} label="Preparing guidance" />
         ) : error ? (
           <p className="text-sm text-risk-600">{error}</p>
         ) : body ? (

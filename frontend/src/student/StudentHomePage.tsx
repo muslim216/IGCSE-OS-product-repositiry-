@@ -1,11 +1,14 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { CalendarClock, Check } from "lucide-react";
 import { WEEKDAYS, myLessons } from "../api/groups";
 import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
-import { DirectionMark, EmptyState } from "../components/ui";
-import MyTimezoneSetting from "../components/MyTimezoneSetting";
+import { DirectionMark, SectionCard } from "../components/ui";
+import { ErrorState, PageHeader, PageSkeleton } from "../components/page";
 import { ABSENT } from "../lib/labels";
+import { greetingFor } from "../lib/readiness";
 import { calendarDaysUntil, formatDayMonth } from "../lib/timezones";
 import { useMyTimezone } from "../auth/AuthContext";
 import { dueVerdict, monthlyGains, recentlyMarked, subjectStrip } from "../lib/student";
@@ -34,6 +37,15 @@ import { dueVerdict, monthlyGains, recentlyMarked, subjectStrip } from "../lib/s
  * shape rather than the sequence: DO carries exactly what is due and nothing
  * else, so YOU DID is still visible without scrolling on a phone whenever there
  * are one or two pieces due, which is the ordinary day.
+ *
+ * **The verdict is the page title.** It is the one sentence UX-27 says the
+ * surface opens with, so it is the <h1> rather than a line under a generic
+ * "Home" heading that would push it down the screen. The subject strip stays
+ * above it, as §5.1 draws it: the polish pass moved neither section.
+ *
+ * Personal settings (the time-zone control) used to sit at the bottom of this
+ * page because a student had no settings screen. They now live on the
+ * student's Account page, one tap from the avatar.
  */
 
 function SubjectChip({
@@ -46,19 +58,33 @@ function SubjectChip({
   direction: "up" | "flat" | "down" | null;
 }) {
   return (
-    <li className="flex items-baseline gap-2 rounded-lg border border-line bg-surface px-3 py-2">
-      <span className="text-sm font-medium text-ink-900">{name}</span>
+    <li className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3 shadow-[0_1px_2px_rgba(44,26,14,0.06)]">
+      <span className="min-w-0 truncate text-sm font-medium text-ink-900">{name}</span>
       {score === null ? (
         // Absent is words. A subject with no confident evidence is not a zero,
         // and it is not an empty bar either (PROD-2, UX-19).
-        <span className="text-xs text-ink-500">{ABSENT.noEvidence}</span>
+        <span className="shrink-0 text-xs text-ink-500">{ABSENT.noEvidence}</span>
       ) : (
-        <>
-          <span className="font-display text-lg tabular-nums text-ink-900">{score}</span>
+        // "62% ready", never a bare "62": a number with no unit on a
+        // student's home is read as a mark out of a hundred, or worse.
+        <span className="flex shrink-0 items-baseline gap-1.5">
+          <span className="font-display text-lg tabular-nums text-ink-900">{score}%</span>
+          <span className="text-xs text-ink-500">ready</span>
           <DirectionMark direction={direction} />
-        </>
+        </span>
       )}
     </li>
+  );
+}
+
+/** A page section: a quiet label over a card, the same shape for every block
+    so the home reads as one surface rather than four. */
+function HomeSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="avora-label mb-2">{title}</h2>
+      <SectionCard className="py-1">{children}</SectionCard>
+    </section>
   );
 }
 
@@ -71,12 +97,12 @@ function SubjectChip({
  * browser's zone — the behaviour every one of these labels had before the
  * column existed. */
 function dueLabel(dueAt: string | null, timeZone: string | null): string {
-  if (!dueAt) return "no due date";
+  if (!dueAt) return "No due date";
   const days = calendarDaysUntil(dueAt, timeZone);
-  if (days < 0) return "overdue";
-  if (days === 0) return "due today";
-  if (days === 1) return "due tomorrow";
-  return `due ${formatDayMonth(new Date(dueAt), timeZone)}`;
+  if (days < 0) return "Overdue";
+  if (days === 0) return "Due today";
+  if (days === 1) return "Due tomorrow";
+  return `Due ${formatDayMonth(new Date(dueAt), timeZone)}`;
 }
 
 export default function StudentHomePage() {
@@ -101,105 +127,127 @@ export default function StudentHomePage() {
   const nextLesson = lessons.data?.[0];
 
   if (readiness.isLoading || assignments.isLoading) {
-    return (
-      <div className="space-y-6" aria-busy="true">
-        <span aria-hidden className="block h-16 w-full animate-pulse rounded bg-surface-muted" />
-        <span aria-hidden className="block h-7 w-2/3 animate-pulse rounded bg-surface-muted" />
-      </div>
-    );
+    return <PageSkeleton rows={3} label="Loading your home" />;
   }
 
   // A failed load is stated. Rendering nothing would read as "you have no
   // subjects and nothing to do", which is a different and wrong claim.
   if (readiness.isError || assignments.isError) {
-    return <EmptyState title="Your home couldn't be loaded." hint={ABSENT.loadFailed} />;
+    return (
+      <div className="max-w-3xl">
+        <PageHeader title="Home" />
+        <ErrorState
+          title="Couldn't load your subjects."
+          error={readiness.error ?? assignments.error}
+          onRetry={() => {
+            void readiness.refetch();
+            void assignments.refetch();
+          }}
+        />
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="max-w-3xl space-y-6">
       {strip.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
-          {strip.map((s) => (
-            <SubjectChip
-              key={s.subject_id}
-              name={s.subject_name}
-              score={s.score}
-              direction={s.direction}
-            />
-          ))}
-        </ul>
-      )}
-
-      <h2 className="font-display text-2xl font-semibold text-ink-900">{dueVerdict(due.length)}</h2>
-
-      {due.length > 0 && (
         <section>
-          <h3 className="avora-label mb-2">Do</h3>
-          <ul className="text-sm">
-            {due.slice(0, 5).map((a) => (
-              <li
-                key={a.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-2.5"
-              >
-                <span className="text-ink-900">
-                  <span className="text-ink-500">{a.subject_name} · </span>
-                  {a.title}
-                </span>
-                <span className="flex items-center gap-3">
-                  <span className="text-ink-500">{dueLabel(a.due_at, myZone)}</span>
-                  <Link
-                    to={`/student/homework/${a.id}`}
-                    className="font-medium text-brand-600 hover:text-brand-700"
-                  >
-                    Start →
-                  </Link>
-                </span>
-              </li>
+          <h2 className="avora-label mb-2">Your subjects</h2>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {strip.map((s) => (
+              <SubjectChip
+                key={s.subject_id}
+                name={s.subject_name}
+                score={s.score}
+                direction={s.direction}
+              />
             ))}
           </ul>
         </section>
+      )}
+
+      <PageHeader
+        eyebrow={greetingFor(new Date().getHours())}
+        title={dueVerdict(due.length)}
+        documentTitle="Home"
+      />
+
+      {due.length > 0 && (
+        <HomeSection title="Do">
+          <ul className="divide-y divide-line text-sm">
+            {due.slice(0, 5).map((a) => (
+              <li
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3"
+              >
+                <span className="min-w-0">
+                  <span className="block font-medium text-ink-900">{a.title}</span>
+                  <span className="block text-xs text-ink-500">
+                    {a.subject_name} · {dueLabel(a.due_at, myZone)}
+                  </span>
+                </span>
+                <Link
+                  to={`/student/homework/${a.id}`}
+                  className="font-medium text-brand-600 hover:text-brand-700"
+                >
+                  Start →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </HomeSection>
       )}
 
       {/* Nothing to report is not a panel saying so (UX-29): with no marks in
           the last week and no subject that has moved, the section is absent. */}
       {(marked.length > 0 || gains.length > 0) && (
-        <section>
-          <h3 className="avora-label mb-2">You did</h3>
-          <ul className="space-y-1.5 text-sm">
+        <HomeSection title="You did">
+          <ul className="divide-y divide-line text-sm">
             {marked.map((a) => (
-              <li key={a.id} className="text-ink-700">
-                <span className="text-ok-700">✓</span> {a.subject_name} marked —{" "}
-                <span className="tabular-nums">
-                  {a.my_total}/{a.total_marks}
+              <li key={a.id} className="flex gap-3 py-3">
+                <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ok-700" />
+                <span className="min-w-0 text-ink-700">
+                  <span className="font-medium text-ink-900">{a.title}</span> marked ·{" "}
+                  {a.subject_name}
+                  <span className="block text-xs tabular-nums text-ink-500">
+                    {a.my_total} out of {a.total_marks} marks
+                  </span>
+                  {/* The one sanctioned peer comparison on a student surface: a
+                      thing that happened on a particular day, told only to the
+                      student it happened to. Its absence on an ordinary day
+                      carries no message, which is exactly what a standing —
+                      "you are above the class average" — would not manage. */}
+                  {a.highest_in_class && (
+                    <span className="mt-1 inline-block rounded-md bg-ok-100 px-2 py-0.5 text-xs font-medium text-ok-700">
+                      Highest mark in your class on this piece
+                    </span>
+                  )}
                 </span>
-                {/* The one sanctioned peer comparison on a student surface: a
-                    thing that happened on a particular day, told only to the
-                    student it happened to. Its absence on an ordinary day
-                    carries no message, which is exactly what a standing —
-                    "you are above the class average" — would not manage. */}
-                {a.highest_in_class && (
-                  <span className="block pl-4 text-ink-500">highest in your class on this</span>
-                )}
               </li>
             ))}
             {gains.map((s) => (
-              <li key={s.subject_id} className="text-ink-700">
-                <span className="text-ok-700">✓</span> {s.subject_name} up{" "}
-                {Math.round(s.month_delta ?? 0)} this month
+              <li key={s.subject_id} className="flex gap-3 py-3">
+                <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ok-700" />
+                <span className="text-ink-700">
+                  {s.subject_name} up {Math.round(s.month_delta ?? 0)} readiness points this month
+                </span>
               </li>
             ))}
           </ul>
-        </section>
+        </HomeSection>
       )}
 
       {nextLesson && (
-        <section>
-          <h3 className="avora-label mb-2">Next</h3>
-          <p className="text-sm text-ink-700">
-            {nextLesson.subject_name} · {WEEKDAYS[nextLesson.weekday]}{" "}
-            {nextLesson.start_time.slice(0, 5)}
+        <HomeSection title="Next">
+          <p className="flex items-center gap-3 py-3 text-sm text-ink-700">
+            <CalendarClock aria-hidden className="h-4 w-4 shrink-0 text-brand-600" />
+            <span>
+              <span className="font-medium text-ink-900">{nextLesson.subject_name}</span> ·{" "}
+              {WEEKDAYS[nextLesson.weekday]}{" "}
+              <span className="tabular-nums">{nextLesson.start_time.slice(0, 5)}</span>
+            </span>
           </p>
-        </section>
+        </HomeSection>
       )}
 
       {/* The cleared state's one offer. There is no practice, quiz or revision
@@ -207,9 +255,8 @@ export default function StudentHomePage() {
           is worse than no control (§2.3) — so sitting a past paper is the whole
           menu, and it appears only when there is genuinely nothing due. */}
       {due.length === 0 && (
-        <section>
-          <h3 className="avora-label mb-2">If you want</h3>
-          <p className="flex flex-wrap items-center gap-3 text-sm text-ink-700">
+        <HomeSection title="If you want">
+          <p className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm text-ink-700">
             Sit a past paper
             <Link
               to="/student/past-papers"
@@ -218,16 +265,8 @@ export default function StudentHomePage() {
               Browse →
             </Link>
           </p>
-        </section>
+        </HomeSection>
       )}
-
-      {/* Below everything the student came for. AV-67 is written for exactly
-          this reader — a student in another country from their tutor, whose
-          "due today" should turn over at their own midnight, not the account's.
-          A student has no settings screen yet and Phase D owns where one goes;
-          until then the control lives here rather than nowhere, because a
-          preference no one can reach is not a preference. */}
-      <MyTimezoneSetting />
     </div>
   );
 }

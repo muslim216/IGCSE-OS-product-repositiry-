@@ -96,8 +96,9 @@ test("no cross-subject aggregate is computed", async () => {
   );
   const { container } = renderHome();
 
-  await screen.findByText("74");
-  expect(screen.getByText("48")).toBeInTheDocument();
+  // Each value carries its unit — "74% ready", never a bare "74".
+  await screen.findByText("74%");
+  expect(screen.getByText("48%")).toBeInTheDocument();
   expect(container.textContent).not.toMatch(/\b61\b/);
   expect(screen.queryByText(/overall readiness/i)).not.toBeInTheDocument();
 });
@@ -119,7 +120,7 @@ test("DO precedes YOU DID in DOM order", async () => {
   const { container } = renderHome();
 
   await screen.findByText("Do");
-  const headings = [...container.querySelectorAll("h3")].map((h) => h.textContent);
+  const headings = [...container.querySelectorAll("h2")].map((h) => h.textContent);
   expect(headings.indexOf("Do")).toBeLessThan(headings.indexOf("You did"));
 });
 
@@ -136,7 +137,7 @@ test("a single readiness point renders no arrow", async () => {
   stubFetch([subject({ direction: null })], []);
   renderHome();
 
-  await screen.findByText("74");
+  await screen.findByText("74%");
   expect(screen.queryByText("→")).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Trending/)).not.toBeInTheDocument();
 });
@@ -144,7 +145,7 @@ test("a single readiness point renders no arrow", async () => {
 test("a subject that has moved is reported with the same sign as its arrow", async () => {
   stubFetch([subject({ direction: "up", month_delta: 6 })], []);
   renderHome();
-  expect(await screen.findByText(/Chemistry up 6 this month/)).toBeInTheDocument();
+  expect(await screen.findByText(/Chemistry up 6 readiness points this month/)).toBeInTheDocument();
 });
 
 test("movement below the noise band is not announced", async () => {
@@ -152,7 +153,7 @@ test("movement below the noise band is not announced", async () => {
   // win, or the two disagree on one screen.
   stubFetch([subject({ direction: "flat", month_delta: 2 })], []);
   renderHome();
-  await screen.findByText("74");
+  await screen.findByText("74%");
   expect(screen.queryByText(/this month/)).not.toBeInTheDocument();
 });
 
@@ -208,7 +209,7 @@ test("the achievement event is attached to the piece it happened on", async () =
     ],
   );
   renderHome();
-  expect(await screen.findByText("highest in your class on this")).toBeInTheDocument();
+  expect(await screen.findByText("Highest mark in your class on this piece")).toBeInTheDocument();
 });
 
 test("no standing is rendered anywhere on the home", async () => {
@@ -217,7 +218,7 @@ test("no standing is rendered anywhere on the home", async () => {
   // message.
   stubFetch([subject()], [assignment({ submission_status: "marked", my_total: 12 })]);
   const { container } = renderHome();
-  await screen.findByText("74");
+  await screen.findByText("74%");
   expect(container.textContent).not.toMatch(/\d+(st|nd|rd|th) of \d+/);
   expect(container.textContent).not.toMatch(/class average/i);
 });

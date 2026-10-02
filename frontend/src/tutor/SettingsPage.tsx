@@ -1,6 +1,7 @@
 import TimezoneSetting from "./TimezoneSetting";
 import CustomCriteriaSetting from "./CustomCriteriaSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
+import { PageHeader } from "../components/page";
 
 /**
  * This was `ClassroomSettingsPage` until 0.5 (AV-58) hid the Google Classroom
@@ -13,11 +14,17 @@ import MyTimezoneSetting from "../components/MyTimezoneSetting";
  */
 export default function SettingsPage() {
   return (
-    <div className="max-w-2xl space-y-6">
-      <h2 className="text-xl font-semibold text-ink-900">Settings</h2>
-      <TimezoneSetting />
-      <MyTimezoneSetting />
-      <CustomCriteriaSetting />
+    <div className="max-w-2xl">
+      <PageHeader
+        title="Settings"
+        description="The time zones days are counted in, and the criteria you score students on by hand."
+        back={{ to: "/tutor/library", label: "Library" }}
+      />
+      <div className="space-y-6">
+        <TimezoneSetting />
+        <MyTimezoneSetting />
+        <CustomCriteriaSetting />
+      </div>
     </div>
   );
 }

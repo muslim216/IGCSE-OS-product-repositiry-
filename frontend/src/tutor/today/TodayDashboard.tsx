@@ -222,6 +222,11 @@ export default function TodayDashboard() {
                   className="font-medium text-brand-600 hover:text-brand-700"
                 >
                   {item.assignment_title}
+                  {/* Two students' work on the same homework would otherwise
+                      be two identical rows. */}
+                  {item.student_name && (
+                    <span className="font-normal text-ink-500"> · {item.student_name}</span>
+                  )}
                 </Link>
                 <span className="text-warn-700">{REASON_LABELS[item.reason] ?? item.reason}</span>
               </li>

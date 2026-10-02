@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, FileUp } from "lucide-react";
 import { getGroup } from "../api/groups";
 import {
   MAX_CLASSIFIED_NOTES,
@@ -11,7 +11,16 @@ import {
   uploadAssignment,
 } from "../api/homework";
 import { listChapters } from "../api/syllabus";
-import { ApiError } from "../api/client";
+import { friendlyError } from "../lib/errors";
+import {
+  Button,
+  Field,
+  FileInput,
+  Input,
+  Select,
+  Textarea,
+  buttonClasses,
+} from "../components/controls";
 
 const ACCEPT = "application/pdf,image/*,.heic,.heif";
 
@@ -131,7 +140,7 @@ export default function AssignmentCreatePage() {
       queryClient.invalidateQueries({ queryKey: ["assignments", gid] });
       navigate(`/tutor/assignments/${assignment.id}`);
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err, "Couldn't set the homework. Try again.")),
   });
 
   function pick(next: File | null) {
@@ -167,16 +176,22 @@ export default function AssignmentCreatePage() {
 
   return (
     <div className="max-w-2xl">
-      <Link to={`/tutor/groups/${gid}/homework`} className="text-sm text-brand-600 hover:underline">
-        ← All homework
+      {/* Rendered inside the class layout, whose header already carries the
+          page's one <h1> — so this screen opens on an <h2>. */}
+      <Link
+        to={`/tutor/groups/${gid}/homework`}
+        className="inline-flex items-center gap-1 text-sm text-ink-500 transition-colors hover:text-brand-600"
+      >
+        <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
+        All homework
       </Link>
-      <h3 className="mt-1 font-semibold text-ink-900">Set homework</h3>
+      <h2 className="mt-2 text-xl text-ink-900">Set homework</h2>
       <p className="mt-1 text-sm text-ink-500">
         Drop in a paper and you're done — the questions are extracted and it goes out to students
         automatically. You can still edit the question list until someone submits.
       </p>
 
-      <form onSubmit={onSubmit} className="mt-5 space-y-4">
+      <form onSubmit={onSubmit} className="mt-6 space-y-5">
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
@@ -189,7 +204,7 @@ export default function AssignmentCreatePage() {
           className={`flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 text-center transition ${
             dragging
               ? "border-brand-600 bg-brand-50"
-              : "border-line-strong bg-surface hover:border-brand-600"
+              : "border-line-control bg-surface hover:border-brand-600 hover:bg-brand-50"
           }`}
         >
           <FileUp aria-hidden className="h-8 w-8 text-brand-600" />
@@ -200,7 +215,7 @@ export default function AssignmentCreatePage() {
             </>
           ) : (
             <>
-              <span className="font-medium text-ink-700">
+              <span className="font-medium text-ink-900">
                 Drop the question paper here, or click to browse
               </span>
               <span className="text-xs text-ink-500">PDF or photos — including iPhone HEIC</span>
@@ -208,14 +223,12 @@ export default function AssignmentCreatePage() {
           )}
         </button>
         {file && (
-          <button
-            type="button"
-            onClick={() => pick(null)}
-            className="text-xs text-ink-500 underline hover:text-ink-700"
-          >
+          <Button variant="ghost" size="sm" onClick={() => pick(null)}>
             Remove this file
-          </button>
+          </Button>
         )}
+        {/* Backs the drop zone's click-to-browse; the zone is the visible,
+            focusable control, so this stays hidden rather than a FileInput. */}
         <input
           ref={inputRef}
           type="file"
@@ -225,44 +238,39 @@ export default function AssignmentCreatePage() {
         />
 
         {!file && classifieds.data && classifieds.data.length > 0 && (
-          <label className="block text-sm">
-            <span className="mb-1 block text-xs font-medium text-ink-500">
-              …or reuse a paper you've uploaded before
-            </span>
-            <select
-              className="w-full rounded-md border border-line px-3 py-2 text-sm"
+          <Field label="Or reuse a paper you've uploaded before" optional>
+            <Select
               value={reuseId}
               onChange={(e) => setReuseId(e.target.value === "" ? "" : Number(e.target.value))}
             >
-              <option value="">Choose a previous paper…</option>
+              <option value="">Choose a previous paper</option>
               {classifieds.data.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title} {c.mark_scheme_name ? "(with mark scheme)" : ""}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
         )}
 
         <div className="rounded-xl border border-line bg-surface">
           <button
             type="button"
             onClick={() => setShowDetails((v) => !v)}
-            className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-ink-700"
+            className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-medium text-ink-900 hover:bg-surface-muted"
             aria-expanded={showDetails}
           >
             Optional details
-            <span className="text-ink-500">{showDetails ? "−" : "+"}</span>
+            <ChevronDown
+              aria-hidden
+              className={`h-4 w-4 text-ink-500 transition-transform ${showDetails ? "rotate-180" : ""}`}
+            />
           </button>
           {showDetails && (
-            <div className="space-y-3 border-t border-line px-4 py-4">
+            <div className="space-y-4 border-t border-line px-4 py-4">
               {(file || reuseId !== "") && chapters.data && chapters.data.length > 0 && (
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-ink-500">
-                    Chapter this paper belongs to
-                  </span>
-                  <select
-                    className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                <Field label="Chapter this paper belongs to" optional>
+                  <Select
                     value={chapterId}
                     onChange={(e) =>
                       setChapterId(e.target.value === "" ? "" : Number(e.target.value))
@@ -274,104 +282,98 @@ export default function AssignmentCreatePage() {
                         {c.code} — {c.title}
                       </option>
                     ))}
-                  </select>
-                </label>
+                  </Select>
+                </Field>
               )}
               {(file || reuseId !== "") && (
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-ink-500">
-                    Marking notes for this paper
-                  </span>
-                  <textarea
-                    className="w-full rounded-md border border-line px-3 py-2 text-sm"
+                /* Says what it does and what it does not: these notes never
+                   reach when a mark counts (AV-25), and nothing marks with
+                   them until task 3.2 — so the copy does not promise an
+                   effect the product does not have yet (PROD-1). */
+                <Field
+                  label="Marking notes for this paper"
+                  optional
+                  hint="Kept with the paper and reused every time you set work from it. The official mark scheme always wins. Marking does not read these yet."
+                >
+                  <Textarea
                     rows={3}
                     maxLength={MAX_CLASSIFIED_NOTES}
                     placeholder="Anything unusual about how work from this paper should be marked"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
-                  {/* Says what it does and what it does not: these notes never
-                      reach when a mark counts (AV-25), and nothing marks with
-                      them until task 3.2 — so the copy does not promise an
-                      effect the product does not have yet (PROD-1). */}
-                  <span className="mt-1 block text-xs text-ink-500">
-                    Kept with the paper and reused every time you set work from it. The official
-                    mark scheme always wins. Marking does not read these yet.
-                  </span>
-                </label>
+                </Field>
               )}
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs font-medium text-ink-500">
-                  Title (defaults to the file name)
-                </span>
-                <input
-                  className="w-full rounded-md border border-line px-3 py-2 text-sm"
+              <Field label="Title" optional hint="Leave it empty to use the file name.">
+                <Input
                   placeholder="e.g. HW3 — Atomic structure"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                 />
-              </label>
+              </Field>
               {file && (
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium text-ink-500">
-                    Mark scheme (skip if the answers are inside the paper)
-                  </span>
-                  <input
-                    type="file"
+                <Field
+                  label="Mark scheme"
+                  optional
+                  hint="Skip this if the answers are inside the paper."
+                >
+                  <FileInput
+                    // Remounted per paper: pick() clears the chosen mark scheme
+                    // when the paper changes, and the picker must not keep
+                    // showing the old file's name over an empty selection.
+                    key={`${file.name}-${file.size}-${file.lastModified}`}
                     accept={ACCEPT}
-                    className="text-sm"
-                    onChange={(e) => setMarkScheme(e.target.files?.[0] ?? null)}
+                    prompt="Choose the mark scheme"
+                    onFiles={(files) => setMarkScheme(files[0] ?? null)}
                   />
-                </label>
+                </Field>
               )}
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs font-medium text-ink-500">
-                  Question range (leave empty for the whole paper)
-                </span>
-                <input
-                  className="w-full rounded-md border border-line px-3 py-2 text-sm"
+              <Field label="Question range" optional hint="Leave it empty for the whole paper.">
+                <Input
                   placeholder='e.g. "Q1-15" or "pages 3-10"'
                   value={form.question_range}
                   onChange={(e) => setForm({ ...form, question_range: e.target.value })}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs font-medium text-ink-500">Due date</span>
-                <input
+              </Field>
+              <Field label="Due date" optional>
+                <Input
                   type="datetime-local"
-                  className="rounded-md border border-line px-3 py-2 text-sm"
+                  className="sm:max-w-xs"
                   value={form.due_at}
                   onChange={(e) => setForm({ ...form, due_at: e.target.value })}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs font-medium text-ink-500">Instructions</span>
-                <textarea
-                  className="w-full rounded-md border border-line px-3 py-2 text-sm"
+              </Field>
+              <Field label="Instructions" optional>
+                <Textarea
                   rows={2}
                   placeholder="Anything the students should know"
                   value={form.instructions}
                   onChange={(e) => setForm({ ...form, instructions: e.target.value })}
                 />
-              </label>
+              </Field>
             </div>
           )}
         </div>
 
         {!file && reuseId === "" && (
-          <p className="text-xs text-ink-500">
+          <p className="text-sm text-ink-500">
             No paper? Give it a title under “Optional details” and an empty assignment is created
             for you to type the questions into.
           </p>
         )}
-        {error && <p className="text-sm text-risk-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={create.isPending || !canSubmit}
-          className="rounded-md bg-brand-600 px-4 py-2 font-medium hover:bg-brand-700 disabled:opacity-50"
-        >
-          {create.isPending ? "Uploading…" : "Set homework"}
-        </button>
+        {error && (
+          <p role="alert" className="text-sm text-risk-600">
+            {error}
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          <Button type="submit" size="lg" loading={create.isPending} disabled={!canSubmit}>
+            {create.isPending && file ? "Uploading…" : "Set homework"}
+          </Button>
+          <Link to={`/tutor/groups/${gid}/homework`} className={buttonClasses("ghost", "lg")}>
+            Cancel
+          </Link>
+        </div>
       </form>
     </div>
   );

@@ -131,6 +131,23 @@ test("the parent narrative is read-only with a regenerate, and no review state",
   expect(screen.queryByRole("button", { name: /suppress/i })).not.toBeInTheDocument();
 });
 
+test("with no summary yet, the control offers to prepare one rather than 'again'", async () => {
+  stubFetch({ ...BASE, learners: [learner()] }, null);
+  renderPanel();
+
+  expect(await screen.findByRole("button", { name: "Prepare summary" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Prepare again" })).not.toBeInTheDocument();
+});
+
+test("grades are labelled as grades, never a bare number", async () => {
+  stubFetch({ ...BASE, learners: [learner({ predicted_grade: "6" })] });
+  renderPanel();
+
+  expect(await screen.findByText("Predicted grade")).toBeInTheDocument();
+  const learners = (await screen.findByText("Learners")).closest("section")!;
+  expect(within(learners).getByText(/Grade/)).toHaveTextContent("Grade 6");
+});
+
 test("a subject with no boundaries offers the action that fixes it", async () => {
   stubFetch({ ...BASE, status: null, predicted_grade: null, boundaries_missing: true });
   renderPanel();
@@ -187,6 +204,6 @@ test("a class weak topic from marked work alone carries no estimate label", asyn
   });
   renderPanel();
 
-  await screen.findByText("1.3 Atomic structure");
+  await screen.findByText("Atomic structure");
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });

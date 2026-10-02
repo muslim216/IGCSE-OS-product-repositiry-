@@ -21,7 +21,7 @@ const STEPS: { label: string; icon: LucideIcon; emphasis?: boolean }[] = [
 
 export default function LearningLoopStrip() {
   return (
-    <ol className="flex items-start overflow-x-auto pb-1">
+    <ol aria-label="The learning loop" className="flex items-start overflow-x-auto pb-1">
       {STEPS.map((step, i) => (
         <li key={step.label} className="flex shrink-0 items-center">
           <div className="flex w-24 flex-col items-center gap-1.5">

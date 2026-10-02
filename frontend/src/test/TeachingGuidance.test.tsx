@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import TeachingGuidancePage from "../tutor/TeachingGuidancePage";
@@ -61,7 +62,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <TeachingGuidancePage />
+      <MemoryRouter>
+        <TeachingGuidancePage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -107,6 +110,11 @@ test("removing a document leaves the absent state, not the old one", async () =>
   renderPage();
 
   fireEvent.click(await screen.findByText("Remove"));
+  // Deleting the document is irreversible, so it is confirmed first (UX-24) —
+  // and nothing is sent until it is.
+  const dialog = await screen.findByRole("dialog");
+  expect(calls).toEqual([]);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
 
   await waitFor(() => expect(calls).toEqual([{ method: "DELETE", subject: 7 }]));
   expect(await screen.findByText(/No teaching guidance for this subject yet/)).toBeTruthy();

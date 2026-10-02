@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import {
   createObservation,
   listObservations,
@@ -15,6 +16,26 @@ import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import { ABSENT, sourceLabel } from "../lib/labels";
+import { ApiError } from "../api/client";
+import { EmptyState, SectionCard } from "../components/ui";
+import { Button, Field, Input, Select, Textarea } from "../components/controls";
+import {
+  ErrorState,
+  NotFoundState,
+  PageHeader,
+  PageSkeleton,
+  SectionSkeleton,
+} from "../components/page";
+
+/** A card's title and the sentence under it, at the page's h2 level. */
+function CardTitle({ title, description }: { title: string; description?: string }) {
+  return (
+    <div>
+      <h2 className="text-lg text-ink-900">{title}</h2>
+      {description && <p className="mt-1 max-w-prose text-sm text-ink-500">{description}</p>}
+    </div>
+  );
+}
 
 export default function StudentDetailPage() {
   const { studentId } = useParams();
@@ -87,215 +108,265 @@ export default function StudentDetailPage() {
     if (seed.topic_id && seed.score_pct !== "") seedReadiness.mutate();
   }
 
-  if (readiness.isLoading) return <p className="text-slate-500">Loading…</p>;
+  if (readiness.isLoading) return <PageSkeleton label="Loading the student" />;
+  const back = groupId
+    ? { to: `/tutor/groups/${groupId}/students`, label: "Back to class" }
+    : { to: "/tutor/classes", label: "All classes" };
+  if (readiness.isError && readiness.error instanceof ApiError && readiness.error.status === 404) {
+    return (
+      <NotFoundState
+        title="We couldn't find that student"
+        body="They may have left your classes, or the link may be wrong."
+        back={back}
+      />
+    );
+  }
+  if (readiness.isError || !readiness.data) {
+    return (
+      <ErrorState
+        title="This student's profile didn't load"
+        error={readiness.error}
+        onRetry={() => readiness.refetch()}
+      />
+    );
+  }
+  const r = readiness.data;
+  const topicLabel = (t: { code: string; title: string }) => `${t.title} (${t.code})`;
 
   return (
-    <div className="space-y-6">
-      {groupId && (
-        <Link to={`/tutor/groups/${groupId}`} className="text-sm text-blue-600 hover:underline">
-          ← Back to group
-        </Link>
-      )}
-      <h2 className="text-xl font-semibold text-slate-800">{readiness.data?.student_name}</h2>
+    <div>
+      <PageHeader title={r.student_name} back={back} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {readiness.data?.subjects.map((s) => (
+      <div className="space-y-6">
+        {/* One full-width card per subject, stacked: a two-column grid left a
+            single subject at half width above full-width cards. */}
+        {r.subjects.map((s) => (
           <SubjectReadinessCard key={s.subject_id} subject={s} onTopicClick={setSelectedTopic} />
         ))}
-        {readiness.data?.subjects.length === 0 && (
-          <p className="text-slate-500">No readiness data yet for this student.</p>
-        )}
-      </div>
-
-      {/* Beside readiness, never in it (owner decision 6). */}
-      <CustomCriteriaPanel studentId={sid} editable />
-
-      {/* One per subject, each named. A single section fed by the page's
-          `subjectId` showed the first subject's mistakes under a bare
-          "Mistakes" heading and silently omitted every other subject the
-          student takes — a tutor reading it would have no way to tell (cubic,
-          PROD-2 applied to a whole subject rather than a number). */}
-      {readiness.data?.subjects.map((s) => (
-        <MistakeRollupSection
-          key={s.subject_id}
-          studentId={sid}
-          subjectId={s.subject_id}
-          subjectName={s.subject_name}
-        />
-      ))}
-
-      {selectedTopic !== null && evidence.data && (
-        <div className="rounded-lg border bg-white p-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium text-slate-800">
-              Evidence for {evidence.data.topic_code} {evidence.data.topic_title}
-            </h3>
-            <button
-              onClick={() => setSelectedTopic(null)}
-              className="text-sm text-slate-400 hover:text-slate-700"
-            >
-              Close
-            </button>
-          </div>
-          <p className="mt-1 text-sm text-ink-500">
-            {evidence.data.score !== null ? (
-              <>
-                Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence} confidence)
-                {evidence.data.tutor_estimate && (
-                  <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
-                )}{" "}
-                —{" "}
-              </>
-            ) : (
-              "Not enough data yet — "
-            )}
-            every score is explainable by the evidence below.
-          </p>
-          <ul className="mt-2 divide-y divide-line text-sm">
-            {evidence.data.evidence.map((e, i) => (
-              <li key={i} className="flex items-center justify-between py-1.5">
-                <span className="text-ink-700">
-                  {e.label ?? sourceLabel(e.source_type)}{" "}
-                  <span className="text-xs text-ink-500">({sourceLabel(e.source_type)})</span>
-                </span>
-                <span className="flex items-center gap-3 text-ink-500">
-                  <span>{Math.round(e.score_pct)}%</span>
-                  <span className="text-xs text-ink-500">
-                    {new Date(e.occurred_at).toLocaleDateString()}
-                  </span>
-                </span>
-              </li>
-            ))}
-            {evidence.data.evidence.length === 0 && (
-              <li className="py-1.5 text-ink-500">No evidence yet.</li>
-            )}
-          </ul>
-        </div>
-      )}
-
-      <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
-
-      {/* Seeding (spec §7.3). Optional, and deliberately late: students attach
-          themselves by invite code, so a tutor finishing setup has no students
-          to rate. It exists so a class that has just filled shows something on
-          day one instead of "not enough data yet" everywhere for three weeks —
-          and it is labelled self-declared wherever it lands (PROD-8), and gives
-          way as marked work arrives, so a first impression corrects itself. */}
-      <div className="rounded-lg border border-line bg-surface p-4">
-        <h3 className="font-medium text-ink-900">Starting estimate</h3>
-        <p className="mt-1 max-w-prose text-sm text-ink-500">
-          Where you think this student stands, before their work has been marked. Recorded as
-          self-declared, and it loses weight as real marked work arrives.
-        </p>
-        <form onSubmit={onSeed} className="mt-3 flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Topic to estimate"
-            className="rounded border border-line-control px-3 py-2 text-sm"
-            value={seed.topic_id}
-            onChange={(e) => setSeed({ ...seed, topic_id: e.target.value })}
-            required
-          >
-            <option value="">Choose a topic</option>
-            {topics.data?.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.code} {t.title}
-              </option>
-            ))}
-          </select>
-          {topics.data?.length === 0 && (
-            // The select is empty when the student has no subject yet — say so,
-            // rather than leaving a control that cannot be completed (CodeRabbit).
-            <p className="w-full text-sm text-ink-500">
-              No topics to estimate yet — they appear once this student has a subject.
-            </p>
-          )}
-          <input
-            type="number"
-            min={0}
-            max={100}
-            aria-label="Estimated percentage"
-            placeholder="0–100"
-            className="w-28 rounded border border-line-control px-3 py-2 text-sm"
-            value={seed.score_pct}
-            onChange={(e) => setSeed({ ...seed, score_pct: e.target.value })}
-            required
-          />
-          <button
-            type="submit"
-            disabled={seedReadiness.isPending}
-            className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-          >
-            Save estimate
-          </button>
-          {/* A live region so assistive technology announces the outcome — the
-              form otherwise signals success only by resetting its fields, which
-              a screen reader does not surface (CodeRabbit). */}
-          <p className="w-full text-sm" aria-live="polite">
-            {seedReadiness.isError ? (
-              <span className="text-risk-600">Could not save the estimate.</span>
-            ) : seedReadiness.isSuccess ? (
-              <span className="text-ink-500">Estimate saved.</span>
-            ) : null}
-          </p>
-        </form>
-      </div>
-
-      <div className="rounded-lg border bg-white p-4">
-        <h3 className="font-medium text-slate-800">Add an observation</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          Observations stay on this profile as your professional judgement. They never change a
-          readiness score.
-        </p>
-        <form onSubmit={onObserve} className="mt-3 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <select
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
-              value={obs.topic_id}
-              onChange={(e) => setObs({ ...obs, topic_id: e.target.value })}
-            >
-              <option value="">General (no topic)</option>
-              {topics.data?.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code} {t.title}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              placeholder="Rating 0–100"
-              className="w-32 rounded border border-slate-300 px-3 py-2 text-sm"
-              value={obs.rating}
-              onChange={(e) => setObs({ ...obs, rating: e.target.value })}
+        {r.subjects.length === 0 && (
+          <SectionCard>
+            <EmptyState
+              title="No readiness yet"
+              hint="Readiness appears once this student's work is marked."
             />
-          </div>
-          <textarea
-            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-            rows={2}
-            placeholder="What did you notice?"
-            value={obs.comment}
-            onChange={(e) => setObs({ ...obs, comment: e.target.value })}
-            required
+          </SectionCard>
+        )}
+
+        {/* Right under the readiness it explains, so a click on a topic opens
+            its evidence where the tutor is looking. */}
+        {selectedTopic !== null && (
+          <SectionCard>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg text-ink-900">
+                {evidence.data ? (
+                  <>
+                    Evidence for {evidence.data.topic_title}
+                    <span className="ml-2 font-sans text-sm text-ink-500">
+                      {evidence.data.topic_code}
+                    </span>
+                  </>
+                ) : (
+                  "Evidence"
+                )}
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Close evidence"
+                onClick={() => setSelectedTopic(null)}
+              >
+                <X aria-hidden className="h-4 w-4" />
+                Close
+              </Button>
+            </div>
+            {evidence.isLoading ? (
+              <div className="mt-3">
+                <SectionSkeleton rows={3} label="Loading evidence" />
+              </div>
+            ) : evidence.isError || !evidence.data ? (
+              <p className="mt-2 text-sm text-ink-500">{ABSENT.loadFailed}</p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-ink-500">
+                  {evidence.data.score !== null ? (
+                    <>
+                      Readiness {Math.round(evidence.data.score)}% ({evidence.data.confidence}{" "}
+                      confidence)
+                      {evidence.data.tutor_estimate && (
+                        <span className="ml-1 text-xs text-ink-500">includes tutor estimate</span>
+                      )}{" "}
+                      —{" "}
+                    </>
+                  ) : (
+                    "Not enough data yet — "
+                  )}
+                  every score is explainable by the evidence below.
+                </p>
+                <ul className="mt-3 divide-y divide-line text-sm">
+                  {evidence.data.evidence.map((e, i) => (
+                    <li key={i} className="flex items-center justify-between gap-3 py-2">
+                      <span className="min-w-0 text-ink-700">
+                        {e.label ?? sourceLabel(e.source_type)}{" "}
+                        <span className="text-xs text-ink-500">({sourceLabel(e.source_type)})</span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-3 tabular-nums">
+                        <span className="text-ink-900">{Math.round(e.score_pct)}%</span>
+                        <span className="text-xs text-ink-500">
+                          {new Date(e.occurred_at).toLocaleDateString()}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                  {evidence.data.evidence.length === 0 && (
+                    <li className="py-2 text-ink-500">No evidence yet.</li>
+                  )}
+                </ul>
+              </>
+            )}
+          </SectionCard>
+        )}
+
+        {/* Beside readiness, never in it (owner decision 6). */}
+        <CustomCriteriaPanel studentId={sid} editable />
+
+        {/* One per subject, each named. A single section fed by the page's
+            `subjectId` showed the first subject's mistakes under a bare
+            "Mistakes" heading and silently omitted every other subject the
+            student takes — a tutor reading it would have no way to tell (cubic,
+            PROD-2 applied to a whole subject rather than a number). */}
+        {r.subjects.map((s) => (
+          <MistakeRollupSection
+            key={s.subject_id}
+            studentId={sid}
+            subjectId={s.subject_id}
+            subjectName={s.subject_name}
           />
-          <button
-            type="submit"
-            disabled={addObservation.isPending}
-            className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            Save observation
-          </button>
-          {addObservation.isError && (
-            <p className="text-sm text-red-600">Could not save the observation.</p>
-          )}
-        </form>
-        <ObservationList
-          observations={observations}
-          topicName={(id) => {
-            const t = topics.data?.find((x) => x.id === id);
-            return t ? `${t.code} ${t.title}` : null;
-          }}
-        />
+        ))}
+
+        <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
+
+        {/* Seeding (spec §7.3). Optional, and deliberately late: students attach
+            themselves by invite code, so a tutor finishing setup has no students
+            to rate. It exists so a class that has just filled shows something on
+            day one instead of "not enough data yet" everywhere for three weeks —
+            and it is labelled self-declared wherever it lands (PROD-8), and gives
+            way as marked work arrives, so a first impression corrects itself. */}
+        <SectionCard>
+          <CardTitle
+            title="Starting estimate"
+            description="Where you think this student stands, before their work has been marked. Recorded as self-declared, and it loses weight as real marked work arrives."
+          />
+          <form onSubmit={onSeed} className="mt-4">
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+              <Field label="Topic to estimate">
+                <Select
+                  value={seed.topic_id}
+                  onChange={(e) => setSeed({ ...seed, topic_id: e.target.value })}
+                  required
+                >
+                  <option value="">Choose a topic</option>
+                  {topics.data?.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {topicLabel(t)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Estimated percentage">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="0–100"
+                  value={seed.score_pct}
+                  onChange={(e) => setSeed({ ...seed, score_pct: e.target.value })}
+                  required
+                />
+              </Field>
+            </div>
+            {topics.data?.length === 0 && (
+              // The select is empty when the student has no subject yet — say so,
+              // rather than leaving a control that cannot be completed (CodeRabbit).
+              <p className="mt-2 text-sm text-ink-500">
+                No topics to estimate yet — they appear once this student has a subject.
+              </p>
+            )}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <Button type="submit" loading={seedReadiness.isPending}>
+                Save estimate
+              </Button>
+              {/* A live region so assistive technology announces the outcome — the
+                  form otherwise signals success only by resetting its fields, which
+                  a screen reader does not surface (CodeRabbit). */}
+              <p className="text-sm" aria-live="polite">
+                {seedReadiness.isError ? (
+                  <span className="text-risk-600">Could not save the estimate.</span>
+                ) : seedReadiness.isSuccess ? (
+                  <span className="text-ink-500">Estimate saved.</span>
+                ) : null}
+              </p>
+            </div>
+          </form>
+        </SectionCard>
+
+        <SectionCard>
+          <CardTitle
+            title="Observations"
+            description="Notes from your own judgement. They stay on this profile and never change a readiness score."
+          />
+          <form onSubmit={onObserve} className="mt-4 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+              <Field label="Topic" optional>
+                <Select
+                  value={obs.topic_id}
+                  onChange={(e) => setObs({ ...obs, topic_id: e.target.value })}
+                >
+                  <option value="">General (no topic)</option>
+                  {topics.data?.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {topicLabel(t)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Rating" optional hint="Out of 100">
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="0–100"
+                  value={obs.rating}
+                  onChange={(e) => setObs({ ...obs, rating: e.target.value })}
+                />
+              </Field>
+            </div>
+            <Field label="What did you notice?">
+              <Textarea
+                rows={3}
+                value={obs.comment}
+                onChange={(e) => setObs({ ...obs, comment: e.target.value })}
+                required
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="submit" loading={addObservation.isPending}>
+                Save observation
+              </Button>
+              {addObservation.isError && (
+                <p role="alert" className="text-sm text-risk-600">
+                  Could not save the observation.
+                </p>
+              )}
+            </div>
+          </form>
+          <ObservationList
+            observations={observations}
+            topicName={(id) => {
+              const t = topics.data?.find((x) => x.id === id);
+              return t ? t.title : null;
+            }}
+          />
+        </SectionCard>
       </div>
     </div>
   );
@@ -313,10 +384,10 @@ function ObservationList({
   topicName: (topicId: number) => string | null;
 }) {
   return (
-    <section aria-labelledby="saved-observations" className="mt-4 border-t border-line pt-3">
-      <h4 id="saved-observations" className="text-sm font-medium text-ink-700">
+    <section aria-labelledby="saved-observations" className="mt-6 border-t border-line pt-4">
+      <h3 id="saved-observations" className="text-sm font-medium text-ink-900">
         Saved observations
-      </h4>
+      </h3>
       <ObservationRows observations={observations} topicName={topicName} />
     </section>
   );
@@ -329,7 +400,13 @@ function ObservationRows({
   observations: UseQueryResult<Observation[]>;
   topicName: (topicId: number) => string | null;
 }) {
-  if (observations.isLoading) return <p className="mt-2 text-sm text-ink-500">Loading…</p>;
+  if (observations.isLoading) {
+    return (
+      <div className="mt-3">
+        <SectionSkeleton rows={2} label="Loading observations" />
+      </div>
+    );
+  }
   if (observations.isError)
     return <p className="mt-2 text-sm text-risk-600">Could not load observations.</p>;
   const rows = observations.data ?? [];
@@ -337,7 +414,7 @@ function ObservationRows({
   return (
     <ul className="mt-2 divide-y divide-line">
       {rows.map((o) => (
-        <li key={o.id} className="py-2 text-sm">
+        <li key={o.id} className="py-2.5 text-sm">
           <p className="text-ink-500">
             {new Date(o.created_at).toLocaleDateString()}
             {" · "}
@@ -405,7 +482,7 @@ function TallyList({
 }) {
   return (
     <div className="mt-4">
-      <h4 className="text-sm font-medium text-ink-700">{title}</h4>
+      <h3 className="text-sm font-medium text-ink-900">{title}</h3>
       <p className="mt-0.5 text-xs text-ink-500">{note}</p>
       <ul className="mt-2 divide-y divide-line">
         {rows.map((r) => (
@@ -438,10 +515,12 @@ function MistakeRollupSection({
 
   const d = rollup.data;
   return (
-    <section className="mt-4 rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">Mistakes in {subjectName}</h3>
+    <SectionCard>
+      <h2 className="text-lg text-ink-900">Mistakes in {subjectName}</h2>
       {rollup.isPending ? (
-        <p className="mt-1 text-sm text-ink-500">Loading…</p>
+        <div className="mt-3">
+          <SectionSkeleton rows={2} label={`Loading mistakes in ${subjectName}`} />
+        </div>
       ) : rollup.isError || !d ? (
         // Never the clean-record line and never an empty table: a request that
         // failed knows nothing about this student's work (PROD-2).
@@ -498,6 +577,6 @@ function MistakeRollupSection({
           />
         </>
       )}
-    </section>
+    </SectionCard>
   );
 }

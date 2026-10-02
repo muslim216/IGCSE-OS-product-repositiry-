@@ -250,8 +250,8 @@ test("a blank question is excluded from the total rather than counted as zero", 
     mark({ question_id: 2, final_marks: null }),
   ]);
   renderPage();
-  expect(await screen.findByText("8 / 10")).toBeInTheDocument();
-  expect(screen.queryByText("8 / 20")).not.toBeInTheDocument();
+  expect(await screen.findByText("8/10")).toBeInTheDocument();
+  expect(screen.queryByText("8/20")).not.toBeInTheDocument();
 });
 
 test("the total states how many questions are still unmarked", async () => {
@@ -270,7 +270,7 @@ test("a fully marked submission shows no unmarked note", async () => {
     mark({ question_id: 2, final_marks: 6 }),
   ]);
   renderPage();
-  expect(await screen.findByText("14 / 20")).toBeInTheDocument();
+  expect(await screen.findByText("14/20")).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByText(/not marked yet/)).not.toBeInTheDocument());
 });
 
@@ -281,7 +281,7 @@ test("a mark of zero is a real mark and still counts", async () => {
     mark({ question_id: 2, final_marks: 5 }),
   ]);
   renderPage();
-  expect(await screen.findByText("5 / 20")).toBeInTheDocument();
+  expect(await screen.findByText("5/20")).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByText(/not marked yet/)).not.toBeInTheDocument());
 });
 
@@ -292,17 +292,20 @@ test("in a queue the page says which item this is", async () => {
   stubSubmission([mark({ question_id: 1, final_marks: 8 })], [1, 2, 3]);
   renderPage("/tutor/submissions/1?queue=review");
   expect(await screen.findByText("Reviewing 1 of 3")).toBeInTheDocument();
-  expect(screen.getByText("← Review queue")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Review queue" })).toHaveAttribute(
+    "href",
+    "/tutor/review",
+  );
 });
 
 test("the queue controls are absent when the tutor did not arrive from the queue", async () => {
   stubSubmission([mark({ question_id: 1, final_marks: 8 })], [1, 2, 3]);
   renderPage("/tutor/submissions/1");
-  await screen.findByText("8 / 10");
+  await screen.findByText("8/10");
   expect(screen.queryByText(/Reviewing 1 of/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
   // The old breadcrumb still returns to the assignment.
-  expect(screen.getByText("← HW1")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "HW1" })).toHaveAttribute("href", "/tutor/assignments/7");
 });
 
 test("Skip moves on without writing anything", async () => {
@@ -457,7 +460,7 @@ test("nothing is rendered when every question has a topic", async () => {
   stubSubmission([mark({ question_id: 1, final_marks: 8 })], [], "needs_review", null, 0);
   renderPage();
 
-  await screen.findByText("8 / 10");
+  await screen.findByText("8/10");
   expect(screen.queryByText(/linked to a syllabus topic/)).not.toBeInTheDocument();
 });
 

@@ -1,16 +1,25 @@
+import { Sparkles } from "lucide-react";
 import type { SubjectReadiness } from "../api/readiness";
+import type { ReadinessStatus } from "./ui";
+import { ABSENT } from "../lib/labels";
 
-function scoreColor(score: number): string {
-  if (score >= 70) return "text-green-600";
-  if (score >= 50) return "text-amber-600";
-  return "text-red-600";
-}
+/* Colour comes from the subject's band — its predicted grade's position in the
+   subject's own boundary list, sent by the backend as `status` — never from a
+   percentage cut-off (UX-28). This card used to colour scores against a
+   literal 70/50, which disagreed with the badge every other surface shows for
+   any subject whose boundaries are not on that scale. A topic has no band of
+   its own, so its bar is drawn in one neutral colour and the number beside it
+   carries the meaning. */
+const SCORE_TONE: Record<ReadinessStatus, string> = {
+  on_track: "text-ok-700",
+  needs_attention: "text-warn-700",
+  at_risk: "text-risk-600",
+};
 
-function barColor(score: number): string {
-  if (score >= 70) return "bg-green-500";
-  if (score >= 50) return "bg-amber-500";
-  return "bg-red-500";
-}
+/** The two markers a topic row can carry, each explained once in words below
+    the list — a tooltip alone is invisible on a phone or tablet. */
+const ESTIMATE_BADGE = "Includes tutor's estimate";
+const LOW_CONFIDENCE_BADGE = "Low confidence";
 
 const CONFIDENCE_NOTE: Record<string, string> = {
   low: "Early estimate — more work needed to be sure",
@@ -19,6 +28,14 @@ const CONFIDENCE_NOTE: Record<string, string> = {
   none: "Not enough data yet",
 };
 
+function Badge({ children }: { children: string }) {
+  return (
+    <span className="shrink-0 rounded-md bg-surface-muted px-1.5 py-0.5 text-[11px] font-medium text-ink-500">
+      {children}
+    </span>
+  );
+}
+
 export function SubjectReadinessCard({
   subject,
   onTopicClick,
@@ -26,46 +43,67 @@ export function SubjectReadinessCard({
   subject: SubjectReadiness;
   onTopicClick?: (topicId: number) => void;
 }) {
+  const anyEstimate =
+    subject.topics.some((t) => t.tutor_estimate) ||
+    subject.weak_topics.some((t) => t.tutor_estimate);
+  const anyLowConfidence = subject.topics.some((t) => t.confidence === "low");
+
   return (
-    <div className="rounded-lg border bg-white p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-slate-800">{subject.subject_name}</h3>
+    <div className="rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-display text-lg text-ink-900">{subject.subject_name}</h3>
             {subject.is_updating && (
               <span
-                className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                className="rounded-md bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700"
                 title="New evidence has come in — this score is being recalculated."
               >
-                Updating…
+                {ABSENT.updating}
               </span>
             )}
           </div>
-          <p className="text-sm text-slate-500">{subject.exam_board}</p>
+          <p className="text-sm text-ink-500">{subject.exam_board}</p>
         </div>
         {subject.score !== null ? (
-          <div className="text-right">
-            <div className={`text-3xl font-bold ${scoreColor(subject.score)}`}>
+          <div className="shrink-0 text-right">
+            <div
+              className={`font-display text-3xl leading-none tabular-nums ${
+                subject.status ? SCORE_TONE[subject.status] : "text-ink-900"
+              }`}
+            >
               {Math.round(subject.score)}%
             </div>
-            <div className="text-sm text-slate-500">
-              Predicted grade{" "}
-              <span className="font-semibold text-slate-700">{subject.predicted_grade}</span>{" "}
-              <span className="text-xs text-slate-400">(estimate)</span>
+            <div className="mt-1 text-xs text-ink-500">readiness</div>
+            <div className="mt-1 text-sm text-ink-500">
+              {/* A score with no boundaries to map it through has no grade,
+                  and says so rather than leaving "Predicted grade" hanging. */}
+              {subject.predicted_grade !== null ? (
+                <>
+                  Predicted grade{" "}
+                  <span className="font-semibold text-ink-900">{subject.predicted_grade}</span>
+                </>
+              ) : (
+                ABSENT.noBoundaries
+              )}
             </div>
           </div>
         ) : (
-          <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-500">
+          <span className="shrink-0 rounded-md bg-surface-muted px-2 py-1 text-xs text-ink-500">
             Not enough data yet
           </span>
         )}
       </div>
 
-      {subject.is_updating && subject.score !== null && (
-        <p className="mt-2 text-xs text-blue-700">
-          Showing the last calculated score while a new one is worked out.
-        </p>
-      )}
+      {/* Announced, and the last known score kept on screen beneath it — a
+          stale value is shown as stale, never blanked (UX-13, UX-21). */}
+      <div aria-live="polite">
+        {subject.is_updating && subject.score !== null && (
+          <p className="mt-2 text-xs text-brand-700">
+            Showing the last calculated score while a new one is worked out.
+          </p>
+        )}
+      </div>
 
       {/* A fact, not a score (AV-32): shown even when there is no readiness
           score yet, because handed-in-but-unmarked homework is real evidence
@@ -77,37 +115,51 @@ export function SubjectReadinessCard({
           them `undefined` rather than `null` — a strict check would let that
           through and render "Homework:  of  handed in". */}
       {subject.homework_assignment_count != null && subject.homework_submitted_count != null && (
-        <p className="mt-2 text-sm text-ink-500">
+        <p className="mt-3 text-sm text-ink-700">
           Homework: {subject.homework_submitted_count} of {subject.homework_assignment_count} handed
           in
         </p>
       )}
 
-      {subject.rationale && <p className="mt-3 text-sm text-slate-600">{subject.rationale}</p>}
-
-      {subject.recommended_revision && (
-        <div className="mt-3 rounded bg-slate-50 p-3 text-sm text-slate-600">
-          <span className="font-medium text-slate-700">What to do next: </span>
-          {subject.recommended_revision}
+      {/* Both of these are written by the AI from the evidence (the v2
+          rationale and revision plan), so they are labelled as such and set
+          apart from the measured numbers above — a proposal for the tutor to
+          weigh, not a finding (UX-22, PROD-7). */}
+      {(subject.rationale || subject.recommended_revision) && (
+        <div className="mt-4 rounded-lg border border-line bg-canvas p-3 text-sm">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-ink-500">
+            <Sparkles aria-hidden className="h-3.5 w-3.5 text-brand-600" />
+            AI summary of the evidence — check it against the topics below
+          </p>
+          {subject.rationale && <p className="mt-2 text-ink-700">{subject.rationale}</p>}
+          {subject.recommended_revision && (
+            <p className="mt-2 text-ink-700">
+              <span className="font-medium text-ink-900">What to do next: </span>
+              {subject.recommended_revision}
+            </p>
+          )}
         </div>
       )}
 
       {subject.weak_topics.length > 0 && (
         <div className="mt-4">
-          <p className="text-sm font-medium text-slate-600">Focus on these topics</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <p className="text-sm font-medium text-ink-900">Focus on these topics</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {subject.weak_topics.map((t) => (
               <button
                 key={t.topic_id}
+                type="button"
                 onClick={() => onTopicClick?.(t.topic_id)}
-                className="rounded-full bg-red-50 px-2.5 py-1 text-xs text-red-700 hover:bg-red-100"
-                title={`${Math.round(t.score)}%${
-                  t.tutor_estimate ? " — includes tutor estimate" : ""
-                }`}
+                className="inline-flex items-center gap-1.5 rounded-full bg-risk-100 px-2.5 py-1 text-xs text-risk-600 transition-colors hover:opacity-80"
+                title={`${t.topic_code} · ${Math.round(t.score)}%`}
               >
-                {t.topic_code} {t.topic_title}
+                <span className="font-medium">{t.topic_title}</span>
+                <span className="tabular-nums opacity-80">{Math.round(t.score)}%</span>
                 {t.tutor_estimate && (
-                  <span className="ml-1 text-ink-500">includes tutor estimate</span>
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>{ESTIMATE_BADGE}</span>
+                  </>
                 )}
               </button>
             ))}
@@ -117,39 +169,59 @@ export function SubjectReadinessCard({
 
       {subject.topics.length > 0 && (
         <div className="mt-4">
-          <p className="text-sm font-medium text-slate-600">Topic breakdown</p>
-          <div className="mt-2 space-y-1.5">
+          <p className="text-sm font-medium text-ink-900">Topic breakdown</p>
+          <ul className="mt-2 space-y-0.5">
             {subject.topics.map((t) => (
-              <button
-                key={t.topic_id}
-                onClick={() => onTopicClick?.(t.topic_id)}
-                className="block w-full text-left"
-                title={CONFIDENCE_NOTE[t.confidence]}
-              >
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="w-28 shrink-0 truncate text-slate-500">{t.topic_code}</span>
-                  {t.tutor_estimate && (
-                    <span className="text-xs text-ink-500">includes tutor estimate</span>
-                  )}
-                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className={`h-full ${barColor(t.score)}`}
-                      style={{ width: `${t.score}%` }}
+              <li key={t.topic_id}>
+                <button
+                  type="button"
+                  onClick={() => onTopicClick?.(t.topic_id)}
+                  className="grid w-full grid-cols-[minmax(0,1fr)_5rem_3rem] items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-muted"
+                  title={CONFIDENCE_NOTE[t.confidence]}
+                >
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="min-w-0 truncate text-ink-900">{t.topic_title}</span>
+                    <span className="text-xs text-ink-500">{t.topic_code}</span>
+                    {t.tutor_estimate && <Badge>{ESTIMATE_BADGE}</Badge>}
+                    {t.confidence === "low" && <Badge>{LOW_CONFIDENCE_BADGE}</Badge>}
+                  </span>
+                  <span
+                    aria-hidden
+                    className="block h-1.5 overflow-hidden rounded-full bg-surface-muted"
+                  >
+                    <span
+                      className="block h-full rounded-full bg-brand-500"
+                      style={{ width: `${Math.max(0, Math.min(100, t.score))}%` }}
                     />
-                  </div>
-                  <span className={`w-10 shrink-0 text-right ${scoreColor(t.score)}`}>
+                  </span>
+                  <span className="text-right tabular-nums text-ink-700">
                     {Math.round(t.score)}%
                   </span>
-                  {t.confidence === "low" && (
-                    <span className="text-xs text-slate-400" title="Low confidence">
-                      ?
-                    </span>
-                  )}
-                </div>
-              </button>
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
+      )}
+
+      {(anyEstimate || anyLowConfidence) && (
+        <dl className="mt-4 space-y-1 border-t border-line pt-3 text-xs leading-relaxed text-ink-500">
+          {anyEstimate && (
+            <div>
+              <dt className="inline font-medium text-ink-700">Tutor&apos;s estimate: </dt>
+              <dd className="inline">
+                part of the score is a starting level a tutor entered, not marked work. It counts
+                for less as marked work comes in.
+              </dd>
+            </div>
+          )}
+          {anyLowConfidence && (
+            <div>
+              <dt className="inline font-medium text-ink-700">Low confidence: </dt>
+              <dd className="inline">only a little marked work is behind this topic so far.</dd>
+            </div>
+          )}
+        </dl>
       )}
     </div>
   );

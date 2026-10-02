@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, FileText } from "lucide-react";
 import {
+  fetchFileUrl,
   finalizeSubmission,
   getSubmission,
   markHistory,
@@ -12,10 +14,14 @@ import {
   type MarkRow,
   type MistakeRow,
   type SubmissionDetail,
+  type SubmissionFileInfo,
 } from "../api/homework";
 import { getMistakeCategories, type MistakeCategoryItem } from "../api/mistakeCategories";
-import { AuthImage, AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
+import { friendlyError } from "../lib/errors";
+import { SectionCard } from "../components/ui";
+import { Button, Textarea, inputClasses } from "../components/controls";
+import { ErrorState, NotFoundState, PageHeader, PageSkeleton, Skeleton } from "../components/page";
 
 interface Draft {
   final_marks: number | null;
@@ -37,6 +43,137 @@ const CONFIDENCE_LABEL: Record<string, string> = {
   unsure: "No mark scheme — your call",
   tutor_only: "No mark scheme — your call",
 };
+
+/** The submission's state, as the header badge says it. */
+const STATUS_BADGE: Record<string, { label: string; classes: string }> = {
+  submitted: { label: "Waiting to be marked", classes: "bg-surface-muted text-ink-700" },
+  marking: { label: "Being marked", classes: "bg-surface-muted text-ink-700" },
+  ai_marked: { label: "AI draft ready", classes: "bg-warn-100 text-warn-700" },
+  ai_failed: { label: "AI couldn't mark this", classes: "bg-risk-100 text-risk-600" },
+  needs_review: { label: "Needs your review", classes: "bg-warn-100 text-warn-700" },
+  auto_finalized: { label: "Marked automatically", classes: "bg-ok-100 text-ok-700" },
+  finalized: { label: "Finalized", classes: "bg-ok-100 text-ok-700" },
+};
+
+/**
+ * One uploaded page of the student's work, fetched with the tutor's token.
+ *
+ * An image renders inline so the tutor marks with the work in view. A PDF
+ * cannot: the CSP allows `blob:` for images only (no frame or object source),
+ * so it gets a clear button that opens it in a new tab instead of a link that
+ * reads like a file name.
+ */
+function WorkFile({
+  path,
+  file,
+  label,
+}: {
+  path: string;
+  file: SubmissionFileInfo;
+  label: string;
+}) {
+  const isPdf = file.mime === "application/pdf";
+  const [attempt, setAttempt] = useState(0);
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [opening, setOpening] = useState(false);
+
+  useEffect(() => {
+    if (isPdf) return;
+    let created: string | null = null;
+    let cancelled = false;
+    fetchFileUrl(path)
+      .then((u) => {
+        if (cancelled) {
+          URL.revokeObjectURL(u);
+          return;
+        }
+        created = u;
+        setUrl(u);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [path, isPdf, attempt]);
+
+  async function openPdf() {
+    setOpening(true);
+    setFailed(false);
+    try {
+      window.open(await fetchFileUrl(path), "_blank");
+    } catch {
+      // Tutor material can redirect to the object store since task 1.2, so a
+      // network or bucket CORS failure lands here rather than as a status.
+      setFailed(true);
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  if (isPdf) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+        <span className="flex min-w-0 items-center gap-3">
+          <FileText aria-hidden className="h-5 w-5 shrink-0 text-brand-600" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium text-ink-900">{file.name}</span>
+            <span className="block text-xs text-ink-500">
+              {failed ? "That didn't open. Try again." : `${label} · PDF, opens in a new tab`}
+            </span>
+          </span>
+        </span>
+        <Button variant="secondary" size="sm" loading={opening} onClick={openPdf}>
+          <ExternalLink aria-hidden className="h-4 w-4" />
+          Open PDF
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <figure className="overflow-hidden rounded-xl border border-line bg-surface">
+      {url ? (
+        <img src={url} alt={`${label} of the student's work`} className="block w-full" />
+      ) : failed ? (
+        <div role="alert" className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+          <p className="text-sm text-ink-500">This page didn't load.</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setFailed(false);
+              setAttempt((n) => n + 1);
+            }}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : (
+        <Skeleton className="h-72 w-full" />
+      )}
+      <figcaption className="flex items-center justify-between gap-3 border-t border-line px-3 py-2 text-xs text-ink-500">
+        <span className="truncate">
+          {label} · {file.name}
+        </span>
+        {url && (
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1 font-medium text-brand-600 hover:text-brand-700"
+          >
+            Full size
+            <ExternalLink aria-hidden className="h-3 w-3" />
+          </a>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
 
 export default function SubmissionReviewPage() {
   const { submissionId } = useParams();
@@ -128,7 +265,6 @@ export default function SubmissionReviewPage() {
   }, [submission.data]);
 
   const finalized = submission.data?.status === "finalized";
-  const autoFinalized = submission.data?.status === "auto_finalized";
   const reviewCount =
     submission.data?.marks.filter((m) => m.needs_review || m.remark_requested).length ?? 0;
 
@@ -143,7 +279,7 @@ export default function SubmissionReviewPage() {
         })),
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["submission", id] }),
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err)),
   });
 
   /* Finalizing always saves first, and that save is what writes the append-only
@@ -168,7 +304,7 @@ export default function SubmissionReviewPage() {
       queryClient.invalidateQueries({ queryKey: ["submission", id] });
       if (advance) goNext();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err)),
   });
 
   /* An unmarked question contributes nothing to either side of the total, and
@@ -193,154 +329,170 @@ export default function SubmissionReviewPage() {
     return { got, max, unmarked };
   }, [submission.data, drafts]);
 
-  if (submission.isLoading) return <p className="text-ink-500">Loading…</p>;
-  if (submission.isError || !submission.data)
-    return <p className="text-risk-600">Submission not found.</p>;
+  if (submission.isLoading) return <PageSkeleton label="Loading the submission" />;
+  if (
+    submission.isError &&
+    submission.error instanceof ApiError &&
+    submission.error.status === 404
+  ) {
+    return (
+      <NotFoundState
+        title="We couldn't find that submission"
+        body="It may have been removed, or the link may be wrong."
+        back={{ to: "/tutor/review", label: "Review queue" }}
+      />
+    );
+  }
+  if (submission.isError || !submission.data) {
+    return (
+      <ErrorState
+        title="This submission didn't load"
+        error={submission.error}
+        onRetry={() => submission.refetch()}
+      />
+    );
+  }
   const s = submission.data;
+  const status = STATUS_BADGE[s.status];
+
+  /* In a queue the way back returns to the queue, not the assignment: six
+     submissions used to cost six round trips back out through their parent
+     assignment to find the next one. All three arms outside it, not two: a
+     mock carries `mock_id`, never `assignment_id`, and an
+     `assignment_id ? … : past-papers` test sent every mock to the past-papers
+     library (API-20, one layer up). */
+  const back = inQueue
+    ? { to: "/tutor/review", label: "Review queue" }
+    : s.assignment_id
+      ? { to: `/tutor/assignments/${s.assignment_id}`, label: s.assignment_title }
+      : s.mock_id
+        ? { to: "/tutor/mocks", label: "Mocks" }
+        : { to: "/tutor/past-papers", label: "Past papers" };
 
   return (
-    <div className="space-y-5">
-      <div>
-        {/* In a queue the breadcrumb returns to the queue, not the assignment:
-            six submissions used to cost six round trips back out through their
-            parent assignment to find the next one. */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Link
-            to={
-              inQueue
-                ? "/tutor/review"
-                : s.assignment_id
-                  ? `/tutor/assignments/${s.assignment_id}`
-                  : "/tutor/past-papers"
-            }
-            className="text-sm text-brand-600 hover:underline"
-          >
-            ← {inQueue ? "Review queue" : s.assignment_title}
-          </Link>
-          {inQueue && position >= 0 && (
-            <span className="text-sm text-ink-500">
-              Reviewing {position + 1} of {queueItems.length}
-            </span>
-          )}
-        </div>
-        <div className="mt-1 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-ink-900">{s.student_name}'s work</h2>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="font-medium text-ink-700">
-              {totals.got} / {totals.max}
-              {totals.unmarked > 0 && (
-                <span className="ml-1.5 font-normal text-ink-500">
-                  ({totals.unmarked} not marked yet)
-                </span>
-              )}
-            </span>
-            {autoFinalized && (
-              <span className="rounded-full bg-ok-100 px-3 py-1 text-xs font-medium text-ok-700">
-                Marked automatically
+    <div>
+      <PageHeader
+        title={`${s.student_name}'s work`}
+        back={back}
+        description={s.assignment_title}
+        meta={
+          <>
+            {status && (
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${status.classes}`}>
+                {status.label}
               </span>
             )}
-            {finalized ? (
-              <>
-                <span className="rounded-full bg-ok-100 px-3 py-1 text-xs font-medium text-ok-700">
-                  Finalized
-                </span>
-                {inQueue && (
-                  <button
-                    onClick={goNext}
-                    className="rounded border border-line-control px-3 py-1.5 hover:bg-surface-muted"
-                  >
-                    {next ? "Next →" : "Back to queue"}
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => save.mutate()}
-                  disabled={save.isPending}
-                  className="rounded border border-line-control px-3 py-1.5 hover:bg-surface-muted disabled:opacity-50"
-                >
-                  Save draft
-                </button>
-                {inQueue && (
-                  // Skip leaves the marks exactly as they are — it is "not now",
-                  // never a decision, so it must not write anything.
-                  <button
-                    onClick={goNext}
-                    className="rounded border border-line-control px-3 py-1.5 hover:bg-surface-muted"
-                  >
-                    Skip
-                  </button>
-                )}
-                <button
-                  onClick={() => finalize.mutate(inQueue)}
-                  disabled={finalize.isPending}
-                  className="rounded bg-brand-600 px-3 py-1.5 text-canvas hover:bg-brand-700 disabled:opacity-50"
-                >
-                  {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
-                </button>
-              </>
+            <span className="text-ink-700">
+              Total{" "}
+              <span className="font-medium tabular-nums text-ink-900">
+                {totals.got}/{totals.max}
+              </span>
+              {totals.unmarked > 0 && (
+                <span className="ml-1.5 text-ink-500">({totals.unmarked} not marked yet)</span>
+              )}
+            </span>
+            {inQueue && position >= 0 && (
+              <span className="text-ink-500">
+                Reviewing {position + 1} of {queueItems.length}
+              </span>
             )}
+          </>
+        }
+        actions={
+          finalized ? (
+            inQueue && (
+              <Button variant="secondary" onClick={goNext}>
+                {next ? "Next →" : "Back to queue"}
+              </Button>
+            )
+          ) : (
+            <>
+              {inQueue && (
+                // Skip leaves the marks exactly as they are — it is "not now",
+                // never a decision, so it must not write anything.
+                <Button variant="ghost" onClick={goNext}>
+                  Skip
+                </Button>
+              )}
+              <Button variant="secondary" loading={save.isPending} onClick={() => save.mutate()}>
+                Save draft
+              </Button>
+              <Button loading={finalize.isPending} onClick={() => finalize.mutate(inQueue)}>
+                {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
+              </Button>
+            </>
+          )
+        }
+      />
+
+      {/* Notices sit between the header and the work, and take no space when
+          there are none. */}
+      <div className="mb-6 space-y-4 empty:hidden">
+        {/* A zero here is not a finding — render nothing at all (UX-19). */}
+        {s.bare_question_count > 0 && (
+          <div className="rounded-xl border border-line bg-surface-muted px-4 py-3 text-sm text-ink-700">
+            {s.bare_question_count === 1
+              ? "1 question isn't linked to a syllabus topic."
+              : `${s.bare_question_count} questions aren't linked to a syllabus topic.`}{" "}
+            {/* All three arms, not two. A mock carries `mock_id`, never
+                `assignment_id`, so an `assignment_id ? … : past-papers` test sends
+                every mock to the past-papers library — the same silent narrowing
+                to two arms that `API-20` exists to stop, one layer up. */}
+            <Link
+              to={
+                s.assignment_id
+                  ? `/tutor/assignments/${s.assignment_id}`
+                  : s.mock_id
+                    ? "/tutor/mocks"
+                    : "/tutor/past-papers"
+              }
+              className="font-medium text-brand-600 hover:text-brand-700"
+            >
+              Fix this
+            </Link>
           </div>
-        </div>
+        )}
+
+        {s.ai_error && (
+          <div className="rounded-xl border border-line bg-warn-100 px-4 py-3 text-sm text-ink-900">
+            <p>
+              <span className="font-medium">The AI couldn't mark this work.</span> Mark each
+              question yourself below.
+            </p>
+            {/* The job's own reason, folded away for whoever has to fix it —
+                a raw exception string is not a message for a tutor. */}
+            <details className="mt-2 text-xs text-ink-500">
+              <summary className="cursor-pointer">Technical details</summary>
+              <p className="mt-1 break-words font-mono">{s.ai_error}</p>
+            </details>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
+            {error}
+          </p>
+        )}
       </div>
 
-      {/* A zero here is not a finding — render nothing at all (UX-19). */}
-      {s.bare_question_count > 0 && (
-        <div className="rounded-lg border border-line bg-surface-muted p-3 text-sm text-ink-700">
-          {s.bare_question_count === 1
-            ? "1 question isn't linked to a syllabus topic."
-            : `${s.bare_question_count} questions aren't linked to a syllabus topic.`}{" "}
-          {/* All three arms, not two. A mock carries `mock_id`, never
-              `assignment_id`, so an `assignment_id ? … : past-papers` test sends
-              every mock to the past-papers library — the same silent narrowing
-              to two arms that `API-20` exists to stop, one layer up. */}
-          <Link
-            to={
-              s.assignment_id
-                ? `/tutor/assignments/${s.assignment_id}`
-                : s.mock_id
-                  ? "/tutor/mocks"
-                  : "/tutor/past-papers"
-            }
-            className="text-brand-600 hover:underline"
-          >
-            Fix this
-          </Link>
-        </div>
-      )}
-
-      {s.ai_error && (
-        <div className="rounded-lg border border-line bg-warn-100 p-3 text-sm text-warn-700">
-          AI marking did not run ({s.ai_error}). Mark each question yourself below.
-        </div>
-      )}
-      {error && <p className="text-sm text-risk-600">{error}</p>}
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        {/* Left: the student's uploaded pages */}
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-ink-700">Uploaded pages</h3>
-          {s.files.map((f) =>
-            f.mime === "application/pdf" ? (
-              <div key={f.id} className="rounded border border-line bg-surface p-3 text-sm">
-                <AuthFileLink path={submissionFilePath(s.id, f.id)} label={`Open ${f.name}`} />
-              </div>
-            ) : (
-              <AuthImage key={f.id} path={submissionFilePath(s.id, f.id)} alt={f.name} />
-            ),
-          )}
-        </div>
-
-        {/* Right: AI reading + tutor's editable marks, question by question */}
-        <div className="space-y-3">
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Left: the student's work. Sticky on wide screens, so the page being
+            marked stays in view while the tutor works down the questions —
+            and scrollable on its own, or a multi-page upload taller than the
+            window would hide its later pages until the marks ran out. */}
+        <section
+          aria-labelledby="student-work"
+          className="space-y-3 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:pr-1"
+        >
+          <h2 id="student-work" className="text-lg text-ink-900">
+            The student's work
+          </h2>
           {s.typed_answer && (
-            <section className="rounded-lg border border-line bg-surface p-3">
+            <SectionCard>
               {s.typed_answer.flag_reason && (
                 // AV-93's scan fired. Every mark here is waiting on the tutor
                 // regardless of how confident the AI was, so say why — a queue
                 // with no explanation trains people to clear it.
-                <p className="mb-2 rounded border border-warn-700 bg-warn-100 p-2 text-sm text-ink-900">
+                <p className="mb-3 rounded-md border border-warn-700 bg-warn-100 p-2 text-sm text-ink-900">
                   <span className="font-medium">
                     This typed answer contains text addressed to the marker.
                   </span>{" "}
@@ -348,17 +500,36 @@ export default function SubmissionReviewPage() {
                 </p>
               )}
               <h3 className="text-sm font-medium text-ink-700">What the student typed</h3>
-              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap font-sans text-sm text-ink-700">
+              <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap font-sans text-sm text-ink-900">
                 {s.typed_answer.text}
               </pre>
-            </section>
+            </SectionCard>
           )}
+          {s.files.map((f, i) => (
+            <WorkFile
+              key={f.id}
+              path={submissionFilePath(s.id, f.id)}
+              file={f}
+              label={s.files.length > 1 ? `Page ${i + 1} of ${s.files.length}` : "Upload"}
+            />
+          ))}
+          {s.files.length === 0 && !s.typed_answer && (
+            <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-sm text-ink-500">
+              No pages were uploaded with this submission.
+            </p>
+          )}
+        </section>
 
-          <h3 className="text-sm font-medium text-ink-700">
+        {/* Right: AI reading + tutor's editable marks, question by question */}
+        <section aria-labelledby="marks-heading" className="space-y-3">
+          <h2 id="marks-heading" className="text-lg text-ink-900">
+            Marks
+          </h2>
+          <p className="text-sm text-ink-500">
             {reviewCount > 0
               ? `${reviewCount} of ${s.marks.length} marks need your decision`
               : "Every mark was made confidently — nothing needs your decision"}
-          </h3>
+          </p>
           {s.marks.map((m) => (
             <QuestionCard
               key={m.question_id}
@@ -377,7 +548,7 @@ export default function SubmissionReviewPage() {
               }
             />
           ))}
-        </div>
+        </section>
       </div>
     </div>
   );
@@ -551,6 +722,7 @@ function QuestionCard({
   const confidence = mark.ai_confidence ?? "unsure";
   const matchesAi = mark.ai_marks !== null && draft?.final_marks === mark.ai_marks;
   const [showHistory, setShowHistory] = useState(false);
+  const marksId = useId();
   const history = useQuery({
     queryKey: ["mark-history", submissionId, mark.question_id],
     queryFn: () => markHistory(submissionId, mark.question_id),
@@ -559,18 +731,22 @@ function QuestionCard({
 
   return (
     <div
-      className={`rounded-lg border border-line bg-surface p-4 ${
-        mark.remark_requested ? "border-brand-600" : mark.needs_review ? "border-warn-700" : ""
+      className={`rounded-xl border bg-surface p-4 shadow-[0_1px_2px_rgba(44,26,14,0.06)] ${
+        mark.remark_requested
+          ? "border-brand-600"
+          : mark.needs_review
+            ? "border-warn-700"
+            : "border-line"
       }`}
     >
-      <div className="flex items-center justify-between">
-        <span className="font-medium text-ink-900">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <span className="min-w-0 font-medium text-ink-900">
           Q{mark.number}{" "}
           <span className="font-normal text-ink-500">
-            — {mark.text_summary} ({mark.max_marks} marks)
+            — {mark.text_summary} ({mark.max_marks} {mark.max_marks === 1 ? "mark" : "marks"})
           </span>
         </span>
-        <div className="flex gap-1">
+        <div className="flex shrink-0 gap-1">
           {mark.auto_finalized && (
             <span className="rounded-full bg-ok-100 px-2 py-0.5 text-xs text-ok-700">Counted</span>
           )}
@@ -606,13 +782,16 @@ function QuestionCard({
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <label className="text-sm text-ink-700">Marks</label>
+        <label htmlFor={marksId} className="text-sm font-medium text-ink-900">
+          Marks
+        </label>
         <input
+          id={marksId}
           type="number"
           min={0}
           max={mark.max_marks}
           disabled={readOnly}
-          className="w-20 rounded border border-line-control px-2 py-1 text-sm disabled:bg-surface-muted"
+          className={`${inputClasses.replace("w-full", "")} w-20 tabular-nums`}
           value={draft?.final_marks ?? ""}
           onChange={(e) =>
             onChange({
@@ -621,21 +800,27 @@ function QuestionCard({
           }
         />
         <span className="text-sm text-ink-500">/ {mark.max_marks}</span>
-        {mark.ai_marks !== null && !readOnly && (
-          <button
-            onClick={() => onChange({ final_marks: mark.ai_marks })}
-            className={`rounded px-2 py-1 text-xs ${
-              matchesAi ? "bg-ok-100 text-ok-700" : "bg-surface-muted text-ink-700 hover:bg-line"
-            }`}
-          >
-            {matchesAi ? "✓ matches AI" : `Accept AI (${mark.ai_marks})`}
-          </button>
-        )}
+        {mark.ai_marks !== null &&
+          !readOnly &&
+          (matchesAi ? (
+            <span className="rounded-md bg-ok-100 px-2 py-1 text-xs font-medium text-ok-700">
+              Matches the AI's mark
+            </span>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onChange({ final_marks: mark.ai_marks })}
+            >
+              Use the AI's mark ({mark.ai_marks}/{mark.max_marks})
+            </Button>
+          ))}
       </div>
 
-      <textarea
+      <Textarea
         disabled={readOnly}
-        className="mt-2 w-full rounded border border-line-control px-2 py-1 text-sm disabled:bg-surface-muted"
+        aria-label={`Feedback for the student on question ${mark.number}`}
+        className="mt-3"
         rows={2}
         placeholder="Feedback for the student"
         value={draft?.final_feedback ?? ""}
@@ -665,8 +850,10 @@ function QuestionCard({
       )}
 
       <button
+        type="button"
+        aria-expanded={showHistory}
         onClick={() => setShowHistory((v) => !v)}
-        className="mt-2 text-xs text-ink-500 hover:underline"
+        className="mt-2 rounded text-xs font-medium text-ink-500 hover:text-ink-900"
       >
         {showHistory ? "Hide" : "Show"} mark history
       </button>

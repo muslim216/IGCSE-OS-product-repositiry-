@@ -17,8 +17,9 @@ import asyncio
 import random
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import distinct, func, select
 
 from app.db import async_session
 from app.models import (
@@ -78,6 +79,12 @@ from app.services.readiness_v2_ai import _weighted_reference_score
 from app.services.work import create_work
 
 PASSWORD = "demo1234"
+
+#: A photographed page of handwritten answers to HW2, so the review screen shows
+#: the student's work beside the marks the way a real upload does. Rendered from
+#: the OFL-licensed Caveat typeface; the answers match the demo's marks,
+#: including question 2's missing "oppositely charged ions" that the AI flags.
+HANDWRITTEN_PAGE = Path(__file__).parent / "assets" / "ionic-bonding-answer.jpg"
 
 # A minimal one-page PDF, valid enough to store and reference as a demo file.
 FAKE_PDF_BYTES = (
@@ -193,9 +200,9 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
 
     Layer 1 runs for real; the score is Layer 1's own weighted reference — the
     value compute_readiness_v2 clamps any AI answer to within ±10 of — so the
-    demo shows the engine's deterministic answer. The rationale says what the
-    number is (a weighted average) rather than how the seed produced it — it is
-    rendered to tutors, and seed internals do not belong on a product screen."""
+    demo shows the engine's deterministic answer. The rationale is rendered to
+    tutors under the AI-summary label, so it says only what the evidence rows
+    show — never seed internals, and nothing a model would have had to infer."""
     subject = await session.get(Subject, subject_id)
     run_id = str(uuid.uuid4())
     rows = await evaluate_subject_factors(session, student.id, subject_id, run_id, now)
@@ -205,6 +212,12 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
     reference = _weighted_reference_score(counted, config.weights)
     score = round(reference, 1) if reference is not None else None
     boundaries = await resolve_grade_boundaries(session, student.organization_id, subject)
+    # The rationale states facts read from the student's own evidence. The seed
+    # never calls a model (QA-8 in spirit), so it must not write anything the
+    # data cannot back.
+    topic_count = await session.scalar(
+        select(func.count(distinct(Evidence.topic_id))).where(Evidence.student_id == student.id)
+    )
     session.add(
         ReadinessSnapshot(
             evaluation_run_id=run_id,
@@ -217,7 +230,9 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
             else None,
             weak_topics=[],
             rationale=(
-                "Calculated from the weighted average of this student's readiness factors."
+                f"Readiness is {score:.0f}% across {topic_count} topics with marked work, "
+                "weighting each factor as this tutor has set it. The predicted grade reads "
+                "that score through the tutor's own grade boundaries."
                 if score is not None
                 else "No evidence yet for this subject."
             ),
@@ -361,9 +376,17 @@ async def main() -> None:
 
         # ~30 evidence rows per student across the first few topics, trending
         # upward over the last 90 days, so dashboards show real progress.
+        # A real class has a spread: two students comfortably on track, one
+        # struggling, the rest in between. A class where everyone carries the
+        # same status reads as a fixture, not a group of people.
+        level = {
+            student1.id: 18,
+            classmates[2].id: 14,
+            classmates[0].id: -16,
+        }
         for student in students:
             for topic in topics[: min(6, len(topics))]:
-                base = rng.uniform(45, 65)
+                base = rng.uniform(45, 65) + level.get(student.id, 0)
                 for i in range(5):
                     days_ago = 90 - i * 18
                     trend = base + (90 - days_ago) / 90 * rng.uniform(15, 30)
@@ -394,6 +417,21 @@ async def main() -> None:
         session.add(lesson)
         await session.flush()
         session.add(LessonTopic(lesson_id=lesson.id, topic_id=topics[0].id))
+        # Ninety days into term a tutor has taught most of the course. Syllabus
+        # coverage is derived from lesson_topics (PROD-14), so a demo with one
+        # recorded lesson scored every student at a few percent coverage and
+        # dragged the whole class's readiness down with it.
+        for weeks_ago, topic in zip(range(11, 1, -2), topics[1:6], strict=False):
+            taught = Lesson(
+                organization_id=org.id,
+                group_id=group.id,
+                date=date.today() - timedelta(weeks=weeks_ago),
+                duration_min=90,
+                notes=f"Taught {topic.title.lower()}; worked examples and an exit quiz.",
+            )
+            session.add(taught)
+            await session.flush()
+            session.add(LessonTopic(lesson_id=taught.id, topic_id=topic.id))
         session.add(
             LessonObservation(
                 lesson_id=lesson.id,
@@ -477,6 +515,11 @@ async def main() -> None:
             ],
         }
 
+        def scaled(max_marks: int, low: float, high: float, student: User) -> int:
+            """A mark out of max_marks, shifted by the student's level."""
+            ratio = rng.uniform(low, high) + level.get(student.id, 0) / 100
+            return max(0, min(max_marks, round(max_marks * ratio)))
+
         def feedback_for(marks: int, max_marks: int) -> str:
             ratio = marks / max_marks
             band = "high" if ratio >= 0.85 else "mid" if ratio >= 0.6 else "low"
@@ -502,7 +545,7 @@ async def main() -> None:
                 )
             )
             for q in questions:
-                marks = round(q.max_marks * rng.uniform(0.55, 0.95))
+                marks = scaled(q.max_marks, 0.55, 0.9, student)
                 feedback = feedback_for(marks, q.max_marks)
                 session.add(
                     QuestionMark(
@@ -559,6 +602,9 @@ async def main() -> None:
             session.add(QuestionTopic(question_id=q.id, topic_id=bonding.id))
             hw2_questions.append(q)
 
+        page_key = storage.new_key(org.id, "image/jpeg")
+        await storage.get_storage().upload(page_key, HANDWRITTEN_PAGE.read_bytes(), "image/jpeg")
+
         # Everyone but the last student handed in; two submissions carry one
         # answer the AI was not sure about.
         unsure = {student2.id, classmates[1].id}
@@ -578,13 +624,13 @@ async def main() -> None:
                 SubmissionFile(
                     submission_id=submission.id,
                     position=0,
-                    path=classified.file_path,
-                    name="ionic-bonding.pdf",
-                    mime="application/pdf",
+                    path=page_key,
+                    name="ionic-bonding-page-1.jpg",
+                    mime="image/jpeg",
                 )
             )
             for i, q in enumerate(hw2_questions):
-                marks = round(q.max_marks * rng.uniform(0.5, 1.0))
+                marks = scaled(q.max_marks, 0.5, 0.9, student)
                 if waiting and i == 1:
                     session.add(
                         QuestionMark(
@@ -628,7 +674,7 @@ async def main() -> None:
         await session.flush()
         for student in students:
             for topic in topics[: min(3, len(topics))]:
-                marks = round(20 * rng.uniform(0.5, 0.9))
+                marks = scaled(20, 0.5, 0.85, student)
                 session.add(
                     AssessmentScore(
                         assessment_id=assessment.id,
