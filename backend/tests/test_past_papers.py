@@ -1,6 +1,8 @@
 """WS4: past papers — tutor uploads once, students self-log attempts, and the
 whole thing rides the homework marking pipeline."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -32,7 +34,7 @@ from app.security import create_access_token, hash_password
 from app.services import storage
 from app.services.submission_kind import PAST_PAPER, kind_of
 from app.services.work import create_work, parent_of
-from app.workers.jobs import process_one_job
+from app.workers.jobs import JOB_STALL_SECONDS, process_one_job
 from tests.conftest import PDF_BYTES, PNG_BYTES
 from tests.factories import make_mistake_category, make_past_paper, subject_defaults
 from tests.test_admin_org_scope import _admin_headers
@@ -1692,6 +1694,7 @@ async def test_a_fix_waits_for_a_read_already_running(client, tutor, unreadable_
     async with async_session() as session:
         [job] = (await session.scalars(select(Job))).all()
         job.status = JobStatus.running
+        job.claimed_at = datetime.now(timezone.utc)
         await session.commit()
     paper_id = unreadable_paper["id"]
     retry = await client.post(
@@ -1704,3 +1707,21 @@ async def test_a_fix_waits_for_a_read_already_running(client, tutor, unreadable_
     assert replace.status_code == 409
     async with async_session() as session:
         assert (await session.get(PastPaper, paper_id)).paper_name == "paper.pdf"
+
+
+async def test_a_read_its_dead_worker_left_running_does_not_block_a_fix(
+    client, tutor, unreadable_paper
+):
+    """A worker killed mid-read leaves its job `running` until the orphan sweep,
+    hours later. Past the stall threshold it is not a read in progress, and the
+    tutor's fix goes ahead."""
+    async with async_session() as session:
+        [job] = (await session.scalars(select(Job))).all()
+        job.status = JobStatus.running
+        job.claimed_at = datetime.now(timezone.utc) - timedelta(seconds=JOB_STALL_SECONDS + 60)
+        await session.commit()
+    retry = await client.post(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/retry-extraction",
+        headers=tutor["headers"],
+    )
+    assert retry.status_code == 200, retry.text
