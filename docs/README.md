@@ -209,7 +209,10 @@ may only have a mitigation.
 | [`docs/avora-visual-identity.md`](avora-visual-identity.md) | The **visual identity spec** — the Avora art direction (parchment / espresso / terracotta, Lora + Inter, motifs) applied over the settled experience. Phase 2 under `experience-design.md` §11; visual only, never IA | Yes, as a design document |
 | [`docs/av-82-architecture-impact-report.md`](av-82-architecture-impact-report.md) | Task 1.1's output — every local-filesystem dependency, module-level mutable state and single-process assumption in the repository, classified `SAFE_PROCESS_LOCAL` / `SHARED_STATE_REQUIRED` / `PERSISTENT_STORAGE_REQUIRED` | Yes, until Phase 1 completes |
 | [`docs/av-82-phase-1-handoff.md`](av-82-phase-1-handoff.md) | **Written for agents, not humans.** Where Phase 1 (`AV-82`) stands: what landed in 1.1–1.3, the invariants that must not regress, the test-infrastructure constraints task 1.5 will hit, and a ready-to-execute brief for 1.4. Distinguishes capability built from deployment unchanged (`AV-85`) | Yes, until Phase 1 completes |
-| `docs/archive/` | Point-in-time records kept for history | No, deliberately |
+| [`docs/legal/privacy-law-register.md`](legal/privacy-law-register.md) | Which EU, UK and GCC data-protection, children's-data and AI laws apply to Avora, why, and what each requires — the source of the public privacy policy at `/privacy`. Research, not legal advice; awaiting counsel review | Yes — re-run when the legal entity or a data flow changes |
+| [`docs/legal/pre-launch-privacy-gaps.md`](legal/pre-launch-privacy-gaps.md) | The ranked list of product, paperwork and founder decisions the privacy policy depends on, marked by launch market | Yes, until every launch blocker is closed |
+| [`docs/business/pricing.md`](business/pricing.md) | The post-pilot price, the founding offer, the AI cost model behind it and competitor reference points | Yes — revisit once real per-call costs are measured |
+| `docs/archive/` | Point-in-time records kept for history, including the August 2026 external review that used to sit at the repository root | No, deliberately |
 
 The distinction between the two design documents — `docs/avora-architecture.md` and
 `docs/experience-design.md` — and this constitution matters: **those documents say what Avora

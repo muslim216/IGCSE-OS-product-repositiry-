@@ -14,6 +14,6 @@ test("unauthenticated users see the login page", async () => {
       </AuthProvider>
     </QueryClientProvider>,
   );
-  expect(await screen.findByText("avora")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: /Welcome back to avora/ })).toBeInTheDocument();
   expect(screen.getByText("Sign in with your email or username.")).toBeInTheDocument();
 });

@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { BookOpen, CalendarPlus, ChevronRight, Ruler, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { todayView, type ClassStripRow } from "../../api/today";
 import { listGroups } from "../../api/groups";
+import { myOrganization } from "../../api/auth";
+import { useMyTimezone } from "../../auth/AuthContext";
 import { assignmentsNeedingAttention } from "../../api/homework";
-import { EmptyState, StatusBadge, useToast } from "../../components/ui";
+import { StatusBadge, useToast } from "../../components/ui";
+import { Button, buttonClasses } from "../../components/controls";
+import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
 import { ABSENT, REASON_LABELS } from "../../lib/labels";
 import { coverageLabel, isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import ClassNarrative from "./ClassNarrative";
@@ -24,7 +29,7 @@ import CreateLessonModal from "./CreateLessonModal";
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="avora-label mb-2">{title}</h3>
+      <h2 className="avora-label mb-3">{title}</h2>
       {children}
     </section>
   );
@@ -33,7 +38,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function ClassRow({ row }: { row: ClassStripRow }) {
   const coverage = coverageLabel(row);
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line py-2.5">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line py-3.5">
       <Link
         to={`/tutor/groups/${row.group_id}/students`}
         className="font-medium text-ink-900 hover:text-brand-600"
@@ -44,8 +49,13 @@ function ClassRow({ row }: { row: ClassStripRow }) {
 
       {row.status ? (
         <>
-          <span className="font-display text-[15px] tabular-nums text-ink-900">
-            {row.predicted_grade}
+          {/* Labelled: a bare "5" beside a class name did not say it was the
+              class's predicted grade. */}
+          <span className="text-sm text-ink-700">
+            Predicted grade{" "}
+            <span className="font-display text-[15px] tabular-nums text-ink-900">
+              {row.predicted_grade}
+            </span>
           </span>
           <StatusBadge status={row.status} />
         </>
@@ -65,7 +75,7 @@ function ClassRow({ row }: { row: ClassStripRow }) {
           className="ml-auto text-xs tabular-nums text-ink-500"
           title="Learners with a readiness score"
         >
-          {coverage}
+          {coverage} with a score
         </span>
       )}
     </li>
@@ -84,18 +94,27 @@ export default function TodayDashboard() {
   // Only the lesson modal needs full Group objects; the surface itself renders
   // from the aggregate, so this never gates what the tutor reads.
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
+  // The zone the API decided "today" in: the tutor's own override, else the
+  // organization's, else UTC (`effective_timezone`). The organization is only
+  // asked for when there is no override to win over it.
+  const myZone = useMyTimezone();
+  const org = useQuery({
+    queryKey: ["my-organization"],
+    queryFn: myOrganization,
+    enabled: !myZone,
+  });
+  const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
-  if (today.isLoading) {
-    return (
-      <div className="space-y-6" aria-busy="true">
-        <span aria-hidden className="block h-7 w-2/3 animate-pulse rounded bg-surface-muted" />
-        <span aria-hidden className="block h-24 w-full animate-pulse rounded bg-surface-muted" />
-      </div>
-    );
-  }
+  if (today.isLoading) return <PageSkeleton rows={3} label="Loading today" />;
 
   if (today.isError || !today.data) {
-    return <EmptyState title="Today couldn't be loaded." hint={ABSENT.loadFailed} />;
+    return (
+      <ErrorState
+        title="Today couldn't be loaded"
+        error={today.error}
+        onRetry={() => today.refetch()}
+      />
+    );
   }
 
   const view = today.data;
@@ -111,19 +130,7 @@ export default function TodayDashboard() {
 
   // Before any class exists the only useful thing on this surface is the way to
   // make one — every other section would be an honest but useless absence.
-  if (view.class_count === 0) {
-    return (
-      <EmptyState
-        title={line1}
-        hint="Create a class and share its code — readiness appears once learners join and work is marked."
-        action={
-          <Link to="/tutor/classes" className="font-medium text-brand-600 hover:text-brand-700">
-            Create a class →
-          </Link>
-        }
-      />
-    );
-  }
+  if (view.class_count === 0) return <Welcome headline={line1} />;
 
   const exceptions = view.classes.filter((c) => c.status !== "on_track");
   const healthy = view.classes.filter((c) => c.status === "on_track");
@@ -131,19 +138,25 @@ export default function TodayDashboard() {
   return (
     <div className="space-y-8">
       {/* The verdict is the first thing read and the primary target. */}
-      <div>
-        <h2 className="font-display text-2xl font-semibold text-ink-900">{line1}</h2>
-        {line2 && (
-          <p className="mt-1 flex flex-wrap items-center gap-3 text-sm text-ink-700">
-            <span>{line2}</span>
+      <PageHeader
+        eyebrow={dayZone ? todayLabel(dayZone) : undefined}
+        title={line1}
+        documentTitle="Today"
+        description={line2 ?? undefined}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+              <CalendarPlus aria-hidden className="h-4 w-4" />
+              Schedule a lesson
+            </Button>
             {view.review_count > 0 && (
-              <Link to="/tutor/review" className="font-medium text-brand-600 hover:text-brand-700">
-                Mark →
+              <Link to="/tutor/review" className={buttonClasses("primary")}>
+                Review marking
               </Link>
             )}
-          </p>
-        )}
-      </div>
+          </>
+        }
+      />
 
       {/* Class strip. Healthy classes collapse to one line so the exceptions are
           what the eye lands on — nothing is hidden, it is summarised. */}
@@ -159,7 +172,11 @@ export default function TodayDashboard() {
                 ? `${healthy[0].name} is on track`
                 : `${healthy.length} classes on track`}
               <span className="ml-2 text-ink-500">
-                {healthy.map((c) => `${c.name} ${c.predicted_grade ?? ""}`.trim()).join(" · ")}
+                {healthy
+                  .map((c) =>
+                    c.predicted_grade ? `${c.name} · Grade ${c.predicted_grade}` : c.name,
+                  )
+                  .join("  ·  ")}
               </span>
             </li>
           )}
@@ -173,7 +190,7 @@ export default function TodayDashboard() {
           ) : (
             <ul className="text-sm">
               {view.lessons.map((lesson) => (
-                <li key={lesson.id} className="flex items-center gap-3 border-t border-line py-2.5">
+                <li key={lesson.id} className="flex items-center gap-3 border-t border-line py-3.5">
                   <span className="font-display tabular-nums text-ink-900">
                     {lesson.start_time.slice(0, 5)}
                   </span>
@@ -217,6 +234,11 @@ export default function TodayDashboard() {
                   className="font-medium text-brand-600 hover:text-brand-700"
                 >
                   {item.assignment_title}
+                  {/* Two students' work on the same homework would otherwise
+                      be two identical rows. */}
+                  {item.student_name && (
+                    <span className="font-normal text-ink-500"> · {item.student_name}</span>
+                  )}
                 </Link>
                 <span className="text-warn-700">{REASON_LABELS[item.reason] ?? item.reason}</span>
               </li>
@@ -226,22 +248,12 @@ export default function TodayDashboard() {
             to="/tutor/review"
             className="mt-3 inline-block text-sm font-medium text-brand-600 hover:text-brand-700"
           >
-            Review →
+            Open the review queue →
           </Link>
         </Section>
       )}
 
       {clear && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
-
-      <div>
-        <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="text-sm font-medium text-brand-600 hover:text-brand-700"
-        >
-          Create lesson
-        </button>
-      </div>
 
       <CreateLessonModal
         open={createOpen}
@@ -250,6 +262,102 @@ export default function TodayDashboard() {
         onCreated={() => showToast("Lesson scheduled.")}
       />
       {toast}
+    </div>
+  );
+}
+
+/** "Thursday 2 October" — the day this page is about, in the reader's locale.
+ *
+ * Dated in the zone the lessons below were chosen in, not the browser's: a
+ * tutor whose device clock and organization disagree across midnight was shown
+ * one day's date over another day's lessons. Until that zone is known the
+ * eyebrow is left out rather than guessed. A zone the browser cannot load
+ * falls back to UTC, which is what the server does with it too (`now_in`). */
+function todayLabel(timeZone: string): string {
+  const options: Intl.DateTimeFormatOptions = { weekday: "long", day: "numeric", month: "long" };
+  try {
+    return new Date().toLocaleDateString(undefined, { ...options, timeZone });
+  } catch {
+    return new Date().toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
+  }
+}
+
+const SETUP_STEPS = [
+  {
+    icon: BookOpen,
+    title: "Add your subject's syllabus",
+    body: "Upload the exam board's syllabus PDF. avora drafts its chapters and topics for you to check — homework and readiness are tracked against them.",
+    to: "/tutor/syllabuses",
+    cta: "Upload a syllabus",
+  },
+  {
+    icon: Ruler,
+    title: "Set your grade boundaries",
+    body: "The percentage each grade starts at. Predicted grades are read through these — never invented by the AI.",
+    to: "/tutor/boundaries",
+    cta: "Set boundaries",
+  },
+  {
+    icon: Users,
+    title: "Create a class and invite students",
+    body: "Each class gets a join code. Share it with your students; parents get a private link to follow their own child.",
+    to: "/tutor/classes",
+    cta: "Create a class",
+  },
+] as const;
+
+/**
+ * A new tutor's first screen. Before any class exists every section of Today
+ * would be an honest absence, so this replaces them with the setup path, in the
+ * order the experience spec fixes (subject and syllabus, boundaries, class —
+ * §7). It links to the existing pages rather than enforcing an order; the
+ * blocking, server-tracked onboarding of spec §9.1 is a later phase.
+ */
+function Welcome({ headline }: { headline: string }) {
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Welcome to avora"
+        title="Let's set up your first class."
+        documentTitle="Today"
+        description={
+          <>
+            <span>{headline}</span> Three steps get you from an empty account to marked homework and
+            live readiness — about ten minutes.
+          </>
+        }
+      />
+      <ol className="grid gap-4 lg:grid-cols-3">
+        {SETUP_STEPS.map(({ icon: Icon, title, body, to, cta }, i) => (
+          <li
+            key={title}
+            className="flex flex-col rounded-xl border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(44,26,14,0.06)]"
+          >
+            <div className="flex items-center justify-between">
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-50 text-brand-600">
+                <Icon aria-hidden className="h-5 w-5" />
+              </span>
+              <span className="font-display text-sm text-ink-500">Step {i + 1}</span>
+            </div>
+            <h2 className="mt-5 font-sans text-base font-semibold text-ink-900">{title}</h2>
+            <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-500">{body}</p>
+            <Link
+              to={to}
+              className={buttonClasses(
+                i === SETUP_STEPS.length - 1 ? "primary" : "secondary",
+                "md",
+                "mt-5 self-start",
+              )}
+            >
+              {cta}
+              <ChevronRight aria-hidden className="h-4 w-4" />
+            </Link>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-6 text-sm text-ink-500">
+        Then set the first homework from your class page — students hand it in by taking a photo.
+      </p>
     </div>
   );
 }

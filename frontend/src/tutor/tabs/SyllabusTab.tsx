@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { listTopics, type Topic } from "../../api/syllabus";
 import { groupAnalytics } from "../../api/readiness";
 import { useGroupContext } from "../GroupLayout";
-import { EmptyState } from "../../components/ui";
+import { EmptyState, SectionCard } from "../../components/ui";
+import { Button } from "../../components/controls";
+import { ErrorState, SectionSkeleton } from "../../components/page";
 
 interface TopicNode extends Topic {
   children: TopicNode[];
@@ -22,12 +24,6 @@ function buildTree(topics: Topic[]): TopicNode[] {
   return roots;
 }
 
-function scoreClasses(score: number): string {
-  if (score >= 70) return "bg-ok-100 text-ok-700";
-  if (score >= 50) return "bg-warn-100 text-warn-700";
-  return "bg-risk-100 text-risk-600";
-}
-
 function TopicRow({ node, scores }: { node: TopicNode; scores: Map<string, number> }) {
   const score = scores.get(node.code);
   return (
@@ -37,11 +33,13 @@ function TopicRow({ node, scores }: { node: TopicNode; scores: Map<string, numbe
           <span className="mr-2 font-mono text-xs text-ink-500">{node.code}</span>
           <span className="text-sm text-ink-700">{node.title}</span>
         </span>
+        {/* Every score here is one of the class's weak topics — analytics only
+            returns topics at or below the tutor's own weak threshold — so one
+            colour says "weak" truthfully. Banding them by a literal 70/50 cut
+            would be a threshold this subject never set (UX-28). */}
         {score !== undefined && (
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${scoreClasses(score)}`}
-          >
-            {Math.round(score)}% class avg
+          <span className="shrink-0 rounded-full bg-warn-100 px-2 py-0.5 text-xs font-medium tabular-nums text-warn-700">
+            {Math.round(score)}% class average
           </span>
         )}
       </div>
@@ -81,53 +79,47 @@ export default function SyllabusTab() {
     [analytics.data],
   );
 
-  if (topics.isLoading) return <p className="text-ink-500">Loading…</p>;
+  if (topics.isLoading) return <SectionSkeleton rows={6} label="Loading the syllabus" />;
   if (topics.isError) {
     return (
-      <EmptyState
+      <ErrorState
         title="Couldn't load the syllabus"
-        hint="The connection may have dropped."
-        action={
-          <button
-            type="button"
-            onClick={() => topics.refetch()}
-            className="rounded-md bg-brand-600 px-3 py-1.5 font-medium hover:bg-brand-700"
-          >
-            Try again
-          </button>
-        }
+        error={topics.error}
+        onRetry={() => topics.refetch()}
       />
     );
   }
   if (tree.length === 0) {
     return (
-      <EmptyState
-        title="No syllabus loaded for this subject"
-        hint="Topic trees are seeded per exam board. Once loaded, this shows what the class is covering and where they're weakest."
-      />
+      <SectionCard>
+        <EmptyState
+          title="No syllabus loaded for this subject"
+          hint="Once a syllabus is loaded, this shows what the class is covering and where they're weakest."
+        />
+      </SectionCard>
     );
   }
 
   return (
     <div>
-      <h3 className="font-medium">
+      <h2 className="text-lg text-ink-900">
         {group.subject.exam_board} {group.subject.code} syllabus
-      </h3>
-      <p className="text-sm text-ink-500">
-        Topics your class is scoring lowest on are flagged as evidence builds up.
+      </h2>
+      <p className="mt-0.5 text-sm text-ink-500">
+        Topics your class is scoring lowest on are flagged with their class average as marked work
+        builds up.
       </p>
       {/* Without this, a failed analytics call is indistinguishable from a
           class that has no evidence yet — every flag would simply vanish. */}
       {analytics.isError && (
-        <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-risk-600">
-          <span>Class averages couldn't load, so no topics are flagged below.</span>
-          <button
-            type="button"
-            onClick={() => analytics.refetch()}
-            className="font-medium text-brand-600 hover:underline"
-          >
+        <div
+          role="alert"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600"
+        >
+          <span>Class averages didn't load, so no topics are flagged below.</span>
+          <Button variant="secondary" size="sm" onClick={() => analytics.refetch()}>
             Try again
-          </button>
+          </Button>
         </div>
       )}
       <div className="mt-4 rounded-xl border border-line bg-surface px-5 py-2">

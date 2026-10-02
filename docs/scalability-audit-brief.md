@@ -2,7 +2,7 @@
 
 > Converted from the binary `Untitled 3.pdf` / `scalability 1k to 5k users .pages` artifacts
 > committed in PR #34 — see `SEC-16`-style hygiene note in that PR's review. This is the audit
-> brief that produced `Security-and-Scalability-Deep-Dive.md`; kept here as plain text so it is
+> brief that produced `archive/2026-08-external-review/Security-and-Scalability-Deep-Dive.md`; kept here as plain text so it is
 > diffable and doesn't require Apple Pages or a PDF viewer to read.
 
 ## Objective

@@ -55,6 +55,8 @@ const NO_WEAK_TOPIC = "No topic is at or below the weak threshold.";
 const NO_TOPIC_DATA = "Not enough confident topic data yet.";
 const SARA = { student_id: 1, student_name: "Sara", subject_name: "Chemistry", score: 88 };
 const CONFIDENCE_NOTE = "Class averages count medium- and high-confidence marks only.";
+const NO_STUDENT_SCORE =
+  "No student has a readiness score yet. Scores appear once their work is marked.";
 
 // Since 5.6 the list holds only topics at or below the tutor's threshold, so an
 // empty list with scored learners is a strong class, not a missing measurement
@@ -88,16 +90,18 @@ test("topic means with no scored learner still report that no topic is weak", as
   renderPage();
 
   expect(await screen.findByText(NO_WEAK_TOPIC)).toBeInTheDocument();
-  // The students panel only.
-  expect(screen.getAllByText("No readiness data yet.")).toHaveLength(1);
+  // The students panel reports the missing scores; the topics panel does not.
+  expect(screen.getByText(NO_STUDENT_SCORE)).toBeInTheDocument();
+  expect(screen.queryByText("No readiness data yet.")).not.toBeInTheDocument();
 });
 
 test("a class with no scored learners says there is no readiness data yet", async () => {
   stubFetch(BASE);
   renderPage();
 
-  // Once per panel: students and topics.
-  expect(await screen.findAllByText("No readiness data yet.")).toHaveLength(2);
+  // Each panel says so in its own terms.
+  expect(await screen.findByText("No readiness data yet.")).toBeInTheDocument();
+  expect(screen.getByText(NO_STUDENT_SCORE)).toBeInTheDocument();
   expect(screen.queryByText(NO_WEAK_TOPIC)).not.toBeInTheDocument();
   expect(screen.queryByText(CONFIDENCE_NOTE)).not.toBeInTheDocument();
 });
@@ -142,6 +146,8 @@ test("a weakest topic from marked work alone carries no estimate label", async (
   });
   renderPage();
 
-  await screen.findByText("1.3 Atomic structure");
+  await screen.findByText("Atomic structure");
+  // The code is still rendered — beside the title, in its own element.
+  expect(screen.getByText("1.3")).toBeInTheDocument();
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });

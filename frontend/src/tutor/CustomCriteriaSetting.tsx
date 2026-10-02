@@ -9,8 +9,10 @@ import {
   type CustomCriterionUpdate,
 } from "../api/customCriteria";
 import { ABSENT } from "../lib/labels";
-
-const INPUT = "rounded-md border border-line-control bg-canvas px-3 py-2 text-sm text-ink-900";
+import { friendlyError } from "../lib/errors";
+import { SectionCard } from "../components/ui";
+import { Button, Field, Input, Select } from "../components/controls";
+import { SectionSkeleton } from "../components/page";
 
 /**
  * The organisation's own criteria — "Exam technique", "Confidence" — that a
@@ -64,79 +66,87 @@ export default function CustomCriteriaSetting() {
   };
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">Custom criteria</h3>
-      <p className="mt-1 text-sm text-ink-500">
+    <SectionCard>
+      <h2 className="text-lg text-ink-900">Custom criteria</h2>
+      <p className="mt-1 max-w-prose text-sm text-ink-500">
         Things you score each student on by hand, out of 100. Students and parents see them labelled
         as tutor-entered. They never count towards readiness.
       </p>
 
-      <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-2">
-        <input
-          aria-label="New criterion name"
-          placeholder="Name, e.g. Exam technique"
-          maxLength={120}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className={INPUT}
-        />
-        <input
-          aria-label="New criterion description (optional)"
-          placeholder="Description (optional)"
-          maxLength={2000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className={INPUT}
-        />
-        <select
-          aria-label="Applies to"
-          value={subjectId}
-          onChange={(e) => setSubjectId(e.target.value)}
-          className={INPUT}
-        >
-          <option value="">All subjects</option>
-          {subjects.data?.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.exam_board} {s.code})
-            </option>
-          ))}
-        </select>
-        <button
-          type="submit"
-          disabled={!canAdd}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-        >
-          Add criterion
-        </button>
+      <form onSubmit={submit} className="mt-5 border-t border-line pt-4">
+        <h3 className="text-sm font-medium text-ink-900">Add a criterion</h3>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <Field label="New criterion name">
+            <Input
+              placeholder="e.g. Exam technique"
+              maxLength={120}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Field label="Applies to" hint="This can't be changed after it's added.">
+            <Select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+              <option value="">All subjects</option>
+              {subjects.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.exam_board} {s.code})
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Description" optional className="sm:col-span-2">
+            <Input
+              maxLength={2000}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <Button type="submit" disabled={!canAdd} loading={create.isPending}>
+            Add criterion
+          </Button>
+        </div>
       </form>
-      <p className="mt-1 text-xs text-ink-500">The subject can't be changed after it's added.</p>
       {subjects.isError && (
-        <p role="alert" className="mt-2 text-sm text-risk-600">
-          The subjects didn't load, so a criterion can't be added yet. {ABSENT.loadFailed}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm text-risk-600">
+            The subjects didn't load, so a criterion can't be added yet.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => subjects.refetch()}>
+            Try again
+          </Button>
+        </div>
       )}
       {create.isError && (
         <p role="alert" className="mt-2 text-sm text-risk-600">
-          {create.error.message || ABSENT.loadFailed}
+          {friendlyError(create.error, "Couldn't add the criterion. Try again.")}
         </p>
       )}
 
-      <label className="mt-4 flex items-center gap-2 text-sm text-ink-700">
-        <input
-          type="checkbox"
-          checked={showArchived}
-          onChange={(e) => setShowArchived(e.target.checked)}
-          className="accent-brand-600"
-        />
-        Show archived
-      </label>
+      <div className="mt-5 flex items-center justify-between gap-3 border-t border-line pt-4">
+        <h3 className="text-sm font-medium text-ink-900">Your criteria</h3>
+        <label className="flex items-center gap-2 text-sm text-ink-700">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+            className="h-4 w-4 accent-brand-600"
+          />
+          Show archived
+        </label>
+      </div>
 
-      {criteria.isError ? (
+      {criteria.isLoading ? (
+        <div className="mt-3">
+          <SectionSkeleton rows={2} label="Loading criteria" />
+        </div>
+      ) : criteria.isError ? (
         <p className="mt-3 text-sm text-ink-500">{ABSENT.loadFailed}</p>
       ) : criteria.data?.length === 0 ? (
         <p className="mt-3 text-sm text-ink-500">No criteria yet.</p>
       ) : (
-        <ul className="mt-3 divide-y divide-line">
+        <ul className="mt-2 divide-y divide-line">
           {criteria.data?.map((c) => (
             <CriterionItem
               key={c.id}
@@ -147,7 +157,7 @@ export default function CustomCriteriaSetting() {
           ))}
         </ul>
       )}
-    </div>
+    </SectionCard>
   );
 }
 
@@ -177,8 +187,8 @@ function CriterionItem({
   });
   const busy = update.isPending;
   const error = update.isError && (
-    <p role="alert" className="mt-2 w-full text-sm text-risk-600">
-      {update.error.message || ABSENT.loadFailed}
+    <p role="alert" className="w-full text-sm text-risk-600 sm:col-span-3">
+      {friendlyError(update.error, "That change didn't save. Try again.")}
     </p>
   );
 
@@ -191,43 +201,43 @@ function CriterionItem({
       update.mutate({ name, description: description.trim() || null });
     };
     return (
-      <li className="py-2.5">
-        <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
-          <input
+      <li className="py-3">
+        <form
+          onSubmit={submit}
+          className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] sm:items-center"
+        >
+          <Input
             aria-label="Name"
             maxLength={120}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className={INPUT}
           />
-          <input
+          <Input
             aria-label="Description"
+            placeholder="Description (optional)"
             maxLength={2000}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className={INPUT}
           />
-          <button
-            type="submit"
-            disabled={!name.trim() || busy}
-            className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            // Not while a save is in flight: reset() only clears this row's
-            // state, the PATCH still lands — and a second edit sent behind it
-            // could be overwritten by the first arriving late.
-            disabled={busy}
-            onClick={() => {
-              update.reset();
-              setEditing(false);
-            }}
-            className="text-sm text-ink-500 hover:text-ink-700 disabled:opacity-50"
-          >
-            Cancel
-          </button>
+          <span className="flex gap-2">
+            <Button type="submit" size="sm" disabled={!name.trim()} loading={busy}>
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              // Not while a save is in flight: reset() only clears this row's
+              // state, the PATCH still lands — and a second edit sent behind it
+              // could be overwritten by the first arriving late.
+              disabled={busy}
+              onClick={() => {
+                update.reset();
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </span>
           {error}
         </form>
       </li>
@@ -239,16 +249,21 @@ function CriterionItem({
       <div className="min-w-0">
         <p className="text-sm font-medium text-ink-900">
           {criterion.name}
-          {archived && <span className="ml-2 text-xs font-normal text-ink-500">Archived</span>}
+          {archived && (
+            <span className="ml-2 rounded bg-surface-muted px-1.5 py-0.5 text-xs font-normal text-ink-500">
+              Archived
+            </span>
+          )}
         </p>
         <p className="text-xs text-ink-500">
           {subject}
           {criterion.description && ` · ${criterion.description}`}
         </p>
       </div>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
           aria-label={`Edit ${criterion.name}`}
           disabled={busy}
           onClick={() => {
@@ -257,19 +272,18 @@ function CriterionItem({
             update.reset();
             setEditing(true);
           }}
-          className="text-sm font-medium text-brand-600 hover:text-brand-700"
         >
           Edit
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           aria-label={`${archived ? "Unarchive" : "Archive"} ${criterion.name}`}
-          disabled={busy}
+          loading={busy}
           onClick={() => update.mutate({ archived: !archived })}
-          className="text-sm font-medium text-ink-500 hover:text-ink-700 disabled:opacity-50"
         >
           {archived ? "Unarchive" : "Archive"}
-        </button>
+        </Button>
       </div>
       {error}
     </li>

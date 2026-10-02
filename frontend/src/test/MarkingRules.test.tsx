@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import MarkingRulesPage from "../tutor/MarkingRulesPage";
@@ -76,7 +77,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MarkingRulesPage />
+      <MemoryRouter>
+        <MarkingRulesPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -162,7 +165,9 @@ test("a refetch does not overwrite what the tutor has typed", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <MarkingRulesPage />
+      <MemoryRouter>
+        <MarkingRulesPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 

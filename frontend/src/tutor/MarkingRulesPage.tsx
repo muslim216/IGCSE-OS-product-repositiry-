@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listSubjects } from "../api/groups";
 import { getMarkingRules, saveMarkingRules, MAX_MARKING_RULES } from "../api/markingRules";
-import { ApiError } from "../api/client";
-import { EmptyState, useToast } from "../components/ui";
-import { ABSENT } from "../lib/labels";
+import { Button, Field, Select, Textarea } from "../components/controls";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { EmptyState, SectionCard, useToast } from "../components/ui";
+import { friendlyError } from "../lib/errors";
 
 /**
  * The AI marking agreement — the marking rules a tutor writes once for a
@@ -17,26 +18,6 @@ import { ABSENT } from "../lib/labels";
  * longer says otherwise (`PROD-1` cuts both ways: a page that understates its
  * effect is as wrong as one that overstates it).
  */
-/** A load failure with a way out of it. Telling someone something broke and
- *  leaving them to reload the whole page is a dead end for what is usually a
- *  transient error (cubic). */
-function LoadFailed({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex items-center gap-3">
-      {/* `loadFailedRetry`, not `loadFailed`: the latter says to refresh the
-          page, which is the advice this control exists to replace. Both live in
-          labels.ts so neither condition ends up with two wordings. */}
-      <p className="text-sm text-ink-500">{ABSENT.loadFailedRetry}</p>
-      <button
-        onClick={onRetry}
-        className="rounded-md border border-line-control px-3 py-1.5 text-sm text-ink-700 hover:border-line-strong"
-      >
-        Try again
-      </button>
-    </div>
-  );
-}
-
 export default function MarkingRulesPage() {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
@@ -87,27 +68,49 @@ export default function MarkingRulesPage() {
       queryClient.invalidateQueries({ queryKey: ["marking-rules", selected] });
       showToast(saved.configured ? "Marking rules saved." : "Marking rules cleared.");
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err, "Your rules didn't save. Try again.")),
   });
 
+  const header = (
+    <PageHeader
+      title="AI marking agreement"
+      description="How you want work in a subject marked, in your own words — method marks, units, working, the things you would tell a new tutor. Written once, it applies to every chapter and piece of work in the subject, alongside the exam board's own conventions rather than instead of them."
+      back={{ to: "/tutor/library", label: "Library" }}
+    />
+  );
+
+  // A load failure always comes with a way out of it: telling someone something
+  // broke and leaving them to reload the whole page is a dead end for what is
+  // usually a transient error (cubic). ErrorState carries the retry.
   if (subjects.isLoading) {
     return (
-      <div aria-busy="true">
-        <span aria-hidden className="block h-24 w-full animate-pulse rounded bg-surface-muted" />
+      <div>
+        {header}
+        <SectionSkeleton rows={4} label="Loading your subjects" />
       </div>
     );
   }
   // "Could not load" and "you have none" are different facts (PROD-2): a retry
   // and a next step.
   if (subjects.isError || !subjects.data) {
-    return <LoadFailed onRetry={() => subjects.refetch()} />;
+    return (
+      <div>
+        {header}
+        <ErrorState error={subjects.error} onRetry={() => subjects.refetch()} />
+      </div>
+    );
   }
   if (subjects.data.length === 0) {
     return (
-      <EmptyState
-        title="No subjects yet."
-        hint="Marking rules are written per subject — add a syllabus first."
-      />
+      <div>
+        {header}
+        <SectionCard>
+          <EmptyState
+            title="No subjects yet."
+            hint="Marking rules are written per subject — add a syllabus first."
+          />
+        </SectionCard>
+      </div>
     );
   }
 
@@ -115,124 +118,123 @@ export default function MarkingRulesPage() {
   const unchanged = rules.data ? draft === rules.data.rules : true;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="font-display text-xl font-semibold text-ink-900">AI marking agreement</h2>
-        <p className="mt-1 max-w-prose text-sm text-ink-500">
-          How you want work in this subject marked, in your own words — method marks, units,
-          working, the things you would tell a new tutor. Written once and applying to every chapter
-          and piece of work in the subject, alongside the exam board's own conventions rather than
-          instead of them.
-        </p>
-        <p className="mt-2 max-w-prose text-sm text-ink-500">
+    <div className="max-w-3xl">
+      {header}
+
+      <div className="space-y-6">
+        <p className="rounded-lg bg-surface-muted p-4 text-sm leading-relaxed text-ink-700">
           These rules describe <strong>how</strong> work is marked, never <strong>when</strong> a
           mark counts — that stays as it is, and nothing you write here changes it. Marking reads
           them on every piece of work in this subject, in the shortened form below.
         </p>
-      </div>
 
-      <select
-        aria-label="Subject"
-        disabled={save.isPending}
-        value={selected ?? ""}
-        onChange={(e) => {
-          // The draft belongs to the subject it was typed for; carrying it
-          // across would save one subject's rules onto another.
-          setError(null);
-          setSubjectId(Number(e.target.value));
-        }}
-        className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
-      >
-        {subjects.data.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name} ({s.exam_board} {s.code})
-          </option>
-        ))}
-      </select>
-
-      {/* The editor appears only once the loaded rules are the selected
-          subject's. The query key carries the subject, so a switch already
-          moves to a loading state with no data — this second condition is
-          defence in depth for the day someone adds `placeholderData:
-          keepPreviousData` and the previous subject's text starts showing
-          under the new subject's id. */}
-      {rules.isLoading || (rules.data && rules.data.subject_id !== selected) ? (
-        <span aria-hidden className="block h-40 w-full animate-pulse rounded bg-surface-muted" />
-      ) : rules.isError || !rules.data ? (
-        <LoadFailed onRetry={() => rules.refetch()} />
-      ) : (
-        <section className="space-y-3">
-          <label htmlFor="marking-rules" className="block text-sm font-medium text-ink-700">
-            Marking rules for {rules.data.subject_name}
-          </label>
-          <textarea
-            id="marking-rules"
-            rows={12}
+        <Field label="Subject" className="max-w-sm">
+          <Select
             disabled={save.isPending}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="e.g. Award method marks even when the final answer is wrong. A missing unit costs one mark, once per question."
-            className="w-full max-w-prose rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
-          />
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => save.mutate()}
-              disabled={save.isPending || tooLong || unchanged}
-              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
+            value={selected ?? ""}
+            onChange={(e) => {
+              // The draft belongs to the subject it was typed for; carrying it
+              // across would save one subject's rules onto another.
+              setError(null);
+              setSubjectId(Number(e.target.value));
+            }}
+          >
+            {subjects.data.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.exam_board} {s.code})
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        {/* The editor appears only once the loaded rules are the selected
+            subject's. The query key carries the subject, so a switch already
+            moves to a loading state with no data — this second condition is
+            defence in depth for the day someone adds `placeholderData:
+            keepPreviousData` and the previous subject's text starts showing
+            under the new subject's id. */}
+        {rules.isLoading || (rules.data && rules.data.subject_id !== selected) ? (
+          <SectionCard>
+            <SectionSkeleton rows={6} label="Loading the marking rules" />
+          </SectionCard>
+        ) : rules.isError || !rules.data ? (
+          <ErrorState error={rules.error} onRetry={() => rules.refetch()} />
+        ) : (
+          <SectionCard className="space-y-4">
+            <Field
+              label={`Marking rules for ${rules.data.subject_name}`}
+              error={
+                tooLong
+                  ? `That is longer than ${MAX_MARKING_RULES.toLocaleString()} characters — trim it to the rules that change how work is marked.`
+                  : null
+              }
             >
-              {save.isPending ? "Saving…" : "Save"}
-            </button>
-            <p className={`text-xs ${tooLong ? "text-red-600" : "text-ink-500"}`}>
-              {draft.length.toLocaleString()} / {MAX_MARKING_RULES.toLocaleString()} characters
-            </p>
-            {!rules.data.configured && !save.isPending && (
-              // Skippable by design (AV-87) — say so, rather than leaving a
-              // blank box that reads as unfinished setup.
-              <p className="text-xs text-ink-500">
-                Nothing set for this subject. Leaving it empty is fine.
+              <Textarea
+                rows={12}
+                disabled={save.isPending}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="e.g. Award method marks even when the final answer is wrong. A missing unit costs one mark, once per question."
+                className="leading-relaxed"
+              />
+            </Field>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <Button
+                onClick={() => save.mutate()}
+                disabled={tooLong || unchanged}
+                loading={save.isPending}
+              >
+                Save
+              </Button>
+              <p className={`text-xs tabular-nums ${tooLong ? "text-risk-600" : "text-ink-500"}`}>
+                {draft.length.toLocaleString()} of {MAX_MARKING_RULES.toLocaleString()} characters
               </p>
-            )}
-          </div>
-          {/* PROD-7: the tutor has final authority over everything the AI
-              produces, and since 3.2c a model sits between them and their own
-              instructions. Showing the condensed form is how they can tell a
-              rule went missing — the alternative is finding out from a mark. */}
-          {rules.data.configured && (
-            <details className="rounded-md border border-line bg-surface-muted p-3">
-              <summary className="cursor-pointer text-sm text-ink-700">
-                What marking actually reads
-              </summary>
-              {rules.data.summary ? (
-                <>
-                  <pre className="mt-2 max-w-prose whitespace-pre-wrap font-sans text-sm text-ink-700">
-                    {rules.data.summary}
-                  </pre>
-                  <p className="mt-2 max-w-prose text-xs text-ink-500">
-                    Your rules, shortened by AI so they fit in every marking request. Edit the box
-                    above if anything is missing — this is rebuilt each time you save.
-                  </p>
-                </>
-              ) : (
-                // Absent is a real, correct state — not an error and not a
-                // spinner to wait on. Marking uses the full text meanwhile
-                // (PROD-2: say what is true rather than showing nothing).
-                <p className="mt-2 max-w-prose text-sm text-ink-500">
-                  Not shortened yet — marking is using your full text above. This usually takes a
-                  moment after saving.
+              {!rules.data.configured && !save.isPending && (
+                // Skippable by design (AV-87) — say so, rather than leaving a
+                // blank box that reads as unfinished setup.
+                <p className="text-xs text-ink-500">
+                  Nothing set for this subject. Leaving it empty is fine.
                 </p>
               )}
-            </details>
-          )}
-
-          {tooLong && (
-            <p className="text-sm text-red-600">
-              That is longer than {MAX_MARKING_RULES.toLocaleString()} characters — trim it to the
-              rules that change how work is marked.
-            </p>
-          )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
-        </section>
-      )}
+            </div>
+            {error && (
+              <p role="alert" className="text-sm text-risk-600">
+                {error}
+              </p>
+            )}
+            {/* PROD-7: the tutor has final authority over everything the AI
+                produces, and since 3.2c a model sits between them and their own
+                instructions. Showing the condensed form is how they can tell a
+                rule went missing — the alternative is finding out from a mark. */}
+            {rules.data.configured && (
+              <details className="rounded-lg border border-line bg-surface-muted p-3">
+                <summary className="cursor-pointer text-sm font-medium text-ink-700">
+                  What marking actually reads
+                </summary>
+                {rules.data.summary ? (
+                  <>
+                    <pre className="mt-2 max-w-prose whitespace-pre-wrap font-sans text-sm text-ink-700">
+                      {rules.data.summary}
+                    </pre>
+                    <p className="mt-2 max-w-prose text-xs text-ink-500">
+                      Your rules, shortened by AI so they fit in every marking request. Edit the box
+                      above if anything is missing — this is rebuilt each time you save.
+                    </p>
+                  </>
+                ) : (
+                  // Absent is a real, correct state — not an error and not a
+                  // spinner to wait on. Marking uses the full text meanwhile
+                  // (PROD-2: say what is true rather than showing nothing).
+                  <p className="mt-2 max-w-prose text-sm text-ink-500">
+                    Not shortened yet — marking is using your full text above. This usually takes a
+                    moment after saving.
+                  </p>
+                )}
+              </details>
+            )}
+          </SectionCard>
+        )}
+      </div>
       {toast}
     </div>
   );

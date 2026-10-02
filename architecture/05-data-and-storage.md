@@ -41,7 +41,7 @@ The day a tutoring centre with six tutors wants to buy, supporting them should b
 
 The internal standard is strict about maintaining it: any new tenant-owned table must carry the organisation stamp. A table without it turns "go multi-tutor later" back into the expensive migration this decision exists to avoid.
 
-**The gap:** a proper safety mechanism to enforce this filtering exists in the code — and is used nowhere. Every query filters manually instead. It's correct today, but the separation between one tutor's data and another's depends on every developer remembering one line, every time, with nothing catching a mistake. That's weakness #9 in the [weaknesses document](../Product-Overview-and-Weaknesses.md).
+**The gap:** a proper safety mechanism to enforce this filtering exists in the code — and is used nowhere. Every query filters manually instead. It's correct today, but the separation between one tutor's data and another's depends on every developer remembering one line, every time, with nothing catching a mistake. That's weakness #9 in the [weaknesses document](../docs/archive/2026-08-external-review/Product-Overview-and-Weaknesses.md).
 
 ### One deliberate exception
 
@@ -134,7 +134,7 @@ The consequences, stated plainly:
 
 The code was deliberately written to make moving to proper cloud storage easy: only relative addresses are stored, so the move is a swap rather than a rewrite. It just hasn't been done.
 
-For a product whose entire promise is "we keep a complete academic record," losing the record isn't a technical incident. It's weakness #1 in the [weaknesses document](../Product-Overview-and-Weaknesses.md), and it's the thing to fix first.
+For a product whose entire promise is "we keep a complete academic record," losing the record isn't a technical incident. It's weakness #1 in the [weaknesses document](../docs/archive/2026-08-external-review/Product-Overview-and-Weaknesses.md), and it's the thing to fix first.
 
 ---
 

@@ -139,7 +139,7 @@ test("eight healthy classes collapse to one line", async () => {
   // One summarising line, not eight rows — and nothing is hidden: every class
   // name still appears on that line.
   expect(await screen.findByText(/8 classes on track/)).toBeInTheDocument();
-  expect(screen.getByText(/Class 1 8/)).toBeInTheDocument();
+  expect(screen.getByText(/Class 1 · Grade 8/)).toBeInTheDocument();
 });
 
 test("the verdict counts classes needing attention, in words", async () => {
@@ -256,6 +256,48 @@ test("with no classes the surface offers the one useful action", async () => {
   renderDashboard();
   expect(await screen.findByText("You haven't set up a class yet.")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /Create a class/ })).toBeInTheDocument();
+});
+
+test("the page is dated in the organization's day, the one its lessons were chosen in", async () => {
+  // 10:30 UTC on 2 October is already 3 October in Kiritimati (UTC+14) and
+  // still 2 October on any device clock — so a browser-dated eyebrow would sit
+  // a day off over the organization's list of lessons.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-02T10:30:00Z") });
+  try {
+    stubFetch({
+      classes: [classRow()],
+      lessons: [],
+      review_count: 0,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+    });
+    const answer = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input).includes("/me/organization")
+          ? new Response(JSON.stringify({ id: 1, name: "Org", timezone: "Pacific/Kiritimati" }), {
+              status: 200,
+            })
+          : answer(input, init),
+      ),
+    );
+    const label = (timeZone?: string) =>
+      new Date().toLocaleDateString(undefined, {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        timeZone,
+      });
+    expect(label("Pacific/Kiritimati")).not.toBe(label());
+
+    renderDashboard();
+    expect(await screen.findByText(label("Pacific/Kiritimati"))).toBeInTheDocument();
+    expect(screen.queryByText(label())).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("no student is named outside the review list", async () => {

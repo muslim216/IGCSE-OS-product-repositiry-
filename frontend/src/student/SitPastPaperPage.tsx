@@ -1,9 +1,30 @@
 import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Clock } from "lucide-react";
 import { getPastPaper, logAttempt, myAttempt, pastPaperPaperPath } from "../api/pastPapers";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
+import { Button, Field, FileInput, Input } from "../components/controls";
+import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
+import { SectionCard } from "../components/ui";
+import { friendlyError } from "../lib/errors";
+
+const BACK = { to: "/student/past-papers", label: "Past papers" };
+
+/** "14 Sep 2026" for a `YYYY-MM-DD` the student typed. Formatted in UTC
+    because it is a calendar date, not an instant — read in a zone west of
+    Greenwich, midnight UTC would otherwise show as the day before. */
+function formatAttemptDate(day: string): string {
+  const at = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(at.getTime())) return day;
+  return at.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 export default function SitPastPaperPage() {
   const { pastPaperId } = useParams();
@@ -18,6 +39,10 @@ export default function SitPastPaperPage() {
   });
 
   const [files, setFiles] = useState<File[]>([]);
+  // Bumped after a successful upload so the file picker forgets the names it
+  // was showing — the files have gone, and still listing them would read as
+  // "not sent yet".
+  const [pickerKey, setPickerKey] = useState(0);
   const [attemptedAt, setAttemptedAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [timed, setTimed] = useState(true);
   const [minutes, setMinutes] = useState("");
@@ -33,9 +58,10 @@ export default function SitPastPaperPage() {
       }),
     onSuccess: () => {
       setFiles([]);
+      setPickerKey((k) => k + 1);
       queryClient.invalidateQueries({ queryKey: ["past-paper-attempt", id] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err, "Your answers couldn't be uploaded. Try again.")),
   });
 
   function onSubmit(e: FormEvent) {
@@ -44,106 +70,158 @@ export default function SitPastPaperPage() {
     if (files.length) submit.mutate();
   }
 
-  if (paper.isLoading) return <p className="text-slate-500">Loading…</p>;
-  if (paper.isError || !paper.data) return <p className="text-red-600">Past paper not found.</p>;
+  if (paper.isLoading) return <PageSkeleton rows={3} label="Loading the past paper" />;
+  if (paper.isError && paper.error instanceof ApiError && paper.error.status === 404) {
+    return (
+      <NotFoundState
+        title="We couldn't find that past paper"
+        body="It may have been removed, or the link may be wrong."
+        back={{ to: BACK.to, label: "Back to past papers" }}
+      />
+    );
+  }
+  if (paper.isError || !paper.data) {
+    return (
+      <div className="max-w-2xl">
+        <PageHeader title="Past paper" back={BACK} />
+        <ErrorState
+          title="Couldn't load this past paper."
+          error={paper.error}
+          onRetry={() => void paper.refetch()}
+        />
+      </div>
+    );
+  }
   const p = paper.data;
   const a = attempt.data;
 
-  return (
-    <div className="max-w-2xl space-y-5">
-      <Link to="/student/past-papers" className="text-sm text-blue-600 hover:underline">
-        ← Past papers
-      </Link>
+  // "80 marks · 90 minutes allowed" — a missing value is left out, never 0.
+  const facts = [
+    p.total_marks ? `${p.total_marks} marks` : null,
+    p.duration_minutes ? `${p.duration_minutes} minutes allowed` : null,
+  ].filter(Boolean);
 
-      <div>
-        <h2 className="text-xl font-semibold text-slate-800">{p.display_title}</h2>
-        <p className="text-sm text-slate-500">
-          {p.total_marks ? `${p.total_marks} marks` : ""}
-          {p.duration_minutes ? ` · ${p.duration_minutes} minutes allowed` : ""}
-        </p>
-        <div className="mt-2 text-sm">
-          <AuthFileLink path={pastPaperPaperPath(p.id)} label="Open the question paper" />
-        </div>
-      </div>
+  return (
+    <div className="max-w-2xl space-y-6">
+      <PageHeader
+        title={p.display_title}
+        back={BACK}
+        description={facts.length > 0 ? facts.join(" · ") : undefined}
+        actions={<AuthFileLink path={pastPaperPaperPath(p.id)} label="Open the question paper" />}
+      />
 
       {a?.status === "marked" ? (
-        <div className="rounded-lg border bg-white p-4">
-          <h3 className="font-medium text-slate-800">Your result</h3>
-          <p className="mt-1 text-lg font-medium text-slate-700">
-            {a.raw_marks} / {a.max_marks}
+        <SectionCard>
+          <h2 className="flex items-center gap-2 font-display text-lg text-ink-900">
+            <CheckCircle2 aria-hidden className="h-5 w-5 text-ok-700" />
+            Your result
+          </h2>
+          {/* An absent total is words, never "null / null" or a zero (PROD-2). */}
+          {a.raw_marks != null && a.max_marks != null ? (
+            <p className="mt-2 text-ink-700">
+              <span className="font-display text-2xl tabular-nums text-ink-900">{a.raw_marks}</span>{" "}
+              out of <span className="tabular-nums">{a.max_marks}</span> marks
+            </p>
+          ) : (
+            <p className="mt-2 text-sm text-ink-500">Your total isn&apos;t ready yet.</p>
+          )}
+          {/* Everything on this line is the student's own account — the
+              platform did not observe the date, the conditions or the time
+              taken — so it is labelled as theirs (PROD-8, UX-20). */}
+          <p className="mt-2 text-sm text-ink-500">
+            As you logged it: {a.attempted_at ? `sat ${formatAttemptDate(a.attempted_at)}, ` : ""}
+            {a.timed ? "under timed conditions" : "untimed"}
+            {a.time_taken_minutes ? `, took ${a.time_taken_minutes} minutes` : ""}.
           </p>
-          <p className="mt-1 text-sm text-slate-500">
-            Sat {a.attempted_at}
-            {a.timed ? " under timed conditions" : " untimed"}
-            {a.time_taken_minutes ? ` · took ${a.time_taken_minutes} minutes` : ""}
+          {/* Where the result goes, not where its detail is: a student has no
+              per-question view of a past paper — the attempt carries only its
+              total — and Progress shows grades and topics, not marks. The
+              result does feed Progress: the averaging grade, and the
+              prediction's past-paper factor. */}
+          <p className="mt-3 text-sm text-ink-500">
+            This result counts towards your{" "}
+            <Link
+              to="/student/progress"
+              className="font-medium text-brand-600 hover:text-brand-700"
+            >
+              progress
+            </Link>
+            .
           </p>
-          <p className="mt-3 text-sm text-slate-500">
-            Your per-question marks and feedback are in your readiness breakdown.
-          </p>
-        </div>
+        </SectionCard>
       ) : a?.status === "being_marked" ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Your answers are being marked. This page refreshes automatically.
+        <div
+          aria-live="polite"
+          className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700"
+        >
+          <Clock aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>Your answers are being marked. This page checks for your result automatically.</p>
         </div>
       ) : (
-        <form onSubmit={onSubmit} className="space-y-3 rounded-lg border bg-white p-4">
-          <h3 className="font-medium text-slate-800">Log your attempt</h3>
-          <p className="text-sm text-slate-500">
-            Upload clear photos or a scan of every page of your answers, in order.
-          </p>
-          <input
-            type="file"
-            multiple
-            accept="application/pdf,image/*"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            className="block text-sm"
-          />
-          {files.length > 0 && (
-            <p className="text-sm text-slate-500">
-              {files.length} file{files.length === 1 ? "" : "s"} selected
-            </p>
-          )}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm text-slate-600">
-              When did you sit it?
-              <input
-                type="date"
-                value={attemptedAt}
-                onChange={(e) => setAttemptedAt(e.target.value)}
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm"
+        <SectionCard>
+          <form onSubmit={onSubmit} className="space-y-5">
+            <div>
+              <h2 className="font-display text-lg text-ink-900">Log your attempt</h2>
+              <p className="mt-0.5 text-sm text-ink-500">
+                Sit the paper, then upload clear photos or a scan of every page of your answers, in
+                order.
+              </p>
+            </div>
+            <Field label="Your answers">
+              <FileInput
+                key={pickerKey}
+                multiple
+                accept="application/pdf,image/*"
+                onFiles={setFiles}
+                prompt="Choose photos or a PDF"
+                hint="JPG, PNG or PDF — add every page, in order"
               />
-            </label>
-            <label className="text-sm text-slate-600">
-              How long did it take? (minutes)
-              <input
-                type="number"
-                min={1}
-                value={minutes}
-                onChange={(e) => setMinutes(e.target.value)}
-                placeholder="Optional"
-                className="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm"
-              />
-            </label>
-          </div>
+            </Field>
 
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={timed} onChange={(e) => setTimed(e.target.checked)} />I
-            sat this under timed exam conditions
-          </label>
-          <p className="text-xs text-slate-400">
-            We take your word for this — be honest, it changes what your readiness score means.
-          </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="When did you sit it?">
+                <Input
+                  type="date"
+                  value={attemptedAt}
+                  onChange={(e) => setAttemptedAt(e.target.value)}
+                />
+              </Field>
+              <Field label="How long did it take? (minutes)" optional>
+                <Input
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  value={minutes}
+                  onChange={(e) => setMinutes(e.target.value)}
+                />
+              </Field>
+            </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
-            disabled={submit.isPending || files.length === 0}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submit.isPending ? "Uploading…" : "Submit for marking"}
-          </button>
-        </form>
+            <div>
+              <label className="flex items-center gap-2 text-sm text-ink-900">
+                <input
+                  type="checkbox"
+                  checked={timed}
+                  onChange={(e) => setTimed(e.target.checked)}
+                  className="h-4 w-4 accent-brand-600"
+                />
+                I sat this under timed exam conditions
+              </label>
+              <p className="mt-1.5 text-xs text-ink-500">
+                We take your word for this — be honest, it changes what your readiness score means.
+              </p>
+            </div>
+
+            {error && (
+              <p role="alert" className="text-sm text-risk-600">
+                {error}
+              </p>
+            )}
+            <Button type="submit" loading={submit.isPending} disabled={files.length === 0}>
+              Submit for marking
+            </Button>
+          </form>
+        </SectionCard>
       )}
     </div>
   );

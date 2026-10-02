@@ -7,8 +7,11 @@ import {
   type GradeBand,
   type GradeBoundaries,
 } from "../api/gradeBoundaries";
-import { EmptyState, useToast } from "../components/ui";
-import { ABSENT } from "../lib/labels";
+import { Plus } from "lucide-react";
+import { Button, Field, Input, Select } from "../components/controls";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { EmptyState, SectionCard, useToast } from "../components/ui";
+import { friendlyError } from "../lib/errors";
 
 /**
  * The grade-boundary editor — what "Set them →" points at.
@@ -53,9 +56,18 @@ export default function GradeBoundariesPage() {
   // in TanStack Query (FE-6); this is the draft the tutor is typing, which is a
   // different thing from what is stored and is not server data.
   const [draft, setDraft] = useState<GradeBand[]>([]);
+  // Seeded once per subject, not on every query update — the guard
+  // MarkingRulesPage and MistakeCategoriesPage carry, for the same reason: a
+  // window regaining focus refetches, and copying the stored boundaries in
+  // again would discard what the tutor has typed and not yet saved. State
+  // rather than a ref, because the editor is gated on it.
+  const [hydratedFor, setHydratedFor] = useState<number | null>(null);
   useEffect(() => {
-    if (boundaries.data) setDraft(boundaries.data.boundaries);
-  }, [boundaries.data]);
+    if (boundaries.data && hydratedFor !== boundaries.data.subject_id) {
+      setHydratedFor(boundaries.data.subject_id);
+      setDraft(boundaries.data.boundaries);
+    }
+  }, [boundaries.data, hydratedFor]);
 
   const save = useMutation({
     mutationFn: () => saveGradeBoundaries(selected!, draft),
@@ -79,128 +91,182 @@ export default function GradeBoundariesPage() {
   const labels = draft.map((b) => b.grade.trim()).filter(Boolean);
   const duplicateLabels = new Set(labels).size !== labels.length;
 
+  const header = (
+    <PageHeader
+      title="Grade boundaries"
+      description="The percentage that earns each grade. Every predicted grade in avora is read through these, so a change here shows everywhere the next time a page loads."
+      back={{ to: "/tutor/library", label: "Library" }}
+    />
+  );
+
   if (subjects.isLoading) {
     return (
-      <div aria-busy="true">
-        <span aria-hidden className="block h-24 w-full animate-pulse rounded bg-surface-muted" />
+      <div>
+        {header}
+        <SectionSkeleton rows={4} label="Loading your subjects" />
       </div>
     );
   }
-  if (subjects.isError || !subjects.data || subjects.data.length === 0) {
+  // A failed load is not "no subjects": that would send a tutor who has them
+  // off to add a syllabus they already have (PROD-2, UX-19).
+  if (subjects.isError) {
     return (
-      <EmptyState
-        title="No subjects yet."
-        hint="Grade boundaries are set per subject — add a syllabus first."
-      />
+      <div>
+        {header}
+        <ErrorState error={subjects.error} onRetry={() => subjects.refetch()} />
+      </div>
+    );
+  }
+  if (!subjects.data || subjects.data.length === 0) {
+    return (
+      <div>
+        {header}
+        <SectionCard>
+          <EmptyState
+            title="No subjects yet."
+            hint="Grade boundaries are set per subject — add a syllabus first."
+          />
+        </SectionCard>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="font-display text-xl font-semibold text-ink-900">Grade boundaries</h2>
-        <p className="mt-1 max-w-prose text-sm text-ink-500">
-          What percentage earns each grade. Predicted grades across Avora are read through these, so
-          a change here is live everywhere on the next page load.
-        </p>
+    <div className="max-w-3xl">
+      {header}
+
+      <div className="space-y-6">
+        <Field label="Subject" className="max-w-sm">
+          <Select value={selected ?? ""} onChange={(e) => setSubjectId(Number(e.target.value))}>
+            {subjects.data.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.exam_board} {s.code})
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        {boundaries.isLoading || (boundaries.data && hydratedFor !== selected) ? (
+          <SectionCard>
+            <SectionSkeleton rows={5} label="Loading grade boundaries" />
+          </SectionCard>
+        ) : boundaries.isError || !boundaries.data ? (
+          <ErrorState error={boundaries.error} onRetry={() => boundaries.refetch()} />
+        ) : (
+          <SectionCard className="space-y-4">
+            {boundaries.data.source === "organization" ? (
+              <p className="text-sm text-ink-500">{sourceNote(boundaries.data)}</p>
+            ) : (
+              // Not yet in force, so it reads as a caution rather than as a
+              // footnote (PROD-8).
+              <output className="block rounded-lg bg-warn-100 p-3 text-sm text-warn-700">
+                {sourceNote(boundaries.data)}
+              </output>
+            )}
+
+            {draft.length === 0 ? (
+              <p className="text-sm text-ink-500">
+                There is no published default for the {boundaries.data.grade_scale} scale — add each
+                grade and its minimum below.
+              </p>
+            ) : (
+              <table className="w-full max-w-md text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-ink-500">
+                    <th className="pb-2 pr-3 font-medium">Grade</th>
+                    <th className="pb-2 pr-3 font-medium">Minimum</th>
+                    <th className="pb-2">
+                      <span className="sr-only">Remove</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.map((band, i) => (
+                    <tr key={i} className="border-t border-line">
+                      <td className="w-24 py-2 pr-3">
+                        <Input
+                          aria-label={`Grade name, row ${i + 1}`}
+                          value={band.grade}
+                          onChange={(e) =>
+                            setDraft(
+                              draft.map((b, j) => (i === j ? { ...b, grade: e.target.value } : b)),
+                            )
+                          }
+                          className="font-medium"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className="flex items-center gap-2">
+                          <span className="w-24 shrink-0">
+                            <Input
+                              aria-label={`Minimum percentage for grade ${band.grade}`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={band.min}
+                              onChange={(e) =>
+                                setDraft(
+                                  draft.map((b, j) =>
+                                    i === j ? { ...b, min: Number(e.target.value) } : b,
+                                  ),
+                                )
+                              }
+                              className="tabular-nums"
+                            />
+                          </span>
+                          <span className="whitespace-nowrap text-ink-500">% and above</span>
+                        </span>
+                      </td>
+                      <td className="py-2 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDraft(draft.filter((_, j) => j !== i))}
+                        >
+                          Remove
+                          <span className="sr-only"> grade {band.grade || `in row ${i + 1}`}</span>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {outOfOrder && (
+              <p className="text-sm text-risk-600">
+                List the highest grade first, with each minimum below the one above it.
+              </p>
+            )}
+            {duplicateLabels && (
+              <p className="text-sm text-risk-600">Each grade can appear only once.</p>
+            )}
+            {draft.length < 2 && (
+              <p className="text-sm text-ink-500">Add at least two grades before saving.</p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <Button variant="ghost" onClick={() => setDraft([...draft, { grade: "", min: 0 }])}>
+                <Plus aria-hidden className="h-4 w-4" />
+                Add a grade
+              </Button>
+              <span className="flex-1" />
+              <Button
+                onClick={() => save.mutate()}
+                disabled={outOfOrder || duplicateLabels || draft.length < 2}
+                loading={save.isPending}
+              >
+                Save boundaries
+              </Button>
+            </div>
+            {save.isError && (
+              <p role="alert" className="text-sm text-risk-600">
+                {friendlyError(save.error, "Your boundaries didn't save. Try again.")}
+              </p>
+            )}
+          </SectionCard>
+        )}
       </div>
-
-      <select
-        aria-label="Subject"
-        value={selected ?? ""}
-        onChange={(e) => setSubjectId(Number(e.target.value))}
-        className="rounded-md border border-line-control bg-surface px-3 py-2 text-sm"
-      >
-        {subjects.data.map((s) => (
-          <option key={s.id} value={s.id}>
-            {s.name} ({s.exam_board} {s.code})
-          </option>
-        ))}
-      </select>
-
-      {boundaries.isLoading ? (
-        <span aria-hidden className="block h-32 w-full animate-pulse rounded bg-surface-muted" />
-      ) : boundaries.isError || !boundaries.data ? (
-        <p className="text-sm text-ink-500">{ABSENT.loadFailed}</p>
-      ) : (
-        <>
-          <p className="text-sm text-ink-500">{sourceNote(boundaries.data)}</p>
-
-          {draft.length === 0 ? (
-            <p className="text-sm text-ink-500">
-              There is no published default for the {boundaries.data.grade_scale} scale — add each
-              grade and its minimum below.
-            </p>
-          ) : (
-            <ul className="max-w-sm">
-              {draft.map((band, i) => (
-                <li key={i} className="flex items-center gap-3 border-t border-line py-2">
-                  <input
-                    aria-label={`Grade ${i + 1}`}
-                    value={band.grade}
-                    onChange={(e) =>
-                      setDraft(draft.map((b, j) => (i === j ? { ...b, grade: e.target.value } : b)))
-                    }
-                    className="w-16 rounded-md border border-line-control px-2 py-1 text-sm"
-                  />
-                  <input
-                    aria-label={`Minimum percentage for grade ${band.grade}`}
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={band.min}
-                    onChange={(e) =>
-                      setDraft(
-                        draft.map((b, j) => (i === j ? { ...b, min: Number(e.target.value) } : b)),
-                      )
-                    }
-                    className="w-24 rounded-md border border-line-control px-2 py-1 text-sm tabular-nums"
-                  />
-                  <span className="text-sm text-ink-500">% and above</span>
-                  <button
-                    type="button"
-                    onClick={() => setDraft(draft.filter((_, j) => j !== i))}
-                    className="ml-auto text-sm text-ink-500 hover:text-risk-600"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setDraft([...draft, { grade: "", min: 0 }])}
-              className="text-sm font-medium text-brand-600 hover:text-brand-700"
-            >
-              Add a grade
-            </button>
-            <button
-              type="button"
-              onClick={() => save.mutate()}
-              disabled={save.isPending || outOfOrder || duplicateLabels || draft.length < 2}
-              className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-            >
-              {save.isPending ? "Saving…" : "Save boundaries"}
-            </button>
-          </div>
-
-          {outOfOrder && (
-            <p className="text-sm text-risk-600">
-              List the highest grade first, with each minimum below the one above it.
-            </p>
-          )}
-          {duplicateLabels && (
-            <p className="text-sm text-risk-600">Each grade can appear only once.</p>
-          )}
-          {draft.length < 2 && (
-            <p className="text-sm text-ink-500">Add at least two grades before saving.</p>
-          )}
-          {save.isError && <p className="text-sm text-risk-600">{ABSENT.loadFailed}</p>}
-        </>
-      )}
       {toast}
     </div>
   );

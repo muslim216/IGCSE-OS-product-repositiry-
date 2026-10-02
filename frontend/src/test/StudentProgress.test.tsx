@@ -1,9 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import ProgressPage from "../student/ProgressPage";
-import { GAP_SENTENCE, gradeGap } from "../lib/student";
+import { GAP_REASON, GAP_SENTENCE, gradeGap, thinEvidenceNote } from "../lib/student";
 import type { SubjectReadiness } from "../api/readiness";
 
 /* Progress: predicted beside averaging, and the sentence explaining the gap.
@@ -81,7 +81,7 @@ test("predicted with no marked work states averaging as absent, not equal", asyn
 test("where the average came from travels with it", async () => {
   stubFetch([subject({ marked_piece_count: 5 })]);
   const { container } = renderProgress();
-  await screen.findByText("Averaging");
+  await screen.findByText("Averaging grade");
   expect(container.textContent).toContain("from 5 marked pieces");
 });
 
@@ -139,7 +139,11 @@ test("a weak topic shows its score with the evidence count from its topic row", 
   ]);
   renderProgress();
   const why = (await screen.findByRole("heading", { name: "Why" })).parentElement!;
-  expect(why.textContent).toContain("41% · 2 pieces");
+  // The topic's name leads; its syllabus code is quiet secondary text. The
+  // count is of marked questions — the unit the topic row records.
+  expect(within(why).getByText("Rates")).toBeInTheDocument();
+  expect(within(why).getByText("3.2")).toBeInTheDocument();
+  expect(why.textContent).toContain("41% across 2 marked questions");
 });
 
 test("a student with no subjects still sees their all-subject tutor criteria", async () => {
@@ -175,7 +179,7 @@ test("a weak topic resting on the tutor's estimate is labelled under Why", async
     }),
   ]);
   renderProgress();
-  expect(await screen.findByText("includes tutor estimate")).toBeInTheDocument();
+  expect(await screen.findByText("Includes tutor's estimate")).toBeInTheDocument();
 });
 
 test("coverage travels with the evidence disclosure", async () => {
@@ -197,13 +201,14 @@ test("coverage travels with the evidence disclosure", async () => {
     }),
   ]);
   renderProgress();
-  expect(await screen.findByText(/2 of 4 topics carry evidence/)).toBeInTheDocument();
+  expect(await screen.findByText(/2 of 4 topics have marked work/)).toBeInTheDocument();
 });
 
 test("a topic resting on the tutor's estimate is labelled under Evidence", async () => {
   stubFetch([
     subject({
-      topics_with_evidence: 1,
+      // The backend leaves an estimate-only topic out of this count.
+      topics_with_evidence: 0,
       topic_count: 1,
       topics: [
         {
@@ -218,6 +223,92 @@ test("a topic resting on the tutor's estimate is labelled under Evidence", async
       ],
     }),
   ]);
+  const { container } = renderProgress();
+  expect(await screen.findByText("Includes tutor's estimate")).toBeInTheDocument();
+  // The estimate is the one item behind this score, and it is not work the
+  // student did: "40% across 1 piece of work" claimed a marked piece nobody
+  // marked (PROD-8).
+  expect(screen.getByText("40% · no marked work yet")).toBeInTheDocument();
+  expect(container.textContent).not.toMatch(/across 1/);
+});
+
+test("an estimate-only weak topic says so under Why, not a count of work", async () => {
+  const rates = {
+    topic_id: 9,
+    topic_code: "3.2",
+    topic_title: "Rates",
+    score: 41,
+    confidence: "low",
+    evidence_count: 1,
+    tutor_estimate: true,
+  };
+  stubFetch([
+    subject({
+      weak_topics: [
+        { topic_id: 9, topic_code: "3.2", topic_title: "Rates", score: 41, tutor_estimate: true },
+      ],
+      topics: [rates],
+    }),
+  ]);
+  const { container } = renderProgress();
+  // Once under Why and once in the evidence list, and the same words both times.
+  expect(await screen.findAllByText("41% · no marked work yet")).toHaveLength(2);
+  expect(container.textContent).not.toMatch(/piece of work/);
+});
+
+test("a topic's count of work leaves out the tutor's estimate", async () => {
+  // evidence_count is three marked questions plus the estimate.
+  stubFetch([
+    subject({
+      topics: [
+        {
+          topic_id: 1,
+          topic_code: "1.1",
+          topic_title: "Moles",
+          score: 55,
+          confidence: "medium",
+          evidence_count: 4,
+          tutor_estimate: true,
+        },
+      ],
+    }),
+  ]);
   renderProgress();
-  expect(await screen.findByText("includes tutor estimate")).toBeInTheDocument();
+  expect(await screen.findByText("55% across 3 marked questions")).toBeInTheDocument();
+  expect(screen.getByText("Includes tutor's estimate")).toBeInTheDocument();
+});
+
+test("a gap between the two grades is explained, not only stated", async () => {
+  // The reported confusion: "Predicted 6 · Averaging 8" with nothing saying why
+  // a forecast sits two grades under the student's own marks.
+  stubFetch([
+    subject({ score: 62, predicted_grade: "6", averaging_score: 80, averaging_grade: "8" }),
+  ]);
+  renderProgress();
+  expect(await screen.findByText(GAP_SENTENCE.below)).toBeInTheDocument();
+  expect(screen.getByText(GAP_REASON.below)).toBeInTheDocument();
+});
+
+test("matching grades need no explanation", async () => {
+  stubFetch([
+    subject({ score: 65, predicted_grade: "6", averaging_score: 64, averaging_grade: "6" }),
+  ]);
+  renderProgress();
+  await screen.findByText(GAP_SENTENCE.equal);
+  expect(screen.queryByText(GAP_REASON.below)).not.toBeInTheDocument();
+  expect(screen.queryByText(GAP_REASON.above)).not.toBeInTheDocument();
+});
+
+test("an average resting on one marked piece says it is thin", async () => {
+  stubFetch([subject({ marked_piece_count: 1 })]);
+  renderProgress();
+  expect(await screen.findByText(thinEvidenceNote(1)!)).toBeInTheDocument();
+});
+
+test("each grade is labelled as what it is", async () => {
+  stubFetch([subject()]);
+  renderProgress();
+  expect(await screen.findByText("Predicted grade")).toBeInTheDocument();
+  expect(screen.getByText("Averaging grade")).toBeInTheDocument();
+  expect(screen.getByText("72% ready")).toBeInTheDocument();
 });

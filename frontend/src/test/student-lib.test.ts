@@ -7,6 +7,7 @@ import {
   movementSentence,
   recentlyMarked,
   subjectStrip,
+  thinEvidenceNote,
 } from "../lib/student";
 import type { StudentAssignment } from "../api/homework";
 import type { SubjectReadiness } from "../api/readiness";
@@ -127,7 +128,20 @@ test("no month to compare means no sentence, not a zero", () => {
   expect(movementSentence(null)).toBeNull();
 });
 
-test("movement is stated in whole points", () => {
-  expect(movementSentence(6.4)).toBe("You're up 6 this month.");
-  expect(movementSentence(-6.4)).toBe("You're down 6 this month.");
+test("movement is stated in whole points, and says what the points are", () => {
+  expect(movementSentence(6.4)).toBe("You're up 6 readiness points this month.");
+  expect(movementSentence(-6.4)).toBe("You're down 6 readiness points this month.");
+});
+
+test("an average from one or two pieces is called an early picture", () => {
+  expect(thinEvidenceNote(1)).toBe(
+    "Your average comes from just one marked piece, so treat it as an early picture.",
+  );
+  expect(thinEvidenceNote(2)).toMatch(/two marked pieces/);
+});
+
+test("no caveat when there is enough work, or none at all", () => {
+  // Zero is not "thin" — there is no average, and the screen says so itself.
+  expect(thinEvidenceNote(0)).toBeNull();
+  expect(thinEvidenceNote(3)).toBeNull();
 });

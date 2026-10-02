@@ -22,28 +22,50 @@ export function bandedSubjects(subjects: SubjectReadiness[]): SubjectReadiness[]
   return subjects.filter((s) => s.status !== null);
 }
 
+/** "Chemistry" / "Chemistry and Biology" — only ever called with one or two. */
+function joinNames(subjects: SubjectReadiness[]): string {
+  return subjects.map((s) => s.subject_name).join(" and ");
+}
+
 /**
  * The verdict sentence — the first thing read, and for many parents the only
  * thing read (copy §4.6).
  *
  * Evaluated top to bottom, first match wins. Every branch ends in a full stop:
  * a verdict without one reads as a label rather than an answer.
+ *
+ * **One or two measured subjects are named, not counted.** Applied literally,
+ * the copy deck's counting template produced "needs support in one of one
+ * subjects" and "on track in all two subjects" — sentences no person writes,
+ * and on the screen a worried parent reads most closely. Naming the subject is
+ * both shorter and more useful. From three up the count reads naturally.
+ *
+ * **Unmeasured subjects are outside the count, and the sentence says so** when
+ * any exist: "on track in all three subjects with marked work". Without the
+ * qualifier a parent looking at four subject rows would read "all three" as an
+ * arithmetic slip, or as the fourth having been forgotten.
  */
 export function parentVerdict(name: string, subjects: SubjectReadiness[]): string {
   const banded = bandedSubjects(subjects);
   if (banded.length === 0) {
     return `There isn't enough marked work yet to say how ${name} is doing.`;
   }
-  const onTrack = banded.filter((s) => s.status === "on_track").length;
-  if (onTrack === banded.length) {
-    return `${name} is on track in all ${countWord(banded.length)} subjects.`;
+  const onTrack = banded.filter((s) => s.status === "on_track");
+  const notOnTrack = banded.filter((s) => s.status !== "on_track");
+
+  if (banded.length <= 2) {
+    if (notOnTrack.length === 0) return `${name} is on track in ${joinNames(onTrack)}.`;
+    if (onTrack.length === 0) return `${name} needs support in ${joinNames(notOnTrack)}.`;
+    return `${name} is on track in ${joinNames(onTrack)} but needs support in ${joinNames(notOnTrack)}.`;
   }
-  if (onTrack === 0) {
-    return `${name} needs support in ${countWord(banded.length)} of ${countWord(banded.length)} subjects.`;
-  }
+
+  const scope = banded.length < subjects.length ? " with marked work" : "";
+  const total = countWord(banded.length);
+  if (notOnTrack.length === 0) return `${name} is on track in all ${total} subjects${scope}.`;
+  if (onTrack.length === 0) return `${name} needs support in all ${total} subjects${scope}.`;
   // Counts up to ten are words in prose (§4.1), so both numbers spell out:
-  // "one of two", not "1 of 2".
-  return `${name} is on track in ${countWord(onTrack)} of ${countWord(banded.length)} subjects.`;
+  // "three of four", not "3 of 4".
+  return `${name} is on track in ${countWord(onTrack.length)} of ${total} subjects${scope}.`;
 }
 
 /** Where the verdict came from. Every number on this screen is traceable to the

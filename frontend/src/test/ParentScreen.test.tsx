@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
@@ -129,7 +129,42 @@ test("the narrative section states its absence rather than rendering an empty bl
   stubFetch([subject()], null);
   renderParent();
   expect(await screen.findByText("How it's going")).toBeInTheDocument();
-  expect(screen.getByText(/Nothing written yet/)).toBeInTheDocument();
+  // find, not get: the section shows a skeleton until the narrative request
+  // has answered, rather than claiming "nothing written" before it knows.
+  expect(await screen.findByText(/Nothing written yet/)).toBeInTheDocument();
+});
+
+test("a summary that failed to load says so and can be retried", async () => {
+  // A failed request knows nothing about whether a summary exists, so it must
+  // not fall through to "Nothing written yet" — that tells a parent there is
+  // nothing to read when the truth is we could not ask.
+  let narrativeFails = true;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+      if (url.includes("/me/children")) return json([{ id: 2, name: "Sara", role: "student" }]);
+      if (url.includes("/narrative")) {
+        return narrativeFails
+          ? json({ detail: "boom" }, 500)
+          : json({ text: "Chemistry is moving up.", generated_at: null, prompt_version: null });
+      }
+      if (url.includes("/readiness/students/")) {
+        return json({ student_id: 2, student_name: "Sara", subjects: [subject()] });
+      }
+      return json([]);
+    }),
+  );
+  renderParent();
+
+  expect(await screen.findByText("We couldn't load the summary.")).toBeInTheDocument();
+  expect(screen.queryByText(/Nothing written yet/)).not.toBeInTheDocument();
+
+  narrativeFails = false;
+  fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+  expect(await screen.findByText("Chemistry is moving up.")).toBeInTheDocument();
+  expect(screen.queryByText("We couldn't load the summary.")).not.toBeInTheDocument();
 });
 
 test("a stored narrative is read, never generated here", async () => {
@@ -149,7 +184,9 @@ test("predicted and averaging are both shown and distinguished", async () => {
   stubFetch([subject()]);
   const { container } = renderParent();
   await screen.findByText("Chemistry");
-  expect(container.textContent).toContain("predicted 7 · averaging 6");
+  // Each grade says which grade it is — "predicted 7 · averaging 6" left a
+  // parent to guess what "averaging" meant.
+  expect(container.textContent).toContain("Predicted grade 7 · Averaging grade 6 in marked work");
 });
 
 test("no per-homework detail reaches the parent screen", async () => {
@@ -162,15 +199,38 @@ test("no per-homework detail reaches the parent screen", async () => {
   expect(screen.queryByText(/homework/i)).not.toBeInTheDocument();
 });
 
+const biology = (over: Partial<SubjectReadiness> = {}) =>
+  subject({ subject_id: 2, subject_name: "Biology", ...over });
+const physics = (over: Partial<SubjectReadiness> = {}) =>
+  subject({ subject_id: 3, subject_name: "Physics", ...over });
+
 test.each([
-  [[subject(), subject({ subject_id: 2 })], "Sara is on track in all two subjects."],
+  // One or two measured subjects are named rather than counted: the counting
+  // template produced "needs support in one of one subjects".
+  [[subject()], "Sara is on track in Chemistry."],
+  [[subject({ status: "at_risk" })], "Sara needs support in Chemistry."],
+  [[subject(), biology()], "Sara is on track in Chemistry and Biology."],
   [
-    [subject(), subject({ subject_id: 2, status: "at_risk" })],
-    "Sara is on track in one of two subjects.",
+    [subject(), biology({ status: "at_risk" })],
+    "Sara is on track in Chemistry but needs support in Biology.",
   ],
   [
-    [subject({ status: "at_risk" }), subject({ subject_id: 2, status: "needs_attention" })],
-    "Sara needs support in two of two subjects.",
+    [subject({ status: "at_risk" }), biology({ status: "needs_attention" })],
+    "Sara needs support in Chemistry and Biology.",
+  ],
+  // From three up the count reads naturally.
+  [[subject(), biology(), physics()], "Sara is on track in all three subjects."],
+  [
+    [subject(), biology({ status: "at_risk" }), physics()],
+    "Sara is on track in two of three subjects.",
+  ],
+  [
+    [
+      subject({ status: "at_risk" }),
+      biology({ status: "at_risk" }),
+      physics({ status: "at_risk" }),
+    ],
+    "Sara needs support in all three subjects.",
   ],
   [[unmeasured()], "There isn't enough marked work yet to say how Sara is doing."],
 ])("the verdict states the child's position", (subjects, expected) => {
@@ -179,7 +239,17 @@ test.each([
 
 test("an unmeasured subject is neither on track nor in trouble", () => {
   // Counting it either way would be a claim. Two banded subjects, one not.
-  expect(parentVerdict("Sara", [subject(), subject({ subject_id: 2 }), unmeasured()])).toBe(
-    "Sara is on track in all two subjects.",
+  expect(parentVerdict("Sara", [subject(), biology(), unmeasured({ subject_id: 4 })])).toBe(
+    "Sara is on track in Chemistry and Biology.",
   );
+  // And a count says what it counted when an unmeasured subject is beside it.
+  expect(
+    parentVerdict("Sara", [subject(), biology(), physics(), unmeasured({ subject_id: 4 })]),
+  ).toBe("Sara is on track in all three subjects with marked work.");
+});
+
+test("no verdict counts a single subject as a fraction of one", () => {
+  for (const status of ["on_track", "needs_attention", "at_risk"] as const) {
+    expect(parentVerdict("Sara", [subject({ status })])).not.toMatch(/of one|all one|one of/);
+  }
 });

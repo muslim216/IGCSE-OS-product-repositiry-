@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link2 } from "lucide-react";
 import {
   createInvite,
   createParentCode,
@@ -8,9 +9,11 @@ import {
   removeMember,
   resetStudentPassword,
 } from "../../api/groups";
-import { ApiError } from "../../api/client";
 import { useGroupContext } from "../GroupLayout";
-import { EmptyState, Modal } from "../../components/ui";
+import { EmptyState, InitialsAvatar, Modal, SectionCard } from "../../components/ui";
+import { Button, Field, Input, inputClasses } from "../../components/controls";
+import { ConfirmDialog } from "../../components/page";
+import { friendlyError } from "../../lib/errors";
 
 /**
  * Masked by default so a password isn't left on screen in a classroom, but
@@ -18,33 +21,39 @@ import { EmptyState, Modal } from "../../components/ui";
  * who has no email, so typing one blind is worse than useless.
  */
 function PasswordField({
+  id,
   value,
   onChange,
   placeholder,
   autoFocus,
+  "aria-describedby": describedBy,
 }: {
+  id?: string;
   value: string;
   onChange: (next: string) => void;
-  placeholder: string;
+  placeholder?: string;
   autoFocus?: boolean;
+  "aria-describedby"?: string;
 }) {
   const [visible, setVisible] = useState(false);
   return (
-    <span className="relative inline-flex items-center">
+    <span className="relative flex items-center">
       <input
+        id={id}
         type={visible ? "text" : "password"}
-        className="w-full rounded-md border border-line py-2 pl-3 pr-14 text-sm"
+        className={`${inputClasses} pr-16`}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         minLength={8}
         required
         autoFocus={autoFocus}
+        aria-describedby={describedBy}
       />
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        className="absolute right-2 text-xs text-ink-500 hover:text-ink-700"
+        className="absolute right-2 rounded px-2 py-1 text-xs font-medium text-ink-500 hover:text-ink-900"
         aria-pressed={visible}
       >
         {visible ? "Hide" : "Show"}
@@ -56,19 +65,21 @@ function PasswordField({
 function CopyBox({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="mt-2 flex items-center gap-2 rounded-md bg-slate-50 p-2 text-sm">
-      <span className="text-ink-500">{label}:</span>
-      <code className="flex-1 truncate">{value}</code>
-      <button
-        className="rounded bg-slate-200 px-2 py-1 text-xs hover:bg-slate-300"
+    <div className="mt-3 flex items-center gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 text-sm">
+      <span className="shrink-0 text-ink-500">{label}</span>
+      <code className="min-w-0 flex-1 truncate text-ink-900">{value}</code>
+      <Button
+        variant="secondary"
+        size="sm"
+        aria-label={`Copy ${label.toLowerCase()}`}
         onClick={() => {
           navigator.clipboard.writeText(value);
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
       >
-        {copied ? "Copied!" : "Copy"}
-      </button>
+        {copied ? "Copied" : "Copy"}
+      </Button>
     </div>
   );
 }
@@ -78,8 +89,7 @@ export default function StudentsTab() {
   const queryClient = useQueryClient();
   // Every mutation here reports failure — a silent no-op reads as "it worked".
   const [actionError, setActionError] = useState<string | null>(null);
-  const onError = (err: unknown) =>
-    setActionError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
+  const onError = (err: unknown) => setActionError(friendlyError(err));
 
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [parentCodes, setParentCodes] = useState<Record<number, string>>({});
@@ -143,126 +153,139 @@ export default function StudentsTab() {
     addStudent.mutate();
   }
 
+  const count = group.members.length;
+
   return (
-    <div>
-      {actionError && <p className="mb-3 text-sm text-risk-600">{actionError}</p>}
-
-      <div className="flex items-center justify-between">
-        <h3 className="font-medium">Students ({group.members.length})</h3>
-        <button
-          onClick={() => invite.mutate()}
-          className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium hover:bg-brand-700"
-        >
-          Generate invite link
-        </button>
-      </div>
-      {inviteLink && <CopyBox label="Invite link" value={inviteLink} />}
-
-      <ul className="mt-3 divide-y">
-        {group.members.map((m) => (
-          <li key={m.id} className="py-2">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <Link
-                  to={`/tutor/students/${m.id}?group=${groupId}&subject=${group.subject.id}`}
-                  className="font-medium text-blue-600 hover:underline"
-                >
-                  {m.name}
-                </Link>{" "}
-                <span className="text-sm text-ink-500">{m.email ?? `@${m.username}`}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <button
-                  onClick={() => parentCode.mutate(m.id)}
-                  className="text-blue-600 hover:underline"
-                >
-                  Parent link
-                </button>
-                {!m.email && (
-                  <button
-                    onClick={() => setResetting({ id: m.id, name: m.name })}
-                    className="text-ink-500 hover:underline"
-                  >
-                    Reset password
-                  </button>
-                )}
-                <button
-                  onClick={() => setRemoving({ id: m.id, name: m.name })}
-                  className="text-red-500 hover:underline"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-            {parentCodes[m.id] && <CopyBox label="Parent link" value={parentCodes[m.id]} />}
-          </li>
-        ))}
-      </ul>
-      {group.members.length === 0 && (
-        <EmptyState
-          title="No students yet"
-          hint="Share an invite link, or add an account below for a student without an email."
-        />
+    <div className="space-y-6">
+      {actionError && (
+        <p role="alert" className="rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
+          {actionError}
+        </p>
       )}
 
-      <form onSubmit={onAddStudent} className="mt-4 border-t border-line pt-4">
-        <h4 className="text-sm font-medium text-ink-700">
-          Add a student without an email (username account)
-        </h4>
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <input
-            className="rounded-md border border-line px-3 py-2 text-sm"
-            placeholder="Student name"
-            value={studentForm.name}
-            onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-            required
-          />
-          <input
-            className="rounded-md border border-line px-3 py-2 text-sm"
-            placeholder="Username"
-            value={studentForm.username}
-            onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
-            required
-          />
-          <PasswordField
-            placeholder="Password (min 8 chars)"
-            value={studentForm.password}
-            onChange={(password) => setStudentForm({ ...studentForm, password })}
-          />
-          <button
-            type="submit"
-            disabled={addStudent.isPending}
-            className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-          >
-            Add student
-          </button>
+      <section>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg text-ink-900">Students</h2>
+            <p className="text-sm text-ink-500">
+              {count} {count === 1 ? "student" : "students"} in this class
+            </p>
+          </div>
+          <Button size="sm" loading={invite.isPending} onClick={() => invite.mutate()}>
+            <Link2 aria-hidden className="h-4 w-4" />
+            Create invite link
+          </Button>
         </div>
-      </form>
+        {inviteLink && <CopyBox label="Invite link" value={inviteLink} />}
 
-      <Modal
+        {count === 0 ? (
+          <SectionCard className="mt-4">
+            <EmptyState
+              title="No students yet"
+              hint="Share an invite link, or add an account below for a student without an email."
+            />
+          </SectionCard>
+        ) : (
+          <ul className="mt-4 divide-y divide-line rounded-xl border border-line bg-surface">
+            {group.members.map((m) => (
+              <li key={m.id} className="px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <InitialsAvatar name={m.name} />
+                    <div className="min-w-0">
+                      <Link
+                        to={`/tutor/students/${m.id}?group=${groupId}&subject=${group.subject.id}`}
+                        className="block truncate font-medium text-ink-900 hover:text-brand-600"
+                      >
+                        {m.name}
+                      </Link>
+                      <span className="block truncate text-sm text-ink-500">
+                        {m.email ?? `@${m.username}`}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      loading={parentCode.isPending && parentCode.variables === m.id}
+                      onClick={() => parentCode.mutate(m.id)}
+                    >
+                      Parent link
+                    </Button>
+                    {!m.email && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setResetting({ id: m.id, name: m.name })}
+                      >
+                        Reset password
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Remove ${m.name} from this class`}
+                      onClick={() => setRemoving({ id: m.id, name: m.name })}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+                {parentCodes[m.id] && <CopyBox label="Parent link" value={parentCodes[m.id]} />}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <SectionCard>
+        <form onSubmit={onAddStudent}>
+          <h3 className="font-medium text-ink-900">Add a student without an email</h3>
+          <p className="mt-1 text-sm text-ink-500">
+            They sign in with a username and a password you choose.
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <Field label="Student name">
+              <Input
+                value={studentForm.name}
+                onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Username">
+              <Input
+                value={studentForm.username}
+                onChange={(e) => setStudentForm({ ...studentForm, username: e.target.value })}
+                autoComplete="off"
+                required
+              />
+            </Field>
+            <Field label="Password" hint="At least 8 characters">
+              <PasswordField
+                value={studentForm.password}
+                onChange={(password) => setStudentForm({ ...studentForm, password })}
+              />
+            </Field>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Button type="submit" loading={addStudent.isPending}>
+              Add student
+            </Button>
+          </div>
+        </form>
+      </SectionCard>
+
+      <ConfirmDialog
         open={removing !== null}
-        onClose={() => setRemoving(null)}
         title={`Remove ${removing?.name ?? ""} from this class?`}
-      >
-        <p className="text-sm text-ink-500">
-          They keep their account and their marked work, but lose access to this class's homework.
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={() => setRemoving(null)}
-            className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => removing && remove.mutate(removing.id)}
-            disabled={remove.isPending}
-            className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium disabled:opacity-50"
-          >
-            Remove
-          </button>
-        </div>
-      </Modal>
+        body="They keep their account and their marked work, but lose access to this class's homework."
+        confirmLabel="Remove from class"
+        danger
+        busy={remove.isPending}
+        onConfirm={() => removing && remove.mutate(removing.id)}
+        onCancel={() => setRemoving(null)}
+      />
 
       <Modal
         open={resetting !== null}
@@ -275,31 +298,19 @@ export default function StudentsTab() {
             if (resetting) resetPw.mutate({ studentId: resetting.id, password: newPassword });
           }}
         >
-          <PasswordField
-            placeholder="At least 8 characters"
-            value={newPassword}
-            onChange={setNewPassword}
-            autoFocus
-          />
-          <p className="mt-2 text-xs text-ink-500">
-            Resetting signs the account out everywhere — share the new password with the student
-            directly.
-          </p>
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setResetting(null)}
-              className="rounded-md border border-line px-3 py-1.5 text-sm hover:bg-slate-50"
-            >
+          <Field
+            label="New password"
+            hint="At least 8 characters. Resetting signs the account out everywhere — share the new password with the student directly."
+          >
+            <PasswordField value={newPassword} onChange={setNewPassword} autoFocus />
+          </Field>
+          <div className="mt-6 flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setResetting(null)}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={resetPw.isPending}
-              className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
-            >
+            </Button>
+            <Button type="submit" loading={resetPw.isPending}>
               Reset password
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

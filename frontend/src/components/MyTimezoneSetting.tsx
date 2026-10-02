@@ -1,8 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { myTimezone, setMyTimezone } from "../api/auth";
-import { ApiError } from "../api/client";
+import { friendlyError } from "../lib/errors";
 import { detectedTimezone, supportedTimezones } from "../lib/timezones";
 import { useApplyUser } from "../auth/AuthContext";
+import { Button, Field, Select } from "./controls";
+import { SectionSkeleton } from "./page";
+import { SectionCard, SectionHeader } from "./ui";
 
 /**
  * The signed-in user's own time zone (AV-67) — distinct from the
@@ -13,6 +16,10 @@ import { useApplyUser } from "../auth/AuthContext";
  * Unset is shown as unset and names what is being followed instead (PROD-2):
  * "the organization's zone", never a silent default. Clearing the control
  * returns to that default rather than to UTC.
+ *
+ * Mounted on the student's and parent's Account page and on the tutor's
+ * Settings, so the wording below names the default in the reader's own terms:
+ * a student or parent follows their tutor's zone, a tutor their organization's.
  */
 export default function MyTimezoneSetting() {
   const queryClient = useQueryClient();
@@ -34,6 +41,8 @@ export default function MyTimezoneSetting() {
   });
 
   const current = me.data?.time_zone ?? null;
+  const isStaff = me.data?.role === "tutor" || me.data?.role === "admin";
+  const fallbackName = isStaff ? "your organisation's time zone" : "your tutor's time zone";
   // A stored zone this browser does not list would otherwise vanish from the
   // picker and look unset — same guard as the organization picker. The detected
   // zone is included for the same reason it is there: where
@@ -49,57 +58,56 @@ export default function MyTimezoneSetting() {
   ].sort();
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">Your time zone</h3>
-      <p className="mt-1 text-sm text-ink-500">
-        Your own zone, overriding the account's for anything addressed to you.
-      </p>
+    <SectionCard>
+      <SectionHeader
+        title="Your time zone"
+        description="Decides when “today” and “due tomorrow” turn over for you."
+      />
 
       {/* Loading and failure are stated, not rendered as absence. Returning
           null on error removed the whole control, which reads as "this setting
           does not exist for me" rather than "it could not be loaded" — and
           leaves no way to retry. Same shape as TimezoneSetting (PROD-2). */}
-      {me.isLoading ? (
-        <p className="mt-3 text-sm text-ink-500">Loading…</p>
-      ) : me.isError ? (
-        <p className="mt-3 text-sm text-risk-600">Couldn't load your time zone.</p>
-      ) : (
-        <>
-          <p className="mt-3 text-sm text-ink-700">
-            {current ? (
-              <>
-                Currently <span className="font-medium text-ink-900">{current}</span>.
-              </>
-            ) : (
-              "Not set — you're following the account's time zone."
-            )}
-          </p>
-          <div className="mt-3">
-            <label htmlFor="my-timezone" className="sr-only">
-              Your time zone
-            </label>
-            <select
-              id="my-timezone"
+      <div className="mt-4">
+        {me.isLoading ? (
+          <SectionSkeleton rows={2} label="Loading your time zone" />
+        ) : me.isError ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-risk-600">Couldn&apos;t load your time zone.</p>
+            <Button variant="secondary" size="sm" onClick={() => void me.refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <Field
+            label="Time zone"
+            hint={
+              current
+                ? save.isSuccess
+                  ? `Saved. Dates addressed to you now follow ${current}.`
+                  : `Dates addressed to you follow ${current}.`
+                : `Not set — you're following ${fallbackName}.`
+            }
+            error={
+              save.isError ? friendlyError(save.error, "Couldn't save that. Try again.") : null
+            }
+          >
+            <Select
               value={current ?? ""}
               disabled={save.isPending}
               onChange={(e) => save.mutate(e.target.value || null)}
-              className="rounded-md border border-line-control bg-canvas px-3 py-2 text-sm text-ink-900"
+              className="sm:max-w-sm"
             >
-              <option value="">Follow the account's time zone</option>
+              <option value="">Follow {fallbackName}</option>
               {options.map((zone) => (
                 <option key={zone} value={zone}>
-                  {zone}
+                  {zone.replace(/_/g, " ")}
                 </option>
               ))}
-            </select>
-          </div>
-          {save.isError && (
-            <p className="mt-2 text-sm text-risk-600">
-              {save.error instanceof ApiError ? save.error.message : "Couldn't save that."}
-            </p>
-          )}
-        </>
-      )}
-    </div>
+            </Select>
+          </Field>
+        )}
+      </div>
+    </SectionCard>
   );
 }

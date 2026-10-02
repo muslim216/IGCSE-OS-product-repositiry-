@@ -67,7 +67,7 @@ test("labels a topic whose score includes the tutor's estimate", () => {
     tutor_estimate: true,
   };
   render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
-  expect(screen.getByText("includes tutor estimate")).toBeInTheDocument();
+  expect(screen.getByText("Includes tutor's estimate")).toBeInTheDocument();
 });
 
 test("says nothing extra when the score is marked work only", () => {
@@ -81,7 +81,7 @@ test("says nothing extra when the score is marked work only", () => {
     tutor_estimate: false,
   };
   render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
-  expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
+  expect(screen.queryByText("Includes tutor's estimate")).not.toBeInTheDocument();
 });
 
 test("labels a focus-on chip whose weak topic rests on the tutor's estimate", () => {
@@ -93,7 +93,7 @@ test("labels a focus-on chip whose weak topic rests on the tutor's estimate", ()
     tutor_estimate: true,
   };
   render(<SubjectReadinessCard subject={{ ...base, weak_topics: [weak] }} />);
-  expect(screen.getByText("includes tutor estimate")).toBeInTheDocument();
+  expect(screen.getByText("Includes tutor's estimate")).toBeInTheDocument();
 });
 
 test("says nothing extra on the chip when the weak topic is marked work only", () => {
@@ -105,7 +105,7 @@ test("says nothing extra on the chip when the weak topic is marked work only", (
     tutor_estimate: false,
   };
   render(<SubjectReadinessCard subject={{ ...base, weak_topics: [weak] }} />);
-  expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
+  expect(screen.queryByText("Includes tutor's estimate")).not.toBeInTheDocument();
 });
 
 test("says so plainly when there is not enough evidence", () => {
@@ -118,4 +118,60 @@ test("says so plainly when there is not enough evidence", () => {
     />,
   );
   expect(screen.getByText("Not enough data yet")).toBeInTheDocument();
+});
+
+test("a topic is named by its title, with the code as quiet secondary text", () => {
+  const topic: TopicReadiness = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 70,
+    confidence: "high",
+    evidence_count: 3,
+    tutor_estimate: false,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
+  expect(screen.getByText("Atomic structure")).toBeInTheDocument();
+  expect(screen.getByText("1.3")).toBeInTheDocument();
+});
+
+test("markers are explained in words, not left to a tooltip or a bare '?'", () => {
+  // A tooltip never shows on a phone or tablet, so a marker that relied on one
+  // was unreadable to the tutor checking a student between lessons.
+  const topic: TopicReadiness = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 40,
+    confidence: "low",
+    evidence_count: 1,
+    tutor_estimate: true,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
+  expect(screen.queryByText("?")).not.toBeInTheDocument();
+  expect(screen.getByText("Low confidence")).toBeInTheDocument();
+  // "Evidence", never "marked work": this topic is the tutor's estimate alone,
+  // which the backend scores at `low` with no marked work behind it at all.
+  expect(screen.getByText(/only a little evidence/)).not.toHaveTextContent(/marked work/);
+  expect(screen.getByText(/starting level a tutor entered/)).toBeInTheDocument();
+});
+
+test("no legend appears when no row carries a marker", () => {
+  const topic: TopicReadiness = {
+    topic_id: 1,
+    topic_code: "1.3",
+    topic_title: "Atomic structure",
+    score: 70,
+    confidence: "high",
+    evidence_count: 3,
+    tutor_estimate: false,
+  };
+  render(<SubjectReadinessCard subject={{ ...base, topics: [topic] }} />);
+  expect(screen.queryByText(/starting level a tutor entered/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/only a little evidence/)).not.toBeInTheDocument();
+});
+
+test("the AI-written explanation is labelled as AI-written", () => {
+  render(<SubjectReadinessCard subject={{ ...base, rationale: "Demo data: bonding is weak." }} />);
+  expect(screen.getByText(/AI summary of the evidence/)).toBeInTheDocument();
 });

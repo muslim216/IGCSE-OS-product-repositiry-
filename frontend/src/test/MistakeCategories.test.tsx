@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import MistakeCategoriesPage from "../tutor/MistakeCategoriesPage";
-import { ABSENT } from "../lib/labels";
 
 /* The mistake-category editor (4.1, AV-39). What has to hold on screen:
    a list nobody has saved never reads as the organisation's own decision
@@ -101,7 +101,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rendered = render(
     <QueryClientProvider client={client}>
-      <MistakeCategoriesPage />
+      <MemoryRouter>
+        <MistakeCategoriesPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return { ...rendered, client };
@@ -296,7 +298,10 @@ test("subjects that fail to load say so, rather than reading as none existing", 
   );
   renderPage();
 
-  expect(await screen.findByText(ABSENT.loadFailed)).toBeTruthy();
+  // Said as a failure with a way to retry, never as an empty list.
+  const failure = await screen.findByRole("alert");
+  expect(failure).toHaveTextContent(/didn't load/i);
+  expect(within(failure).getByRole("button", { name: "Try again" })).toBeTruthy();
   expect(screen.queryByText(/No subjects yet/i)).toBeNull();
 });
 

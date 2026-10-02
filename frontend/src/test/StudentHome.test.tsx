@@ -96,8 +96,9 @@ test("no cross-subject aggregate is computed", async () => {
   );
   const { container } = renderHome();
 
-  await screen.findByText("74");
-  expect(screen.getByText("48")).toBeInTheDocument();
+  // Each value carries its unit — "74% ready", never a bare "74".
+  await screen.findByText("74%");
+  expect(screen.getByText("48%")).toBeInTheDocument();
   expect(container.textContent).not.toMatch(/\b61\b/);
   expect(screen.queryByText(/overall readiness/i)).not.toBeInTheDocument();
 });
@@ -119,9 +120,56 @@ test("DO precedes YOU DID in DOM order", async () => {
   const { container } = renderHome();
 
   await screen.findByText("Do");
-  const headings = [...container.querySelectorAll("h3")].map((h) => h.textContent);
+  const headings = [...container.querySelectorAll("h2")].map((h) => h.textContent);
   expect(headings.indexOf("Do")).toBeLessThan(headings.indexOf("You did"));
 });
+
+test("the outline starts at the verdict's h1, with the strip above it as a named region", async () => {
+  // §5.1 puts the strip above the verdict, so its label cannot be an <h2>: a
+  // heading ahead of the page's <h1> starts the outline at level two.
+  stubFetch([subject()], []);
+  const { container } = renderHome();
+
+  await screen.findByText("74%");
+  expect(container.querySelector("h1, h2, h3, h4, h5, h6")?.tagName).toBe("H1");
+  const strip = screen.getByRole("region", { name: "Your subjects" });
+  expect(strip).toContainElement(screen.getByText("74%"));
+});
+
+test.each([
+  [true, false, "Couldn't load your subjects."],
+  [false, true, "Couldn't load your homework."],
+  [true, true, "Couldn't load your home."],
+])(
+  "a failed load names what failed (readiness %s, homework %s)",
+  async (readinessFails, homeworkFails, title) => {
+    // Either request failing replaces the page; "your subjects" over a
+    // homework failure would point the student at the wrong thing.
+    const fail = () => new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/readiness/me")) {
+          return readinessFails
+            ? fail()
+            : new Response(
+                JSON.stringify({ student_id: 1, student_name: "Sara", subjects: [subject()] }),
+                { status: 200 },
+              );
+        }
+        if (url.includes("/me/assignments")) {
+          return homeworkFails ? fail() : new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(JSON.stringify([]), { status: 200 });
+      }),
+    );
+    renderHome();
+
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getAllByText(/^Couldn't load your/)).toHaveLength(1);
+  },
+);
 
 test("a subject without evidence renders words, not a zero", async () => {
   stubFetch([subject({ score: null, predicted_grade: null, status: null, direction: null })], []);
@@ -136,7 +184,7 @@ test("a single readiness point renders no arrow", async () => {
   stubFetch([subject({ direction: null })], []);
   renderHome();
 
-  await screen.findByText("74");
+  await screen.findByText("74%");
   expect(screen.queryByText("→")).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Trending/)).not.toBeInTheDocument();
 });
@@ -144,7 +192,7 @@ test("a single readiness point renders no arrow", async () => {
 test("a subject that has moved is reported with the same sign as its arrow", async () => {
   stubFetch([subject({ direction: "up", month_delta: 6 })], []);
   renderHome();
-  expect(await screen.findByText(/Chemistry up 6 this month/)).toBeInTheDocument();
+  expect(await screen.findByText(/Chemistry up 6 readiness points this month/)).toBeInTheDocument();
 });
 
 test("movement below the noise band is not announced", async () => {
@@ -152,7 +200,7 @@ test("movement below the noise band is not announced", async () => {
   // win, or the two disagree on one screen.
   stubFetch([subject({ direction: "flat", month_delta: 2 })], []);
   renderHome();
-  await screen.findByText("74");
+  await screen.findByText("74%");
   expect(screen.queryByText(/this month/)).not.toBeInTheDocument();
 });
 
@@ -208,7 +256,7 @@ test("the achievement event is attached to the piece it happened on", async () =
     ],
   );
   renderHome();
-  expect(await screen.findByText("highest in your class on this")).toBeInTheDocument();
+  expect(await screen.findByText("Highest mark in your class on this piece")).toBeInTheDocument();
 });
 
 test("no standing is rendered anywhere on the home", async () => {
@@ -217,7 +265,7 @@ test("no standing is rendered anywhere on the home", async () => {
   // message.
   stubFetch([subject()], [assignment({ submission_status: "marked", my_total: 12 })]);
   const { container } = renderHome();
-  await screen.findByText("74");
+  await screen.findByText("74%");
   expect(container.textContent).not.toMatch(/\d+(st|nd|rd|th) of \d+/);
   expect(container.textContent).not.toMatch(/class average/i);
 });

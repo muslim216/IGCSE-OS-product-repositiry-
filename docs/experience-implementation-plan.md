@@ -322,9 +322,9 @@ student's own grades and topics only; no classmate's value appears in any state 
 | State | Predicted / Averaging | Explanation | Your progress | WHY |
 |---|---|---|---|---|
 | No marked work | predicted if readiness exists; averaging *"no marked work yet"* | absent | absent | topics with `not enough data yet` |
-| Marked work, predicted > averaging | both | *"You're tracking above your recent average…"* | this month's own delta | topic list |
-| Marked work, predicted < averaging | both | *"Your recent work has been weaker than your record…"* | this month's own delta | topic list |
-| Predicted == averaging | both | *"Your recent work matches your record."* | this month's own delta | topic list |
+| Marked work, predicted > averaging | both | *"Your predicted grade is above the average of your marked work so far."* (full copy §4.5) | this month's own delta | topic list |
+| Marked work, predicted < averaging | both | *"Your predicted grade is below the average of your marked work so far."* (full copy §4.5) | this month's own delta | topic list |
+| Predicted == averaging | both | *"Your predicted grade matches the average of your marked work so far."* | this month's own delta | topic list |
 | Student joined mid-month | unchanged | unchanged | **absent** — stated as too new to compare, never a fabricated delta | unchanged |
 | One month of history only | unchanged | unchanged | absent | unchanged |
 | No boundaries for the subject | *"no grade boundaries set"*, no grade | absent | unchanged | unchanged |
@@ -341,6 +341,7 @@ student's own grades and topics only; no classmate's value appears in any state 
 | A subject not submitted for weeks | as above | that row carries the gap | narrative names it | *"{name} hasn't submitted work in Maths for three weeks."* |
 | Narrative refreshing | unchanged | unchanged | previous text + `Updating…` | unchanged |
 | Tutor regenerated it | unchanged | unchanged | previous text + `Updating…`, then the new text — **never blank in between** | unchanged |
+| Narrative failed to load | unchanged | unchanged | *"We couldn't load the summary."* + Retry — never *"Nothing written yet"*, which claims there is no summary | unchanged |
 | Parent linked to 2+ children | child chips first, then the whole screen for the selected child | — | — | — |
 
 **On the child switcher:** spec §6 says *one screen, no navigation*, and the current
@@ -412,10 +413,12 @@ otherwise absent.
 | Nothing due | `You're clear. Nothing due.` |
 | Assessment upcoming | `{Subject} {kind} in {n} days` · `tomorrow` · `today` |
 | Cleared-state offer | `IF YOU WANT` / `Sit a past paper` / `Browse →` |
-| Predicted above averaging | `You're tracking above your recent average — the last three pieces have been stronger than the ones before.` |
-| Predicted below averaging | `Your recent work has been weaker than your record — the last three pieces pulled the estimate down.` |
-| Predicted equals averaging | `Your recent work matches your record.` |
-| Own progress, improving | `You're up {n} this month.` |
+| Subject strip value | `{Subject} {n}% ready {↑/↓}` — or `not enough data yet` |
+| Predicted above averaging | `Your predicted grade is above the average of your marked work so far.` then `They're worked out differently: your average is just the marks you've had, while your predicted grade also weighs things like how recent each piece is — so recent progress can show up there first.` |
+| Predicted below averaging | `Your predicted grade is below the average of your marked work so far.` then `They're worked out differently: your average is just the marks you've had, while your predicted grade also weighs things like how much of the course your work has covered so far. It will move as more of your work is marked.` |
+| Predicted equals averaging | `Your predicted grade matches the average of your marked work so far.` |
+| Fewer than three marked pieces | `Your average comes from just {word} marked piece{s}, so treat it as an early picture.` |
+| Own progress, improving | `You're up {n} readiness points this month.` |
 | Own progress, no change | `You're steady this month.` |
 | Too new to compare | `You joined this month — there'll be a comparison next month.` |
 
@@ -424,9 +427,13 @@ otherwise absent.
 | Condition | String |
 |---|---|
 | No data at all | `There isn't enough marked work yet to say how {name} is doing.` |
-| All subjects on track | `{name} is on track in all {word} subjects.` |
-| Mixed | `{name} is on track in {n} of {m} subjects.` |
-| None on track | `{name} needs support in {word} of {word} subjects.` |
+| One or two subjects with marked work — all on track | `{name} is on track in {Subject}.` · `… in {Subject} and {Subject}.` |
+| One or two — none on track | `{name} needs support in {Subject}.` · `… in {Subject} and {Subject}.` |
+| Two — mixed | `{name} is on track in {Subject} but needs support in {Subject}.` |
+| Three or more — all on track | `{name} is on track in all {word} subjects{ with marked work}.` |
+| Three or more — mixed | `{name} is on track in {word} of {word} subjects{ with marked work}.` |
+| Three or more — none on track | `{name} needs support in all {word} subjects{ with marked work}.` |
+| Subject row | `Predicted grade {g} · Averaging grade {g} in marked work` |
 | Provenance, with data | `Based on {n} marked pieces · updated weekly` |
 | Provenance, none | `No marked work yet` |
 | Nothing required | `Nothing is needed right now. We'll tell you if that changes.` |
@@ -1601,6 +1608,10 @@ discrepancy (`GOV-1`, `GOV-3`).
 | 25 | *"{name} hasn't submitted work in {subject} for {n} weeks."* | **Not built**; `WHAT YOU CAN DO` ships its two other states | The sentence needs a per-subject date of last marked work, which no parent-visible response carries. Adding it means a `max(Evidence.occurred_at)` per subject on the readiness read path — a query on the hottest surface in the product for one row of a copy table. The binding requirement (`WHAT YOU CAN DO` present in **every** state) is met without it and is tested. |
 | 26 | Seed published boundaries into the global default | As specified for the five seeded subjects (already shipped with boundaries) and for **uploaded syllabuses**, which now fall back to the scale's standard split | Existing subjects are **not** backfilled: a tutor who deliberately left boundaries empty must not find them filled in. The editor offers the default pre-filled and labelled unconfirmed instead (`PROD-8`). |
 | 26 | Precedence stated in `services/grades.py` | Moved to a new **`services/grade_boundaries.py`**, beside the writer | `grades.py` is pure decision math with no session (`BE-4`); resolving precedence needs a query. The resolver moved out of `readiness_v2_ai.py` — where it had put the rule governing every surface inside the module that talks to a model — and now sits next to `set_org_boundaries`, which is what makes the rule reachable rather than merely documented. |
+| — | Copy §4.5 predicted/averaging sentences | **The grade-comparison sentences** shipped earlier as *"Your predicted grade is above / below / matches the average of your marked work so far"*, and the October 2026 polish pass added **a second sentence saying why they differ** plus a thin-evidence note under three marked pieces | The deck's sentences claimed a cause ("the last three pieces pulled the estimate down") that the comparison does not measure. A student shown two different grades with no reason reads the gap as an error; the reason is now stated in terms of what each number is made of, which is true for every student. |
+| — | Copy §4.5 *"You're up {n} this month."* | *"You're up {n} readiness points this month."* | A bare "up 6" left a student guessing whether it was marks, percent or grades. |
+| — | Copy §4.6 counting template for every subject count | **One or two subjects are named, not counted**; three or more count, with *"with marked work"* when unmeasured subjects sit beside the count | Applied literally the template produced *"needs support in one of one subjects"* and *"on track in all two subjects"* — on the screen a worried parent reads most closely. The qualifier stops "all three" reading as an arithmetic slip beside four subject rows. |
+| — | Student strip `Chemistry 74 ↑` (spec §5.1) | `Chemistry 74% ready ↑` | A bare number on a student's home is read as a mark out of a hundred. The unit makes it a readiness score; direction pairing (UX-31) is unchanged. |
 | 28 | The seed "loses weight as marked evidence arrives" | A **relative** attenuation (`w / (1 + marked_count)`), not the existing time decay | The half-life discounts a seed and a real mark equally, so a topic that goes quiet keeps the tutor's first impression at full *relative* weight indefinitely. The seed row is never deleted — it is the record of what the score was built from (`PROD-1`) — only outweighed. |
 
 **The open items:**

@@ -255,3 +255,27 @@ test("swapping the file does not carry the old paper's chapter and notes over", 
   await waitFor(() => expect(calls).toHaveLength(1));
   expect(calls[0].body).toEqual({ chapter_id: null, notes: null });
 });
+
+test("the title is optional only when there is a paper to name the homework after", async () => {
+  stub({ classifieds: [CLASSIFIED] });
+  renderPage();
+  await openDetails();
+
+  // No paper: the title is all an empty assignment has, so it is required and
+  // there is no file name to fall back to.
+  const title = screen.getByRole("textbox", { name: /^Title/ });
+  expect(title).toBeRequired();
+  expect(title).toHaveAccessibleName("Title");
+  expect(screen.queryByText(/Leave it empty to use/)).not.toBeInTheDocument();
+
+  // A reused paper has a title of its own to fall back to.
+  fireEvent.change(await screen.findByLabelText(/Or reuse a paper/), { target: { value: "55" } });
+  expect(title).not.toBeRequired();
+  expect(title).toHaveAccessibleName(/^Title\s*\(optional\)$/);
+  expect(screen.getByText("Leave it empty to use that paper's title.")).toBeInTheDocument();
+
+  // And a new file has its name.
+  dropFile();
+  expect(screen.getByRole("textbox", { name: /^Title/ })).not.toBeRequired();
+  expect(screen.getByText("Leave it empty to use the file name.")).toBeInTheDocument();
+});

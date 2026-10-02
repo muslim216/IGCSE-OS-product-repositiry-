@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import PreferencesPage from "../tutor/PreferencesPage";
@@ -34,10 +35,13 @@ function config(subjectId: number | null, source: string, overrides: object = {}
   };
 }
 
-function stub(subjectSource: "subject" | "account", { failSave = false, refuseSave = false } = {}) {
+function stub(
+  subjectSource: "subject" | "account",
+  { failSave = false, refuseSave = false, failRemove = false, accountWeight = 1 } = {},
+) {
   const calls: { method: string; url: string; body?: Record<string, unknown> }[] = [];
   let source = subjectSource;
-  let accountTopicMastery = 1;
+  let accountTopicMastery = accountWeight;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -52,6 +56,7 @@ function stub(subjectSource: "subject" | "account", { failSave = false, refuseSa
         const subject = url.searchParams.get("subject_id");
         const subjectId = subject === null ? null : Number(subject);
         if (method === "DELETE") {
+          if (failRemove) return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
           source = "account";
           return new Response(null, { status: 204 });
         }
@@ -90,7 +95,9 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PreferencesPage />
+      <MemoryRouter>
+        <PreferencesPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -303,4 +310,32 @@ test("a threshold-only save does not claim a recompute; a weight change does", a
   });
   fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
   expect(await screen.findByText(/recomputing readiness/i)).toBeTruthy();
+});
+
+test("a failed removal is reported as a removal, not as a failed save", async () => {
+  stub("subject", { failRemove: true });
+  renderPage();
+  await screen.findByRole("option", { name: /chemistry/i });
+  fireEvent.change(screen.getByRole("combobox", { name: /settings for/i }), {
+    target: { value: "7" },
+  });
+  fireEvent.click(await screen.findByRole("button", { name: /remove override/i }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toMatch(/override wasn't removed/i);
+  expect(alert.textContent).not.toMatch(/didn't save/i);
+});
+
+test("a saved weight is shown as the value a save would send, not rounded to a tenth", async () => {
+  // The slider steps in tenths, but the API stores any value from 0 to 3.
+  stub("account", { accountWeight: 1.25 });
+  renderPage();
+  const slider = await screen.findByRole("slider", { name: "Topic mastery" });
+  expect(slider).toHaveAttribute("aria-valuetext", "Weight 1.25");
+  expect(screen.getByText("Weight 1.25")).toBeInTheDocument();
+  // Whole numbers keep the one decimal place the scale reads in.
+  expect(screen.getByRole("slider", { name: "Past paper performance" })).toHaveAttribute(
+    "aria-valuetext",
+    "Weight 1.0",
+  );
 });

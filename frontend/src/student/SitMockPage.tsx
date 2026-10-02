@@ -1,9 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckCircle2, Timer } from "lucide-react";
 import { getMock, mockPaperPath, myMockSubmission, openMock, sitMock } from "../api/mocks";
 import { AuthFileLink } from "../components/AuthFile";
 import { ApiError } from "../api/client";
+import { Button, Field, FileInput, Textarea } from "../components/controls";
+import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
+import { SectionCard } from "../components/ui";
+import { friendlyError } from "../lib/errors";
+
+const BACK = { to: "/student/mocks", label: "Mocks" };
 
 /** How often the page re-asks the server how long is left.
  *
@@ -60,6 +67,8 @@ export default function SitMockPage() {
   }, []);
 
   const [files, setFiles] = useState<File[]>([]);
+  // Remounts the picker after a hand-in so it stops listing files already sent.
+  const [pickerKey, setPickerKey] = useState(0);
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -67,10 +76,12 @@ export default function SitMockPage() {
     mutationFn: () => sitMock(id, files, typed),
     onSuccess: () => {
       setFiles([]);
+      setPickerKey((k) => k + 1);
       setTyped("");
       queryClient.invalidateQueries({ queryKey: ["my-mock-submission", id] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) =>
+      setError(friendlyError(err, "Your answers couldn't be handed in. Try again.")),
   });
 
   function onSubmit(e: FormEvent) {
@@ -79,8 +90,28 @@ export default function SitMockPage() {
     if (files.length || typed.trim()) submit.mutate();
   }
 
-  if (mock.isLoading) return <p className="text-ink-500">Loading…</p>;
-  if (mock.isError || !mock.data) return <p className="text-risk-600">Mock not found.</p>;
+  if (mock.isLoading) return <PageSkeleton rows={3} label="Loading your mock" />;
+  if (mock.isError && mock.error instanceof ApiError && mock.error.status === 404) {
+    return (
+      <NotFoundState
+        title="We couldn't find that mock"
+        body="It may have been removed by your tutor, or the link may be wrong."
+        back={{ to: BACK.to, label: "Back to mocks" }}
+      />
+    );
+  }
+  if (mock.isError || !mock.data) {
+    return (
+      <div className="max-w-2xl">
+        <PageHeader title="Mock" back={BACK} />
+        <ErrorState
+          title="Couldn't load this mock."
+          error={mock.error}
+          onRetry={() => void mock.refetch()}
+        />
+      </div>
+    );
+  }
   const m = mock.data;
   const sub = submission.data;
 
@@ -96,54 +127,65 @@ export default function SitMockPage() {
         );
   const timeUp = clock.data?.overdue === true || secondsLeft === 0;
 
-  return (
-    <div className="max-w-2xl space-y-5">
-      <Link to="/student/mocks" className="text-sm text-brand-600 hover:underline">
-        ← Mocks
-      </Link>
+  // What the paper is, in words: "80 marks · 90 minutes allowed". A missing
+  // value is left out rather than shown as 0 (PROD-2).
+  const facts = [
+    m.total_marks ? `${m.total_marks} marks` : null,
+    m.duration_minutes ? `${m.duration_minutes} minutes allowed` : null,
+  ].filter(Boolean);
 
-      <div>
-        <h2 className="text-xl font-semibold text-ink-900">{m.title}</h2>
-        <p className="text-sm text-ink-500">
-          {m.total_marks ? `${m.total_marks} marks` : ""}
-          {m.duration_minutes ? ` · ${m.duration_minutes} minutes allowed` : ""}
-        </p>
-        <div className="mt-2 text-sm">
-          <AuthFileLink path={mockPaperPath(m.id)} label="Open the question paper" />
-        </div>
-      </div>
+  return (
+    <div className="max-w-2xl space-y-6">
+      <PageHeader
+        title={m.title}
+        back={BACK}
+        description={facts.length > 0 ? facts.join(" · ") : undefined}
+        actions={<AuthFileLink path={mockPaperPath(m.id)} label="Open the question paper" />}
+      />
 
       {timeUp && (
-        <div className="rounded-lg border border-line bg-warn-100 p-4 text-sm text-warn-700">
-          Your time is up. You can still hand in — your tutor will see it came in late.
+        <div
+          role="status"
+          className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700"
+        >
+          <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>Your time is up. You can still hand in — your tutor will see it came in late.</p>
         </div>
       )}
       {/* Not an `else`: a mock with no duration set has no countdown to show
           either way, so both branches are absent rather than one standing in
           for the other (`PROD-2`, `UX-19`). */}
       {!timeUp && secondsLeft !== null && (
-        <div className="rounded-lg border border-line bg-surface p-4">
-          <div className="text-sm text-ink-500">Time left</div>
-          <div className="text-2xl font-semibold tabular-nums text-ink-900">
-            {formatLeft(secondsLeft)}
+        <SectionCard className="flex items-center gap-4">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
+            <Timer aria-hidden className="h-5 w-5" />
+          </span>
+          <div>
+            <div className="text-sm text-ink-500">Time left</div>
+            <div className="font-display text-2xl tabular-nums text-ink-900">
+              {formatLeft(secondsLeft)}
+            </div>
+            <p className="mt-0.5 text-xs text-ink-500">
+              Timed on our servers, so closing this page doesn&apos;t buy you more time.
+            </p>
           </div>
-          <p className="mt-1 text-xs text-ink-500">
-            Timed on our servers, so closing this page doesn&apos;t buy you more time.
-          </p>
-        </div>
+        </SectionCard>
       )}
 
       {sub ? (
-        <div className="rounded-lg border border-line bg-surface p-4">
-          <h3 className="font-medium text-ink-900">Handed in</h3>
+        <SectionCard>
+          <h2 className="flex items-center gap-2 font-display text-lg text-ink-900">
+            <CheckCircle2 aria-hidden className="h-5 w-5 text-ok-700" />
+            Handed in
+          </h2>
           {/* Measured by us from the clock, so it is stated plainly — unlike a
               past paper's self-declared minutes, which carry a caveat
               (`PROD-8`, `UX-20`). Absent stays absent (`PROD-2`). */}
           {sub.measured_minutes !== null && sub.measured_minutes !== undefined && (
-            <p className="mt-1 text-sm text-ink-700">You took {sub.measured_minutes} minutes.</p>
+            <p className="mt-2 text-sm text-ink-700">You took {sub.measured_minutes} minutes.</p>
           )}
           {sub.submitted_late && (
-            <p className="mt-1 text-sm text-warn-700">
+            <p className="mt-2 text-sm text-warn-700">
               This came in after your time was up, so it's flagged for your tutor. It is still
               marked in full.
             </p>
@@ -151,67 +193,63 @@ export default function SitMockPage() {
           <p className="mt-3 text-sm text-ink-500">
             Your per-question marks and feedback appear in your progress once it has been marked.
           </p>
-        </div>
+        </SectionCard>
       ) : (
-        <form
-          onSubmit={onSubmit}
-          className="space-y-3 rounded-lg border border-line bg-surface p-4"
-        >
-          <h3 className="font-medium text-ink-900">Hand in your answers</h3>
-          <p className="text-sm text-ink-500">
-            Upload clear photos or a scan of every page of your answers, in order — or type them
-            below.
-          </p>
-          <input
-            type="file"
-            multiple
-            accept="application/pdf,image/*"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-            className="block text-sm"
-          />
-          {files.length > 0 && (
-            <p className="text-sm text-ink-500">
-              {files.length} file{files.length === 1 ? "" : "s"} selected
-            </p>
-          )}
+        <SectionCard>
+          <form onSubmit={onSubmit} className="space-y-5">
+            <div>
+              <h2 className="font-display text-lg text-ink-900">Hand in your answers</h2>
+              <p className="mt-0.5 text-sm text-ink-500">
+                Upload clear photos or a scan of every page of your answers, in order — or type them
+                below.
+              </p>
+            </div>
+            <Field label="Photos or a scan of your answers">
+              <FileInput
+                key={pickerKey}
+                multiple
+                accept="application/pdf,image/*"
+                onFiles={setFiles}
+                prompt="Choose photos or a PDF"
+                hint="JPG, PNG or PDF — add every page, in order"
+              />
+            </Field>
 
-          <label className="block text-sm text-ink-700">
-            <span>Or type your answers</span>
-            <textarea
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              rows={6}
-              className="mt-1 block w-full rounded border border-line-control px-2 py-1 text-sm"
-            />
-          </label>
+            <Field label="Or type your answers">
+              <Textarea value={typed} onChange={(e) => setTyped(e.target.value)} rows={6} />
+            </Field>
 
-          {error && <p className="text-sm text-risk-600">{error}</p>}
-          {clock.isPending && <p className="text-sm text-ink-500">Starting your clock…</p>}
-          {clock.isError && (
-            <p className="text-sm text-warn-700">
-              We couldn&apos;t start your clock, so this hand-in won&apos;t be timed. You can still
-              hand in — your tutor will see it wasn&apos;t timed.
-            </p>
-          )}
-          {/* Disabled while the clock is still starting, never because it has
-              run out. Handing in before `/open` has answered would record no
-              start time at all — the submission cannot then be timed or flagged
-              — but a *failed* open must not block the work: losing a student's
-              answers is worse than losing the measurement. And a late hand-in
-              is accepted in full and flagged, which is the point of `AV-116`. */}
-          <button
-            type="submit"
-            disabled={
-              submit.isPending ||
-              clock.isPending ||
-              submission.isPending ||
-              (files.length === 0 && typed.trim() === "")
-            }
-            className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-surface hover:bg-brand-700 disabled:opacity-50"
-          >
-            {submit.isPending ? "Handing in…" : "Hand in"}
-          </button>
-        </form>
+            {error && (
+              <p role="alert" className="text-sm text-risk-600">
+                {error}
+              </p>
+            )}
+            {clock.isPending && <p className="text-sm text-ink-500">Starting your clock…</p>}
+            {clock.isError && (
+              <p className="text-sm text-warn-700">
+                We couldn&apos;t start your clock, so this hand-in won&apos;t be timed. You can
+                still hand in — your tutor will see it wasn&apos;t timed.
+              </p>
+            )}
+            {/* Disabled while the clock is still starting, never because it has
+                run out. Handing in before `/open` has answered would record no
+                start time at all — the submission cannot then be timed or flagged
+                — but a *failed* open must not block the work: losing a student's
+                answers is worse than losing the measurement. And a late hand-in
+                is accepted in full and flagged, which is the point of `AV-116`. */}
+            <Button
+              type="submit"
+              loading={submit.isPending}
+              disabled={
+                clock.isPending ||
+                submission.isPending ||
+                (files.length === 0 && typed.trim() === "")
+              }
+            >
+              Hand in
+            </Button>
+          </form>
+        </SectionCard>
       )}
     </div>
   );

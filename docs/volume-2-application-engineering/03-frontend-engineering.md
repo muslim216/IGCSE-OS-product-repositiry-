@@ -86,9 +86,10 @@ frontend/src/
   index.css       the design system (§02)
   api/            13 modules — client.ts plus one per domain
   auth/           AuthContext, ProtectedRoute, and the 4 unauthenticated pages
-  components/     shared: ui.tsx, AppShell, Markdown, ReadinessTable, ReadinessView, …
-  lib/            pure helpers: readiness.ts, schedule.ts
-  marketing/      LandingPage
+  components/     shared: ui.tsx, page.tsx, controls.tsx, AppShell, AccountPage, Markdown, …
+  lib/            pure helpers: readiness.ts, schedule.ts, errors.ts, site.ts
+  legal/          PrivacyPolicyPage (public, /privacy)
+  marketing/      LandingPage and SiteChrome (public header, footer, PublicPage)
   tutor/          17 pages, plus tabs/ and today/ subfolders
   student/        10 pages
   parent/         ParentDashboard
@@ -110,8 +111,9 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
     …
 ```
 
-- **Public:** `/`, `/login`, `/signup`, `/join/:code`, `/parent-join/:code`. `/` renders
-  `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in.
+- **Public:** `/`, `/login`, `/signup`, `/join/:code`, `/parent-join/:code`, `/privacy`. `/`
+  renders `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in;
+  `/privacy` renders `PrivacyPolicyPage` for everyone, signed in or not.
 - **Tutor** (`roles={["tutor","admin"]}`): `/tutor` and children, including the nested
   `GroupLayout` at `/tutor/groups/:groupId` with tabs `homework | students | syllabus |
   schedule | resources | analytics | new-homework | mock`.
@@ -120,8 +122,11 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
   respectively) rather than 404 a bookmark — but neither is in `STUDENT_NAV` or routes to a
   live page; task 0.4 deleted `ImprovementPage.tsx` (AV-57, AV-100) and 0.3 deleted
   `TutorChatPage.tsx` (AV-57).
-- **Parent** (`roles={["parent"]}`): `/parent`, with no nav array.
-- **Catch-all:** `*` redirects to `/`.
+- **Parent** (`roles={["parent"]}`): `/parent` and `/parent/account`, with no nav array.
+  Students have `/student/account` too; the tutor's account page is `/tutor/settings`. Each
+  shell's avatar links to its role's page through `AppShell`'s `accountPath`.
+- **Catch-all:** `*` renders `NotFoundPage` — a real 404, rather than the old redirect to `/`
+  that made a mistyped link look like the home page.
 
 Navigation is data-driven: `STUDENT_NAV` (7 entries, no bottom-slot item since 0.3 removed the
 one that carried `slot: "bottom"`) and `TUTOR_NAV`, each `{ to, label, icon }` with
@@ -196,11 +201,37 @@ When the body says nothing usable the detail stays empty and the caller falls ba
 the user with a blank error box, which is worse than the "Unprocessable Entity" this replaced.
 `API-11`, and `src/test/client-errors.test.ts`.
 
+**What reaches the screen goes through `friendlyError()`** (`lib/errors.ts`). A 4xx passes the
+API's sentence through (it is written for the user); a 5xx becomes "Something went wrong on our
+side", a network `TypeError` becomes "Can't reach avora right now", and nothing else is ever
+rendered raw — `String(err)` used to put "TypeError: Failed to fetch" in front of students.
+
+**Retries:** the `QueryClient` in `main.tsx` retries a failed query at most twice, and never on
+a 4xx (`shouldRetry`). The library default retried every failure three times with backoff, so
+an invalid invite or a deleted homework link sat on "Loading…" for about seven seconds before
+admitting it was not found.
+
+### Page and form primitives
+
+Every routed page composes the same pieces rather than restating classes:
+
+- `components/page.tsx` — `PageHeader` (the page's one `<h1>`, back link, actions, and the
+  browser-tab title via `useDocumentTitle`), `PageSkeleton` / `SectionSkeleton`, `ErrorState`
+  (with retry), `NotFoundState`, `NotFoundPage` (the public 404 for unknown URLs),
+  `ConfirmDialog` (never `window.confirm`), and `ErrorBoundary` (mounted in `AppShell`, keyed by
+  route and reset on every navigation through its `resetKey`, so a render crash shows a
+  recoverable message instead of a blank page, and any navigation clears it without remounting
+  a healthy page whose own link was clicked).
+- `components/controls.tsx` — `Button` (primary / secondary / ghost / danger; `loading`),
+  `buttonClasses()` for links, `Input` / `Select` / `Textarea`, `Field` (ties the label to its
+  control by id and wires hint and error to `aria-describedby`), and `FileInput` (a styled
+  picker over a visually-hidden native input).
+
 ### Server state
 
-A single bare `new QueryClient()` in `main.tsx:9` — **no default options**. No `staleTime`, no
-`retry` policy, no `refetchOnWindowFocus` override. Every behaviour is therefore per-call
-default.
+A single `QueryClient` in `main.tsx`, whose only default option is the `retry` policy above
+(`shouldRetry`). No `staleTime` and no `refetchOnWindowFocus` override, so every other
+behaviour is the library's per-call default.
 
 Practiced conventions:
 
@@ -383,7 +414,7 @@ leaks memory across navigations.
 |---|---|---|
 | **`ApiError.fields` is populated and nothing renders it.** Forms show the joined `message` string, not per-field errors against the inputs. | The information now reaches the client and stops at the form. Rendering it is per-form work; the joined sentence is readable in the meantime, so this is an improvement left on the table rather than a defect. `API-11`. | `nice to have` |
 | **Codegen covers the shared contract types only.** `client.ts` and `auth.ts` alias the generated schema; every per-domain wrapper still hand-writes its interfaces. | A backend rename in an unconverted domain still fails silently at runtime — the generator closed the gap where it is used, not everywhere. `RISK-6` residual. | `before scale` |
-| **`QueryClient` has no defaults.** No `staleTime`, no `retry` policy. | Refetch-heavy behaviour and inconsistent retry semantics across the app. See §10. | `before scale` |
+| **`QueryClient` has no `staleTime`.** A retry policy now exists (never on 4xx, at most twice otherwise); freshness is still the library default. | Refetch-heavy behaviour across the app. See §10. | `before scale` |
 | **`vitest run` does not type-check.** Only `npm run build` does; CI's `frontend` job runs it, so a type error cannot reach the default branch unnoticed. | The local loop still misses it: `npm test` passing is not evidence the branch compiles. Run `npm run build` before opening a PR. | `nice to have` |
 | **Auth state is a hand-rolled context** with a single `fetchMe()` on mount. | No refetch on focus and no cross-tab synchronization: signing out in one tab leaves another believing it is signed in until its next 401. | `nice to have` |
 | **Four pages exceed 300 lines** and none is covered by a test. | The highest-change-risk files in the frontend are the least verified. | `before scale` |

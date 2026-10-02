@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Loader2, Plus, X } from "lucide-react";
 import {
   getAssignment,
   listSubmissions,
@@ -12,18 +13,40 @@ import {
 import { listTopics } from "../api/syllabus";
 import { getGroup } from "../api/groups";
 import { ApiError } from "../api/client";
+import { friendlyError } from "../lib/errors";
+import { assignmentStatus } from "../lib/assignmentStatus";
+import { EmptyState, SectionCard } from "../components/ui";
+import { Button, buttonClasses, inputClasses } from "../components/controls";
+import {
+  ErrorState,
+  NotFoundState,
+  PageHeader,
+  PageSkeleton,
+  SectionSkeleton,
+} from "../components/page";
 
 interface EditableQuestion extends QuestionIn {
   key: number;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  extracting: "AI is reading the classified…",
-  extraction_failed: "Extraction failed",
-  review: "Review the questions, then publish",
-  published: "Published",
-  closed: "Closed",
+/** A submission's state, in words — never the raw enum. */
+const SUBMISSION_STATUS: Record<string, { label: string; classes: string }> = {
+  submitted: { label: "Waiting to be marked", classes: "bg-surface-muted text-ink-700" },
+  marking: { label: "Being marked…", classes: "bg-surface-muted text-ink-700" },
+  ai_marked: { label: "AI draft ready", classes: "bg-warn-100 text-warn-700" },
+  ai_failed: { label: "AI couldn't mark — mark it yourself", classes: "bg-risk-100 text-risk-600" },
+  needs_review: { label: "Needs your review", classes: "bg-warn-100 text-warn-700" },
+  auto_finalized: { label: "Marked automatically", classes: "bg-ok-100 text-ok-700" },
+  finalized: { label: "Finalized", classes: "bg-ok-100 text-ok-700" },
 };
+
+/** Statuses where the tutor has something to decide. */
+const NEEDS_TUTOR = new Set(["ai_marked", "ai_failed", "needs_review"]);
+
+/** The shared control look at the denser size a table row needs. Width is left
+    to each cell, so it is stripped here rather than fought with an override. */
+const CELL_INPUT = inputClasses.replace("h-10", "h-9").replace("w-full", "");
+const MULTI_SELECT = `${inputClasses.replace("h-10", "")} py-1`;
 
 export default function AssignmentDetailPage() {
   const { assignmentId } = useParams();
@@ -81,7 +104,7 @@ export default function AssignmentDetailPage() {
       setDirty(false);
       queryClient.invalidateQueries({ queryKey: ["assignment", id] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err)),
   });
   const publish = useMutation({
     mutationFn: async () => {
@@ -96,18 +119,47 @@ export default function AssignmentDetailPage() {
       setDirty(false);
       queryClient.invalidateQueries({ queryKey: ["assignment", id] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+    onError: (err) => setError(friendlyError(err)),
   });
   const retry = useMutation({
     mutationFn: () => retryExtraction(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assignment", id] }),
   });
 
-  if (assignment.isLoading) return <p className="text-slate-500">Loading…</p>;
-  if (assignment.isError || !assignment.data)
-    return <p className="text-red-600">Assignment not found.</p>;
+  const topicById = useMemo(
+    () => new Map((topics.data ?? []).map((t) => [t.id, t])),
+    [topics.data],
+  );
+
+  if (assignment.isLoading) return <PageSkeleton label="Loading homework" />;
+  if (
+    assignment.isError &&
+    assignment.error instanceof ApiError &&
+    assignment.error.status === 404
+  ) {
+    return (
+      <NotFoundState
+        title="We couldn't find that homework"
+        body="It may have been deleted, or the link may be wrong."
+        back={{ to: "/tutor/classes", label: "All classes" }}
+      />
+    );
+  }
+  if (assignment.isError || !assignment.data) {
+    return (
+      <ErrorState
+        title="This homework didn't load"
+        error={assignment.error}
+        onRetry={() => assignment.refetch()}
+      />
+    );
+  }
   const a = assignment.data;
   const editable = a.status === "review" || a.status === "extraction_failed";
+  // The one screen that names the step after checking: the Publish button is
+  // right here in the header, where the class's homework list has none.
+  const status = assignmentStatus(a.status, { review: "Check the questions, then publish" });
+  const totalMarks = rows.reduce((sum, r) => sum + (r.max_marks || 0), 0);
 
   function update(key: number, patch: Partial<EditableQuestion>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -116,247 +168,351 @@ export default function AssignmentDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link to={`/tutor/groups/${a.group_id}`} className="text-sm text-blue-600 hover:underline">
-          ← {group.data?.name ?? "Group"}
-        </Link>
-        <div className="mt-1 flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-slate-800">{a.title}</h2>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              a.status === "published"
-                ? "bg-green-100 text-green-700"
-                : a.status === "extraction_failed"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-amber-100 text-amber-700"
-            }`}
-          >
-            {STATUS_LABEL[a.status] ?? a.status}
-          </span>
-        </div>
-        {a.question_range && <p className="text-sm text-slate-500">Range: {a.question_range}</p>}
-      </div>
+      <PageHeader
+        title={a.title}
+        back={{
+          to: `/tutor/groups/${a.group_id}/homework`,
+          label: group.data?.name ?? "Back to class",
+        }}
+        meta={
+          <>
+            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${status.classes}`}>
+              {status.label}
+            </span>
+            {a.question_range && (
+              <span className="text-ink-500">Questions: {a.question_range}</span>
+            )}
+          </>
+        }
+        actions={
+          editable && (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => save.mutate()}
+                disabled={!dirty}
+                loading={save.isPending}
+              >
+                Save changes
+              </Button>
+              <Button
+                onClick={() => publish.mutate()}
+                disabled={rows.length === 0}
+                loading={publish.isPending}
+              >
+                Publish to students
+              </Button>
+            </>
+          )
+        }
+      />
+
+      {error && (
+        <p role="alert" className="rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
+          {error}
+        </p>
+      )}
 
       {a.status === "extracting" && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          The AI is reading the classified and building the question list — this usually takes under
-          a minute. The page refreshes automatically.
-        </div>
+        <SectionCard className="flex items-start gap-3">
+          <Loader2 aria-hidden className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-brand-600" />
+          <p className="text-sm text-ink-700" aria-live="polite">
+            Reading the paper and building the question list. This usually takes under a minute —
+            the page updates by itself.
+          </p>
+        </SectionCard>
       )}
 
       {a.status === "extraction_failed" && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          <p className="font-medium">Extraction failed: {a.extraction_error}</p>
-          <p className="mt-1">You can retry, or add the questions manually below and publish.</p>
-          <button
+        <div className="rounded-xl border border-line bg-risk-100 p-4 text-sm text-ink-900">
+          <p className="font-medium">We couldn't read the questions from this paper.</p>
+          <p className="mt-1 text-ink-700">
+            Try reading it again, or add the questions yourself below and publish.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-3"
+            loading={retry.isPending}
             onClick={() => retry.mutate()}
-            className="mt-2 rounded bg-red-600 px-3 py-1.5 text-white hover:bg-red-700"
           >
-            Retry extraction
-          </button>
+            Try reading it again
+          </Button>
+          {/* The job's own reason is kept for whoever has to fix it, but folded
+              away: a raw exception string is not a message for a tutor. */}
+          {a.extraction_error && (
+            <details className="mt-3 text-xs text-ink-500">
+              <summary className="cursor-pointer">Technical details</summary>
+              <p className="mt-1 break-words font-mono">{a.extraction_error}</p>
+            </details>
+          )}
         </div>
       )}
 
       {(editable || a.questions.length > 0) && a.status !== "extracting" && (
-        <section className="rounded-lg border bg-white p-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium text-slate-800">
-              Questions ({rows.length}) — total{" "}
-              {rows.reduce((sum, r) => sum + (r.max_marks || 0), 0)} marks
-            </h3>
+        <SectionCard>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg text-ink-900">Questions</h2>
+              <p className="text-sm text-ink-500">
+                {rows.length} {rows.length === 1 ? "question" : "questions"} · {totalMarks}{" "}
+                {totalMarks === 1 ? "mark" : "marks"} in total
+              </p>
+            </div>
             {editable && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setRows((prev) => [
-                      ...prev,
-                      {
-                        key: Date.now(),
-                        number: String(prev.length + 1),
-                        text_summary: "",
-                        max_marks: 1,
-                        has_mark_scheme: false,
-                        topic_ids: [],
-                      },
-                    ]);
-                    setDirty(true);
-                  }}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50"
-                >
-                  Add question
-                </button>
-                <button
-                  onClick={() => save.mutate()}
-                  disabled={!dirty || save.isPending}
-                  className="rounded bg-slate-700 px-3 py-1.5 text-sm text-white hover:bg-slate-800 disabled:opacity-40"
-                >
-                  Save changes
-                </button>
-                <button
-                  onClick={() => publish.mutate()}
-                  disabled={publish.isPending || rows.length === 0}
-                  className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
-                >
-                  Publish to students
-                </button>
-              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setRows((prev) => [
+                    ...prev,
+                    {
+                      key: Date.now(),
+                      number: String(prev.length + 1),
+                      text_summary: "",
+                      max_marks: 1,
+                      has_mark_scheme: false,
+                      topic_ids: [],
+                    },
+                  ]);
+                  setDirty(true);
+                }}
+              >
+                <Plus aria-hidden className="h-4 w-4" />
+                Add question
+              </Button>
             )}
           </div>
-          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-          <table className="mt-3 w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-slate-500">
-                <th className="py-1.5 pr-2 font-medium">Q#</th>
-                <th className="py-1.5 pr-2 font-medium">Summary</th>
-                <th className="py-1.5 pr-2 font-medium">Marks</th>
-                <th className="py-1.5 pr-2 font-medium" title="Official mark scheme available">
-                  MS?
-                </th>
-                <th className="py-1.5 font-medium">Topics</th>
-                {editable && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.key} className="border-b align-top">
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
-                      <input
-                        className="w-14 rounded border border-slate-300 px-1.5 py-1"
-                        value={r.number}
-                        onChange={(e) => update(r.key, { number: e.target.value })}
-                      />
-                    ) : (
-                      r.number
+          {rows.length === 0 ? (
+            <EmptyState
+              title="No questions yet"
+              hint="Add the questions students will answer, then publish."
+            />
+          ) : (
+            <div className="-mx-5 mt-4 overflow-x-auto px-5">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-xs text-ink-500">
+                    <th scope="col" className="py-2 pr-3 font-medium">
+                      Question
+                    </th>
+                    <th scope="col" className="py-2 pr-3 font-medium">
+                      What it asks
+                    </th>
+                    <th scope="col" className="py-2 pr-3 font-medium">
+                      Marks
+                    </th>
+                    <th scope="col" className="py-2 pr-3 font-medium">
+                      Mark scheme
+                    </th>
+                    <th scope="col" className="py-2 font-medium">
+                      Topics
+                    </th>
+                    {editable && (
+                      <th scope="col" className="py-2 pl-2">
+                        <span className="sr-only">Remove</span>
+                      </th>
                     )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
-                      <input
-                        className="w-full rounded border border-slate-300 px-1.5 py-1"
-                        value={r.text_summary}
-                        onChange={(e) => update(r.key, { text_summary: e.target.value })}
-                      />
-                    ) : (
-                      r.text_summary
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
-                      <input
-                        type="number"
-                        min={1}
-                        className="w-16 rounded border border-slate-300 px-1.5 py-1"
-                        value={r.max_marks}
-                        onChange={(e) => update(r.key, { max_marks: Number(e.target.value) })}
-                      />
-                    ) : (
-                      r.max_marks
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
-                      <input
-                        type="checkbox"
-                        checked={r.has_mark_scheme}
-                        onChange={(e) => update(r.key, { has_mark_scheme: e.target.checked })}
-                        title="AI only marks questions with an official mark scheme"
-                      />
-                    ) : r.has_mark_scheme ? (
-                      "✓"
-                    ) : (
-                      <span className="text-amber-600" title="You will mark this question yourself">
-                        you
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-1.5">
-                    {editable ? (
-                      <select
-                        multiple
-                        size={2}
-                        className="w-full rounded border border-slate-300 px-1.5 py-1"
-                        value={r.topic_ids.map(String)}
-                        onChange={(e) =>
-                          update(r.key, {
-                            topic_ids: Array.from(e.target.selectedOptions, (o) => Number(o.value)),
-                          })
-                        }
-                      >
-                        {topics.data?.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.code} {t.title}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      topics.data
-                        ?.filter((t) => r.topic_ids.includes(t.id))
-                        .map((t) => t.code)
-                        .join(", ")
-                    )}
-                  </td>
-                  {editable && (
-                    <td className="py-1.5 pl-2">
-                      <button
-                        onClick={() => {
-                          setRows((prev) => prev.filter((x) => x.key !== r.key));
-                          setDirty(true);
-                        }}
-                        className="text-red-500 hover:underline"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, index) => (
+                    <tr key={r.key} className="border-b border-line align-top last:border-0">
+                      <td className="py-2 pr-3">
+                        {editable ? (
+                          <input
+                            aria-label={`Question number, row ${index + 1}`}
+                            className={`${CELL_INPUT} w-16`}
+                            value={r.number}
+                            onChange={(e) => update(r.key, { number: e.target.value })}
+                          />
+                        ) : (
+                          <span className="font-medium text-ink-900">Q{r.number}</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-ink-700">
+                        {editable ? (
+                          <input
+                            aria-label={`Question ${r.number}: what it asks`}
+                            className={`${CELL_INPUT} w-full min-w-[12rem]`}
+                            value={r.text_summary}
+                            onChange={(e) => update(r.key, { text_summary: e.target.value })}
+                          />
+                        ) : (
+                          r.text_summary
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums text-ink-700">
+                        {editable ? (
+                          <input
+                            type="number"
+                            min={1}
+                            aria-label={`Question ${r.number}: marks`}
+                            className={`${CELL_INPUT} w-20`}
+                            value={r.max_marks}
+                            onChange={(e) => update(r.key, { max_marks: Number(e.target.value) })}
+                          />
+                        ) : (
+                          r.max_marks
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {editable ? (
+                          <label className="flex h-9 items-center gap-2 text-ink-700">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 accent-brand-600"
+                              checked={r.has_mark_scheme}
+                              onChange={(e) => update(r.key, { has_mark_scheme: e.target.checked })}
+                            />
+                            <span>
+                              Official
+                              <span className="sr-only"> mark scheme for question {r.number}</span>
+                            </span>
+                          </label>
+                        ) : r.has_mark_scheme ? (
+                          <span className="inline-flex items-center gap-1 text-ok-700">
+                            <Check aria-hidden className="h-4 w-4" />
+                            Official
+                          </span>
+                        ) : (
+                          <span className="text-warn-700">None — you mark this one</span>
+                        )}
+                      </td>
+                      <td className="py-2">
+                        {editable ? (
+                          <select
+                            multiple
+                            size={3}
+                            aria-label={`Question ${r.number}: topics`}
+                            className={`${MULTI_SELECT} min-w-[12rem]`}
+                            value={r.topic_ids.map(String)}
+                            onChange={(e) =>
+                              update(r.key, {
+                                topic_ids: Array.from(e.target.selectedOptions, (o) =>
+                                  Number(o.value),
+                                ),
+                              })
+                            }
+                          >
+                            {topics.data?.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.title} ({t.code})
+                              </option>
+                            ))}
+                          </select>
+                        ) : r.topic_ids.length > 0 ? (
+                          <span className="flex flex-wrap gap-1">
+                            {r.topic_ids.map((topicId) => {
+                              const t = topicById.get(topicId);
+                              return (
+                                <span
+                                  key={topicId}
+                                  title={t?.code}
+                                  className="rounded bg-surface-muted px-1.5 py-0.5 text-xs text-ink-700"
+                                >
+                                  {t ? t.title : topics.isLoading ? "Loading…" : "Unknown topic"}
+                                </span>
+                              );
+                            })}
+                          </span>
+                        ) : (
+                          <span className="text-ink-500">No topic linked</span>
+                        )}
+                      </td>
+                      {editable && (
+                        <td className="py-2 pl-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Remove question ${r.number}`}
+                            onClick={() => {
+                              setRows((prev) => prev.filter((x) => x.key !== r.key));
+                              setDirty(true);
+                            }}
+                          >
+                            <X aria-hidden className="h-4 w-4" />
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {editable && (
+            <p className="mt-3 text-xs text-ink-500">
+              The AI only marks questions with an official mark scheme. The rest wait for you.
+            </p>
+          )}
+        </SectionCard>
       )}
 
       {(a.status === "published" || a.status === "closed") && (
-        <section className="rounded-lg border bg-white p-4">
-          <h3 className="font-medium text-slate-800">Submissions</h3>
-          <ul className="mt-2 divide-y">
-            {submissions.data?.map((s) => (
-              <li key={s.id} className="flex items-center justify-between py-2 text-sm">
-                <span className="font-medium text-slate-700">{s.student_name}</span>
-                <span className="flex items-center gap-3">
-                  {s.status === "finalized" ? (
-                    <span className="text-slate-600">
-                      {s.total_final}/{s.total_max}
+        <SectionCard>
+          <h2 className="text-lg text-ink-900">Submissions</h2>
+          {submissions.isLoading ? (
+            <div className="mt-3">
+              <SectionSkeleton rows={3} label="Loading submissions" />
+            </div>
+          ) : submissions.isError ? (
+            <div
+              role="alert"
+              className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-ink-500"
+            >
+              <span>Submissions didn't load. This is usually temporary.</span>
+              <Button variant="secondary" size="sm" onClick={() => submissions.refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : submissions.data && submissions.data.length > 0 ? (
+            <ul className="mt-3 divide-y divide-line">
+              {submissions.data.map((s) => {
+                const settled = s.status === "finalized" || s.status === "auto_finalized";
+                const needsTutor = NEEDS_TUTOR.has(s.status);
+                const badge = SUBMISSION_STATUS[s.status] ?? {
+                  label: "In progress",
+                  classes: "bg-surface-muted text-ink-700",
+                };
+                return (
+                  <li
+                    key={s.id}
+                    className="flex flex-wrap items-center justify-between gap-3 py-2.5 text-sm"
+                  >
+                    <span className="font-medium text-ink-900">{s.student_name}</span>
+                    <span className="flex items-center gap-3">
+                      {settled && s.total_final !== null ? (
+                        <span className="tabular-nums text-ink-700">
+                          {s.total_final}/{s.total_max}
+                        </span>
+                      ) : (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.classes}`}
+                        >
+                          {badge.label}
+                        </span>
+                      )}
+                      <Link
+                        to={`/tutor/submissions/${s.id}`}
+                        aria-label={`${needsTutor ? "Review" : "View"} ${s.student_name}'s work`}
+                        className={buttonClasses(needsTutor ? "secondary" : "ghost", "sm")}
+                      >
+                        {needsTutor ? "Review" : "View"}
+                      </Link>
                     </span>
-                  ) : (
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs ${
-                        s.status === "ai_marked"
-                          ? "bg-blue-100 text-blue-700"
-                          : s.status === "ai_failed"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      {s.status === "ai_marked"
-                        ? "AI draft ready"
-                        : s.status === "ai_failed"
-                          ? "AI failed — mark manually"
-                          : s.status}
-                    </span>
-                  )}
-                  <Link to={`/tutor/submissions/${s.id}`} className="text-blue-600 hover:underline">
-                    {s.status === "finalized" ? "View" : "Review"}
-                  </Link>
-                </span>
-              </li>
-            ))}
-            {submissions.data?.length === 0 && (
-              <li className="py-2 text-sm text-slate-500">No submissions yet.</li>
-            )}
-          </ul>
-        </section>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <EmptyState
+              title="No submissions yet"
+              hint="Work appears here as students hand it in."
+            />
+          )}
+        </SectionCard>
       )}
     </div>
   );

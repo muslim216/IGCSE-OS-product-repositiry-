@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   BookOpen,
+  ChevronRight,
   ClipboardList,
   FileText,
   Gauge,
@@ -13,6 +14,8 @@ import {
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
+import { PageHeader } from "../components/page";
+import { SectionHeader } from "../components/ui";
 
 /**
  * Library is the tutor's shelf: the reference and content surfaces that don't
@@ -31,7 +34,7 @@ const CONTENT: Shelf[] = [
   {
     to: "/tutor/past-papers",
     label: "Past papers",
-    hint: "Browse and assign past papers by board and topic.",
+    hint: "Add full past papers for every student taking that subject to sit.",
     icon: FileText,
   },
   {
@@ -88,61 +91,82 @@ const SETTINGS: Shelf[] = [
   {
     to: "/tutor/preferences",
     label: "Preferences",
-    hint: "Tune how readiness is weighted.",
+    hint: "How much each kind of evidence counts towards readiness.",
     icon: SlidersHorizontal,
   },
   {
     to: "/tutor/settings",
     label: "Settings",
-    hint: "Your organization's timezone and your own.",
+    hint: "Time zones, and the criteria you score students on by hand.",
     icon: SettingsIcon,
   },
 ];
 
+/** One shelf entry. Every card shares the same hover (a raised row) and the
+ *  same keyboard focus ring, so the grid reads as one set of doors. */
 function ShelfCard({ item }: { item: Shelf }) {
   return (
     <Link
       to={item.to}
-      className="flex items-start gap-3 rounded-lg border border-line bg-surface p-4 transition hover:border-line-strong"
+      className="group flex h-full items-start gap-3 rounded-xl border border-line bg-surface p-4 transition-colors hover:bg-surface-muted"
     >
-      <item.icon aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
-      <span>
-        <span className="block font-medium text-ink-900">{item.label}</span>
-        <span className="mt-0.5 block text-sm text-ink-500">{item.hint}</span>
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
+        <item.icon aria-hidden className="h-[18px] w-[18px]" />
       </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium text-ink-900 transition-colors group-hover:text-brand-600">
+          {item.label}
+        </span>
+        <span className="mt-0.5 block text-sm leading-relaxed text-ink-500">{item.hint}</span>
+      </span>
+      <ChevronRight
+        aria-hidden
+        className="mt-0.5 h-4 w-4 shrink-0 text-ink-500 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-600"
+      />
     </Link>
+  );
+}
+
+function ShelfSection({
+  title,
+  description,
+  items,
+}: {
+  title: string;
+  description: string;
+  items: Shelf[];
+}) {
+  return (
+    <section className="space-y-3">
+      <SectionHeader title={title} description={description} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <ShelfCard key={item.to} item={item} />
+        ))}
+      </div>
+    </section>
   );
 }
 
 export default function LibraryPage() {
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="font-display text-xl font-semibold text-ink-900">Library</h2>
-        <p className="text-sm text-ink-500">Reference material, content and settings.</p>
+    <div>
+      <PageHeader
+        title="Library"
+        description="Your teaching material and the settings behind marking and readiness, all in one place."
+      />
+      <div className="space-y-8">
+        <ShelfSection
+          title="Content"
+          description="What your students sit and study."
+          items={CONTENT}
+        />
+        <ShelfSection
+          title="Account"
+          description="How marking, grades and readiness work for you."
+          items={SETTINGS}
+        />
       </div>
-
-      <section>
-        <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-          Content
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {CONTENT.map((item) => (
-            <ShelfCard key={item.to} item={item} />
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-          Account
-        </h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {SETTINGS.map((item) => (
-            <ShelfCard key={item.to} item={item} />
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

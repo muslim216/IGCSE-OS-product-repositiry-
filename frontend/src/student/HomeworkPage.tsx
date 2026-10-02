@@ -2,20 +2,26 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { myAssignments } from "../api/homework";
 import { myMistakes, type MyMistakePattern } from "../api/students";
+import { useMyTimezone } from "../auth/AuthContext";
+import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
+import { EmptyState, SectionCard } from "../components/ui";
 import { ABSENT } from "../lib/labels";
+import { formatDayMonth } from "../lib/timezones";
 
 const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  not_submitted: { label: "Not started", cls: "bg-slate-100 text-slate-600" },
-  submitted: { label: "Submitted", cls: "bg-blue-100 text-blue-700" },
-  being_marked: { label: "Being marked", cls: "bg-amber-100 text-amber-700" },
-  marked: { label: "Marked", cls: "bg-green-100 text-green-700" },
+  not_submitted: { label: "Not started", cls: "bg-surface-muted text-ink-700" },
+  submitted: { label: "Submitted", cls: "bg-brand-50 text-brand-700" },
+  being_marked: { label: "Being marked", cls: "bg-warn-100 text-warn-700" },
+  marked: { label: "Marked", cls: "bg-ok-100 text-ok-700" },
 };
 
-function dueLabel(due: string | null): string {
+/** In the reader's own zone (AV-67), like every other date addressed to them. */
+function dueLabel(due: string | null, timeZone: string | null): string {
   if (!due) return "No due date";
-  const d = new Date(due);
-  return `Due ${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+  return `Due ${formatDayMonth(new Date(due), timeZone)}`;
 }
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /* The student's own mistake pattern (4.5).
 
@@ -28,10 +34,7 @@ function dueLabel(due: string | null): string {
    nobody has checked is absence and says so (PROD-2, UX-19); a subject checked
    with nothing found is a clean record and says something else; a request that
    failed knows neither and says a third thing. Collapsing any two of them
-   tells a student something about themselves that is not true.
-
-   Written with semantic tokens (UX-2). The rest of this page predates them and
-   is left alone. */
+   tells a student something about themselves that is not true. */
 
 const countMistakes = (n: number) => `${n} mistake${n === 1 ? "" : "s"}`;
 const countQuestions = (n: number) => `${n} question${n === 1 ? "" : "s"}`;
@@ -84,64 +87,96 @@ function MistakePatternSection() {
   if (!mistakes.isPending && !mistakes.isError && d?.length === 0) return null;
 
   return (
-    <section className="mt-8 rounded-lg border border-line bg-surface p-4">
-      <h3 className="font-medium text-ink-900">The kinds of mistake in your work</h3>
-      {mistakes.isPending ? (
-        <p className="mt-1 text-sm text-ink-500">Loading…</p>
-      ) : mistakes.isError || !d ? (
-        // Never an empty list and never the clean-record line: a request that
-        // failed knows nothing about this work (PROD-2).
-        <p className="mt-1 text-sm text-risk-600">Could not load this. {ABSENT.loadFailed}</p>
-      ) : (
-        <ul className="mt-1 divide-y divide-line">
-          {d.map((p) => (
-            <SubjectMistakes key={p.subject_id} pattern={p} />
-          ))}
-        </ul>
-      )}
-    </section>
+    <SectionCard>
+      <h2 className="font-display text-lg text-ink-900">The kinds of mistake in your work</h2>
+      <p className="mt-0.5 text-sm text-ink-500">
+        Spotted while your homework was being marked, grouped by subject.
+      </p>
+      <div className="mt-3">
+        {mistakes.isPending ? (
+          <SectionSkeleton rows={2} label="Loading your mistake pattern" />
+        ) : mistakes.isError || !d ? (
+          // Never an empty list and never the clean-record line: a request that
+          // failed knows nothing about this work (PROD-2).
+          <ErrorState
+            title="Couldn't load your mistake pattern."
+            error={mistakes.error}
+            onRetry={() => void mistakes.refetch()}
+          />
+        ) : (
+          <ul className="divide-y divide-line border-t border-line">
+            {d.map((p) => (
+              <SubjectMistakes key={p.subject_id} pattern={p} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </SectionCard>
   );
 }
 
 export default function HomeworkPage() {
+  const myZone = useMyTimezone();
   const assignments = useQuery({ queryKey: ["my-assignments"], queryFn: myAssignments });
 
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-800">Your homework</h2>
-      <div className="mt-4 space-y-3">
-        {assignments.data?.map((a) => {
-          const badge = STATUS_BADGE[a.submission_status ?? "not_submitted"];
-          return (
-            <Link
-              key={a.id}
-              to={`/student/homework/${a.id}`}
-              className="flex items-center justify-between rounded-lg border bg-white p-4 hover:border-blue-400"
-            >
-              <div>
-                <div className="font-medium text-slate-800">{a.title}</div>
-                <div className="mt-1 text-sm text-slate-500">
-                  {a.subject_name} · {a.question_count} questions · {a.total_marks} marks
-                </div>
-                <div className="mt-1 text-sm text-slate-400">{dueLabel(a.due_at)}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                {a.submission_status === "marked" && a.my_total !== null && (
-                  <span className="text-sm font-medium text-slate-700">
-                    {a.my_total}/{a.total_marks}
-                  </span>
-                )}
-                <span className={`rounded-full px-2.5 py-1 text-xs ${badge.cls}`}>
-                  {badge.label}
-                </span>
-              </div>
-            </Link>
-          );
-        })}
-        {assignments.data?.length === 0 && (
-          <p className="text-slate-500">No homework yet — check back after your tutor sets some.</p>
-        )}
-      </div>
+    <div className="max-w-3xl space-y-6">
+      <PageHeader
+        title="Homework"
+        description="What your tutor has set, where each piece is up to, and your marks once it's marked."
+      />
+
+      {assignments.isPending ? (
+        <SectionCard>
+          <SectionSkeleton rows={3} label="Loading your homework" />
+        </SectionCard>
+      ) : assignments.isError ? (
+        <ErrorState
+          title="Couldn't load your homework."
+          error={assignments.error}
+          onRetry={() => void assignments.refetch()}
+        />
+      ) : assignments.data.length === 0 ? (
+        <SectionCard>
+          <EmptyState
+            title="No homework yet."
+            hint="It will appear here as soon as your tutor sets some."
+          />
+        </SectionCard>
+      ) : (
+        <ul className="space-y-3">
+          {assignments.data.map((a) => {
+            const badge = STATUS_BADGE[a.submission_status ?? "not_submitted"];
+            return (
+              <li key={a.id}>
+                <Link
+                  to={`/student/homework/${a.id}`}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(44,26,14,0.06)] transition-colors hover:border-brand-500"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium text-ink-900">{a.title}</div>
+                    <div className="mt-1 text-sm text-ink-500">
+                      {a.subject_name} · {plural(a.question_count, "question", "questions")} ·{" "}
+                      {plural(a.total_marks, "mark", "marks")}
+                    </div>
+                    <div className="mt-0.5 text-sm text-ink-500">{dueLabel(a.due_at, myZone)}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                    {a.submission_status === "marked" && a.my_total !== null && (
+                      <span className="text-sm font-medium tabular-nums text-ink-900">
+                        {a.my_total}/{plural(a.total_marks, "mark", "marks")}
+                      </span>
+                    )}
+                    <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
+                      {badge.label}
+                    </span>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       <MistakePatternSection />
     </div>
   );

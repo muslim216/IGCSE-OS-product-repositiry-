@@ -231,6 +231,18 @@ component library.
 | `Modal` | `role="dialog"`, `aria-modal="true"`, Escape to close, focuses the panel on open, backdrop is a real `<button aria-label="Close dialog">` |
 | `useToast()` | Self-dismissing after 3.5s inside a permanent `aria-live="polite"` region — "never a banner" |
 
+Alongside `ui.tsx`, two files carry the page and form vocabulary (detail in §03):
+
+| Primitive | Behaviour worth knowing |
+|---|---|
+| `PageHeader` (`page.tsx`) | **The page's single `<h1>`**, an optional back link, description and actions; also names the browser tab ("Review · avora") |
+| `PageSkeleton` / `SectionSkeleton` | Loading is a shaped placeholder announced once (`role="status"`), never a bare "Loading…" |
+| `ErrorState` / `NotFoundState` / `NotFoundPage` | A failure says what happened in plain words and offers a retry or a way back; unknown URLs get a real 404 |
+| `ConfirmDialog` | Destructive confirmations use `Modal`, never the browser's `window.confirm` |
+| `Button` / `buttonClasses` (`controls.tsx`) | Four variants — primary, secondary, ghost, danger — and three sizes. **One primary per area; Cancel is never primary** |
+| `Field` | Associates its label with the control by id and wires hint/error to `aria-describedby` (UX-12, WCAG 1.3.1) |
+| `FileInput` | A branded picker over a visually-hidden native input — keyboard and screen-reader behaviour unchanged |
+
 `ReadinessStatus` is the union `"on_track" | "needs_attention" | "at_risk"`, with
 `STATUS_STYLES` and `BAR_FILLS` as its lookup maps. This is the product's status vocabulary
 and it is defined once.

@@ -110,6 +110,24 @@ test("a paper whose extraction failed is never also described as still reading",
   expect(screen.queryByText(/Reading the questions out of the paper/)).not.toBeInTheDocument();
 });
 
+test("a failed paper's advice never claims removing it takes it away from students", async () => {
+  // Remove only hides a paper from the tutor's own list — students keep it —
+  // and there is no re-extract for a past paper. "Remove it and upload it
+  // again" left the unreadable copy on every student's list beside the new one.
+  mockFetch([
+    {
+      ...paper,
+      title: null,
+      display_title: "Untitled paper",
+      question_count: 0,
+      extraction_error: "The upload was not a readable paper",
+    },
+  ]);
+  renderPage(<TutorPastPapersPage />);
+  expect(await screen.findByText(/Students still see this one/)).toBeInTheDocument();
+  expect(screen.queryByText(/Remove it and upload it again/)).not.toBeInTheDocument();
+});
+
 test("the tutor sees a mark scheme link only when there is one to open", async () => {
   // `mark_scheme_name` is the only signal a scheme file exists; the download
   // route 404s without one, so linking unconditionally sent tutors to a dead

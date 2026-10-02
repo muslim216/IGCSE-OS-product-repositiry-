@@ -3,9 +3,37 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>avora — Marking, readiness and reporting for IGCSE tutors</title>
+    <meta
+      name="description"
+      content="avora marks your students' handwritten IGCSE homework against the mark scheme, keeps every student's exam readiness up to date, and shows parents the same picture. The tutor has the last word."
+    />
     <meta name="theme-color" content="#faf7f2" />
-    <title>avora</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Link previews (WhatsApp, iMessage, Slack, LinkedIn, X). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="avora" />
+    <meta property="og:title" content="avora — Marking, readiness and reporting for IGCSE tutors" />
+    <meta
+      property="og:description"
+      content="AI marks handwritten homework against the mark scheme. Readiness and predicted grades keep themselves. The tutor has the last word."
+    />
+    <!-- Absolute because LinkedIn, X and Slack ignore a relative og:image. This is the
+         production host until avora has its own domain; change it here when it does. -->
+    <meta
+      property="og:image"
+      content="https://igcse-os-product-repositiry.vercel.app/og-image.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:image"
+      content="https://igcse-os-product-repositiry.vercel.app/og-image.png"
+    />
   </head>
   <body>
     <div id="root"></div>

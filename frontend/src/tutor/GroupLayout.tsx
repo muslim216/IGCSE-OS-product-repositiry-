@@ -1,7 +1,10 @@
-import { Link, NavLink, Outlet, useOutletContext, useParams } from "react-router-dom";
+import { NavLink, Outlet, useOutletContext, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { CalendarClock, Users } from "lucide-react";
 import { getGroup, type GroupDetail } from "../api/groups";
+import { ApiError } from "../api/client";
 import { formatSlot } from "../lib/schedule";
+import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import ClassOverviewPanel from "./ClassOverview";
 
 interface GroupContext {
@@ -20,19 +23,25 @@ function Tab({ to, label, badge }: { to: string; label: string; badge?: number }
       to={to}
       className={({ isActive }) =>
         `flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition ${
-          isActive ? "bg-brand-600 text-canvas" : "text-ink-500 hover:bg-surface"
+          isActive ? "bg-brand-600 text-canvas" : "text-ink-500 hover:bg-surface hover:text-ink-900"
         }`
       }
     >
       {label}
       {badge ? (
-        <span className="rounded-full bg-warn-100 px-1.5 text-xs font-semibold text-warn-700">
+        <span
+          title={`${badge} to review`}
+          className="rounded-full bg-warn-100 px-1.5 text-xs font-semibold text-warn-700"
+        >
           {badge}
+          <span className="sr-only"> to review</span>
         </span>
       ) : null}
     </NavLink>
   );
 }
+
+const ALL_CLASSES = { to: "/tutor/classes", label: "All classes" };
 
 /**
  * The shell every part of a class renders inside: one header, one set of tabs,
@@ -42,49 +51,72 @@ function Tab({ to, label, badge }: { to: string; label: string; badge?: number }
 export default function GroupLayout() {
   const { groupId } = useParams();
   const id = Number(groupId);
-  const group = useQuery({ queryKey: ["group", id], queryFn: () => getGroup(id) });
+  // A class URL whose id is not a whole number names no class at all. Asked
+  // anyway, it came back a 422 and read as "This class didn't load" with a
+  // retry that could never succeed, so it is answered here as not found.
+  const validId = Number.isInteger(id);
+  const group = useQuery({
+    queryKey: ["group", id],
+    queryFn: () => getGroup(id),
+    enabled: validId,
+  });
 
-  if (group.isLoading) return <p className="text-ink-500">Loading…</p>;
-  if (group.isError || !group.data) return <p className="text-risk-600">Class not found.</p>;
+  if (group.isLoading) return <PageSkeleton label="Loading class" />;
+  if (
+    !validId ||
+    (group.isError && group.error instanceof ApiError && group.error.status === 404)
+  ) {
+    return (
+      <NotFoundState
+        title="We couldn't find that class"
+        body="It may have been deleted, or the link may be wrong."
+        back={ALL_CLASSES}
+      />
+    );
+  }
+  if (group.isError || !group.data) {
+    return (
+      <ErrorState
+        title="This class didn't load"
+        error={group.error}
+        onRetry={() => group.refetch()}
+      />
+    );
+  }
 
   const g = group.data;
   const base = `/tutor/groups/${id}`;
 
   return (
     <div>
-      <Link to="/tutor/classes" className="text-sm text-brand-600 hover:underline">
-        ← All classes
-      </Link>
-
-      <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-xl font-semibold">{g.name}</h2>
-          <p className="text-sm text-ink-500">
-            {g.subject.exam_board} {g.subject.code} · {g.subject.name}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full bg-surface-muted px-2.5 py-1 text-ink-500">
-            {g.member_count} {g.member_count === 1 ? "student" : "students"}
-          </span>
-          {g.next_lesson && (
-            <span className="rounded-full bg-brand-100 px-2.5 py-1 font-medium text-brand-600">
-              Next {formatSlot(g.next_lesson.weekday, g.next_lesson.start_time)}
+      <PageHeader
+        title={g.name}
+        back={ALL_CLASSES}
+        description={`${g.subject.exam_board} ${g.subject.code} · ${g.subject.name}`}
+        meta={
+          <>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-xs text-ink-700">
+              <Users aria-hidden className="h-3.5 w-3.5" />
+              {g.member_count} {g.member_count === 1 ? "student" : "students"}
             </span>
-          )}
-        </div>
-      </div>
+            {g.next_lesson && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-2.5 py-1 text-xs font-medium text-brand-600">
+                <CalendarClock aria-hidden className="h-3.5 w-3.5" />
+                Next lesson {formatSlot(g.next_lesson.weekday, g.next_lesson.start_time)}
+              </span>
+            )}
+          </>
+        }
+      />
 
       {/* The class's headline — verdict, WHY, NEEDS YOU — above the tabs, so the
           first thing read answers "how is this class?" rather than "which tab?".
           A class nobody has joined renders the empty room instead. */}
-      <div className="mt-5">
-        <ClassOverviewPanel groupId={id} />
-      </div>
+      <ClassOverviewPanel groupId={id} />
 
       <nav
         aria-label="Class sections"
-        className="mt-6 flex gap-1 overflow-x-auto border-b border-line pb-3"
+        className="mt-8 flex gap-1 overflow-x-auto border-b border-line pb-3"
       >
         <Tab to={`${base}/homework`} label="Homework" badge={g.awaiting_review_count} />
         <Tab to={`${base}/students`} label="Students" />
