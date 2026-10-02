@@ -53,7 +53,7 @@ from app.schemas.past_paper import (
 )
 from app.services import storage
 from app.services.attempts import open_attempt
-from app.services.extraction import queue_past_paper_read
+from app.services.extraction import queue_past_paper_read, read_in_progress
 from app.services.submission_kind import PAST_PAPER
 from app.services.work import create_work, parent_of
 from app.workers.jobs import enqueue
@@ -537,6 +537,26 @@ def _require_unread(paper: PastPaper) -> None:
         )
 
 
+async def _paper_to_fix(db, user: User, past_paper_id: int) -> PastPaper:
+    """The paper a fix is about to change, held for the rest of the request.
+
+    Locked before it is checked, so two fixes arriving together — two presses
+    of Try again, or a retry racing a replacement — cannot both pass the check:
+    the second waits, then finds the paper already being read and is refused,
+    instead of paying for a second read or orphaning a second uploaded file.
+    """
+    paper = await _visible_paper(db, user, past_paper_id)
+    await db.execute(select(PastPaper.id).where(PastPaper.id == paper.id).with_for_update())
+    await db.refresh(paper)
+    _require_unread(paper)
+    if await read_in_progress(db, paper.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This paper is being read right now — try again in a minute",
+        )
+    return paper
+
+
 @router.post("/{past_paper_id}/retry-extraction", response_model=PastPaperOut)
 async def retry_past_paper_extraction(
     past_paper_id: int, db: DbSession, user: TutorUser
@@ -551,8 +571,7 @@ async def retry_past_paper_extraction(
     Any tutor in the paper's organization, like the rest of the shelf
     (`_visible_paper`); another organization's paper is a 404 (`API-7`).
     """
-    paper = await _visible_paper(db, user, past_paper_id)
-    _require_unread(paper)
+    paper = await _paper_to_fix(db, user, past_paper_id)
     paper.extraction_error = None
     await queue_past_paper_read(db, paper.id)
     await db.commit()
@@ -579,8 +598,7 @@ async def replace_past_paper_file(
     Only the question paper: it is what the questions are read from. A mark
     scheme, if there is one, stays as it is.
     """
-    past_paper = await _visible_paper(db, user, past_paper_id)
-    _require_unread(past_paper)
+    past_paper = await _paper_to_fix(db, user, past_paper_id)
     booklet = await db.get(Booklet, past_paper.booklet_id)
     replaced = past_paper.paper_path
     saved: str | None = None

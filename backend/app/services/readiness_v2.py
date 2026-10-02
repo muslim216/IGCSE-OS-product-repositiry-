@@ -132,6 +132,14 @@ async def _marked_questions_by_topic(
                 .select_from(QuestionMark)
                 .join(question_model, question_model.id == getattr(QuestionMark, kind.mark_fk))
                 .join(Submission, Submission.id == QuestionMark.submission_id)
+                # The question must belong to the very work the submission
+                # answers. A mark pointing elsewhere is not one this student
+                # earned on that question, and evidence would disagree.
+                .join(
+                    kind.parent_model,
+                    (kind.parent_model.id == getattr(question_model, kind.parent_fk))
+                    & (kind.parent_model.work_id == Submission.work_id),
+                )
                 .join(tag, tag.question_id == question_model.id)
                 .where(
                     tag.topic_id.in_(topic_ids),

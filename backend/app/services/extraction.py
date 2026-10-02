@@ -229,10 +229,13 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
         # recorded below — not later, at the job's commit, with the reason
         # already cleared.
         await session.flush()
+        # Inside the try as well: a failure queueing the waiting answers would
+        # otherwise roll the new question list back with no reason recorded,
+        # leaving a paper with no questions that no fix will accept.
+        await _mark_waiting_attempts(session, paper)
     except Exception as exc:
         await _record_read_failure(session, past_paper_id, str(exc) or exc.__class__.__name__)
         raise
-    await _mark_waiting_attempts(session, paper)
 
 
 async def _record_read_failure(session: AsyncSession, past_paper_id: int, error: str) -> None:
@@ -286,6 +289,20 @@ async def _mark_waiting_attempts(session: AsyncSession, paper: PastPaper) -> Non
     await _run_now(
         session, "mark_submission", [{"submission_id": submission.id} for submission in waiting]
     )
+
+
+async def read_in_progress(session: AsyncSession, past_paper_id: int) -> bool:
+    """Whether a read of this paper is running right now.
+
+    A fix must wait for it rather than queue a second beside it: the running
+    read already holds the old file, and two reads of one paper can each
+    rewrite its question list — the older finishing last would leave a
+    replacement marked against the questions of the copy it replaced.
+    """
+    running = await session.scalars(
+        select(Job.payload).where(Job.type == "extract_past_paper", Job.status == JobStatus.running)
+    )
+    return any(p.get("past_paper_id") == past_paper_id for p in running.all())
 
 
 async def queue_past_paper_read(session: AsyncSession, past_paper_id: int) -> None:

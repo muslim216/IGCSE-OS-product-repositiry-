@@ -313,8 +313,10 @@ Two owner decisions (2026-10-02) shape the rest:
   is still the owner's to decide. Scores already computed keep the old answer until the R9
   backfill runs.
 - **A paper the AI cannot read is the tutor's to fix.** It joins the tutor's to-do list
-  (`GET /assignments/attention`, reason `extraction_failed`, `past_paper_id` set) until it is
-  read or taken off their shelf, and the shelf offers two fixes on the same row:
+  (`GET /assignments/attention`, reason `extraction_failed`, `past_paper_id` set) for as long
+  as its read has failed and it is on their shelf — a fix takes it off the list while the new
+  read runs, and a read that fails again puts it back. The shelf offers two fixes on the same
+  row, each refused while a read of the paper is already running:
   `POST /past-papers/{id}/retry-extraction` reads it again — bringing forward the automatic
   retry if one is already waiting, rather than paying for two reads — and
   `PUT /past-papers/{id}/paper` swaps in a clearer copy. Students keep the paper throughout.

@@ -402,6 +402,10 @@ export default function PastPapersPage() {
                             <Button
                               variant="secondary"
                               size="sm"
+                              // One fix at a time: once Try again is under way
+                              // the paper is being read, and a replacement
+                              // would be refused.
+                              disabled={retry.isPending && retry.variables === p.id}
                               onClick={() => {
                                 replace.reset();
                                 setCopy(null);

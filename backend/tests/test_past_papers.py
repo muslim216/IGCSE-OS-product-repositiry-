@@ -1322,14 +1322,9 @@ async def test_a_clearer_copy_replaces_the_unreadable_one_and_is_read(
     assert deleted == []
 
 
-async def test_replacing_a_paper_cut_from_a_booklet_deletes_the_old_slice(
-    client,
-    tutor,
-    subject,
-    monkeypatch,  # noqa: F811
-):
-    """A paper cut from a larger booklet owns its slice outright. Replaced and
-    left on disk, nothing would point at it, so nothing could ever clean it up."""
+async def _unreadable_slice(tutor, subject, **extra) -> int:
+    """An unreadable paper cut from a larger booklet: it owns its slice file,
+    which the booklet (holding the whole upload) does not point at."""
     async with async_session() as session:
         tutor_user = await session.get(User, tutor["user"]["id"])
         booklet = Booklet(
@@ -1352,12 +1347,22 @@ async def test_replacing_a_paper_cut_from_a_booklet_deletes_the_old_slice(
             paper_path="slice-1.pdf",
             paper_name="booklet — Paper 1.pdf",
             paper_mime="application/pdf",
-            first_page=12,
-            last_page=23,
             extraction_error="No questions were found in the past paper",
+            **extra,
         )
         await session.commit()
-        paper_id = paper.id
+        return paper.id
+
+
+async def test_replacing_a_paper_cut_from_a_booklet_deletes_the_old_slice(
+    client,
+    tutor,
+    subject,
+    monkeypatch,  # noqa: F811
+):
+    """A paper cut from a larger booklet owns its slice outright. Replaced and
+    left on disk, nothing would point at it, so nothing could ever clean it up."""
+    paper_id = await _unreadable_slice(tutor, subject, first_page=12, last_page=23)
 
     deleted: list[str] = []
 
@@ -1653,32 +1658,7 @@ async def test_a_storage_error_on_the_old_file_does_not_fail_the_replacement(
     """The replacement is committed before the old slice is deleted. A storage
     backend refusing that delete must not report the replacement as failed:
     the tutor would try again and be refused, the paper already being read."""
-    async with async_session() as session:
-        tutor_user = await session.get(User, tutor["user"]["id"])
-        booklet = Booklet(
-            organization_id=tutor_user.organization_id,
-            tutor_id=tutor_user.id,
-            subject_id=subject["id"],
-            status=BookletStatus.applied,
-            file_path="booklet.pdf",
-            file_name="booklet.pdf",
-            file_mime="application/pdf",
-        )
-        session.add(booklet)
-        await session.flush()
-        paper = await make_past_paper(
-            session,
-            organization_id=tutor_user.organization_id,
-            subject_id=subject["id"],
-            booklet=booklet,
-            tutor_id=tutor_user.id,
-            paper_path="slice-1.pdf",
-            paper_name="booklet — Paper 1.pdf",
-            paper_mime="application/pdf",
-            extraction_error="No questions were found in the past paper",
-        )
-        await session.commit()
-        paper_id = paper.id
+    paper_id = await _unreadable_slice(tutor, subject)
 
     async def _refuse(path, *args, **kwargs):
         raise RuntimeError("storage is down")
@@ -1704,3 +1684,23 @@ async def test_a_very_long_file_name_is_kept_to_the_column(client, tutor, unread
     async with async_session() as session:
         paper = await session.get(PastPaper, unreadable_paper["id"])
         assert len(paper.paper_name) == 255
+
+
+async def test_a_fix_waits_for_a_read_already_running(client, tutor, unreadable_paper):
+    """A running read holds the old file. A second read beside it could finish
+    last and leave a replacement marked against the old copy's questions."""
+    async with async_session() as session:
+        [job] = (await session.scalars(select(Job))).all()
+        job.status = JobStatus.running
+        await session.commit()
+    paper_id = unreadable_paper["id"]
+    retry = await client.post(
+        f"/api/v1/past-papers/{paper_id}/retry-extraction", headers=tutor["headers"]
+    )
+    assert retry.status_code == 409
+    replace = await client.put(
+        f"/api/v1/past-papers/{paper_id}/paper", files=_clearer_copy(), headers=tutor["headers"]
+    )
+    assert replace.status_code == 409
+    async with async_session() as session:
+        assert (await session.get(PastPaper, paper_id)).paper_name == "paper.pdf"
