@@ -179,8 +179,9 @@ current data volumes.
   same trust-first pattern as marking). Tutor-specific structures are handled by keeping
   topic mapping a proposal, never an assumption.
 - Evidence taxonomy: classified-derived homework feeds the Topic Mastery and Homework
-  factors; full past papers feed the Past Paper factor. Early in the year readiness
-  legitimately runs on classifieds; the Past Paper factor reports "no data" until
+  factors; full past papers feed the Past Paper factor, and — through each question's
+  syllabus topics — Topic Mastery too (owner decision, 2026-10-02). Early in the year
+  readiness legitimately runs on classifieds; the Past Paper factor reports "no data" until
   attempts exist.
 
 ### 7. Google Classroom (built)

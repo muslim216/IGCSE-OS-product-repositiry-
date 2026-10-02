@@ -20,6 +20,7 @@ from app.models import (
     Classified,
     Group,
     Lesson,
+    PastPaper,
     QuestionTopic,
     Submission,
     SubmissionStatus,
@@ -278,8 +279,9 @@ async def list_group_assignments(
 async def assignments_needing_attention(
     db: DbSession, user: TutorUser
 ) -> list[AssignmentAttention]:
-    """Surfaces homework that needs a tutor's eyes: failed extraction/marking,
-    or AI-marked submissions still waiting to be finalized."""
+    """Surfaces work that needs a tutor's eyes: homework or a past paper whose
+    questions could not be read, failed marking, or AI-marked submissions still
+    waiting to be finalized."""
     # An admin sees every class in their own organization, never another's
     # (`SEC-7`) — unfiltered, this listed every tenant's stuck homework.
     tutor_groups = select(Group.id).where(Group.organization_id == user.organization_id)
@@ -302,6 +304,37 @@ async def assignments_needing_attention(
                 assignment_title=a.title,
                 reason="extraction_failed",
                 detail=a.extraction_error,
+                submission_id=None,
+                student_name=None,
+            )
+        )
+
+    # A past paper the AI could not read is the tutor's to check and fix (owner
+    # decision, 2026-10-02), and it stays on this list until it is read — a
+    # retry or a clearer copy, both on the tutor's past-papers shelf. Scoped
+    # like the homework above: the tutor who uploaded it, or any admin in their
+    # organization. A paper taken off the shelf leaves the list with it: the
+    # shelf is where it gets fixed, and removing it was the tutor's own call.
+    stuck_papers = select(PastPaper).where(
+        PastPaper.organization_id == user.organization_id,
+        PastPaper.extraction_error.is_not(None),
+        PastPaper.hidden_at.is_(None),
+    )
+    if user.role != UserRole.admin:
+        stuck_papers = stuck_papers.where(PastPaper.tutor_id == user.id)
+    for paper in (await db.scalars(stuck_papers.order_by(PastPaper.id))).all():
+        out.append(
+            AssignmentAttention(
+                assignment_id=None,
+                past_paper_id=paper.id,
+                # An unread paper has no title — the AI reads the name and the
+                # questions in the same pass, so failing loses both — and a list
+                # of several "Untitled paper" rows names none of them. The file
+                # the tutor uploaded is what they will recognise. It is their
+                # own metadata (`SEC-16`), not an invented name (`PROD-2`).
+                assignment_title=paper.title or paper.paper_name or paper.display_title,
+                reason="extraction_failed",
+                detail=paper.extraction_error,
                 submission_id=None,
                 student_name=None,
             )

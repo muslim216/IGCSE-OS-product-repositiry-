@@ -2,9 +2,11 @@
 the assignment's question list for the tutor to review."""
 
 import asyncio
+from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -17,6 +19,8 @@ from app.models import (
     BookletStatus,
     Classified,
     Group,
+    Job,
+    JobStatus,
     Mock,
     MockQuestion,
     MockQuestionTopic,
@@ -26,11 +30,14 @@ from app.models import (
     PastPaperQuestionTopic,
     QuestionMark,
     QuestionTopic,
+    Submission,
+    SubmissionStatus,
     Topic,
 )
 from app.services import pdf, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.knowledge import build_tutor_context
+from app.workers.jobs import JOB_STALL_SECONDS, enqueue
 
 
 class ExtractedQuestion(BaseModel):
@@ -219,10 +226,154 @@ async def extract_past_paper(session: AsyncSession, payload: dict) -> None:
     try:
         await _run_past_paper_extraction(session, paper)
         paper.extraction_error = None
+        # Inside the try, so a constraint the last rows break fails here and is
+        # recorded below — not later, at the job's commit, with the reason
+        # already cleared.
+        await session.flush()
+        # Inside the try as well: a failure queueing the waiting answers would
+        # otherwise roll the new question list back with no reason recorded,
+        # leaving a paper with no questions that no fix will accept.
+        await _mark_waiting_attempts(session, paper)
     except Exception as exc:
-        paper.extraction_error = str(exc) or exc.__class__.__name__
-        await session.commit()
+        await _record_read_failure(session, past_paper_id, str(exc) or exc.__class__.__name__)
         raise
+
+
+async def _record_read_failure(session: AsyncSession, past_paper_id: int, error: str) -> None:
+    """Write down why a read failed, whatever state the failure left behind.
+
+    The ordinary failure commits as it always has: the cleared question list,
+    the metered model call and the reason, together. A failure in the database
+    itself — a question number read twice breaks the paper's unique
+    (past_paper_id, number) at flush — leaves the session needing a rollback,
+    and committing on top of it raised again, so no reason was ever written.
+    That strands the paper once a tutor can fix it: a fix clears the reason
+    before the read is queued, so a re-read failing this way left the paper
+    "being read" for good, off the to-do list and refused by both fixes. So
+    that session is rolled back and the reason written on a clean transaction,
+    as `split_booklet` does; the model call's usage row goes with the rollback.
+    """
+    if not session.is_active:
+        await session.rollback()
+    paper = await session.get(PastPaper, past_paper_id)
+    if paper is not None:
+        paper.extraction_error = error
+        await session.commit()
+
+
+async def _mark_waiting_attempts(session: AsyncSession, paper: PastPaper) -> None:
+    """Queue marking for answers that arrived before the paper could be read.
+
+    A student can log an attempt as soon as a paper is on their list: before
+    extraction has finished, or after it has failed, since students keep a
+    paper the AI could not read (`hide_past_paper`). Marking that attempt
+    raises "questions haven't been extracted yet", its one retry comes 60s
+    later, and after that it sits in `ai_failed` with nothing that would ever
+    try it again — however soon the tutor fixes the paper. The question list
+    arriving is the event it was waiting for.
+
+    Only `ai_failed`. A `submitted` attempt already has its marking job queued,
+    and a second would mark the same pages twice and bill for both. That also
+    makes a re-run harmless (`BE-6`): an attempt queued here is `submitted`.
+    """
+    waiting = (
+        await session.scalars(
+            select(Submission).where(
+                Submission.work_id == paper.work_id,
+                Submission.status == SubmissionStatus.ai_failed,
+            )
+        )
+    ).all()
+    for submission in waiting:
+        submission.status = SubmissionStatus.submitted
+        submission.ai_error = None
+    await _run_now(
+        session, "mark_submission", [{"submission_id": submission.id} for submission in waiting]
+    )
+
+
+async def read_in_progress(session: AsyncSession, past_paper_id: int) -> bool:
+    """Whether a read of this paper is running right now.
+
+    A fix must wait for it rather than queue a second beside it: the running
+    read already holds the old file, and two reads of one paper can each
+    rewrite its question list — the older finishing last would leave a
+    replacement marked against the questions of the copy it replaced.
+
+    Only a claim younger than JOB_STALL_SECONDS counts. A worker killed
+    mid-read (a restart, in today's one-process deployment) leaves its job
+    `running` for hours until the orphan sweep requeues it; counting that as a
+    read in progress would refuse both fixes for the whole window. A read that
+    old is the one /health already reports as stalled, so the fix queues a
+    fresh read — which reads the current file, as would the requeued one.
+    """
+    live_since = datetime.now(timezone.utc) - timedelta(seconds=JOB_STALL_SECONDS)
+    running = await session.scalars(
+        select(Job.payload).where(
+            Job.type == "extract_past_paper",
+            Job.status == JobStatus.running,
+            Job.claimed_at >= live_since,
+        )
+    )
+    return any(p.get("past_paper_id") == past_paper_id for p in running.all())
+
+
+async def queue_past_paper_read(session: AsyncSession, past_paper_id: int) -> None:
+    """Read a paper's questions again, now — the tutor's fix for a paper the AI
+    could not read (owner decision, 2026-10-02)."""
+    await _run_now(session, "extract_past_paper", [{"past_paper_id": past_paper_id}])
+
+
+async def _run_now(
+    session: AsyncSession,
+    job_type: str,
+    payloads: list[dict],
+    *,
+    waiting: Sequence[Job] | None = None,
+) -> None:
+    """Queue a job per payload to run now, bringing forward a retry already
+    waiting for the same work instead of queueing a second beside it.
+
+    A failed job is retried once, a minute later (`RETRY_BACKOFF_SECONDS`), and
+    the moment a tutor presses "Try again" is usually inside that minute. Two
+    jobs would do the same work twice and pay for both model calls — harmless
+    by `BE-6`, but billed. The waiting retry is made a fresh job instead, due
+    now with its attempts back to zero: whatever made it fail is what has just
+    changed.
+
+    The bring-forward is one conditional UPDATE, guarded on the job still being
+    `pending`, for the reason `invites.consume` guards its write: the worker can
+    claim a job between the read below and this write, and a job already
+    running has read the old state — on a replaced paper, the old file this
+    request is about to delete. A claimed job matches nothing, so its payload
+    is queued afresh and the new run is the one that sees the change.
+
+    `waiting` is the pending jobs of `job_type`, for a caller that already has
+    them. Payloads are compared in Python because `payload` is JSON, which
+    Postgres cannot compare for equality (as in `services/narrative.py`).
+    """
+    if not payloads:
+        return
+    if waiting is None:
+        waiting = (
+            await session.scalars(
+                select(Job).where(Job.type == job_type, Job.status == JobStatus.pending)
+            )
+        ).all()
+    matching = {job.id: job.payload for job in waiting if job.payload in payloads}
+    brought_forward: list[dict] = []
+    if matching:
+        claimed = await session.scalars(
+            update(Job)
+            .where(Job.id.in_(matching), Job.status == JobStatus.pending)
+            .values(run_after=None, attempts=0)
+            .returning(Job.id)
+            .execution_options(synchronize_session=False)
+        )
+        brought_forward = [matching[job_id] for job_id in claimed.all()]
+    for payload in payloads:
+        if payload not in brought_forward:
+            await enqueue(session, job_type, payload)
 
 
 async def _clear_past_paper_questions(session: AsyncSession, past_paper_id: int) -> bool:
@@ -352,7 +503,9 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
         )
         session.add(question)
         await session.flush()
-        for code in q.topic_codes:
+        # A code listed twice is one tag. The table is unique on (question_id,
+        # topic_id), and a repeat failed the whole read at flush.
+        for code in dict.fromkeys(q.topic_codes):
             topic = topic_by_code.get(code)
             if topic is not None:
                 session.add(PastPaperQuestionTopic(question_id=question.id, topic_id=topic.id))

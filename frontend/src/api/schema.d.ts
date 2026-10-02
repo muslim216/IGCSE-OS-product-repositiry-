@@ -470,8 +470,9 @@ export interface paths {
         };
         /**
          * Assignments Needing Attention
-         * @description Surfaces homework that needs a tutor's eyes: failed extraction/marking,
-         *     or AI-marked submissions still waiting to be finalized.
+         * @description Surfaces work that needs a tutor's eyes: homework or a past paper whose
+         *     questions could not be read, failed marking, or AI-marked submissions still
+         *     waiting to be finalized.
          */
         get: operations["assignments_needing_attention_api_v1_assignments_attention_get"];
         put?: never;
@@ -1612,7 +1613,20 @@ export interface paths {
          * @description The question paper — readable by enrolled students so they can sit it.
          */
         get: operations["past_paper_paper_api_v1_past_papers__past_paper_id__paper_get"];
-        put?: never;
+        /**
+         * Replace Past Paper File
+         * @description Swap a clearer copy in for a paper the AI could not read, and read that.
+         *
+         *     The same row carries on rather than a second upload sitting beside it.
+         *     Students already have this one — taking it off the tutor's shelf does not
+         *     take it off theirs (`hide_past_paper`) — and anyone who has sent answers
+         *     for it is marked against whatever this row's questions turn out to be. A
+         *     fresh upload would leave those answers tied to the unreadable copy for good.
+         *
+         *     Only the question paper: it is what the questions are read from. A mark
+         *     scheme, if there is one, stays as it is.
+         */
+        put: operations["replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1672,6 +1686,34 @@ export interface paths {
         get: operations["my_attempt_api_v1_past_papers__past_paper_id__my_attempt_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/past-papers/{past_paper_id}/retry-extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Past Paper Extraction
+         * @description Try reading a paper again (owner decision, 2026-10-02: an unreadable
+         *     paper is the tutor's to check and fix).
+         *
+         *     For a failure in the reading rather than the paper — the model was
+         *     unavailable or timed out. A scan nobody can read fails the same way twice,
+         *     which is what `replace_past_paper_file` below is for.
+         *
+         *     Any tutor in the paper's organization, like the rest of the shelf
+         *     (`_visible_paper`); another organization's paper is a 404 (`API-7`).
+         */
+        post: operations["retry_past_paper_extraction_api_v1_past_papers__past_paper_id__retry_extraction_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2766,10 +2808,19 @@ export interface components {
          * @enum {string}
          */
         AssessmentType: "mock" | "test";
-        /** AssignmentAttention */
+        /**
+         * AssignmentAttention
+         * @description One thing on the tutor's to-do list that the review queue does not hold.
+         *
+         *     Exactly one of the two ids is set: homework, or a past paper the AI could
+         *     not read (owner decision, 2026-10-02 — an unreadable paper is the tutor's to
+         *     check and fix). The same shape `ReviewQueueItem` uses for the same choice.
+         */
         AssignmentAttention: {
             /** Assignment Id */
-            assignment_id: number;
+            assignment_id: number | null;
+            /** Past Paper Id */
+            past_paper_id?: number | null;
             /** Assignment Title */
             assignment_title: string;
             /** Reason */
@@ -2919,6 +2970,11 @@ export interface components {
             timed: boolean;
             /** Time Taken Minutes */
             time_taken_minutes?: number | null;
+        };
+        /** Body_replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put */
+        Body_replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put: {
+            /** Paper */
+            paper: string;
         };
         /** Body_sit_mock_api_v1_mocks__mock_id__submissions_post */
         Body_sit_mock_api_v1_mocks__mock_id__submissions_post: {
@@ -4239,6 +4295,8 @@ export interface components {
             max_marks: number;
             /** Has Mark Scheme */
             has_mark_scheme: boolean;
+            /** Topics */
+            topics: components["schemas"]["TopicOut"][];
         };
         /** QuestionIn */
         QuestionIn: {
@@ -8275,6 +8333,41 @@ export interface operations {
             };
         };
     };
+    replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                past_paper_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_replace_past_paper_file_api_v1_past_papers__past_paper_id__paper_put"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PastPaperOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     past_paper_mark_scheme_api_v1_past_papers__past_paper_id__mark_scheme_get: {
         parameters: {
             query?: never;
@@ -8363,6 +8456,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PastPaperAttemptOut"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_past_paper_extraction_api_v1_past_papers__past_paper_id__retry_extraction_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                past_paper_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PastPaperOut"];
                 };
             };
             /** @description Validation Error */

@@ -59,6 +59,21 @@ export function logAttempt(
 export const myAttempt = (pastPaperId: number) =>
   api<PastPaperAttempt | null>(`/api/v1/past-papers/${pastPaperId}/my-attempt`);
 
+/** Reads a paper the AI couldn't read once more — for a failure in the
+ *  reading, such as the model being unavailable. Refused (409) for any paper
+ *  that isn't waiting on a fix. */
+export const retryPastPaper = (id: number) =>
+  api<PastPaper>(`/api/v1/past-papers/${id}/retry-extraction`, { method: "POST" });
+
+/** Swaps a clearer copy in for a paper the AI couldn't read, then reads it.
+ *  The same paper carries on, so students' answers already sent for it are
+ *  marked against the new copy's questions. */
+export function replacePastPaper(id: number, paper: File) {
+  const form = new FormData();
+  form.append("paper", paper);
+  return api<PastPaper>(`/api/v1/past-papers/${id}/paper`, { method: "PUT", body: form });
+}
+
 /** Takes the paper off the tutor's own list. **Students keep it** — the row
  *  carries their attempts and the evidence those produced (`PROD-5`), so the
  *  server sets a hidden flag rather than deleting anything. */

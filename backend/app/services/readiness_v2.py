@@ -36,7 +36,6 @@ from app.models import (
     PastPaper,
     PastPaperAttempt,
     QuestionMark,
-    QuestionTopic,
     ReadinessFactor,
     Submission,
     Topic,
@@ -60,6 +59,7 @@ from app.services.readiness_factors import (
     syllabus_coverage,
     topic_mastery,
 )
+from app.services.submission_kind import HOMEWORK, PAST_PAPER
 
 # A topic's Topic Mastery score at/above this is considered "mastered" for
 # the Syllabus Coverage factor. Not the tutor's weak threshold
@@ -99,34 +99,72 @@ def _factor_row(
     )
 
 
-async def _marked_questions_for_topic(
-    session: AsyncSession, student_id: int, topic_id: int
-) -> list[MarkedQuestion]:
-    rows = (
-        await session.execute(
-            select(QuestionMark, AssignmentQuestion, Submission)
-            .join(AssignmentQuestion, AssignmentQuestion.id == QuestionMark.question_id)
-            .join(Submission, Submission.id == QuestionMark.submission_id)
-            .join(QuestionTopic, QuestionTopic.question_id == AssignmentQuestion.id)
-            .where(
-                QuestionTopic.topic_id == topic_id,
-                Submission.student_id == student_id,
-                Submission.status.in_(SETTLED_STATUSES),
-                QuestionMark.final_marks.is_not(None),
+# The kinds of work whose marked questions build a topic's mastery.
+#
+# Past papers joined homework on 2026-10-02, when the product owner decided
+# they should feed topic scores — "they matter a lot". Before that a past-paper
+# mark reached the Past Paper factor and the topic's evidence rows but never
+# its mastery score, so a student's topic bar ignored the work most like the
+# real exam. Mocks are not here: whether a mock's marks count is the owner's
+# decision, and it has not been made.
+TOPIC_MASTERY_KINDS = (HOMEWORK, PAST_PAPER)
+
+
+async def _marked_questions_by_topic(
+    session: AsyncSession, student_id: int, topic_ids: Sequence[int]
+) -> dict[int, list[MarkedQuestion]]:
+    """Every settled, marked question the student answered, under each topic
+    it is tagged with: one query per kind of work, not one per topic (`PERF-5`).
+
+    A question tagged with two topics counts towards both, as homework always
+    has; a question tagged with none counts towards no topic. Every topic asked
+    about gets a list, an empty one when nothing is marked against it.
+    """
+    by_topic: dict[int, list[MarkedQuestion]] = {topic_id: [] for topic_id in topic_ids}
+    if not topic_ids:
+        return by_topic
+    for kind in TOPIC_MASTERY_KINDS:
+        question_model = kind.question_model
+        tag = kind.topic_model
+        rows = (
+            await session.execute(
+                select(tag.topic_id, QuestionMark.final_marks, question_model, Submission)
+                .select_from(QuestionMark)
+                .join(question_model, question_model.id == getattr(QuestionMark, kind.mark_fk))
+                .join(Submission, Submission.id == QuestionMark.submission_id)
+                # The question must belong to the very work the submission
+                # answers. A mark pointing elsewhere is not one this student
+                # earned on that question, and evidence would disagree.
+                .join(
+                    kind.parent_model,
+                    (kind.parent_model.id == getattr(question_model, kind.parent_fk))
+                    & (kind.parent_model.work_id == Submission.work_id),
+                )
+                .join(tag, tag.question_id == question_model.id)
+                .where(
+                    tag.topic_id.in_(topic_ids),
+                    Submission.student_id == student_id,
+                    Submission.status.in_(SETTLED_STATUSES),
+                    QuestionMark.final_marks.is_not(None),
+                )
             )
-        )
-    ).all()
-    out: list[MarkedQuestion] = []
-    for mark, question, submission in rows:
-        pct = (mark.final_marks / question.max_marks * 100) if question.max_marks else 0.0
-        out.append(
-            MarkedQuestion(
-                difficulty=question.difficulty.value if question.difficulty else None,
-                pct=pct,
-                occurred_at=submission.finalized_at or submission.submitted_at,
+        ).all()
+        for topic_id, final_marks, question, submission in rows:
+            # Only homework questions carry a difficulty; an unrated question
+            # weighs what a medium one does.
+            difficulty = getattr(question, "difficulty", None)
+            by_topic[topic_id].append(
+                MarkedQuestion(
+                    difficulty=difficulty.value if difficulty else None,
+                    pct=(final_marks / question.max_marks * 100) if question.max_marks else 0.0,
+                    # When the mark settled — never a past paper's
+                    # `attempted_at`. That date is self-declared (`PROD-8`),
+                    # and decay keyed on it would let a student backdate a
+                    # weak paper until it faded out of the score.
+                    occurred_at=submission.finalized_at or submission.submitted_at,
+                )
             )
-        )
-    return out
+    return by_topic
 
 
 async def _past_paper_attempts(
@@ -391,13 +429,15 @@ async def evaluate_subject_factors(
 
     `half_life_days` is the tutor's setting for this subject
     (`ReadinessConfig.half_life_days`). The caller resolves it — this module
-    stays free of the config lookup — and it reaches every factor that decays;
-    past papers, homework and coverage do not decay, so they take none."""
+    stays free of the config lookup — and it reaches every factor that decays.
+    The Past Paper, Homework and Coverage factors do not, so they take none;
+    a past-paper or homework mark still decays inside Topic Mastery, which
+    does."""
     now = now or datetime.now(timezone.utc)
     rows: list[FactorEvaluation] = []
 
     topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
-    # One query for every topic's estimate (PERF-1), not one per topic. Keyed
+    # One query for every topic's estimate (PERF-5), not one per topic. Keyed
     # by topic_id: seed_readiness upserts on source_ref, so there is normally
     # at most one tutor_estimate row per (student, topic) — but "normally" is
     # not "always" (no unique constraint; deferred, fix round 1), so this
@@ -419,8 +459,9 @@ async def evaluate_subject_factors(
         estimates.setdefault(e.topic_id, TutorEstimate(pct=e.score_pct, occurred_at=e.occurred_at))
     mastery_by_topic: dict[int, float | None] = {}
     results_by_chapter: dict[int, list[FactorResult]] = {}
+    marked = await _marked_questions_by_topic(session, student_id, [t.id for t in topics])
     for topic in topics:
-        questions = await _marked_questions_for_topic(session, student_id, topic.id)
+        questions = marked[topic.id]
         result = topic_mastery(
             questions, now, estimate=estimates.get(topic.id), half_life=half_life_days
         )

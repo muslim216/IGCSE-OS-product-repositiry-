@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ChevronRight } from "lucide-react";
 import { assignmentsNeedingAttention, reviewQueue } from "../api/homework";
+import { attentionHref } from "../lib/attention";
 import { REASON_LABELS } from "../lib/labels";
 import { SectionCard } from "../components/ui";
 import { Button } from "../components/controls";
@@ -136,15 +137,18 @@ export default function ReviewQueuePage() {
               {attentionItems.map((a, i) => (
                 <li key={i}>
                   <Link
-                    to={
-                      a.submission_id
-                        ? `/tutor/submissions/${a.submission_id}`
-                        : `/tutor/assignments/${a.assignment_id}`
-                    }
+                    to={attentionHref(a)}
                     className="flex items-center justify-between gap-3 px-5 py-3 text-sm transition-colors hover:bg-surface-muted"
                   >
                     <span className="min-w-0">
-                      <span className="block font-medium text-ink-900">{a.assignment_title}</span>
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-ink-900">{a.assignment_title}</span>
+                        {a.past_paper_id && (
+                          <span className="rounded bg-surface-muted px-1.5 py-0.5 text-xs text-ink-500">
+                            Past paper
+                          </span>
+                        )}
+                      </span>
                       {a.student_name && <span className="text-ink-500">{a.student_name}</span>}
                     </span>
                     <span className="flex shrink-0 items-center gap-2 text-xs">

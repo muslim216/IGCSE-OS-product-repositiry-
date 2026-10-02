@@ -456,10 +456,14 @@ four, confirmed against `backend/app/api/assignments.py:255` (`extraction_failed
 
 | Reason | Label |
 |---|---|
-| `extraction_failed` | `Question extraction failed` |
+| `extraction_failed` | `Couldn't read the questions` |
 | `ai_failed` | `AI marking failed` |
 | `ai_marked` | `AI-marked — awaiting your review` |
 | `needs_review` | `Some marks need your decision` |
+
+Since 2026-10-02 `extraction_failed` also covers a past paper the AI could not read (owner
+decision): its item carries `past_paper_id`, is named by the uploaded file until the paper has a
+title, and links to the tutor's past-papers shelf, where it is fixed (`lib/attention.ts`).
 
 `DashboardHeader.tsx:7-13` has three of these — **`needs_review` is missing**, so the most common
 reason renders on the tutor's home as the raw string `needs_review`.

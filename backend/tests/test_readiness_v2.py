@@ -29,8 +29,10 @@ from app.models import (
     MistakeSource,
     Mock,
     MockQuestion,
+    MockQuestionTopic,
     PastPaperAttempt,
     PastPaperQuestion,
+    PastPaperQuestionTopic,
     QuestionDifficulty,
     QuestionMark,
     QuestionTopic,
@@ -1174,3 +1176,235 @@ async def test_a_decaying_factor_row_records_the_half_life_it_was_scored_with(cl
     assert by_chapter[bonding].detail["half_life_days"] == 14.0
     assert "half_life_days" not in by_chapter[moles].detail
     assert NO_DATA.detail == {}
+
+
+# --- Past papers feed Topic Mastery (owner decision, 2026-10-02) ------------
+
+
+async def _org_id() -> int:
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        return tutor_user.organization_id
+
+
+async def _past_paper_mark(
+    *,
+    org_id: int,
+    subject_id: int,
+    student_id: int,
+    topic_id: int | None,
+    marks: int,
+    max_marks: int = 10,
+    status: SubmissionStatus = SubmissionStatus.finalized,
+    attempted_at: date | None = None,
+) -> None:
+    """One marked past-paper question, tagged with `topic_id` (or nothing)."""
+    async with async_session() as session:
+        past_paper = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=subject_id,
+            session_label="Nov 2026",
+            paper_number="2",
+        )
+        question = PastPaperQuestion(
+            past_paper_id=past_paper.id,
+            position=0,
+            number="1",
+            text_summary="Q1",
+            max_marks=max_marks,
+        )
+        session.add(question)
+        await session.flush()
+        if topic_id is not None:
+            session.add(PastPaperQuestionTopic(question_id=question.id, topic_id=topic_id))
+        submission = Submission(
+            student_id=student_id,
+            status=status,
+            submitted_at=NOW - timedelta(days=3),
+            finalized_at=NOW - timedelta(days=1),
+            attempted_at=attempted_at,
+            work_id=past_paper.work_id,
+        )
+        session.add(submission)
+        await session.flush()
+        session.add(
+            QuestionMark(
+                submission_id=submission.id,
+                past_paper_question_id=question.id,
+                final_marks=marks,
+            )
+        )
+        await session.commit()
+
+
+async def _homework_mark(
+    *, org_id: int, subject_id: int, student_id: int, group_id: int, topic_id: int, marks: int
+) -> None:
+    """One marked homework question on `topic_id`, settled at the same moment
+    `_past_paper_mark` settles its question, so neither decays more."""
+    async with async_session() as session:
+        work = await create_work(
+            session,
+            kind=WorkKind.homework,
+            organization_id=org_id,
+            subject_id=subject_id,
+            title="HW",
+        )
+        assignment = Assignment(
+            work_id=work.id,
+            group_id=group_id,
+            title="HW",
+            status=AssignmentStatus.published,
+        )
+        session.add(assignment)
+        await session.flush()
+        question = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=0,
+            number="1",
+            text_summary="Q1",
+            max_marks=10,
+            has_mark_scheme=True,
+        )
+        session.add(question)
+        await session.flush()
+        session.add(QuestionTopic(question_id=question.id, topic_id=topic_id))
+        submission = Submission(
+            student_id=student_id,
+            status=SubmissionStatus.finalized,
+            submitted_at=NOW - timedelta(days=3),
+            finalized_at=NOW - timedelta(days=1),
+            work_id=work.id,
+        )
+        session.add(submission)
+        await session.flush()
+        session.add(
+            QuestionMark(submission_id=submission.id, question_id=question.id, final_marks=marks)
+        )
+        await session.commit()
+
+
+async def _topic_rows(world) -> dict[int, FactorEvaluation]:
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, world["student_id"], world["subject_id"], str(uuid.uuid4()), now=NOW
+        )
+        await session.commit()
+    return {r.topic_id: r for r in rows if r.factor == ReadinessFactor.topic_mastery}
+
+
+async def test_a_past_paper_mark_feeds_its_topics_mastery(client, tutor, world):
+    """The owner's decision: past papers "matter a lot", so a past-paper mark
+    reaches the topic score, not only the Past Paper factor."""
+    await _past_paper_mark(
+        org_id=await _org_id(),
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        topic_id=world["topic1"],
+        marks=6,
+    )
+    rows = await _topic_rows(world)
+
+    assert rows[world["topic1"]].score == 60.0
+    assert rows[world["topic1"]].evidence_count == 1
+    # A past-paper question has no difficulty rating, so it weighs what a
+    # medium question does.
+    assert rows[world["topic1"]].detail["by_difficulty"] == {"unrated": 60.0}
+    assert rows[world["topic2"]].score is None
+
+
+async def test_homework_and_past_paper_marks_on_one_topic_count_together(client, tutor, world):
+    org_id = await _org_id()
+    await _homework_mark(
+        org_id=org_id,
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        group_id=world["group"]["id"],
+        topic_id=world["topic1"],
+        marks=8,
+    )
+    await _past_paper_mark(
+        org_id=org_id,
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        topic_id=world["topic1"],
+        marks=6,
+    )
+    row = (await _topic_rows(world))[world["topic1"]]
+
+    assert row.evidence_count == 2
+    assert row.score == 70.0  # (80 + 60) / 2, equal weight and equal age
+
+
+async def test_an_unsettled_past_paper_mark_does_not_count(client, tutor, world):
+    """Only settled marks are evidence (`PROD-5`) — a mark still waiting on the
+    tutor moves nothing."""
+    await _past_paper_mark(
+        org_id=await _org_id(),
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        topic_id=world["topic1"],
+        marks=6,
+        status=SubmissionStatus.needs_review,
+    )
+    assert (await _topic_rows(world))[world["topic1"]].score is None
+
+
+async def test_a_past_paper_question_with_no_topic_counts_towards_none(client, tutor, world):
+    await _past_paper_mark(
+        org_id=await _org_id(),
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        topic_id=None,
+        marks=6,
+    )
+    rows = await _topic_rows(world)
+    assert rows[world["topic1"]].score is None
+    assert rows[world["topic2"]].score is None
+
+
+async def test_a_past_paper_ages_from_when_it_was_marked_not_the_students_date(
+    client, tutor, world
+):
+    """`attempted_at` is self-declared (`PROD-8`). Keyed on it, a student could
+    date a weak paper two years back and let decay fade it out of the score."""
+    org_id = await _org_id()
+    await _homework_mark(
+        org_id=org_id,
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        group_id=world["group"]["id"],
+        topic_id=world["topic1"],
+        marks=10,
+    )
+    await _past_paper_mark(
+        org_id=org_id,
+        subject_id=world["subject_id"],
+        student_id=world["student_id"],
+        topic_id=world["topic1"],
+        marks=0,
+        attempted_at=(NOW - timedelta(days=730)).date(),
+    )
+    # Both settled a day ago, so both weigh the same: the 0 counts in full.
+    assert (await _topic_rows(world))[world["topic1"]].score == 50.0
+
+
+async def test_a_mock_mark_does_not_feed_topic_mastery_yet(client, tutor, world):
+    """Pinned until the owner decides whether mocks count (2026-10-02). A mock
+    added to `TOPIC_MASTERY_KINDS` by accident would move every student's topic
+    scores with nobody having chosen it."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        await _mock_submission_with_mistake(
+            session,
+            org_id=tutor_user.organization_id,
+            tutor_id=tutor_user.id,
+            subject_id=world["subject_id"],
+            student_id=world["student_id"],
+        )
+        question = await session.scalar(select(MockQuestion))
+        session.add(MockQuestionTopic(question_id=question.id, topic_id=world["topic1"]))
+        await session.commit()
+
+    assert (await _topic_rows(world))[world["topic1"]].score is None

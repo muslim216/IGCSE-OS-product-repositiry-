@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
@@ -129,4 +129,36 @@ test("a submission already in the queue is not listed a second time below it", a
   expect(await screen.findByText("HW3 — Moles")).toBeInTheDocument();
   // Listed once, in the queue — not again under "Needs your attention".
   expect(screen.getAllByText("HW2 — Ionic bonding")).toHaveLength(1);
+});
+
+test("a past paper that couldn't be read goes to the shelf that fixes it", async () => {
+  // Owner decision, 2026-10-02: an unreadable paper is the tutor's to check
+  // and fix. It has no assignment, so the homework link would be a dead end.
+  const attention = [
+    {
+      assignment_id: null,
+      past_paper_id: 9,
+      assignment_title: "0620_w26_qp_21.pdf",
+      reason: "extraction_failed",
+      detail: "No questions were found in the past paper",
+      submission_id: null,
+      student_name: null,
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (path === "/api/v1/assignments/attention")
+        return new Response(JSON.stringify(attention), { status: 200 });
+      return new Response(JSON.stringify([]), { status: 200 });
+    }),
+  );
+  renderPage();
+
+  const link = await screen.findByRole("link", { name: /0620_w26_qp_21\.pdf/ });
+  expect(link).toHaveAttribute("href", "/tutor/past-papers#paper-9");
+  expect(within(link).getByText("Past paper")).toBeInTheDocument();
+  expect(within(link).getByText("Couldn't read the questions")).toBeInTheDocument();
+  expect(screen.queryByText("You're all caught up.")).not.toBeInTheDocument();
 });

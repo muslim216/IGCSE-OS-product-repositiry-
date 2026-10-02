@@ -301,14 +301,10 @@ export const publishAssignment = (id: number) =>
 export const retryExtraction = (id: number) =>
   api<AssignmentDetail>(`/api/v1/assignments/${id}/retry-extraction`, { method: "POST" });
 
-export interface AssignmentAttention {
-  assignment_id: number;
-  assignment_title: string;
-  reason: string;
-  detail: string | null;
-  submission_id: number | null;
-  student_name: string | null;
-}
+/** Aliased from the generated schema (`FE-4`). Homework, or a past paper the
+ *  AI could not read: exactly one of `assignment_id` and `past_paper_id` is
+ *  set. Link to an item with `attentionHref` in `lib/attention.ts`. */
+export type AssignmentAttention = components["schemas"]["AssignmentAttention"];
 
 export const assignmentsNeedingAttention = () =>
   api<AssignmentAttention[]>("/api/v1/assignments/attention");

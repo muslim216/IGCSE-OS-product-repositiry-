@@ -299,6 +299,30 @@ Two consequences:
   is the paper's own total, so skipping questions lowers the score rather than shrinking the
   denominator.
 
+Two owner decisions (2026-10-02) shape the rest:
+
+- **A past-paper mark reaches Topic Mastery through its question's topics.** Extraction
+  classifies every question under the subject's syllabus topics (`past_paper_question_topics`),
+  and Topic Mastery reads settled marks from homework and past papers alike
+  (`TOPIC_MASTERY_KINDS` in `services/readiness_v2.py`). Before this a past-paper mark reached
+  the Past Paper factor and the topic's evidence rows but never its mastery score. A question
+  classified under no topic counts towards none, and the tutor's shelf lists each question's
+  topics so that is visible (`PROD-1`). A past-paper question has no difficulty rating, so it
+  weighs what a medium one does, and it ages from when its mark settled — never the
+  self-declared `attempted_at` (`PROD-8`). **Mocks are not included**: whether their marks count
+  is still the owner's to decide. Scores already computed keep the old answer until the R9
+  backfill runs.
+- **A paper the AI cannot read is the tutor's to fix.** It joins the tutor's to-do list
+  (`GET /assignments/attention`, reason `extraction_failed`, `past_paper_id` set) for as long
+  as its read has failed and it is on their shelf — a fix takes it off the list while the new
+  read runs, and a read that fails again puts it back. The shelf offers two fixes on the same
+  row, each refused while a read of the paper is already running:
+  `POST /past-papers/{id}/retry-extraction` reads it again — bringing forward the automatic
+  retry if one is already waiting, rather than paying for two reads — and
+  `PUT /past-papers/{id}/paper` swaps in a clearer copy. Students keep the paper throughout.
+  Answers sent while it is unreadable fail marking for want of questions, and are queued for
+  marking again the moment its questions are read.
+
 ### How work gets into the system
 
 1. **Direct upload.** A tutor uploads a booklet (and optionally a mark scheme); an
