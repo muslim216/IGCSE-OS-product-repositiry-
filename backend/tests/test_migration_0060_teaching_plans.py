@@ -256,6 +256,21 @@ EXPECTED_CHECKS = {
     "plan_breaks": {"ck_plan_breaks_end_not_before_start"},
 }
 
+# Pinned, not just compared: a model and migration that drift together (both
+# CASCADE on chapter_id) would agree and still destroy hand-edited slots.
+EXPECTED_FKS = {
+    "teaching_plans": {
+        "organization_id": ("organizations", None),
+        "group_id": ("groups", "CASCADE"),
+        "accepted_by_id": ("users", None),
+    },
+    "plan_slots": {
+        "plan_id": ("teaching_plans", "CASCADE"),
+        "chapter_id": ("chapters", "RESTRICT"),
+    },
+    "plan_breaks": {"plan_id": ("teaching_plans", "CASCADE")},
+}
+
 
 @pytest.mark.parametrize("table", TABLES)
 def test_migration_matches_model_metadata(upgraded, table):
@@ -278,4 +293,4 @@ def test_migration_matches_model_metadata(upgraded, table):
     assert set(migration_shape["checks"]) == EXPECTED_CHECKS[table]
     # Parent tables differ (stubs vs real) in nothing that matters here: compare
     # the referred table and ondelete per constrained column.
-    assert migration_shape["fks"] == model_shape["fks"]
+    assert migration_shape["fks"] == model_shape["fks"] == EXPECTED_FKS[table]

@@ -81,7 +81,10 @@ class TeachingPlan(TimestampMixin, Base):
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     # Deleting a class removes its plans through the database's ON DELETE
     # CASCADE: `api/groups.py:delete_group` does a bare `db.delete(group)` and
-    # `Group` carries no relationship to plans.
+    # `Group` carries no relationship to plans. That holds only where foreign
+    # keys are enforced — Postgres, which is production and local dev. The
+    # SQLite test suite runs with them off, so there a deleted class leaves
+    # its plans behind and no test may rely on the cascade.
     group_id: Mapped[int] = mapped_column(
         ForeignKey("groups.id", ondelete="CASCADE"), nullable=False
     )
