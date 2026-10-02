@@ -1060,7 +1060,9 @@ details > summary {
    is the backstop for whatever is not — a Tailwind `animate-*` or a
    `transition-transform` written on a page. Animations are cut to nothing, and
    transitions are narrowed to the properties that are colour, so a hover still
-   eases from one colour to the next but nothing travels. */
+   eases from one colour to the next but nothing travels. Opacity and
+   box-shadow are left out on purpose: a fade and a growing ring are changes of
+   presence and size, not of colour, and here they happen at once. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1069,8 +1071,7 @@ details > summary {
     animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-property:
-      color, background-color, border-color, outline-color, text-decoration-color, fill, stroke,
-      opacity, box-shadow !important;
+      color, background-color, border-color, outline-color, text-decoration-color, fill, stroke !important;
     scroll-behavior: auto !important;
   }
 }

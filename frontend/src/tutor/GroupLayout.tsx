@@ -59,8 +59,12 @@ interface TabBox {
    changed"; finding none means the reader has just arrived at the class. */
 let onScreen: { groupId: number; box: TabBox | null } | null = null;
 
-function carriedOver(groupId: number): { box: TabBox | null } | null {
-  return onScreen?.groupId === groupId ? onScreen : null;
+function carriedOver(groupId: number): { box: TabBox } | null {
+  // A bar with no fill had no tab selected: that is the class's bare URL, on
+  // its way to being redirected to a tab, and the reader has not seen the
+  // class yet — so what follows is an arrival, not a tab change.
+  if (onScreen?.groupId !== groupId || onScreen.box === null) return null;
+  return { box: onScreen.box };
 }
 
 /**
