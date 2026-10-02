@@ -70,6 +70,12 @@ class StudentCriterionScoreOut(BaseModel):
     name: str
     description: str | None
     subject_id: int | None
+    # Set for a subject-scoped criterion so two that share a name — "Effort"
+    # for Chemistry and for Physics — can be told apart; null for an
+    # account-wide one. Sent by the server rather than looked up by the client:
+    # `/subjects` lists by class membership, and a criterion applies by CRM
+    # enrolment, so a student can hold one for a subject that list omits.
+    subject_name: str | None = None
     # Null is unscored — never 0 (`PROD-2`). The two below are null with it.
     score: int | None
     updated_at: datetime | None

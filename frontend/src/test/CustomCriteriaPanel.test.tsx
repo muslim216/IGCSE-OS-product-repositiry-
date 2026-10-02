@@ -141,3 +141,82 @@ test("the server's 409 is shown inline", async () => {
   fireEvent.click(screen.getByRole("button", { name: /save score for exam technique/i }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/archived/i);
 });
+
+test("a subject-scoped criterion names its subject; an account-wide one does not", async () => {
+  // Two subject-specific "Effort" criteria are otherwise the same row twice.
+  stub([
+    { ...ROWS[0], criterion_id: 3, name: "Effort", subject_id: 7, subject_name: "Chemistry" },
+    { ...ROWS[0], criterion_id: 4, name: "Effort", subject_id: 8, subject_name: "Physics" },
+    ROWS[0],
+  ]);
+  renderPanel(false);
+
+  const [chemistry, physics] = (await screen.findAllByText("Effort")).map((el) =>
+    el.closest("li")!,
+  );
+  expect(chemistry.textContent).toContain("Chemistry");
+  expect(physics.textContent).toContain("Physics");
+  const everywhere = screen.getByText("Exam technique").closest("li")!;
+  expect(everywhere.textContent).not.toMatch(/chemistry|physics|all subjects/i);
+});
+
+test("score controls for same-named criteria are told apart by subject in their names", async () => {
+  stub([
+    { ...ROWS[0], criterion_id: 3, name: "Effort", subject_id: 7, subject_name: "Chemistry" },
+    { ...ROWS[0], criterion_id: 4, name: "Effort", subject_id: 8, subject_name: "Physics" },
+  ]);
+  renderPanel(true);
+  expect(await screen.findByLabelText("Score for Effort (Chemistry)")).toBeTruthy();
+  expect(screen.getByLabelText("Score for Effort (Physics)")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save score for Effort (Physics)" })).toBeTruthy();
+});
+
+test("Enter in the score box saves what was typed", async () => {
+  const calls = stub(ROWS);
+  renderPanel(true);
+  const input = await screen.findByRole("spinbutton", { name: /score for confidence/i });
+  // The stored score is 70; the draft is what must be sent.
+  fireEvent.change(input, { target: { value: "85" } });
+  fireEvent.submit(input.closest("form")!);
+
+  await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+  const put = calls.find((c) => c.method === "PUT")!;
+  expect(put.url).toBe("/api/v1/students/2/custom-criteria/2");
+  expect(put.body).toEqual({ score: 85 });
+  expect(
+    (screen.getByRole("button", { name: /save score for confidence/i }) as HTMLButtonElement).type,
+  ).toBe("submit");
+});
+
+test("Enter on an invalid or unchanged score saves nothing", async () => {
+  const calls = stub(ROWS);
+  renderPanel(true);
+  const input = await screen.findByRole("spinbutton", { name: /score for confidence/i });
+  fireEvent.submit(input.closest("form")!); // unchanged: still 70
+  fireEvent.change(input, { target: { value: "101" } });
+  fireEvent.submit(input.closest("form")!);
+  // A macrotask: mutate() reaches fetch several microtasks later, so a single
+  // `await Promise.resolve()` would pass whether or not a PUT was on its way.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls.some((c) => c.method === "PUT")).toBe(false);
+});
+
+test("when a save and then a clear both fail, the clear's error is the one shown", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "GET") return new Response(JSON.stringify(ROWS), { status: 200 });
+      const detail = method === "DELETE" ? "Clear refused." : "Save refused.";
+      return new Response(JSON.stringify({ detail }), { status: 409 });
+    }),
+  );
+  renderPanel(true);
+  const input = await screen.findByRole("spinbutton", { name: /score for confidence/i });
+  fireEvent.change(input, { target: { value: "85" } });
+  fireEvent.click(screen.getByRole("button", { name: /save score for confidence/i }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/save refused/i);
+
+  fireEvent.click(screen.getByRole("button", { name: /clear score for confidence/i }));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/clear refused/i));
+});

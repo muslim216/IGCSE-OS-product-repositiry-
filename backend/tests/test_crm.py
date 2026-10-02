@@ -175,4 +175,4 @@ async def test_crm_access_control(client, tutor, world):
     )
     bob_headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
     forbidden = await client.get(f"/api/v1/students/{world['student_id']}/crm", headers=bob_headers)
-    assert forbidden.status_code == 403
+    assert forbidden.status_code == 404

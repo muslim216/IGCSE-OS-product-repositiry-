@@ -50,7 +50,11 @@ async def _owned_assignment(db, user: User, assignment_id: int) -> Assignment:
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     group = await db.get(Group, assignment.group_id)
-    if group.tutor_id != user.id and user.role != UserRole.admin:
+    # The organization binds first and applies to admins too: an admin has wider
+    # reach inside their organization, not across organizations (`SEC-7`).
+    if group.organization_id != user.organization_id or (
+        group.tutor_id != user.id and user.role != UserRole.admin
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     return assignment
 
@@ -194,7 +198,12 @@ async def create_assignment_with_paper(
     file name, and everything else can be edited afterwards.
     """
     group = await db.get(Group, group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization binds first, admins included (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
 
     assignment = await create_from_upload(
@@ -221,7 +230,12 @@ async def list_group_assignments(
     group_id: int, db: DbSession, user: TutorUser
 ) -> list[AssignmentOut]:
     group = await db.get(Group, group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization binds first, admins included (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     assignments = (
         await db.scalars(
@@ -266,7 +280,9 @@ async def assignments_needing_attention(
 ) -> list[AssignmentAttention]:
     """Surfaces homework that needs a tutor's eyes: failed extraction/marking,
     or AI-marked submissions still waiting to be finalized."""
-    tutor_groups = select(Group.id)
+    # An admin sees every class in their own organization, never another's
+    # (`SEC-7`) — unfiltered, this listed every tenant's stuck homework.
+    tutor_groups = select(Group.id).where(Group.organization_id == user.organization_id)
     if user.role != UserRole.admin:
         tutor_groups = tutor_groups.where(Group.tutor_id == user.id)
 

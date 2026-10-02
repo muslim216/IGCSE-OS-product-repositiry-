@@ -99,7 +99,12 @@ async def update_classified(
     classified = await db.get(Classified, classified_id)
     # Ownership of a classified is the tutor who uploaded it — the same rule the
     # download routes below apply. A row in another account is a 404 (API-7).
-    if classified is None or (classified.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization binds first, admins included (`SEC-7`).
+    if (
+        classified is None
+        or classified.organization_id != user.organization_id
+        or (classified.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     classified.chapter_id = await resolve_chapter(db, body.chapter_id, classified.subject_id)
     classified.notes = clean_notes(body.notes)
@@ -108,7 +113,10 @@ async def update_classified(
 
 
 async def _can_view_classified(db, user: User, classified: Classified) -> bool:
-    if user.id == classified.tutor_id or user.role == UserRole.admin:
+    # An admin reads their own organization's classifieds, never another's (`SEC-7`).
+    if user.id == classified.tutor_id or (
+        user.role == UserRole.admin and classified.organization_id == user.organization_id
+    ):
         return True
     # Students may view classifieds used by a published assignment in their groups.
     row = await db.scalar(
@@ -142,7 +150,10 @@ async def download_mark_scheme(classified_id: int, db: DbSession, user: CurrentU
     if classified is None or classified.mark_scheme_path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     # Mark schemes are tutor-only: students should not download the answers.
-    if classified.tutor_id != user.id and user.role != UserRole.admin:
+    # Admins inside their own organization only (`SEC-7`).
+    if classified.organization_id != user.organization_id or (
+        classified.tutor_id != user.id and user.role != UserRole.admin
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     # mark_scheme_mime/_name are nullable and can be absent on a partially
     # populated row even when the path is set. Starlette's FileResponse

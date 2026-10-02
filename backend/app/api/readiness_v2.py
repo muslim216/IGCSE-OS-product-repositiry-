@@ -127,6 +127,9 @@ async def _snapshot_out(
                 confidence=r.confidence.value,
                 evidence_count=r.evidence_count,
                 detail=r.detail,
+                # Today's settings, not the ones this run was synthesized with:
+                # a factor switched off since still has a row here, and one
+                # switched back on reads as enabled on a run that ignored it.
                 enabled=r.factor in config.enabled,
             )
             for r in factor_rows

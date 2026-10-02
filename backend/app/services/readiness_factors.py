@@ -18,7 +18,10 @@ from datetime import date, datetime, timezone
 
 from app.models import FactorConfidence
 
-# Half-life of evidence relevance, in days.
+# Half-life of evidence relevance, in days — the default only. The tutor sets
+# their own per subject (ReadinessConfig.half_life_days), and every factor that
+# decays takes it as `half_life`: a call site that leaves it out silently
+# ignores the tutor's setting, which is how the setting once did nothing at all.
 HALF_LIFE_DAYS = 45.0
 
 
@@ -97,6 +100,7 @@ def topic_mastery(
     questions: list[MarkedQuestion],
     now: datetime | None = None,
     estimate: TutorEstimate | None = None,
+    half_life: float = HALF_LIFE_DAYS,
 ) -> FactorResult:
     """Decay-weighted average across difficulty tiers — succeeding on harder
     questions counts for more, so familiarity with easy questions alone
@@ -115,7 +119,9 @@ def topic_mastery(
     weighted_sum = 0.0
     by_tier: dict[str, list[float]] = {}
     for q in questions:
-        w = DIFFICULTY_WEIGHT.get(q.difficulty, 1.0) * _decay(_age_days(q.occurred_at, now))
+        w = DIFFICULTY_WEIGHT.get(q.difficulty, 1.0) * _decay(
+            _age_days(q.occurred_at, now), half_life
+        )
         total_weight += w
         weighted_sum += w * q.pct
         by_tier.setdefault(q.difficulty or "unrated", []).append(q.pct)
@@ -125,7 +131,7 @@ def topic_mastery(
     if estimate is not None:
         w = (
             TUTOR_ESTIMATE_WEIGHT
-            * _decay(_age_days(estimate.occurred_at, now))
+            * _decay(_age_days(estimate.occurred_at, now), half_life)
             / (1 + len(questions))
         )
         total_weight += w
@@ -266,7 +272,9 @@ class AssessmentPoint:
 
 
 def assessment_performance(
-    points: list[AssessmentPoint], now: datetime | None = None
+    points: list[AssessmentPoint],
+    now: datetime | None = None,
+    half_life: float = HALF_LIFE_DAYS,
 ) -> FactorResult:
     if not points:
         return NO_DATA
@@ -274,7 +282,7 @@ def assessment_performance(
     total_weight = 0.0
     weighted_sum = 0.0
     for p in points:
-        w = _decay(_age_days(p.occurred_at, now))
+        w = _decay(_age_days(p.occurred_at, now), half_life)
         total_weight += w
         weighted_sum += w * p.pct
     score = round(weighted_sum / total_weight, 1) if total_weight > 0 else None
@@ -338,7 +346,10 @@ class MistakePoint:
 
 
 def mistake_analysis(
-    mistakes: list[MistakePoint], analysed_questions: int, now: datetime | None = None
+    mistakes: list[MistakePoint],
+    analysed_questions: int,
+    now: datetime | None = None,
+    half_life: float = HALF_LIFE_DAYS,
 ) -> FactorResult:
     """Fewer, less severe, less-recent mistakes relative to the volume of work
     **examined for mistakes** -> a higher score.
@@ -356,7 +367,7 @@ def mistake_analysis(
     if analysed_questions <= 0:
         return NO_DATA
     now = now or datetime.now(timezone.utc)
-    penalty = sum(m.severity * _decay(_age_days(m.occurred_at, now)) for m in mistakes)
+    penalty = sum(m.severity * _decay(_age_days(m.occurred_at, now), half_life) for m in mistakes)
     rate = penalty / analysed_questions
     score = max(0.0, 100.0 - rate * 40.0)
     by_category: dict[str, int] = {}

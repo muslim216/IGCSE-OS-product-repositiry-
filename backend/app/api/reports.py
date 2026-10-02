@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, owned_subject, require_role
@@ -15,6 +15,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.reports import ReportDetail, ReportGenerate, ReportOut
+from app.services.reports import NothingToReport, report_subjects, report_summary
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -35,10 +36,31 @@ ALLOWED_AUDIENCES = {
 
 
 async def _check_can_view_student(db: AsyncSession, viewer: User, student_id: int) -> None:
-    # Raises 403/404 if the viewer may not see this student's data.
+    # Raises 404 if the viewer may not see this student's data — never 403,
+    # which would confirm the id exists (`API-7`).
     if viewer.role == UserRole.student and viewer.id != student_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     await visible_subject_ids(db, viewer, student_id)
+
+
+def _readable_by(viewer: User) -> list[ColumnElement[bool]]:
+    """Which reports this viewer may read, beyond being able to see the student.
+
+    A report is written from the generating tutor's organization — their
+    classes' subjects, their organization's criteria (`services/reports.
+    report_subjects`). A student can sit in a second organization's class, so
+    seeing the student is not enough for staff: a tutor or admin reads only the
+    reports their own organization generated (`SEC-7`). Students and parents
+    read every report addressed to them, whichever organization wrote it.
+    """
+    clauses: list[ColumnElement[bool]] = [Report.audience.in_(list(ALLOWED_AUDIENCES[viewer.role]))]
+    if viewer.role in (UserRole.tutor, UserRole.admin):
+        clauses.append(
+            Report.generated_by_id.in_(
+                select(User.id).where(User.organization_id == viewer.organization_id)
+            )
+        )
+    return clauses
 
 
 @router.post("/generate", response_model=ReportDetail, status_code=status.HTTP_201_CREATED)
@@ -57,6 +79,17 @@ async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> R
     if body.subject_id is not None:
         subject = await owned_subject(db, body.subject_id, user)
         subject_name = subject.name
+
+    # Refused here, before a row or a job exists, so the tutor reads why at once
+    # instead of watching "generating" turn into a failure. The handler checks
+    # again, because class membership can change before it runs. Scoped to
+    # what this tutor may see of the student, so "all subjects" never reaches
+    # a class the student sits in a second organization (`SEC-8`).
+    try:
+        subject_ids = await report_subjects(db, user, body.student_id, body.subject_id)
+        await report_summary(db, student, subject_ids)
+    except NothingToReport as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     title = f"{subject_name} — {audience.value} report ({datetime.now(timezone.utc):%d %b %Y})"
     report = Report(
@@ -77,14 +110,10 @@ async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> R
 @router.get("", response_model=list[ReportOut])
 async def list_reports(student_id: int, db: DbSession, user: CurrentUser) -> list[ReportOut]:
     await _check_can_view_student(db, user, student_id)
-    allowed = ALLOWED_AUDIENCES[user.role]
     rows = (
         await db.scalars(
             select(Report)
-            .where(
-                Report.student_id == student_id,
-                Report.audience.in_(list(allowed)),
-            )
+            .where(Report.student_id == student_id, *_readable_by(user))
             .order_by(Report.created_at.desc())
         )
     ).all()
@@ -93,10 +122,10 @@ async def list_reports(student_id: int, db: DbSession, user: CurrentUser) -> lis
 
 @router.get("/{report_id}", response_model=ReportDetail)
 async def get_report(report_id: int, db: DbSession, user: CurrentUser) -> ReportDetail:
-    report = await db.get(Report, report_id)
+    # One 404 for missing, wrong audience and another organization's report:
+    # the caller learns nothing about which it was (`API-7`).
+    report = await db.scalar(select(Report).where(Report.id == report_id, *_readable_by(user)))
     if report is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
-    if report.audience not in ALLOWED_AUDIENCES[user.role]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
     await _check_can_view_student(db, user, report.student_id)
     return _detail(report)

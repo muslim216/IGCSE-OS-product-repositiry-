@@ -56,15 +56,13 @@ export default function CustomCriteriaSetting() {
       await refresh();
     },
   });
-  const update = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: CustomCriterionUpdate }) =>
-      updateCustomCriterion(id, body),
-    onSuccess: refresh,
-  });
-
+  // Not before the subjects are in: until then the only scope on offer is
+  // "All subjects", and a criterion's scope is permanent. Checked in submit as
+  // well as on the button, because Enter submits whether or not Add is disabled.
+  const canAdd = name.trim() !== "" && !create.isPending && subjects.isSuccess;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (name.trim()) create.mutate();
+    if (canAdd) create.mutate();
   };
 
   return (
@@ -78,7 +76,7 @@ export default function CustomCriteriaSetting() {
       <form onSubmit={submit} className="mt-5 border-t border-line pt-4">
         <h3 className="text-sm font-medium text-ink-900">Add a criterion</h3>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <Field label="Criterion name">
+          <Field label="New criterion name">
             <Input
               placeholder="e.g. Exam technique"
               maxLength={120}
@@ -105,11 +103,21 @@ export default function CustomCriteriaSetting() {
           </Field>
         </div>
         <div className="mt-4 flex justify-end">
-          <Button type="submit" disabled={!name.trim()} loading={create.isPending}>
+          <Button type="submit" disabled={!canAdd} loading={create.isPending}>
             Add criterion
           </Button>
         </div>
       </form>
+      {subjects.isError && (
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm text-risk-600">
+            The subjects didn't load, so a criterion can't be added yet.
+          </p>
+          <Button variant="secondary" size="sm" onClick={() => subjects.refetch()}>
+            Try again
+          </Button>
+        </div>
+      )}
       {create.isError && (
         <p role="alert" className="mt-2 text-sm text-risk-600">
           {friendlyError(create.error, "Couldn't add the criterion. Try again.")}
@@ -144,19 +152,10 @@ export default function CustomCriteriaSetting() {
               key={c.id}
               criterion={c}
               subject={subjectName(c.subject_id)}
-              // Only the row being saved waits; the rest stay usable.
-              busy={update.isPending && update.variables?.id === c.id}
-              onUpdate={(body, onSaved) =>
-                update.mutate({ id: c.id, body }, { onSuccess: onSaved })
-              }
+              onSaved={refresh}
             />
           ))}
         </ul>
-      )}
-      {update.isError && (
-        <p role="alert" className="mt-2 text-sm text-risk-600">
-          {friendlyError(update.error, "That change didn't save. Try again.")}
-        </p>
       )}
     </SectionCard>
   );
@@ -165,51 +164,82 @@ export default function CustomCriteriaSetting() {
 function CriterionItem({
   criterion,
   subject,
-  busy,
-  onUpdate,
+  onSaved,
 }: {
   criterion: CustomCriterion;
   subject: string;
-  busy: boolean;
-  onUpdate: (body: CustomCriterionUpdate, onSaved?: () => void) => void;
+  onSaved: () => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(criterion.name);
   const [description, setDescription] = useState(criterion.description ?? "");
   const archived = criterion.archived_at !== null;
+  // One mutation per row, not one shared by the list. A shared observer tracks
+  // only its latest call: saving a second row dropped the first row's close,
+  // its busy flag (so Enter could send it twice) and its error.
+  const update = useMutation({
+    mutationFn: (body: CustomCriterionUpdate) => updateCustomCriterion(criterion.id, body),
+    onSuccess: async () => {
+      // Close only once it saved: a failed rename keeps what was typed.
+      setEditing(false);
+      await onSaved();
+    },
+  });
+  const busy = update.isPending;
+  const error = update.isError && (
+    <p role="alert" className="w-full text-sm text-risk-600 sm:col-span-3">
+      {friendlyError(update.error, "That change didn't save. Try again.")}
+    </p>
+  );
 
   if (editing) {
+    // A form, so Enter saves. It sits in the list, outside the create form
+    // above — a form nested in a form is invalid and submits the outer one.
+    const submit = (e: FormEvent) => {
+      e.preventDefault();
+      if (!name.trim() || busy) return;
+      update.mutate({ name, description: description.trim() || null });
+    };
     return (
-      <li className="grid gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] sm:items-center">
-        <Input
-          aria-label="Name"
-          maxLength={120}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Input
-          aria-label="Description"
-          placeholder="Description (optional)"
-          maxLength={2000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <span className="flex gap-2">
-          <Button
-            size="sm"
-            disabled={!name.trim()}
-            loading={busy}
-            onClick={() => {
-              // Close only once it saved: a failed rename keeps what was typed.
-              onUpdate({ name, description: description.trim() || null }, () => setEditing(false));
-            }}
-          >
-            Save
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-            Cancel
-          </Button>
-        </span>
+      <li className="py-3">
+        <form
+          onSubmit={submit}
+          className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] sm:items-center"
+        >
+          <Input
+            aria-label="Name"
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Input
+            aria-label="Description"
+            placeholder="Description (optional)"
+            maxLength={2000}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <span className="flex gap-2">
+            <Button type="submit" size="sm" disabled={!name.trim()} loading={busy}>
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              // Not while a save is in flight: reset() only clears this row's
+              // state, the PATCH still lands — and a second edit sent behind it
+              // could be overwritten by the first arriving late.
+              disabled={busy}
+              onClick={() => {
+                update.reset();
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </span>
+          {error}
+        </form>
       </li>
     );
   }
@@ -235,9 +265,11 @@ function CriterionItem({
           variant="ghost"
           size="sm"
           aria-label={`Edit ${criterion.name}`}
+          disabled={busy}
           onClick={() => {
             setName(criterion.name);
             setDescription(criterion.description ?? "");
+            update.reset();
             setEditing(true);
           }}
         >
@@ -248,11 +280,12 @@ function CriterionItem({
           size="sm"
           aria-label={`${archived ? "Unarchive" : "Archive"} ${criterion.name}`}
           loading={busy}
-          onClick={() => onUpdate({ archived: !archived })}
+          onClick={() => update.mutate({ archived: !archived })}
         >
           {archived ? "Unarchive" : "Archive"}
         </Button>
       </div>
+      {error}
     </li>
   );
 }

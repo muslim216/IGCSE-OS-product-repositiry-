@@ -43,48 +43,60 @@ async def test_already_pending_wildcard_covers_every_subject_for_that_student(cl
     assert (8, 1) not in pending
 
 
-async def test_an_observation_only_pair_is_not_backfilled(client, tutor):
-    """PROD-15: historical observation evidence does not make a (student,
-    subject) pair readiness-bearing, so the backfill queues no run for it."""
-    from app.models import Evidence, EvidenceSource, Subject, Topic
-    from seed.recompute_readiness import pairs_with_evidence
-    from tests.factories import subject_defaults
+async def test_an_enrolled_student_with_no_evidence_is_backfilled(client, subject, group, student):
+    """Before 5.5 a no-evidence run stored a score the model made up. Those
+    snapshots are only replaced by a fresh run, so the backfill has to reach
+    exactly the pairs an evidence-based selection skips."""
+    from seed.recompute_readiness import enrolled_pairs
 
     async with async_session() as session:
-        subject = Subject(
-            **await subject_defaults(session),
-            exam_board="Edexcel IGCSE",
-            code="X1",
-            name="X",
-            grade_scale="9-1",
-        )
-        session.add(subject)
-        await session.flush()
-        topic = Topic(subject_id=subject.id, code="1", title="t", weight=1.0)
-        session.add(topic)
-        await session.flush()
-        session.add(
-            Evidence(
-                student_id=tutor["user"]["id"],
-                topic_id=topic.id,
-                source_type=EvidenceSource.observation,
-                score_pct=80.0,
-                max_marks=0,
-            )
-        )
-        await session.commit()
-        assert await pairs_with_evidence(session) == []
+        assert await enrolled_pairs(session) == [(student["user"]["id"], subject["id"])]
 
-        # Positive control: readiness-bearing evidence on the same topic makes the
-        # pair appear, so the empty list above is the filter, not a broken query.
+
+async def test_main_queues_a_run_for_an_enrolled_student_with_no_evidence(
+    client, subject, group, student
+):
+    await main(30)
+
+    async with async_session() as session:
+        payloads = [
+            job.payload
+            for job in (
+                await session.scalars(select(Job).where(Job.type == "compute_readiness_v2"))
+            ).all()
+        ]
+    assert payloads == [{"student_id": student["user"]["id"], "subject_id": subject["id"]}]
+
+
+async def test_evidence_without_enrolment_is_not_backfilled(client, tutor, subject, group, student):
+    """Enrolment, not evidence, is what selects a pair. Evidence left behind in
+    a subject nobody is enrolled in belongs to a pair no screen reads, so a run
+    for it would be an AI call whose snapshot is never shown."""
+    from app.models import Evidence, EvidenceSource, Group, GroupMember
+    from seed.recompute_readiness import enrolled_pairs
+
+    async with async_session() as session:
+        # The tutor is in no class, so this evidence is "stray".
         session.add(
             Evidence(
                 student_id=tutor["user"]["id"],
-                topic_id=topic.id,
+                topic_id=subject["topic1"],
                 source_type=EvidenceSource.quiz,
                 score_pct=70.0,
                 max_marks=0,
             )
         )
+        # A second class in the same subject: one pair, not one per class.
+        first = await session.get(Group, group["id"])
+        second = Group(
+            organization_id=first.organization_id,
+            tutor_id=first.tutor_id,
+            subject_id=first.subject_id,
+            name="Chem Y10 B",
+        )
+        session.add(second)
+        await session.flush()
+        session.add(GroupMember(group_id=second.id, student_id=student["user"]["id"]))
         await session.commit()
-        assert await pairs_with_evidence(session) == [(tutor["user"]["id"], subject.id)]
+
+        assert await enrolled_pairs(session) == [(student["user"]["id"], subject["id"])]

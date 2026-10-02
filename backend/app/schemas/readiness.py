@@ -297,4 +297,8 @@ class AgreementStats(BaseModel):
 class TutorAnalytics(BaseModel):
     weak_students: list[WeakStudent]
     weak_topics: list[TopicHeat]
+    # How many topics have a class mean at all — the population `weak_topics`
+    # was filtered from. Without it an empty `weak_topics` cannot be told apart:
+    # "nothing is weak" and "nothing was compared" look identical (PROD-2).
+    topic_mean_count: int
     agreement: AgreementStats

@@ -68,7 +68,11 @@ class ClassReadiness:
     #: evidence (score None), or no snapshot yet. score and predicted_grade
     #: are always None here (PROD-2) — never a re-mapping of anything.
     unscored: list[LearnerSnapshot]
-    #: Topic Mastery averaged over scored learners' latest runs, lowest first.
+    #: Topic Mastery averaged over every learner's latest ready run, lowest
+    #: first — including a learner with no headline score, whose run can still
+    #: hold a confident topic row (the factor switched off or weighted 0).
+    #: Only confident, scored topic rows count, so the contributors here are
+    #: not the same set as `scored`.
     topic_means: list[TopicMean]
     #: student_id -> (assignment_count, submitted_count) from every enrolled
     #: learner's latest ready run, scored or not — a no-evidence run still

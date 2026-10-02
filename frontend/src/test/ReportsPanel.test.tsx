@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { ReportsPanel } from "../components/ReportsPanel";
@@ -113,4 +113,70 @@ test("a reader who cannot generate is told where reports come from", async () =>
   expect(await screen.findByText("No reports yet")).toBeInTheDocument();
   expect(screen.getByText(/Your tutor writes these/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /generate/i })).not.toBeInTheDocument();
+});
+
+/* `POST /reports/generate` answers 409 with a plain sentence when there is
+   nothing to report. The panel used to swallow it: the button re-enabled and
+   the tutor was told nothing. */
+
+const NOTHING = "This student isn't in a class yet, so there is nothing to report.";
+
+const GENERATING = {
+  id: 7,
+  student_id: 2,
+  subject_id: null,
+  audience: "tutor",
+  status: "generating",
+  title: "Tutor report",
+  created_at: "2026-10-01T10:00:00Z",
+  generated_at: null,
+  content: null,
+  error: null,
+};
+
+/** Each POST consumes the next queued outcome. A successful one is kept, so
+    the `/reports` list returns it afterwards, as the API does. */
+function stubGenerate(posts: ("conflict" | "ok")[]) {
+  const generated: (typeof GENERATING)[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if ((init?.method ?? "GET").toUpperCase() === "POST") {
+        if (posts.shift() === "conflict")
+          return new Response(JSON.stringify({ detail: NOTHING }), { status: 409 });
+        generated.push(GENERATING);
+        return new Response(JSON.stringify(GENERATING), { status: 200 });
+      }
+      return new Response(JSON.stringify(path.endsWith("/reports") ? generated : GENERATING), {
+        status: 200,
+      });
+    }),
+  );
+}
+
+test("a 409 from generate shows the server's sentence in an alert", async () => {
+  stubGenerate(["conflict"]);
+  renderPanel({ audiences: ["tutor"] });
+
+  fireEvent.click(await screen.findByRole("button", { name: "Generate report" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(NOTHING);
+  expect(screen.getByRole("button", { name: "Generate report" })).toBeEnabled();
+});
+
+test("a later successful generate clears the alert", async () => {
+  stubGenerate(["conflict", "ok"]);
+  renderPanel({ audiences: ["tutor"] });
+
+  fireEvent.click(await screen.findByRole("button", { name: "Generate report" }));
+  await screen.findByRole("alert");
+
+  fireEvent.click(screen.getByRole("button", { name: "Generate report" }));
+
+  expect(await screen.findByText(/Writing the report…/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  // The list refetches and now holds the report that was just generated.
+  expect(await screen.findByRole("button", { name: /Tutor report/ })).toBeInTheDocument();
+  expect(screen.queryByText("No reports yet")).not.toBeInTheDocument();
 });

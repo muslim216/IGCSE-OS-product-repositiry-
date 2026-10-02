@@ -369,7 +369,8 @@ export default function PreferencesPage() {
             <p className="text-xs leading-relaxed text-ink-500">
               A higher weight counts that factor more; a shorter half-life lets recent evidence take
               over faster. A factor with no evidence is left out of the score rather than counted as
-              zero. A switched-off factor is still worked out and shown, but never counts.
+              zero. A switched-off factor never counts, but is still worked out and kept, so nothing
+              is lost if you switch it back on.
             </p>
 
             <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">

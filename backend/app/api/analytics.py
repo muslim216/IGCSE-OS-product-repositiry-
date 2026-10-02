@@ -25,7 +25,13 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 @router.get("/groups/{group_id}", response_model=TutorAnalytics)
 async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> TutorAnalytics:
     group = await db.get(Group, group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization check binds first and applies to admins too: an admin has
+    # wider reach inside their organization, not across organizations (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
 
     subject = await db.get(Subject, group.subject_id)
@@ -93,5 +99,6 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
     return TutorAnalytics(
         weak_students=weak_students[:10],
         weak_topics=weak_topics[:10],
+        topic_mean_count=len(detail.topic_means),
         agreement=agreement,
     )

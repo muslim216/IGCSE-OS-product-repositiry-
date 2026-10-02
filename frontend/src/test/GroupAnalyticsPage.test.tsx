@@ -3,11 +3,16 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import GroupAnalyticsPage from "../tutor/GroupAnalyticsPage";
-import type { TutorAnalytics } from "../api/readiness";
+import type { components } from "../api/schema";
+
+// The generated contract, not the hand-written copy in api/readiness.ts, so a
+// fixture missing a field the server sends fails to compile (FE-4).
+type TutorAnalytics = components["schemas"]["TutorAnalytics"];
 
 const BASE: TutorAnalytics = {
   weak_students: [],
   weak_topics: [],
+  topic_mean_count: 0,
   agreement: { total_marked_questions: 0, ai_agreed: 0, agreement_rate: null },
 };
 
@@ -38,6 +43,75 @@ function renderPage() {
 }
 
 afterEach(() => vi.unstubAllGlobals());
+
+const WEAK_TOPIC = {
+  topic_code: "1.3",
+  topic_title: "Atomic structure",
+  avg_score: 40,
+  student_count: 2,
+  includes_tutor_estimate: false,
+};
+const NO_WEAK_TOPIC = "No topic is at or below the weak threshold.";
+const NO_TOPIC_DATA = "Not enough confident topic data yet.";
+const SARA = { student_id: 1, student_name: "Sara", subject_name: "Chemistry", score: 88 };
+const CONFIDENCE_NOTE = "Class averages count medium- and high-confidence marks only.";
+const NO_STUDENT_SCORE =
+  "No student has a readiness score yet. Scores appear once their work is marked.";
+
+// Since 5.6 the list holds only topics at or below the tutor's threshold, so an
+// empty list with scored learners is a strong class, not a missing measurement
+// (PROD-2).
+test("a scored class with no weak topic is not reported as having no data", async () => {
+  stubFetch({ ...BASE, weak_students: [SARA], topic_mean_count: 4 });
+  renderPage();
+
+  expect(await screen.findByText(NO_WEAK_TOPIC)).toBeInTheDocument();
+  expect(screen.queryByText("No readiness data yet.")).not.toBeInTheDocument();
+  expect(screen.queryByText(NO_TOPIC_DATA)).not.toBeInTheDocument();
+  expect(screen.queryByText(CONFIDENCE_NOTE)).not.toBeInTheDocument();
+});
+
+// Scored learners but no medium/high-confidence topic mean: nothing was
+// compared against the threshold, so "no topic is weak" would be a claim the
+// data cannot support (PROD-2).
+test("a scored class with no confident topic mean does not claim no topic is weak", async () => {
+  stubFetch({ ...BASE, weak_students: [SARA], topic_mean_count: 0 });
+  renderPage();
+
+  expect(await screen.findByText(NO_TOPIC_DATA)).toBeInTheDocument();
+  expect(screen.queryByText(NO_WEAK_TOPIC)).not.toBeInTheDocument();
+  expect(screen.queryByText("No readiness data yet.")).not.toBeInTheDocument();
+});
+
+// Topic means can exist while no learner has an overall score; the topics
+// panel then reports on the topics, not on the missing overall scores.
+test("topic means with no scored learner still report that no topic is weak", async () => {
+  stubFetch({ ...BASE, topic_mean_count: 3 });
+  renderPage();
+
+  expect(await screen.findByText(NO_WEAK_TOPIC)).toBeInTheDocument();
+  // The students panel reports the missing scores; the topics panel does not.
+  expect(screen.getByText(NO_STUDENT_SCORE)).toBeInTheDocument();
+  expect(screen.queryByText("No readiness data yet.")).not.toBeInTheDocument();
+});
+
+test("a class with no scored learners says there is no readiness data yet", async () => {
+  stubFetch(BASE);
+  renderPage();
+
+  // Each panel says so in its own terms.
+  expect(await screen.findByText("No readiness data yet.")).toBeInTheDocument();
+  expect(screen.getByText(NO_STUDENT_SCORE)).toBeInTheDocument();
+  expect(screen.queryByText(NO_WEAK_TOPIC)).not.toBeInTheDocument();
+  expect(screen.queryByText(CONFIDENCE_NOTE)).not.toBeInTheDocument();
+});
+
+test("the weak-topic list says which marks the class average counts", async () => {
+  stubFetch({ ...BASE, weak_topics: [WEAK_TOPIC] });
+  renderPage();
+
+  expect(await screen.findByText(CONFIDENCE_NOTE)).toBeInTheDocument();
+});
 
 test("a weakest topic that leans on a tutor estimate is labelled", async () => {
   stubFetch({
@@ -76,23 +150,4 @@ test("a weakest topic from marked work alone carries no estimate label", async (
   // The code is still rendered — beside the title, in its own element.
   expect(screen.getByText("1.3")).toBeInTheDocument();
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
-});
-
-test("no weak topic beside scored students is not reported as 'no readiness data'", async () => {
-  // Students can carry readiness while the topic list is empty — no topic has
-  // enough confident, tagged work yet, or none is at or below the threshold —
-  // and saying "no readiness data" beside 58% and 62% contradicted the page.
-  // Nor does it claim nothing is weak: the API cannot tell those two apart.
-  stubFetch({
-    ...BASE,
-    weak_students: [
-      { student_id: 1, student_name: "Sara", subject_name: "Chemistry", score: 58 },
-      { student_id: 2, student_name: "Omar", subject_name: "Chemistry", score: 62 },
-    ],
-  });
-  renderPage();
-
-  expect(await screen.findByText("No weak topics to show yet.")).toBeInTheDocument();
-  expect(screen.queryByText(/No readiness data/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/stands out as weak/)).not.toBeInTheDocument();
 });

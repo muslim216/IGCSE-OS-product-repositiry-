@@ -111,9 +111,11 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
   const movement = movementSentence(subject.month_delta);
   const thin = thinEvidenceNote(subject.marked_piece_count);
   // Weak topics carry the WHY; what a score rests on comes from the topic rows,
-  // which is where it is recorded. A weak topic the engine flagged but that has
-  // no evidence behind it says so rather than showing a score as if it were
-  // measured, and one resting only on the tutor's estimate says that instead.
+  // which is where it is recorded. Since task 5.6 a weak topic is derived from
+  // a scored Topic Mastery row, so it always has one — but that row's evidence
+  // may be the tutor's estimate alone, and then it says so rather than counting
+  // the estimate as marked work. A topic with no row at all says it has no
+  // evidence instead of showing a score as if it were measured.
   const topicById = new Map(subject.topics.map((t) => [t.topic_id, t]));
   const anyEstimate =
     subject.topics.some((t) => t.tutor_estimate) ||
@@ -255,7 +257,7 @@ export default function ProgressPage() {
   const subjects = readiness.data.subjects;
   if (subjects.length === 0) {
     return (
-      <div className="max-w-3xl">
+      <div className="max-w-3xl space-y-6">
         <PageHeader title="Progress" description={PROGRESS_DESCRIPTION} />
         <SectionCard>
           <EmptyState
@@ -263,6 +265,9 @@ export default function ProgressPage() {
             hint="It builds up as your homework, past papers and mocks are marked."
           />
         </SectionCard>
+        {/* All-subject criteria need no class subject, and the parent's view
+            shows them regardless — the student must not see less. */}
+        <CustomCriteriaPanel studentId={readiness.data.student_id} />
       </div>
     );
   }

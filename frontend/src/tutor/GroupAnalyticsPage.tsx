@@ -120,33 +120,47 @@ export default function GroupAnalyticsPage() {
               ))}
             </ul>
           ) : (
-            /* Not "no readiness data": a class can have every learner scored
-               and still list no topic here. A topic is listed only when its
-               class average — from confident, topic-tagged marked work — is at
-               or below the weak-topic threshold. So an empty list is either
-               "no topic has enough such work yet" or "none is at or below the
-               threshold", and the API does not say which: the copy claims
-               neither, and the line under it names both conditions. */
+            /* The list holds only topics at or below the tutor's weak
+               threshold — a 0–100 score, 60 unless the tutor changed it
+               (task 5.6) — filtered from the class means, which count
+               medium/high-confidence marks only. So empty has three meanings,
+               and each claim must be one the data supports (PROD-2): means
+               exist and none is weak; learners are scored but no topic has a
+               mean, so nothing was compared; or there is nothing at all.
+               `topic_mean_count` is what tells the first two apart. */
             <div className="mt-3 text-sm text-ink-500">
-              {hasReadiness ? (
+              {a.topic_mean_count > 0 ? (
                 <>
-                  <p>No weak topics to show yet.</p>
+                  <p>No topic is at or below the weak threshold.</p>
                   <p className="mt-1">
-                    A topic shows here once there's enough marked work tagged to it and the class
-                    average is at or below your{" "}
+                    You set the threshold in{" "}
                     <Link
                       to="/tutor/preferences"
                       className="font-medium text-brand-600 hover:text-brand-700"
                     >
-                      weak-topic threshold
+                      Preferences
                     </Link>
                     .
                   </p>
                 </>
+              ) : hasReadiness ? (
+                <>
+                  <p>Not enough confident topic data yet.</p>
+                  <p className="mt-1">
+                    A topic's class average appears once marked work is tagged to it.
+                  </p>
+                </>
               ) : (
-                <p>Topic averages appear once marked work is tagged to syllabus topics.</p>
+                <p>No readiness data yet.</p>
               )}
             </div>
+          )}
+          {/* A student's own weak topics also count low-confidence marks, so
+              the two lists can differ. */}
+          {a.weak_topics.length > 0 && (
+            <p className="mt-2 text-xs text-ink-500">
+              Class averages count medium- and high-confidence marks only.
+            </p>
           )}
         </SectionCard>
       </div>

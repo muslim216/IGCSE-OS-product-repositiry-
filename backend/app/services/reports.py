@@ -16,9 +16,11 @@ from app.models import (
     ReportStatus,
     Subject,
     User,
+    UserRole,
 )
+from app.schemas.readiness import StudentReadinessSummary
 from app.services.ai import record_usage, text_complete
-from app.services.custom_criteria import criteria_for_student
+from app.services.custom_criteria import criteria_for_student, subject_names
 from app.services.knowledge import build_tutor_context
 from app.services.readiness_summary_v2 import build_summary_v2
 
@@ -43,9 +45,15 @@ AUDIENCE_GUIDANCE = {
 }
 
 
-async def build_report_facts(session: AsyncSession, student: User, subject_ids: list[int]) -> str:
+async def build_report_facts(
+    session: AsyncSession,
+    student: User,
+    subject_ids: list[int],
+    summary: StudentReadinessSummary | None = None,
+) -> str:
     """The factual block the report prompt writes from — the same numbers the
-    student's profile shows, because both read build_summary_v2."""
+    student's profile shows, because both read build_summary_v2. Pass the
+    `summary` already read by `report_summary()` to save reading it twice."""
     lines: list[str] = [f"Student: {student.name}"]
     codes: dict[int, str] = dict(
         tuple(row)
@@ -55,7 +63,8 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
             )
         ).all()
     )
-    summary = await build_summary_v2(session, student, subject_ids)
+    if summary is None:
+        summary = await build_summary_v2(session, student, subject_ids)
     for s in summary.subjects:
         lines.append(f"\n## {s.subject_name} ({s.exam_board} {codes.get(s.subject_id, '')})")
         if s.score is None:
@@ -109,35 +118,114 @@ async def build_report_facts(session: AsyncSession, student: User, subject_ids: 
                 f"Homework: submitted {s.homework_submitted_count} of "
                 f"{s.homework_assignment_count} assignments"
             )
+        # Marked work counts as something to report (`report_summary`), so the
+        # block has to say it: otherwise a student with marks and no readiness
+        # run is let through to a model told only "No readiness data yet".
+        if s.averaging_score is not None:
+            lines.append(
+                f"Average on marked work: {s.averaging_score}% "
+                f"(across {s.marked_piece_count} marked pieces)"
+            )
     return "\n".join(lines)
 
 
-async def _visible_subjects(
-    session: AsyncSession, student_id: int, subject_id: int | None
+class NothingToReport(ValueError):
+    """The student is in no class the report could draw on, or is in one with
+    nothing measured yet. The message is the tutor-facing sentence; the router
+    maps this to a 409 (`BE-1`)."""
+
+
+async def report_subjects(
+    session: AsyncSession, generator: User, student_id: int, subject_id: int | None
 ) -> list[int]:
+    """The subjects a report covers, or `NothingToReport`.
+
+    Only what the tutor who asked for it may see: classes in the generator's
+    organization, and for a tutor only the ones they teach. A student can sit
+    in a second organization's class, and an "all subjects" report used to
+    cover that one too (`SEC-8`).
+
+    This is close to `api/readiness.visible_subject_ids` but not the same rule,
+    and a job handler could not import that router anyway (`BE-1`). The admin
+    branches match. The tutor branch there filters by `Group.tutor_id` alone;
+    this one also requires the class to be in the generator's organization, so
+    it can only ever be the narrower of the two.
+
+    Report subjects come from class membership, which is narrower than CRM
+    enrolment: a tutor can ask for a subject the student is enrolled in but has
+    no class for. That used to yield an empty list, a facts block of just
+    "Student: X", and a model asked to write a report from nothing — which it
+    did, fluently. Never returns an empty list, so no caller can reach the
+    model without a subject to write about (`PROD-1`, `PROD-2`).
+    """
     enrolled = (
         await session.scalars(
             select(Group.subject_id)
             .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == student_id)
+            .where(
+                GroupMember.student_id == student_id,
+                Group.organization_id == generator.organization_id,
+                *([Group.tutor_id == generator.id] if generator.role == UserRole.tutor else []),
+            )
             .distinct()
         )
     ).all()
-    if subject_id is not None:
-        return [subject_id] if subject_id in enrolled else []
-    return list(enrolled)
+    subjects = list(enrolled) if subject_id is None else [s for s in enrolled if s == subject_id]
+    if not subjects:
+        raise NothingToReport(
+            "This student isn't in a class yet, so there is nothing to report."
+            if subject_id is None
+            else "This student isn't in a class for that subject yet, "
+            "so there is nothing to report."
+        )
+    return subjects
+
+
+async def report_summary(
+    session: AsyncSession, student: User, subject_ids: list[int]
+) -> StudentReadinessSummary:
+    """What the report will be written from, or `NothingToReport`.
+
+    A student in a class with no readiness score, no marked work and no homework
+    on record has a facts block of "No readiness data yet" — and the model wrote
+    a fluent report from that. Absent data is said to be absent (`PROD-2`), by
+    us and before the model is asked.
+    """
+    summary = await build_summary_v2(session, student, subject_ids)
+    if not any(
+        s.score is not None or s.averaging_score is not None or s.homework_assignment_count
+        for s in summary.subjects
+    ):
+        raise NothingToReport(
+            "Not enough data yet: this student has no readiness score, marked work or "
+            "homework to report on."
+        )
+    return summary
 
 
 def criteria_section(
-    rows: list[tuple[CustomCriterion, CustomCriterionScore | None]], subject_id: int | None
+    rows: list[tuple[CustomCriterion, CustomCriterionScore | None]],
+    subject_id: int | None,
+    subject_names: dict[int, str],
 ) -> str:
     """The tutor's hand scores as a fixed list for the end of a report (owner
     decision 19). Appended after the AI has written, never passed to it: the
     model must not blend a tutor's judgement into prose that reads as measured
     (decision 6). A bullet list, not a table, because the report `Markdown`
-    renderer draws lists and not tables. Unscored says so — never 0 (`PROD-2`)."""
+    renderer draws lists and not tables. Unscored says so — never 0 (`PROD-2`).
+
+    A subject-scoped criterion carries its subject's name, because two of them
+    may share a name; an account-wide one stays bare."""
+
+    def label(criterion: CustomCriterion) -> str:
+        subject = subject_names.get(criterion.subject_id) if criterion.subject_id else None
+        # A subject name is tutor-typed and lands in Markdown a parent reads as
+        # Avora's own, so it is held to one line exactly as a criterion name is
+        # (`schemas/custom_criteria._strip`) — a newline could forge a heading.
+        return f"{criterion.name} ({' '.join(subject.split())})" if subject else criterion.name
+
     lines = [
-        f"- {criterion.name}: "
+        f"- {label(criterion)}: "
         + ("Not scored" if score is None else f"{score.score} / 100 (tutor-entered)")
         for criterion, score in rows
         if subject_id is None or criterion.subject_id in (None, subject_id)
@@ -189,7 +277,9 @@ async def _write_report(
 async def generate_report(session: AsyncSession, payload: dict) -> None:
     report_id = payload["report_id"]
     report = await session.get(Report, report_id)
-    if report is None:
+    # Already written: delivery is at-least-once, and a re-run used to call the
+    # model again and overwrite a report someone may already have read (`BE-6`).
+    if report is None or report.status == ReportStatus.ready:
         return
     try:
         student = await session.get(User, report.student_id)
@@ -201,26 +291,50 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
             report.status = ReportStatus.failed
             report.error = "The student this report was for no longer exists"
             return
-        subject_ids = await _visible_subjects(session, report.student_id, report.subject_id)
-        facts = await build_report_facts(session, student, subject_ids)
         tutor = await session.get(User, report.generated_by_id)
-        kb_context = (
-            await build_tutor_context(session, tutor.id, report.subject_id)
-            if tutor is not None
-            else ""
-        )
+        if tutor is None:
+            # Whose classes and whose criteria the report covers is decided by
+            # who asked for it; with nobody to ask there is no safe scope.
+            report.status = ReportStatus.failed
+            report.error = "The tutor who asked for this report no longer exists"
+            return
+        try:
+            subject_ids = await report_subjects(
+                session, tutor, report.student_id, report.subject_id
+            )
+            summary = await report_summary(session, student, subject_ids)
+        except NothingToReport as exc:
+            # The router refuses this before queueing; reaching here means the
+            # student left the class, or the data went, in between. Failed with
+            # the reason and a plain return, not a raise: a retry in a minute
+            # asks the same question, and the model is never called on an
+            # empty facts block.
+            report.status = ReportStatus.failed
+            report.error = str(exc)
+            return
+        facts = await build_report_facts(session, student, subject_ids, summary)
+        kb_context = await build_tutor_context(session, tutor.id, report.subject_id)
         report.content = await _write_report(
             report.audience,
             facts,
             session,
-            organization_id=student.organization_id,
+            # The cost belongs to the organization that asked for the report —
+            # for a shared student that is not the student's home one.
+            organization_id=tutor.organization_id,
             tutor_id=report.generated_by_id,
             student_id=report.student_id,
             kb_context=kb_context,
         )
+        # The generating tutor's criteria, not the student's home
+        # organization's: for a student who also sits in a second
+        # organization's class those are two different lists (`SEC-7`).
+        rows = await criteria_for_student(session, tutor.organization_id, student.id)
         criteria = criteria_section(
-            await criteria_for_student(session, student.organization_id, student.id),
+            rows,
             report.subject_id,
+            await subject_names(
+                session, [criterion for criterion, _ in rows], tutor.organization_id
+            ),
         )
         if criteria:
             report.content = f"{report.content}\n\n{criteria}"

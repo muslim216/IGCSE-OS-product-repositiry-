@@ -212,8 +212,10 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
     show — never seed internals, and nothing a model would have had to infer."""
     subject = await session.get(Subject, subject_id)
     run_id = str(uuid.uuid4())
-    rows = await evaluate_subject_factors(session, student.id, subject_id, run_id, now)
     config = await resolve_readiness_config(session, student.organization_id, subject_id)
+    rows = await evaluate_subject_factors(
+        session, student.id, subject_id, run_id, now, half_life_days=config.half_life_days
+    )
     # Switched-off factors are left out exactly as synthesis leaves them out.
     counted = [row for row in rows if row.factor in config.enabled]
     reference = _weighted_reference_score(counted, config.weights)

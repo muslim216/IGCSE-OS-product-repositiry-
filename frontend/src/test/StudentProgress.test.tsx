@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
@@ -37,7 +37,7 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
   };
 }
 
-function stubFetch(subjects: SubjectReadiness[]) {
+function stubFetch(subjects: SubjectReadiness[], criteria: unknown[] = []) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -46,6 +46,7 @@ function stubFetch(subjects: SubjectReadiness[]) {
       if (url.includes("/readiness/me")) {
         return json({ student_id: 1, student_name: "Sara", subjects });
       }
+      if (url.includes("/custom-criteria")) return json(criteria);
       return json([]);
     }),
   );
@@ -117,20 +118,55 @@ test("no averaging grade means no sentence at all", () => {
   expect(gradeGap(subject({ averaging_grade: null, averaging_score: null }))).toBeNull();
 });
 
-test("a weak topic with no evidence behind it says so rather than showing a score", async () => {
+test("a weak topic shows its score with the evidence count from its topic row", async () => {
   stubFetch([
     subject({
       weak_topics: [
         { topic_id: 9, topic_code: "3.2", topic_title: "Rates", score: 41, tutor_estimate: false },
       ],
-      topics: [],
+      topics: [
+        {
+          topic_id: 9,
+          topic_code: "3.2",
+          topic_title: "Rates",
+          score: 41,
+          confidence: "medium",
+          evidence_count: 2,
+          tutor_estimate: false,
+        },
+      ],
     }),
   ]);
   renderProgress();
-  // The topic's name leads; its syllabus code is quiet secondary text.
-  expect(await screen.findByText("Rates")).toBeInTheDocument();
-  expect(screen.getByText("3.2")).toBeInTheDocument();
-  expect(screen.getAllByText("not enough data yet").length).toBeGreaterThan(0);
+  const why = (await screen.findByRole("heading", { name: "Why" })).parentElement!;
+  // The topic's name leads; its syllabus code is quiet secondary text. The
+  // count is of marked questions — the unit the topic row records.
+  expect(within(why).getByText("Rates")).toBeInTheDocument();
+  expect(within(why).getByText("3.2")).toBeInTheDocument();
+  expect(why.textContent).toContain("41% across 2 marked questions");
+});
+
+test("a student with no subjects still sees their all-subject tutor criteria", async () => {
+  // The parent's view has no early return, so the student must not see less
+  // than their parent does.
+  stubFetch(
+    [],
+    [
+      {
+        criterion_id: 2,
+        name: "Confidence",
+        description: null,
+        subject_id: null,
+        score: 70,
+        updated_at: "2026-09-20T10:00:00Z",
+        updated_by_id: 1,
+        source: "tutor",
+      },
+    ],
+  );
+  renderProgress();
+  expect(await screen.findByText("Confidence")).toBeInTheDocument();
+  expect(screen.getByText("No progress to show yet.")).toBeInTheDocument();
 });
 
 test("a weak topic resting on the tutor's estimate is labelled under Why", async () => {

@@ -104,6 +104,11 @@ export function ReportsPanel({
         )}
       </div>
 
+      {/* The API refuses with a plain sentence when there is nothing to report
+          (409), and friendlyError passes a 4xx sentence through. A mutation's
+          error resets on the next mutate(), so a retry clears this without any
+          state of our own. A student or parent, who cannot generate, is told
+          where reports come from in the header instead. */}
       {generate.isError && (
         <p role="alert" className="mt-3 text-sm text-risk-600">
           {friendlyError(generate.error, "The report couldn't be started. Try again.")}
