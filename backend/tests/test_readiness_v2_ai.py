@@ -424,9 +424,9 @@ async def test_compute_all_subjects_when_subject_id_omitted(client, tutor, world
 async def test_ai_score_is_clamped_when_it_contradicts_the_factors(
     client, tutor, world, monkeypatch, fake_ai
 ):
-    """The prompt tells the model the six factor scores are "not permitted
-    to contradict" — this proves that's enforced in code, not just requested
-    of the model. A wildly implausible score must not reach the tutor as-is."""
+    """The code clamps the model's score to the weighted factor reference —
+    the prompt is not what holds it there. This proves the clamp: a wildly
+    implausible score must not reach the tutor as-is."""
     async with async_session() as session:
         tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
         assessment = Assessment(
@@ -546,3 +546,55 @@ async def test_synthesis_without_boundaries_stores_no_predicted_grade(
     assert snapshot.score == 45.0
     # The score is real; the grade is absent, not "—".
     assert snapshot.predicted_grade is None
+
+
+async def test_synthesis_runs_layer_1_on_the_tutors_half_life(client, tutor, world):
+    """F1: the job resolves the subject's config before Layer 1 and hands its
+    half-life down. No model is reached (no key in tests) — the factor rows
+    are committed either way, and they are what this reads."""
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        session.add(
+            ReadinessWeights(
+                organization_id=tutor_user.organization_id,
+                subject_id=world["subject_id"],
+                tutor_id=tutor_user.id,
+                half_life_days=7.0,
+            )
+        )
+        for days_ago, marks in ((60, 4), (0, 18)):
+            assessment = Assessment(
+                tutor_id=tutor_user.id,
+                subject_id=world["subject_id"],
+                title=f"Mock {days_ago}",
+                type=AssessmentType.mock,
+                date=date.today() - timedelta(days=days_ago),
+            )
+            session.add(assessment)
+            await session.flush()
+            session.add(
+                AssessmentScore(
+                    assessment_id=assessment.id,
+                    student_id=world["student_id"],
+                    topic_id=world["topic1"],
+                    marks=marks,
+                    max_marks=20,
+                )
+            )
+        await session.commit()
+
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    async with async_session() as session:
+        row = (
+            await session.scalars(
+                select(FactorEvaluation).where(
+                    FactorEvaluation.student_id == world["student_id"],
+                    FactorEvaluation.factor == ReadinessFactor.assessment_performance,
+                )
+            )
+        ).one()
+    # 20% from 60 days ago, 90% today. At the default 45 days this is ~70.
+    assert row.score > 85.0

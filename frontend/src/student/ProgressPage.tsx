@@ -54,9 +54,8 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
   const gap = gradeGap(subject);
   const movement = movementSentence(subject.month_delta);
   // Weak topics carry the WHY; the evidence count comes from the topic rows,
-  // which is where it is recorded. A weak topic the engine flagged but that has
-  // no evidence behind it says so rather than showing a score as if it were
-  // measured.
+  // which is where it is recorded. Since task 5.6 a weak topic is derived from
+  // a scored Topic Mastery row, so it always has a topic row with evidence.
   const evidenceByTopic = new Map(subject.topics.map((t) => [t.topic_id, t.evidence_count]));
 
   return (
@@ -97,7 +96,7 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
           <h4 className="avora-label mb-1">Why</h4>
           <ul className="text-sm">
             {subject.weak_topics.map((t) => {
-              const count = evidenceByTopic.get(t.topic_id) ?? 0;
+              const count = evidenceByTopic.get(t.topic_id);
               return (
                 <li
                   key={t.topic_id}
@@ -110,9 +109,8 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
                     )}
                   </span>
                   <span className="tabular-nums text-ink-500">
-                    {count === 0
-                      ? ABSENT.noEvidence
-                      : `${Math.round(t.score)}% · ${count} ${count === 1 ? "piece" : "pieces"}`}
+                    {Math.round(t.score)}%
+                    {count !== undefined && ` · ${count} ${count === 1 ? "piece" : "pieces"}`}
                   </span>
                 </li>
               );
@@ -172,10 +170,15 @@ export default function ProgressPage() {
   const subjects = readiness.data.subjects;
   if (subjects.length === 0) {
     return (
-      <EmptyState
-        title="No progress to show yet."
-        hint="It builds up as your homework, past papers and mocks are marked."
-      />
+      <div className="space-y-8">
+        <EmptyState
+          title="No progress to show yet."
+          hint="It builds up as your homework, past papers and mocks are marked."
+        />
+        {/* All-subject criteria need no class subject, and the parent's view
+            shows them regardless — the student must not see less. */}
+        <CustomCriteriaPanel studentId={readiness.data.student_id} />
+      </div>
     );
   }
 

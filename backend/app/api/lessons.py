@@ -29,7 +29,13 @@ router = APIRouter(prefix="/lessons", tags=["lessons"])
 async def _owned_group(db: AsyncSession, user: User, group_id: int) -> Group:
     assert_tutor(user)
     group = await db.get(Group, group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization check binds first and applies to admins too: an admin has
+    # wider reach inside their organization, not across organizations (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     return group
 
@@ -40,7 +46,16 @@ async def _owned_lesson(db: AsyncSession, user: User, lesson_id: int) -> Lesson:
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")
     group = await db.get(Group, lesson.group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization check binds first and applies to admins too: an admin has
+    # wider reach inside their organization, not across organizations (`SEC-7`).
+    # The lesson's own organization is checked as well as its group's — two
+    # columns with no constraint tying them together.
+    if (
+        group is None
+        or lesson.organization_id != user.organization_id
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")
     return lesson
 
@@ -86,7 +101,11 @@ async def list_group_lessons(group_id: int, db: DbSession, user: CurrentUser) ->
     group = await _owned_group(db, user, group_id)
     lessons = (
         await db.scalars(
-            select(Lesson).where(Lesson.group_id == group.id).order_by(Lesson.date.desc())
+            select(Lesson)
+            # Same rule as `_owned_lesson`: the lesson's own organization, not
+            # only its group's (`SEC-7`).
+            .where(Lesson.group_id == group.id, Lesson.organization_id == user.organization_id)
+            .order_by(Lesson.date.desc())
         )
     ).all()
     return [await _lesson_out(db, lesson) for lesson in lessons]

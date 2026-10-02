@@ -33,12 +33,44 @@ router = APIRouter(prefix="/readiness", tags=["readiness"])
 
 
 async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -> list[int] | None:
-    """Return the subject ids the viewer may see for this student, or raise 403.
+    """Return the subject ids the viewer may see for this student, or raise 404
+    — never 403, which would confirm the student id exists (`API-7`).
 
     Students see their own subjects; parents see linked children's; tutors see
-    only the subjects they teach that student; admins see everything.
+    only the subjects they teach that student; admins see the subjects taught
+    inside their own organization.
     """
-    # Subjects the student is enrolled in (via group membership).
+    if viewer.role == UserRole.admin:
+        # An admin has wider reach inside their organization, not across
+        # organizations (`SEC-7`): the tutor branch below, widened from "groups
+        # I teach" to "groups in my organization". A student may also sit in a
+        # second organization's group, and that subject is not this admin's.
+        in_org = (
+            await db.scalars(
+                select(Group.subject_id)
+                .join(GroupMember, GroupMember.group_id == Group.id)
+                .where(
+                    GroupMember.student_id == student_id,
+                    Group.organization_id == viewer.organization_id,
+                )
+            )
+        ).all()
+        if not in_org:
+            # One of the admin's own students who is in no class yet still
+            # resolves (to nothing); anyone else — another organization's
+            # student, or a colleague's tutor or parent account — is a 404
+            # (`API-7`).
+            student = await db.get(User, student_id)
+            if (
+                student is None
+                or student.role != UserRole.student
+                or student.organization_id != viewer.organization_id
+            ):
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+        return list(set(in_org))
+
+    # Subjects the student is enrolled in (via group membership). Read after
+    # the admin branch, which scopes by organization and never uses it.
     enrolled = (
         await db.scalars(
             select(Group.subject_id)
@@ -48,11 +80,10 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
     ).all()
     enrolled_set = set(enrolled)
 
-    if viewer.role == UserRole.admin:
-        return list(enrolled_set)
     if viewer.role == UserRole.student:
         if viewer.id != student_id:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+            # 404, not 403: a 403 confirms a student with that id exists (`API-7`).
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
         return list(enrolled_set)
     if viewer.role == UserRole.parent:
         link = await db.scalar(
@@ -61,7 +92,7 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
             )
         )
         if link is None:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
         return list(enrolled_set)
     if viewer.role == UserRole.tutor:
         taught = (
@@ -75,7 +106,7 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
         if not taught_set:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
         return list(taught_set)
-    raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
 
 
 @router.get("/me", response_model=StudentReadinessSummary)

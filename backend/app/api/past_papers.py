@@ -87,7 +87,9 @@ async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
     if paper is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
     if user.role in (UserRole.tutor, UserRole.admin):
-        if paper.organization_id != user.organization_id and user.role != UserRole.admin:
+        # Admins included: wider reach inside their organization, not across
+        # organizations (`SEC-7`). This check used to be waived for them.
+        if paper.organization_id != user.organization_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
         return paper
     # Left nested rather than collapsed into one `and`: this is the
@@ -461,15 +463,11 @@ async def hide_past_paper(past_paper_id: int, db: DbSession, user: TutorUser) ->
     "when did this leave my shelf" has one answer.
     """
     paper = await _visible_paper(db, user, past_paper_id)
-    # `_visible_paper` lets an admin read any organization's paper — an older
-    # exemption eight read-only routes share. This one writes, so it does not
-    # inherit it: hiding another tenant's paper is a change to their shelf, and
-    # a mutation has no business being the first route to act on that
-    # exemption (`SEC-7`, `PROD-4`). The narrow check here rather than a change
-    # to the shared helper, which would alter eight routes this task never
-    # touched.
-    if paper.organization_id != user.organization_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
+    # `_visible_paper` already refuses another organization's paper, admins
+    # included. It once exempted them on its eight read routes and this route
+    # carried its own check, because hiding another tenant's paper is a change
+    # to their shelf (`SEC-7`, `PROD-4`); the exemption is gone, so the check
+    # lives in the helper alone.
     if paper.hidden_at is None:
         paper.hidden_at = utcnow()
         await db.commit()

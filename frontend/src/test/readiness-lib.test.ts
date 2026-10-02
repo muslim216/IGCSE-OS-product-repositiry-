@@ -19,6 +19,7 @@ function analytics(weak_students: TutorAnalytics["weak_students"]): TutorAnalyti
   return {
     weak_students,
     weak_topics: [],
+    topic_mean_count: 0,
     agreement: { total_marked_questions: 0, ai_agreed: 0, agreement_rate: null },
   };
 }

@@ -71,6 +71,15 @@ export function ReportsPanel({
         )}
       </div>
 
+      {/* The API refuses with a plain sentence when there is nothing to report
+          (409). A mutation's error resets on the next mutate(), so a retry
+          clears this without any state of our own. */}
+      {generate.isError && (
+        <p className="mt-2 text-right text-sm text-risk-600" role="alert">
+          {generate.error.message || "Could not generate this report."}
+        </p>
+      )}
+
       {!canGenerate && (
         <p className="mt-1 text-sm text-slate-500">
           Your tutor generates reports — new ones appear here.

@@ -41,6 +41,7 @@ from app.services.custom_criteria import (
     clear_score,
     criteria_for_student,
     set_score,
+    subject_names,
 )
 from app.services.invites import build_invite
 from app.services.mistake_rollup import roll_up_mistakes
@@ -50,17 +51,44 @@ router = APIRouter(prefix="/students", tags=["students"])
 log = logging.getLogger("api")
 
 
+async def _in_organization(db: AsyncSession, student: User, organization_id: int) -> bool:
+    """Homed in this organization, or a member of one of its classes — the rule
+    `api/readiness.visible_subject_ids` applies to an admin. A student can sit
+    in a second organization's class, so home organization alone gave an admin
+    less reach than a tutor beside them: the tutor opened the student, the
+    admin got a 404."""
+    if student.organization_id == organization_id:
+        return True
+    membership = await db.scalar(
+        select(GroupMember.id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(GroupMember.student_id == student.id, Group.organization_id == organization_id)
+        .limit(1)
+    )
+    return membership is not None
+
+
 async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> User:
     """Students see their own record; parents see linked children's; tutors
-    see only students they share a group with; admins see everyone."""
+    see only students they share a group with; admins see everyone homed in
+    their own organization or sitting in one of its classes.
+
+    Every refusal is a 404, never a 403: student ids are enumerable, and a 403
+    confirms that one exists (`API-7`, `SEC-9`)."""
+    not_found = HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     student = await db.get(User, student_id)
     if student is None or student.role != UserRole.student:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+        raise not_found
     if viewer.role == UserRole.admin:
+        # An admin has wider reach inside their organization, not across
+        # organizations (`SEC-7`). Without this the role alone was the whole
+        # check, and an admin in one tenant read another's students.
+        if not await _in_organization(db, student, viewer.organization_id):
+            raise not_found
         return student
     if viewer.role == UserRole.student:
         if viewer.id != student_id:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+            raise not_found
         return student
     if viewer.role == UserRole.parent:
         link = await db.scalar(
@@ -69,7 +97,7 @@ async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> 
             )
         )
         if link is None:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+            raise not_found
         return student
     if viewer.role == UserRole.tutor:
         shares_group = await db.scalar(
@@ -78,9 +106,9 @@ async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> 
             .where(GroupMember.student_id == student_id, Group.tutor_id == viewer.id)
         )
         if shares_group is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+            raise not_found
         return student
-    raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+    raise not_found
 
 
 async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User:
@@ -91,6 +119,10 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     if student is None or student.role != UserRole.student:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     if tutor.role == UserRole.admin:
+        # Inside the admin's own organization only (`SEC-7`) — this helper
+        # guards parent-code, which hands over a named child's whole record.
+        if not await _in_organization(db, student, tutor.organization_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
         return student
     shares_group = await db.scalar(
         select(GroupMember.id)
@@ -121,7 +153,7 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
     """The student's full academic record: profile, enrollments, readiness,
     homework history, tutor notes, and parent communications — one call."""
     student = await _viewable_student(db, user, student_id)
-    crm = await get_student_crm(db, student)
+    crm = await get_student_crm(db, student, user)
     tutor_ids = {n.tutor_id for n in crm.notes} | {c.tutor_id for c in crm.communications}
     tutor_names = {
         t.id: t.name
@@ -196,6 +228,15 @@ async def update_student_profile(
     if profile is None:
         profile = StudentProfile(student_id=student.id, organization_id=user.organization_id)
         db.add(profile)
+    elif profile.organization_id != user.organization_id:
+        # One profile row per student, and it belongs to the organization that
+        # wrote it. A tutor who teaches the student in a second organization
+        # cannot read it (services/student_crm.py) and must not overwrite it —
+        # that would replace another tenant's parent contact details (`SEC-7`).
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This student's profile is kept by another organization and can't be edited here.",
+        )
     profile.school = body.school
     profile.year_group = body.year_group
     profile.parent_name = body.parent_name
@@ -365,15 +406,26 @@ async def student_custom_criteria(
     student_id: int, db: DbSession, user: CurrentUser
 ) -> list[StudentCriterionScoreOut]:
     student = await _viewable_student(db, user, student_id)
-    # The student's organization, not the caller's: that is whose criteria
-    # apply, and for a tutor who teaches them it is the same one.
-    rows = await criteria_for_student(db, student.organization_id, student.id)
+    # A tutor or admin reads their own organization's criteria. It is not
+    # always the student's: a student can sit in a second organization's class,
+    # and that tutor passing the student's home organization here was shown the
+    # home organization's criteria and the scores on them (`SEC-7`). A student
+    # or parent has no organization of their own to read by, so they keep the
+    # student's.
+    organization_id = (
+        user.organization_id
+        if user.role in (UserRole.tutor, UserRole.admin)
+        else student.organization_id
+    )
+    rows = await criteria_for_student(db, organization_id, student.id)
+    names = await subject_names(db, [criterion for criterion, _ in rows], organization_id)
     return [
         StudentCriterionScoreOut(
             criterion_id=criterion.id,
             name=criterion.name,
             description=criterion.description,
             subject_id=criterion.subject_id,
+            subject_name=names.get(criterion.subject_id) if criterion.subject_id else None,
             score=None if score is None else score.score,
             updated_at=None if score is None else score.updated_at,
             updated_by_id=None if score is None else score.updated_by_id,
@@ -420,6 +472,11 @@ async def score_custom_criterion(
         name=criterion.name,
         description=criterion.description,
         subject_id=criterion.subject_id,
+        subject_name=(await subject_names(db, [criterion], user.organization_id)).get(
+            criterion.subject_id
+        )
+        if criterion.subject_id
+        else None,
         score=score.score,
         updated_at=score.updated_at,
         updated_by_id=score.updated_by_id,

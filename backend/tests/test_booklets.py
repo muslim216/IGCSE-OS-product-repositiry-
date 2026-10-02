@@ -730,8 +730,9 @@ async def test_an_admin_cannot_reach_out_of_their_own_organization(client, tutor
 
 
 async def test_an_admin_cannot_hide_another_organizations_paper(client, tutor, subject):  # noqa: F811
-    """Reading across tenants is an older exemption eight routes share; writing
-    across them is not, and this route writes."""
+    """An admin reaches inside their own organization only. Reading across
+    tenants was once an exemption eight routes shared and this route refused
+    alone; `_visible_paper` now refuses for all of them (`SEC-7`)."""
     from app.models import User, UserRole
 
     resp = await client.post(

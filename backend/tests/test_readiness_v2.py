@@ -1,7 +1,7 @@
 """Integration test for Readiness Engine v2's Layer 1 gathering
 (services/readiness_v2.evaluate_subject_factors): wires real DB rows through
 every factor's DB-facing query and checks the resulting FactorEvaluation
-rows, without touching the (still-live) v1 engine."""
+rows. (v1 was deleted in 5.3b; this is the only engine.)"""
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -1081,10 +1081,96 @@ async def test_the_v2_response_carries_chapters_in_teaching_order(
             "score": 40.0,  # topic2 has nothing and is left out, not averaged in as 0
             "confidence": "low",
             "evidence_count": 1,
-            "detail": {"topics_scored": 1, "topics_total": 2, "topics_with_estimate": 1},
+            "detail": {
+                "topics_scored": 1,
+                "topics_total": 2,
+                "topics_with_estimate": 1,
+                "half_life_days": 45.0,  # the default setting its topics decayed on
+            },
         },
     ]
     # Served as chapters, never as a subject-level Topic Mastery factor.
     assert all(
         f["topic_id"] is not None for f in subject["factors"] if f["factor"] == "topic_mastery"
     )
+
+
+async def test_the_half_life_setting_changes_the_factor_scores(client, tutor, world):
+    """F1: the tutor's half-life was stored, shown and recomputed on — and read
+    by nothing. Identical evidence, a stale 20% beside a fresh 90%: a 7-day
+    half-life all but forgets the stale result, a 90-day one still counts it."""
+    subject_id, student_id = world["subject_id"], world["student_id"]
+    async with async_session() as session:
+        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
+        for days_ago, marks in ((60, 4), (0, 18)):
+            assessment = Assessment(
+                tutor_id=tutor_user.id,
+                subject_id=subject_id,
+                title=f"Mock {days_ago}",
+                type=AssessmentType.mock,
+                date=NOW.date() - timedelta(days=days_ago),
+            )
+            session.add(assessment)
+            await session.flush()
+            session.add(
+                AssessmentScore(
+                    assessment_id=assessment.id,
+                    student_id=student_id,
+                    topic_id=world["topic1"],
+                    marks=marks,
+                    max_marks=20,
+                )
+            )
+        await session.commit()
+
+    scores = {}
+    async with async_session() as session:
+        for half_life in (7.0, 90.0):
+            rows = await evaluate_subject_factors(
+                session,
+                student_id,
+                subject_id,
+                f"run-{half_life}",
+                now=NOW,
+                half_life_days=half_life,
+            )
+            scores[half_life] = next(
+                r.score for r in rows if r.factor == ReadinessFactor.assessment_performance
+            )
+    assert scores[7.0] > 85.0 > scores[90.0]
+
+
+async def test_a_decaying_factor_row_records_the_half_life_it_was_scored_with(client, tutor, world):
+    """PROD-1: the half-life is the tutor's setting and can change, so a stored
+    score names the decay that produced it. A no-data row records nothing."""
+    resp = await client.post(
+        f"/api/v1/students/{world['student_id']}/seed-readiness",
+        json={"topics": [{"topic_id": world["topic1"], "score_pct": 40}]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201
+    bonding, moles = await _two_chapters(world)
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, world["student_id"], world["subject_id"], "run-hl", half_life_days=14.0
+        )
+        await session.commit()
+    by_topic = {r.topic_id: r for r in rows if r.factor == ReadinessFactor.topic_mastery}
+    assert by_topic[world["topic1"]].detail["half_life_days"] == 14.0
+    assert "half_life_days" not in by_topic[world["topic2"]].detail
+
+    # A chapter row is built from topic results that have already decayed, so
+    # its score rests on the same half-life and says so; an unscored one doesn't.
+    async with async_session() as session:
+        by_chapter = {
+            r.chapter_id: r
+            for r in await session.scalars(
+                select(FactorEvaluation).where(
+                    FactorEvaluation.evaluation_run_id == "run-hl",
+                    FactorEvaluation.chapter_id.is_not(None),
+                )
+            )
+        }
+    assert by_chapter[bonding].detail["half_life_days"] == 14.0
+    assert "half_life_days" not in by_chapter[moles].detail
+    assert NO_DATA.detail == {}

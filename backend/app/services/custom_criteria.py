@@ -16,6 +16,8 @@ Scoping errors are exceptions the router maps to status codes, because a
 service must not import the web layer (`BE-1`).
 """
 
+from collections.abc import Iterable
+
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +26,7 @@ from app.models import (
     CustomCriterionScore,
     CustomCriterionScoreAudit,
     StudentSubject,
+    Subject,
 )
 from app.models.base import utcnow
 
@@ -123,6 +126,30 @@ async def criteria_for_student(
         .order_by(CustomCriterion.id)
     )
     return [(criterion, score) for criterion, score in rows.all()]
+
+
+async def subject_names(
+    session: AsyncSession, criteria: Iterable[CustomCriterion], organization_id: int
+) -> dict[int, str]:
+    """The name of each subject these criteria are scoped to, by subject id.
+
+    Two subject-specific criteria may share a name — "Effort" for Chemistry and
+    for Physics — and are the same line twice unless each says which it is. An
+    account-wide criterion has no subject and so no entry.
+
+    Filtered by organization as well as by id: the criteria passed in should
+    already be one organization's, and this is what keeps another tenant's
+    subject name off the page if a caller ever gets that wrong (`SEC-7`).
+    """
+    ids = {c.subject_id for c in criteria if c.subject_id is not None}
+    if not ids:
+        return {}
+    rows = await session.execute(
+        select(Subject.id, Subject.name).where(
+            Subject.id.in_(ids), Subject.organization_id == organization_id
+        )
+    )
+    return dict(tuple(row) for row in rows.all())
 
 
 async def _scorable(

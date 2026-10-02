@@ -13385,6 +13385,17 @@
             ],
             "title": "Subject Id"
           },
+          "subject_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Name"
+          },
           "score": {
             "anyOf": [
               {
@@ -15192,6 +15203,10 @@
             "type": "array",
             "title": "Weak Topics"
           },
+          "topic_mean_count": {
+            "type": "integer",
+            "title": "Topic Mean Count"
+          },
           "agreement": {
             "$ref": "#/components/schemas/AgreementStats"
           }
@@ -15200,6 +15215,7 @@
         "required": [
           "weak_students",
           "weak_topics",
+          "topic_mean_count",
           "agreement"
         ],
         "title": "TutorAnalytics"

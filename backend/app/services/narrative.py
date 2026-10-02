@@ -34,19 +34,26 @@ from app.db import async_session
 from app.models import (
     AiFeature,
     Evidence,
+    FactorConfidence,
+    FactorEvaluation,
     Group,
     GroupMember,
     Job,
     JobStatus,
     Narrative,
     NarrativeAudience,
+    ReadinessFactor,
+    Subject,
     Topic,
     User,
     UserRole,
 )
 from app.schemas.readiness import SubjectReadiness
 from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.class_readiness import class_readiness, weak_topic_means
 from app.services.evidence import COUNTS_FOR_READINESS
+from app.services.grade_boundaries import boundaries_for, org_boundaries
+from app.services.grades import grade_band
 from app.services.knowledge import resolve_org_tutor_id
 from app.services.prompts import get_prompt
 from app.services.readiness_summary_v2 import build_summary_v2
@@ -137,54 +144,130 @@ def _estimate_note(s: SubjectReadiness) -> str:
 
 
 async def _class_grounding(session: AsyncSession, group: Group) -> str:
-    members = (
-        await session.scalars(
-            select(User)
-            .join(GroupMember, GroupMember.student_id == User.id)
-            .where(GroupMember.group_id == group.id)
-        )
-    ).all()
-    subject_name = ""
-    low: list[str] = []
-    on_track = 0
-    estimated = 0
-    weak_topic_counts: dict[str, int] = {}
-    estimated_topics: set[str] = set()
-    for member in members:
-        summary = await build_summary_v2(session, member, [group.subject_id])
-        if not summary.subjects:
-            continue
-        s = summary.subjects[0]
-        subject_name = s.subject_name
-        if _estimate_note(s):
-            estimated += 1
-        if s.status == "on_track":
-            on_track += 1
-        elif s.status is not None:
-            score = f"{round(s.score)}%" if s.score is not None else "not enough data yet"
-            low.append(f"- {member.name}: {score} ({s.status}){_estimate_note(s)}")
-        for wt in s.weak_topics:
-            name = f"{wt.topic_code} {wt.topic_title}"
-            weak_topic_counts[name] = weak_topic_counts.get(name, 0) + 1
-            if wt.tutor_estimate:
-                estimated_topics.add(name)
-    weak_topics = sorted(weak_topic_counts.items(), key=lambda kv: -kv[1])[:5]
-    weak_topics_text = "\n".join(
-        f"- {name}{ESTIMATE_LABEL if name in estimated_topics else ''} (weak for {n} learners)"
-        for name, n in weak_topics
+    """What the class paragraph is grounded in — the **shared** class
+    aggregation (services/class_readiness.py), the one the class brief, Group
+    Analytics and the class page read.
+
+    It used to loop build_summary_v2 per learner and count how many learners
+    each topic was weak *for*, low-confidence rows included. That was ~10
+    queries per learner on the event loop the API shares (PERF-1), and a second
+    definition of "weak": the stored paragraph and the brief could name
+    different topics for one class. Now every read below is one query whatever
+    the roster, and the topics are weak_topic_means() — class means at
+    medium/high confidence, at or below the tutor's threshold.
+    """
+    subject = await session.get(Subject, group.subject_id)
+    boundaries = boundaries_for(await org_boundaries(session, group.organization_id), subject)
+    detail = await class_readiness(session, group.id)
+
+    # Whose score rests on a tutor's estimate — build_summary_v2's own rule
+    # (a scored Topic Mastery row carrying `tutor_estimate`), read for every
+    # scored learner's latest run at once. class_readiness() only keeps the
+    # flag per *topic mean*, and only at medium/high confidence; a seed
+    # estimate alone scores at `low`, so without this read the commonest
+    # estimate-backed score would reach the model as marked evidence (PROD-8).
+    # Skipped when nobody is scored: there are no runs to look in, and an empty
+    # IN () is a round trip on the shared event loop for nothing (PERF-1).
+    run_ids = [s.evaluation_run_id for s in detail.scored]
+    estimated = (
+        {
+            student_id
+            for student_id, row_detail in (
+                await session.execute(
+                    select(FactorEvaluation.student_id, FactorEvaluation.detail).where(
+                        FactorEvaluation.evaluation_run_id.in_(run_ids),
+                        FactorEvaluation.factor == ReadinessFactor.topic_mastery,
+                        FactorEvaluation.topic_id.is_not(None),
+                        FactorEvaluation.score.is_not(None),
+                        FactorEvaluation.confidence != FactorConfidence.no_data,
+                    )
+                )
+            ).all()
+            if "tutor_estimate" in (row_detail or {})
+        }
+        if run_ids
+        else set()
     )
-    return (
-        "AUDIENCE: tutor\n"
-        f"Class: {group.name} ({subject_name})\n"
-        f"Learners on track: {on_track} of {len(members)}\n"
-        + (
-            f"Learners whose readiness includes the tutor's starting estimate: {estimated}\n"
-            if estimated
-            else ""
+
+    low: list[str] = []
+    unbanded: list[str] = []
+    on_track = 0
+    # Scored learners only, lowest first. An unscored learner has no status to
+    # report: they are counted as "not enough data yet" below and never listed
+    # here as a fabricated 0% (PROD-2).
+    for s in detail.scored:
+        if s.score is None:  # never, for `scored` — narrows the type
+            continue
+        line = f"- {s.student_name}: {round(s.score)}%"
+        note = ESTIMATE_LABEL if s.student_id in estimated else ""
+        # The snapshot's own grade, banded only while boundaries still stand
+        # behind it — the rule the learner's profile and the class page apply.
+        band = grade_band(s.predicted_grade if boundaries else None, boundaries)
+        if band == "on_track":
+            on_track += 1
+        elif band is not None:
+            low.append(f"{line} ({band}){note}")
+        else:
+            # No band is not "not on track". The score is real, so it still
+            # reaches the model — with no status attached to it (PROD-2).
+            unbanded.append(line + note)
+
+    # Every count below is out of the learners it can actually be true of. Out
+    # of the roster, "on track: 1 of 6" told the model five learners were off
+    # track when five had no data; with no boundaries it said "0 of 1" and
+    # "lower readiness: (none)" about a learner on 92% (PROD-2).
+    scored_count = len(detail.scored)
+    banded_count = scored_count - len(unbanded)
+    counts = [
+        f"Learners with a readiness score: {scored_count} of {scored_count + len(detail.unscored)}"
+    ]
+    if not boundaries:
+        counts.append("No grade boundaries set — on-track status is not available.")
+    elif banded_count:
+        counts.append(f"On track: {on_track} of {banded_count}")
+    if detail.unscored:
+        counts.append(f"Not enough data yet: {len(detail.unscored)}")
+    if estimated:
+        counts.append(
+            f"Learners whose readiness includes the tutor's starting estimate: {len(estimated)}"
         )
-        + "\n"
-        f"Weakest topics across the class:\n{weak_topics_text or '(none flagged)'}\n\n"
-        f"Learners with lower readiness:\n" + ("\n".join(low) or "(none)")
+
+    learner_sections: list[str] = []
+    if boundaries:
+        if low or banded_count:
+            nobody_low = "(none)"
+        elif scored_count:
+            nobody_low = "(no learner has an on-track status yet)"
+        else:
+            nobody_low = "(no learner has a readiness score yet)"
+        learner_sections.append("Learners with lower readiness:\n" + ("\n".join(low) or nobody_low))
+    if unbanded:
+        heading = (
+            "Scored, but no on-track status (no grade under the current boundaries):"
+            if boundaries
+            else "Learner readiness scores:"
+        )
+        learner_sections.append(heading + "\n" + "\n".join(unbanded))
+
+    # Same line the class brief writes (api/groups.py), so the two paragraphs
+    # about one class are grounded in the same words.
+    weak_topics_text = "\n".join(
+        f"- {t.topic_title} ({t.topic_code}): avg {t.avg_score}% across {t.student_count} learners"
+        + (ESTIMATE_LABEL if t.includes_tutor_estimate else "")
+        for t in (await weak_topic_means(session, group, detail))[:5]
+    )
+    # "None flagged" is a finding — every class mean is above the threshold. No
+    # confident topic row at all is the absence of one, and says so (PROD-2).
+    no_weak_topics = (
+        "(none flagged)" if detail.topic_means else "(not enough confident topic data yet)"
+    )
+    return "\n\n".join(
+        [
+            f"AUDIENCE: tutor\nClass: {group.name} ({subject.name if subject else ''})\n"
+            + "\n".join(counts),
+            f"Weakest topics across the class:\n{weak_topics_text or no_weak_topics}",
+            *learner_sections,
+        ]
     )
 
 

@@ -97,7 +97,10 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
     with the parent the check then reads.
     """
     if user.role == UserRole.admin:
-        return True
+        # Wider reach inside their organization, not across organizations
+        # (`SEC-7`). The parent row carries the organization for every kind, so
+        # the admin arm needs no branch of its own.
+        return bool(submission.work.organization_id == user.organization_id)
     if user.role != UserRole.tutor:
         return False
     # The kind and the parent both come off `work_id`, so an authorization
@@ -455,7 +458,10 @@ async def list_submissions(
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     group = await db.get(Group, assignment.group_id)
-    if group.tutor_id != user.id and user.role != UserRole.admin:
+    # The organization binds first, admins included (`SEC-7`).
+    if group.organization_id != user.organization_id or (
+        group.tutor_id != user.id and user.role != UserRole.admin
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     total_max = (
         await db.scalar(

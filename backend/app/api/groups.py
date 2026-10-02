@@ -39,7 +39,13 @@ router = APIRouter(prefix="/groups", tags=["groups"])
 async def _owned_group(db, user: User, group_id: int) -> Group:
     assert_tutor(user)
     group = await db.get(Group, group_id, options=[selectinload(Group.subject)])
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization check binds first and applies to admins too: an admin has
+    # wider reach inside their organization, not across organizations (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     return group
 

@@ -9,7 +9,15 @@ alone and let those rows through)."""
 from datetime import datetime, timezone
 
 from app.db import async_session
-from app.models import Assignment, QuestionMark, Submission, SubmissionStatus
+from app.models import (
+    Assignment,
+    FactorConfidence,
+    QuestionMark,
+    Submission,
+    SubmissionStatus,
+)
+from tests.factories import write_v2_snapshot
+from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
 
 async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(
@@ -65,3 +73,59 @@ async def test_auto_finalized_questions_in_a_finalized_submission_are_excluded(
     assert agreement["total_marked_questions"] == 1
     assert agreement["ai_agreed"] == 0
     assert agreement["agreement_rate"] == 0.0
+
+
+# ---- topic_mean_count: how many topics the weak-topic filter was run over ----
+#
+# `weak_topics` is the class means at or below the threshold, so an empty list
+# is ambiguous on its own: nothing weak, or nothing compared. The count is what
+# lets the page say which (PROD-2).
+
+
+async def _topic_snapshot(world, topics) -> None:  # noqa: F811
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=55.0,
+            topics=topics,
+        )
+        await session.commit()
+
+
+async def _analytics(client, tutor, world) -> dict:  # noqa: F811
+    resp = await client.get(
+        f"/api/v1/analytics/groups/{world['group']['id']}", headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_topic_mean_count_is_zero_with_no_evidence(client, tutor, world):  # noqa: F811
+    body = await _analytics(client, tutor, world)
+    assert body["weak_topics"] == []
+    assert body["topic_mean_count"] == 0
+
+
+async def test_topic_mean_count_counts_every_class_mean_not_only_weak_ones(client, tutor, world):  # noqa: F811
+    await _topic_snapshot(
+        world,
+        {
+            world["topic1"]: (70.0, FactorConfidence.high),
+            world["topic2"]: (50.0, FactorConfidence.high),
+        },
+    )
+    body = await _analytics(client, tutor, world)
+    assert len(body["weak_topics"]) == 1
+    assert body["topic_mean_count"] == 2
+
+
+async def test_low_confidence_topics_are_not_counted_as_compared(client, tutor, world):  # noqa: F811
+    """A scored learner whose only topic rows are low-confidence has no class
+    mean: the empty weak list means nothing was compared, not nothing is weak."""
+    await _topic_snapshot(world, {world["topic1"]: (30.0, FactorConfidence.low)})
+    body = await _analytics(client, tutor, world)
+    assert len(body["weak_students"]) == 1
+    assert body["weak_topics"] == []
+    assert body["topic_mean_count"] == 0

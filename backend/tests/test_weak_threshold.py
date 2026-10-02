@@ -313,7 +313,7 @@ async def test_class_views_show_only_topics_under_the_subject_threshold(client, 
 def test_the_model_is_no_longer_asked_for_weak_topics():
     assert "weak_topics" not in ReadinessSynthesis.model_json_schema()["properties"]
     assert "weak_topics" not in PROMPTS["readiness"].system
-    assert PROMPTS["readiness"].version == "v4"
+    assert PROMPTS["readiness"].version == "v5"
 
 
 async def test_synthesis_stores_no_weak_topics(client, tutor, world, monkeypatch, fake_ai):  # noqa: F811
