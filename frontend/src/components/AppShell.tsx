@@ -30,7 +30,7 @@ function SidebarLink({ item }: { item: NavItem }) {
       to={item.to}
       end
       className={({ isActive }) =>
-        `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
+        `avora-press flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
           isActive
             ? "bg-brand-600 font-medium text-canvas"
             : "text-ink-500 hover:bg-surface hover:text-ink-900"
@@ -52,7 +52,7 @@ function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => voi
       end
       onClick={onNavigate}
       className={({ isActive }) =>
-        `flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition ${
+        `flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium avora-press transition ${
           isActive ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
         }`
       }

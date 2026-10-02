@@ -163,7 +163,7 @@ export function ReportsPanel({
       </div>
 
       {openId !== null && (
-        <div className="mt-4 rounded-lg border border-line bg-canvas p-4">
+        <div className="avora-enter mt-4 rounded-lg border border-line bg-canvas p-4">
           {opened.isPending ? (
             <SectionSkeleton rows={4} label="Loading the report" />
           ) : opened.isError ? (

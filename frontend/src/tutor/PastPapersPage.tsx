@@ -15,7 +15,7 @@ import { listSubjects } from "../api/groups";
 import { AuthFileLink } from "../components/AuthFile";
 import { Button, Field, FileInput, Input, Select } from "../components/controls";
 import { ConfirmDialog, ErrorState, PageHeader, SectionSkeleton } from "../components/page";
-import { EmptyState, Modal, SectionCard, SectionHeader } from "../components/ui";
+import { EmptyState, Modal, Reveal, SectionCard, SectionHeader } from "../components/ui";
 import { friendlyError } from "../lib/errors";
 import { formatDuration } from "../lib/schedule";
 
@@ -91,9 +91,9 @@ function PaperQuestions({ paperId, name }: { paperId: number; name: string }) {
             and the paper's, since every read paper has this button. */}
         Questions and topics<span className="sr-only"> for {name}</span>
       </button>
-      {open && (
-        <div id={panelId} className="mt-2">
-          {detail.isPending ? (
+      <Reveal open={open} id={panelId} className="pt-2">
+        {open &&
+          (detail.isPending ? (
             <SectionSkeleton rows={2} label="Loading the questions" />
           ) : detail.isError ? (
             <ErrorState
@@ -121,9 +121,8 @@ function PaperQuestions({ paperId, name }: { paperId: number; name: string }) {
                 ))}
               </ol>
             </>
-          )}
-        </div>
-      )}
+          ))}
+      </Reveal>
     </div>
   );
 }

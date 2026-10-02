@@ -16,6 +16,7 @@
   --color-canvas: #faf7f2; /* Parchment — body, canvas */
   --color-surface: #fdf9f4; /* Cream — cards, panels, modals (paper on paper) */
   --color-surface-muted: #f0ebe1; /* Linen — raised rows, hovers, skeletons */
+  --color-surface-pressed: #e8e0d3; /* a flat control held down — one step past linen */
 
   /* Text on parchment, strongest first — the espresso family */
   --color-ink-900: #2c1a0e; /* Espresso — headings, primary text */
@@ -92,6 +93,58 @@
     sans-serif;
   --font-display:
     "Lora Variable", "Iowan Old Style", "Palatino Linotype", palatino, georgia, ui-serif, serif;
+
+  /* What every `transition-colors` / `transition` utility in the app runs at.
+     Set here so the ~40 existing uses pick up the Crisp colour timing without
+     any of them being edited. */
+  --default-transition-duration: 100ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ---------------------------------------------------------------------
+   Motion tokens — the "Crisp" feel the owner chose in the Avora Motion Lab.
+
+   Every moving thing in the app reads these and nothing else, so the feel is
+   changed here and nowhere else. Three rules hold whatever the values are:
+   something only moves because the reader did something, nothing makes them
+   wait for an animation, and a device asking for reduced motion gets colour
+   changes only (see the end of this file).
+
+   `--dur-exit` is mirrored by EXIT_MS in lib/motion.ts — change the two
+   together.
+   --------------------------------------------------------------------- */
+:root {
+  --dur-color: 100ms;
+  --ease-color: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Hover: rise to meet the pointer. */
+  --lift: -1px;
+  --card-lift: -3px;
+  --btn-shadow-hover: 0 5px 12px -4px rgba(44, 26, 14, 0.3);
+  --card-shadow-hover: 0 14px 26px -12px rgba(44, 26, 14, 0.28);
+  --nudge: 3px;
+
+  /* Press: sink fast, settle back with a small spring. */
+  --press: 0.97;
+  --card-press: 0.985;
+  --press-y: 1px;
+  --dur-press: 60ms;
+  --dur-release: 280ms;
+  --ease-release: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Things that travel (tab indicator, chevrons) and things that change
+     height (expand / collapse). */
+  --dur-move: 300ms;
+  --ease-move: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-std: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Arriving and leaving. */
+  --dur-enter: 240ms;
+  --ease-enter: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --enter-y: 6px;
+  --enter-scale: 0.97;
+  --stagger: 40ms;
+  --dur-exit: 140ms;
 }
 
 /* ---------------------------------------------------------------------
@@ -510,15 +563,514 @@ h3 {
   padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
 }
 
-/* Respect prefers-reduced-motion: suppress non-essential transitions and any
-   animation that moves across the viewport (WCAG 2.3.3 / UX-17). */
+/* ---------------------------------------------------------------------
+   Motion — how the app answers the hand.
+
+   Unlayered, like the retarget block (UX-1), so these win over Tailwind's
+   layered utilities without !important. Two media queries carry the rules the
+   owner set:
+
+   - `(hover: hover)` — hover effects exist only where there is a pointer that
+     can hover. On a touch screen `:hover` sticks after a tap, which would
+     leave a card lifted until something else is touched.
+   - `(prefers-reduced-motion: no-preference)` — everything that moves is
+     inside it. Colour changes sit outside, because they are all a
+     reduced-motion device gets.
+   --------------------------------------------------------------------- */
+
+/* Buttons — `avora-btn` is put on by buttonClasses() in components/controls.tsx,
+   so every <Button> and every link dressed as one has it. */
+.avora-btn {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-color) var(--ease-color),
+    color var(--dur-color) var(--ease-color),
+    border-color var(--dur-color) var(--ease-color),
+    opacity var(--dur-color) var(--ease-color),
+    box-shadow var(--dur-release) var(--ease-release),
+    transform var(--dur-release) var(--ease-release);
+}
+.avora-btn-flat:not(:disabled):active {
+  background-color: var(--color-surface-pressed);
+}
+
+/* Cards. `avora-card` is SectionCard; the other two signatures are the cards
+   pages still write out by hand, matched by their classes the same way the
+   retarget block matches `.rounded-lg.border.bg-white` — so every card moves
+   alike without each page being edited. Dialogs and popovers share the
+   signature and are excluded: they are positioned, and a card is not. So is a
+   bordered list — its rows answer the pointer one at a time, and lifting the
+   whole list under every one of them would be the list answering for them. */
+:is(
+  .avora-card,
+  .rounded-xl.border.bg-surface,
+  .rounded-lg.border.bg-surface,
+  .rounded-lg.border.bg-white
+):not([role="dialog"], .fixed, .absolute, ul, ol) {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--dur-color) var(--ease-color),
+    border-color var(--dur-color) var(--ease-color),
+    box-shadow var(--dur-release) var(--ease-release),
+    transform var(--dur-release) var(--ease-release);
+}
+
+/* List rows. Two signatures, both written out by pages: an item of a
+   `divide-y` list, and an item carrying its own top hairline. A row warms to
+   linen under the pointer. Rows of a flat list have no side padding, so the
+   fill would stop hard against the text; there it bleeds 12px either side as
+   a shadow, which costs no layout. A list that is itself a card, or is pulled
+   out to a card's edges with a negative margin, already has the padding — and
+   a bleed there would spill over the card's border. */
+:is(ul, ol).divide-y > li,
+:is(ul, ol) > li.border-t.border-line {
+  transition:
+    background-color var(--dur-color) var(--ease-color),
+    box-shadow var(--dur-color) var(--ease-color);
+}
+
+/* In a list that is itself a rounded box, the first and last rows take its
+   corners (less the 1px border), or their hover fill would square them off. */
+:is(ul, ol).rounded-xl.border > li:first-child {
+  border-top-left-radius: calc(0.75rem - 1px);
+  border-top-right-radius: calc(0.75rem - 1px);
+}
+:is(ul, ol).rounded-xl.border > li:last-child {
+  border-bottom-left-radius: calc(0.75rem - 1px);
+  border-bottom-right-radius: calc(0.75rem - 1px);
+}
+
+/* A row's chevron answers the row. lucide-react stamps `lucide-chevron-right`
+   on the icon, so every row that ends in one gets this with no class of its
+   own. */
+.lucide-chevron-right {
+  transition:
+    translate var(--dur-release) var(--ease-release),
+    color var(--dur-color) var(--ease-color);
+}
+.lucide-chevron-down {
+  transition: rotate var(--dur-move) var(--ease-move);
+}
+[aria-expanded="true"] > .lucide-chevron-down {
+  rotate: 180deg;
+}
+
+/* Text fields. The focus indicator here is the component's own (UX-10 allows
+   one): the 1px edge plus a 1px ring make the same 2px terracotta line the
+   global outline draws, with a soft halo outside it, and unlike an outline it
+   can ease in. The outline is kept but transparent — forced-colours mode drops
+   box-shadow and paints a transparent outline in the system colour, so the
+   field is still marked there. */
+:is(input, select, textarea).avora-control {
+  transition:
+    border-color var(--dur-color) var(--ease-color),
+    background-color var(--dur-color) var(--ease-color),
+    box-shadow var(--dur-color) var(--ease-color);
+}
+:is(input, select, textarea).avora-control:focus-visible {
+  outline-color: transparent;
+  box-shadow:
+    0 0 0 1px var(--color-brand-600),
+    0 0 0 4px var(--color-brand-100);
+}
+
+/* Loading placeholders shimmer rather than pulse: a pulse reads as the page
+   breathing, a shimmer as work passing through. Still linen underneath, so
+   with the animation off it is the same flat block as before. */
+.avora-skeleton {
+  background-color: var(--color-surface-muted);
+}
+
+/* The class tabs' sliding fill (GroupLayout). Sized and placed from the active
+   tab's measured box; `data-ready` holds the transition back until it has been
+   placed once, so it does not fly in from the corner on first paint. */
+.avora-tab-indicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  border-radius: 999px;
+  background-color: var(--color-brand-600);
+  pointer-events: none;
+}
+
+/* A panel that folds open and shut (Reveal in components/ui.tsx). The row
+   track does the height; the middle element only exists to be clipped. */
+.avora-reveal {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.avora-reveal > div {
+  min-height: 0;
+}
+.avora-reveal[data-closing],
+.avora-overlay[data-closing],
+.avora-toast[data-closing] {
+  /* Leaving things are already gone as far as the reader is concerned: a click
+     goes to what is underneath, not to something fading out. */
+  pointer-events: none;
+}
+
+details > summary {
+  cursor: pointer;
+}
+
+@keyframes avora-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--enter-y)) scale(var(--enter-scale));
+  }
+}
+@keyframes avora-exit {
+  to {
+    opacity: 0;
+    transform: translateY(var(--enter-y)) scale(var(--enter-scale));
+  }
+}
+@keyframes avora-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes avora-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes avora-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--enter-y) * -1));
+  }
+}
+@keyframes avora-unfold {
+  from {
+    grid-template-rows: 0fr;
+  }
+}
+@keyframes avora-fold {
+  to {
+    grid-template-rows: 0fr;
+  }
+}
+/* Clips top and bottom only while a fold is running. A permanent
+   `overflow: hidden` would also cut off the focus ring of any field inside the
+   open panel. */
+@keyframes avora-clip {
+  from,
+  to {
+    clip-path: inset(0 -1rem);
+  }
+}
+@keyframes avora-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Arriving. `backwards` covers the stagger delay and then lets go: a fill
+     that held the end state would leave a transform on the element for good,
+     and with it a stacking context that traps any menu inside. Animations run
+     on mount only, so a background refetch — which re-renders without
+     remounting — never replays them. */
+  .avora-enter,
+  :is(
+    .avora-card,
+    .rounded-xl.border.bg-surface,
+    .rounded-lg.border.bg-surface,
+    .rounded-lg.border.bg-white
+  ):not([role="dialog"], .fixed, .absolute, ul, ol),
+  :is(ul, ol).divide-y > li,
+  :is(ul, ol) > li.border-t.border-line {
+    animation: avora-enter var(--dur-enter) var(--ease-enter) backwards;
+  }
+  /* Siblings arrive one after another, capped at the eighth so a forty-row
+     list settles in about half a second rather than two. The long-hand has to
+     outrank the `animation` shorthands above, which reset the delay to zero. */
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(2):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 1);
+  }
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(3):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 2);
+  }
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(4):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 3);
+  }
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(5):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 4);
+  }
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(6):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 5);
+  }
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(7):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 6);
+  }
+  :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white,
+      :is(ul, ol).divide-y > li,
+      :is(ul, ol) > li.border-t.border-line
+    ):nth-child(n + 8):not([role="dialog"], .fixed, .absolute, ul, ol) {
+    animation-delay: calc(var(--stagger) * 7);
+  }
+  /* A region that is being re-shown rather than arrived at — the class header
+     when only the tab under it changed — holds still. Named selectors rather
+     than `*`, which would also stop a spinner inside it. */
+  .avora-still.avora-still
+    :is(
+      .avora-enter,
+      .avora-card,
+      .rounded-xl.border,
+      .rounded-lg.border,
+      .divide-y > li,
+      li.border-t
+    ) {
+    animation: none;
+  }
+
+  /* Dialogs and toasts. */
+  .avora-overlay > .avora-backdrop {
+    animation: avora-fade-in var(--dur-enter) ease-out backwards;
+  }
+  .avora-overlay > [role="dialog"] {
+    animation: avora-enter var(--dur-enter) var(--ease-enter) backwards;
+  }
+  .avora-overlay[data-closing] > .avora-backdrop {
+    animation: avora-fade-out var(--dur-exit) ease-in forwards;
+  }
+  .avora-overlay[data-closing] > [role="dialog"] {
+    animation: avora-exit var(--dur-exit) ease-in forwards;
+  }
+  .avora-toast {
+    animation: avora-enter var(--dur-enter) var(--ease-enter) backwards;
+  }
+  .avora-toast[data-closing] {
+    animation: avora-exit var(--dur-exit) ease-in forwards;
+  }
+
+  /* Expand and collapse. */
+  .avora-reveal {
+    animation: avora-unfold var(--dur-move) var(--ease-std);
+  }
+  .avora-reveal > div {
+    animation:
+      avora-clip var(--dur-move),
+      avora-drop-in var(--dur-move) var(--ease-std);
+  }
+  .avora-reveal[data-closing] {
+    animation: avora-fold var(--dur-exit) ease-in forwards;
+  }
+  .avora-reveal[data-closing] > div {
+    animation:
+      avora-clip var(--dur-exit) forwards,
+      avora-fade-out var(--dur-exit) ease-in forwards;
+  }
+  details[open] > :not(summary) {
+    animation: avora-drop-in var(--dur-move) var(--ease-std);
+  }
+  /* Native <details> can fold its own height where the browser can interpolate
+     to `auto`; elsewhere it opens at once and the content still drops in. */
+  @supports (interpolate-size: allow-keywords) {
+    details {
+      interpolate-size: allow-keywords;
+    }
+    details::details-content {
+      height: 0;
+      overflow-y: clip;
+      transition:
+        height var(--dur-move) var(--ease-std),
+        content-visibility var(--dur-move) allow-discrete;
+    }
+    details[open]::details-content {
+      height: auto;
+    }
+  }
+
+  .avora-tab-indicator[data-ready] {
+    transition:
+      transform var(--dur-move) var(--ease-move),
+      width var(--dur-move) var(--ease-move),
+      height var(--dur-move) var(--ease-std);
+  }
+
+  .avora-skeleton {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-surface-muted) 30%,
+      #f8f3eb 50%,
+      var(--color-surface-muted) 70%
+    );
+    background-size: 300% 100%;
+    animation: avora-shimmer 1.3s ease-in-out infinite;
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .avora-btn:not(:disabled):hover {
+    transform: translateY(var(--lift));
+  }
+  .avora-btn:not(:disabled, .avora-btn-flat):hover {
+    box-shadow: var(--btn-shadow-hover);
+  }
+  :is(
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white
+    ):not([role="dialog"], .fixed, .absolute, ul, ol):hover {
+    transform: translateY(var(--card-lift));
+    box-shadow: var(--card-shadow-hover);
+  }
+  /* Inside a scrolling pane a lifted card would rise past the pane's clip
+     edge and lose its top, so there it keeps the shadow and stays put. */
+  [class*="overflow-y-auto"]
+    :is(
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white
+    ):not([role="dialog"], .fixed, .absolute, ul, ol):hover {
+    transform: none;
+  }
+  :is(a, button):hover .lucide-chevron-right {
+    translate: var(--nudge) 0;
+  }
+}
+
+@media (hover: hover) {
+  /* Colour, so it stays under reduced motion. */
+  /* The secondary button had no hover of its own beyond its edge. */
+  .avora-btn.avora-control:not(:disabled):hover {
+    border-color: var(--color-brand-700);
+  }
+  /* A row that already carries a fill is saying something with it — a status
+     tint — and keeps it. */
+  :is(ul, ol).divide-y > li:not([class*="bg-"]):hover,
+  :is(ul, ol) > li.border-t.border-line:not([class*="bg-"]):hover {
+    background-color: var(--color-surface-muted);
+  }
+  :is(ul, ol):not(.border, [class*="-mx-"], .overflow-y-auto)
+    > li:is(.border-t.border-line, .divide-y > *):not([class*="bg-"]):hover {
+    box-shadow:
+      -0.75rem 0 0 var(--color-surface-muted),
+      0.75rem 0 0 var(--color-surface-muted);
+  }
+  :is(a, button):is(
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white
+    ):hover {
+    border-color: var(--color-brand-600);
+  }
+  :is(a, button):hover .lucide-chevron-right {
+    color: var(--color-brand-600);
+  }
+}
+
+/* Press — touch and mouse alike. Declared after the hover rules on purpose: a
+   pressed button is also a hovered one, the two selectors weigh the same, and
+   the later rule wins — written the other way round, the lift held and the
+   press never showed. */
+@media (prefers-reduced-motion: no-preference) {
+  .avora-btn:not(:disabled):active,
+  .avora-press:active {
+    transform: translateY(var(--press-y)) scale(var(--press));
+    box-shadow: none;
+    transition-duration: var(--dur-press);
+    transition-timing-function: ease-out;
+  }
+  .avora-press {
+    transition:
+      background-color var(--dur-color) var(--ease-color),
+      color var(--dur-color) var(--ease-color),
+      transform var(--dur-release) var(--ease-release);
+  }
+  /* Only a card that is itself the link or the button sinks. A panel that
+     merely contains a button must not squash when that button is pressed. */
+  :is(a, button):is(
+      .avora-card,
+      .rounded-xl.border.bg-surface,
+      .rounded-lg.border.bg-surface,
+      .rounded-lg.border.bg-white
+    ):not([role="dialog"], .fixed, .absolute, ul, ol):active {
+    transform: scale(var(--card-press));
+    transition-duration: var(--dur-press);
+    transition-timing-function: ease-out;
+  }
+}
+
+/* Respect prefers-reduced-motion (WCAG 2.3.3 / UX-17): colour changes only.
+   Everything above that moves is already inside a `no-preference` query; this
+   is the backstop for whatever is not — a Tailwind `animate-*` or a
+   `transition-transform` written on a page. Animations are cut to nothing, and
+   transitions are narrowed to the properties that are colour, so a hover still
+   eases from one colour to the next but nothing travels. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    transition-property:
+      color, background-color, border-color, outline-color, text-decoration-color, fill, stroke,
+      opacity, box-shadow !important;
     scroll-behavior: auto !important;
   }
 }
