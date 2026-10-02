@@ -70,6 +70,11 @@ function renderSetting() {
 
 afterEach(() => vi.unstubAllGlobals());
 
+/** A macrotask, so a mutation's whole promise chain has run before a "nothing
+    was sent" assertion. One microtask is not enough: mutate() reaches fetch
+    several hops later, and the assertion would pass whatever the component did. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 test("creates a criterion for one subject", async () => {
   const calls = stub();
   renderSetting();
@@ -162,7 +167,7 @@ test("Enter on a blank name saves nothing", async () => {
   const name = within(row).getByRole("textbox", { name: /^name/i });
   fireEvent.change(name, { target: { value: "   " } });
   fireEvent.submit(name.closest("form")!);
-  await Promise.resolve();
+  await settle();
   expect(calls.some((c) => c.method === "PATCH")).toBe(false);
 });
 
@@ -236,4 +241,27 @@ test("Add waits for the subjects to load", async () => {
   expect(add.disabled).toBe(true);
   await screen.findByRole("option", { name: /chemistry/i });
   expect(add.disabled).toBe(false);
+});
+
+test("Enter before the subjects load adds nothing", async () => {
+  const calls = stub();
+  renderSetting();
+  const name = screen.getByRole("textbox", { name: /new criterion name/i });
+  fireEvent.change(name, { target: { value: "Practicals" } });
+  // Enter submits whether or not the button is disabled.
+  fireEvent.submit(name.closest("form")!);
+  await screen.findByRole("option", { name: /chemistry/i });
+  await settle();
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
+});
+
+test("Enter when the subjects failed to load adds nothing", async () => {
+  const calls = stub({ subjectsFail: true });
+  renderSetting();
+  await screen.findByRole("alert");
+  const name = screen.getByRole("textbox", { name: /new criterion name/i });
+  fireEvent.change(name, { target: { value: "Practicals" } });
+  fireEvent.submit(name.closest("form")!);
+  await settle();
+  expect(calls.some((c) => c.method === "POST")).toBe(false);
 });

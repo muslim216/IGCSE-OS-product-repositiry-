@@ -140,11 +140,16 @@ async def report_subjects(
 ) -> list[int]:
     """The subjects a report covers, or `NothingToReport`.
 
-    Only what the tutor who asked for it may see — `api/readiness.
-    visible_subject_ids` restated here, because a job handler cannot import a
-    router (`BE-1`): classes in the generator's organization, and for a tutor
-    only the ones they teach. A student can sit in a second organization's
-    class, and an "all subjects" report used to cover that one too (`SEC-8`).
+    Only what the tutor who asked for it may see: classes in the generator's
+    organization, and for a tutor only the ones they teach. A student can sit
+    in a second organization's class, and an "all subjects" report used to
+    cover that one too (`SEC-8`).
+
+    This is close to `api/readiness.visible_subject_ids` but not the same rule,
+    and a job handler could not import that router anyway (`BE-1`). The admin
+    branches match. The tutor branch there filters by `Group.tutor_id` alone;
+    this one also requires the class to be in the generator's organization, so
+    it can only ever be the narrower of the two.
 
     Report subjects come from class membership, which is narrower than CRM
     enrolment: a tutor can ask for a subject the student is enrolled in but has

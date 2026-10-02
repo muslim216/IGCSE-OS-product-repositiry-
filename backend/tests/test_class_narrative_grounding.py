@@ -152,7 +152,7 @@ async def test_status_lines_come_from_each_learners_own_snapshot_grade(client, t
     lower = text.split("Learners with lower readiness:\n")[1]
     assert lower == "- Low: 35% (at_risk)\n- Mid: 58% (needs_attention)"
     assert "Ghost" not in text and "Blank" not in text
-    assert "0%" not in text.replace("40.0%", "")
+    assert "0%" not in text
 
 
 async def test_a_fully_scored_class_has_no_not_enough_data_line(client, tutor):
@@ -178,7 +178,7 @@ async def test_a_scored_learner_with_no_band_is_not_counted_as_off_track(client,
     text = await _grounding(world)
 
     assert "Learners with a readiness score: 2 of 2\nOn track: 1 of 1\n" in text
-    assert "Scored, but no on-track status (grade not in the current boundaries):" in text
+    assert "Scored, but no on-track status (no grade under the current boundaries):" in text
     assert text.endswith("- Stale: 92%")
     assert "Learners with lower readiness:\n(none)\n" in text
 

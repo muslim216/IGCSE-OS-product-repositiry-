@@ -519,6 +519,9 @@ async def evaluate_subject_factors(
             ReadinessFactor.topic_mastery,
             chapter_mastery(results_by_chapter.get(chapter_id, [])),
             chapter_id=chapter_id,
+            # Rolled up from topic results that have already decayed, so the
+            # chapter's score rests on the same half-life (PROD-1).
+            half_life_days=half_life_days,
         )
         for chapter_id in chapter_ids
     ]

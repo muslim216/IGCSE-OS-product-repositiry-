@@ -195,7 +195,9 @@ test("Enter on an invalid or unchanged score saves nothing", async () => {
   fireEvent.submit(input.closest("form")!); // unchanged: still 70
   fireEvent.change(input, { target: { value: "101" } });
   fireEvent.submit(input.closest("form")!);
-  await Promise.resolve();
+  // A macrotask: mutate() reaches fetch several microtasks later, so a single
+  // `await Promise.resolve()` would pass whether or not a PUT was on its way.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(calls.some((c) => c.method === "PUT")).toBe(false);
 });
 

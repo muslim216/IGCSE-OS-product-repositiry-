@@ -97,9 +97,11 @@ async def already_pending(session, pairs: list[tuple[int, int]]) -> set[tuple[in
     enrolled in (`compute_readiness_v2`'s own contract) — not just the one
     pair it happens to share a payload shape with — so it must count as
     covering every pair for that student, not just a (student_id, None) pair
-    that would never itself appear in `pairs`. That is exact, not an
-    approximation: `pairs` comes from `enrolled_pairs()`, which selects by the
-    same enrolment the wildcard handler recomputes.
+    that would never itself appear in `pairs`. That is close, not exact:
+    `pairs` comes from `enrolled_pairs()`, which selects by the same enrolment
+    rule the wildcard handler uses — but `pairs` is a snapshot from when this
+    script started, and the handler reads enrolment when it executes, so a
+    membership change in between can make the two differ.
 
     **Known race:** the check here and the later `enqueue_readiness_v2_debounced`
     insert are not one atomic transaction, so two runners started at the same

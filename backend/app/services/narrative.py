@@ -243,7 +243,7 @@ async def _class_grounding(session: AsyncSession, group: Group) -> str:
         learner_sections.append("Learners with lower readiness:\n" + ("\n".join(low) or nobody_low))
     if unbanded:
         heading = (
-            "Scored, but no on-track status (grade not in the current boundaries):"
+            "Scored, but no on-track status (no grade under the current boundaries):"
             if boundaries
             else "Learner readiness scores:"
         )

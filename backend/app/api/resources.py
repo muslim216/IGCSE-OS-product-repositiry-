@@ -133,16 +133,16 @@ async def delete_resource(resource_id: int, db: DbSession, user: CurrentUser) ->
     resource = await db.get(GroupResource, resource_id)
     if resource is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    if resource.tutor_id != user.id:
-        # Only an admin may delete a colleague's resource, and only inside
-        # their own organization (`SEC-7`) — which is the group's, since the
-        # resource row carries none.
-        group = await db.get(Group, resource.group_id)
-        if (
-            user.role != UserRole.admin
-            or group is None
-            or group.organization_id != user.organization_id
-        ):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    # The organization binds first, for the owner as much as for an admin
+    # (`SEC-7`) — and it is the group's, since the resource row carries none.
+    # Being named in `tutor_id` is not that check. Past it, only an admin may
+    # delete a colleague's resource.
+    group = await db.get(Group, resource.group_id)
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (resource.tutor_id != user.id and user.role != UserRole.admin)
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await db.delete(resource)
     await db.commit()

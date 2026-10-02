@@ -40,16 +40,6 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
     only the subjects they teach that student; admins see the subjects taught
     inside their own organization.
     """
-    # Subjects the student is enrolled in (via group membership).
-    enrolled = (
-        await db.scalars(
-            select(Group.subject_id)
-            .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == student_id)
-        )
-    ).all()
-    enrolled_set = set(enrolled)
-
     if viewer.role == UserRole.admin:
         # An admin has wider reach inside their organization, not across
         # organizations (`SEC-7`): the tutor branch below, widened from "groups
@@ -67,11 +57,29 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
         ).all()
         if not in_org:
             # One of the admin's own students who is in no class yet still
-            # resolves (to nothing); anyone else's is a 404 (`API-7`).
+            # resolves (to nothing); anyone else — another organization's
+            # student, or a colleague's tutor or parent account — is a 404
+            # (`API-7`).
             student = await db.get(User, student_id)
-            if student is None or student.organization_id != viewer.organization_id:
+            if (
+                student is None
+                or student.role != UserRole.student
+                or student.organization_id != viewer.organization_id
+            ):
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
         return list(set(in_org))
+
+    # Subjects the student is enrolled in (via group membership). Read after
+    # the admin branch, which scopes by organization and never uses it.
+    enrolled = (
+        await db.scalars(
+            select(Group.subject_id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(GroupMember.student_id == student_id)
+        )
+    ).all()
+    enrolled_set = set(enrolled)
+
     if viewer.role == UserRole.student:
         if viewer.id != student_id:
             # 404, not 403: a 403 confirms a student with that id exists (`API-7`).

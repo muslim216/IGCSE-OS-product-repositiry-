@@ -113,6 +113,29 @@ async def test_admin_cannot_reach_another_organizations_lessons(
         assert resp.status_code == 404, (path, resp.text)
 
 
+async def test_a_lesson_filed_under_another_organization_is_not_reachable_through_its_group(
+    client, tutor, group, lesson_id
+):
+    """`lessons.organization_id` and the group's are two columns with nothing
+    tying them together. The lesson's own must match the caller's too
+    (`SEC-7`), or a row filed under another tenant is served by its group."""
+    async with async_session() as session:
+        org = Organization(name="Org B")
+        session.add(org)
+        await session.flush()
+        stray = Lesson(organization_id=org.id, group_id=group["id"], date=date(2026, 9, 2))
+        session.add(stray)
+        await session.commit()
+        stray_id = stray.id
+
+    headers = tutor["headers"]
+    resp = await client.get(f"/api/v1/lessons/{stray_id}", headers=headers)
+    assert resp.status_code == 404, resp.text
+    assert (await client.delete(f"/api/v1/lessons/{stray_id}", headers=headers)).status_code == 404
+    resp = await client.get(f"/api/v1/lessons/group/{group['id']}", headers=headers)
+    assert [lesson["id"] for lesson in resp.json()] == [lesson_id]
+
+
 async def test_same_organization_admin_keeps_their_reach(
     client, student, group, lesson_id, home_org_id
 ):

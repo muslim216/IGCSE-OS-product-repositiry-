@@ -1081,7 +1081,12 @@ async def test_the_v2_response_carries_chapters_in_teaching_order(
             "score": 40.0,  # topic2 has nothing and is left out, not averaged in as 0
             "confidence": "low",
             "evidence_count": 1,
-            "detail": {"topics_scored": 1, "topics_total": 2, "topics_with_estimate": 1},
+            "detail": {
+                "topics_scored": 1,
+                "topics_total": 2,
+                "topics_with_estimate": 1,
+                "half_life_days": 45.0,  # the default setting its topics decayed on
+            },
         },
     ]
     # Served as chapters, never as a subject-level Topic Mastery factor.
@@ -1144,11 +1149,28 @@ async def test_a_decaying_factor_row_records_the_half_life_it_was_scored_with(cl
         headers=tutor["headers"],
     )
     assert resp.status_code == 201
+    bonding, moles = await _two_chapters(world)
     async with async_session() as session:
         rows = await evaluate_subject_factors(
             session, world["student_id"], world["subject_id"], "run-hl", half_life_days=14.0
         )
+        await session.commit()
     by_topic = {r.topic_id: r for r in rows if r.factor == ReadinessFactor.topic_mastery}
     assert by_topic[world["topic1"]].detail["half_life_days"] == 14.0
     assert "half_life_days" not in by_topic[world["topic2"]].detail
+
+    # A chapter row is built from topic results that have already decayed, so
+    # its score rests on the same half-life and says so; an unscored one doesn't.
+    async with async_session() as session:
+        by_chapter = {
+            r.chapter_id: r
+            for r in await session.scalars(
+                select(FactorEvaluation).where(
+                    FactorEvaluation.evaluation_run_id == "run-hl",
+                    FactorEvaluation.chapter_id.is_not(None),
+                )
+            )
+        }
+    assert by_chapter[bonding].detail["half_life_days"] == 14.0
+    assert "half_life_days" not in by_chapter[moles].detail
     assert NO_DATA.detail == {}

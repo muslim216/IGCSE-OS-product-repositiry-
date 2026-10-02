@@ -9,22 +9,26 @@ proving the admin branch was narrowed rather than removed.
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
 
 from app.api.knowledge import _owned_entry
 from app.db import async_session
 from app.models import (
     Assignment,
     AssignmentStatus,
+    Group,
     GroupResource,
     KnowledgeEntry,
     KnowledgeEntryKind,
+    Organization,
+    ResourceKind,
     Submission,
     SyllabusUpload,
     User,
     UserRole,
 )
+from app.security import decode_token, hash_password
 from tests.conftest import PDF_BYTES
+from tests.factories import make_subject
 from tests.test_admin_org_scope import _admin_headers, foreign_admin, home_org_id  # noqa: F401
 
 API = "/api/v1"
@@ -106,10 +110,12 @@ async def entry_id(tutor, home_org_id) -> int:  # noqa: F811
         return entry.id
 
 
-async def _admin_user(headers: dict) -> int:
-    """The id of the admin `_admin_headers` just made (the only admin there is)."""
-    async with async_session() as session:
-        return (await session.scalars(select(User.id).where(User.role == UserRole.admin))).one()
+def _admin_user(headers: dict) -> int:
+    """The id of the admin these headers authenticate — read from the token, so
+    a second admin in the database cannot make it the wrong one."""
+    decoded = decode_token(headers["Authorization"].removeprefix("Bearer "), "access")
+    assert decoded is not None
+    return decoded[0]
 
 
 # --- one negative per router -------------------------------------------------
@@ -233,7 +239,7 @@ async def test_classifieds_refuse_another_organizations_admin(client, classified
 async def test_knowledge_refuses_another_organizations_admin(entry_id, foreign_admin):  # noqa: F811
     """The router is unmounted (0.5), so the helper is called directly."""
     async with async_session() as session:
-        admin = await session.get(User, await _admin_user(foreign_admin))
+        admin = await session.get(User, _admin_user(foreign_admin))
         with pytest.raises(HTTPException) as refused:
             await _owned_entry(session, admin, entry_id)
     assert refused.value.status_code == 404
@@ -268,6 +274,63 @@ async def test_resources_refuse_another_organizations_admin(
     assert resp.status_code == 404, resp.text
     async with async_session() as session:
         assert await session.get(GroupResource, resource_id) is not None
+
+
+async def test_a_tutor_cannot_delete_their_own_resource_in_another_organizations_group(
+    client, tutor
+):
+    """Being named on the row is not the organization check (`SEC-7`): the
+    resource row carries no organization, so its group's binds — for the owner
+    too, not only for an admin."""
+    async with async_session() as session:
+        org = Organization(name="Org B")
+        session.add(org)
+        await session.flush()
+        teacher = User(
+            email="teacher-b@example.com",
+            password_hash=hash_password("password123"),
+            role=UserRole.tutor,
+            name="Teacher B",
+            organization_id=org.id,
+        )
+        session.add(teacher)
+        subject = await make_subject(session, organization_id=org.id, code="4PH1", name="Physics")
+        await session.flush()
+        foreign_group = Group(
+            organization_id=org.id, tutor_id=teacher.id, subject_id=subject.id, name="Phys"
+        )
+        session.add(foreign_group)
+        await session.flush()
+        resource = GroupResource(
+            group_id=foreign_group.id,
+            tutor_id=tutor["user"]["id"],
+            kind=ResourceKind.recording,
+            title="Theirs",
+            url="https://example.com/x",
+        )
+        session.add(resource)
+        await session.commit()
+        resource_id = resource.id
+
+    resp = await client.delete(f"{API}/resources/{resource_id}", headers=tutor["headers"])
+    assert resp.status_code == 404, resp.text
+    async with async_session() as session:
+        assert await session.get(GroupResource, resource_id) is not None
+
+
+async def test_an_admin_asking_for_a_colleagues_readiness_gets_404(client, tutor, home_org_id):  # noqa: F811
+    """The admin's "homed in my organization" fallback is for students in no
+    class yet. A tutor's id is in the organization too, and is not a student:
+    a 200 with nothing in it would confirm the account exists (`API-7`)."""
+    headers = await _admin_headers(home_org_id)
+    tutor_id = tutor["user"]["id"]
+    for path in (
+        f"{API}/readiness/students/{tutor_id}",
+        f"{API}/readiness/students/{tutor_id}/trend",
+        f"{API}/reports?student_id={tutor_id}",
+    ):
+        resp = await client.get(path, headers=headers)
+        assert resp.status_code == 404, (path, resp.text)
 
 
 # --- list endpoints: only the admin's own organization's rows ----------------
@@ -346,7 +409,7 @@ async def test_same_organization_admin_keeps_their_reach(
         assert resp.status_code == 200, (path, resp.text)
 
     async with async_session() as session:
-        admin = await session.get(User, await _admin_user(headers))
+        admin = await session.get(User, _admin_user(headers))
         assert (await _owned_entry(session, admin, entry_id)).id == entry_id
 
     resp = await client.delete(f"{API}/resources/{resource_id}", headers=headers)

@@ -54,9 +54,13 @@ export default function CustomCriteriaSetting() {
       await refresh();
     },
   });
+  // Not before the subjects are in: until then the only scope on offer is
+  // "All subjects", and a criterion's scope is permanent. Checked in submit as
+  // well as on the button, because Enter submits whether or not Add is disabled.
+  const canAdd = name.trim() !== "" && !create.isPending && subjects.isSuccess;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (name.trim()) create.mutate();
+    if (canAdd) create.mutate();
   };
 
   return (
@@ -99,9 +103,7 @@ export default function CustomCriteriaSetting() {
         </select>
         <button
           type="submit"
-          // Not before the subjects are in: until then the only scope on offer
-          // is "All subjects", and a criterion's scope is permanent.
-          disabled={!name.trim() || create.isPending || !subjects.isSuccess}
+          disabled={!canAdd}
           className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
         >
           Add criterion

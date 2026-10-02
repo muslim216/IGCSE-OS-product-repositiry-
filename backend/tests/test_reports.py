@@ -460,7 +460,9 @@ async def test_a_report_whose_data_vanished_fails_with_the_reason_and_no_model_c
     )
     assert resp.status_code == 201, resp.text
     async with async_session() as session:
-        await session.execute(delete(ReadinessSnapshot))
+        await session.execute(
+            delete(ReadinessSnapshot).where(ReadinessSnapshot.student_id == world["student_id"])
+        )
         await session.commit()
 
     assert await process_one_job() is True
@@ -605,3 +607,90 @@ async def test_a_report_lists_the_generating_tutors_criteria_not_the_home_organi
         for event in events:
             asker = await session.get(User, event.tutor_id)
             assert event.organization_id == asker.organization_id
+
+
+# ---- Reading a report another organization generated (SEC-7, API-7) ----
+#
+# A report is written from the generating tutor's classes and criteria, so
+# sharing the student is not enough to read it: the reader must be staff of the
+# organization that asked for it.
+
+
+async def test_a_tutor_cannot_read_a_report_another_organization_generated(
+    client, tutor, world, monkeypatch
+):
+    """QA-12: the rival really does teach this student — the report is not theirs."""
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
+    rival = await _rival_physics_class(client, world["student_id"])
+    ours = await _generate(client, tutor, world)
+    theirs = await _generate(client, rival, world)
+    listing_url = f"/api/v1/reports?student_id={world['student_id']}"
+
+    listing = await client.get(listing_url, headers=rival["headers"])
+    assert listing.status_code == 200, listing.text
+    assert [r["id"] for r in listing.json()] == [theirs["id"]]
+    detail = await client.get(f"/api/v1/reports/{ours['id']}", headers=rival["headers"])
+    assert detail.status_code == 404, detail.text
+
+    # The organization that generated it still reads it, and only its own.
+    listing = await client.get(listing_url, headers=tutor["headers"])
+    assert [r["id"] for r in listing.json()] == [ours["id"]]
+    detail = await client.get(f"/api/v1/reports/{ours['id']}", headers=tutor["headers"])
+    assert detail.status_code == 200, detail.text
+    assert (
+        await client.get(f"/api/v1/reports/{theirs['id']}", headers=tutor["headers"])
+    ).status_code == 404
+
+
+async def test_an_admin_cannot_read_a_report_another_organization_generated(
+    client, tutor, world, monkeypatch
+):
+    from sqlalchemy import select
+
+    from app.models import User, UserRole
+
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
+    rival = await _rival_physics_class(client, world["student_id"])
+    ours = await _generate(client, tutor, world)
+    # The rival tutor's token, with the account promoted: role is read per request.
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.email == "rival@example.com"))
+        user.role = UserRole.admin
+        await session.commit()
+
+    listing = await client.get(
+        f"/api/v1/reports?student_id={world['student_id']}", headers=rival["headers"]
+    )
+    assert listing.status_code == 200, listing.text
+    assert listing.json() == []
+    detail = await client.get(f"/api/v1/reports/{ours['id']}", headers=rival["headers"])
+    assert detail.status_code == 404, detail.text
+
+
+async def test_students_and_parents_read_their_reports_whichever_organization_wrote_them(
+    client, tutor, world, monkeypatch
+):
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
+    rival = await _rival_physics_class(client, world["student_id"])
+    login = await client.post(
+        "/api/v1/auth/login", json={"identifier": "sara", "password": "password123"}
+    )
+    student = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+    listing_url = f"/api/v1/reports?student_id={world['student_id']}"
+
+    for_student = [
+        (await _generate(client, author, world, audience="student"))["id"]
+        for author in (tutor, rival)
+    ]
+    for_parent = [(await _generate(client, author, world))["id"] for author in (tutor, rival)]
+
+    listing = await client.get(listing_url, headers=student)
+    assert sorted(r["id"] for r in listing.json()) == for_student
+    listing = await client.get(listing_url, headers=world["parent_headers"])
+    assert sorted(r["id"] for r in listing.json()) == for_parent
+    for report_id, headers in [
+        *((i, student) for i in for_student),
+        *((i, world["parent_headers"]) for i in for_parent),
+    ]:
+        detail = await client.get(f"/api/v1/reports/{report_id}", headers=headers)
+        assert detail.status_code == 200, detail.text

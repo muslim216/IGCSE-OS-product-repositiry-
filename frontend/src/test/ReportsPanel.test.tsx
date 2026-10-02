@@ -22,18 +22,21 @@ const REPORT = {
   error: null,
 };
 
-/** Each POST consumes the next queued outcome; GETs return an empty list or the report. */
+/** Each POST consumes the next queued outcome. A successful one is kept, so
+    the `/reports` list returns it afterwards, as the API does. */
 function stub(posts: ("conflict" | "ok")[]) {
+  const generated: (typeof REPORT)[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = new URL(String(input), "http://localhost").pathname;
       if ((init?.method ?? "GET").toUpperCase() === "POST") {
-        return posts.shift() === "conflict"
-          ? new Response(JSON.stringify({ detail: NOTHING }), { status: 409 })
-          : new Response(JSON.stringify(REPORT), { status: 200 });
+        if (posts.shift() === "conflict")
+          return new Response(JSON.stringify({ detail: NOTHING }), { status: 409 });
+        generated.push(REPORT);
+        return new Response(JSON.stringify(REPORT), { status: 200 });
       }
-      return new Response(JSON.stringify(path.endsWith("/reports") ? [] : REPORT), {
+      return new Response(JSON.stringify(path.endsWith("/reports") ? generated : REPORT), {
         status: 200,
       });
     }),
@@ -72,4 +75,7 @@ test("a later successful generate clears the alert", async () => {
 
   expect(await screen.findByText("Writing the report…")).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  // The list refetches and now holds the report that was just generated.
+  expect(await screen.findByRole("button", { name: REPORT.title })).toBeInTheDocument();
+  expect(screen.queryByText("No reports yet.")).not.toBeInTheDocument();
 });

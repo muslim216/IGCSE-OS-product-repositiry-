@@ -77,7 +77,8 @@ export default function GroupAnalyticsPage() {
                   </li>
                 ))}
                 {/* The list holds only topics at or below the tutor's weak
-                    threshold (5.6), filtered from the class means — which count
+                    threshold — a 0–100 score, 60 unless the tutor changed it
+                    (task 5.6) — filtered from the class means, which count
                     medium/high-confidence marks only. So empty has three
                     meanings, and each claim must be one the data supports
                     (PROD-2): means exist and none is weak; learners are scored
