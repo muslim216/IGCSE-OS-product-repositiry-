@@ -119,10 +119,7 @@ function ShelfCard({ item }: { item: Shelf }) {
         </span>
         <span className="mt-0.5 block text-sm leading-relaxed text-ink-500">{item.hint}</span>
       </span>
-      <ChevronRight
-        aria-hidden
-        className="mt-0.5 h-4 w-4 shrink-0 text-ink-500 transition-transform group-hover:translate-x-0.5 group-hover:text-brand-600"
-      />
+      <ChevronRight aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
     </Link>
   );
 }

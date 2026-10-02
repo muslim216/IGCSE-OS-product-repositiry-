@@ -18,7 +18,7 @@ import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import { AuthFileLink } from "../components/AuthFile";
 import { Button, Field, FileInput, inputClasses, Select } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
-import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
+import { EmptyState, Reveal, SectionCard, SectionHeader } from "../components/ui";
 import { friendlyError } from "../lib/errors";
 
 /** Whatever the job is doing right now, said once, in the tutor's terms.
@@ -491,19 +491,21 @@ export default function BookletsPage() {
                         )}
                       </div>
                     </div>
-                    {openId === b.id && (
-                      <div className="mt-3">
-                        {detail.isLoading ? (
-                          <SectionSkeleton rows={4} label="Loading the papers" />
-                        ) : detail.isError ? (
-                          <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
-                        ) : (
-                          detail.data?.id === b.id && (
-                            <DraftEditor key={b.id} booklet={detail.data} />
-                          )
-                        )}
-                      </div>
-                    )}
+                    <Reveal open={openId === b.id} className="pt-3">
+                      {openId === b.id && (
+                        <>
+                          {detail.isLoading ? (
+                            <SectionSkeleton rows={4} label="Loading the papers" />
+                          ) : detail.isError ? (
+                            <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+                          ) : (
+                            detail.data?.id === b.id && (
+                              <DraftEditor key={b.id} booklet={detail.data} />
+                            )
+                          )}
+                        </>
+                      )}
+                    </Reveal>
                   </li>
                 ))}
               </ul>

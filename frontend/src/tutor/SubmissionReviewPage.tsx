@@ -19,7 +19,7 @@ import {
 import { getMistakeCategories, type MistakeCategoryItem } from "../api/mistakeCategories";
 import { ApiError } from "../api/client";
 import { friendlyError } from "../lib/errors";
-import { SectionCard } from "../components/ui";
+import { Reveal, SectionCard } from "../components/ui";
 import { Button, Textarea, inputClasses } from "../components/controls";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton, Skeleton } from "../components/page";
 
@@ -860,8 +860,8 @@ function QuestionCard({
       >
         {showHistory ? "Hide" : "Show"} mark history
       </button>
-      {showHistory && (
-        <ul className="mt-1 space-y-1 text-xs text-ink-700">
+      <Reveal open={showHistory}>
+        <ul className="space-y-1 pt-1 text-xs text-ink-700">
           {history.data?.map((h, i) => (
             <li key={i}>
               {h.old_marks} → {h.new_marks} by {h.changed_by_name} on{" "}
@@ -873,7 +873,7 @@ function QuestionCard({
             <li className="text-ink-500">This mark has never been changed.</li>
           )}
         </ul>
-      )}
+      </Reveal>
     </div>
   );
 }

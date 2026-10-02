@@ -26,8 +26,9 @@ const VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-brand-600 text-canvas shadow-[0_1px_0_rgba(44,26,14,0.12)] hover:bg-brand-700",
   // `avora-control` carries the edge colour — see index.css for why a
   // `border-line-control` utility cannot.
-  secondary: "avora-control border bg-surface text-ink-900",
-  ghost: "text-ink-700 hover:bg-surface-muted hover:text-ink-900",
+  secondary: "avora-control border bg-surface text-ink-900 hover:bg-brand-50",
+  // `avora-btn-flat`: no hover shadow, and a pressed fill instead (index.css).
+  ghost: "avora-btn-flat text-ink-700 hover:bg-surface-muted hover:text-ink-900",
   danger: "bg-risk-600 text-canvas hover:opacity-90",
 };
 
@@ -43,7 +44,8 @@ export function buttonClasses(
   size: ButtonSize = "md",
   extra = "",
 ): string {
-  return `inline-flex shrink-0 items-center justify-center rounded-md font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${VARIANTS[variant]} ${SIZES[size]} ${extra}`;
+  // `avora-btn` carries the hover lift, the press and their timings (index.css).
+  return `avora-btn inline-flex shrink-0 items-center justify-center rounded-md font-medium disabled:cursor-not-allowed disabled:opacity-50 ${VARIANTS[variant]} ${SIZES[size]} ${extra}`;
 }
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -83,7 +85,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 });
 
 const CONTROL =
-  "avora-control rounded-md border bg-surface px-3 text-sm text-ink-900 transition-colors placeholder:text-ink-500 disabled:cursor-not-allowed disabled:bg-surface-muted";
+  "avora-control rounded-md border bg-surface px-3 text-sm text-ink-900 placeholder:text-ink-500 disabled:cursor-not-allowed disabled:bg-surface-muted";
 
 /**
  * Default sizing a caller can override. Without tailwind-merge, two width

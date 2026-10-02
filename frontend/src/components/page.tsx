@@ -48,7 +48,7 @@ export function PageHeader({
 }) {
   useDocumentTitle(documentTitle ?? (typeof title === "string" ? title : null));
   return (
-    <header className="mb-8">
+    <header className="avora-enter mb-8">
       {back && (
         <Link
           to={back.to}
@@ -75,9 +75,7 @@ export function PageHeader({
 
 /** A placeholder shape in the colour of a raised row. */
 export function Skeleton({ className = "" }: { className?: string }) {
-  return (
-    <span aria-hidden className={`block animate-pulse rounded-md bg-surface-muted ${className}`} />
-  );
+  return <span aria-hidden className={`avora-skeleton block rounded-md ${className}`} />;
 }
 
 /**

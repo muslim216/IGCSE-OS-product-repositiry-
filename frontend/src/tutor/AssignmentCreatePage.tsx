@@ -21,6 +21,7 @@ import {
   Textarea,
   buttonClasses,
 } from "../components/controls";
+import { Reveal } from "../components/ui";
 
 const ACCEPT = "application/pdf,image/*,.heic,.heif";
 
@@ -266,108 +267,110 @@ export default function AssignmentCreatePage() {
               className={`h-4 w-4 text-ink-500 transition-transform ${showDetails ? "rotate-180" : ""}`}
             />
           </button>
-          {showDetails && (
-            <div className="space-y-4 border-t border-line px-4 py-4">
-              {(file || reuseId !== "") && chapters.data && chapters.data.length > 0 && (
-                <Field label="Chapter this paper belongs to" optional>
-                  <Select
-                    value={chapterId}
-                    onChange={(e) =>
-                      setChapterId(e.target.value === "" ? "" : Number(e.target.value))
-                    }
-                  >
-                    <option value="">Not set</option>
-                    {chapters.data.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.code} — {c.title}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              )}
-              {(file || reuseId !== "") && (
-                /* Says what it does and what it does not: these notes never
+          <Reveal open={showDetails} className="space-y-4 border-t border-line px-4 py-4">
+            {showDetails && (
+              <>
+                {(file || reuseId !== "") && chapters.data && chapters.data.length > 0 && (
+                  <Field label="Chapter this paper belongs to" optional>
+                    <Select
+                      value={chapterId}
+                      onChange={(e) =>
+                        setChapterId(e.target.value === "" ? "" : Number(e.target.value))
+                      }
+                    >
+                      <option value="">Not set</option>
+                      {chapters.data.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.code} — {c.title}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+                {(file || reuseId !== "") && (
+                  /* Says what it does and what it does not: these notes never
                    reach when a mark counts (AV-25), and nothing marks with
                    them until task 3.2 — so the copy does not promise an
                    effect the product does not have yet (PROD-1). */
-                <Field
-                  label="Marking notes for this paper"
-                  optional
-                  hint="Kept with the paper and reused every time you set work from it. The official mark scheme always wins. Marking does not read these yet."
-                >
-                  <Textarea
-                    rows={3}
-                    maxLength={MAX_CLASSIFIED_NOTES}
-                    placeholder="Anything unusual about how work from this paper should be marked"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                  />
-                </Field>
-              )}
-              {/* Optional only when there is something to name the homework
+                  <Field
+                    label="Marking notes for this paper"
+                    optional
+                    hint="Kept with the paper and reused every time you set work from it. The official mark scheme always wins. Marking does not read these yet."
+                  >
+                    <Textarea
+                      rows={3}
+                      maxLength={MAX_CLASSIFIED_NOTES}
+                      placeholder="Anything unusual about how work from this paper should be marked"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                    />
+                  </Field>
+                )}
+                {/* Optional only when there is something to name the homework
                   after — the file, or the reused paper's own title. With
                   neither, the title is all an empty assignment has, and
                   `canSubmit` already requires it. */}
-              <Field
-                label="Title"
-                optional={file !== null || reuseId !== ""}
-                hint={
-                  file
-                    ? "Leave it empty to use the file name."
-                    : reuseId !== ""
-                      ? "Leave it empty to use that paper's title."
-                      : undefined
-                }
-              >
-                <Input
-                  placeholder="e.g. HW3 — Atomic structure"
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  required={file === null && reuseId === ""}
-                />
-              </Field>
-              {file && (
                 <Field
-                  label="Mark scheme"
-                  optional
-                  hint="Skip this if the answers are inside the paper."
+                  label="Title"
+                  optional={file !== null || reuseId !== ""}
+                  hint={
+                    file
+                      ? "Leave it empty to use the file name."
+                      : reuseId !== ""
+                        ? "Leave it empty to use that paper's title."
+                        : undefined
+                  }
                 >
-                  <FileInput
-                    // Remounted per paper: pick() clears the chosen mark scheme
-                    // when the paper changes, and the picker must not keep
-                    // showing the old file's name over an empty selection.
-                    key={`${file.name}-${file.size}-${file.lastModified}`}
-                    accept={ACCEPT}
-                    prompt="Choose the mark scheme"
-                    onFiles={(files) => setMarkScheme(files[0] ?? null)}
+                  <Input
+                    placeholder="e.g. HW3 — Atomic structure"
+                    value={form.title}
+                    onChange={(e) => setForm({ ...form, title: e.target.value })}
+                    required={file === null && reuseId === ""}
                   />
                 </Field>
-              )}
-              <Field label="Question range" optional hint="Leave it empty for the whole paper.">
-                <Input
-                  placeholder='e.g. "Q1-15" or "pages 3-10"'
-                  value={form.question_range}
-                  onChange={(e) => setForm({ ...form, question_range: e.target.value })}
-                />
-              </Field>
-              <Field label="Due date" optional>
-                <Input
-                  type="datetime-local"
-                  className="sm:max-w-xs"
-                  value={form.due_at}
-                  onChange={(e) => setForm({ ...form, due_at: e.target.value })}
-                />
-              </Field>
-              <Field label="Instructions" optional>
-                <Textarea
-                  rows={2}
-                  placeholder="Anything the students should know"
-                  value={form.instructions}
-                  onChange={(e) => setForm({ ...form, instructions: e.target.value })}
-                />
-              </Field>
-            </div>
-          )}
+                {file && (
+                  <Field
+                    label="Mark scheme"
+                    optional
+                    hint="Skip this if the answers are inside the paper."
+                  >
+                    <FileInput
+                      // Remounted per paper: pick() clears the chosen mark scheme
+                      // when the paper changes, and the picker must not keep
+                      // showing the old file's name over an empty selection.
+                      key={`${file.name}-${file.size}-${file.lastModified}`}
+                      accept={ACCEPT}
+                      prompt="Choose the mark scheme"
+                      onFiles={(files) => setMarkScheme(files[0] ?? null)}
+                    />
+                  </Field>
+                )}
+                <Field label="Question range" optional hint="Leave it empty for the whole paper.">
+                  <Input
+                    placeholder='e.g. "Q1-15" or "pages 3-10"'
+                    value={form.question_range}
+                    onChange={(e) => setForm({ ...form, question_range: e.target.value })}
+                  />
+                </Field>
+                <Field label="Due date" optional>
+                  <Input
+                    type="datetime-local"
+                    className="sm:max-w-xs"
+                    value={form.due_at}
+                    onChange={(e) => setForm({ ...form, due_at: e.target.value })}
+                  />
+                </Field>
+                <Field label="Instructions" optional>
+                  <Textarea
+                    rows={2}
+                    placeholder="Anything the students should know"
+                    value={form.instructions}
+                    onChange={(e) => setForm({ ...form, instructions: e.target.value })}
+                  />
+                </Field>
+              </>
+            )}
+          </Reveal>
         </div>
 
         {!file && reuseId === "" && (

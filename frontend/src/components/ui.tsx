@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { usePresence } from "../lib/motion";
 
 /* Shared Avora primitives. Generic by design: every component here takes its
    data via props so it can be reused across Students, Lessons, Homework,
@@ -52,7 +54,7 @@ export function SectionCard({
 }) {
   return (
     <section
-      className={`rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)] ${className}`}
+      className={`avora-card rounded-xl border border-line bg-surface p-5 shadow-[0_1px_2px_rgba(44,26,14,0.06)] ${className}`}
     >
       {children}
     </section>
@@ -139,6 +141,62 @@ export function EmptyState({
   );
 }
 
+/**
+ * Holds its last render while `frozen`. Something animating out has usually
+ * been closed by clearing the very state its contents were drawn from, so for
+ * the length of the exit its parent is handing it "Remove undefined?" — this
+ * keeps what was on screen when it started to leave.
+ */
+/* Something on its way out must not be operable. `pointer-events: none` in
+   index.css stops the mouse, but focus is still inside: a second Enter on a
+   dialog's confirm button during the exit would fire it again. `inert` takes
+   the whole subtree out of focus and the accessibility tree. Spread rather
+   than written as a prop because React 18 has no typed `inert`. */
+const INERT = { inert: "" };
+
+const Freeze = memo(
+  function Freeze({ children }: { frozen: boolean; children: ReactNode }) {
+    return <>{children}</>;
+  },
+  (_previous, next) => next.frozen,
+);
+
+/**
+ * A panel that folds open and shut under a disclosure button. Its children are
+ * mounted only while it is open (or folding shut), so a query inside one still
+ * waits for the panel to be opened. `className` goes on the content itself,
+ * inside the fold, so a top margin collapses with the panel instead of
+ * lingering as a gap.
+ */
+export function Reveal({
+  open,
+  id,
+  className = "",
+  children,
+}: {
+  open: boolean;
+  id?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const { mounted, closing } = usePresence(open);
+  if (!mounted) return null;
+  return (
+    <div
+      id={id}
+      className="avora-reveal"
+      data-closing={closing || undefined}
+      {...(closing ? INERT : null)}
+    >
+      <div>
+        <div className={className}>
+          <Freeze frozen={closing}>{children}</Freeze>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Modal({
   open,
   onClose,
@@ -171,13 +229,26 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+  const { mounted, closing } = usePresence(open);
+  // Per dialog, not one shared id: a dialog that opens while another is still
+  // fading out would otherwise be labelled by the outgoing one's title.
+  const titleId = useId();
+  if (!mounted) return null;
+  // Rendered into <body>, not where it is written. Cards lift on hover with a
+  // transform, and a transformed ancestor becomes the containing block for a
+  // `fixed` descendant: a dialog left inside a card would shrink to that card
+  // the moment the pointer — which is over the dialog, so over the card —
+  // counted as hovering it.
+  return createPortal(
+    <div
+      className="avora-overlay fixed inset-0 z-50 grid place-items-center p-4"
+      data-closing={closing || undefined}
+      {...(closing ? INERT : null)}
+    >
       <button
         type="button"
         aria-label="Close dialog"
-        className="absolute inset-0 bg-ink-900/45"
+        className="avora-backdrop absolute inset-0 bg-ink-900/45"
         onClick={onClose}
         tabIndex={-1}
       />
@@ -185,16 +256,19 @@ export function Modal({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="avora-modal-title"
+        aria-labelledby={titleId}
         tabIndex={-1}
         className="relative w-full max-w-md rounded-xl border border-line bg-surface p-6 shadow-lg outline-none"
       >
-        <h2 id="avora-modal-title" className="text-base font-semibold text-ink-900">
-          {title}
-        </h2>
-        <div className="mt-4">{children}</div>
+        <Freeze frozen={closing}>
+          <h2 id={titleId} className="text-base font-semibold text-ink-900">
+            {title}
+          </h2>
+          <div className="mt-4">{children}</div>
+        </Freeze>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -211,17 +285,25 @@ export function useToast(): { toast: ReactNode; showToast: (message: string) => 
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const toast = (
+  const { mounted, closing } = usePresence(message !== null);
+
+  // In <body> for the same reason as Modal: a page may place `toast` inside a
+  // card, and a hovered card would otherwise capture a `fixed` child.
+  const toast = createPortal(
     <div
       aria-live="polite"
       className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center"
     >
-      {message && (
-        <p className="rounded-lg border border-line bg-surface-muted px-4 py-2 text-sm text-ink-900 shadow-lg">
-          {message}
+      {mounted && (
+        <p
+          data-closing={closing || undefined}
+          className="avora-toast rounded-lg border border-line bg-surface-muted px-4 py-2 text-sm text-ink-900 shadow-lg"
+        >
+          <Freeze frozen={closing}>{message}</Freeze>
         </p>
       )}
-    </div>
+    </div>,
+    document.body,
   );
   return { toast, showToast };
 }
