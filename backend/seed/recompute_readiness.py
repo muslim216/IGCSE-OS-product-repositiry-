@@ -166,7 +166,7 @@ async def main(spacing_seconds: int = DEFAULT_SPACING_SECONDS) -> None:
     if skipped:
         # Named, not just counted: a pair skipped for a *running* job is never
         # backfilled if that run then fails, and a count alone hides which.
-        message += f" Skipped {skipped} already queued: {sorted(pending)}."
+        message += f" Skipped {skipped} already queued: {sorted(set(pairs) & pending)}."
     print(message)
 
 

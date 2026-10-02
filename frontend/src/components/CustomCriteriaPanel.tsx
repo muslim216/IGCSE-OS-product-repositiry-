@@ -76,6 +76,9 @@ function CriterionRow({
   editable: boolean;
 }) {
   const queryClient = useQueryClient();
+  // Two subject-specific criteria can share a name; the controls' accessible
+  // names carry the subject too, so they are told apart without sight.
+  const label = row.subject_name ? `${row.name} (${row.subject_name})` : row.name;
   const [draft, setDraft] = useState(row.score === null ? "" : String(row.score));
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["student-criteria", studentId] });
@@ -134,14 +137,14 @@ function CriterionRow({
             min={0}
             max={100}
             step={1}
-            aria-label={`Score for ${row.name}`}
+            aria-label={`Score for ${label}`}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             className="w-20 rounded-md border border-line-control bg-canvas px-2 py-1 text-sm text-ink-900"
           />
           <button
             type="submit"
-            aria-label={`Save score for ${row.name}`}
+            aria-label={`Save score for ${label}`}
             disabled={!canSave}
             className="rounded-md bg-brand-600 px-3 py-1 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
           >
@@ -150,7 +153,7 @@ function CriterionRow({
           {row.score !== null && (
             <button
               type="button"
-              aria-label={`Clear score for ${row.name}`}
+              aria-label={`Clear score for ${label}`}
               disabled={busy}
               onClick={() => {
                 save.reset();

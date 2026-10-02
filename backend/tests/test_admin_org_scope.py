@@ -132,7 +132,9 @@ async def test_same_organization_admin_keeps_their_reach(
     assert resp.status_code == 201, resp.text
 
 
-async def test_admin_reaches_a_student_homed_elsewhere_who_sits_in_their_class(client, student):
+async def test_admin_reaches_a_student_homed_elsewhere_who_sits_in_their_class(
+    client, tutor, student
+):
     """Reach is "in a class of my organization, or homed in it" — the rule
     `visible_subject_ids` already used. Home organization alone left an admin
     with less reach than a tutor in the same organization."""
@@ -174,6 +176,34 @@ async def test_admin_reaches_a_student_homed_elsewhere_who_sits_in_their_class(c
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/v1/students/{sid}/notes", json={"body": "x"}, headers=headers)
     assert resp.status_code == 201, resp.text
+
+    # Reaching the student is not reaching what the home organization wrote
+    # about the family: its profile, notes and parent communications stay its
+    # own, in both directions (`SEC-7`).
+    home = tutor["headers"]
+    profile = {"school": "Home School", "parent_email": "parent@home.example"}
+    assert (
+        await client.put(f"/api/v1/students/{sid}/profile", json=profile, headers=home)
+    ).status_code == 200
+    for path, body in (("notes", "home note"), ("communications", "home call")):
+        resp = await client.post(
+            f"/api/v1/students/{sid}/{path}", json={"body": body}, headers=home
+        )
+        assert resp.status_code == 201, resp.text
+
+    theirs = (await client.get(f"/api/v1/students/{sid}/crm", headers=headers)).json()
+    assert theirs["profile"] is None
+    assert [n["body"] for n in theirs["notes"]] == ["x"]
+    assert theirs["communications"] == []
+    resp = await client.put(
+        f"/api/v1/students/{sid}/profile", json={"school": "Overwritten"}, headers=headers
+    )
+    assert resp.status_code == 409, resp.text
+
+    mine = (await client.get(f"/api/v1/students/{sid}/crm", headers=home)).json()
+    assert mine["profile"]["school"] == "Home School"
+    assert [n["body"] for n in mine["notes"]] == ["home note"]
+    assert [c["body"] for c in mine["communications"]] == ["home call"]
 
 
 async def test_a_student_asking_for_another_students_record_gets_404(client, tutor, group, student):

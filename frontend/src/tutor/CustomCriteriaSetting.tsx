@@ -214,11 +214,15 @@ function CriterionItem({
           </button>
           <button
             type="button"
+            // Not while a save is in flight: reset() only clears this row's
+            // state, the PATCH still lands — and a second edit sent behind it
+            // could be overwritten by the first arriving late.
+            disabled={busy}
             onClick={() => {
               update.reset();
               setEditing(false);
             }}
-            className="text-sm text-ink-500 hover:text-ink-700"
+            className="text-sm text-ink-500 hover:text-ink-700 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -244,6 +248,7 @@ function CriterionItem({
         <button
           type="button"
           aria-label={`Edit ${criterion.name}`}
+          disabled={busy}
           onClick={() => {
             setName(criterion.name);
             setDescription(criterion.description ?? "");

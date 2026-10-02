@@ -153,7 +153,7 @@ async def student_crm(student_id: int, db: DbSession, user: CurrentUser) -> Stud
     """The student's full academic record: profile, enrollments, readiness,
     homework history, tutor notes, and parent communications — one call."""
     student = await _viewable_student(db, user, student_id)
-    crm = await get_student_crm(db, student)
+    crm = await get_student_crm(db, student, user)
     tutor_ids = {n.tutor_id for n in crm.notes} | {c.tutor_id for c in crm.communications}
     tutor_names = {
         t.id: t.name
@@ -228,6 +228,15 @@ async def update_student_profile(
     if profile is None:
         profile = StudentProfile(student_id=student.id, organization_id=user.organization_id)
         db.add(profile)
+    elif profile.organization_id != user.organization_id:
+        # One profile row per student, and it belongs to the organization that
+        # wrote it. A tutor who teaches the student in a second organization
+        # cannot read it (services/student_crm.py) and must not overwrite it —
+        # that would replace another tenant's parent contact details (`SEC-7`).
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This student's profile is kept by another organization and can't be edited here.",
+        )
     profile.school = body.school
     profile.year_group = body.year_group
     profile.parent_name = body.parent_name

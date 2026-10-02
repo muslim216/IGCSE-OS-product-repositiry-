@@ -194,6 +194,10 @@ test("two rows saved back to back both close, the first returning last", async (
   expect((within(first).getByRole("button", { name: /save/i }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+  // And it cannot be closed mid-save: closing does not cancel the request.
+  expect(
+    (within(first).getByRole("button", { name: /cancel/i }) as HTMLButtonElement).disabled,
+  ).toBe(true);
   release(new Response(JSON.stringify({ ...LIVE, name: "Renamed" }), { status: 200 }));
   await waitFor(() => expect(within(first).queryByRole("textbox")).toBeNull());
 });

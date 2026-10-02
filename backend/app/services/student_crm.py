@@ -24,6 +24,7 @@ from app.models import (
     Submission,
     TutorNote,
     User,
+    UserRole,
 )
 from app.schemas.readiness import SubjectReadiness
 from app.services.readiness_summary_v2 import build_summary_v2
@@ -73,10 +74,17 @@ async def enrolled_subject_ids(session: AsyncSession, student_id: int) -> list[i
     return list(rows)
 
 
-async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
-    profile = await session.scalar(
-        select(StudentProfile).where(StudentProfile.student_id == student.id)
-    )
+async def get_student_crm(session: AsyncSession, student: User, viewer: User) -> StudentCrm:
+    # A student can sit in a second organization's class, so a tutor or admin
+    # there can open this record. What one organization wrote about a family —
+    # the profile with the parent's contact details, tutor notes, parent
+    # communications — is that organization's, and is not handed to the other
+    # (`SEC-7`). The student and their parent read their own record unscoped.
+    staff_org = viewer.organization_id if viewer.role in (UserRole.tutor, UserRole.admin) else None
+    profile_query = select(StudentProfile).where(StudentProfile.student_id == student.id)
+    if staff_org is not None:
+        profile_query = profile_query.where(StudentProfile.organization_id == staff_org)
+    profile = await session.scalar(profile_query)
 
     enrollment_rows = (
         await session.scalars(select(StudentSubject).where(StudentSubject.student_id == student.id))
@@ -144,19 +152,16 @@ async def get_student_crm(session: AsyncSession, student: User) -> StudentCrm:
             )
         )
 
-    notes = (
-        await session.scalars(
-            select(TutorNote)
-            .where(TutorNote.student_id == student.id)
-            .order_by(TutorNote.created_at.desc())
-        )
-    ).all()
+    notes_query = select(TutorNote).where(TutorNote.student_id == student.id)
+    comms_query = select(ParentCommunication).where(ParentCommunication.student_id == student.id)
+    if staff_org is not None:
+        # Neither row carries an organization; the author's is the tenant.
+        authors = select(User.id).where(User.organization_id == staff_org)
+        notes_query = notes_query.where(TutorNote.tutor_id.in_(authors))
+        comms_query = comms_query.where(ParentCommunication.tutor_id.in_(authors))
+    notes = (await session.scalars(notes_query.order_by(TutorNote.created_at.desc()))).all()
     communications = (
-        await session.scalars(
-            select(ParentCommunication)
-            .where(ParentCommunication.student_id == student.id)
-            .order_by(ParentCommunication.created_at.desc())
-        )
+        await session.scalars(comms_query.order_by(ParentCommunication.created_at.desc()))
     ).all()
 
     return StudentCrm(

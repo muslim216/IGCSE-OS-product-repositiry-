@@ -160,6 +160,17 @@ test("a subject-scoped criterion names its subject; an account-wide one does not
   expect(everywhere.textContent).not.toMatch(/chemistry|physics|all subjects/i);
 });
 
+test("score controls for same-named criteria are told apart by subject in their names", async () => {
+  stub([
+    { ...ROWS[0], criterion_id: 3, name: "Effort", subject_id: 7, subject_name: "Chemistry" },
+    { ...ROWS[0], criterion_id: 4, name: "Effort", subject_id: 8, subject_name: "Physics" },
+  ]);
+  renderPanel(true);
+  expect(await screen.findByLabelText("Score for Effort (Chemistry)")).toBeTruthy();
+  expect(screen.getByLabelText("Score for Effort (Physics)")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save score for Effort (Physics)" })).toBeTruthy();
+});
+
 test("Enter in the score box saves what was typed", async () => {
   const calls = stub(ROWS);
   renderPanel(true);
