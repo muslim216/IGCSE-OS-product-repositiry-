@@ -111,8 +111,9 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
     …
 ```
 
-- **Public:** `/`, `/login`, `/signup`, `/join/:code`, `/parent-join/:code`. `/` renders
-  `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in.
+- **Public:** `/`, `/login`, `/signup`, `/join/:code`, `/parent-join/:code`, `/privacy`. `/`
+  renders `LandingPage` when signed out and redirects to `homePathFor(user)` when signed in;
+  `/privacy` renders `PrivacyPolicyPage` for everyone, signed in or not.
 - **Tutor** (`roles={["tutor","admin"]}`): `/tutor` and children, including the nested
   `GroupLayout` at `/tutor/groups/:groupId` with tabs `homework | students | syllabus |
   schedule | resources | analytics | new-homework | mock`.
@@ -121,8 +122,11 @@ All routes live in `App.tsx`. The shape is a `ProtectedRoute` wrapping an `AppSh
   respectively) rather than 404 a bookmark — but neither is in `STUDENT_NAV` or routes to a
   live page; task 0.4 deleted `ImprovementPage.tsx` (AV-57, AV-100) and 0.3 deleted
   `TutorChatPage.tsx` (AV-57).
-- **Parent** (`roles={["parent"]}`): `/parent`, with no nav array.
-- **Catch-all:** `*` redirects to `/`.
+- **Parent** (`roles={["parent"]}`): `/parent` and `/parent/account`, with no nav array.
+  Students have `/student/account` too; the tutor's account page is `/tutor/settings`. Each
+  shell's avatar links to its role's page through `AppShell`'s `accountPath`.
+- **Catch-all:** `*` renders `NotFoundPage` — a real 404, rather than the old redirect to `/`
+  that made a mistyped link look like the home page.
 
 Navigation is data-driven: `STUDENT_NAV` (7 entries, no bottom-slot item since 0.3 removed the
 one that carried `slot: "bottom"`) and `TUTOR_NAV`, each `{ to, label, icon }` with
@@ -215,7 +219,8 @@ Every routed page composes the same pieces rather than restating classes:
   browser-tab title via `useDocumentTitle`), `PageSkeleton` / `SectionSkeleton`, `ErrorState`
   (with retry), `NotFoundState`, `NotFoundPage` (the public 404 for unknown URLs),
   `ConfirmDialog` (never `window.confirm`), and `ErrorBoundary` (mounted in `AppShell`, keyed by
-  route, so a render crash shows a recoverable message instead of a blank page).
+  the router location, so a render crash shows a recoverable message instead of a blank page
+  and any navigation clears it).
 - `components/controls.tsx` — `Button` (primary / secondary / ghost / danger; `loading`),
   `buttonClasses()` for links, `Input` / `Select` / `Textarea`, `Field` (ties the label to its
   control by id and wires hint and error to `aria-describedby`), and `FileInput` (a styled
@@ -223,9 +228,9 @@ Every routed page composes the same pieces rather than restating classes:
 
 ### Server state
 
-A single bare `new QueryClient()` in `main.tsx:9` — **no default options**. No `staleTime`, no
-`retry` policy, no `refetchOnWindowFocus` override. Every behaviour is therefore per-call
-default.
+A single `QueryClient` in `main.tsx`, whose only default option is the `retry` policy above
+(`shouldRetry`). No `staleTime` and no `refetchOnWindowFocus` override, so every other
+behaviour is the library's per-call default.
 
 Practiced conventions:
 

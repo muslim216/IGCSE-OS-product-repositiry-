@@ -8,9 +8,14 @@ Accounts created (password for all: demo1234):
   student: demo_ali                  (username-only account)
   parent:  demo-parent@example.com   (linked to demo-student)
 
+Who they are: Layla Haddad (tutor, "Haddad Tutoring") teaches Year 10
+Chemistry to six students — Sara Al-Mansouri (demo-student), Ali Rahman
+(demo_ali), and username-only classmates demo_omar, demo_mariam, demo_noor and
+demo_yusuf (same password) — and Huda Al-Mansouri is Sara's parent.
+
 The people, class and work are fictional but realistic on purpose: this is
-what a prospective tutor is shown, and "Demo Tutor" marking "Sara Student"
-in a class of two read as a toy rather than a working practice.
+what a prospective tutor is shown, and named people in a class of six read
+as a working practice where "Demo Tutor" marking "Sara Student" read as a toy.
 """
 
 import asyncio
@@ -82,8 +87,10 @@ PASSWORD = "demo1234"
 
 #: A photographed page of handwritten answers to HW2, so the review screen shows
 #: the student's work beside the marks the way a real upload does. Rendered from
-#: the OFL-licensed Caveat typeface; the answers match the demo's marks,
-#: including question 2's missing "oppositely charged ions" that the AI flags.
+#: the OFL-licensed Caveat typeface. It is Ali's page and only Ali's: his marks
+#: are set to match it, including question 2's missing "oppositely charged
+#: ions" that the AI flags. Every other submission carries a placeholder file,
+#: so no student is shown someone else's work as their own.
 HANDWRITTEN_PAGE = Path(__file__).parent / "assets" / "ionic-bonding-answer.jpg"
 
 # A minimal one-page PDF, valid enough to store and reference as a demo file.
@@ -480,11 +487,12 @@ async def main() -> None:
         await session.flush()
 
         question_defs = [
-            ("1", "Define an isotope and give one example", 4, topics[0]),
-            ("2", "Explain how ions form from atoms", 6, topics[min(1, len(topics) - 1)]),
+            ("1", "Define an isotope and give one example", 4, topics[0], "isotope"),
+            ("2", "Explain how ions form from atoms", 6, topics[min(1, len(topics) - 1)], "ions"),
         ]
         questions = []
-        for number, summary, max_marks, topic in question_defs:
+        feedback_keys: dict[int, str] = {}
+        for number, summary, max_marks, topic, feedback_key in question_defs:
             q = AssignmentQuestion(
                 assignment_id=assignment.id,
                 position=len(questions),
@@ -497,22 +505,38 @@ async def main() -> None:
             await session.flush()
             session.add(QuestionTopic(question_id=q.id, topic_id=topic.id))
             questions.append(q)
+            feedback_keys[q.id] = feedback_key
 
         # Feedback a tutor would actually write, varied by how well the answer
         # did — the same sentence on every question read as placeholder text.
-        feedback_by_band = {
-            "high": [
-                "Clear and complete — exactly what the mark scheme looks for.",
-                "Well explained, with the key terms used correctly.",
-            ],
-            "mid": [
-                "Right idea. Add a specific example to secure the last mark.",
-                "Good start — the explanation needs one more step to be complete.",
-            ],
-            "low": [
-                "Revisit the definition: the answer mixes up protons and neutrons.",
-                "Show the electron transfer explicitly — say which atom loses electrons.",
-            ],
+        # Keyed by question as well as band: a comment about protons and
+        # neutrons under a melting-point question reads as nonsense.
+        feedback_by_question: dict[str, dict[str, str]] = {
+            "isotope": {
+                "high": "Clear definition with a correct example — exactly what the scheme wants.",
+                "mid": "Right idea. Name a specific isotope pair to secure the last mark.",
+                "low": "Revisit the definition: isotopes differ in neutrons, not protons.",
+            },
+            "ions": {
+                "high": "Well explained, with electron loss and gain both described.",
+                "mid": "Good start — say which atom loses electrons and which gains them.",
+                "low": "Show the electron transfer explicitly, then the charges it leaves.",
+            },
+            "nacl": {
+                "high": "Correct outer shells and charges on both ions.",
+                "mid": "Diagram is right; add the charges on each bracket.",
+                "low": "Sodium should end with an empty outer shell — redraw its ion.",
+            },
+            "mgo": {
+                "high": "Lattice, strong attraction between oppositely charged ions, and energy — complete.",
+                "mid": "Say what the strong forces are between: oppositely charged ions.",
+                "low": "Link the high melting point to breaking the lattice's ionic bonds.",
+            },
+            "cacl2": {
+                "high": "Correct formula, with the electron transfer shown.",
+                "mid": "Formula is right; show why two chloride ions are needed.",
+                "low": "Calcium forms Ca²⁺, so it needs two Cl⁻ — check the formula.",
+            },
         }
 
         def scaled(max_marks: int, low: float, high: float, student: User) -> int:
@@ -520,10 +544,10 @@ async def main() -> None:
             ratio = rng.uniform(low, high) + level.get(student.id, 0) / 100
             return max(0, min(max_marks, round(max_marks * ratio)))
 
-        def feedback_for(marks: int, max_marks: int) -> str:
+        def feedback_for(question: str, marks: int, max_marks: int) -> str:
             ratio = marks / max_marks
             band = "high" if ratio >= 0.85 else "mid" if ratio >= 0.6 else "low"
-            return rng.choice(feedback_by_band[band])
+            return feedback_by_question[question][band]
 
         for student in students:
             submission = Submission(
@@ -546,7 +570,7 @@ async def main() -> None:
             )
             for q in questions:
                 marks = scaled(q.max_marks, 0.55, 0.9, student)
-                feedback = feedback_for(marks, q.max_marks)
+                feedback = feedback_for(feedback_keys[q.id], marks, q.max_marks)
                 session.add(
                     QuestionMark(
                         submission_id=submission.id,
@@ -564,6 +588,22 @@ async def main() -> None:
         # answers the AI was unsure about wait in the tutor's review queue, and
         # one student has not handed in yet. This is the loop the product
         # exists for, so the demo should show it running, not finished.
+        # HW2 has its own question paper: pointing it at HW1's atomic-structure
+        # paper would make marking read the wrong questions.
+        bonding_key = storage.new_key(org.id, "application/pdf")
+        bonding_paper = Classified(
+            organization_id=org.id,
+            tutor_id=tutor.id,
+            subject_id=subject.id,
+            title="Ionic bonding — practice questions",
+            file_path=bonding_key,
+            file_name="ionic-bonding.pdf",
+            file_mime="application/pdf",
+        )
+        session.add(bonding_paper)
+        await session.flush()
+        await storage.get_storage().upload(bonding_key, FAKE_PDF_BYTES, "application/pdf")
+
         hw2_work = await create_work(
             session,
             kind=WorkKind.homework,
@@ -575,7 +615,7 @@ async def main() -> None:
             work_id=hw2_work.id,
             group_id=group.id,
             lesson_id=lesson.id,
-            classified_id=classified.id,
+            classified_id=bonding_paper.id,
             title="HW2 — Ionic bonding",
             status=AssignmentStatus.published,
             due_at=now + timedelta(days=3),
@@ -584,10 +624,10 @@ async def main() -> None:
         await session.flush()
         bonding = topics[min(2, len(topics) - 1)]
         hw2_questions = []
-        for number, summary, max_marks in [
-            ("1", "Draw a dot-and-cross diagram for sodium chloride", 3),
-            ("2", "Explain why magnesium oxide has a high melting point", 4),
-            ("3", "Predict the formula of the compound formed by calcium and chlorine", 2),
+        for number, summary, max_marks, feedback_key in [
+            ("1", "Draw a dot-and-cross diagram for sodium chloride", 3, "nacl"),
+            ("2", "Explain why magnesium oxide has a high melting point", 4, "mgo"),
+            ("3", "Predict the formula of the compound formed by calcium and chlorine", 2, "cacl2"),
         ]:
             q = AssignmentQuestion(
                 assignment_id=assignment2.id,
@@ -601,15 +641,23 @@ async def main() -> None:
             await session.flush()
             session.add(QuestionTopic(question_id=q.id, topic_id=bonding.id))
             hw2_questions.append(q)
+            feedback_keys[q.id] = feedback_key
 
         page_key = storage.new_key(org.id, "image/jpeg")
         await storage.get_storage().upload(page_key, HANDWRITTEN_PAGE.read_bytes(), "image/jpeg")
+        placeholder_key = storage.new_key(org.id, "application/pdf")
+        await storage.get_storage().upload(placeholder_key, FAKE_PDF_BYTES, "application/pdf")
+        # Ali's marks are the ones his handwritten page earns (see
+        # HANDWRITTEN_PAGE): full marks on 1 and 3, and a 3/4 on 2 that the AI
+        # proposes but is unsure of.
+        page_marks = [3, 3, 2]
 
         # Everyone but the last student handed in; two submissions carry one
         # answer the AI was not sure about.
         unsure = {student2.id, classmates[1].id}
         for student in students[:-1]:
             waiting = student.id in unsure
+            has_page = student.id == student2.id
             submission = Submission(
                 work_id=assignment2.work_id,
                 student_id=student.id,
@@ -624,13 +672,13 @@ async def main() -> None:
                 SubmissionFile(
                     submission_id=submission.id,
                     position=0,
-                    path=page_key,
-                    name="ionic-bonding-page-1.jpg",
-                    mime="image/jpeg",
+                    path=page_key if has_page else placeholder_key,
+                    name="ionic-bonding-page-1.jpg" if has_page else "answer.pdf",
+                    mime="image/jpeg" if has_page else "application/pdf",
                 )
             )
             for i, q in enumerate(hw2_questions):
-                marks = scaled(q.max_marks, 0.5, 0.9, student)
+                marks = page_marks[i] if has_page else scaled(q.max_marks, 0.5, 0.9, student)
                 if waiting and i == 1:
                     session.add(
                         QuestionMark(
@@ -647,7 +695,11 @@ async def main() -> None:
                         )
                     )
                 else:
-                    feedback = feedback_for(marks, q.max_marks)
+                    # Confident and scheme-backed, so it counts now even when
+                    # another question on the same submission waits — exactly
+                    # what marking.py does per question. Leaving these blank
+                    # would hand the tutor three questions to mark instead of one.
+                    feedback = feedback_for(feedback_keys[q.id], marks, q.max_marks)
                     session.add(
                         QuestionMark(
                             submission_id=submission.id,
@@ -655,9 +707,9 @@ async def main() -> None:
                             ai_marks=marks,
                             ai_feedback=feedback,
                             ai_confidence=MarkConfidence.high,
-                            auto_finalized=not waiting,
-                            final_marks=None if waiting else marks,
-                            final_feedback=None if waiting else feedback,
+                            auto_finalized=True,
+                            final_marks=marks,
+                            final_feedback=feedback,
                         )
                     )
         await session.flush()

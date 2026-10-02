@@ -85,8 +85,11 @@ export default function TutorSignupPage() {
         <Button type="submit" size="lg" loading={busy} className="w-full">
           Create account
         </Button>
+        {/* A pointer, not an attestation. The policy is still a draft awaiting
+            legal review and nothing records which version a tutor saw, so the
+            form must not claim they agreed to it (pre-launch-privacy-gaps.md). */}
         <p className="text-xs leading-relaxed text-ink-500">
-          By creating an account you confirm you've read our{" "}
+          How we handle your data is set out in our{" "}
           <Link to="/privacy" className="underline underline-offset-2 hover:text-ink-900">
             privacy policy
           </Link>

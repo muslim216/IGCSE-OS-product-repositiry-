@@ -124,7 +124,8 @@ export default function PrivacyPolicyPage() {
               <ul>
                 <li>
                   avora helps tutors set homework, mark it with the help of AI, and track how ready
-                  each student is for their IGCSE exams. Students and parents see the same record.
+                  each student is for their IGCSE exams. Students see their own work and marks; a
+                  linked parent or guardian sees their child's progress and reports.
                 </li>
                 <li>
                   <strong>Your tutor is in charge of the information about their class.</strong> We
@@ -335,8 +336,10 @@ export default function PrivacyPolicyPage() {
               <p>
                 avora uses an AI model provided by <strong>Anthropic</strong> to read students'
                 uploaded work, suggest marks and feedback against the mark scheme, pull questions
-                out of past papers, and draft progress reports. Everywhere a student or parent sees
-                a mark or report that AI helped produce, avora says so.
+                out of past papers, draft progress reports, and write the readiness summaries — each
+                student's overall readiness, weaker topics and suggested revision, and a summary of
+                the class for the tutor. Everywhere a student or parent sees a mark or report that
+                AI helped produce, avora says so.
               </p>
               <ul>
                 <li>
@@ -366,8 +369,11 @@ export default function PrivacyPolicyPage() {
                   unless it is needed to investigate misuse.
                 </li>
                 <li>
-                  <strong>Minimal data.</strong> We send the AI what it needs to mark the work — the
-                  pages and the questions — not students' contact details.
+                  <strong>Minimal data.</strong> We send the AI only what each task needs. To mark
+                  work: the pages, the questions and the mark scheme. For readiness summaries and
+                  reports: the student's name, the subject, the scores avora has worked out for them
+                  (from marked work and any estimates their tutor entered), and the tutor's own
+                  teaching notes for that subject. Never students' contact details.
                 </li>
               </ul>
               <p>
@@ -395,7 +401,7 @@ export default function PrivacyPolicyPage() {
                   ["Vercel", "Delivers the avora website to your browser", "Global network"],
                   [
                     "Anthropic",
-                    "Provides the AI model used for marking and reports",
+                    "Provides the AI model used for marking, readiness summaries and reports",
                     "United States",
                   ],
                 ]}

@@ -56,7 +56,7 @@ const LOOP = [
   {
     icon: Camera,
     title: "Marking comes back done",
-    body: "Students photograph their handwritten work on their phone. Each question is marked against the scheme, and you review only what the AI wasn't sure about.",
+    body: "Students photograph their handwritten work on their phone. Each question is marked against the mark scheme, and you review only what the AI wasn't sure about — or every mark, when there's no official scheme to check against.",
   },
   {
     icon: Gauge,
@@ -105,14 +105,20 @@ const FAQ: { q: string; a: string }[] = [
 ];
 
 /** A real screenshot of the product in a quiet browser frame. */
+/* Both shots carry their intrinsic size so the browser reserves the space
+   before the image arrives; without it everything below the hero jumps down
+   once the screenshot loads. */
 function ProductShot({
   src,
   alt,
   className = "",
+  eager = false,
 }: {
   src: string;
   alt: string;
   className?: string;
+  /** The hero shot is above the fold: load it straight away, not lazily. */
+  eager?: boolean;
 }) {
   return (
     <figure
@@ -126,7 +132,15 @@ function ProductShot({
         <span className="h-2.5 w-2.5 rounded-full bg-line-strong" />
         <span className="h-2.5 w-2.5 rounded-full bg-line-strong" />
       </div>
-      <img src={src} alt={alt} className="block w-full" loading="lazy" decoding="async" />
+      <img
+        src={src}
+        alt={alt}
+        width={2560}
+        height={1600}
+        className="block h-auto w-full"
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+      />
     </figure>
   );
 }
@@ -139,7 +153,9 @@ function PhoneShot({ src, alt, className = "" }: { src: string; alt: string; cla
       <img
         src={src}
         alt={alt}
-        className="block w-full rounded-[1.5rem]"
+        width={780}
+        height={1560}
+        className="block h-auto w-full rounded-[1.5rem]"
         loading="lazy"
         decoding="async"
       />
@@ -182,6 +198,7 @@ export default function LandingPage() {
 
             <div className="relative mt-16 pb-10 sm:mt-20">
               <ProductShot
+                eager
                 src="/product/class.jpg"
                 alt="A tutor's class page in avora: each learner's predicted grade, readiness status and handed-in homework."
               />

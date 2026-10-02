@@ -78,7 +78,7 @@ M = consistent secondary sources, L = single or unverified source.
 | Instrument | Applies? | Why | Obligations | Conf. | Sources |
 |---|---|---|---|---|---|
 | **Anthropic Usage Policy** | **Yes** | avora's product serves minors through the API. | "Products serving minors … must comply with the additional guidelines": **age verification**, content moderation and filtering, monitoring and reporting, guidance for minors on safe use, **compliance with applicable child privacy laws, documented publicly**, and **disclosure to users that they are interacting with an AI system**. Anthropic audits and may suspend. | H (read 2 Oct 2026) | anthropic.com/legal/aup; support.claude.com article 9307344 |
-| **Anthropic commercial terms / DPA** | Yes | Governs student work sent for marking. | Commercial terms: no training on customer content. API baseline retention reported as 30 days. A September 2026 change to retention was reported (CNBC, 1 Sep 2026) and **could not be read — confirm current retention and any zero-data-retention eligibility before launch.** DPA incorporates SCCs and UK/Swiss addenda. | M | anthropic.com/legal/commercial-terms; /data-processing-addendum |
+| **Anthropic commercial terms / DPA** | Yes | Governs student work sent for marking. | Commercial terms: no training on customer content. API baseline retention is 30 days. The 1 Sep 2026 change ("Enterprise Frontier Safeguards") gives approved enterprise customers zero data retention with safety monitoring moved to their own infrastructure; it **does not change the 30-day default for ordinary API customers** — "Thirty-day retention of inputs and outputs is the norm for commercial customers using the API unless other arrangements have been made" (The Register, 2 Sep 2026). Confirm against the current commercial terms at signature, and whether zero-data-retention is worth applying for. DPA incorporates SCCs and UK/Swiss addenda. | M–H (verified 2 Oct 2026 via secondary reporting; primary terms not re-read) | anthropic.com/legal/commercial-terms; /data-processing-addendum; theregister.com 2026-09-02 |
 
 ---
 
@@ -143,7 +143,7 @@ region; host EU tenants in Render's Frankfurt region; or exclude a market at lau
    it takes; whether Art 2 reaches a foreign service.
 9. Oman: whether guardian consent can carry the transfer consent; whether the DPO must be in Oman.
 10. DPO requirement (GDPR Art 37(1)(b), Saudi, Oman) and EU/UK representative appointment.
-11. Anthropic's current API retention terms and zero-data-retention eligibility; compliance with its minors
+11. Anthropic's zero-data-retention eligibility (the 30-day API default was confirmed 2 Oct 2026); compliance with its minors
     guidelines (age verification in particular).
 12. DSA: confirm hosting-service-only classification; content of the Terms of Service.
 

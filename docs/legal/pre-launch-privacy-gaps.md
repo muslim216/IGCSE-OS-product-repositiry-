@@ -31,7 +31,7 @@ Ranked by legal exposure: children's data first, then automated decisions about 
 | 13 | **Special-category guardrails in tutor notes** — warn tutors not to record health/SEN information, or add a structured field with explicit consent. | Product | EU/UK, UAE, KSA, Oman | GDPR Art 9; sensitive-data rules | Advised |
 | 14 | **Minimise what goes to the AI** — send page images and question context, not student names or ids. | Product | All | GDPR Art 5(1)(c); UAE MoE AI guide (signal) | Advised |
 | 15 | **Arabic version** of the privacy policy. | Paperwork | Oman (expected), all GCC (advised) | Oman PDPL practice | Advised |
-| 16 | **Anthropic terms check** — current API retention (a September 2026 change was reported and could not be read), zero-data-retention eligibility, and compliance with the minors guidelines incl. age verification. | Paperwork | All | Anthropic AUP + commercial terms | **Yes** (contractual) |
+| 16 | **Anthropic terms check** — re-read the retention term at signature (the 30-day API default was confirmed unchanged by the Sep 2026 enterprise-only change), zero-data-retention eligibility, and compliance with the minors guidelines incl. age verification. | Paperwork | All | Anthropic AUP + commercial terms | **Yes** (contractual) |
 | 17 | **Access token out of `localStorage`** into memory, or a tighter CSP. | Product | All | GDPR Art 32 (security) | Advised |
 | 18 | **Terms of Service** incl. DSA points of contact and notice-and-action. | Paperwork | EU | DSA Arts 11–17 | **Yes** (EU) |
 | 19 | **AI Act high-risk readiness** for 2 Dec 2027: QMS, technical documentation, logging, human-oversight design, conformity assessment, EU authorised representative, registration. AI-literacy material for tutors now. | Product + paperwork | EU | AI Act Arts 4, 9–17, 22, 43–49, 72–73 | By Dec 2027 |
@@ -44,7 +44,7 @@ These are real strengths a lawyer will want to know about:
 - **Remarks always go to a person**, one per question, with the AI's reasoning attached (AI-15) — a working
   human-review route.
 - **Every tutor override is an append-only audit row** with no API to edit or delete it (PROD-7, AI-12).
-- **Low-confidence or scheme-less marks never count without the tutor** (AI-11, ADR-0009).
+- **Low-confidence or scheme-less marks never count without the tutor** (AI-12, ADR-0009).
 - **Missing data is shown as missing, never as zero** (PROD-2) — fairness and accuracy.
 - **Tenant isolation** by organization on every query (PROD-4, SEC-7), 404-not-403 on others' records (SEC-9).
 - **Passwords hashed with bcrypt**; refresh token in an httpOnly cookie; credential invalidation via

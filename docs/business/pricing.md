@@ -43,7 +43,9 @@ At $5 per student the gross margin on AI cost is roughly 50–60%; the founding 
 ($3 per student) runs close to break-even on heavy users, which is accepted for the first year.
 
 **These are estimates.** During the pilot, fill `AI_MODEL_PRICING` so `ai_usage_events`
-records real `cost_usd` per call (`AI-17`), then revisit the price against measured cost per
+records a `cost_usd` per call (`AI-17`). That figure is computed from the call's measured
+token counts and the configured rates — still an estimate of spend, not a bill — so reconcile
+it each month against the Anthropic invoice before revisiting the price against cost per
 active student. Moving marking to Sonnet would cut cost by about 60%, but only if an eval shows
 marking quality holds.
 

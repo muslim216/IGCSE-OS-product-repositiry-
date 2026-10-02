@@ -322,9 +322,9 @@ student's own grades and topics only; no classmate's value appears in any state 
 | State | Predicted / Averaging | Explanation | Your progress | WHY |
 |---|---|---|---|---|
 | No marked work | predicted if readiness exists; averaging *"no marked work yet"* | absent | absent | topics with `not enough data yet` |
-| Marked work, predicted > averaging | both | *"You're tracking above your recent average…"* | this month's own delta | topic list |
-| Marked work, predicted < averaging | both | *"Your recent work has been weaker than your record…"* | this month's own delta | topic list |
-| Predicted == averaging | both | *"Your recent work matches your record."* | this month's own delta | topic list |
+| Marked work, predicted > averaging | both | *"Your predicted grade is above the average of your marked work so far."* (full copy §4.5) | this month's own delta | topic list |
+| Marked work, predicted < averaging | both | *"Your predicted grade is below the average of your marked work so far."* (full copy §4.5) | this month's own delta | topic list |
+| Predicted == averaging | both | *"Your predicted grade matches the average of your marked work so far."* | this month's own delta | topic list |
 | Student joined mid-month | unchanged | unchanged | **absent** — stated as too new to compare, never a fabricated delta | unchanged |
 | One month of history only | unchanged | unchanged | absent | unchanged |
 | No boundaries for the subject | *"no grade boundaries set"*, no grade | absent | unchanged | unchanged |

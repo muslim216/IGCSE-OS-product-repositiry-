@@ -240,7 +240,7 @@ Alongside `ui.tsx`, two files carry the page and form vocabulary (detail in §03
 | `ErrorState` / `NotFoundState` / `NotFoundPage` | A failure says what happened in plain words and offers a retry or a way back; unknown URLs get a real 404 |
 | `ConfirmDialog` | Destructive confirmations use `Modal`, never the browser's `window.confirm` |
 | `Button` / `buttonClasses` (`controls.tsx`) | Four variants — primary, secondary, ghost, danger — and three sizes. **One primary per area; Cancel is never primary** |
-| `Field` | Associates its label with the control by id and wires hint/error to `aria-describedby` (UX-10, WCAG 1.3.1) |
+| `Field` | Associates its label with the control by id and wires hint/error to `aria-describedby` (UX-12, WCAG 1.3.1) |
 | `FileInput` | A branded picker over a visually-hidden native input — keyboard and screen-reader behaviour unchanged |
 
 `ReadinessStatus` is the union `"on_track" | "needs_attention" | "at_risk"`, with
