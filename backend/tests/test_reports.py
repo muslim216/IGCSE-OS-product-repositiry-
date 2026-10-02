@@ -652,6 +652,10 @@ async def test_an_admin_cannot_read_a_report_another_organization_generated(
     monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
     rival = await _rival_physics_class(client, world["student_id"])
     ours = await _generate(client, tutor, world)
+    # Generated before the promotion, so the admin has a report of their own
+    # organization's to see: without it an empty list would also pass if the
+    # admin branch hid every report.
+    theirs = await _generate(client, rival, world)
     # The rival tutor's token, with the account promoted: role is read per request.
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.email == "rival@example.com"))
@@ -662,7 +666,9 @@ async def test_an_admin_cannot_read_a_report_another_organization_generated(
         f"/api/v1/reports?student_id={world['student_id']}", headers=rival["headers"]
     )
     assert listing.status_code == 200, listing.text
-    assert listing.json() == []
+    assert [r["id"] for r in listing.json()] == [theirs["id"]]
+    detail = await client.get(f"/api/v1/reports/{theirs['id']}", headers=rival["headers"])
+    assert detail.status_code == 200, detail.text
     detail = await client.get(f"/api/v1/reports/{ours['id']}", headers=rival["headers"])
     assert detail.status_code == 404, detail.text
 
