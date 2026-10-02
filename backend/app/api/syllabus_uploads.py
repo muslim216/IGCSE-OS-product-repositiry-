@@ -25,6 +25,13 @@ async def _owned_upload(db, user: User, upload_id: int) -> SyllabusUpload:
     upload = await db.get(SyllabusUpload, upload_id)
     if upload is None or (upload.tutor_id != user.id and user.role != UserRole.admin):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Syllabus upload not found")
+    if upload.tutor_id != user.id:
+        # An admin reaching a colleague's upload. The row carries no
+        # organization of its own, so the tenant is the uploading tutor's: wider
+        # reach inside the organization, not across organizations (`SEC-7`).
+        owner = await db.get(User, upload.tutor_id)
+        if owner is None or owner.organization_id != user.organization_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Syllabus upload not found")
     return upload
 
 
@@ -69,6 +76,12 @@ async def list_syllabus_uploads(db: DbSession, user: TutorUser) -> list[Syllabus
     query = select(SyllabusUpload).order_by(SyllabusUpload.created_at.desc())
     if user.role != UserRole.admin:
         query = query.where(SyllabusUpload.tutor_id == user.id)
+    else:
+        # Every upload in the admin's own organization, never another's
+        # (`SEC-7`). The tenant is the uploading tutor's — the row has none.
+        query = query.join(User, User.id == SyllabusUpload.tutor_id).where(
+            User.organization_id == user.organization_id
+        )
     rows = (await db.scalars(query)).all()
     return [
         SyllabusUploadOut(

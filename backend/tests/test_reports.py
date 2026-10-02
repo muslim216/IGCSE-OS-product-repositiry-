@@ -2,7 +2,7 @@ import pytest
 
 from app.db import async_session
 from app.workers.jobs import process_one_job
-from tests.factories import subject_defaults
+from tests.factories import subject_defaults, subject_for_tutor, write_v2_snapshot
 
 
 @pytest.fixture
@@ -35,6 +35,13 @@ async def world(client, tutor):
             headers=tutor["headers"],
         )
     ).json()
+    # One scored run, so there is something to report: a student with no score,
+    # no marked work and no homework is refused before the model is asked.
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session, student_id=student["id"], subject_id=subject_id, score=72.0
+        )
+        await session.commit()
     # Link a parent.
     code = (
         await client.post(f"/api/v1/students/{student['id']}/parent-code", headers=tutor["headers"])
@@ -257,11 +264,344 @@ def test_criteria_section_keeps_to_the_reports_subject():
         (physics, CustomCriterionScore(score=40)),
     ]
 
-    one = criteria_section(rows, subject_id=1)
+    names = {1: "Chemistry", 2: "Physics"}
+    one = criteria_section(rows, 1, names)
     assert "- Confidence: Not scored" in one
     # Zero is a score, not an absence.
-    assert "- Practicals: 0 / 100 (tutor-entered)" in one
+    assert "- Practicals (Chemistry): 0 / 100 (tutor-entered)" in one
     assert "Graphs" not in one
-    assert "- Graphs: 40 / 100 (tutor-entered)" in criteria_section(rows, subject_id=None)
-    assert criteria_section([], subject_id=None) == ""
-    assert criteria_section([(physics, None)], subject_id=1) == ""
+    assert "- Graphs (Physics): 40 / 100 (tutor-entered)" in criteria_section(rows, None, names)
+    assert criteria_section([], None, names) == ""
+    assert criteria_section([(physics, None)], 1, names) == ""
+
+
+def test_a_subject_criterion_names_its_subject():
+    # Two subject-specific "Effort" criteria are otherwise the same line twice.
+    from app.models import CustomCriterion, CustomCriterionScore
+    from app.services.reports import criteria_section
+
+    rows = [
+        (CustomCriterion(name="Effort", subject_id=1), CustomCriterionScore(score=70)),
+        (CustomCriterion(name="Effort", subject_id=2), None),
+        (CustomCriterion(name="Confidence", subject_id=None), None),
+    ]
+    # A subject name is tutor-typed text landing in Markdown: one line only.
+    section = criteria_section(rows, None, {1: "Chemistry", 2: "Physics\n## Forged heading"})
+
+    assert "- Effort (Chemistry): 70 / 100 (tutor-entered)" in section
+    assert "- Effort (Physics ## Forged heading): Not scored" in section
+    assert "\n## Forged heading" not in section
+    # An account-wide criterion stays unlabelled.
+    assert "- Confidence: Not scored" in section
+
+
+async def test_report_labels_a_subject_criterion_with_its_subject(
+    client, tutor, world, monkeypatch
+):
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
+    enrolled = await client.post(
+        f"/api/v1/students/{world['student_id']}/subjects",
+        json={"subject_id": world["subject_id"]},
+        headers=tutor["headers"],
+    )
+    assert enrolled.status_code in (200, 201), enrolled.text
+    created = await client.post(
+        "/api/v1/custom-criteria",
+        json={"name": "Effort", "subject_id": world["subject_id"]},
+        headers=tutor["headers"],
+    )
+    assert created.status_code == 201, created.text
+
+    content = (await _generate(client, tutor, world))["content"]
+    assert "- Effort (Chemistry): Not scored" in content
+
+
+# ---- Nothing to report (phase 5 sweep, F6a) ----
+#
+# Report subjects come from class membership. A subject the student is only
+# CRM-enrolled in has no facts, and the model used to be asked to write a
+# report from "Student: Sara" alone.
+
+
+def _refusing_text_complete():
+    async def _call(**kwargs):
+        raise AssertionError("the model must not be asked to write a report from nothing")
+
+    return _call
+
+
+async def _physics_without_a_class(student_id: int) -> int:
+    from app.models import StudentSubject, Subject
+
+    async with async_session() as session:
+        physics = Subject(
+            **await subject_defaults(session),
+            exam_board="Edexcel IGCSE",
+            code="4PH1",
+            name="Physics",
+            grade_scale="9-1",
+        )
+        session.add(physics)
+        await session.flush()
+        session.add(StudentSubject(student_id=student_id, subject_id=physics.id))
+        await session.commit()
+        return physics.id
+
+
+async def test_a_subject_with_no_class_is_refused_before_anything_is_queued(
+    client, tutor, world, monkeypatch
+):
+    monkeypatch.setattr("app.services.reports.text_complete", _refusing_text_complete())
+    physics_id = await _physics_without_a_class(world["student_id"])
+
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": world["student_id"], "audience": "parent", "subject_id": physics_id},
+        headers=tutor["headers"],
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == (
+        "This student isn't in a class for that subject yet, so there is nothing to report."
+    )
+    # No report row and no job: nothing sits in "generating".
+    assert await process_one_job() is False
+    listing = await client.get(
+        f"/api/v1/reports?student_id={world['student_id']}", headers=tutor["headers"]
+    )
+    assert listing.json() == []
+
+
+async def test_a_report_whose_class_vanished_fails_with_the_reason_and_no_model_call(
+    client, tutor, world, monkeypatch
+):
+    # Queued while the student was in the class, run after they left it: the
+    # handler re-reads current state (BE-9) and must not write from nothing.
+    from sqlalchemy import delete, select
+
+    from app.models import GroupMember, Job, Report
+
+    monkeypatch.setattr("app.services.reports.text_complete", _refusing_text_complete())
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={
+            "student_id": world["student_id"],
+            "audience": "parent",
+            "subject_id": world["subject_id"],
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    async with async_session() as session:
+        await session.execute(
+            delete(GroupMember).where(GroupMember.student_id == world["student_id"])
+        )
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        # Permanent, not transient: the job is finished, not held for a retry
+        # that would ask the same question again in a minute.
+        assert [job.status.value for job in (await session.scalars(select(Job))).all()] == ["done"]
+        report = await session.get(Report, resp.json()["id"])
+        assert report.status.value == "failed"
+        assert report.content is None
+        assert report.error == (
+            "This student isn't in a class for that subject yet, so there is nothing to report."
+        )
+
+
+# ---- Not enough data yet (phase 5 sweep) ----
+#
+# In a class, but with no readiness score, no marked work and no homework: the
+# facts block was "No readiness data yet" and the model wrote a report from it.
+
+NOT_ENOUGH = (
+    "Not enough data yet: this student has no readiness score, marked work or "
+    "homework to report on."
+)
+
+
+async def test_a_student_with_no_data_is_refused_before_anything_is_queued(
+    client, tutor, world, monkeypatch
+):
+    monkeypatch.setattr("app.services.reports.text_complete", _refusing_text_complete())
+    blank = await client.post(
+        f"/api/v1/groups/{world['group']['id']}/students",
+        json={"name": "Lina", "username": "lina01", "password": "password123"},
+        headers=tutor["headers"],
+    )
+    assert blank.status_code == 201, blank.text
+
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": blank.json()["id"], "audience": "parent"},
+        headers=tutor["headers"],
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"] == NOT_ENOUGH
+    assert await process_one_job() is False
+
+
+async def test_a_report_whose_data_vanished_fails_with_the_reason_and_no_model_call(
+    client, tutor, world, monkeypatch
+):
+    from sqlalchemy import delete, select
+
+    from app.models import Job, ReadinessSnapshot, Report
+
+    monkeypatch.setattr("app.services.reports.text_complete", _refusing_text_complete())
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": world["student_id"], "audience": "parent"},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    async with async_session() as session:
+        await session.execute(delete(ReadinessSnapshot))
+        await session.commit()
+
+    assert await process_one_job() is True
+
+    async with async_session() as session:
+        assert [job.status.value for job in (await session.scalars(select(Job))).all()] == ["done"]
+        report = await session.get(Report, resp.json()["id"])
+        assert report.status.value == "failed"
+        assert report.content is None
+        assert report.error == NOT_ENOUGH
+
+
+# ---- Re-running a finished report (BE-6) ----
+
+
+async def test_rerunning_a_ready_report_does_not_call_the_model_again(
+    client, tutor, world, monkeypatch
+):
+    from app.models import Report
+    from app.services.reports import generate_report
+
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
+    first = await _generate(client, tutor, world)
+
+    monkeypatch.setattr("app.services.reports.text_complete", _refusing_text_complete())
+    async with async_session() as session:
+        await generate_report(session, {"report_id": first["id"]})
+        await session.commit()
+        report = await session.get(Report, first["id"])
+        assert report.status.value == "ready"
+        assert report.content == first["content"]
+
+
+# ---- A student who also sits in a second organization's class ----
+#
+# Subjects and criteria are each one organization's. A report is written for
+# the tutor who asked for it, so it covers their classes and their criteria.
+
+
+async def _rival_physics_class(client, student_id: int) -> dict:
+    """A second tenant teaching this student Physics, with a scored run."""
+    from app.models import GroupMember
+
+    resp = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Rival", "email": "rival@example.com", "password": "password123"},
+    )
+    assert resp.status_code == 201, resp.text
+    headers = {"Authorization": f"Bearer {resp.json()['tokens']['access_token']}"}
+    async with async_session() as session:
+        physics = await subject_for_tutor(session, "rival@example.com", code="4PH1", name="Physics")
+        await session.commit()
+        physics_id = physics.id
+    group = await client.post(
+        "/api/v1/groups", json={"name": "Phys", "subject_id": physics_id}, headers=headers
+    )
+    assert group.status_code == 201, group.text
+    async with async_session() as session:
+        session.add(GroupMember(group_id=group.json()["id"], student_id=student_id))
+        await write_v2_snapshot(session, student_id=student_id, subject_id=physics_id, score=55.0)
+        await session.commit()
+    return {"headers": headers, "subject_id": physics_id}
+
+
+async def test_an_all_subjects_report_keeps_to_the_generating_tutors_classes(
+    client, tutor, world, monkeypatch
+):
+    calls: list[dict] = []
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete(calls))
+    rival = await _rival_physics_class(client, world["student_id"])
+
+    await _generate(client, tutor, world)
+    [call] = calls
+    assert "## Chemistry" in call["prompt"]
+    assert "Physics" not in call["prompt"]
+
+    calls.clear()
+    await _generate(client, rival, world)
+    [call] = calls
+    assert "## Physics" in call["prompt"]
+    assert "Chemistry" not in call["prompt"]
+
+
+async def test_another_organizations_subject_cannot_be_named_for_a_shared_student(
+    client, tutor, world, monkeypatch
+):
+    """QA-12: the student really is in that Physics class — it is just not ours."""
+    monkeypatch.setattr("app.services.reports.text_complete", _refusing_text_complete())
+    rival = await _rival_physics_class(client, world["student_id"])
+
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={
+            "student_id": world["student_id"],
+            "audience": "parent",
+            "subject_id": rival["subject_id"],
+        },
+        headers=tutor["headers"],
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert await process_one_job() is False
+
+
+async def test_a_report_lists_the_generating_tutors_criteria_not_the_home_organizations(
+    client, tutor, world, monkeypatch
+):
+    monkeypatch.setattr("app.services.reports.text_complete", _capturing_text_complete([]))
+    home = await client.post(
+        "/api/v1/custom-criteria", json={"name": "Home effort"}, headers=tutor["headers"]
+    )
+    assert home.status_code == 201, home.text
+    scored = await client.put(
+        f"/api/v1/students/{world['student_id']}/custom-criteria/{home.json()['id']}",
+        json={"score": 70},
+        headers=tutor["headers"],
+    )
+    assert scored.status_code == 200, scored.text
+    rival = await _rival_physics_class(client, world["student_id"])
+    theirs = await client.post(
+        "/api/v1/custom-criteria", json={"name": "Rival effort"}, headers=rival["headers"]
+    )
+    assert theirs.status_code == 201, theirs.text
+
+    content = (await _generate(client, rival, world))["content"]
+
+    assert "- Rival effort: Not scored" in content
+    assert "Home effort" not in content
+    assert "70 / 100" not in content
+    # And the home tutor's report is unchanged by the rival's criteria.
+    content = (await _generate(client, tutor, world))["content"]
+    assert "- Home effort: 70 / 100 (tutor-entered)" in content
+    assert "Rival effort" not in content
+    # Each report's AI cost is metered to the organization that asked for it.
+    from sqlalchemy import select
+
+    from app.models import AiUsageEvent, User
+
+    async with async_session() as session:
+        events = (await session.scalars(select(AiUsageEvent))).all()
+        assert len(events) == 2
+        for event in events:
+            asker = await session.get(User, event.tutor_id)
+            assert event.organization_id == asker.organization_id

@@ -231,6 +231,11 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
               </li>
             ))}
           </ul>
+          {/* A student's own weak topics also count low-confidence marks, so
+              the two lists can differ. */}
+          <p className="mt-2 text-xs text-ink-500">
+            Class averages count medium- and high-confidence marks only.
+          </p>
         </section>
       )}
 

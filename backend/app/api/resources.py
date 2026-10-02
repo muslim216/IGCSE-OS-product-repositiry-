@@ -18,7 +18,10 @@ async def _can_view_group(db, user: User, group_id: int) -> Group:
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     if user.role in (UserRole.tutor, UserRole.admin):
-        if group.tutor_id != user.id and user.role != UserRole.admin:
+        # The organization binds first, admins included (`SEC-7`).
+        if group.organization_id != user.organization_id or (
+            group.tutor_id != user.id and user.role != UserRole.admin
+        ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
         return group
     is_member = await db.scalar(
@@ -130,7 +133,16 @@ async def delete_resource(resource_id: int, db: DbSession, user: CurrentUser) ->
     resource = await db.get(GroupResource, resource_id)
     if resource is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    if resource.tutor_id != user.id and user.role != UserRole.admin:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if resource.tutor_id != user.id:
+        # Only an admin may delete a colleague's resource, and only inside
+        # their own organization (`SEC-7`) — which is the group's, since the
+        # resource row carries none.
+        group = await db.get(Group, resource.group_id)
+        if (
+            user.role != UserRole.admin
+            or group is None
+            or group.organization_id != user.organization_id
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await db.delete(resource)
     await db.commit()

@@ -4624,6 +4624,8 @@ export interface components {
             description: string | null;
             /** Subject Id */
             subject_id: number | null;
+            /** Subject Name */
+            subject_name?: string | null;
             /** Score */
             score: number | null;
             /** Updated At */
@@ -5237,6 +5239,8 @@ export interface components {
             weak_students: components["schemas"]["WeakStudent"][];
             /** Weak Topics */
             weak_topics: components["schemas"]["TopicHeat"][];
+            /** Topic Mean Count */
+            topic_mean_count: number;
             agreement: components["schemas"]["AgreementStats"];
         };
         /** TutorNoteCreate */

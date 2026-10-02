@@ -30,7 +30,12 @@ def _out(entry: KnowledgeEntry) -> KnowledgeEntryOut:
 async def _owned_entry(db: DbSession, user: User, entry_id: int) -> KnowledgeEntry:
     assert_tutor(user)
     entry = await db.get(KnowledgeEntry, entry_id)
-    if entry is None or (entry.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization binds first, admins included (`SEC-7`).
+    if (
+        entry is None
+        or entry.organization_id != user.organization_id
+        or (entry.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Knowledge entry not found")
     return entry
 

@@ -9,7 +9,13 @@ engine reads none of these tables. Unscored is absent (null), never 0
 from sqlalchemy import select
 
 from app.db import async_session
-from app.models import CustomCriterionScore, CustomCriterionScoreAudit
+from app.models import (
+    CustomCriterion,
+    CustomCriterionScore,
+    CustomCriterionScoreAudit,
+    GroupMember,
+    Subject,
+)
 from tests.factories import make_subject, other_org_subject, subject_for_tutor
 from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 
@@ -76,7 +82,12 @@ async def _rival(client) -> dict:
             headers=headers,
         )
     ).json()
-    return {"headers": headers, "subject_id": subject_id, "student_id": student["id"]}
+    return {
+        "headers": headers,
+        "subject_id": subject_id,
+        "group_id": group["id"],
+        "student_id": student["id"],
+    }
 
 
 # ---- Criteria ----
@@ -166,6 +177,20 @@ async def test_a_subject_criterion_applies_only_to_enrolled_students(client, tut
     await _enroll(client, tutor["headers"], world["student_id"], world["subject_id"])
     listed = (await client.get(url, headers=tutor["headers"])).json()
     assert [c["criterion_id"] for c in listed] == [criterion["id"]]
+    # Two subject-specific criteria can share a name, so each row says which
+    # subject it is for; an account-wide one has none to name.
+    async with async_session() as session:
+        subject_name = (await session.get(Subject, world["subject_id"])).name
+    assert listed[0]["subject_name"] == subject_name
+    scored = await client.put(
+        _scores_url(world["student_id"], criterion["id"]),
+        json={"score": 50},
+        headers=tutor["headers"],
+    )
+    assert scored.json()["subject_name"] == subject_name
+    everywhere = await _create(client, tutor["headers"], name="Focus")
+    listed = (await client.get(url, headers=tutor["headers"])).json()
+    assert {c["criterion_id"]: c["subject_name"] for c in listed}[everywhere["id"]] is None
 
 
 async def test_a_criterion_for_another_subject_does_not_apply(client, tutor, world):  # noqa: F811
@@ -331,6 +356,48 @@ async def test_a_student_the_tutor_does_not_teach_is_not_found(client, tutor, wo
     assert await _audit(rival["student_id"], mine["id"]) == []
 
 
+async def test_a_tutor_sharing_a_student_reads_their_own_criteria_not_the_home_ones(
+    client,
+    tutor,
+    world,  # noqa: F811
+):
+    """A student homed here also sits in a rival organization's class. The
+    rival's tutor may open them — and must be shown the rival's criteria, never
+    this organization's criteria and the scores given on them."""
+    mine = await _create(client, tutor["headers"], name="Home effort")
+    resp = await client.put(
+        _scores_url(world["student_id"], mine["id"]), json={"score": 70}, headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    rival = await _rival(client)
+    await _create(client, rival["headers"], name="Rival effort")
+    async with async_session() as session:
+        session.add(GroupMember(group_id=rival["group_id"], student_id=world["student_id"]))
+        await session.commit()
+
+    async def seen(headers) -> list[tuple[str, int | None]]:
+        resp = await client.get(_scores_url(world["student_id"]), headers=headers)
+        assert resp.status_code == 200, resp.text
+        return [(row["name"], row["score"]) for row in resp.json()]
+
+    assert await seen(rival["headers"]) == [("Rival effort", None)]
+    assert await seen(tutor["headers"]) == [("Home effort", 70)]
+    # The student reads their own organization's, as before.
+    assert await seen(world["student_headers"]) == [("Home effort", 70)]
+
+
+async def test_subject_names_keeps_to_one_organization():
+    from app.services.custom_criteria import subject_names
+
+    async with async_session() as session:
+        mine = await make_subject(session)
+        theirs = await other_org_subject(session, code="9RIV", name="Rival Physics")
+        criteria = [CustomCriterion(subject_id=mine.id), CustomCriterion(subject_id=theirs.id)]
+        assert await subject_names(session, criteria, mine.organization_id) == {
+            mine.id: "Chemistry"
+        }
+
+
 async def _parent_of(client, tutor_headers, student_id: int, email: str) -> dict:
     code = (
         await client.post(f"/api/v1/students/{student_id}/parent-code", headers=tutor_headers)
@@ -385,7 +452,7 @@ async def test_nobody_reads_another_familys_scores(client, tutor, world):  # noq
     # Another student, and a parent linked only to another student.
     for headers in (other["headers"], other_parent):
         resp = await client.get(_scores_url(world["student_id"]), headers=headers)
-        assert resp.status_code in (403, 404), resp.text
+        assert resp.status_code == 404, resp.text
 
 
 async def test_students_and_parents_cannot_manage_or_score(client, tutor, world):  # noqa: F811

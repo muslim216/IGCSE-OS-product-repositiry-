@@ -107,34 +107,12 @@ export interface SubjectTrend {
   points: TrendPoint[];
 }
 
-export interface WeakStudent {
-  student_id: number;
-  student_name: string;
-  subject_name: string;
-  score: number;
-}
-
-export interface TopicHeat {
-  topic_code: string;
-  topic_title: string;
-  avg_score: number;
-  student_count: number;
-  /** True when any contributing learner's score rests on a tutor's estimate
-      rather than marked work alone (fix round 1, PROD-8, UX-20). */
-  includes_tutor_estimate: boolean;
-}
-
-export interface AgreementStats {
-  total_marked_questions: number;
-  ai_agreed: number;
-  agreement_rate: number | null;
-}
-
-export interface TutorAnalytics {
-  weak_students: WeakStudent[];
-  weak_topics: TopicHeat[];
-  agreement: AgreementStats;
-}
+// Aliases of the generated schema, never hand-written copies (FE-4): a
+// hand-written TutorAnalytics here once hid a new response field from the page.
+export type WeakStudent = components["schemas"]["WeakStudent"];
+export type TopicHeat = components["schemas"]["TopicHeat"];
+export type AgreementStats = components["schemas"]["AgreementStats"];
+export type TutorAnalytics = components["schemas"]["TutorAnalytics"];
 
 export interface AssessmentScoreIn {
   student_id: number;

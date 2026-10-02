@@ -190,3 +190,31 @@ test("a class weak topic from marked work alone carries no estimate label", asyn
   await screen.findByText("1.3 Atomic structure");
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
 });
+
+const CONFIDENCE_NOTE = "Class averages count medium- and high-confidence marks only.";
+
+test("the class weak-topic list says which marks the class average counts", async () => {
+  stubFetch({
+    ...BASE,
+    weak_topics: [
+      {
+        topic_code: "1.3",
+        topic_title: "Atomic structure",
+        avg_score: 40,
+        student_count: 2,
+        includes_tutor_estimate: false,
+      },
+    ],
+  });
+  renderPanel();
+
+  expect(await screen.findByText(CONFIDENCE_NOTE)).toBeInTheDocument();
+});
+
+test("no class weak-topic list renders no note about it", async () => {
+  stubFetch({ ...BASE, learners: [learner()] });
+  renderPanel();
+
+  await screen.findByText("Sara");
+  expect(screen.queryByText(CONFIDENCE_NOTE)).not.toBeInTheDocument();
+});

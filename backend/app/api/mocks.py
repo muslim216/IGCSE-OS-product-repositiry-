@@ -90,6 +90,9 @@ async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = Fals
     if mock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     if user.role == UserRole.admin:
+        # Wider reach inside their organization, not across organizations (`SEC-7`).
+        if mock.organization_id != user.organization_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
     if user.role == UserRole.tutor:
         # 404, not 403: integer keys are enumerable, and "exists but not yours"

@@ -60,7 +60,7 @@ log = logging.getLogger("readiness_v2_ai")
 # here and re-exported so the existing readers that import it from this module
 # keep working. Declared in __all__ so the re-export is intentional and a lint
 # pass that strips "unused" imports cannot silently break those readers
-# (CodeRabbit) — even though line 238 also uses it directly today.
+# (CodeRabbit) — even though _synthesize_subject also uses it directly today.
 # DEFAULT_WEIGHTS and FACTOR_WEIGHT_ATTR moved to services/readiness_config.py
 # with the resolver in task 5.4a; re-exported on the same reasoning.
 __all__ = ["DEFAULT_WEIGHTS", "FACTOR_WEIGHT_ATTR", "resolve_grade_boundaries"]
@@ -137,9 +137,10 @@ async def enqueue_v2_shadow(
 
 # Max points the AI's synthesized score may diverge from the weighted average
 # of the deterministic factor scores before it is pulled back in line. The
-# prompt tells the model the six factor scores are "not permitted to
-# contradict" — this is what makes that a constraint the code enforces,
-# rather than only a request the model can ignore.
+# prompt does not ask the model to stay near them, and would not be trusted
+# to if it did: the code clamps the model's score to the weighted reference
+# (_enforce_factor_score_constraint), so agreement with Layer 1 is a
+# constraint that is enforced rather than a request the model can ignore.
 SCORE_CONTRADICTION_TOLERANCE = 10.0
 
 # The prompt also tells the model a low-confidence factor should carry less
@@ -163,11 +164,11 @@ def _weighted_reference_score(
     the model: one score per factor, not per row. evaluate_subject_factors()
     persists Topic Mastery as one row per topic but every other factor as a
     single subject-level row — averaging over rows unweighted would let Topic
-    Mastery outvote the other five by however many topics the subject has.
-    Collapsing to one mean score per factor first (and damping by that
-    factor's weakest confidence) keeps the six factors the prompt actually
-    describes equally able to veto the AI's score, not "however many rows
-    happen to exist".
+    Mastery outvote the other enabled factors by however many topics the
+    subject has. Collapsing to one mean score per factor first (and damping by
+    that factor's weakest confidence) keeps the enabled factors — the ones the
+    prompt actually lists — equally able to veto the AI's score, not "however
+    many rows happen to exist".
 
     None when no factor has a score, or every scored one weighs 0 — synthesis
     treats that as "not enough data yet" and never calls the model (5.5)."""
@@ -257,16 +258,23 @@ async def _synthesize_subject(
     if subject is None:
         return
 
+    # Resolved once, before Layer 1: the half-life is a Layer 1 input, and the
+    # weights and switches below must come from the same read of the row.
+    config = await resolve_readiness_config(session, student.organization_id, subject_id)
     evaluation_run_id = str(uuid.uuid4())
     factor_rows = await evaluate_subject_factors(
-        session, student.id, subject_id, evaluation_run_id, now
+        session,
+        student.id,
+        subject_id,
+        evaluation_run_id,
+        now,
+        half_life_days=config.half_life_days,
     )
     # A factor the tutor switched off is still computed and stored above — the
     # run stays reconstructable, and switching it back on needs no backfill —
     # but it is removed here, once, so nothing below sees it: not the prompt,
     # not the weighted reference, not the "no evidence" check. Sending it with
     # weight 0 instead would still put its number in front of the model.
-    config = await resolve_readiness_config(session, student.organization_id, subject_id)
     factor_rows = [row for row in factor_rows if row.factor in config.enabled]
 
     # No reference means nothing to hold the model's score to: no factor has

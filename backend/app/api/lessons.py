@@ -29,7 +29,13 @@ router = APIRouter(prefix="/lessons", tags=["lessons"])
 async def _owned_group(db: AsyncSession, user: User, group_id: int) -> Group:
     assert_tutor(user)
     group = await db.get(Group, group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization check binds first and applies to admins too: an admin has
+    # wider reach inside their organization, not across organizations (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     return group
 
@@ -40,7 +46,13 @@ async def _owned_lesson(db: AsyncSession, user: User, lesson_id: int) -> Lesson:
     if lesson is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")
     group = await db.get(Group, lesson.group_id)
-    if group is None or (group.tutor_id != user.id and user.role != UserRole.admin):
+    # The organization check binds first and applies to admins too: an admin has
+    # wider reach inside their organization, not across organizations (`SEC-7`).
+    if (
+        group is None
+        or group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found")
     return lesson
 

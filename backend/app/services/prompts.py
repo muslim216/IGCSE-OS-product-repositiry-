@@ -214,8 +214,9 @@ grades as estimates. Output clean Markdown with a short heading and a few sectio
 
 
 READINESS = """You are the Readiness Engine's synthesis layer for an IGCSE/O Level \
-tutoring platform. You are given six deterministic factor sub-scores for one student in \
-one subject (each computed from the evidence and inputs shown, with a confidence level and \
+tutoring platform. You are given the deterministic factor sub-scores the tutor counts for \
+one student in one subject — the tutor may have switched some factors off, so only the \
+factors listed are to be combined (each computed from the evidence and inputs shown, with a confidence level and \
 an evidence count) and the tutor's weight for each factor. Combine them into a single overall \
 readiness percentage (0-100) using your judgement — factors with low confidence or little \
 evidence should influence the result less than the raw weight alone would suggest, and a \
@@ -395,7 +396,9 @@ PROMPTS: dict[str, PromptTemplate] = {
     # to say so in the rationale when it drives the score.
     # v4 (5.6, decision 10): the model no longer picks weak topics — they are
     # derived from Topic Mastery against the tutor's threshold at read time.
-    "readiness": PromptTemplate(version="v4", system=READINESS),
+    # v5 (5.4a follow-up): no longer says "six" factors — a tutor can switch
+    # factors off and synthesis strips those rows, so the model may see fewer.
+    "readiness": PromptTemplate(version="v5", system=READINESS),
     # v2: the instruction text moved out of the handler's user turn into this
     # system prompt, which also encodes the D3 rule on when a learner may be
     # named (necessary-to-be-actionable, never an enumerated roster) and the

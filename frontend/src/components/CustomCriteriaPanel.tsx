@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   clearCriterionScore,
@@ -90,14 +90,32 @@ function CriterionRow({
 
   const value = Number(draft);
   const valid = draft.trim() !== "" && Number.isInteger(value) && value >= 0 && value <= 100;
+  // Each resets the other as it starts (below), so this is whichever failed
+  // last — not a stale save error sitting in front of a newer clear error.
   const error = save.error ?? clear.error;
   const busy = save.isPending || clear.isPending;
+  const canSave = valid && !busy && value !== row.score;
+  // A form, so Enter in the score box saves — and guarded here as well as on
+  // the button, because Enter submits whether or not Save is disabled.
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!canSave) return;
+    clear.reset();
+    save.mutate(value);
+  };
 
   return (
     <li className="py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-ink-900">{row.name}</p>
+          <p className="text-sm font-medium text-ink-900">
+            {row.name}
+            {/* Only a subject-scoped criterion says which subject: two of them
+                may share a name, and an account-wide one has none to give. */}
+            {row.subject_name && (
+              <span className="ml-2 text-xs font-normal text-ink-500">{row.subject_name}</span>
+            )}
+          </p>
           {row.description && <p className="text-xs text-ink-500">{row.description}</p>}
         </div>
         <div className="flex items-center gap-2">
@@ -110,7 +128,7 @@ function CriterionRow({
         </div>
       </div>
       {editable && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <form onSubmit={submit} className="mt-2 flex flex-wrap items-center gap-2">
           <input
             type="number"
             min={0}
@@ -122,10 +140,9 @@ function CriterionRow({
             className="w-20 rounded-md border border-line-control bg-canvas px-2 py-1 text-sm text-ink-900"
           />
           <button
-            type="button"
+            type="submit"
             aria-label={`Save score for ${row.name}`}
-            disabled={!valid || busy || value === row.score}
-            onClick={() => save.mutate(value)}
+            disabled={!canSave}
             className="rounded-md bg-brand-600 px-3 py-1 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
           >
             Save
@@ -135,7 +152,10 @@ function CriterionRow({
               type="button"
               aria-label={`Clear score for ${row.name}`}
               disabled={busy}
-              onClick={() => clear.mutate()}
+              onClick={() => {
+                save.reset();
+                clear.mutate();
+              }}
               className="text-sm font-medium text-ink-500 hover:text-ink-700 disabled:opacity-50"
             >
               Clear
@@ -146,7 +166,7 @@ function CriterionRow({
               {error.message || ABSENT.loadFailed}
             </p>
           )}
-        </div>
+        </form>
       )}
     </li>
   );

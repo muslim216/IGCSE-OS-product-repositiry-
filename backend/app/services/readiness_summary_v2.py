@@ -133,10 +133,11 @@ async def _subject_from_snapshot(
         if r.factor == ReadinessFactor.topic_mastery and r.topic_id is not None
     ]
     # The homework_performance row is subject-level (topic_id IS NULL) and
-    # always exists for a v2-computed run — even the "no evidence yet" run
-    # (readiness_v2_ai.py ~:288) persists it before checking whether every
-    # factor came back with no score, so completion is a fact this profile can
-    # show even when the headline score itself is absent (PROD-2).
+    # always exists for a v2-computed run — even the "not enough data yet"
+    # run: readiness_v2_ai._synthesize_subject persists the factor rows first
+    # and only then finds it has no usable weighted reference
+    # (_weighted_reference_score is None), so completion is a fact this
+    # profile can show even when the headline score itself is absent (PROD-2).
     homework_row = next(
         (
             r

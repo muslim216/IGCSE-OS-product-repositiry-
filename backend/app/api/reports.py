@@ -15,6 +15,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.reports import ReportDetail, ReportGenerate, ReportOut
+from app.services.reports import NothingToReport, report_subjects, report_summary
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -35,9 +36,10 @@ ALLOWED_AUDIENCES = {
 
 
 async def _check_can_view_student(db: AsyncSession, viewer: User, student_id: int) -> None:
-    # Raises 403/404 if the viewer may not see this student's data.
+    # Raises 404 if the viewer may not see this student's data — never 403,
+    # which would confirm the id exists (`API-7`).
     if viewer.role == UserRole.student and viewer.id != student_id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     await visible_subject_ids(db, viewer, student_id)
 
 
@@ -57,6 +59,17 @@ async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> R
     if body.subject_id is not None:
         subject = await owned_subject(db, body.subject_id, user)
         subject_name = subject.name
+
+    # Refused here, before a row or a job exists, so the tutor reads why at once
+    # instead of watching "generating" turn into a failure. The handler checks
+    # again, because class membership can change before it runs. Scoped to
+    # what this tutor may see of the student, so "all subjects" never reaches
+    # a class the student sits in a second organization (`SEC-8`).
+    try:
+        subject_ids = await report_subjects(db, user, body.student_id, body.subject_id)
+        await report_summary(db, student, subject_ids)
+    except NothingToReport as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     title = f"{subject_name} — {audience.value} report ({datetime.now(timezone.utc):%d %b %Y})"
     report = Report(

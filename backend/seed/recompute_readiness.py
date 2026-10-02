@@ -1,4 +1,4 @@
-"""Queue a v2 readiness run for every (student, subject) that has evidence.
+"""Queue a v2 readiness run for every enrolled (student, subject).
 
 Usage (from backend/): python -m seed.recompute_readiness [--spacing SECONDS]
 
@@ -9,6 +9,12 @@ Phase 5's factor changes — existing snapshots keep reporting the old answer
 until something re-runs them. Nothing does that on its own: a run is normally
 triggered by new marks landing, and a student whose work is all marked already
 would never be recomputed.
+
+**Selection is by enrolment, not by evidence.** Before 5.5 (AV-36) a run with no
+evidence stored a score the model invented; the fix only applies to runs made
+after it, so the students who most need a fresh run are precisely the ones with
+no evidence to select them by. Their run makes no AI call — synthesis stops at
+"not enough data yet" before reaching the model.
 
 It queues jobs rather than computing inline, so every snapshot is written by
 the same handler the product uses (no second code path). An AI/provider
@@ -43,8 +49,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import async_session
-from app.models import Evidence, Topic
-from app.services.evidence import COUNTS_FOR_READINESS
+from app.models import Group, GroupMember
 from app.services.readiness_summary_v2 import _IN_FLIGHT
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced, in_flight_readiness_pairs
 
@@ -54,19 +59,21 @@ from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced, in_flig
 DEFAULT_SPACING_SECONDS = 30
 
 
-async def pairs_with_evidence(session) -> list[tuple[int, int]]:
-    """Every (student_id, subject_id) that has at least one piece of evidence.
+async def enrolled_pairs(session) -> list[tuple[int, int]]:
+    """Every (student_id, subject_id) a student is enrolled in, evidence or not.
 
-    Evidence hangs off a topic, not a subject, so the subject comes from the
-    topic's own row. Ordered so a re-run queues in the same sequence.
+    A pair with no evidence is included on purpose — see the module docstring.
+    Evidence in a subject the student is not enrolled in is left out: no screen
+    reads that pair, and `compute_readiness_v2`'s own "every subject" run draws
+    the same line. Distinct because two classes can share a subject; ordered so
+    a re-run queues in the same sequence.
     """
     rows = (
         await session.execute(
-            select(Evidence.student_id, Topic.subject_id)
-            .join(Topic, Topic.id == Evidence.topic_id)
-            .where(COUNTS_FOR_READINESS)
+            select(GroupMember.student_id, Group.subject_id)
+            .join(Group, Group.id == GroupMember.group_id)
             .distinct()
-            .order_by(Evidence.student_id, Topic.subject_id)
+            .order_by(GroupMember.student_id, Group.subject_id)
         )
     ).all()
     return [(student_id, subject_id) for student_id, subject_id in rows]
@@ -90,12 +97,9 @@ async def already_pending(session, pairs: list[tuple[int, int]]) -> set[tuple[in
     enrolled in (`compute_readiness_v2`'s own contract) — not just the one
     pair it happens to share a payload shape with — so it must count as
     covering every pair for that student, not just a (student_id, None) pair
-    that would never itself appear in `pairs`. **Known imprecision:** if the
-    student has evidence in a subject they've since left, a wildcard job
-    still marks that pair "covered" here even though the handler only
-    recomputes currently-enrolled subjects — an acceptable miss for a
-    backfill utility (it just skips a dropped subject), not a correctness
-    hazard.
+    that would never itself appear in `pairs`. That is exact, not an
+    approximation: `pairs` comes from `enrolled_pairs()`, which selects by the
+    same enrolment the wildcard handler recomputes.
 
     **Known race:** the check here and the later `enqueue_readiness_v2_debounced`
     insert are not one atomic transaction, so two runners started at the same
@@ -128,14 +132,17 @@ async def main(spacing_seconds: int = DEFAULT_SPACING_SECONDS) -> None:
         return
 
     async with async_session() as session:
-        pairs = await pairs_with_evidence(session)
+        pairs = await enrolled_pairs(session)
         if not pairs:
-            print("No evidence found — nothing to recompute.")
+            print("No enrolled students found — nothing to recompute.")
             return
 
         pending = await already_pending(session, pairs)
         todo = [pair for pair in pairs if pair not in pending]
 
+        # ponytail: each debounced enqueue re-reads every pending readiness job,
+        # so this loop is O(pairs²). Fine for a CLI run by hand; batch the
+        # in-flight read if the roster reaches the tens of thousands.
         for index, (student_id, subject_id) in enumerate(todo):
             await enqueue_readiness_v2_debounced(
                 session,
@@ -157,7 +164,9 @@ async def main(spacing_seconds: int = DEFAULT_SPACING_SECONDS) -> None:
         f"({spacing_seconds}s apart; the last fires in ~{last_run_minutes} min)."
     )
     if skipped:
-        message += f" Skipped {skipped} already queued."
+        # Named, not just counted: a pair skipped for a *running* job is never
+        # backfilled if that run then fails, and a count alone hides which.
+        message += f" Skipped {skipped} already queued: {sorted(pending)}."
     print(message)
 
 

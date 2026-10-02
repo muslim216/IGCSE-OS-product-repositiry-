@@ -43,6 +43,7 @@ from app.models import (
 )
 from app.services.evidence import COUNTS_FOR_READINESS
 from app.services.readiness_factors import (
+    HALF_LIFE_DAYS,
     AssessmentPoint,
     FactorResult,
     HomeworkPoint,
@@ -75,7 +76,15 @@ def _factor_row(
     result: FactorResult,
     topic_id: int | None = None,
     chapter_id: int | None = None,
+    half_life_days: float | None = None,
 ) -> FactorEvaluation:
+    # A factor that decays records the half-life it was scored with: the
+    # setting is the tutor's and can change, so without it a stored score
+    # cannot be traced to the decay that produced it (PROD-1). A copy — the
+    # shared NO_DATA result's detail must never be written through.
+    detail = result.detail
+    if half_life_days is not None and result.score is not None:
+        detail = {**detail, "half_life_days": half_life_days}
     return FactorEvaluation(
         evaluation_run_id=evaluation_run_id,
         student_id=student_id,
@@ -86,7 +95,7 @@ def _factor_row(
         score=result.score,
         confidence=result.confidence,
         evidence_count=result.evidence_count,
-        detail=result.detail,
+        detail=detail,
     )
 
 
@@ -366,6 +375,8 @@ async def evaluate_subject_factors(
     subject_id: int,
     evaluation_run_id: str,
     now: datetime | None = None,
+    *,
+    half_life_days: float = HALF_LIFE_DAYS,
 ) -> list[FactorEvaluation]:
     """Layer 1: compute every deterministic factor for one (student, subject)
     and persist one FactorEvaluation row per factor — topic-level rows for
@@ -376,7 +387,12 @@ async def evaluate_subject_factors(
     does **not** return them: they restate the topic rows, so handing them to
     Layer 2 would count Topic Mastery twice in the prompt and in
     `_weighted_reference_score`. They are read back from the table by
-    `api/readiness_v2.py`."""
+    `api/readiness_v2.py`.
+
+    `half_life_days` is the tutor's setting for this subject
+    (`ReadinessConfig.half_life_days`). The caller resolves it — this module
+    stays free of the config lookup — and it reaches every factor that decays;
+    past papers, homework and coverage do not decay, so they take none."""
     now = now or datetime.now(timezone.utc)
     rows: list[FactorEvaluation] = []
 
@@ -405,7 +421,9 @@ async def evaluate_subject_factors(
     results_by_chapter: dict[int, list[FactorResult]] = {}
     for topic in topics:
         questions = await _marked_questions_for_topic(session, student_id, topic.id)
-        result = topic_mastery(questions, now, estimate=estimates.get(topic.id))
+        result = topic_mastery(
+            questions, now, estimate=estimates.get(topic.id), half_life=half_life_days
+        )
         if topic.chapter_id is not None:
             results_by_chapter.setdefault(topic.chapter_id, []).append(result)
         # An estimate alone never claims mastery for coverage (PROD-8): only a
@@ -419,6 +437,7 @@ async def evaluate_subject_factors(
                 ReadinessFactor.topic_mastery,
                 result,
                 topic_id=topic.id,
+                half_life_days=half_life_days,
             )
         )
 
@@ -445,7 +464,7 @@ async def evaluate_subject_factors(
     )
 
     as_result = assessment_performance(
-        await _assessment_points(session, student_id, subject_id), now
+        await _assessment_points(session, student_id, subject_id), now, half_life_days
     )
     rows.append(
         _factor_row(
@@ -454,6 +473,7 @@ async def evaluate_subject_factors(
             subject_id,
             ReadinessFactor.assessment_performance,
             as_result,
+            half_life_days=half_life_days,
         )
     )
 
@@ -473,7 +493,7 @@ async def evaluate_subject_factors(
     mistake_points, analysed_questions = await _mistake_points_and_analysed(
         session, student_id, subject_id
     )
-    mistake_result = mistake_analysis(mistake_points, analysed_questions, now)
+    mistake_result = mistake_analysis(mistake_points, analysed_questions, now, half_life_days)
     rows.append(
         _factor_row(
             evaluation_run_id,
@@ -481,6 +501,7 @@ async def evaluate_subject_factors(
             subject_id,
             ReadinessFactor.mistake_analysis,
             mistake_result,
+            half_life_days=half_life_days,
         )
     )
 

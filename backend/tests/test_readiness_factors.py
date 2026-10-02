@@ -1,5 +1,5 @@
 """Pure-function tests for Readiness Engine v2's Layer 1 factor services —
-no database, mirroring tests/test_readiness_engine.py's style for v1."""
+no database. (The style follows v1's engine tests, deleted with v1 in 5.3b.)"""
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -66,8 +66,9 @@ def test_topic_mastery_mixed_tiers_blend():
 
 
 # ---- Topic Mastery: tutor estimate as a decaying prior (decision 14) ----
-# Port of tests/test_seeded_evidence.py:32-99 (v1's SEEDED_SOURCES semantics),
-# carried into v2's topic_mastery. That file stays until 5.3b.
+# Ported from v1's seeded-evidence tests (its SEEDED_SOURCES semantics) and
+# carried into v2's topic_mastery. 5.3b deleted v1 and that test file with it,
+# so these are now the only tests of the behaviour.
 
 
 def _q(pct, days_ago=0, difficulty="medium"):
@@ -271,7 +272,8 @@ def test_age_treats_a_naive_timestamp_as_utc_and_never_goes_negative():
 
 
 def test_the_v2_factor_module_does_not_import_v1():
-    # 5.3b deletes services/readiness.py; the v2 maths must not go with it.
+    # 5.3b deleted services/readiness.py; this keeps the v2 maths from ever
+    # leaning on a v1 module again.
     # An AST check, not vars(): an imported float constant has no __module__.
     import ast
     import inspect
@@ -332,3 +334,53 @@ def test_a_chapter_counts_the_topics_resting_on_a_tutor_estimate():
     estimated = _topic(70.0, 1, FactorConfidence.low, {"tutor_estimate": {"pct": 70.0}})
     result = chapter_mastery([estimated, _topic(50.0, 1)])
     assert result.detail["topics_with_estimate"] == 1  # the PROD-8 label
+
+
+# ---- The tutor's half-life reaches every factor that decays (F1) ----
+# Each case is built so the answer depends on how fast old evidence fades: a
+# stale low result beside a fresh high one, or a stale mistake. A factor that
+# ignores `half_life` returns the same score for 7 and 90 and fails here.
+
+
+def test_topic_mastery_uses_the_half_life_for_questions_and_the_estimate():
+    questions = [_q(20.0, days_ago=60), _q(90.0)]
+    assert (
+        topic_mastery(questions, NOW, half_life=7.0).score
+        > topic_mastery(questions, NOW, half_life=90.0).score
+    )
+    # The estimate decays on the same setting, not on the module default.
+    estimate = _estimate(0.0, days_ago=60)
+    assert (
+        topic_mastery([_q(90.0)], NOW, estimate=estimate, half_life=7.0).score
+        > topic_mastery([_q(90.0)], NOW, estimate=estimate, half_life=90.0).score
+    )
+
+
+def test_assessment_performance_uses_the_half_life():
+    points = [
+        AssessmentPoint(pct=20, occurred_at=NOW - timedelta(days=60)),
+        AssessmentPoint(pct=90, occurred_at=NOW),
+    ]
+    assert (
+        assessment_performance(points, NOW, half_life=7.0).score
+        > assessment_performance(points, NOW, half_life=90.0).score
+    )
+
+
+def test_mistake_analysis_uses_the_half_life():
+    mistakes = [MistakePoint(category="careless", severity=3, occurred_at=NOW - timedelta(days=60))]
+    assert (
+        mistake_analysis(mistakes, 10, NOW, half_life=7.0).score
+        > mistake_analysis(mistakes, 10, NOW, half_life=90.0).score
+    )
+
+
+def test_the_default_half_life_is_unchanged():
+    points = [
+        AssessmentPoint(pct=20, occurred_at=NOW - timedelta(days=60)),
+        AssessmentPoint(pct=90, occurred_at=NOW),
+    ]
+    assert (
+        assessment_performance(points, NOW).score
+        == assessment_performance(points, NOW, half_life=HALF_LIFE_DAYS).score
+    )

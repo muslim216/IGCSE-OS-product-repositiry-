@@ -54,12 +54,6 @@ export default function CustomCriteriaSetting() {
       await refresh();
     },
   });
-  const update = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: CustomCriterionUpdate }) =>
-      updateCustomCriterion(id, body),
-    onSuccess: refresh,
-  });
-
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (name.trim()) create.mutate();
@@ -105,13 +99,20 @@ export default function CustomCriteriaSetting() {
         </select>
         <button
           type="submit"
-          disabled={!name.trim() || create.isPending}
+          // Not before the subjects are in: until then the only scope on offer
+          // is "All subjects", and a criterion's scope is permanent.
+          disabled={!name.trim() || create.isPending || !subjects.isSuccess}
           className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
         >
           Add criterion
         </button>
       </form>
       <p className="mt-1 text-xs text-ink-500">The subject can't be changed after it's added.</p>
+      {subjects.isError && (
+        <p role="alert" className="mt-2 text-sm text-risk-600">
+          The subjects didn't load, so a criterion can't be added yet. {ABSENT.loadFailed}
+        </p>
+      )}
       {create.isError && (
         <p role="alert" className="mt-2 text-sm text-risk-600">
           {create.error.message || ABSENT.loadFailed}
@@ -139,19 +140,10 @@ export default function CustomCriteriaSetting() {
               key={c.id}
               criterion={c}
               subject={subjectName(c.subject_id)}
-              // Only the row being saved waits; the rest stay usable.
-              busy={update.isPending && update.variables?.id === c.id}
-              onUpdate={(body, onSaved) =>
-                update.mutate({ id: c.id, body }, { onSuccess: onSaved })
-              }
+              onSaved={refresh}
             />
           ))}
         </ul>
-      )}
-      {update.isError && (
-        <p role="alert" className="mt-2 text-sm text-risk-600">
-          {update.error.message || ABSENT.loadFailed}
-        </p>
       )}
     </div>
   );
@@ -160,54 +152,78 @@ export default function CustomCriteriaSetting() {
 function CriterionItem({
   criterion,
   subject,
-  busy,
-  onUpdate,
+  onSaved,
 }: {
   criterion: CustomCriterion;
   subject: string;
-  busy: boolean;
-  onUpdate: (body: CustomCriterionUpdate, onSaved?: () => void) => void;
+  onSaved: () => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(criterion.name);
   const [description, setDescription] = useState(criterion.description ?? "");
   const archived = criterion.archived_at !== null;
+  // One mutation per row, not one shared by the list. A shared observer tracks
+  // only its latest call: saving a second row dropped the first row's close,
+  // its busy flag (so Enter could send it twice) and its error.
+  const update = useMutation({
+    mutationFn: (body: CustomCriterionUpdate) => updateCustomCriterion(criterion.id, body),
+    onSuccess: async () => {
+      // Close only once it saved: a failed rename keeps what was typed.
+      setEditing(false);
+      await onSaved();
+    },
+  });
+  const busy = update.isPending;
+  const error = update.isError && (
+    <p role="alert" className="mt-2 w-full text-sm text-risk-600">
+      {update.error.message || ABSENT.loadFailed}
+    </p>
+  );
 
   if (editing) {
+    // A form, so Enter saves. It sits in the list, outside the create form
+    // above — a form nested in a form is invalid and submits the outer one.
+    const submit = (e: FormEvent) => {
+      e.preventDefault();
+      if (!name.trim() || busy) return;
+      update.mutate({ name, description: description.trim() || null });
+    };
     return (
-      <li className="flex flex-wrap items-center gap-2 py-2.5">
-        <input
-          aria-label="Name"
-          maxLength={120}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className={INPUT}
-        />
-        <input
-          aria-label="Description"
-          maxLength={2000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className={INPUT}
-        />
-        <button
-          type="button"
-          disabled={!name.trim() || busy}
-          onClick={() => {
-            // Close only once it saved: a failed rename keeps what was typed.
-            onUpdate({ name, description: description.trim() || null }, () => setEditing(false));
-          }}
-          className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="text-sm text-ink-500 hover:text-ink-700"
-        >
-          Cancel
-        </button>
+      <li className="py-2.5">
+        <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+          <input
+            aria-label="Name"
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={INPUT}
+          />
+          <input
+            aria-label="Description"
+            maxLength={2000}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className={INPUT}
+          />
+          <button
+            type="submit"
+            disabled={!name.trim() || busy}
+            className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-canvas hover:bg-brand-700 disabled:opacity-50"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              update.reset();
+              setEditing(false);
+            }}
+            className="text-sm text-ink-500 hover:text-ink-700"
+          >
+            Cancel
+          </button>
+          {error}
+        </form>
       </li>
     );
   }
@@ -231,6 +247,7 @@ function CriterionItem({
           onClick={() => {
             setName(criterion.name);
             setDescription(criterion.description ?? "");
+            update.reset();
             setEditing(true);
           }}
           className="text-sm font-medium text-brand-600 hover:text-brand-700"
@@ -241,12 +258,13 @@ function CriterionItem({
           type="button"
           aria-label={`${archived ? "Unarchive" : "Archive"} ${criterion.name}`}
           disabled={busy}
-          onClick={() => onUpdate({ archived: !archived })}
+          onClick={() => update.mutate({ archived: !archived })}
           className="text-sm font-medium text-ink-500 hover:text-ink-700 disabled:opacity-50"
         >
           {archived ? "Unarchive" : "Archive"}
         </button>
       </div>
+      {error}
     </li>
   );
 }

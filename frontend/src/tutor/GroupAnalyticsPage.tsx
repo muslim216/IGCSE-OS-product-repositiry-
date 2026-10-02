@@ -76,10 +76,30 @@ export default function GroupAnalyticsPage() {
                     <span className={scoreColor(t.avg_score)}>{Math.round(t.avg_score)}%</span>
                   </li>
                 ))}
+                {/* The list holds only topics at or below the tutor's weak
+                    threshold (5.6), filtered from the class means — which count
+                    medium/high-confidence marks only. So empty has three
+                    meanings, and each claim must be one the data supports
+                    (PROD-2): means exist and none is weak; learners are scored
+                    but no topic has a mean, so nothing was compared; or there
+                    is nothing at all. */}
                 {a.weak_topics.length === 0 && (
-                  <li className="py-1.5 text-slate-500">No readiness data yet.</li>
+                  <li className="py-1.5 text-ink-500">
+                    {a.topic_mean_count > 0
+                      ? "No topic is at or below the weak threshold."
+                      : a.weak_students.length > 0
+                        ? "Not enough confident topic data yet."
+                        : "No readiness data yet."}
+                  </li>
                 )}
               </ul>
+              {/* A student's own weak topics also count low-confidence marks,
+                  so the two lists can differ. */}
+              {a.weak_topics.length > 0 && (
+                <p className="mt-2 text-xs text-ink-500">
+                  Class averages count medium- and high-confidence marks only.
+                </p>
+              )}
             </div>
           </div>
         </>
