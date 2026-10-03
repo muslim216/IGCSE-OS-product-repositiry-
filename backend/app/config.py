@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     # one-line change with a cost somebody chose.
     ai_mistake_tagging_provider: str = "anthropic"
     ai_mistake_tagging_model: str = "claude-sonnet-5"
+    # Weighting chapters for the teaching plan (task 6.3): a judgement over a
+    # syllabus and a tutor's guidance document, which AV-124 puts on Opus. Blank
+    # so it follows `anthropic_model` with the other judgement surfaces. It runs
+    # once per plan draft, not per student, so Opus's cost is not a concern.
+    ai_plan_weighting_provider: str = "anthropic"
+    ai_plan_weighting_model: str = ""
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather

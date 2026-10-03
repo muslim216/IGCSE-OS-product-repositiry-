@@ -71,6 +71,11 @@ SURFACES = (
     # so tagging cannot ride on that call and needs its own routing, pricing
     # and metering (`AI-2`).
     "mistake_tagging",
+    # Relative chapter weights for the teaching plan (task 6.3, AV-14, E5). Its
+    # own surface because it is routed and metered on its own: a judgement about
+    # a syllabus and a tutor's guidance document, not about a student's work or
+    # a document's structure (`AI-2`).
+    "plan_weighting",
 )
 
 # Which ai_usage_events.feature bucket each surface meters into. Several
@@ -93,6 +98,9 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     # spend inside marking's and make "what does tagging cost" unanswerable
     # (PROD-1) — see the AiFeature.mistake_tagging comment in models/ai_usage.py.
     "mistake_tagging": AiFeature.mistake_tagging,
+    # Own bucket for the same reason as mistake_tagging: "what does planning
+    # cost" must not vanish into another feature's total (PROD-1).
+    "plan_weighting": AiFeature.plan_weighting,
 }
 
 
