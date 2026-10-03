@@ -31,7 +31,9 @@ router = APIRouter(prefix="/groups/{group_id}/plan", tags=["teaching-plan"])
 
 async def _progress(db: DbSession, user: TutorUser, group_id: int) -> PlanProgressOut:
     today = await plan_progress.tutor_today(db, user)
-    found = (await plan_progress.class_progress(db, user, today, group_id)).get(group_id)
+    found = (
+        await plan_progress.class_progress(db, user, today, group_id, own_classes_only=False)
+    ).get(group_id)
     p = found[1] if found else plan_progress.NO_PROGRESS
     chapter = p.earliest_missed_chapter
     return PlanProgressOut(

@@ -8,6 +8,7 @@ through `accept_plan` (6.4), and only then does anything change.
 from datetime import date
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -24,6 +25,7 @@ from app.services.teaching_plan import (
     PlanInputError,
     PlanStateError,
     _latest_draft_jobs,
+    lock_group_plans,
     validate_inputs,
 )
 
@@ -48,22 +50,7 @@ def keep_in_replan(
 
 
 async def _lock_group_plans(session: AsyncSession, group: Group) -> list[TeachingPlan]:
-    """Every plan row of the class, locked in id order (the order `accept_plan`
-    takes them, so the two cannot deadlock). A no-op lock on SQLite."""
-    return list(
-        (
-            await session.scalars(
-                select(TeachingPlan)
-                .where(
-                    TeachingPlan.group_id == group.id,
-                    TeachingPlan.organization_id == group.organization_id,
-                )
-                .order_by(TeachingPlan.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).all()
-    )
+    return await lock_group_plans(session, group.id)
 
 
 async def replan(session: AsyncSession, *, group: Group, today: date) -> TeachingPlan:
@@ -112,13 +99,35 @@ async def replan(session: AsyncSession, *, group: Group, today: date) -> Teachin
             lesson_minutes=accepted.lesson_minutes,
             past_paper_start_date=accepted.past_paper_start_date,
         )
-        session.add(draft)
-        await session.flush()
-    else:
-        draft.exam_date = accepted.exam_date
-        draft.lessons_per_week = accepted.lessons_per_week
-        draft.lesson_minutes = accepted.lesson_minutes
-        draft.past_paper_start_date = accepted.past_paper_start_date
+        try:
+            # A savepoint: a concurrent save can create the class's draft after
+            # our read (the lock held none to wait on), and UNIQUE(group_id,
+            # status) then rejects this insert. Lose the race, reuse theirs.
+            async with session.begin_nested():
+                session.add(draft)
+        except IntegrityError:
+            draft = await session.scalar(
+                select(TeachingPlan)
+                .where(
+                    TeachingPlan.group_id == group.id,
+                    TeachingPlan.status == TeachingPlanStatus.draft,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if draft is None:
+                raise PlanStateError("The plan changed while re-planning. Try again.") from None
+            if (await _latest_draft_jobs(session, {draft.id})).get(draft.id) in (
+                JobStatus.pending,
+                JobStatus.running,
+            ):
+                raise PlanStateError(
+                    "A plan is already being drafted. Wait for it to finish."
+                ) from None
+    draft.exam_date = accepted.exam_date
+    draft.lessons_per_week = accepted.lessons_per_week
+    draft.lesson_minutes = accepted.lesson_minutes
+    draft.past_paper_start_date = accepted.past_paper_start_date
     # A reused draft is reset to the live plan: its breaks and slots are replaced.
     await session.execute(delete(PlanBreak).where(PlanBreak.plan_id == draft.id))
     await session.execute(delete(PlanSlot).where(PlanSlot.plan_id == draft.id))

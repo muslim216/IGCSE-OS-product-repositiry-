@@ -30,10 +30,9 @@ test("names the class, the count, the first date and links to its plan, without 
   ).toBeInTheDocument();
   expect(screen.getByText(/Chapter 4 · Organic chemistry/)).toBeInTheDocument();
   expect(container.textContent).not.toMatch(/missed|behind|late/i);
-  expect(screen.getByRole("link", { name: /Review the plan/ })).toHaveAttribute(
-    "href",
-    "/tutor/groups/3/schedule",
-  );
+  expect(
+    screen.getByRole("link", { name: "Review the plan for Year 11 Chemistry" }),
+  ).toHaveAttribute("href", "/tutor/groups/3/schedule");
 });
 
 test("one lesson is singular and every class gets a row", () => {

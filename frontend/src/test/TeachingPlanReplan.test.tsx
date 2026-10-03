@@ -148,6 +148,25 @@ test("re-planning over an existing draft asks first", async () => {
   expect(calls.some((c) => c.url.endsWith("/replan"))).toBe(false);
 });
 
+test("re-planning over a draft with only inputs still asks first", async () => {
+  const calls = stub({
+    accepted: plan(),
+    draft: plan({ id: 2, accepted_at: null, slots: [], outcome: null }),
+    progress: progress(2),
+  });
+  renderView();
+  fireEvent.click(await screen.findByRole("button", { name: "Re-plan" }));
+  expect(await screen.findByText("Re-plan from today?")).toBeInTheDocument();
+  expect(calls.some((c) => c.url.endsWith("/replan"))).toBe(false);
+});
+
+test("while the re-plan request is out the draft button is disabled too", async () => {
+  stub({ accepted: plan(), progress: progress(2) }, { draft: plan({ id: 2, drafting: true }) });
+  renderView();
+  fireEvent.click(await screen.findByRole("button", { name: "Re-plan" }));
+  expect(await screen.findByRole("button", { name: /Drafting/ })).toBeDisabled();
+});
+
 test("a failed reflow says so, with the reason", async () => {
   stub({
     accepted: plan({

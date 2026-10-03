@@ -95,12 +95,19 @@ async def tutor_today(db: AsyncSession, user: User) -> date:
 
 
 async def class_progress(
-    db: AsyncSession, user: User, today: date, group_id: int | None = None
+    db: AsyncSession,
+    user: User,
+    today: date,
+    group_id: int | None = None,
+    *,
+    own_classes_only: bool = True,
 ) -> dict[int, tuple[str, Progress]]:
     """(class name, progress) for the tutor's classes whose accepted plan has at
     least one lesson dated before today; one query however many classes
     (`PERF-1`). Organization and tutor come from the user (`SEC-7`), never from
-    the request. `group_id` narrows it to one class."""
+    the request. `group_id` narrows it to one class. `own_classes_only=False` is
+    for a class the caller has already been authorised for (an admin viewing a
+    tutor's class); the organization filter still binds."""
     query = (
         select(
             Group.id,
@@ -120,12 +127,13 @@ async def class_progress(
         .join(Chapter, Chapter.id == PlanSlot.chapter_id)
         .where(
             TeachingPlan.organization_id == user.organization_id,
-            Group.tutor_id == user.id,
             # Nothing reads a draft plan (task 6.4).
             TeachingPlan.status == TeachingPlanStatus.accepted,
             PlanSlot.scheduled_date < today,
         )
     )
+    if own_classes_only:
+        query = query.where(Group.tutor_id == user.id)
     if group_id is not None:
         query = query.where(Group.id == group_id)
     names: dict[int, str] = {}

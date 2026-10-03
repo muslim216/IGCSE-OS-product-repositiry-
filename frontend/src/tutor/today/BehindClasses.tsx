@@ -33,6 +33,7 @@ export default function BehindClasses({ classes }: { classes: BehindClass[] }) {
             </span>
             <Link
               to={`/tutor/groups/${c.group_id}/schedule`}
+              aria-label={`Review the plan for ${c.group_name}`}
               className="font-medium text-brand-600 hover:text-brand-700"
             >
               Review the plan →

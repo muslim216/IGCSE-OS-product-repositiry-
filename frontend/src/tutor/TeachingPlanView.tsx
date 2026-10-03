@@ -465,7 +465,7 @@ export default function TeachingPlanView({
   const { draft: proposed, accepted } = plan.data;
   const chapterList = chapters.data ?? [];
   const chaptersReady = chapters.isSuccess;
-  const drafting = Boolean(proposed?.drafting) || draft.isPending;
+  const drafting = Boolean(proposed?.drafting) || draft.isPending || replan.isPending;
   const proposedSlots = proposed?.slots ?? [];
   const canAccept =
     !!proposed && !drafting && proposed.outcome?.status === "drafted" && proposedSlots.length > 0;
@@ -475,9 +475,9 @@ export default function TeachingPlanView({
     done: () => void,
   ) => edit.mutate({ slotId, patch, done });
 
-  // A draft being edited is replaced by a re-plan, so that one is confirmed.
-  const startReplan = () =>
-    proposedSlots.length > 0 ? setConfirmingReplan(true) : replan.mutate();
+  // Any existing draft is replaced by a re-plan (its inputs and breaks too, not
+  // only its slots), so it is confirmed whenever one exists.
+  const startReplan = () => (proposed ? setConfirmingReplan(true) : replan.mutate());
 
   const liveSection = (live: PlanInputs) => (
     <div className="mt-4">

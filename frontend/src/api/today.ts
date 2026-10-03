@@ -32,14 +32,14 @@ export interface ClassStripRow {
     with no classified uploaded yet (AV-20, AV-22). */
 export type ChapterPrompt = components["schemas"]["ChapterPrompt"];
 
-/**
- * Everything the tutor's home needs, in one response. Replaces a per-class
- * fan-out that itself looped per learner server-side (PERF-1).
- */
 /** A class whose accepted plan has lessons dated before today with none recorded
     (task 6.6). "Not recorded", not "missed": it may have been taught. */
 export type BehindClass = components["schemas"]["BehindClass"];
 
+/**
+ * Everything the tutor's home needs, in one response. Replaces a per-class
+ * fan-out that itself looped per learner server-side (PERF-1).
+ */
 export interface TodayView {
   /** Exceptions first: at risk, then needs attention, then healthy. */
   classes: ClassStripRow[];

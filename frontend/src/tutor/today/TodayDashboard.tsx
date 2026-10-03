@@ -129,10 +129,10 @@ export default function TodayDashboard() {
   // are not submissions awaiting review. So the day is only "clear" when neither
   // has anything, or the surface could print "That's everything" directly above
   // a NEEDS YOU section listing work.
-  // A class with lessons not recorded against its plan is something to report
-  // too, so it also keeps the day from being called clear (task 6.6).
-  const clear =
-    isClearDay(view) && attentionItems.length === 0 && (view.behind_classes ?? []).length === 0;
+  const clear = isClearDay(view) && attentionItems.length === 0;
+  // Classes with lessons not recorded against their plan keep the sign-off from
+  // being printed, but do not change which sections open (task 6.6).
+  const showSignOff = clear && (view.behind_classes ?? []).length === 0;
 
   // Before any class exists the only useful thing on this surface is the way to
   // make one — every other section would be an honest but useless absence.
@@ -265,7 +265,7 @@ export default function TodayDashboard() {
         </Section>
       )}
 
-      {clear && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
+      {showSignOff && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
 
       <CreateLessonModal
         open={createOpen}

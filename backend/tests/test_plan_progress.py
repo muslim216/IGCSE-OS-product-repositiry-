@@ -201,16 +201,22 @@ async def test_no_accepted_plan_has_no_progress_and_a_future_plan_is_zero_not_nu
     assert progress["missed"] == 0 and progress["earliest_missed_date"] is None
 
 
-async def test_today_is_the_tutors_not_the_servers(client, tutor, group, chapters):
+async def test_today_is_the_tutors_not_the_servers(client, tutor, group, chapters, monkeypatch):
     """A slot on the calendar day it is in Pago Pago is 'today' there and a past
-    day in Kiritimati. The two zones are 25 hours apart, so they never agree."""
-    from app.services.timezones import now_in
+    day in Kiritimati. One fixed instant feeds both the test and the service, so
+    no wall-clock read can fall either side of midnight between them."""
+    from zoneinfo import ZoneInfo
 
-    early = now_in("Pacific/Pago_Pago").date()
+    instant = datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
+
+    def fixed(zone):
+        return instant.astimezone(ZoneInfo(zone))
+
+    monkeypatch.setattr("app.services.plan_progress.now_in", fixed)
+    early = fixed("Pacific/Pago_Pago").date()
     org, uid = await _ctx(group, tutor)
     await _plan(group["id"], uid, org, [(chapters[0], 0, G)])
     async with async_session() as s:
-        plan = await s.scalar(select(TeachingPlan))
         slot = await s.scalar(select(PlanSlot))
         slot.scheduled_date = early
         await s.commit()
@@ -221,8 +227,37 @@ async def test_today_is_the_tutors_not_the_servers(client, tutor, group, chapter
             await s.commit()
             resp = await client.get(_url(group), headers=tutor["headers"])
             results[zone] = resp.json()["progress"]["missed"]
-        assert plan.status is TeachingPlanStatus.accepted
     assert results == {"Pacific/Pago_Pago": 0, "Pacific/Kiritimati": 1}
+
+
+async def test_an_admin_viewing_a_tutors_class_sees_its_real_progress(
+    client, tutor, group, chapters, frozen
+):
+    """The per-class overview is authorised by the owned-group check; the tutor
+    filter belongs to the home list only, or an admin would see a false zero."""
+    from app.models import UserRole
+
+    org, uid = await _ctx(group, tutor)
+    await _plan(group["id"], uid, org, [(chapters[0], -3, G), (chapters[0], -2, G)])
+    reg = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Admin", "email": "admin-progress@example.com", "password": "password123"},
+    )
+    async with async_session() as s:
+        admin = await s.get(User, reg.json()["user"]["id"])
+        admin.role = UserRole.admin
+        admin.organization_id = org
+        await s.commit()
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": "admin-progress@example.com", "password": "password123"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+    body = (await client.get(_url(group), headers=headers)).json()
+    assert body["progress"]["missed"] == 2
+    # The home stays the viewer's own classes.
+    home = (await client.get("/api/v1/today", headers=headers)).json()
+    assert home["behind_classes"] == []
 
 
 # --- The tutor home -------------------------------------------------------------
@@ -503,6 +538,120 @@ async def test_a_draft_promoted_before_the_lock_never_loses_the_live_plans_slots
     assert sorted(x.id for x in live) == sorted(draft_slots)  # the promoted plan is intact
     assert plans[TeachingPlanStatus.accepted] == draft_id
     assert plans[TeachingPlanStatus.draft] != draft_id
+
+
+async def test_a_save_creating_the_draft_during_a_replan_is_not_a_500(
+    client, tutor, group, chapters, frozen, monkeypatch
+):
+    from app.services import plan_replan
+
+    org, uid = await _ctx(group, tutor)
+    await _plan(group["id"], uid, org, [(chapters[0], -3, PlanSlotProvenance.confirmed, True)])
+    real = plan_replan._lock_group_plans
+
+    async def lock_then_concurrent_save(session, grp):
+        rows = await real(session, grp)
+        # A save creates the draft after our read and before our insert.
+        await _plan(group["id"], uid, org, [(chapters[1], 30, G)], status=TeachingPlanStatus.draft)
+        return rows
+
+    monkeypatch.setattr(plan_replan, "_lock_group_plans", lock_then_concurrent_save)
+    resp = await client.post(_url(group, "/replan"), headers=tutor["headers"])
+    assert resp.status_code == 202, resp.text
+    async with async_session() as s:
+        drafts = (
+            await s.scalars(
+                select(TeachingPlan).where(TeachingPlan.status == TeachingPlanStatus.draft)
+            )
+        ).all()
+        jobs = (await s.scalars(select(Job).where(Job.type == PLAN_DRAFT_JOB))).all()
+    assert len(drafts) == 1 and [j.payload for j in jobs] == [{"plan_id": drafts[0].id}]
+    assert [s["provenance"] for s in resp.json()["draft"]["slots"]] == ["confirmed"]
+
+
+async def test_draft_and_replan_together_queue_one_job(
+    client, tutor, group, chapters, frozen, monkeypatch
+):
+    from app.services import teaching_plan as service
+
+    org, uid = await _ctx(group, tutor)
+    await _plan(group["id"], uid, org, [(chapters[0], -3, G)])
+    draft_id, _ = await _plan(
+        group["id"], uid, org, [(chapters[1], 30, G)], status=TeachingPlanStatus.draft
+    )
+    real = service.lock_group_plans
+
+    async def replan_lands_first(session, group_id):
+        # Another request's re-plan queues its job before our draft click's lock.
+        if not getattr(replan_lands_first, "done", False):
+            replan_lands_first.done = True
+            await _pending_job(draft_id)
+        return await real(session, group_id)
+
+    monkeypatch.setattr(service, "lock_group_plans", replan_lands_first)
+    resp = await client.post(_url(group, "/draft"), headers=tutor["headers"])
+    assert resp.status_code == 202, resp.text
+    assert getattr(replan_lands_first, "done", False)  # the draft click took the shared lock
+    async with async_session() as s:
+        assert len((await s.scalars(select(Job).where(Job.type == PLAN_DRAFT_JOB))).all()) == 1
+
+
+async def test_accept_skips_a_lesson_deleted_while_it_was_carrying_links(
+    client, tutor, group, chapters, frozen, monkeypatch, fake_ai
+):
+    from app.models import Lesson
+    from app.services import teaching_plan as service
+
+    org, uid = await _ctx(group, tutor)
+    await _plan(
+        group["id"],
+        uid,
+        org,
+        [(chapters[0], -9, PlanSlotProvenance.confirmed, True)],
+    )
+    await _replan_and_draft(client, tutor, group, chapters, monkeypatch, fake_ai)
+    real = service._carry_lesson_links
+
+    async def delete_lesson_then_carry(session, draft, linked):
+        async with async_session() as other:
+            for lesson in (await other.scalars(select(Lesson))).all():
+                await other.delete(lesson)
+            await other.commit()
+        return await real(session, draft, linked)
+
+    monkeypatch.setattr(service, "_carry_lesson_links", delete_lesson_then_carry)
+    accepted = await client.post(_url(group, "/accept"), headers=tutor["headers"])
+    assert accepted.status_code == 200, accepted.text
+    async with async_session() as s:
+        alive = set((await s.scalars(select(Lesson.id))).all())
+        links = [x.lesson_id for x in (await s.scalars(select(PlanSlot))).all() if x.lesson_id]
+    assert links == [] and alive == set()  # no link to a lesson that no longer exists
+
+
+async def test_a_moved_taught_copy_takes_the_link_instead_of_leaving_a_duplicate(
+    client, tutor, group, chapters, frozen, monkeypatch, fake_ai
+):
+    org, uid = await _ctx(group, tutor)
+    await _plan(group["id"], uid, org, [(chapters[0], -9, PlanSlotProvenance.confirmed, True)])
+    await _replan_and_draft(client, tutor, group, chapters, monkeypatch, fake_ai)
+    async with async_session() as s:
+        copy = await s.scalar(
+            select(PlanSlot).where(
+                PlanSlot.provenance == PlanSlotProvenance.confirmed, PlanSlot.lesson_id.is_(None)
+            )
+        )
+        copy.scheduled_date = _d(-8)  # the tutor moved the copy in the draft
+        await s.commit()
+    accepted = await client.post(_url(group, "/accept"), headers=tutor["headers"])
+    assert accepted.status_code == 200, accepted.text
+    async with async_session() as s:
+        taught = [
+            x
+            for x in (await s.scalars(select(PlanSlot))).all()
+            if x.provenance is PlanSlotProvenance.confirmed
+        ]
+    assert [(x.scheduled_date, x.lesson_id is not None) for x in taught] == [(_d(-8), True)]
+    assert accepted.json()["progress"]["missed"] == 0
 
 
 # --- Accepting a re-plan carries the lesson links --------------------------------

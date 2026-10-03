@@ -20,6 +20,7 @@ from app.models import (
     GroupMember,
     Job,
     JobStatus,
+    Lesson,
     PlanBreak,
     PlanSlot,
     PlanSlotProvenance,
@@ -462,10 +463,30 @@ async def plan_views(session: AsyncSession, plans: list[TeachingPlan]) -> dict[i
 # --- Drafting, accepting, editing (task 6.4, AV-13) ----------------------------
 
 
+async def lock_group_plans(session: AsyncSession, group_id: int) -> list[TeachingPlan]:
+    """Every plan row of the class, locked in id order (the order `accept_plan`
+    takes them, so the two cannot deadlock). A no-op lock on SQLite. The caller
+    has already authorised the class, so the class id alone scopes the rows."""
+    return list(
+        (
+            await session.scalars(
+                select(TeachingPlan)
+                .where(TeachingPlan.group_id == group_id)
+                .order_by(TeachingPlan.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+
+
 async def request_draft(session: AsyncSession, group_id: int) -> None:
     """Queue the drafting job for the class's draft. A draft only exists once
     the inputs are saved (6.2), so none means there is nothing to draft from."""
-    draft = await draft_plan_for_group(session, group_id)
+    # The same lock `replan` takes, and the job is checked under it: without
+    # that, a draft click and a re-plan click can each see "no job" and both queue one.
+    rows = await lock_group_plans(session, group_id)
+    draft = next((p for p in rows if p.status is TeachingPlanStatus.draft), None)
     if draft is None:
         raise PlanStateError("Save the plan inputs before drafting a plan")
     # Already queued or running: a second job would redo the same work, and the
@@ -535,7 +556,12 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
                     PlanSlot.chapter_id,
                     PlanSlot.scheduled_date,
                     PlanSlot.provenance,
-                ).where(PlanSlot.plan_id == current.id, PlanSlot.lesson_id.is_not(None))
+                )
+                .where(PlanSlot.plan_id == current.id, PlanSlot.lesson_id.is_not(None))
+                # Locked so a lesson delete (which takes the plan lock first, see
+                # `release_slot_for_lesson`) cannot clear a link between this read
+                # and the carry below.
+                .with_for_update()
             )
         ).all()
         linked = [(r[0], r[1], r[2], r[3]) for r in linked_rows if r[0] is not None]
@@ -579,6 +605,12 @@ async def _carry_lesson_links(
     old chapter, date and provenance. Losing the link would put a taught lesson
     back in the plan as an untaught one and 6.5 would suggest it again.
     """
+    # A lesson deleted since the links were read has nothing to link to; carrying
+    # its id would be a foreign-key failure that aborts the whole accept.
+    alive = set(
+        await session.scalars(select(Lesson.id).where(Lesson.id.in_([r[0] for r in linked])))
+    )
+    linked = [row for row in linked if row[0] in alive]
     free = list(
         (
             await session.scalars(
@@ -600,6 +632,15 @@ async def _carry_lesson_links(
             None,
         )
         if match is None:
+            # The tutor may have moved the copied slot in the draft. Its chapter
+            # and provenance still say which lesson it was, so take the nearest
+            # such copy rather than leave an edited "taught" slot with no lesson
+            # beside a duplicate that has one.
+            moved = [s for s in free if s.chapter_id == chapter_id and s.provenance is provenance]
+            match = min(
+                moved, key=lambda s: abs((s.scheduled_date - scheduled_date).days), default=None
+            )
+        if match is None:
             match = PlanSlot(
                 plan_id=draft.id,
                 chapter_id=chapter_id,
@@ -608,7 +649,7 @@ async def _carry_lesson_links(
                 provenance=provenance,
             )
             session.add(match)
-        else:
+        elif match in free:
             free.remove(match)
         match.lesson_id = lesson_id
     await session.flush()
