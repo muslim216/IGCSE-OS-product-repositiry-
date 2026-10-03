@@ -115,4 +115,5 @@ async def test_a_slot_confirmed_during_an_edit_keeps_its_lesson_and_is_not_demot
 
     row = await _slot(ids[0])
     assert row.lesson_id == lesson_id
-    assert row.provenance is not PlanSlotProvenance.manually_modified
+    # The edit must leave whatever the confirm wrote exactly as it was.
+    assert row.provenance is provenance
