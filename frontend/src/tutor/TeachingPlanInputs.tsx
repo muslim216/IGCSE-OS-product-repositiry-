@@ -28,6 +28,9 @@ function humanDate(iso: string): string {
   return MONTHS[m - 1] ? `${d} ${MONTHS[m - 1]} ${y}` : iso;
 }
 
+type BreakForm = { start_date: string; end_date: string; label: string };
+const EMPTY_BREAK: BreakForm = { start_date: "", end_date: "", label: "" };
+
 const FROM_TIMETABLE = "From your timetable";
 
 /** Where a blank form starts: the saved draft, else the timetable's numbers.
@@ -51,7 +54,7 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
   // Only what the tutor has typed; everything else is read from the server
   // query, so a refetch is never shadowed by a stale copy (FE-6).
   const [edits, setEdits] = useState<Partial<Draft>>({});
-  const [breakForm, setBreakForm] = useState({ start_date: "", end_date: "", label: "" });
+  const [breakForm, setBreakForm] = useState<BreakForm>(EMPTY_BREAK);
   const [error, setError] = useState<string | null>(null);
 
   const onSettled = () => queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
@@ -81,9 +84,17 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
     onSettled,
   });
   const addBreak = useMutation({
-    mutationFn: () => addPlanBreak(groupId, breakForm),
+    mutationFn: (submitted: BreakForm) => addPlanBreak(groupId, submitted),
     onMutate: () => setError(null),
-    onSuccess: () => setBreakForm({ start_date: "", end_date: "", label: "" }),
+    onSuccess: (_created, submitted) =>
+      // Clear only if nothing was typed while the request was pending.
+      setBreakForm((current) =>
+        current.start_date === submitted.start_date &&
+        current.end_date === submitted.end_date &&
+        current.label === submitted.label
+          ? EMPTY_BREAK
+          : current,
+      ),
     onError: (err) => setError(friendlyError(err)),
     onSettled,
   });
@@ -109,19 +120,19 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
   const values: Draft = { ...startingValues(data), ...edits };
   const set = (patch: Partial<Draft>) => setEdits((current) => ({ ...current, ...patch }));
   const defaults = data.timetable_defaults;
-  // Marked only while the value is still the timetable's own: once the tutor
-  // changes it, or a draft is saved, it is theirs.
+  // Marked only while the tutor has not touched it and no draft is saved.
+  // Provenance, not equality: typing the timetable's number back in makes the
+  // value theirs, so it must not be labelled as the timetable's again.
   const fromTimetable = (key: "lessons_per_week" | "lesson_minutes") =>
-    !data.draft && defaults[key] != null && values[key] === String(defaults[key])
-      ? FROM_TIMETABLE
-      : undefined;
-  const complete = values.exam_date && values.lessons_per_week && values.lesson_minutes;
+    !data.draft && defaults[key] != null && edits[key] === undefined ? FROM_TIMETABLE : undefined;
+  const complete = Boolean(values.exam_date && values.lessons_per_week && values.lesson_minutes);
   const breaks = data.draft?.breaks ?? [];
-  const breakReady = breakForm.start_date && breakForm.end_date && breakForm.label.trim();
+  const breakReady = Boolean(breakForm.start_date && breakForm.end_date && breakForm.label.trim());
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    save.mutate(values);
+    // Enter submits a form whose button is disabled; hold the same line.
+    if (complete) save.mutate(values);
   }
 
   return (
@@ -219,6 +230,7 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
                     <Button
                       variant="ghost"
                       size="sm"
+                      disabled={removeBreak.isPending}
                       aria-label={`Remove the ${b.label} break`}
                       onClick={() => removeBreak.mutate(b.id)}
                     >
@@ -232,7 +244,7 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
               className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                addBreak.mutate();
+                if (breakReady) addBreak.mutate(breakForm);
               }}
             >
               <Field label="Break starts">

@@ -164,6 +164,13 @@ async def add_break(
 ) -> PlanBreak:
     if end_date < start_date:
         raise PlanInputError("A break cannot end before it starts")
+    # Serialise concurrent adds: lock the plan row (a no-op on SQLite) and read
+    # its breaks inside the lock, so two requests cannot both pass the overlap
+    # check against the same stale list.
+    await session.scalar(
+        select(TeachingPlan.id).where(TeachingPlan.id == plan.id).with_for_update()
+    )
+    await session.refresh(plan, attribute_names=["breaks"])
     for other in plan.breaks:
         if start_date <= other.end_date and other.start_date <= end_date:
             raise PlanInputError(
