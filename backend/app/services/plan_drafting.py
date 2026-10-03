@@ -168,7 +168,7 @@ def _chapter_list_text(chapters: list[Chapter], *, has_guidance: bool) -> str:
     guidance = (
         "The teaching guidance is attached as a document."
         if has_guidance
-        else "No teaching guidance has been uploaded: weight from the chapter list alone."
+        else "No teaching guidance is available: weight from the chapter list alone."
     )
     return f"Weight these chapters for the teaching plan.\n{guidance}\n\n" + "\n".join(lines)
 
@@ -180,7 +180,7 @@ async def _guidance_block(subject: Subject) -> tuple[dict | None, str | None]:
         return None, None
     try:
         data = await storage.read_file(subject.guidance_path)
-    except (FileNotFoundError, OSError, storage.ObjectNotFoundError):
+    except (OSError, storage.ObjectNotFoundError):  # OSError covers FileNotFoundError
         # The syllabus alone still supports a plan, and failing the job would
         # leave the tutor with nothing for a stored-file fault they cannot fix.
         # Narrow on purpose: anything else is a bug and should fail loudly.
@@ -243,10 +243,13 @@ async def weigh_chapters(*, group: Group, subject: Subject, chapters: list[Chapt
     result.prompt_version = response.prompt_version
     result.guidance_used = block is not None
     answered: dict[int, float] = {}
-    # Bounded here, not in the schema: a schema limit makes a long answer fail
-    # parsing and burns a paid retry. One entry per real chapter is all that can
-    # be used, so anything beyond that is ignored.
-    for item in advice.chapters[: len(chapters)]:
+    for item in advice.chapters:
+        # Bounded here, not in the schema (a schema limit turns a long answer into
+        # a parse failure and a paid retry): once every real chapter has an answer
+        # the rest cannot change the plan. Not a cap by position, so a real
+        # chapter listed late is still read.
+        if len(answered) == len(chapters):
+            break
         # Unknown ids are ignored, and the first answer for an id wins, so a
         # model repeating itself or inventing a chapter cannot change the plan.
         if item.chapter_id not in by_id or item.chapter_id in answered:
@@ -290,6 +293,14 @@ async def _load_draft(session: AsyncSession, plan_id: int) -> TeachingPlan | Non
         log.info("plan %s is %s, not a draft; leaving it alone", plan_id, plan.status.value)
         return None
     return plan
+
+
+async def _weekdays(session: AsyncSession, group: Group, plan: TeachingPlan) -> tuple[int, ...]:
+    """The lesson weekdays from the class timetable and the plan's lessons per week."""
+    timetable = (
+        await session.scalars(select(ScheduleSlot.weekday).where(ScheduleSlot.group_id == group.id))
+    ).all()
+    return effective_weekdays(tuple(timetable), plan.lessons_per_week)
 
 
 async def _calendar(
@@ -374,16 +385,7 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     if not chapters:
         raise PlanDraftError("This subject has no chapters yet, so there is nothing to plan.")
 
-    weekdays = effective_weekdays(
-        tuple(
-            (
-                await session.scalars(
-                    select(ScheduleSlot.weekday).where(ScheduleSlot.group_id == group.id)
-                )
-            ).all()
-        ),
-        plan.lessons_per_week,
-    )
+    weekdays = await _weekdays(session, group, plan)
     # The tutor's own day, not the server's: at 01:00 in Cairo UTC still says
     # yesterday and the plan would open with a lesson that has already passed.
     start = now_in(organization.timezone).date()
@@ -411,8 +413,12 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     if locked is None or locked.status is not TeachingPlanStatus.draft:
         log.info("plan %s was accepted or removed while drafting; discarding the run", plan.id)
         return DraftResult(plan_id=plan.id, status="skipped", skipped=SKIPPED_ACCEPTED_MIDRUN)
-    # Re-read under the lock: breaks and the tutor's own slots can change while
-    # the model is thinking, and the schedule must see the current ones.
+    # Re-read under the lock: the timetable, breaks and the tutor's own slots can
+    # change while the model is thinking, and the schedule must see the current
+    # ones. `locked` is the same identity as `plan`, refreshed, so its exam date
+    # and lessons per week are current too.
+    weekdays = await _weekdays(session, group, plan)
+    exam = plan.exam_date
     blocked, kept_counts = await _calendar(session, plan)
 
     lessons_out = schedule(

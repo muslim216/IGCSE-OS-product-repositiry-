@@ -54,7 +54,7 @@ def test_counts_sum_exactly_to_the_lessons_available_when_rounding_is_awkward():
     )
     counts = per_chapter(lessons)
     assert sum(counts.values()) == len(lessons) == 8
-    assert max(counts.values()) - min(counts.values()) <= 1
+    assert dict(counts) == {1: 3, 2: 3, 3: 2}
     # Ties in the remainder go to the earlier chapter.
     assert counts[1] >= counts[3]
 
@@ -115,21 +115,26 @@ def test_same_input_gives_the_same_output():
         [(1, 1.3), (2, 0.7), (3, 2.2)],
         breaks=(DateRange(date(2027, 1, 14), date(2027, 1, 14)),),
     )
-    assert schedule(s) == schedule(s)
+    first = schedule(s)
+    second = schedule(s)
+    assert first == second
 
 
 def test_too_few_lessons_raises_with_both_counts_rather_than_dropping_chapters():
     # Exam on Fri the 8th: lessons on Mon 4th and Thu 7th only.
+    too_short = spec([(1, 1.0), (2, 1.0), (3, 1.0)], exam_date=date(2027, 1, 8))
     with pytest.raises(NotEnoughLessons) as err:
-        schedule(spec([(1, 1.0), (2, 1.0), (3, 1.0)], exam_date=date(2027, 1, 8)))
+        schedule(too_short)
     assert err.value.lessons == 2
     assert err.value.chapters == 3
-    assert "2" in str(err.value) and "3" in str(err.value)
+    assert "2 lesson" in str(err.value)
+    assert "3 chapters" in str(err.value)
 
 
 def test_exam_before_start_has_zero_lessons():
+    exam_before_start = spec([(1, 1.0)], exam_date=MON - timedelta(days=1))
     with pytest.raises(NotEnoughLessons) as err:
-        schedule(spec([(1, 1.0)], exam_date=MON - timedelta(days=1)))
+        schedule(exam_before_start)
     assert err.value.lessons == 0
 
 
@@ -144,18 +149,21 @@ def test_no_chapters_means_no_lessons():
 
 @pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
 def test_a_non_positive_or_non_finite_weight_is_rejected(bad):
+    bad_input = spec([(1, 1.0), (2, bad)])
     with pytest.raises(ValueError):
-        schedule(spec([(1, 1.0), (2, bad)]))
+        schedule(bad_input)
 
 
 def test_a_break_that_ends_before_it_starts_is_rejected():
+    backwards = spec([(1, 1.0)], breaks=(DateRange(MON + timedelta(days=2), MON),))
     with pytest.raises(ValueError):
-        schedule(spec([(1, 1.0)], breaks=(DateRange(MON + timedelta(days=2), MON),)))
+        schedule(backwards)
 
 
 def test_a_weekday_outside_the_week_is_rejected():
+    bad_day = spec([(1, 1.0)], lesson_weekdays=(7,))
     with pytest.raises(ValueError):
-        schedule(spec([(1, 1.0)], lesson_weekdays=(7,)))
+        schedule(bad_day)
 
 
 @pytest.mark.parametrize(

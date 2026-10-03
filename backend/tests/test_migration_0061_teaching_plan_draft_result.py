@@ -79,7 +79,13 @@ def test_downgrade_drops_only_the_column_and_keeps_rows(chain):
     conn.commit()
     names = {c["name"] for c in sa.inspect(conn).get_columns("teaching_plans")}
     assert "draft_result" not in names
-    assert conn.execute(sa.text("SELECT count(*) FROM teaching_plans")).scalar() == 1
+    row = conn.execute(
+        sa.text(
+            "SELECT organization_id, group_id, status, exam_date, lessons_per_week,"
+            " lesson_minutes FROM teaching_plans"
+        )
+    ).all()
+    assert [tuple(r) for r in row] == [(1, 1, "draft", "2027-05-01", 2, 60)]
     m61.upgrade()
     conn.commit()
     assert "draft_result" in {c["name"] for c in sa.inspect(conn).get_columns("teaching_plans")}

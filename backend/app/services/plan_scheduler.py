@@ -38,7 +38,7 @@ class NotEnoughLessons(ValueError):
 
     Raised rather than dropping chapters or squeezing two into one lesson: a
     plan that silently omits part of the syllabus looks complete and is not
-    (`PROD-2`). The tutor's remedy is a later start, a closer exam date, fewer
+    (`PROD-2`). The tutor's remedy is an earlier start, a later exam date, fewer
     breaks or more lessons a week, and the message says which numbers fell short.
     """
 
@@ -47,8 +47,8 @@ class NotEnoughLessons(ValueError):
         self.chapters = chapters
         super().__init__(
             f"Only {lessons} lesson(s) fit before the exam but {chapters} chapters still "
-            "need one. Increase lessons per week (up to 7), remove breaks or move the "
-            "exam date later."
+            "need one. Increase lessons per week (up to 7), remove breaks, start earlier "
+            "or move the exam date later."
         )
 
 
