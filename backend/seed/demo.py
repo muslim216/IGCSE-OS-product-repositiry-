@@ -241,6 +241,24 @@ async def add_demo_plan(
         past_paper_start_date=today - timedelta(days=30),
         accepted_at=datetime.now(timezone.utc),
         accepted_by_id=tutor.id,
+        # Shaped like plan_drafting.DraftResult.to_json(), so 6.8's reflow (which
+        # skips a plan with no drafted record) adjusts this plan when the syllabus
+        # changes. Honest about its source: stored weights, no model was asked.
+        draft_result={
+            "status": "drafted",
+            "drafted_at": datetime.now(timezone.utc).isoformat(),
+            "prompt_version": None,
+            "weight_source": "stored_chapter_weights",
+            "degraded_reason": None,
+            "guidance_used": False,
+            "guidance_note": None,
+            "defaulted_chapters": 0,
+            "clamped_chapters": 0,
+            "chapters": [
+                {"chapter_id": c.id, "weight": c.weight, "reason": None} for c in chapters
+            ],
+            "failure": None,
+        },
     )
     plan.slots = [
         PlanSlot(
