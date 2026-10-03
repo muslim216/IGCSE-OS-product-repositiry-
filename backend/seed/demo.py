@@ -902,7 +902,9 @@ async def main() -> None:
             session,
             group=group,
             tutor=tutor,
-            weekdays=tuple(sorted({slot.weekday for slot in fixed_slots})),
+            # The two real timetable days only: "Today's lesson" is a demo
+            # convenience for the Today tab, not a lesson the plan teaches on.
+            weekdays=tuple(sorted({slot.weekday for slot in fixed_slots[:2]})),
             today=now.date(),
         )
         await session.commit()

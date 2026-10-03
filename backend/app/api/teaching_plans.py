@@ -116,6 +116,8 @@ async def add_break(
         raise HTTPException(status.HTTP_409_CONFLICT, "Save the plan inputs before adding breaks")
     try:
         created = await plans.add_break(db, plan=draft, **body.model_dump())
+    except plans.PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except plans.PlanInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return PlanBreakOut.model_validate(created)

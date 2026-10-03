@@ -14,6 +14,8 @@ from app.models import AiSynthesisStatus, AiUsageEvent, ReadinessSnapshot, Subje
 from app.services.readiness_summary_v2 import build_summary_v2
 from seed import demo
 
+pytestmark = pytest.mark.usefixtures("no_ai_key")
+
 
 async def test_demo_seed_writes_ready_v2_snapshots_without_ai(monkeypatch):
     async def _no_model(*args, **kwargs):
@@ -46,10 +48,3 @@ async def test_demo_seed_writes_ready_v2_snapshots_without_ai(monkeypatch):
         assert entry.score is not None
 
         assert await session.scalar(select(func.count()).select_from(AiUsageEvent)) == 0
-
-
-@pytest.fixture(autouse=True)
-def _no_ai_key(monkeypatch):
-    from app.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "anthropic_api_key", "", raising=False)

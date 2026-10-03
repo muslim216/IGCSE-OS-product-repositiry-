@@ -193,6 +193,30 @@ test("AI weights with defaulted chapters warn and mark the rows", async () => {
   expect(screen.getByText("default share")).toBeInTheDocument();
 });
 
+test("a failed chapter list is reported with a retry beside the chapter select", async () => {
+  let chaptersCalls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/chapters")) {
+        chaptersCalls += 1;
+        return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+      }
+      return new Response(JSON.stringify(wrap(plan({ slots: [slot], outcome: OUTCOME }))), {
+        status: 200,
+      });
+    }),
+  );
+  renderView();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit the 4 Jan 2027 lesson" }));
+  expect(await screen.findByText(/chapter list didn't load/)).toBeInTheDocument();
+  expect(screen.getByLabelText("Lesson chapter")).toBeDisabled();
+  const before = chaptersCalls;
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(chaptersCalls).toBeGreaterThan(before));
+});
+
 test("Edit is disabled on proposed slots while a draft job runs", async () => {
   stub(() => ({ body: wrap(plan({ drafting: true, slots: [slot], outcome: OUTCOME })) }));
   renderView();

@@ -117,6 +117,8 @@ function SlotRow({
   slot,
   chapters,
   chaptersReady,
+  chaptersError,
+  onRetryChapters,
   locked,
   saving,
   onSave,
@@ -125,6 +127,9 @@ function SlotRow({
   chapters: Chapter[];
   /** False until the subject's chapter list has loaded: the select would be empty. */
   chaptersReady: boolean;
+  /** The chapter list failed to load; said out loud rather than shown as no chapters. */
+  chaptersError: boolean;
+  onRetryChapters: () => void;
   /** A draft job is running and will replace generated slots under the tutor's hands. */
   locked: boolean;
   saving: boolean;
@@ -161,6 +166,14 @@ function SlotRow({
               </option>
             ))}
           </Select>
+          {chaptersError && (
+            <span role="alert" className="mt-1 block text-xs text-risk-600">
+              The chapter list didn&apos;t load.{" "}
+              <button type="button" className="underline" onClick={onRetryChapters}>
+                Retry
+              </button>
+            </span>
+          )}
         </label>
         <Button
           size="sm"
@@ -228,6 +241,8 @@ function SlotList({
   slots,
   chapters,
   chaptersReady,
+  chaptersError,
+  onRetryChapters,
   locked = false,
   saving,
   onSave,
@@ -235,6 +250,8 @@ function SlotList({
   slots: PlanSlot[];
   chapters: Chapter[];
   chaptersReady: boolean;
+  chaptersError: boolean;
+  onRetryChapters: () => void;
   locked?: boolean;
   saving: boolean;
   onSave: (
@@ -257,6 +274,8 @@ function SlotList({
                 slot={slot}
                 chapters={chapters}
                 chaptersReady={chaptersReady}
+                chaptersError={chaptersError}
+                onRetryChapters={onRetryChapters}
                 locked={locked}
                 saving={saving}
                 onSave={(patch, done) => onSave(slot.id, patch, done)}
@@ -391,6 +410,8 @@ export default function TeachingPlanView({
           slots={live.slots ?? []}
           chapters={chapterList}
           chaptersReady={chaptersReady}
+          chaptersError={chapters.isError}
+          onRetryChapters={() => chapters.refetch()}
           saving={edit.isPending}
           onSave={onSave}
         />
@@ -442,6 +463,8 @@ export default function TeachingPlanView({
               slots={proposedSlots}
               chapters={chapterList}
               chaptersReady={chaptersReady}
+              chaptersError={chapters.isError}
+              onRetryChapters={() => chapters.refetch()}
               locked={drafting}
               saving={edit.isPending}
               onSave={onSave}

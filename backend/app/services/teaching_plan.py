@@ -123,6 +123,20 @@ def validate_inputs(
         raise PlanInputError("Past papers cannot start after the exam date")
 
 
+async def _relock_draft(session: AsyncSession, plan: TeachingPlan) -> TeachingPlan | None:
+    """Lock the plan row and reload it; None when it is no longer a draft
+    (promoted by an accept, or gone). The lock is a no-op on SQLite."""
+    fresh = await session.scalar(
+        select(TeachingPlan)
+        .where(TeachingPlan.id == plan.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if fresh is None or fresh.status is not TeachingPlanStatus.draft:
+        return None
+    return fresh
+
+
 async def save_plan_inputs(
     session: AsyncSession,
     *,
@@ -138,6 +152,12 @@ async def save_plan_inputs(
     changing a live plan's inputs is a re-plan (task 6.6)."""
     validate_inputs(exam_date, lessons_per_week, lesson_minutes, past_paper_start_date, today=today)
     plan = await draft_plan_for_group(session, group_id)
+    if plan is not None:
+        # The read above can be stale by the time we write: an accept that
+        # promoted this very row in between would otherwise have its inputs
+        # overwritten here. Lock and re-read; a plan that is no longer a draft
+        # is "no draft", so a new one is made beside the accepted plan.
+        plan = await _relock_draft(session, plan)
     if plan is None:
         plan = TeachingPlan(
             organization_id=organization_id,
@@ -216,9 +236,10 @@ async def add_break(
     # Serialise concurrent adds: lock the plan row (a no-op on SQLite) and read
     # its breaks inside the lock, so two requests cannot both pass the overlap
     # check against the same stale list.
-    await session.scalar(
-        select(TeachingPlan.id).where(TeachingPlan.id == plan.id).with_for_update()
-    )
+    locked = await _relock_draft(session, plan)
+    if locked is None:
+        raise PlanStateError("Save the plan inputs before adding breaks")
+    plan = locked
     await session.refresh(plan, attribute_names=["breaks"])
     for other in plan.breaks:
         if start_date <= other.end_date and other.start_date <= end_date:
@@ -235,6 +256,11 @@ async def add_break(
 
 async def remove_break(session: AsyncSession, *, plan: TeachingPlan, break_id: int) -> bool:
     """Only a break of this (draft) plan; False when there is none."""
+    locked = await _relock_draft(session, plan)
+    if locked is None:
+        return False
+    plan = locked
+    await session.refresh(plan, attribute_names=["breaks"])
     plan_break = next((b for b in plan.breaks if b.id == break_id), None)
     if plan_break is None:
         return False

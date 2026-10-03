@@ -3,15 +3,11 @@
 import pytest
 from sqlalchemy import select
 
-from app.config import get_settings
 from app.db import async_session
 from app.models import PlanSlot, TeachingPlan, TeachingPlanStatus
 from seed import demo
 
-
-@pytest.fixture(autouse=True)
-def _no_ai_key(monkeypatch):
-    monkeypatch.setattr(get_settings(), "anthropic_api_key", "", raising=False)
+pytestmark = pytest.mark.usefixtures("no_ai_key")
 
 
 async def test_demo_class_has_one_accepted_plan_with_slots_and_reseeding_adds_none():

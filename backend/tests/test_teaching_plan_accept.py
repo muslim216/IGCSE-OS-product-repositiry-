@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from sqlalchemy import event, select
 
+from app.config import get_settings
 from app.db import async_session, engine
 from app.models import (
     Chapter,
@@ -258,8 +259,10 @@ async def test_accept_replaces_the_old_accepted_plan(client, tutor, group, chapt
 
 
 async def test_accept_queues_a_readiness_recompute_for_every_student(
-    client, tutor, group, subject, student, chapters
+    client, tutor, group, subject, student, chapters, monkeypatch
 ):
+    # The enqueue is a no-op with the kill switch off; this proves the accept path.
+    monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", True)
     draft_id = await _save_inputs(client, tutor, group)
     await _add_slots(draft_id, chapters)
     await _mark_drafted(draft_id)

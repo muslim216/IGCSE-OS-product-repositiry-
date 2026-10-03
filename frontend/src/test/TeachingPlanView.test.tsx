@@ -64,7 +64,10 @@ function stub(overview: Record<string, unknown>) {
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
       if (url.pathname.endsWith("/chapters")) return json(CHAPTERS);
       if (method === "PATCH") return json(slot(10, "2027-02-02", 2, "manually_modified"));
-      if (method === "POST") return json(overview, url.pathname.endsWith("/draft") ? 202 : 200);
+      // The server has queued the job by the time the draft POST answers.
+      if (method === "POST" && url.pathname.endsWith("/draft"))
+        return json({ ...overview, draft: { ...(overview.draft as object), drafting: true } }, 202);
+      if (method === "POST") return json(overview);
       return json({
         draft: null,
         accepted: null,
@@ -101,6 +104,9 @@ test("a saved draft can be requested and shows Drafting while the job runs", asy
   const button = await screen.findByRole("button", { name: "Draft my plan" });
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
+  // Straight after the click, while the request is out.
+  const busy = await screen.findByRole("button", { name: "Drafting…" });
+  expect(busy).toBeDisabled();
   await waitFor(() =>
     expect(calls.some((c) => c.method === "POST" && c.url === "/api/v1/groups/5/plan/draft")).toBe(
       true,
