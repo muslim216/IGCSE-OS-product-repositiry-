@@ -132,7 +132,8 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     // Enter submits a form whose button is disabled; hold the same line.
-    if (complete) save.mutate(values);
+    // A second save in flight could land out of order and overwrite newer edits.
+    if (complete && !save.isPending) save.mutate(values);
   }
 
   return (
@@ -244,7 +245,7 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
               className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (breakReady) addBreak.mutate(breakForm);
+                if (breakReady && !addBreak.isPending) addBreak.mutate(breakForm);
               }}
             >
               <Field label="Break starts">

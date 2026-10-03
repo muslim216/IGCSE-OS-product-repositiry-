@@ -20,6 +20,8 @@ const DRAFT = {
 function stub(
   defaults: { lessons_per_week: number | null; lesson_minutes: number | null },
   initial: Record<string, unknown> | null = null,
+  /** Holds every PUT until released, to observe a save that is still pending. */
+  putGate?: Promise<void>,
 ) {
   const calls: { method: string; url: string; body?: Record<string, unknown> }[] = [];
   let saved: Record<string, unknown> | null = initial;
@@ -31,10 +33,22 @@ function stub(
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       calls.push({ method, url: url.pathname, body });
       const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
-      if (method === "POST")
-        return new Response(JSON.stringify({ id: 10, ...body }), { status: 201 });
-      if (method === "DELETE") return new Response(null, { status: 204 });
-      if (method === "PUT") saved = { id: 1, breaks: [], ...body };
+      if (method === "POST") {
+        const created = { id: 10, ...body };
+        saved = { ...saved, breaks: [...((saved?.breaks as unknown[]) ?? []), created] };
+        return new Response(JSON.stringify(created), { status: 201 });
+      }
+      if (method === "DELETE") {
+        const id = Number(url.pathname.split("/").at(-1));
+        const kept = ((saved?.breaks as { id: number }[]) ?? []).filter((b) => b.id !== id);
+        saved = { ...saved, breaks: kept };
+        return new Response(null, { status: 204 });
+      }
+      if (method === "PUT") {
+        await putGate;
+        saved = { id: 1, breaks: [], ...body };
+        return json({ ...NO_PLAN, draft: saved, timetable_defaults: defaults });
+      }
       return json({ ...NO_PLAN, draft: saved, timetable_defaults: defaults });
     }),
   );
@@ -121,6 +135,8 @@ test("adding a break posts the dates and label", async () => {
   expect(post.url).toBe("/api/v1/groups/5/plan/breaks");
   expect(post.body).toEqual({ start_date: "2027-04-01", end_date: "2027-04-12", label: "Easter" });
   await waitFor(() => expect(screen.getByLabelText("Label")).toHaveValue(""));
+  expect(await screen.findByText("Easter")).toBeInTheDocument();
+  expect(screen.getByText("Half term")).toBeInTheDocument();
 });
 
 test("removing a break deletes that break", async () => {
@@ -131,6 +147,8 @@ test("removing a break deletes that break", async () => {
 
   await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
   expect(calls.find((c) => c.method === "DELETE")!.url).toBe("/api/v1/groups/5/plan/breaks/9");
+  await waitFor(() => expect(screen.queryByText("Half term")).toBeNull());
+  expect(screen.getByText("No breaks added.")).toBeInTheDocument();
 });
 
 test("Enter in an incomplete form does not submit it", async () => {
@@ -151,4 +169,22 @@ test("typing the timetable value back in does not restore the marker", async () 
   fireEvent.change(perWeek, { target: { value: "3" } });
   fireEvent.change(perWeek, { target: { value: "2" } });
   expect(screen.getAllByText("From your timetable")).toHaveLength(1);
+});
+
+test("Enter during a pending save sends only one PUT", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const calls = stub(DEFAULTS, DRAFT, gate);
+  renderForm();
+
+  const form = (await screen.findByLabelText("Exam date")).closest("form")!;
+  fireEvent.submit(form);
+  await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1));
+  fireEvent.submit(form);
+  fireEvent.submit(form);
+  release();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save plan inputs" })).toBeEnabled(),
+  );
+  expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
 });
