@@ -16,7 +16,11 @@ Only `generated` slots dated after today move (AV-77). A `manually_modified`,
 the lesson being given or already given. Those stay, their dates are blocked and
 they count toward their chapter's share, exactly as in the 6.3 draft.
 
-Every outcome is written to `TeachingPlan.draft_result["reflow"]` (`PROD-1`).
+Every outcome of a plan that has a `draft_result` is written to
+`draft_result["reflow"]` (`PROD-1`): reflowed, failed or skipped. A plan that is
+gone, or has no `draft_result` to hold a record, is only logged. Deterministic
+failures (too few lessons, no chapters) end the job `done`, since a retry cannot
+fix them, so they live only in `draft_result` and the log, not in the jobs table.
 """
 
 import logging
@@ -54,7 +58,22 @@ PLAN_REFLOW_JOB = "reflow_plan"
 
 def _record(plan: TeachingPlan, outcome: dict) -> None:
     # Reassigned, not mutated: a JSON column does not see an in-place change.
+    previous = (plan.draft_result or {}).get("reflow") or {}
+    if outcome["status"] == "failed":
+        # A failure must not erase when the plan last reflowed successfully.
+        outcome["last_success_at"] = (
+            previous.get("at")
+            if previous.get("status") == "reflowed"
+            else previous.get("last_success_at")
+        )
     plan.draft_result = {**(plan.draft_result or {}), "reflow": outcome}
+
+
+def _skip(plan: TeachingPlan | None, plan_id: int, reason: str) -> None:
+    status = plan.draft_result.get("status") if plan and plan.draft_result else None
+    log.warning("plan %s not reflowed (draft status %s): %s", plan_id, status, reason)
+    if plan is not None and plan.draft_result is not None:
+        _record(plan, {"at": utcnow().isoformat(), "status": "skipped", "reason": reason})
 
 
 async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
@@ -68,19 +87,21 @@ async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
         .execution_options(populate_existing=True)
     )
     if plan is None:
-        log.info("plan %s no longer exists; nothing to reflow", plan_id)
+        _skip(None, plan_id, "the plan no longer exists")
         return None
     # A plan never drafted (or whose draft failed) has no schedule to adjust;
     # writing slots here would bypass the weighing the draft job exists to do.
     if (plan.draft_result or {}).get("status") != "drafted":
-        log.info("plan %s has no drafted schedule; not reflowing", plan_id)
+        _skip(plan, plan_id, "the plan has no current drafted schedule to adjust")
         return None
     group = await session.get(Group, plan.group_id)
     if group is None:
+        _skip(plan, plan_id, "the plan's class no longer exists")
         return None
     subject = await session.get(Subject, group.subject_id)
     organization = await session.get(Organization, group.organization_id)
     if subject is None or organization is None:
+        _skip(plan, plan_id, "the class's subject or organization could not be found")
         return None
 
     # CODE-12: this is intentionally NOT the 6.6 behaviour. A behind-schedule
@@ -112,6 +133,7 @@ async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
     if not chapters:
         outcome = fail("no_chapters", "This subject has no chapters, so the plan was not changed.")
         await session.flush()
+        log.warning("plan %s could not be reflowed: subject has no chapters", plan.id)
         return outcome
 
     stored = {

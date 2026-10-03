@@ -100,6 +100,16 @@ async def world():
         _, plan = await make_class(
             session, org.id, tutor.id, subject.id, status=TeachingPlanStatus.draft
         )
+        await session.flush()
+        # Weights the drafting run stored, deliberately unlike the chapters' own
+        # stored weight (1.0): reflow must use these, not recompute them.
+        plan.draft_result = {
+            "status": "drafted",
+            "chapters": [
+                {"chapter_id": cid, "weight": w, "reason": None}
+                for cid, w in zip((c.id for c in chapters), (1.0, 3.0, 1.0), strict=True)
+            ],
+        }
         await session.commit()
         return {
             "org_id": org.id,
@@ -401,6 +411,13 @@ async def test_applying_a_syllabus_reflows_the_subjects_plans(client, tutor, mon
     second = await upload_pdf(client, tutor, title="v2", name="v2.pdf")
     resp = await client.post(f"/api/v1/syllabus-uploads/{second}/apply", headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
+    async with async_session() as session:
+        pending = (
+            await session.scalars(
+                select(Job).where(Job.type == PLAN_REFLOW_JOB, Job.status == JobStatus.pending)
+            )
+        ).all()
+    assert [j.payload["plan_id"] for j in pending] == [plan_id]  # committed with the chapters
     assert await process_one_job() is True  # the reflow the apply enqueued
     assert chapter_order(await slots(plan_id), list(ids.values())) == [ids["2"], ids["1"]]
 
@@ -410,3 +427,103 @@ async def _chapters(subject_id):
         return list(
             (await session.scalars(select(Chapter).where(Chapter.subject_id == subject_id))).all()
         )
+
+
+async def test_stored_draft_weights_drive_the_allocation(world):
+    a, b, c = world["chapter_ids"]
+    await reflow(world["plan_id"])
+    counts = dict.fromkeys((a, b, c), 0)
+    for row in await slots(world["plan_id"]):
+        counts[row.chapter_id] += 1
+    # 1:3:1 over 7 lessons. An even split (stored Chapter.weight) would be 3/2/2.
+    assert counts[b] > counts[a] and counts[b] > counts[c]
+    assert counts[b] >= 4
+
+
+async def test_past_and_kept_slots_are_credited_to_their_chapter(world):
+    a, b, c = world["chapter_ids"]
+    await reflow(world["plan_id"])
+    baseline_b = sum(1 for r in await slots(world["plan_id"]) if r.chapter_id == b)
+    async with async_session() as session:
+        await session.execute(
+            PlanSlot.__table__.delete().where(PlanSlot.plan_id == world["plan_id"])
+        )
+        await session.commit()
+    await add_slot(world["plan_id"], b, date(2027, 1, 1), G)
+    await add_slot(world["plan_id"], b, date(2027, 1, 4), G)
+    await reflow(world["plan_id"])
+    new_b = sum(
+        1
+        for r in await slots(world["plan_id"])
+        if r.chapter_id == b and r.scheduled_date > TODAY.date()
+    )
+    assert new_b < baseline_b
+
+
+@pytest.mark.parametrize("draft_status", ["stale", "failed"])
+async def test_a_stale_or_failed_draft_is_skipped_and_the_skip_recorded(world, draft_status):
+    async with async_session() as session:
+        plan = await session.get(TeachingPlan, world["plan_id"])
+        plan.draft_result = {**plan.draft_result, "status": draft_status}
+        await session.commit()
+    await reflow(world["plan_id"])
+    assert await slots(world["plan_id"]) == []
+    async with async_session() as session:
+        result = (await session.get(TeachingPlan, world["plan_id"])).draft_result
+    assert result["status"] == draft_status
+    assert result["reflow"]["status"] == "skipped"
+    assert result["reflow"]["reason"]
+
+
+async def test_a_failure_keeps_the_previous_success_time(world):
+    await reflow(world["plan_id"])
+    async with async_session() as session:
+        first = (await session.get(TeachingPlan, world["plan_id"])).draft_result["reflow"]["at"]
+        session.add_all(
+            Chapter(subject_id=world["subject_id"], code=f"X{i}", title=f"X{i}", position=10 + i)
+            for i in range(6)
+        )
+        await session.commit()
+    await reflow(world["plan_id"])
+    await reflow(world["plan_id"])  # a second failure still remembers the success
+    async with async_session() as session:
+        reflow_result = (await session.get(TeachingPlan, world["plan_id"])).draft_result["reflow"]
+    assert reflow_result["status"] == "failed"
+    assert reflow_result["last_success_at"] == first
+
+
+async def test_tomorrow_is_the_organizations_day_not_utc(world, monkeypatch):
+    from zoneinfo import ZoneInfo
+
+    async with async_session() as session:
+        (await session.get(Organization, world["org_id"])).timezone = "Africa/Cairo"
+        await session.commit()
+    # 22:30 UTC on Sunday 3 Jan is already 00:30 Monday 4 Jan in Cairo.
+    instant = datetime(2027, 1, 3, 22, 30, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "app.services.plan_reflow.now_in", lambda tz: instant.astimezone(ZoneInfo(tz or "UTC"))
+    )
+    await reflow(world["plan_id"])
+    dates = {r.scheduled_date for r in await slots(world["plan_id"])}
+    # Monday 4 Jan is Cairo's today, so it is not moved onto; a UTC clock would.
+    assert date(2027, 1, 4) not in dates
+    assert min(dates) == date(2027, 1, 7)
+
+
+async def test_a_failed_enqueue_rolls_the_whole_apply_back(client, tutor, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(draft_of(chapters=CHAPTERS)),
+    )
+    upload_id = await upload_pdf(client, tutor)
+
+    async def _boom(session, subject_id):
+        raise RuntimeError("queue down")
+
+    monkeypatch.setattr("app.api.syllabus_uploads.enqueue_reflow_for_subject", _boom)
+    with pytest.raises(RuntimeError):
+        await client.post(f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"])
+    async with async_session() as session:
+        assert (await session.scalars(select(Chapter))).all() == []
+    detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
+    assert detail.json()["status"] == "review"

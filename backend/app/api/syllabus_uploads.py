@@ -247,10 +247,10 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     # one, so `plan_slots.chapter_id ON DELETE RESTRICT` cannot be hit from this
     # path. A chapter the draft omitted survives (sorted last) and keeps its slots.
     # Any future path that deletes a chapter must clear its slots first (task 6.8).
-    await db.commit()
-    # Reflow is a job, never request work (`BE-13`). Enqueued after the commit so
-    # the worker sees the new chapters. A second transaction on purpose: the
-    # applied syllabus is already durable and must not depend on the enqueue.
+    # Reflow is a job, never request work (`BE-13`). Enqueued before the single
+    # commit so the new chapters and the job rows become visible together: the
+    # worker can never claim a reflow that predates the chapters it must read, and
+    # a failed enqueue rolls the whole apply back rather than leaving a half state.
     await enqueue_reflow_for_subject(db, subject.id)
     await db.commit()
     return _detail(upload)
