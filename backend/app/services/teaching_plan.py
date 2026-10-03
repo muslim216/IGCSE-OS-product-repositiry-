@@ -25,6 +25,7 @@ from app.models import (
     ScheduleSlot,
     TeachingPlan,
     TeachingPlanStatus,
+    Topic,
     User,
 )
 from app.models.base import utcnow
@@ -76,6 +77,56 @@ async def accepted_plan_for_group(session: AsyncSession, group_id: int) -> Teach
     through this rather than querying `TeachingPlan` itself.
     """
     return await _plan_with_status(session, group_id, TeachingPlanStatus.accepted)
+
+
+#: A slot in either state is already spoken for: `confirmed` is a lesson in hand,
+#: `completed` one that happened (E15). Neither is "next".
+STARTED_PROVENANCE = (PlanSlotProvenance.confirmed, PlanSlotProvenance.completed)
+
+
+@dataclass(frozen=True)
+class NextLesson:
+    slot: PlanSlot
+    chapter: Chapter
+    topics: list[Topic]
+
+
+async def next_unstarted_slot(session: AsyncSession, group_id: int) -> NextLesson | None:
+    """The earliest slot of the *accepted* plan that no lesson has started, with
+    its chapter's topics (task 6.5, AV-17). None when there is no accepted plan
+    or nothing is left.
+
+    Goes through `accepted_plan_for_group`, so a draft is never suggested from.
+    "Unstarted" is `lesson_id IS NULL` and provenance not confirmed/completed;
+    both are checked because 6.8 may mark a slot taught without a lesson row.
+    Topics are the chapter's own, inside the class's subject (`SEC-8`).
+    """
+    plan = await accepted_plan_for_group(session, group_id)
+    if plan is None:
+        return None
+    slot = await session.scalar(
+        select(PlanSlot)
+        .where(
+            PlanSlot.plan_id == plan.id,
+            PlanSlot.lesson_id.is_(None),
+            PlanSlot.provenance.not_in(STARTED_PROVENANCE),
+        )
+        .order_by(PlanSlot.scheduled_date, PlanSlot.sequence, PlanSlot.id)
+        .limit(1)
+    )
+    if slot is None:
+        return None
+    chapter = await session.get(Chapter, slot.chapter_id)
+    if chapter is None:  # RESTRICT on the FK makes this unreachable; never invent one.
+        return None
+    topics = list(
+        await session.scalars(
+            select(Topic)
+            .where(Topic.chapter_id == chapter.id, Topic.subject_id == chapter.subject_id)
+            .order_by(Topic.id)
+        )
+    )
+    return NextLesson(slot=slot, chapter=chapter, topics=topics)
 
 
 async def draft_plan_for_group(session: AsyncSession, group_id: int) -> TeachingPlan | None:

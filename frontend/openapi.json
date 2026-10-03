@@ -7686,6 +7686,62 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/plan/next-lesson": {
+      "get": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Next Lesson",
+        "description": "What the accepted plan says to teach next, to pre-fill the add-lesson form\n(task 6.5, AV-17). A suggestion: it creates nothing. `null` when there is no\naccepted plan or no unstarted slot.",
+        "operationId": "next_lesson_api_v1_groups__group_id__plan_next_lesson_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/NextLessonOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Next Lesson Api V1 Groups  Group Id  Plan Next Lesson Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{group_id}/plan/draft": {
       "post": {
         "tags": [
@@ -11003,6 +11059,27 @@
               }
             ],
             "title": "Schedule Slot Id"
+          },
+          "topic_ids": {
+            "items": {
+              "type": "integer",
+              "minimum": 1.0
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Topic Ids"
+          },
+          "plan_slot_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Slot Id"
           }
         },
         "type": "object",
@@ -12398,6 +12475,84 @@
         ],
         "title": "NextLesson",
         "description": "The next occurrence of a group's weekly timetable."
+      },
+      "NextLessonChapterOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "title"
+        ],
+        "title": "NextLessonChapterOut"
+      },
+      "NextLessonOut": {
+        "properties": {
+          "slot_id": {
+            "type": "integer",
+            "title": "Slot Id"
+          },
+          "scheduled_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Scheduled Date"
+          },
+          "chapter": {
+            "$ref": "#/components/schemas/NextLessonChapterOut"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/NextLessonTopicOut"
+            },
+            "type": "array",
+            "title": "Topics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slot_id",
+          "scheduled_date",
+          "chapter",
+          "topics"
+        ],
+        "title": "NextLessonOut",
+        "description": "The accepted plan's next unstarted slot and its chapter's topics (task 6.5).\n\nA suggestion only: it pre-fills the add-lesson form and writes nothing."
+      },
+      "NextLessonTopicOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "title"
+        ],
+        "title": "NextLessonTopicOut"
       },
       "ObservationCreate": {
         "properties": {

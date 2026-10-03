@@ -126,3 +126,26 @@ class PlanOverview(BaseModel):
     draft: PlanInputsOut | None
     accepted: PlanInputsOut | None
     timetable_defaults: TimetableDefaultsOut
+
+
+class NextLessonChapterOut(BaseModel):
+    id: int
+    code: str
+    title: str
+
+
+class NextLessonTopicOut(BaseModel):
+    id: int
+    code: str
+    title: str
+
+
+class NextLessonOut(BaseModel):
+    """The accepted plan's next unstarted slot and its chapter's topics (task 6.5).
+
+    A suggestion only: it pre-fills the add-lesson form and writes nothing."""
+
+    slot_id: int
+    scheduled_date: date
+    chapter: NextLessonChapterOut
+    topics: list[NextLessonTopicOut]

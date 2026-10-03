@@ -2633,6 +2633,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/plan/next-lesson": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Next Lesson
+         * @description What the accepted plan says to teach next, to pre-fill the add-lesson form
+         *     (task 6.5, AV-17). A suggestion: it creates nothing. `null` when there is no
+         *     accepted plan or no unstarted slot.
+         */
+        get: operations["next_lesson_api_v1_groups__group_id__plan_next_lesson_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups/{group_id}/plan/draft": {
         parameters: {
             query?: never;
@@ -3814,6 +3836,10 @@ export interface components {
             notes?: string | null;
             /** Schedule Slot Id */
             schedule_slot_id?: number | null;
+            /** Topic Ids */
+            topic_ids?: number[];
+            /** Plan Slot Id */
+            plan_slot_id?: number | null;
         };
         /** LessonObservationCreate */
         LessonObservationCreate: {
@@ -4301,6 +4327,42 @@ export interface components {
             duration_min: number;
             /** Title */
             title: string | null;
+        };
+        /** NextLessonChapterOut */
+        NextLessonChapterOut: {
+            /** Id */
+            id: number;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * NextLessonOut
+         * @description The accepted plan's next unstarted slot and its chapter's topics (task 6.5).
+         *
+         *     A suggestion only: it pre-fills the add-lesson form and writes nothing.
+         */
+        NextLessonOut: {
+            /** Slot Id */
+            slot_id: number;
+            /**
+             * Scheduled Date
+             * Format: date
+             */
+            scheduled_date: string;
+            chapter: components["schemas"]["NextLessonChapterOut"];
+            /** Topics */
+            topics: components["schemas"]["NextLessonTopicOut"][];
+        };
+        /** NextLessonTopicOut */
+        NextLessonTopicOut: {
+            /** Id */
+            id: number;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
         };
         /** ObservationCreate */
         ObservationCreate: {
@@ -10578,6 +10640,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    next_lesson_api_v1_groups__group_id__plan_next_lesson_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextLessonOut"] | null;
                 };
             };
             /** @description Validation Error */

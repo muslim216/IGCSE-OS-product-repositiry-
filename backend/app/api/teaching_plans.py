@@ -9,6 +9,9 @@ from app.api.deps import DbSession, TutorUser
 from app.api.groups import _owned_group
 from app.models import Organization
 from app.schemas.teaching_plan import (
+    NextLessonChapterOut,
+    NextLessonOut,
+    NextLessonTopicOut,
     PlanBreakCreate,
     PlanBreakOut,
     PlanInputsIn,
@@ -41,6 +44,25 @@ async def _overview(db: DbSession, group_id: int) -> PlanOverview:
 async def get_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverview:
     group = await _owned_group(db, user, group_id)
     return await _overview(db, group.id)
+
+
+@router.get("/next-lesson", response_model=NextLessonOut | None)
+async def next_lesson(group_id: int, db: DbSession, user: TutorUser) -> NextLessonOut | None:
+    """What the accepted plan says to teach next, to pre-fill the add-lesson form
+    (task 6.5, AV-17). A suggestion: it creates nothing. `null` when there is no
+    accepted plan or no unstarted slot."""
+    group = await _owned_group(db, user, group_id)
+    nxt = await plans.next_unstarted_slot(db, group.id)
+    if nxt is None:
+        return None
+    return NextLessonOut(
+        slot_id=nxt.slot.id,
+        scheduled_date=nxt.slot.scheduled_date,
+        chapter=NextLessonChapterOut(
+            id=nxt.chapter.id, code=nxt.chapter.code, title=nxt.chapter.title
+        ),
+        topics=[NextLessonTopicOut(id=t.id, code=t.code, title=t.title) for t in nxt.topics],
+    )
 
 
 @router.post("/draft", response_model=PlanOverview, status_code=status.HTTP_202_ACCEPTED)
