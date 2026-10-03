@@ -25,9 +25,10 @@ toward its chapter's share, and the plan is renumbered around it.
 import logging
 import math
 from dataclasses import dataclass, field
+from datetime import date
 
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -304,19 +305,25 @@ async def _weekdays(session: AsyncSession, group: Group, plan: TeachingPlan) -> 
 
 
 async def _calendar(
-    session: AsyncSession, plan: TeachingPlan
+    session: AsyncSession, plan: TeachingPlan, *, generated_through: date | None = None
 ) -> tuple[tuple[DateRange, ...], dict[int, int]]:
     """Blocked dates (breaks plus dates the generator does not own) and, per
     chapter, how many non-generated slots the tutor already holds. Read fresh each
-    time it matters, so it reflects any edit made while the model was thinking."""
+    time it matters, so it reflects any edit made while the model was thinking.
+
+    `generated_through` (the reflow, task 6.8) also treats generated slots dated
+    on or before it as kept: a reflow leaves them where they are, so they are
+    dates already taken and lessons already given to their chapter."""
+    keep = PlanSlot.provenance != PlanSlotProvenance.generated
+    if generated_through is not None:
+        keep = or_(keep, PlanSlot.scheduled_date <= generated_through)
     plan_breaks = (
         await session.scalars(select(PlanBreak).where(PlanBreak.plan_id == plan.id))
     ).all()
     kept = (
         await session.execute(
             select(PlanSlot.scheduled_date, PlanSlot.chapter_id).where(
-                PlanSlot.plan_id == plan.id,
-                PlanSlot.provenance != PlanSlotProvenance.generated,
+                PlanSlot.plan_id == plan.id, keep
             )
         )
     ).all()
