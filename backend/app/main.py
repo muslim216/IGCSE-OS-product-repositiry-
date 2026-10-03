@@ -37,6 +37,7 @@ from app.api import (
     submissions,
     syllabus_uploads,
     teaching_guidance,
+    teaching_plans,
     today,
 )
 from app.config import get_settings
@@ -324,6 +325,7 @@ def create_app() -> FastAPI:
         submissions.router,
         syllabus_uploads.router,
         teaching_guidance.router,
+        teaching_plans.router,
         today.router,
     ):
         app.include_router(router, prefix="/api/v1")

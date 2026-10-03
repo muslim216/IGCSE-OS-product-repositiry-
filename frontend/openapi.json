@@ -7639,6 +7639,216 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/plan": {
+      "get": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Get Plan",
+        "operationId": "get_plan_api_v1_groups__group_id__plan_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOverview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/plan/inputs": {
+      "put": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Save Inputs",
+        "operationId": "save_inputs_api_v1_groups__group_id__plan_inputs_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanInputsIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOverview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/plan/breaks": {
+      "post": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Add Break",
+        "operationId": "add_break_api_v1_groups__group_id__plan_breaks_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanBreakCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanBreakOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/plan/breaks/{break_id}": {
+      "delete": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Delete Break",
+        "operationId": "delete_break_api_v1_groups__group_id__plan_breaks__break_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "break_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Break Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/today": {
       "get": {
         "tags": [
@@ -12503,6 +12713,188 @@
         ],
         "title": "PastPaperQuestionOut"
       },
+      "PlanBreakCreate": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date",
+          "label"
+        ],
+        "title": "PlanBreakCreate"
+      },
+      "PlanBreakOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "start_date",
+          "end_date",
+          "label"
+        ],
+        "title": "PlanBreakOut"
+      },
+      "PlanInputsIn": {
+        "properties": {
+          "exam_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Exam Date"
+          },
+          "lessons_per_week": {
+            "type": "integer",
+            "maximum": 14.0,
+            "minimum": 1.0,
+            "title": "Lessons Per Week"
+          },
+          "lesson_minutes": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 15.0,
+            "title": "Lesson Minutes"
+          },
+          "past_paper_start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Past Paper Start Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exam_date",
+          "lessons_per_week",
+          "lesson_minutes"
+        ],
+        "title": "PlanInputsIn"
+      },
+      "PlanInputsOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "exam_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Exam Date"
+          },
+          "lessons_per_week": {
+            "type": "integer",
+            "title": "Lessons Per Week"
+          },
+          "lesson_minutes": {
+            "type": "integer",
+            "title": "Lesson Minutes"
+          },
+          "past_paper_start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Past Paper Start Date"
+          },
+          "breaks": {
+            "items": {
+              "$ref": "#/components/schemas/PlanBreakOut"
+            },
+            "type": "array",
+            "title": "Breaks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "exam_date",
+          "lessons_per_week",
+          "lesson_minutes",
+          "past_paper_start_date",
+          "breaks"
+        ],
+        "title": "PlanInputsOut"
+      },
+      "PlanOverview": {
+        "properties": {
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanInputsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accepted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanInputsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timetable_defaults": {
+            "$ref": "#/components/schemas/TimetableDefaultsOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "draft",
+          "accepted",
+          "timetable_defaults"
+        ],
+        "title": "PlanOverview",
+        "description": "Draft and accepted are separate: a class can hold both (6.1), and either may be null."
+      },
       "QuestionIn": {
         "properties": {
           "number": {
@@ -15119,6 +15511,38 @@
         ],
         "title": "TeachingGuidanceOut",
         "description": "What is on file for a subject \u2014 or that nothing is.\n\n`uploaded` is explicit rather than inferred from a null filename: absence is\na state the surface renders as absence (\"no guidance uploaded yet\"), never\nas an empty row that looks like a broken one (`PROD-2`, `UX-19`)."
+      },
+      "TimetableDefaultsOut": {
+        "properties": {
+          "lessons_per_week": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Per Week"
+          },
+          "lesson_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Minutes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lessons_per_week",
+          "lesson_minutes"
+        ],
+        "title": "TimetableDefaultsOut"
       },
       "TodayView": {
         "properties": {
