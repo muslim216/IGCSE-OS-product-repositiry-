@@ -229,12 +229,12 @@ async def test_query_count_does_not_grow_with_group_count(client, tutor, subject
     # today_lessons (2: org fetch, schedule join) + tutor_groups (1) +
     # latest_learner_snapshots (1, shared) + groups.summaries (4: members,
     # published, awaiting, schedule slots — covered folds into the shared
-    # snapshots read) + org_boundaries (1) + pending_review_count (1) = 10,
+    # snapshots read) + org_boundaries (1) + pending_review_count (1) + chapter_prompts (1, task 6.7) = 11,
     # plus request-scoped auth/session bookkeeping. Pinned by measurement so a
     # reviewer changing this number has to explain why, not just relax it.
-    assert baseline == 12, (
-        f"baseline query count is {baseline}, expected 12 — if this grew, check "
-        "whether latest_learner_snapshots() is now running twice for one request"
+    assert baseline == 13, (
+        f"baseline query count is {baseline}, expected 13 — if this grew, check "
+        "whether latest_learner_snapshots() is now running twice for one request, or chapter_prompts() has started querying per class"
     )
 
     # Five more classes, each with learners and evidence.

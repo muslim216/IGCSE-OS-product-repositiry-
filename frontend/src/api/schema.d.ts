@@ -3161,6 +3161,38 @@ export interface components {
             position: number;
         };
         /**
+         * ChapterPrompt
+         * @description A chapter the class's accepted plan has reached (or reaches within a
+         *     week) that has no classified yet (AV-20, AV-22). Information only: the
+         *     surface links to where one is uploaded and never gates on it.
+         */
+        ChapterPrompt: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string;
+            /** Chapter Id */
+            chapter_id: number;
+            /** Chapter Code */
+            chapter_code: string;
+            /** Chapter Title */
+            chapter_title: string;
+            /**
+             * Starts On
+             * Format: date
+             */
+            starts_on: string;
+            /**
+             * Ends On
+             * Format: date
+             */
+            ends_on: string;
+            /** Started */
+            started: boolean;
+        };
+        /**
          * ChapterReadinessOut
          * @description A chapter's Topic Mastery rolled up from its topics in the same run
          *     (task 5.2, AV-9): a mean weighted by evidence count, `score` null when no
@@ -5193,6 +5225,11 @@ export interface components {
             joined_student_count: number;
             /** Classes With Evidence */
             classes_with_evidence: number;
+            /**
+             * Chapter Prompts
+             * @default []
+             */
+            chapter_prompts: components["schemas"]["ChapterPrompt"][];
         };
         /** TopicEvidence */
         TopicEvidence: {

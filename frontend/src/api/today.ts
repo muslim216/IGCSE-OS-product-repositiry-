@@ -1,5 +1,6 @@
 import type { ReadinessStatus } from "../components/ui";
 import type { UpcomingLesson } from "./groups";
+import type { components } from "./schema";
 import { api } from "./client";
 
 /**
@@ -27,6 +28,10 @@ export interface ClassStripRow {
   awaiting_review_count: number;
 }
 
+/** A chapter the class's accepted plan has reached, or reaches within a week,
+    with no classified uploaded yet (AV-20, AV-22). */
+export type ChapterPrompt = components["schemas"]["ChapterPrompt"];
+
 /**
  * Everything the tutor's home needs, in one response. Replaces a per-class
  * fan-out that itself looped per learner server-side (PERF-1).
@@ -40,6 +45,9 @@ export interface TodayView {
   class_count: number;
   joined_student_count: number;
   classes_with_evidence: number;
+  /** Optional on the wire (the server defaults it to empty); absent and empty
+      both mean render nothing. */
+  chapter_prompts?: ChapterPrompt[];
 }
 
 export const todayView = () => api<TodayView>("/api/v1/today");

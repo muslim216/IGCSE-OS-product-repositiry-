@@ -13,6 +13,7 @@ import { Button, buttonClasses } from "../../components/controls";
 import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
 import { ABSENT, REASON_LABELS } from "../../lib/labels";
 import { coverageLabel, isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
+import ChapterPrompts from "./ChapterPrompts";
 import ClassNarrative from "./ClassNarrative";
 import CreateLessonModal from "./CreateLessonModal";
 
@@ -208,6 +209,10 @@ export default function TodayDashboard() {
           )}
         </Section>
       )}
+
+      {/* Not suppressed on a clear day: it is about next week's preparation, not
+          today's backlog, and the lookahead is its whole point. */}
+      <ChapterPrompts prompts={view.chapter_prompts ?? []} />
 
       {/* WHAT CHANGED reads the stored narrative — present on open, never a
           surface waiting on a model call (spec §8). Suppressed on a clear day,

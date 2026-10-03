@@ -9238,6 +9238,62 @@
         ],
         "title": "ChapterOut"
       },
+      "ChapterPrompt": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "chapter_code": {
+            "type": "string",
+            "title": "Chapter Code"
+          },
+          "chapter_title": {
+            "type": "string",
+            "title": "Chapter Title"
+          },
+          "starts_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Starts On"
+          },
+          "ends_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Ends On"
+          },
+          "started": {
+            "type": "boolean",
+            "title": "Started"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "subject_name",
+          "chapter_id",
+          "chapter_code",
+          "chapter_title",
+          "starts_on",
+          "ends_on",
+          "started"
+        ],
+        "title": "ChapterPrompt",
+        "description": "A chapter the class's accepted plan has reached (or reaches within a\nweek) that has no classified yet (AV-20, AV-22). Information only: the\nsurface links to where one is uploaded and never gates on it."
+      },
       "ChapterReadinessOut": {
         "properties": {
           "chapter_id": {
@@ -15095,6 +15151,14 @@
           "classes_with_evidence": {
             "type": "integer",
             "title": "Classes With Evidence"
+          },
+          "chapter_prompts": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterPrompt"
+            },
+            "type": "array",
+            "title": "Chapter Prompts",
+            "default": []
           }
         },
         "type": "object",

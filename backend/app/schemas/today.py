@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel
 
 from app.schemas.groups import UpcomingScheduleSlot
@@ -31,6 +33,24 @@ class ClassStripRow(BaseModel):
     awaiting_review_count: int = 0
 
 
+class ChapterPrompt(BaseModel):
+    """A chapter the class's accepted plan has reached (or reaches within a
+    week) that has no classified yet (AV-20, AV-22). Information only: the
+    surface links to where one is uploaded and never gates on it."""
+
+    group_id: int
+    group_name: str
+    subject_name: str
+    chapter_id: int
+    chapter_code: str
+    chapter_title: str
+    #: The chapter's first and last planned lesson dates in the accepted plan.
+    starts_on: date
+    ends_on: date
+    #: True when the first lesson is today or earlier; False for the lookahead.
+    started: bool
+
+
 class TodayView(BaseModel):
     """Everything the tutor's home needs, in one response and a bounded number
     of queries — replacing a per-class fan-out that itself looped per learner."""
@@ -47,6 +67,9 @@ class TodayView(BaseModel):
     class_count: int
     joined_student_count: int
     classes_with_evidence: int
+    #: Chapters from accepted plans awaiting a classified, soonest first. Empty
+    #: for a tutor with no plan; tutor-only because plans are (AV-19).
+    chapter_prompts: list[ChapterPrompt] = []
 
 
 class ClassLearnerRow(BaseModel):
