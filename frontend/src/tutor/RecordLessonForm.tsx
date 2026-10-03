@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { myOrganization } from "../api/auth";
 import { listLessons } from "../api/groups";
 import { recordLesson } from "../api/lessons";
 import { listTopics } from "../api/syllabus";
 import { getNextLesson, getPlan, type NextLesson } from "../api/teachingPlan";
+import { useMyTimezone } from "../auth/AuthContext";
 import { friendlyError } from "../lib/errors";
+import { dayKeyIn } from "../lib/timezones";
 import { SectionCard } from "../components/ui";
 import { Button, Field, Input } from "../components/controls";
 
@@ -23,12 +26,6 @@ function plannedDate(iso: string): string {
 function mondayFirstWeekday(iso: string): number {
   const [y, m, d] = iso.split("-").map(Number);
   return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
-}
-
-function today(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 function suggestionLabel(s: NextLesson): string {
@@ -61,7 +58,16 @@ export default function RecordLessonForm({
   });
   const suggestion = next.data ?? null;
 
-  const [date, setDate] = useState(today());
+  // "Today" is the tutor's effective day (their own zone, else the
+  // organization's), not the browser's: a tutor travelling would otherwise
+  // record lessons on the wrong date. Nothing is filled until it is known.
+  const myZone = useMyTimezone();
+  const org = useQuery({ queryKey: ["my-organization"], queryFn: myOrganization });
+  const zoneReady = myZone !== null || !org.isPending;
+  const todayKey = zoneReady ? dayKeyIn(new Date(), myZone ?? org.data?.timezone ?? null) : "";
+  // null until the tutor or a suggestion sets it; then it is today.
+  const [dateSet, setDateSet] = useState<string | null>(null);
+  const date = dateSet ?? todayKey;
   const [topicIds, setTopicIds] = useState<number[]>([]);
   const [notes, setNotes] = useState("");
   // null until the tutor edits it; the shown value is then the derived default.
@@ -80,7 +86,9 @@ export default function RecordLessonForm({
   // Planned length, else the weekly slot on that weekday, else the class's
   // timetable default, else 60: never an invented number when one is known.
   const accepted = plan.data?.accepted ?? null;
-  const weekdaySlot = (timetable.data ?? []).find((l) => l.weekday === mondayFirstWeekday(date));
+  const weekdaySlot = date
+    ? (timetable.data ?? []).find((l) => l.weekday === mondayFirstWeekday(date))
+    : undefined;
   const defaultMinutes =
     accepted?.lesson_minutes ??
     weekdaySlot?.duration_min ??
@@ -92,7 +100,7 @@ export default function RecordLessonForm({
     setAppliedSlot(s.slot_id);
     setDismissed(false);
     setOffer(null);
-    setDate(s.scheduled_date);
+    setDateSet(s.scheduled_date);
     setTopicIds(s.topics.map((t) => t.id));
     dirty.current = false;
   }
@@ -122,7 +130,7 @@ export default function RecordLessonForm({
       setAppliedSlot(null);
       setDismissed(false);
       setOffer(null);
-      setDate(today());
+      setDateSet(null);
       setTopicIds([]);
       setNotes("");
       setDurationEdit(null);
@@ -184,7 +192,7 @@ export default function RecordLessonForm({
                 setDismissed(true);
                 dirty.current = true;
                 setTopicIds([]);
-                setDate(today());
+                setDateSet(null);
               }}
             >
               Don't use the plan suggestion
@@ -206,7 +214,7 @@ export default function RecordLessonForm({
               type="date"
               required
               value={date}
-              onChange={(e) => edit(() => setDate(e.target.value))}
+              onChange={(e) => edit(() => setDateSet(e.target.value))}
             />
           </Field>
           <Field label="Duration (min)">
@@ -271,7 +279,7 @@ export default function RecordLessonForm({
             loading={save.isPending}
             // While the suggestion refetches the slot may be stale: a fast second
             // submit must not reuse the one just consumed.
-            disabled={next.isFetching || !durationValid}
+            disabled={next.isFetching || !durationValid || !date}
           >
             Record lesson
           </Button>

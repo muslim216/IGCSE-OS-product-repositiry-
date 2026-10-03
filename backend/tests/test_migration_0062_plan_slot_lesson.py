@@ -86,4 +86,14 @@ def test_downgrade_drops_only_the_link_and_keeps_rows(chain):
     assert [tuple(r) for r in row] == [(1, "confirmed")]
     m62.upgrade()
     conn.commit()
-    assert "lesson_id" in {c["name"] for c in sa.inspect(conn).get_columns("plan_slots")}
+    insp = sa.inspect(conn)
+    assert "lesson_id" in {c["name"] for c in insp.get_columns("plan_slots")}
+    # After down -> up the constraints are back, not merely the column.
+    fks = {fk["constrained_columns"][0]: fk for fk in insp.get_foreign_keys("plan_slots")}
+    assert fks["lesson_id"]["referred_table"] == "lessons"
+    assert fks["lesson_id"]["options"]["ondelete"] == "SET NULL"
+    uniques = {u["name"]: u["column_names"] for u in insp.get_unique_constraints("plan_slots")}
+    assert uniques["uq_plan_slots_lesson_id"] == ["lesson_id"]
+    # The row survived the round trip; the link itself did not (the column was dropped).
+    row = conn.execute(sa.text("SELECT plan_id, provenance, lesson_id FROM plan_slots")).all()
+    assert [tuple(r) for r in row] == [(1, "confirmed", None)]

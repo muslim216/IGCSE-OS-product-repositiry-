@@ -1,5 +1,6 @@
 from datetime import date as date_
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
@@ -14,10 +15,10 @@ class LessonCreate(BaseModel):
     schedule_slot_id: int | None = None
     #: Syllabus topics covered, exactly as the tutor left them (task 6.5): a plan
     #: suggestion pre-fills these in the form but never writes them itself.
-    topic_ids: list[int] = Field(default_factory=list, max_length=500)
+    topic_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list, max_length=500)
     #: The accepted plan's slot this lesson confirms (AV-17). A lesson is never
     #: created for a slot by anything but the tutor submitting this.
-    plan_slot_id: int | None = None
+    plan_slot_id: Annotated[int, Field(ge=1)] | None = None
 
 
 class LessonUpdate(BaseModel):

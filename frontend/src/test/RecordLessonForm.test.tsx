@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
+import { dayKeyIn } from "../lib/timezones";
 import RecordLessonForm from "../tutor/RecordLessonForm";
 
 /* Task 6.5 (AV-17): the plan pre-fills the form; the tutor decides. */
@@ -34,6 +35,7 @@ interface Setup {
   timetable?: { weekday: number; duration_min: number }[];
   defaultMinutes?: number | null;
   postStatus?: number;
+  orgZone?: string | null;
 }
 
 function stub(setup: Setup = {}) {
@@ -46,6 +48,8 @@ function stub(setup: Setup = {}) {
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
       if (url.pathname.endsWith("/next-lesson")) return json(state.suggestion);
       if (url.pathname.endsWith("/topics")) return json(TOPICS);
+      if (url.pathname.endsWith("/me/organization"))
+        return json({ id: 1, name: "Org", timezone: setup.orgZone ?? null });
       if (url.pathname.endsWith("/plan"))
         return json({
           draft: null,
@@ -150,8 +154,8 @@ test("the duration is seeded from the accepted plan and the tutor can change it"
   expect(posts[0].duration_min).toBe(50);
 });
 
-test("without a plan the duration comes from the timetable slot on that weekday, then the default, then 60", async () => {
-  // 2026-10-13 is a Tuesday: weekday 1, Monday first.
+// 2026-10-13 is a Tuesday: weekday 1, Monday first.
+test("without a plan the duration comes from the timetable slot on that weekday", async () => {
   stub({
     suggestion: SUGGESTION,
     timetable: [
@@ -162,14 +166,26 @@ test("without a plan the duration comes from the timetable slot on that weekday,
   });
   renderForm();
   await waitFor(() => expect(screen.getByLabelText("Duration (min)")).toHaveValue(90));
-  vi.unstubAllGlobals();
+});
+
+test("without a plan or a matching weekday the duration is the timetable default", async () => {
   stub({ defaultMinutes: 75 });
   renderForm();
-  await waitFor(() => expect(screen.getAllByLabelText("Duration (min)")[1]).toHaveValue(75));
-  vi.unstubAllGlobals();
+  await waitFor(() => expect(screen.getByLabelText("Duration (min)")).toHaveValue(75));
+});
+
+test("with nothing known the duration is 60", async () => {
   stub();
   renderForm();
-  await waitFor(() => expect(screen.getAllByLabelText("Duration (min)")[2]).toHaveValue(60));
+  await waitFor(() => expect(screen.getByLabelText("Duration (min)")).toHaveValue(60));
+});
+
+test("the default date is today in the tutor's effective zone, not the browser's", async () => {
+  stub({ orgZone: "Pacific/Kiritimati" });
+  renderForm();
+  await waitFor(() =>
+    expect(screen.getByLabelText("Date")).toHaveValue(dayKeyIn(new Date(), "Pacific/Kiritimati")),
+  );
 });
 
 test("after a save the form resets, the old slot is not reused and the next suggestion loads", async () => {

@@ -8,7 +8,7 @@ same transaction. `lesson_topics` stays the sole source of syllabus coverage
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,8 +134,23 @@ async def create_lesson(
     for topic_id in sorted(wanted):
         session.add(LessonTopic(lesson_id=lesson.id, topic_id=topic_id))
     if slot is not None:
-        slot.lesson_id = lesson.id
-        slot.provenance = PlanSlotProvenance.confirmed
+        # Claimed in one conditional UPDATE, not by writing the instance read
+        # above: that read can be stale by now (and the row lock is a no-op on
+        # SQLite). Zero rows means someone else took the slot; the lesson made
+        # above is rolled back with it.
+        claimed = await session.execute(
+            update(PlanSlot)
+            .where(
+                PlanSlot.id == slot.id,
+                PlanSlot.lesson_id.is_(None),
+                PlanSlot.provenance.not_in(STARTED_PROVENANCE),
+            )
+            .values(lesson_id=lesson.id, provenance=PlanSlotProvenance.confirmed)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount != 1:  # type: ignore[attr-defined]
+            await session.rollback()
+            raise PlanStateError("A lesson already covers that planned lesson")
     try:
         await session.commit()
     except IntegrityError as exc:  # lost the race for the slot (UNIQUE lesson_id)

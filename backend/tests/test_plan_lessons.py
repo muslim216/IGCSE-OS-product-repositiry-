@@ -20,6 +20,7 @@ from app.models import (
     Topic,
     User,
 )
+from app.services import plan_lessons
 from tests.factories import make_subject, org_id
 
 EXAM = date.today() + timedelta(days=120)
@@ -419,3 +420,30 @@ async def test_deleting_a_lesson_whose_slot_is_completed_sets_it_manually_modifi
     await client.delete(f"/api/v1/lessons/{lesson_id}", headers=tutor["headers"])
     # Intended: the lesson is gone, so nothing was taught against this slot.
     assert await _slot(slots[0]) == (None, PlanSlotProvenance.manually_modified)
+
+
+async def test_a_slot_taken_between_the_read_and_the_claim_is_409_and_creates_no_lesson(
+    client, tutor, group, chapters, monkeypatch
+):
+    slots = await _plan(group, tutor, [chapters["c1"]])
+    real = plan_lessons._accepted_slot
+
+    async def read_then_lose_the_race(session, grp, slot_id):
+        slot = await real(session, grp, slot_id)  # the read sees it free...
+        async with async_session() as other:  # ...then another request takes it
+            rival = Lesson(organization_id=grp.organization_id, group_id=grp.id, date=date.today())
+            other.add(rival)
+            await other.flush()
+            (await other.get(PlanSlot, slot_id)).lesson_id = rival.id
+            await other.commit()
+        return slot
+
+    monkeypatch.setattr(plan_lessons, "_accepted_slot", read_then_lose_the_race)
+    resp = await _post_lesson(client, tutor, group, plan_slot_id=slots[0])
+    assert resp.status_code == 409
+    assert await _lesson_count() == 1  # only the rival's; ours was rolled back
+
+
+@pytest.mark.parametrize("body", [{"plan_slot_id": 0}, {"topic_ids": [0]}, {"topic_ids": [-3]}])
+async def test_non_positive_ids_are_422(client, tutor, group, body):
+    assert (await _post_lesson(client, tutor, group, **body)).status_code == 422

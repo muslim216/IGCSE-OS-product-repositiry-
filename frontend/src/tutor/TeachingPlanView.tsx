@@ -217,13 +217,10 @@ function SlotRow({
             hand-edited
           </span>
         )}
-        {slot.provenance === "confirmed" && (
+        {(slot.provenance === "confirmed" || slot.provenance === "completed") && (
           <span className="ml-2 rounded-full bg-ok-100 px-2 py-0.5 text-xs text-ok-700">
             taught
           </span>
-        )}
-        {slot.provenance === "completed" && (
-          <span className="ml-2 text-xs text-ink-500">taught</span>
         )}
       </span>
       <Button
