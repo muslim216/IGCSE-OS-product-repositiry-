@@ -38,3 +38,11 @@ export const editPlanSlot = (groupId: number, slotId: number, body: PlanSlotPatc
     method: "PATCH",
     body: JSON.stringify(body),
   });
+
+/** What the accepted plan says to teach next (task 6.5, `AV-17`): a suggestion
+ *  that pre-fills the record-a-lesson form and creates nothing. `null` when
+ *  there is no accepted plan or no unstarted slot. */
+export type NextLesson = components["schemas"]["NextLessonOut"];
+
+export const getNextLesson = (groupId: number) =>
+  api<NextLesson | null>(`${base(groupId)}/next-lesson`);

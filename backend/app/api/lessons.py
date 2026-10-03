@@ -22,6 +22,8 @@ from app.schemas.lessons import (
     LessonTopicsUpdate,
     LessonUpdate,
 )
+from app.services import plan_lessons
+from app.services.teaching_plan import PlanInputError, PlanSlotNotFound, PlanStateError
 
 router = APIRouter(prefix="/lessons", tags=["lessons"])
 
@@ -82,17 +84,23 @@ async def _lesson_out(db: AsyncSession, lesson: Lesson) -> LessonOut:
 @router.post("", response_model=LessonOut, status_code=status.HTTP_201_CREATED)
 async def create_lesson(body: LessonCreate, db: DbSession, user: CurrentUser) -> LessonOut:
     group = await _owned_group(db, user, body.group_id)
-    lesson = Lesson(
-        organization_id=user.organization_id,
-        group_id=group.id,
-        date=body.date,
-        duration_min=body.duration_min,
-        notes=body.notes,
-        schedule_slot_id=body.schedule_slot_id,
-    )
-    db.add(lesson)
-    await db.commit()
-    await db.refresh(lesson)
+    try:
+        lesson = await plan_lessons.create_lesson(
+            db,
+            group=group,
+            lesson_date=body.date,
+            duration_min=body.duration_min,
+            notes=body.notes,
+            schedule_slot_id=body.schedule_slot_id,
+            topic_ids=body.topic_ids,
+            plan_slot_id=body.plan_slot_id,
+        )
+    except PlanSlotNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Planned lesson not found") from exc
+    except PlanInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     return await _lesson_out(db, lesson)
 
 
@@ -135,6 +143,7 @@ async def update_lesson(
 @router.delete("/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_lesson(lesson_id: int, db: DbSession, user: CurrentUser) -> None:
     lesson = await _owned_lesson(db, user, lesson_id)
+    await plan_lessons.release_slot_for_lesson(db, lesson.id)
     await db.delete(lesson)
     await db.commit()
 

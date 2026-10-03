@@ -142,6 +142,9 @@ class PlanSlot(TimestampMixin, Base):
         Index("ix_plan_slots_plan_id_sequence", "plan_id", "sequence"),
         # Task 6.8 reads "the slots for this chapter" (`DB-11`).
         Index("ix_plan_slots_chapter_id", "chapter_id"),
+        # One lesson confirms at most one slot. The unique constraint is also
+        # the FK's index (`DB-11`). Declared here as well as in 0062 (`DB-12`).
+        UniqueConstraint("lesson_id", name="uq_plan_slots_lesson_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -161,6 +164,15 @@ class PlanSlot(TimestampMixin, Base):
         Enum(PlanSlotProvenance, native_enum=False, length=20),
         default=PlanSlotProvenance.generated,
         nullable=False,
+    )
+
+    # The lesson that confirmed this slot (task 6.5, E15). NULL means the slot
+    # has not been taught: never read NULL as "taught" (`DB-9`). SET NULL so
+    # deleting a lesson frees the slot; SQLite (tests) has FKs off, so
+    # `services/plan_lessons.py` unlinks explicitly as well.
+    lesson_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lessons.id", ondelete="SET NULL", name="fk_plan_slots_lesson_id_lessons"),
+        nullable=True,
     )
 
     plan: Mapped[TeachingPlan] = relationship(back_populates="slots")

@@ -12,6 +12,7 @@ import {
 } from "../../lib/schedule";
 import { friendlyError } from "../../lib/errors";
 import { useGroupContext } from "../GroupLayout";
+import RecordLessonForm from "../RecordLessonForm";
 import TeachingPlanInputs from "../TeachingPlanInputs";
 import TeachingPlanView from "../TeachingPlanView";
 import { EmptyState, SectionCard } from "../../components/ui";
@@ -176,6 +177,8 @@ export default function ScheduleTab() {
           </div>
         </form>
       </SectionCard>
+
+      <RecordLessonForm key={`record-${groupId}`} groupId={groupId} subjectId={group.subject.id} />
 
       <TeachingPlanInputs key={groupId} groupId={groupId} />
       <TeachingPlanView key={`view-${groupId}`} groupId={groupId} subjectId={group.subject.id} />

@@ -12,6 +12,12 @@ class LessonCreate(BaseModel):
     duration_min: int = Field(default=60, ge=15, le=480)
     notes: str | None = None
     schedule_slot_id: int | None = None
+    #: Syllabus topics covered, exactly as the tutor left them (task 6.5): a plan
+    #: suggestion pre-fills these in the form but never writes them itself.
+    topic_ids: list[int] = Field(default_factory=list, max_length=500)
+    #: The accepted plan's slot this lesson confirms (AV-17). A lesson is never
+    #: created for a slot by anything but the tutor submitting this.
+    plan_slot_id: int | None = None
 
 
 class LessonUpdate(BaseModel):
