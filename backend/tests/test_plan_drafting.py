@@ -31,11 +31,10 @@ from app.models import (
     UserRole,
 )
 from app.models.ai_usage import AiFeature
-from app.services.ai import AIUnavailableError
+from app.services.ai import AIKeyMissingError, AIUnavailableError
 from app.services.plan_drafting import (
     PLAN_DRAFT_JOB,
     ChapterAdvice,
-    PlanDraftError,
     PlanWeightingResult,
     draft_plan_slots,
     enqueue_plan_draft,
@@ -132,6 +131,11 @@ async def slots(world) -> list[PlanSlot]:
                 )
             ).all()
         )
+
+
+async def draft_result(world):
+    async with async_session() as session:
+        return (await session.get(TeachingPlan, world["plan_id"])).draft_result
 
 
 async def set_status(world, status):
@@ -311,23 +315,27 @@ async def test_hand_edited_and_settled_slots_survive_a_redraft(world, monkeypatc
             row.provenance = provenance
             row.chapter_id = world["chapter_ids"][2]
         await session.commit()
-    before = {r.id: (r.scheduled_date, r.chapter_id, r.sequence) for r in await slots(world)}
-    protected = {r.id: before[r.id] for r in await slots(world) if r.provenance in kept}
+    protected = {
+        r.id: (r.scheduled_date, r.chapter_id) for r in await slots(world) if r.provenance in kept
+    }
     assert len(protected) == 3
 
     await run_job(world)
     after = await slots(world)
-    survivors = {
-        r.id: (r.scheduled_date, r.chapter_id, r.sequence) for r in after if r.id in protected
-    }
+    survivors = {r.id: (r.scheduled_date, r.chapter_id) for r in after if r.id in protected}
     assert survivors == protected
     assert {r.provenance for r in after if r.id in protected} == set(kept)
     # The generator does not double-book a date a tutor's slot occupies.
-    generated_dates = [
-        r.scheduled_date for r in after if r.provenance is PlanSlotProvenance.generated
-    ]
-    assert not set(generated_dates) & set(kept.values())
-    assert len(generated_dates) == len(set(generated_dates))
+    generated = [r for r in after if r.provenance is PlanSlotProvenance.generated]
+    assert not {r.scheduled_date for r in generated} & set(kept.values())
+    assert len({r.scheduled_date for r in generated}) == len(generated)
+    # One run of numbers across kept and generated slots, in calendar order.
+    assert [r.sequence for r in after] == list(range(1, len(after) + 1))
+    assert [r.scheduled_date for r in after] == sorted(r.scheduled_date for r in after)
+    assert len(after) == 8
+    # The tutor's three slots all sit on chapter 3, which covers its whole share:
+    # the generator adds none on top.
+    assert [r for r in generated if r.chapter_id == world["chapter_ids"][2]] == []
 
 
 async def test_breaks_are_honoured(world, monkeypatch, fake_ai):
@@ -411,12 +419,30 @@ async def test_a_missing_api_key_falls_back_to_stored_weights_and_says_so(world,
 
 async def test_a_missing_key_does_not_fail_the_job(world, monkeypatch):
     async def _unavailable(**kwargs):
-        raise AIUnavailableError("AI is not configured: set ANTHROPIC_API_KEY")
+        raise AIKeyMissingError("AI is not configured: set ANTHROPIC_API_KEY")
 
     monkeypatch.setattr("app.services.plan_drafting.structured_complete", _unavailable)
     job = await run_job(world)
     assert job.status is JobStatus.done
     assert len(await slots(world)) == 8
+    result = await draft_result(world)
+    assert result["status"] == "drafted"
+    assert result["weight_source"] == "stored_chapter_weights"
+    assert "ANTHROPIC_API_KEY" in result["degraded_reason"]
+
+
+async def test_a_misrouted_provider_is_not_mistaken_for_a_missing_key(world, monkeypatch):
+    """A missing SDK or a bad route is a deployment fault: it must fail loudly, not
+    quietly produce an unweighted plan."""
+
+    async def _no_sdk(**kwargs):
+        raise AIUnavailableError("The google-genai package is not installed")
+
+    monkeypatch.setattr("app.services.plan_drafting.structured_complete", _no_sdk)
+    job = await run_job(world)
+    assert job.status is JobStatus.pending
+    assert "google-genai" in (job.error or "")
+    assert await slots(world) == []
 
 
 async def test_a_provider_failure_fails_the_job_and_writes_nothing(world, monkeypatch):
@@ -430,7 +456,7 @@ async def test_a_provider_failure_fails_the_job_and_writes_nothing(world, monkey
     assert await slots(world) == []
 
 
-async def test_too_few_lessons_fails_clearly_writes_nothing_and_skips_the_model(world, monkeypatch):
+async def test_too_few_lessons_is_recorded_without_a_retry_and_skips_the_model(world, monkeypatch):
     async def _boom(**kwargs):
         raise AssertionError("the model must not be called for a plan that cannot fit")
 
@@ -440,8 +466,13 @@ async def test_too_few_lessons_fails_clearly_writes_nothing_and_skips_the_model(
         plan.exam_date = date(2027, 1, 8)  # Mon 4th and Thu 7th only: 2 lessons, 3 chapters
         await session.commit()
     job = await run_job(world)
-    assert job.status is JobStatus.pending
-    assert "2 lesson" in (job.error or "") and "3 chapters" in (job.error or "")
+    assert job.status is JobStatus.done  # deterministic: a retry cannot help
+    assert job.attempts == 1 and job.error is None
+    result = await draft_result(world)
+    assert result["status"] == "failed"
+    assert result["failure"]["code"] == "not_enough_lessons"
+    assert (result["failure"]["lessons"], result["failure"]["chapters"]) == (2, 3)
+    assert "2 lesson" in result["failure"]["message"]
     assert await slots(world) == []
 
 
@@ -457,11 +488,12 @@ async def test_too_few_lessons_leaves_existing_generated_slots_in_place(
         (await session.get(TeachingPlan, world["plan_id"])).exam_date = date(2027, 1, 5)
         await session.commit()
     job = await run_job(world)
-    assert job.error
+    assert job.status is JobStatus.done
+    assert (await draft_result(world))["status"] == "failed"
     assert len(await slots(world)) == before
 
 
-async def test_a_subject_without_chapters_fails_with_a_clear_message(world):
+async def test_a_subject_without_chapters_is_recorded_as_a_failure(world):
     async with async_session() as session:
         for chapter in (await session.scalars(select(Chapter))).all():
             for topic in (
@@ -470,9 +502,115 @@ async def test_a_subject_without_chapters_fails_with_a_clear_message(world):
                 await session.delete(topic)
             await session.delete(chapter)
         await session.commit()
+    job = await run_job(world)
+    assert job.status is JobStatus.done
+    result = await draft_result(world)
+    assert result["status"] == "failed"
+    assert result["failure"]["code"] == "no_chapters"
+    assert "no chapters" in result["failure"]["message"]
+
+
+async def test_draft_result_is_null_until_a_plan_is_drafted(world):
+    assert await draft_result(world) is None
+
+
+async def test_draft_result_records_weights_reasons_and_provenance(world, monkeypatch, fake_ai):
+    c1, c2, c3 = world["chapter_ids"]
+    result = PlanWeightingResult(
+        chapters=[
+            ChapterAdvice(chapter_id=c1, weight=2.0, reason="dense"),
+            ChapterAdvice(chapter_id=c2, weight=99.0, reason="r" * 500),
+        ]
+    )
+    monkeypatch.setattr("app.services.plan_drafting.structured_complete", fake_ai(result))
+    await run_job(world)
+    stored = await draft_result(world)
+    assert stored["status"] == "drafted"
+    assert stored["weight_source"] == "ai"
+    assert stored["degraded_reason"] is None
+    assert stored["guidance_used"] is False
+    assert stored["defaulted_chapters"] == 1 and stored["clamped_chapters"] == 1
+    assert stored["failure"] is None
+    assert stored["drafted_at"]
+    by_id = {c["chapter_id"]: c for c in stored["chapters"]}
+    assert by_id[c1] == {"chapter_id": c1, "weight": 2.0, "reason": "dense"}
+    assert by_id[c2]["weight"] == 3.0 and len(by_id[c2]["reason"]) == 300
+    assert by_id[c3] == {"chapter_id": c3, "weight": 1.0, "reason": None}
+
+
+async def test_an_answer_naming_no_real_chapter_is_recorded_as_unusable_not_ai(
+    world, monkeypatch, fake_ai
+):
+    result = PlanWeightingResult(
+        chapters=[ChapterAdvice(chapter_id=424242, weight=3.0, reason="invented")]
+    )
+    monkeypatch.setattr("app.services.plan_drafting.structured_complete", fake_ai(result))
+    job = await run_job(world)
+    assert job.status is JobStatus.done
+    stored = await draft_result(world)
+    assert stored["weight_source"] == "ai_unusable"
+    assert "none of this subject's chapters" in stored["degraded_reason"]
+    assert stored["defaulted_chapters"] == 3
+    assert {c["reason"] for c in stored["chapters"]} == {None}
+    assert len(await slots(world)) == 8
+
+
+async def test_an_unreadable_guidance_file_is_recorded_and_not_used(world, monkeypatch, fake_ai):
+    from app.services import storage
+
     async with async_session() as session:
-        with pytest.raises(PlanDraftError, match="no chapters"):
-            await draft_plan_slots(session, world["plan_id"])
+        subject = await session.get(Subject, world["subject_id"])
+        subject.guidance_path = "gone.pdf"
+        subject.guidance_mime = "application/pdf"
+        await session.commit()
+
+    async def _missing(path):
+        raise storage.ObjectNotFoundError(path)
+
+    monkeypatch.setattr(storage, "read_file", _missing)
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
+    )
+    await run_job(world)
+    stored = await draft_result(world)
+    assert stored["guidance_used"] is False
+    assert "could not be read" in stored["guidance_note"]
+    assert stored["status"] == "drafted"
+
+
+async def test_usage_survives_a_failure_after_the_ai_call(world, monkeypatch, fake_ai):
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
+    )
+
+    def _explode(spec):
+        raise RuntimeError("scheduler blew up")
+
+    monkeypatch.setattr("app.services.plan_drafting.schedule", _explode)
+    job = await run_job(world)
+    assert "scheduler blew up" in (job.error or "")
+    assert await slots(world) == []
+    async with async_session() as session:
+        events = (await session.scalars(select(AiUsageEvent))).all()
+    assert [e.feature for e in events] == [AiFeature.plan_weighting]
+
+
+@pytest.mark.parametrize(
+    ("per_week", "expected"),
+    [(2, {0, 3}), (1, {0}), (3, {0, 2, 3})],
+)
+async def test_the_tutors_lessons_per_week_wins_over_the_timetable(
+    world, monkeypatch, fake_ai, per_week, expected
+):
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
+    )
+    async with async_session() as session:
+        (await session.get(TeachingPlan, world["plan_id"])).lessons_per_week = per_week
+        await session.commit()
+    job = await run_job(world)
+    assert job.status is JobStatus.done
+    assert {r.scheduled_date.weekday() for r in await slots(world)} == expected
 
 
 async def test_an_empty_timetable_uses_lessons_per_week(world, monkeypatch, fake_ai):

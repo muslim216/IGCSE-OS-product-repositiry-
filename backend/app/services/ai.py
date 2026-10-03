@@ -38,6 +38,13 @@ class AIUnavailableError(RuntimeError):
     """Raised when AI features are used without an API key configured."""
 
 
+class AIKeyMissingError(AIUnavailableError):
+    """The routed provider's API key is not set. Narrower than its parent so a
+    caller can degrade for exactly this (`AI-20`, `INF-9`) without also
+    swallowing a missing optional SDK or a misrouted provider, which are
+    deployment faults that should fail loudly."""
+
+
 class AiProvider(str, enum.Enum):
     anthropic = "anthropic"
     gemini = "gemini"
@@ -165,7 +172,7 @@ class AiResponse(Generic[ParsedT]):
 def get_client() -> AsyncAnthropic:
     settings = get_settings()
     if not settings.anthropic_api_key:
-        raise AIUnavailableError(
+        raise AIKeyMissingError(
             "AI is not configured: set ANTHROPIC_API_KEY in the backend environment"
         )
     return AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -177,7 +184,7 @@ def get_gemini_client():
     routed to Gemini."""
     settings = get_settings()
     if not settings.gemini_api_key:
-        raise AIUnavailableError(
+        raise AIKeyMissingError(
             "AI is not configured: set GEMINI_API_KEY in the backend environment"
         )
     try:

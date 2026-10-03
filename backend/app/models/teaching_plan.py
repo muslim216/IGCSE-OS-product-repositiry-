@@ -23,6 +23,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -101,6 +102,21 @@ class TeachingPlan(TimestampMixin, Base):
     past_paper_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # What the last drafting run did and why (task 6.3, PROD-1, PROD-2). NULL
+    # means the plan has never been drafted. Generic JSON, never JSONB (DB-7).
+    # Written on every outcome, so a tutor can tell an AI-weighted plan from an
+    # even split. Shape:
+    #   {"status": "drafted" | "failed" | "skipped",
+    #    "drafted_at": ISO-8601 UTC, "prompt_version": str | None,
+    #    "weight_source": "ai" | "stored_chapter_weights" | "ai_unusable" | None,
+    #    "degraded_reason": str | None, "guidance_used": bool,
+    #    "guidance_note": str | None,
+    #    "defaulted_chapters": int, "clamped_chapters": int,
+    #    "chapters": [{"chapter_id", "weight", "reason"}],  # reason cut to ~300 chars
+    #    "failure": {"code": "not_enough_lessons" | "no_chapters",
+    #                "message": str, "lessons": int | None,
+    #                "chapters": int | None} | None}
+    draft_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     slots: Mapped[list["PlanSlot"]] = relationship(
         back_populates="plan",

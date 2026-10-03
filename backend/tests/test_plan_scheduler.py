@@ -11,6 +11,7 @@ from app.services.plan_scheduler import (
     NotEnoughLessons,
     ScheduleInput,
     allocate_lessons,
+    effective_weekdays,
     schedule,
     spread_weekdays,
 )
@@ -47,6 +48,7 @@ def test_counts_sum_exactly_to_the_lessons_available_when_rounding_is_awkward():
         spec(
             [(1, 1.0), (2, 1.0), (3, 1.0)],
             lesson_weekdays=(0, 2, 4),
+            lessons_per_week=3,
             exam_date=MON + timedelta(days=17),
         )
     )
@@ -84,7 +86,7 @@ def test_lessons_fall_only_on_timetable_weekdays():
 
 def test_exam_day_is_excluded_and_start_day_is_included():
     exam = MON + timedelta(weeks=1)  # a Monday: would be a lesson day
-    lessons = schedule(spec([(1, 1.0)], exam_date=exam, lesson_weekdays=(0,)))
+    lessons = schedule(spec([(1, 1.0)], exam_date=exam, lesson_weekdays=(0,), lessons_per_week=1))
     assert [item.scheduled_date for item in lessons] == [MON]
 
 
@@ -177,9 +179,61 @@ def test_an_empty_timetable_falls_back_to_lessons_per_week():
     assert len(lessons) == 9  # three weeks of three
 
 
-def test_a_timetable_wins_over_lessons_per_week():
-    lessons = schedule(spec([(1, 1.0)], lesson_weekdays=(1,), lessons_per_week=5))
-    assert {item.scheduled_date.weekday() for item in lessons} == {1}
+def test_lessons_per_week_equal_to_the_timetable_uses_the_timetable():
+    assert effective_weekdays((3, 0), 2) == (0, 3)
+
+
+def test_fewer_lessons_per_week_than_the_timetable_keeps_an_even_pick_of_its_days():
+    # Mon, Wed, Fri, Sat; the tutor wants two a week.
+    assert effective_weekdays((0, 2, 4, 5), 2) == (0, 4)
+    assert effective_weekdays((0, 2, 4, 5), 1) == (0,)
+    lessons = schedule(spec([(1, 1.0)], lesson_weekdays=(0, 2, 4), lessons_per_week=2))
+    assert {item.scheduled_date.weekday() for item in lessons} == {0, 2}
+
+
+def test_more_lessons_per_week_than_the_timetable_adds_days_preferring_the_spread():
+    # Timetable Mon only, tutor wants 3: spread(3) = Mon, Wed, Fri.
+    assert effective_weekdays((0,), 3) == (0, 2, 4)
+    # Timetable Tue, want 2: spread(2) = Mon, Thu; Tue is kept, Mon is the first add.
+    assert effective_weekdays((1,), 2) == (0, 1)
+    # Always exactly k distinct days, timetable included.
+    for timetable in [(1,), (1, 3), (2, 3, 4), (6,)]:
+        for k in range(len(timetable), 8):
+            days = effective_weekdays(timetable, k)
+            assert len(days) == k and set(timetable) <= set(days)
+
+
+def test_the_tutors_lessons_per_week_wins_over_a_timetable_in_the_schedule():
+    lessons = schedule(spec([(1, 1.0)], lesson_weekdays=(1,), lessons_per_week=3))
+    assert {item.scheduled_date.weekday() for item in lessons} == {0, 1, 2}
+
+
+def test_kept_lessons_are_credited_against_their_chapters_share():
+    # Six free dates; chapter 2 already holds 2 lessons on other dates. Equal
+    # weights over 8 total lessons -> 4 each, so chapter 2 generates only 2.
+    lessons = schedule(
+        ScheduleInput(
+            chapters=(ChapterWeight(1, 1.0), ChapterWeight(2, 1.0, kept_lessons=2)),
+            start_date=MON,
+            exam_date=MON + timedelta(weeks=3),
+            lesson_weekdays=(0, 3),
+            lessons_per_week=2,
+        )
+    )
+    assert per_chapter(lessons) == {1: 4, 2: 2}
+
+
+def test_a_chapter_with_more_kept_lessons_than_its_share_generates_none():
+    lessons = schedule(
+        ScheduleInput(
+            chapters=(ChapterWeight(1, 1.0), ChapterWeight(2, 1.0, kept_lessons=5)),
+            start_date=MON,
+            exam_date=MON + timedelta(weeks=3),
+            lesson_weekdays=(0, 3),
+            lessons_per_week=2,
+        )
+    )
+    assert per_chapter(lessons) == {1: 6}
 
 
 def test_the_past_paper_date_is_carried_and_does_not_truncate_teaching():
