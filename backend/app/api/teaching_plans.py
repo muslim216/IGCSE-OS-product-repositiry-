@@ -16,17 +16,38 @@ from app.schemas.teaching_plan import (
     PlanBreakOut,
     PlanInputsIn,
     PlanOverview,
+    PlanProgressOut,
     PlanSlotOut,
     PlanSlotPatch,
     TimetableDefaultsOut,
 )
+from app.services import plan_progress
 from app.services import teaching_plan as plans
+from app.services.plan_replan import replan
 from app.services.timezones import effective_timezone, now_in
 
 router = APIRouter(prefix="/groups/{group_id}/plan", tags=["teaching-plan"])
 
 
-async def _overview(db: DbSession, group_id: int) -> PlanOverview:
+async def _progress(db: DbSession, user: TutorUser, group_id: int) -> PlanProgressOut:
+    today = await plan_progress.tutor_today(db, user)
+    found = (await plan_progress.class_progress(db, user, today, group_id)).get(group_id)
+    p = found[1] if found else plan_progress.NO_PROGRESS
+    chapter = p.earliest_missed_chapter
+    return PlanProgressOut(
+        planned_to_date=p.planned_to_date,
+        taught_to_date=p.taught_to_date,
+        missed=p.missed,
+        earliest_missed_date=p.earliest_missed_date,
+        earliest_missed_chapter=(
+            NextLessonChapterOut(id=chapter[0], code=chapter[1], title=chapter[2])
+            if chapter
+            else None
+        ),
+    )
+
+
+async def _overview(db: DbSession, user: TutorUser, group_id: int) -> PlanOverview:
     defaults = await plans.timetable_defaults(db, group_id)
     draft = await plans.draft_plan_for_group(db, group_id)
     accepted = await plans.accepted_plan_for_group(db, group_id)
@@ -37,13 +58,15 @@ async def _overview(db: DbSession, group_id: int) -> PlanOverview:
         timetable_defaults=TimetableDefaultsOut(
             lessons_per_week=defaults.lessons_per_week, lesson_minutes=defaults.lesson_minutes
         ),
+        # Only an accepted plan has a schedule to be behind (never a draft).
+        progress=await _progress(db, user, group_id) if accepted else None,
     )
 
 
 @router.get("", response_model=PlanOverview)
 async def get_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverview:
     group = await _owned_group(db, user, group_id)
-    return await _overview(db, group.id)
+    return await _overview(db, user, group.id)
 
 
 @router.get("/next-lesson", response_model=NextLessonOut | None)
@@ -74,7 +97,21 @@ async def draft_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverv
         await plans.request_draft(db, group.id)
     except plans.PlanStateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _overview(db, group.id)
+    return await _overview(db, user, group.id)
+
+
+@router.post("/replan", response_model=PlanOverview, status_code=status.HTTP_202_ACCEPTED)
+async def replan_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverview:
+    """Draft a fresh plan from today and wait for the tutor to accept it (task
+    6.6). The live plan is untouched; drafting runs as a job (`BE-13`)."""
+    group = await _owned_group(db, user, group_id)
+    org = await db.get(Organization, group.organization_id)
+    today = now_in(effective_timezone(user.time_zone, org.timezone if org else None)).date()
+    try:
+        await replan(db, group=group, today=today)
+    except plans.PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _overview(db, user, group.id)
 
 
 @router.post("/accept", response_model=PlanOverview)
@@ -84,7 +121,7 @@ async def accept_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOver
         await plans.accept_plan(db, group=group, user=user)
     except plans.PlanStateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    return await _overview(db, group.id)
+    return await _overview(db, user, group.id)
 
 
 @router.patch("/slots/{slot_id}", response_model=PlanSlotOut)
@@ -125,7 +162,7 @@ async def save_inputs(
         )
     except plans.PlanInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    return await _overview(db, group.id)
+    return await _overview(db, user, group.id)
 
 
 @router.post("/breaks", response_model=PlanBreakOut, status_code=status.HTTP_201_CREATED)

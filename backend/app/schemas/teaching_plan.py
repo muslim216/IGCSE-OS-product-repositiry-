@@ -76,6 +76,21 @@ class ChapterReasonOut(BaseModel):
     reason: str | None
 
 
+class ReflowOut(BaseModel):
+    """What the last automatic reflow for a syllabus change did (task 6.8)."""
+
+    #: reflowed | failed | skipped
+    status: str
+    #: ISO-8601 UTC instant of the reflow.
+    at: str | None
+    #: Why a skipped reflow did nothing.
+    reason: str | None
+    #: Why a failed reflow could not reshuffle the plan.
+    failure_message: str | None
+    #: When the plan last reflowed successfully, kept across a later failure.
+    last_success_at: str | None
+
+
 class DraftOutcomeOut(BaseModel):
     """What the last drafting run did, for the tutor (PROD-1, PROD-2)."""
 
@@ -91,6 +106,8 @@ class DraftOutcomeOut(BaseModel):
     chapters: list[ChapterReasonOut]
     failure_code: str | None
     failure_message: str | None
+    #: None when no syllabus change has triggered a reflow of this plan.
+    reflow: ReflowOut | None = None
 
 
 class PlanInputsOut(BaseModel):
@@ -120,18 +137,35 @@ class TimetableDefaultsOut(BaseModel):
     lesson_minutes: int | None
 
 
+class NextLessonChapterOut(BaseModel):
+    id: int
+    code: str
+    title: str
+
+
+class PlanProgressOut(BaseModel):
+    """How the accepted plan compares with the lessons recorded (task 6.6, AV-18).
+
+    "Not recorded", never "missed": a lesson may have been taught and not logged."""
+
+    #: Planned lessons dated before the tutor's today.
+    planned_to_date: int
+    #: Of those, the ones with a lesson recorded.
+    taught_to_date: int
+    #: Planned lessons before today with no lesson recorded. Behind means > 0.
+    missed: int
+    earliest_missed_date: date | None
+    earliest_missed_chapter: NextLessonChapterOut | None
+
+
 class PlanOverview(BaseModel):
     """Draft and accepted are separate: a class can hold both (6.1), and either may be null."""
 
     draft: PlanInputsOut | None
     accepted: PlanInputsOut | None
     timetable_defaults: TimetableDefaultsOut
-
-
-class NextLessonChapterOut(BaseModel):
-    id: int
-    code: str
-    title: str
+    #: For the accepted plan only; None when there is none (never a fabricated 0).
+    progress: PlanProgressOut | None = None
 
 
 class NextLessonTopicOut(BaseModel):

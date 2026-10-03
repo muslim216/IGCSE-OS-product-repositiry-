@@ -30,6 +30,14 @@ export type DraftOutcome = components["schemas"]["DraftOutcomeOut"];
 export const draftPlan = (groupId: number) =>
   api<PlanOverview>(`${base(groupId)}/draft`, { method: "POST" });
 
+/** Drafts a fresh plan from today beside the live one (task 6.6, `AV-18`). Nothing
+ *  changes until the tutor accepts the draft it makes. */
+export const replanPlan = (groupId: number) =>
+  api<PlanOverview>(`${base(groupId)}/replan`, { method: "POST" });
+
+export type PlanProgress = components["schemas"]["PlanProgressOut"];
+export type ReflowOutcome = components["schemas"]["ReflowOut"];
+
 export const acceptPlan = (groupId: number) =>
   api<PlanOverview>(`${base(groupId)}/accept`, { method: "POST" });
 
