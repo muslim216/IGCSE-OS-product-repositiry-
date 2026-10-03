@@ -453,7 +453,7 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
         for lesson in lessons_out
     )
     await session.flush()
-    await _renumber(session, plan.id)
+    await renumber_slots(session, plan.id)
     result.slots_written = len(lessons_out)
     log.info(
         "plan %s drafted: %s slots, weights from %s (%s defaulted, %s clamped)",
@@ -466,7 +466,7 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     return result
 
 
-async def _renumber(session: AsyncSession, plan_id: int) -> None:
+async def renumber_slots(session: AsyncSession, plan_id: int) -> None:
     """Number every slot of the plan 1..n by (date, id), the tutor's own included.
     Generated and kept slots are scheduled independently, so their sequences would
     otherwise collide; `sequence` is the plan's order and must be one run."""

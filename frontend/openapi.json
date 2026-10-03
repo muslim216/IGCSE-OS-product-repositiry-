@@ -7686,6 +7686,167 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/plan/draft": {
+      "post": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Draft Plan",
+        "description": "Queue the drafting job (never run in the request, `BE-13`); the tutor\npolls `GET /plan` for `drafting` and the outcome.",
+        "operationId": "draft_plan_api_v1_groups__group_id__plan_draft_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOverview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/plan/accept": {
+      "post": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Accept Plan",
+        "operationId": "accept_plan_api_v1_groups__group_id__plan_accept_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOverview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/groups/{group_id}/plan/slots/{slot_id}": {
+      "patch": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Edit Slot",
+        "operationId": "edit_slot_api_v1_groups__group_id__plan_slots__slot_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "slot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Slot Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanSlotPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanSlotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{group_id}/plan/inputs": {
       "put": {
         "tags": [
@@ -9551,6 +9712,60 @@
         "title": "ChapterReadinessOut",
         "description": "A chapter's Topic Mastery rolled up from its topics in the same run\n(task 5.2, AV-9): a mean weighted by evidence count, `score` null when no\ntopic beneath has any (`PROD-2`). API only for now (decision 7)."
       },
+      "ChapterReasonOut": {
+        "properties": {
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "chapter_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Code"
+          },
+          "chapter_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Title"
+          },
+          "weight": {
+            "type": "number",
+            "title": "Weight"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "chapter_code",
+          "chapter_title",
+          "weight",
+          "reason"
+        ],
+        "title": "ChapterReasonOut"
+      },
       "ClassBrief": {
         "properties": {
           "brief": {
@@ -10150,6 +10365,110 @@
         "additionalProperties": false,
         "type": "object",
         "title": "CustomCriterionUpdate"
+      },
+      "DraftOutcomeOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "drafted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drafted At"
+          },
+          "weight_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Source"
+          },
+          "degraded_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Reason"
+          },
+          "guidance_used": {
+            "type": "boolean",
+            "title": "Guidance Used"
+          },
+          "guidance_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guidance Note"
+          },
+          "defaulted_chapters": {
+            "type": "integer",
+            "title": "Defaulted Chapters"
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterReasonOut"
+            },
+            "type": "array",
+            "title": "Chapters"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "drafted_at",
+          "weight_source",
+          "degraded_reason",
+          "guidance_used",
+          "guidance_note",
+          "defaulted_chapters",
+          "chapters",
+          "failure_code",
+          "failure_message"
+        ],
+        "title": "DraftOutcomeOut",
+        "description": "What the last drafting run did, for the tutor (PROD-1, PROD-2)."
       },
       "DraftPaper": {
         "properties": {
@@ -12847,6 +13166,46 @@
             },
             "type": "array",
             "title": "Breaks"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PlanSlotOut"
+            },
+            "type": "array",
+            "title": "Slots",
+            "default": []
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftOutcomeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drafting": {
+            "type": "boolean",
+            "title": "Drafting",
+            "default": false
+          },
+          "draft_job_failed": {
+            "type": "boolean",
+            "title": "Draft Job Failed",
+            "default": false
+          },
+          "accepted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
           }
         },
         "type": "object",
@@ -12894,6 +13253,80 @@
         ],
         "title": "PlanOverview",
         "description": "Draft and accepted are separate: a class can hold both (6.1), and either may be null."
+      },
+      "PlanSlotOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "chapter_code": {
+            "type": "string",
+            "title": "Chapter Code"
+          },
+          "chapter_title": {
+            "type": "string",
+            "title": "Chapter Title"
+          },
+          "scheduled_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Scheduled Date"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "chapter_id",
+          "chapter_code",
+          "chapter_title",
+          "scheduled_date",
+          "sequence",
+          "provenance"
+        ],
+        "title": "PlanSlotOut"
+      },
+      "PlanSlotPatch": {
+        "properties": {
+          "scheduled_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Date"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          }
+        },
+        "type": "object",
+        "title": "PlanSlotPatch",
+        "description": "Either field alone is an edit; neither is not."
       },
       "QuestionIn": {
         "properties": {

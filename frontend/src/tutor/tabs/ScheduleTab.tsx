@@ -13,12 +13,13 @@ import {
 import { friendlyError } from "../../lib/errors";
 import { useGroupContext } from "../GroupLayout";
 import TeachingPlanInputs from "../TeachingPlanInputs";
+import TeachingPlanView from "../TeachingPlanView";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { Button, Field, Input, Select, buttonClasses } from "../../components/controls";
 import { ConfirmDialog, ErrorState, SectionSkeleton } from "../../components/page";
 
 export default function ScheduleTab() {
-  const { groupId } = useGroupContext();
+  const { group, groupId } = useGroupContext();
   const queryClient = useQueryClient();
   const lessons = useQuery({ queryKey: ["lessons", groupId], queryFn: () => listLessons(groupId) });
   const [actionError, setActionError] = useState<string | null>(null);
@@ -177,6 +178,7 @@ export default function ScheduleTab() {
       </SectionCard>
 
       <TeachingPlanInputs key={groupId} groupId={groupId} />
+      <TeachingPlanView key={`view-${groupId}`} groupId={groupId} subjectId={group.subject.id} />
 
       <ConfirmDialog
         open={removing !== null}

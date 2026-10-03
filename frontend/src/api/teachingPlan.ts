@@ -21,3 +21,20 @@ export const addPlanBreak = (groupId: number, body: PlanBreakBody) =>
 
 export const deletePlanBreak = (groupId: number, breakId: number) =>
   api<void>(`${base(groupId)}/breaks/${breakId}`, { method: "DELETE" });
+
+export type PlanSlot = components["schemas"]["PlanSlotOut"];
+export type PlanSlotPatch = components["schemas"]["PlanSlotPatch"];
+export type DraftOutcome = components["schemas"]["DraftOutcomeOut"];
+
+/** Queues the drafting job (task 6.4); the plan's `drafting` flag says when it is done. */
+export const draftPlan = (groupId: number) =>
+  api<PlanOverview>(`${base(groupId)}/draft`, { method: "POST" });
+
+export const acceptPlan = (groupId: number) =>
+  api<PlanOverview>(`${base(groupId)}/accept`, { method: "POST" });
+
+export const editPlanSlot = (groupId: number, slotId: number, body: PlanSlotPatch) =>
+  api<PlanSlot>(`${base(groupId)}/slots/${slotId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });

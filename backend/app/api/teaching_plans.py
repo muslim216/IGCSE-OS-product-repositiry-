@@ -7,13 +7,14 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DbSession, TutorUser
 from app.api.groups import _owned_group
-from app.models import Organization, TeachingPlan
+from app.models import Organization
 from app.schemas.teaching_plan import (
     PlanBreakCreate,
     PlanBreakOut,
     PlanInputsIn,
-    PlanInputsOut,
     PlanOverview,
+    PlanSlotOut,
+    PlanSlotPatch,
     TimetableDefaultsOut,
 )
 from app.services import teaching_plan as plans
@@ -22,15 +23,14 @@ from app.services.timezones import effective_timezone, now_in
 router = APIRouter(prefix="/groups/{group_id}/plan", tags=["teaching-plan"])
 
 
-def _inputs(plan: TeachingPlan | None) -> PlanInputsOut | None:
-    return PlanInputsOut.model_validate(plan) if plan else None
-
-
 async def _overview(db: DbSession, group_id: int) -> PlanOverview:
     defaults = await plans.timetable_defaults(db, group_id)
+    draft = await plans.draft_plan_for_group(db, group_id)
+    accepted = await plans.accepted_plan_for_group(db, group_id)
+    views = await plans.plan_views(db, [p for p in (draft, accepted) if p is not None])
     return PlanOverview(
-        draft=_inputs(await plans.draft_plan_for_group(db, group_id)),
-        accepted=_inputs(await plans.accepted_plan_for_group(db, group_id)),
+        draft=views[draft.id] if draft else None,
+        accepted=views[accepted.id] if accepted else None,
         timetable_defaults=TimetableDefaultsOut(
             lessons_per_week=defaults.lessons_per_week, lesson_minutes=defaults.lesson_minutes
         ),
@@ -41,6 +41,47 @@ async def _overview(db: DbSession, group_id: int) -> PlanOverview:
 async def get_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverview:
     group = await _owned_group(db, user, group_id)
     return await _overview(db, group.id)
+
+
+@router.post("/draft", response_model=PlanOverview, status_code=status.HTTP_202_ACCEPTED)
+async def draft_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverview:
+    """Queue the drafting job (never run in the request, `BE-13`); the tutor
+    polls `GET /plan` for `drafting` and the outcome."""
+    group = await _owned_group(db, user, group_id)
+    try:
+        await plans.request_draft(db, group.id)
+    except plans.PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _overview(db, group.id)
+
+
+@router.post("/accept", response_model=PlanOverview)
+async def accept_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOverview:
+    group = await _owned_group(db, user, group_id)
+    try:
+        await plans.accept_plan(db, group=group, user=user)
+    except plans.PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return await _overview(db, group.id)
+
+
+@router.patch("/slots/{slot_id}", response_model=PlanSlotOut)
+async def edit_slot(
+    group_id: int, slot_id: int, body: PlanSlotPatch, db: DbSession, user: TutorUser
+) -> PlanSlotOut:
+    group = await _owned_group(db, user, group_id)
+    try:
+        return await plans.edit_slot(
+            db,
+            group=group,
+            slot_id=slot_id,
+            scheduled_date=body.scheduled_date,
+            chapter_id=body.chapter_id,
+        )
+    except plans.PlanSlotNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found") from exc
+    except plans.PlanInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
 
 @router.put("/inputs", response_model=PlanOverview)

@@ -2633,6 +2633,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/plan/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft Plan
+         * @description Queue the drafting job (never run in the request, `BE-13`); the tutor
+         *     polls `GET /plan` for `drafting` and the outcome.
+         */
+        post: operations["draft_plan_api_v1_groups__group_id__plan_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/plan/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Plan */
+        post: operations["accept_plan_api_v1_groups__group_id__plan_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/plan/slots/{slot_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit Slot */
+        patch: operations["edit_slot_api_v1_groups__group_id__plan_slots__slot_id__patch"];
+        trace?: never;
+    };
     "/api/v1/groups/{group_id}/plan/inputs": {
         parameters: {
             query?: never;
@@ -3282,6 +3337,19 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ChapterReasonOut */
+        ChapterReasonOut: {
+            /** Chapter Id */
+            chapter_id: number;
+            /** Chapter Code */
+            chapter_code: string | null;
+            /** Chapter Title */
+            chapter_title: string | null;
+            /** Weight */
+            weight: number;
+            /** Reason */
+            reason: string | null;
+        };
         /** ClassBrief */
         ClassBrief: {
             /** Brief */
@@ -3513,6 +3581,32 @@ export interface components {
             description?: string | null;
             /** Archived */
             archived?: boolean;
+        };
+        /**
+         * DraftOutcomeOut
+         * @description What the last drafting run did, for the tutor (PROD-1, PROD-2).
+         */
+        DraftOutcomeOut: {
+            /** Status */
+            status: string;
+            /** Drafted At */
+            drafted_at: string | null;
+            /** Weight Source */
+            weight_source: string | null;
+            /** Degraded Reason */
+            degraded_reason: string | null;
+            /** Guidance Used */
+            guidance_used: boolean;
+            /** Guidance Note */
+            guidance_note: string | null;
+            /** Defaulted Chapters */
+            defaulted_chapters: number;
+            /** Chapters */
+            chapters: components["schemas"]["ChapterReasonOut"][];
+            /** Failure Code */
+            failure_code: string | null;
+            /** Failure Message */
+            failure_message: string | null;
         };
         /**
          * DraftPaper
@@ -4461,6 +4555,24 @@ export interface components {
             past_paper_start_date: string | null;
             /** Breaks */
             breaks: components["schemas"]["PlanBreakOut"][];
+            /**
+             * Slots
+             * @default []
+             */
+            slots: components["schemas"]["PlanSlotOut"][];
+            outcome?: components["schemas"]["DraftOutcomeOut"] | null;
+            /**
+             * Drafting
+             * @default false
+             */
+            drafting: boolean;
+            /**
+             * Draft Job Failed
+             * @default false
+             */
+            draft_job_failed: boolean;
+            /** Accepted At */
+            accepted_at?: string | null;
         };
         /**
          * PlanOverview
@@ -4470,6 +4582,36 @@ export interface components {
             draft: components["schemas"]["PlanInputsOut"] | null;
             accepted: components["schemas"]["PlanInputsOut"] | null;
             timetable_defaults: components["schemas"]["TimetableDefaultsOut"];
+        };
+        /** PlanSlotOut */
+        PlanSlotOut: {
+            /** Id */
+            id: number;
+            /** Chapter Id */
+            chapter_id: number;
+            /** Chapter Code */
+            chapter_code: string;
+            /** Chapter Title */
+            chapter_title: string;
+            /**
+             * Scheduled Date
+             * Format: date
+             */
+            scheduled_date: string;
+            /** Sequence */
+            sequence: number;
+            /** Provenance */
+            provenance: string;
+        };
+        /**
+         * PlanSlotPatch
+         * @description Either field alone is an edit; neither is not.
+         */
+        PlanSlotPatch: {
+            /** Scheduled Date */
+            scheduled_date?: string | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
         };
         /** QuestionIn */
         QuestionIn: {
@@ -10436,6 +10578,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    draft_plan_api_v1_groups__group_id__plan_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_plan_api_v1_groups__group_id__plan_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_slot_api_v1_groups__group_id__plan_slots__slot_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+                slot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanSlotPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanSlotOut"];
                 };
             };
             /** @description Validation Error */
