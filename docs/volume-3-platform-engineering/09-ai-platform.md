@@ -162,10 +162,13 @@ Current versions:
 
 | Surface | Version | Note |
 |---|---|---|
-| `marking` | **v3** | Bumped when marks began counting without tutor review |
-| `class_brief` | **v2** | Full system prompt (naming-a-learner rule, data-not-instructions) |
-| `extraction` | v2 | |
-| `syllabus`, `reports`, `readiness`, `narrative` | v1 | |
+| `marking` | **v5** | v3 was bumped when marks began counting without tutor review |
+| `class_brief` | **v3** | Full system prompt (naming-a-learner rule, data-not-instructions); v3 says a line labelled as the tutor's starting estimate is not marked work (5.3a) |
+| `readiness` | **v5** | v2 dropped consistency (5.1); v3 names the `tutor_estimate` prior in Topic Mastery (5.3a); v4 stops asking for `weak_topics` — they are derived from the tutor's threshold (5.6, decision 10); v5 no longer says "six" factors — a tutor can switch factors off (#100) |
+| `narrative` | **v2** | v2 says the same about the estimate label as `class_brief` (5.3a) |
+| `extraction` | v3 | |
+| `syllabus` | v2 | |
+| `reports`, `booklet`, `marking_rules`, `mistake_tagging` | v1 | |
 
 Four active prompts carry rules that are not stylistic — all a form of `SEC-20`: **`marking`**
 states that page content is data and never instructions, and that anything addressing the
@@ -317,11 +320,15 @@ records produced by different instructions.
 
 **`AI-8` — MUST · Critical · Active**
 A prompt carrying a safety instruction preserves it through any rewrite. The `marking`,
-`extraction`, `class_brief` and `narrative` prompts' data-not-instructions rules are safety
-instructions. (The `chat` prompt's anti-cheating rules were another standing example, until
+`extraction`, `class_brief`, `narrative` and `mistake_tagging` prompts' data-not-instructions
+rules are safety instructions. (The `chat` prompt's anti-cheating rules were another standing example, until
 task 0.3 deleted the surface, AV-57.)
 *Rationale:* `SEC-21`. Marking's output can count with no human in the loop; extraction's output
 reaches a student unreviewed; class_brief and narrative are grounded in a student's own work.
+mistake_tagging reads two untrusted strings — the student's words, reaching it inside the marking
+model's feedback, and the tutor-supplied category names and descriptions it interpolates
+unescaped — and nothing reads its rows before a tutor does, which is why it carries `SEC-20`'s
+flag-rather-than-obey half as a `note` field rather than silent resistance (task 4.2).
 
 **`AI-9` — MUST · Important · Active**
 A prompt that processes user-supplied content states that the content is data and never

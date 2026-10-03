@@ -43,9 +43,10 @@ provisional. Written exclusively by `services/evidence.py`. The atomic input to 
 of work: it is self-declared, labelled as such wherever shown (`PROD-8`), and loses weight
 as marked evidence arrives.
 
-**Factor** — One of the seven dimensions Readiness v2 scores independently: Topic Mastery,
+**Factor** — One of the six dimensions Readiness v2 scores independently: Topic Mastery,
 Past Paper Performance, Homework Performance, Assessment Performance, Syllabus Coverage,
-Mistake Analysis, Consistency (`ReadinessFactor`). Each produces a `factor_evaluations` row
+Mistake Analysis (`ReadinessFactor`; `consistency` is a retired member, kept only so
+pre-5.1 rows load). Each produces a `factor_evaluations` row
 per run.
 
 **Evaluation run** — One complete Readiness v2 computation for one (student, subject),
@@ -69,9 +70,10 @@ and documents.
 Topic Mastery buckets question-level marks by `QuestionDifficulty` and requires performance
 across tiers. Distinct from a raw topic score.
 
-**Mistake** — A tagged error category on a mark: `misread`, `content_gap`, `careless`,
-`calculation`, or `time_management`, with severity 1–3. Table `mistakes`. AI-tagged during
-marking, tutor-confirmed. Recurring mistakes reduce readiness.
+**Mistake** — A tagged error on a mark: one **mistake category** (a word the tutor owns, not
+a fixed enum — see *Mistake vocabulary* below), with severity 1–3 and an optional `note`.
+Table `mistakes`. Written either by the tagging job or by a tutor, told apart by **mistake
+source**. Recurring mistakes reduce readiness.
 
 **Observation** — A tutor's recorded judgement about a student, optionally topic-scoped,
 usually captured on a lesson. Becomes evidence with source `observation` — the
@@ -212,6 +214,42 @@ what it cost. Immutable once accepted; changed by superseding.
 Format in `governance/documentation-authority.md`.
 
 ---
+
+## Mistake vocabulary
+
+**Mistake category** — a word a tutor uses for what went wrong on a marked answer, owned by
+their organization and scoped to one subject (`mistake_categories`). Not an enum, and nothing
+in the code may branch on its value: the contents are tutor data, so a rename is a valid edit
+that must fail nothing. The five published starting words are *offered* by the editor, not
+written — an organization that has never saved has no categories at all ([ADR-0010](../adr/0010-tutor-owned-mistake-categories.md)).
+
+**Archived category** — a mistake category the tutor dropped from their list. Hidden from new
+tagging and from the editor; still attached to every mistake already tagged with it, and still
+counted in readiness. Archiving is not deletion, and a query that filters archived categories
+out of readiness silently understates a student.
+
+**Analysed submission** — a submission the mistake-tagging job has examined, marked by
+`submissions.mistakes_analysed_at`. Distinct from a *marked* submission: work can be fully
+marked and never examined for mistakes. The Mistake Analysis factor's denominator counts
+analysed questions, not marked ones, so that "nobody has looked yet" reads as no data rather
+than as a clean record (`PROD-2`).
+
+**Mistake source** — who wrote a mistake row: `ai` (the tagging job) or `tutor`
+(`mistakes.source`). It exists so re-running the job is safe: a run deletes and rewrites only
+its own `ai` rows and never touches a tutor's, which `PROD-7` requires — the tutor's judgement
+outranks anything the AI produced. Readers that only ask "what went wrong" ignore the column;
+anything that *writes* or *deletes* must not.
+
+**Mistake topic** — the link between a mistake and each syllabus topic its question tests
+(`mistake_topics`, unique on `(mistake_id, topic_id)`). A link table rather than a column
+because one question can test two topics, and a single `topic_id` silently picked one of them.
+The rows are deleted with their mistake: there is no ON DELETE CASCADE, and the test suite runs
+SQLite with foreign keys off, so a wrong delete order orphans them on Postgres alone
+(`RISK-3`).
+
+**Bare question** — an extracted question with no syllabus topic linked, because none of the
+codes the extractor returned matched a real topic. Its mistakes still count for the student
+but reach no chapter, and the tutor is shown the count so it can be fixed.
 
 ## Terms to avoid
 

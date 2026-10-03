@@ -131,7 +131,7 @@ uvicorn app.main:app --reload        # http://localhost:8000, OpenAPI docs at /d
 
 # (No built-in syllabuses since AV-8: a tutor uploads their own, and seed.demo builds its own subject.)
 python -m seed.demo                  # idempotent demo tutor/students/parent with ~90d of data
-python -m seed.recompute_readiness   # queue a v2 run for every (student, subject) with evidence
+python -m seed.recompute_readiness   # queue a v2 run for every enrolled (student, subject) pair
                                      # — the backfill after a factor's maths changes (runbook R9)
 ```
 
@@ -169,8 +169,10 @@ Keep these loaded. Each cites the document holding its full reasoning.
   `time_taken_minutes`, `attempted_at`. (`PROD-8`, `UX-20`)
 - **Do not add a parallel code path for past papers.** They are `Submission` + `QuestionMark`
   rows and go through the homework pipeline. (`PROD-9`, `ADR-0004`)
-- **A new evidence source is added to `EvidenceSource` and given a weight in `SOURCE_WEIGHTS`
-  in the same change.** (`PROD-10`)
+- **Readiness evidence is marked work plus the labelled tutor estimate. Observations belong
+  to the student profile and never feed readiness.** A new input that should count is read by
+  a v2 factor in the same change. (`PROD-15`, superseding `PROD-10`. Old observation
+  evidence rows are kept and filtered by `services/evidence.COUNTS_FOR_READINESS`.)
 - **Syllabus coverage is derived from `lesson_topics`** — do not add a manual mechanism.
   (`PROD-14`)
 
@@ -185,9 +187,16 @@ Keep these loaded. Each cites the document holding its full reasoning.
 - **Return `404`, not `403`**, for anything the caller may not know exists. Integer keys are
   enumerable. (`API-7`, `SEC-9`)
 - **Never treat a frontend role gate as an authorization control.** (`SEC-10`)
-- **`Submission` is polymorphic — never read `assignment_id` unconditionally.** A past-paper
-  submission has it as `None`, and reading it raises *inside* an authorization check.
-  `_tutor_owns()` in `api/submissions.py` is the one place that branch lives. (`API-20`)
+- **A submission names one piece of work, with one column.** `submissions.work_id` points at
+  an `assessable_work` parent carrying the organization, the subject and the **kind**. Read
+  the kind with `kind_of()` in `services/submission_kind.py`; load the assignment, past paper
+  or mock with `services/work.parent_of()`. Ownership branching lives only in `_tutor_owns()`.
+  Until migration `0049` a submission carried three nullable keys instead —
+  `assignment_id`/`past_paper_id`/`mock_id`, exactly one set — and reading the wrong one
+  raised *inside* an authorization check. The quieter failure was worse: five cross-kind
+  readers each ORed three `organization_id` columns, so the mock arm broke all five **in
+  silence**. A fourth kind of work now needs a `WorkKind` member and an arm, nothing else.
+  (`API-20`, `ADR-0004`)
 
 - **A role gate goes in the signature, never in the handler body.** `user: TutorUser` or
   `user: StudentUser` from `api/deps.py` — 45 routes are tutor-gated and 14 student-gated
@@ -361,9 +370,9 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 Full detail in §01 and §04; this is orientation only.
 
-- **Backend** (`backend/app/`): `api/` (25 routers; 23 mounted under `/api/v1` in `main.py` —
+- **Backend** (`backend/app/`): `api/` (30 routers; 28 mounted under `/api/v1` in `main.py` —
   classroom and knowledge are hidden, 0.5/AV-58; shared dependencies in `api/deps.py`),
-  `services/` (28 modules — the real work), `models/` (51 tables, SQLAlchemy 2.0 async),
+  `services/` (44 modules — the real work), `models/` (62 tables, SQLAlchemy 2.0 async),
   `schemas/` (Pydantic contracts), `workers/jobs.py`
   (DB-backed job queue, in-process worker started in `main.py`'s `lifespan`). Roles are
   `student`, `tutor`, `parent`, `admin`.
@@ -373,11 +382,11 @@ Full detail in §01 and §04; this is orientation only.
 - **The homework loop**: `Classified` → `extract_assignment` job → tutor publishes an
   `Assignment` → student uploads a `Submission` → `mark_submission` drafts `QuestionMark`s →
   auto-finalize or tutor review → finalized marks become `Evidence` → readiness recomputes.
-- **Readiness**: two engines coexist. `/readiness/*` serves v2 snapshots
-  (`services/readiness_summary_v2.py`) with per-subject fallback to v1, reporting
-  `engine: "v1"` when it falls back. `analytics.py`, `reports.py` and `student_crm.py` still
-  read v1 tables directly, so numbers can disagree (`RISK-5`). `READINESS_V2_SHADOW_ENABLED` is
-  a **kill switch**, not a shadow flag.
+- **Readiness**: one engine since 5.3b (v1 and its tables deleted, `RISK-5` closed). Every
+  reader serves v2 snapshots (`services/readiness_summary_v2.py`); a subject with no snapshot
+  shows "not enough data yet". The class score is the mean of learners' latest v2 scores
+  (`services/class_readiness.py`). `READINESS_V2_SHADOW_ENABLED` is a **kill switch**, not a
+  shadow flag — off, every score freezes at its last snapshot.
 - **AI**: seven surfaces routed independently to Anthropic or Gemini. Bulk document work
   (marking, extraction, syllabus) → Gemini; reports, readiness, class brief, narrative →
   Anthropic — every one currently resolves to the `anthropic_model` default (`claude-opus-4-8`);
@@ -402,4 +411,25 @@ not a configuration change (`RISK-1`, §08).
 
 
 PLugins / ECC 
-whenever you do any job use  everything you would need from ECC so hooks rules subagents anything that would imrpove the output you can give 
+whenever you do any job use  everything you would need from ECC so hooks rules subagents anything that would imrpove the output you can give
+
+**The review budget is fixed** (set 2026-09-19, measured on phase 4.2). Use ECC
+liberally for everything *except* reviewer headcount, where more is not better:
+
+- **Two reviewers per task, never four** — the language reviewer that matches
+  the diff (`ecc:python-reviewer`, `ecc:react-reviewer`, …) and
+  `ecc:silent-failure-hunter`. Add a third only to answer a question those two
+  cannot, and name that question in its prompt.
+- **One branch sweep per phase** — `ecc:code-reviewer` on the integrated diff,
+  told not to re-review files in isolation and pointed at what a per-task gate
+  cannot see: a contract one task changed that another still relies on.
+- **Read every diff yourself after the reviewers pass.** In 4.2 that caught
+  three of the six real defects; the reviewers caught three between them. A
+  green gate is evidence, not a verdict — four implementing agents shipped five
+  defects past their own tests.
+- **Never skip the discrimination check.** Stash or delete the fix, run the
+  test, watch it fail, restore. A test that passes against the unfixed code
+  proves nothing.
+
+Every reviewer prompt names exact `file:line` targets and the binding rule IDs
+it must check against. 

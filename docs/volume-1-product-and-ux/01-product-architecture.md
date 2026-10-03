@@ -188,7 +188,6 @@ flowchart TD
   QM -->|finalized only| EV[(Evidence)]
   MOCK --> EV
   OBS --> EV
-  EV --> R1[Readiness v1<br/>topic scores]
   EV --> R2[Readiness v2 Layer 1<br/>factor_evaluations]
   R2 --> AIS[Layer 2 AI synthesis]
   AIS --> SNAP[(readiness_snapshots)]
@@ -204,63 +203,110 @@ row per topic tagged `source_ref = f"submission:{id}"`, deleting prior rows for 
 and past papers through one code path because both are `Submission` + `QuestionMark` rows
 (`adr/0004-polymorphic-submissions.md`).
 
-Evidence is weighted by source. From `readiness.SOURCE_WEIGHTS`:
+Evidence is not weighted by source any more. v1 did that (`readiness.SOURCE_WEIGHTS`, past
+paper 1.8 down to tutor estimate 0.4); 5.3b deleted v1 with it. v2 weighs **factors**, not
+sources (`readiness_weights`, below), and each factor reads its own inputs: Topic Mastery
+reads marked questions (weighted by difficulty), Past Paper and Assessment Performance read
+their own totals, and `evidence` rows feed Syllabus Coverage. Every input that decays
+(Topic Mastery, Assessment Performance, Mistake Analysis) uses the **tutor's half-life** —
+`readiness_weights.half_life_days`, resolved per subject like the weights, default 45
+(`readiness_factors.HALF_LIFE_DAYS` is only the default). Until the Phase 5 sweep (#100) v2
+ignored the setting and always used 45. Each decaying factor row records the half-life it was
+scored with in `detail.half_life_days` (`PROD-1`).
 
-| Source | Weight | Why |
-|---|---|---|
-| `past_paper` | 1.8 | A full paper under exam conditions is the strongest signal there is |
-| `mock` | 1.5 | Supervised and whole-paper, but not the real format |
-| `homework` | 1.0 | The baseline |
-| `quiz` | 0.8 | Narrow and short |
-| `observation` | 0.5 | A tutor's judgement — valuable, but subjective |
-| `tutor_estimate` | 0.4 | A tutor's starting estimate at cold start. Self-declared (`PROD-8`), and the only source that also loses weight *against rival evidence* — see below |
+**Reports** (`services/reports.py`) are written from the generating tutor's side: their
+classes' subjects, their organization's custom criteria, their organization's AI cost. A
+report is refused (409, shown in the panel) when the student is in no class for the subject
+or has no score, marked work or homework to report on — the model is never called on an
+empty facts block — and a re-run of a ready report does not call the model again (`BE-6`).
+Staff read only reports their own organization generated.
 
-On top of source weight, every point decays exponentially with a **45-day half-life**
-(`HALF_LIFE_DAYS`). `tutor_estimate` carries a second, independent attenuation: its weight
-is divided by one more than the number of *marked* points on the same topic, so a tutor's
-cold-start estimate is the whole answer while it is the only thing there and is
-arithmetically irrelevant by the time a term's work sits behind it. Time decay alone would
-not achieve this — the half-life discounts a seed and a real mark equally, so a quiet topic
-would carry a first impression at full relative weight indefinitely (spec §7.3). The seed
-row is never deleted: it is the record of what the score was built from (`PROD-1`). Confidence is a separate axis, growing with the amount of recent
-decay-weighted evidence: `high` requires at least 3 recent points and an effective weight of
-2.5. A topic with no points is `ReadinessConfidence.none` and displays as "not enough data
-yet" — **P3** enforced in the engine, not the interface.
+**The class narrative** grounds on the same class aggregation as the brief
+(`class_readiness` + `weak_topic_means`), with a flat query count, and states absence as
+absence: scored / on-track / not-enough-data are separate counts, and missing boundaries or
+thin topic data are said, never rendered as "0 on track" or "none flagged" (`PROD-2`).
 
-The scoring functions are **pure**: `compute_topic`, `subject_readiness` and `_confidence`
-take frozen dataclasses and touch no database, so they unit-test without one.
-`recompute_student()` is the database-facing entry point, run from the job worker.
+`tutor_estimate` survives as a labelled prior inside Topic Mastery (decision 14,
+`TUTOR_ESTIMATE_WEIGHT = 0.4`): its weight is divided by one more than the number of marked
+questions on the topic, so a cold-start estimate is the whole answer while it is the only
+thing there and arithmetically irrelevant once a term's work sits behind it. The seed row is
+never deleted — it is the record of what the score was built from (`PROD-1`) — and the
+topic's `detail` carries its share so every reader can say "includes tutor estimate"
+(`PROD-8`).
 
-### Readiness: two engines, one API
+Observations belong to the student profile, not readiness (`PROD-15`): they write no
+evidence and queue no recompute. `observation` evidence rows written before the rule are kept
+and excluded by `services/evidence.COUNTS_FOR_READINESS` wherever evidence is read.
 
-The most important thing to understand about the current codebase, and where the design
-documents and reality diverge most. **Both engines exist and both run.**
+### Readiness: one engine
 
-- **v1** — `services/readiness.py`, writing `topic_readiness` and `readiness_history`,
-  configured by `tutor_preferences`. Deterministic, no AI.
-- **v2** — Layer 1 (`readiness_factors.py` pure math + `readiness_v2.py` database gathering)
-  computes seven tutor-weighted factor sub-scores as append-only `factor_evaluations` rows.
-  Layer 2 (`readiness_v2_ai.py`, job `compute_readiness_v2`) synthesizes those plus the
-  organization's `readiness_weights` into a `readiness_snapshots` row.
+Since 5.3b (AV-78) there is one engine. v1 (`services/readiness.py`, `topic_readiness`,
+`readiness_history`, `tutor_preferences`) was deleted; migration `0055` dropped its tables.
 
-The seven factors: Topic Mastery, Past Paper Performance, Homework Performance, Assessment
-Performance, Syllabus Coverage, Mistake Analysis, Consistency.
+- **Layer 1** (`readiness_factors.py` pure math + `readiness_v2.py` database gathering)
+  computes six tutor-weighted factor sub-scores as append-only `factor_evaluations` rows.
+- **Layer 2** (`readiness_v2_ai.py`, job `compute_readiness_v2`) synthesizes those plus the
+  resolved readiness config into a `readiness_snapshots` row. The config is
+  `services/readiness_config.resolve_readiness_config`: the subject's `readiness_weights`
+  override if it has one, else the organization's account row, else built-in defaults — a
+  subject row replaces the account row whole (task 5.4a, decision 8). A factor switched off
+  is still computed and stored but omitted from what synthesis sees, never sent at weight 0.
+  Synthesis runs only when the enabled factors give a usable weighted reference; with none
+  (no scored factor, or every scored one at weight 0) the snapshot is "not enough data yet"
+  and the model is never called (5.5). The weights API refuses a config whose switched-on
+  factors all weigh 0. Syllabus Coverage with nothing taught is no data, not 0%.
+
+The six factors: Topic Mastery, Past Paper Performance, Homework Performance, Assessment
+Performance, Syllabus Coverage, Mistake Analysis. Homework Performance is accuracy over marked
+work only; completion ("4 of 5 handed in") is a fact on the tutor's student profile
+(`SubjectReadiness.homework_*_count`), never part of a score, and is filtered out of what the
+synthesis model sees (AV-32). Consistency was retired in 5.1 (AV-30): the engine never writes it,
+but `ReadinessFactor.consistency` stays so historical `factor_evaluations` rows still load.
+
+### Custom criteria: beside readiness, never in it
+
+Since task 5.4b (AV-35, decision 6) a tutor can define criteria of their own — "Exam
+technique", "Confidence" — for the whole organization or one subject, and hand-score each
+student 0–100 on them (`services/custom_criteria.py`, tables from `0058`).
+
+- **Never in the score.** A criterion has no weight, and nothing in the engine or the
+  synthesis prompt reads these tables: a tutor's number has no evidence behind it (`PROD-1`).
+- **Unscored is absent** — `score: null`, never 0 (`PROD-2`). Every score carries
+  `source: "tutor"` so each surface can label it tutor-entered (`PROD-8`, `UX-20`).
+- **Every set, change and clear writes a `custom_criterion_score_audit` row** in the same
+  transaction; no API edits or deletes one (`PROD-7`). Its ids are plain integers, not
+  foreign keys, so the trail outlives a cleared score.
+- **Scope:** a subject criterion applies only to students enrolled in that subject
+  (`student_subjects`); scoring anyone else is a `409`, as is scoring an archived criterion.
+  Criteria are archived, never deleted, and the subject is fixed at creation.
+- **Who sees what (5.4c, decisions 18–19).** Tutors manage criteria (`/custom-criteria`,
+  Settings) and set or clear scores on the student profile (`PUT/DELETE
+  /students/{id}/custom-criteria/{criterion_id}`, `_tutor_student`). The read
+  (`GET /students/{id}/custom-criteria`) goes through `_viewable_student`: the student sees
+  their own, a linked parent their child's. One `CustomCriteriaPanel` renders all three.
+- **Reports** get a fixed "Tutor-entered criteria" list appended *after* the AI text
+  (`services/reports.criteria_section`); the model never reads it. Names are collapsed to
+  one line on the way in so one cannot forge report Markdown.
 
 **What the API serves:** `services/readiness_summary_v2.py` backs `GET /readiness/me`,
 `/readiness/students/{id}` and `/readiness/students/{id}/trend`. Per subject it takes the
-latest **ready** snapshot — score, predicted grade, weak topics, rationale, revision plan —
-and that run's `topic_mastery` factor rows give the topic bars. Where a (student, subject) has
-no ready snapshot, it falls back per-subject to v1's `build_summary` and the response says
-`engine: "v1"`, so the app never shows a blank page mid-migration.
-
-**What is still on v1:** `api/analytics.py`, `services/reports.py` and
-`services/student_crm.py` read v1 tables directly. Repointing them and dropping
-`topic_readiness` / `readiness_history` / `tutor_preferences` has not happened.
+latest **ready** snapshot — score, predicted grade, rationale, revision plan — and that
+run's `topic_mastery` factor rows give the topic bars and the **weak topics**. Since 5.6 a weak
+topic is deterministic (decision 10): a Topic Mastery row with a score, above `no_data`, at or
+below the tutor's `weak_threshold` (on `readiness_weights`, default 60, resolved like the
+rest of the row), lowest five. It is derived at read time, so a threshold change shows at
+once with no recompute (a threshold-only save enqueues nothing), and
+`readiness_snapshots.weak_topics` — the AI's old picks — is kept but never read. The class
+views filter class topic means by the same threshold (`class_readiness.weak_topic_means`).
+`MASTERY_THRESHOLD` (75, mastered-for-coverage) is a separate line. A (student, subject) with no
+ready snapshot is shown as "not enough data yet", never omitted and never 0 (`PROD-2`). Every
+other reader — analytics, reports, the CRM, the home strip and the class page — reads the same
+snapshots (`services/class_readiness.py` for the class aggregates).
 
 Three details that are easy to get wrong:
 
-- **The predicted grade is never invented by the AI.** The model returns a score, weak topics
-  and prose; `predict_grade()` in `services/grades.py` maps score to grade through ordered
+- **The predicted grade is never invented by the AI.** The model returns a score and prose
+  (no longer weak topics, since 5.6); `predict_grade()` in `services/grades.py` maps score to grade through ordered
   boundaries. Boundaries are tutor-entered per subject, because 70% can legitimately be an
   A*/9 in one subject and not another.
 - **A failed run keeps its evidence.** If the Layer 2 call fails, the already-written
@@ -271,8 +317,8 @@ Three details that are easy to get wrong:
   says "updating" over the last known score rather than implying it is current.
 
 `READINESS_V2_SHADOW_ENABLED` (default **true**) is a **kill switch**, not a shadow flag,
-despite its name. Turning it off stops v2 runs being enqueued and silently carries the whole
-app on v1.
+despite its name. Turning it off stops v2 runs being enqueued; with v1 gone there is nothing
+behind it, so every score freezes at its last snapshot.
 
 Weights are tutor-editable per organization at `GET`/`PUT /readiness/weights`; saving
 recomputes every student that tutor teaches, debounced.
@@ -414,11 +460,13 @@ and go through the homework pipeline.
 *Rationale:* duplicating auto-finalize, the override audit and remark handling means a fix
 applied to one copy and not the other silently changes marks — see `ADR-0004`.
 
-**`PROD-10` — MUST · Important · Active**
+**`~~PROD-10~~` — MUST · Important · Superseded by `PROD-15` (2026-09, task 5.3b deleted `SOURCE_WEIGHTS` with v1)**
 A new evidence source is added to `EvidenceSource` **and** given a weight in
 `readiness.SOURCE_WEIGHTS` in the same change.
 *Rationale:* an unweighted source raises `KeyError` or silently scores as absent, depending on
 the path — neither is discoverable.
+*Superseded because* v2 weighs factors, not sources, and has no per-source table to keep in
+step.
 
 **`PROD-11` — MUST · Important · Active**
 An AI surface that reads a student's record reads it through `services/student_crm.py`, not
@@ -444,17 +492,26 @@ to mark a topic covered.
 *Rationale:* two sources for the same fact will disagree, and the derived one is the one with
 a date and a lesson behind it.
 
+**`PROD-15` — MUST · Important · Active** *(owner decision, 2026-09-26)*
+Readiness evidence is **marked work** — homework, past papers, mocks, entered assessments —
+plus the labelled tutor estimate (`PROD-8`). A tutor observation belongs to the **student
+profile** and never feeds readiness: not a factor score, not coverage. A new input that should
+count toward readiness is read by a v2 factor in the same change it is added.
+*Rationale:* an observation is the tutor's note about a student, not a measurement of exam
+performance; letting it move a readiness number makes that number harder to explain
+(`PROD-1`). And a source no factor reads is silently absent — the failure `PROD-10` guarded
+against, in v2's shape.
+
 ---
 
 ## Known Gaps
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **v1 readiness is not retired.** `analytics.py`, `reports.py` and `student_crm.py` still read `topic_readiness` / `readiness_history` / `tutor_preferences` directly while `/readiness/*` serves v2. | A tutor can see one readiness number on the dashboard and a different one in a report for the same student. Largest open architectural debt in the product. See `RISK-5`. | `blocking` |
 | **`CurrentOrg` and `get_current_org_id()` are dead code.** Org scoping is applied ad hoc per query. | `PROD-4` is enforced by memory in every query rather than by a dependency at the signature. The role gate was converged onto a dependency and tested; tenancy scoping was not, so this is what remains of `RISK-7`. See §04, §07. | `before scale` |
 | **No `factor_evaluations` retention policy.** Append-only, one row per factor per run. | Unbounded growth. Named as needed in two prior documents and never written; §06 now sets the policy. | `before scale` |
 | **Difficulty and topic proposals are not wired into the extraction review interface.** The AI assigns `assignment_questions.difficulty` with tutor override by design; the review screen does not surface it. | Topic Mastery buckets by difficulty, so an unreviewed AI guess silently shapes the score — a `PROD-1` traceability weakness. | `before scale` |
-| **`READINESS_V2_SHADOW_ENABLED` is misnamed.** It has been a kill switch since the cutover. | Someone will disable it believing it merely stops a duplicate computation, and silently move the product back to v1. | `nice to have` |
+| **`READINESS_V2_SHADOW_ENABLED` is misnamed.** It has been a kill switch since the cutover. | Someone will disable it believing it merely stops a duplicate computation, and silently freeze every readiness score. | `nice to have` |
 | **Google Classroom has no configured credentials in any environment.** Built and tested against mocked calls only. | The integration is untested against the real API surface. Connecting it is a config step, not a code gap. | `nice to have` |
 | **Classroom sync is on-demand only.** `POST /classroom/sync` is the only trigger. | Imported work reaches readiness late or not at all. The job type would work unchanged on a schedule. | `nice to have` |
 | **`services/reports.py`'s `build_report_facts()`, `api/groups.py`'s `class_brief` handler, and `services/narrative.py`'s grounding builders all violate `PROD-11`.** Each queries readiness/topic/mistake data directly for its AI surface instead of going through `services/student_crm.py`. Pre-existing, not introduced by 0.3–0.5. | These surfaces and the CRM could in principle diverge on the same student's numbers, the exact failure `PROD-11` exists to prevent. | `before scale` |
@@ -468,9 +525,7 @@ Update this document when:
 
 - A product surface is added, removed, or renamed.
 - A role is added, or a role's visibility changes.
-- `EvidenceSource`, `SOURCE_WEIGHTS`, or `HALF_LIFE_DAYS` changes.
-- The readiness v1 → v2 cutover advances — especially when `analytics.py`, `reports.py` or
-  `student_crm.py` stop reading v1 tables.
+- `EvidenceSource`, a factor's inputs, `TUTOR_ESTIMATE_WEIGHT` or `HALF_LIFE_DAYS` changes.
 - A new ingestion path is added alongside direct upload and Classroom.
 - The seven readiness factors change in number, name, or meaning.
 - Tenancy stops being one organization per tutor.

@@ -1,7 +1,18 @@
 # ADR-0004 — Past papers reuse the homework pipeline via polymorphic submissions
 
-**Status:** Accepted · **Date:** 2026-08 (retroactive) · **Owner:** Architecture owner
+**Status:** Accepted, amended 2026-09-15 · **Date:** 2026-08 (retroactive) · **Owner:** Architecture owner
 **Supersedes:** — · **Superseded by:** —
+
+> **Amendment (2026-09-15, migrations `0046`–`0049`).** The decision below stands: one
+> `Submission` and one `QuestionMark` pipeline serve every kind of work, and there is still no
+> parallel past-paper path. What changed is *how a submission says which kind it is*. The
+> mutually-exclusive foreign keys on `submissions` are gone, replaced by a single `work_id`
+> pointing at an `assessable_work` parent row that carries the kind, the organization and the
+> subject. The "Consequences" section below described the cost of that choice honestly, and
+> the cost came due: a third arm (mocks, task 3.4) shipped broken in five places at once
+> because every cross-kind query ORed three `organization_id` columns and a missing arm failed
+> **silently**. `QuestionMark` keeps its exclusive keys — the questions really do live in three
+> tables — so `services/submission_kind.py` still exists to name them.
 
 ## Context
 

@@ -61,7 +61,7 @@ Written from: all 15 modules in `backend/app/models/`; all 25 migrations in
 
 **P1 — The schema is the audit trail.** Where history matters, Avora writes an append-only
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
-and `readiness_history` exist so a number can name its inputs (§01 P2).
+and `readiness_snapshots` exist so a number can name its inputs (§01 P2).
 
 **P2 — Consistency across 51 tables beats local optimality.** Integer keys, `VARCHAR` enums,
 timezone-aware timestamps — each is arguable in isolation and correct as a rule.
@@ -89,8 +89,9 @@ tests stop being evidence.
 | `lessons.py` | `lessons`, `lesson_topics`, `lesson_observations` |
 | `crm.py` | `student_profiles`, `student_subjects`, `tutor_notes`, `parent_communications` |
 | `homework.py` | `classifieds`, `assignments`, `assignment_questions`, `question_topics`, `submissions`, `submission_files`, `question_marks`, `mark_override_audit`, `remark_requests`, **`jobs`** |
-| `readiness.py` | `evidence`, `topic_readiness`, `readiness_history`, `tutor_observations`, `assessments`, `assessment_scores`, `tutor_preferences` |
+| `readiness.py` | `evidence`, `tutor_observations`, `assessments`, `assessment_scores` (v1's `topic_readiness`, `readiness_history` and `tutor_preferences` were dropped by `0055`, task 5.3b) |
 | `readiness_v2.py` | `mistakes`, `past_papers`, `past_paper_questions`, `past_paper_question_topics`, `past_paper_attempts`, `grade_boundaries`, `readiness_weights`, `factor_evaluations`, `readiness_snapshots` |
+| `custom_criteria.py` | `custom_criteria`, `custom_criterion_scores`, `custom_criterion_score_audit` (task 5.4b, `0058`) |
 | `knowledge.py` | `knowledge_entries` |
 | `reports.py` | `reports` |
 | `resources.py` | `group_resources` |
@@ -118,20 +119,24 @@ erDiagram
   subjects ||--o{ topics : "tree"
   subjects ||--o{ student_subjects : "enrolment"
   assignments ||--o{ assignment_questions : "has"
-  assignments ||--o{ submissions : "receives"
+  assessable_work ||--|| assignments : "is"
+  assessable_work ||--|| past_papers : "is"
+  assessable_work ||--|| mocks : "is"
+  assessable_work ||--o{ submissions : "answered by"
   past_papers ||--o{ past_paper_questions : "has"
-  past_papers ||--o{ submissions : "receives"
   submissions ||--o{ question_marks : "marked by"
   submissions ||--o{ submission_files : "pages"
   question_marks ||--o{ mark_override_audit : "audited"
   question_marks ||--o| remark_requests : "contested"
   topics ||--o{ evidence : "scored on"
-  evidence ||--o{ topic_readiness : "aggregates to"
   factor_evaluations }o--|| readiness_snapshots : "evaluation_run_id"
 ```
 
-The diagram shows the spine, not all 51 tables. Note `submissions` receiving from **both**
-`assignments` and `past_papers` — the polymorphism from `ADR-0004`.
+The diagram shows the spine, not all 52 tables. Note `assessable_work` in the middle: a
+homework assignment, a past paper and a mock are each one row in their own table plus one
+parent row, and a submission answers the **parent**. That is what makes "whose work is this"
+and "what kind of work is this" one column each instead of a three-way branch — see
+`ADR-0004` for the polymorphism it replaced and migrations `0046`–`0049` for how it landed.
 
 ### Conventions
 
@@ -157,11 +162,11 @@ order is `class Foo(TimestampMixin, Base)`.
 
 1. `TimestampMixin` — most models.
 2. Append-only tables declaring `created_at` explicitly instead of using the mixin:
-   `Evidence`, `ReadinessHistory` (as `recorded_at`), `MarkOverrideAudit`, `RemarkRequest`,
+   `Evidence`, `MarkOverrideAudit`, `RemarkRequest`,
    `FactorEvaluation`, `ReadinessSnapshot`, `AiUsageEvent`.
-3. `updated_at` on exactly **three** models — `StudentProfile`, `Job`, `TopicReadiness` —
-   always `default=utcnow, onupdate=utcnow`. (`ChatConversation` was the fourth, until task
-   0.3 deleted it with the chat surface, AV-57.)
+3. `updated_at` on exactly **two** models — `StudentProfile` and `Job` — always
+   `default=utcnow, onupdate=utcnow`. (`ChatConversation` and `TopicReadiness` were the others,
+   until task 0.3 deleted the chat surface, AV-57, and 5.3b deleted readiness v1.)
 
 All datetimes are `DateTime(timezone=True)`. `Date` is used for calendar-only fields
 (`Lesson.date`, `Assessment.date`, `PastPaperAttempt.attempted_at`, `Submission.attempted_at`)
@@ -176,7 +181,9 @@ further and is a plain `String(16)`, so adding an AI provider never touches the 
 
 **JSON columns** are generic `sqlalchemy.JSON`, never `JSONB`, for SQLite parity:
 `jobs.payload`, `subjects.grade_boundaries`, `syllabus_uploads.draft`,
-`factor_evaluations.detail`, `readiness_snapshots.weak_topics`.
+`factor_evaluations.detail`, `readiness_snapshots.weak_topics` (legacy since 5.6: written `[]`,
+never read). `readiness_weights.weak_threshold` (`0059`, Float, NOT NULL, server default 60)
+is the tutor-set weak-topic line.
 
 **Soft deletes: none.** No `deleted_at`, `is_deleted`, or archive flag anywhere in
 `backend/app/` — verified by search. Deletion is `await db.delete(row)`, relying on ORM
@@ -244,16 +251,17 @@ columns are not indexed** — Postgres does not index them automatically, so joi
 | Constraint | What it guarantees |
 |---|---|
 | `remark_requests(question_mark_id)` | **One remark request per question, ever** — the anti-gaming guarantee, enforced by the database rather than by application logic |
-| `submissions(assignment_id, student_id)` and `submissions(past_paper_id, student_id)` | One submission per student per piece of work, for each polymorphic branch |
+| `submissions(work_id, student_id)` | One submission per student per piece of work. Replaced three per-arm constraints in `0049`, which between them could not stop one student holding two submissions against a single piece of work through two different keys |
 | `question_marks(submission_id, question_id)` and `(submission_id, past_paper_question_id)` | One mark per question per submission |
 | `subjects(exam_board, code)` | Exam board is part of subject identity |
 | `topics(subject_id, code)`, `lesson_topics(lesson_id, topic_id)`, `question_topics(question_id, topic_id)` | Join-table integrity |
 | `group_members(group_id, student_id)`, `parent_links(parent_id, student_id)`, `student_subjects(student_id, subject_id)` | No duplicate membership |
 | `grade_boundaries(organization_id, subject_id, grade_label)` | One boundary per grade per subject per organization |
+| `readiness_weights(organization_id, subject_id)` + partial unique index on `organization_id WHERE subject_id IS NULL` | One account row and at most one override per subject (`0057`, task 5.4a). The constraint alone cannot hold the account row to one — Postgres treats NULLs as distinct (`RISK-3`) |
+| `custom_criterion_scores(student_id, criterion_id)` | One current tutor score per student per criterion (`0058`); `CHECK score BETWEEN 0 AND 100` |
 | `classroom_course_links(google_account_id, classroom_course_id)`, `classroom_work_links(course_link_id, classroom_coursework_id)` | What makes Classroom re-sync idempotent |
 
 Column-level `unique=True`: `users.email`, `users.username`, `invites.code`,
-`tutor_preferences.tutor_id`, `readiness_weights.organization_id`,
 `student_profiles.student_id`, `google_accounts.tutor_id`, `classroom_course_links.group_id`,
 `classroom_work_links.assignment_id`.
 
@@ -507,8 +515,7 @@ wrong reason.
 | **CI verifies migrations against an empty database.** The `migrations` job runs up → down → up on Postgres 16, but with no rows in any table. | It catches invalid or irreversible schema operations. It cannot catch the failure that actually happened — 0012 added a non-nullable column to a *populated* table. `DB-18` is still enforced by review alone. `RISK-3` residual. | `before scale` |
 | **The test suite still runs no migration.** `conftest.py` uses `Base.metadata.create_all` on SQLite. | A model and its migration can drift without any test noticing; only CI's separate Postgres job would catch a migration that fails outright. `DB-12` — four of five indexes exist only in migrations — is a live instance of this drift. | `before scale` |
 | **No retention policy is implemented.** `DB-20` is Draft; `factor_evaluations` grows unbounded. | Flagged as needed in two prior documents. The policy now exists on paper; the pruning job does not. | `before scale` |
-| **v1 readiness tables are still written and read** — `topic_readiness`, `readiness_history`, `tutor_preferences`. | Three tables and their writes exist to serve three modules that have not been repointed. `RISK-5`. | `before scale` |
-| **`updated_at` is inconsistent** — present on 3 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |
+| **`updated_at` is inconsistent** — present on 2 models, absent from most. | Nothing depends on it today, but "when did this row last change" is unanswerable for most of the schema. | `nice to have` |
 
 ---
 
@@ -522,4 +529,3 @@ Update this document when:
 - `ondelete=` or CHECK constraints are introduced.
 - The retention policy in `DB-20` is implemented, moving it from Draft to Active.
 - The test database stops being SQLite, which relaxes `DB-5`, `DB-7`, and `DB-17`.
-- The v1 readiness tables are dropped.

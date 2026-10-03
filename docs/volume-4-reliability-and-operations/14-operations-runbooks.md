@@ -442,9 +442,8 @@ student shows different readiness in different places.
 
 **Diagnosis**
 
-**Different numbers in different places is expected today and is not a bug you can fix
-locally.** `/readiness/*` serves v2 snapshots, while `analytics.py`, `reports.py`, and
-`student_crm.py` still read v1 tables directly (`RISK-5`).
+**Every surface reads the same v2 snapshots** since 5.3b, so different numbers in different
+places is a real bug, not the old v1/v2 split (`RISK-5`, closed).
 
 For staleness:
 
@@ -462,8 +461,8 @@ For staleness:
    FROM readiness_snapshots ORDER BY id DESC LIMIT 20;
    ```
    `status='failed'` means Layer 2 failed but the deterministic factor rows were kept.
-3. Is the response saying `engine: "v1"`? Then no ready snapshot exists for that
-   (student, subject) and the fallback is serving.
+3. Is the subject showing "not enough data yet" with no `computed_at`? Then no ready snapshot
+   exists for that (student, subject) — check step 2 for a failed run, or run the backfill.
 4. For an implausible score, decompose it — this is what the audit trail is for:
    ```sql
    SELECT factor, score, confidence, evidence_count
@@ -485,7 +484,11 @@ sensibly against its factor rows.
 **Backfill after a maths change.** When the code behind a factor changes, existing snapshots
 keep reporting the old answer — nothing recomputes them on its own, because a run is normally
 triggered by new marks landing and a student whose work is already marked would never fire one.
-Queue a run for every (student, subject) that has evidence:
+Queue a run for every **enrolled** (student, subject) pair — by class membership, not by
+evidence (changed in #100: the students the 5.5 fix matters for are exactly the ones with no
+evidence, who may still carry an invented score; their run ends at "not enough data yet"
+without an AI call). The queue is therefore one job per enrolled pair, and the output names
+the pairs it skipped as already in flight:
 
 ```bash
 # from backend/

@@ -88,6 +88,13 @@ partial, 2 absent, and one scoring defect. Two findings are load-bearing:
    construction in the repo is a test fixture. In production `mistake_analysis()` returns a
    confident `100.0` from an empty table, as one of seven weighted factors.
 
+   **Closed 2026-09-18 by task 4.0.** The factor's denominator is now questions *examined for
+   mistakes* — `submissions.mistakes_analysed_at`, migration `0050` — not questions marked, so
+   an unexamined student reads `NO_DATA` and the factor is omitted rather than scored
+   (`PROD-2`). The producer itself lands in 4.2; until then the factor is correctly absent for
+   everyone. 4.0 also fixed a second, separate defect found in the same function — see
+   `RISK-13`.
+
 Beyond the defects, the product model itself is changing: subjects become tutor-owned and
 open to any board across IGCSE / O Level / A Level, the syllabus gains a chapter level, and a
 new **teaching plan** subsystem — which does not exist in any form today — becomes the spine
@@ -1325,6 +1332,10 @@ past-paper phase has started. A factor without evidence is **omitted, never fabr
 ---
 
 ### Phase 6 — Teaching plan *(runs parallel to Phases 3–5)*
+
+> **2026-09-25 (owner):** 5.7 past-paper gating moves here, after 6.1 and 6.2 — it reads
+> `past_paper_start_date`, which 6.2 introduces. Spec: `docs/agents/phase-5-spec.md`
+> (decisions 9, 11, 17; sections 6.1, 6.2, 5.7).
 
 | ID | Task | Size | Mode |
 |---|---|---|---|

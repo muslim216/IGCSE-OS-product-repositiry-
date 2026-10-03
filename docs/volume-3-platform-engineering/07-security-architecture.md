@@ -184,6 +184,27 @@ ownership helpers that sit below the routing layer take a plain `User` and call
 because nine `groups.py` handlers have no gate of their own and rely entirely on
 `_owned_group`'s.
 
+**An admin's reach stops at their organization.** `admin` is a tutor with wider reach inside
+their own organization, never across organizations (`SEC-7`). Until the Phase 5 sweep (#100)
+the role alone was the whole check in 13 routers — an admin could read another tenant's
+student record, score them and mint a parent link (latent: no API creates an admin). Every
+admin branch now compares the resource's organization with `user.organization_id` and
+answers 404. For a student, the rule is "homed in my organization, or sitting in one of its
+classes" (`api/students._in_organization`, `api/readiness.visible_subject_ids`).
+`tests/test_admin_org_scope.py` and `test_admin_org_scope_more.py` hold the negative cases.
+
+**A student can sit in two organizations' classes.** Reaching the student is not reaching
+what the other organization wrote: for staff viewers the CRM profile, tutor notes and parent
+communications, custom criteria, report subjects and the reports themselves are scoped to
+the viewer's own organization; a profile kept by another organization cannot be overwritten
+from outside it. Students and parents read their own record unscoped. **Known gap:** the
+readiness config (weights, half-life, weak threshold) and grade boundaries still resolve by
+the student's *home* organization, so for a shared student the teaching tutor's settings are
+not the ones applied — an open product decision.
+
+**Refusals about a student are 404, not 403** (`API-7`): `_viewable_student`,
+`visible_subject_ids` and the reports gate no longer confirm that a student id exists.
+
 **Why this is a security property and not a style one.** A dependency in the signature fails
 closed: a request cannot be resolved without it. An imperative call in the body fails **open**:
 forget the line and the endpoint authenticates fine and authorizes nothing — no test, no

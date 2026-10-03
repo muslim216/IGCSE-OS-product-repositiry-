@@ -367,11 +367,17 @@ organization check. Being authenticated is never sufficient.
 `PROD-4` depends on it.
 
 **`API-20` — MUST · Critical · Active**
-Never read `Submission.assignment_id` unconditionally. A past-paper submission has it as
-`None`. Ownership branching for submissions lives only in `_tutor_owns()` in
-`api/submissions.py`.
-*Rationale:* it raises inside an authorization check, turning a null-handling bug into an
-availability failure on a security path (`ADR-0004`).
+A submission says which piece of work it answers with one column, `work_id`. Read what kind
+of work it is with `kind_of()` in `services/submission_kind.py`, and load the assignment,
+past paper or mock itself with `services/work.parent_of()`. Ownership branching lives only in
+`_tutor_owns()` in `api/submissions.py`.
+*Rationale:* until migration `0049` a submission carried three nullable foreign keys —
+`assignment_id`, `past_paper_id`, `mock_id` — with exactly one set, and reading the wrong one
+raised *inside* an authorization check, turning a null-handling bug into an availability
+failure on a security path. Worse, every query that spanned kinds ORed three
+`organization_id` columns, and a kind left out of one of those ORs vanished from that query
+in silence rather than raising. The three keys are gone (`ADR-0004`, D1–D6); this rule now
+names what replaced them.
 
 **`API-21` — MUST · Important · Active**
 Resource visibility for students is scoped to (organization, subject) derived from the groups

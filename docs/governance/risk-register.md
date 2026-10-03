@@ -184,6 +184,10 @@ rather than by the system.
 
 ## RISK-5 — Two readiness engines can disagree
 
+**Closed 2026-09-26 (task 5.3b, AV-78).** There is one engine. v1's code, its fallback and
+`engine: "v1"` are deleted, and migration `0055` dropped `topic_readiness`,
+`readiness_history` and `tutor_preferences`. The history below is kept as the record.
+
 **Likelihood:** High · **Impact:** Medium · **Priority:** P2 · **Owner:** Founder
 
 `/readiness/*` serves v2 snapshots with per-subject fallback to v1. But `api/analytics.py`,
@@ -200,6 +204,12 @@ their v1 topic readiness.
 **Mitigation:** complete the cutover — repoint the three remaining readers, then drop
 `topic_readiness`, `readiness_history`, and `tutor_preferences`. Deliberately deferred as its
 own workstream.
+
+**Status (2026-09-24, phase 5.3a, PR #91):** the readers are repointed. Analytics, reports,
+the Student CRM, the home strip and the class page all read v2 through one class aggregation
+(`services/class_readiness.py`). What remains is the per-subject v1 fallback for a subject with
+**no v2 snapshot at all**; 5.3b deletes it with the v1 engine and its tables. Until then a topic
+served by that fallback can blend a tutor estimate without the "includes tutor estimate" label.
 
 ---
 
@@ -366,6 +376,36 @@ again unobserved. See §08 and §07.
 
 ---
 
+## RISK-13 — A cross-kind reader can lose an arm in silence
+
+**Status:** Active. **Realised:** twice.
+
+`API-20` moved every submission onto one `work_id` pointing at an `assessable_work` parent,
+which removed the *class* of bug where a reader ORed three `organization_id` columns and one
+arm was forgotten. It did not remove the simpler version: a query that joins a *child* table
+to reach a submission still silently narrows to that child's kind.
+
+`Assignment.work_id` is unique, so `join(Assignment, Assignment.work_id == Submission.work_id)`
+is an inner join that matches homework and nothing else. No error, no log — the rows are just
+absent, and a count computed over them is quietly wrong.
+
+Realised instances:
+- D4–D6 (2026-09-15): five cross-kind readers whose mock arm was broken in silence. Fixed by
+  moving them onto the parent row.
+- Task 4.0 (2026-09-18): `_mistake_points_and_total` in `services/readiness_v2.py` joined
+  `Assignment` in **both** its queries, dropping past-paper and mock submissions from the
+  Mistake Analysis factor's numerator and denominator alike. Live since Phase 3 shipped mocks;
+  invisible only because the `mistakes` table was empty. Found by inspection during Phase 4
+  speccing, not by a failure.
+
+**Mitigation:** a reader that spans kinds joins `AssessableWork`, never a child table. When a
+join to a child is genuinely wanted, it is an outer join or the narrowing is stated in a
+comment. A new cross-kind reader ships with a test covering a mock *and* a past paper — one
+arm passing does not prove the other.
+
+**What would close it:** nothing structural. The join that causes it is always locally
+plausible, so this stays a review-time check.
+
 ## RISK-12 — The AI cost model is unbounded
 
 **Likelihood:** Medium · **Impact:** Medium · **Priority:** P3 · **Owner:** Founder
@@ -391,7 +431,7 @@ breaker. The metering foundation is deliberately built for exactly this.
 | ID | Risk | L | I | P | Note |
 |---|---|---|---|---|---|
 | RISK-11 | Dependencies unpinned and unscanned | High | High | P1 | **trigger fired** — 1 critical + 1 high advisory, both dev-only, both needing a major |
-| RISK-5 | Two readiness engines can disagree | High | Med | P2 | highest-ranked *unfired* risk |
+| RISK-5 | Two readiness engines can disagree | — | — | closed | closed 2026-09-26 by 5.3b — one engine |
 | RISK-6 | Frontend/backend contracts drift silently | Low | Med | P4 | closed for the shared contract types — generated from OpenAPI and checked fresh in CI; per-domain wrappers still hand-written |
 | RISK-1 | Single-instance with no scale-out path | Med | High | P2 | |
 | RISK-3 | Migrations validated only by production | Low | Severe | P2 | up/down/up in CI; database not seeded |
@@ -416,13 +456,9 @@ task 0.8 generated the frontend's contract types from the backend's own OpenAPI 
 gated both generated files in CI, dropping it from P2 to P4 on the shapes that were
 converted.
 
-The highest-ranked item with no realised failure behind it is `RISK-5`: readiness v1 and v2
-coexisting, with
-`analytics.py`, `reports.py` and `student_crm.py` still reading v1 tables directly while
-`/readiness/*` serves v2, so two screens can show a student different numbers. Nothing about
-it has changed — it is simply what is left. **It is left at P2 rather than promoted**, because
-re-ranking an untouched risk is a judgement for the quarterly review and its owner, not a
-side effect of other work landing.
+`RISK-5` closed on 2026-09-26 when 5.3b deleted readiness v1 and its tables; the
+highest-ranked unfired risk is now a judgement for the quarterly review, not a side effect of
+that work landing.
 
 ## Review triggers
 
