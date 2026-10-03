@@ -79,7 +79,7 @@ class ChapterReasonOut(BaseModel):
 class DraftOutcomeOut(BaseModel):
     """What the last drafting run did, for the tutor (PROD-1, PROD-2)."""
 
-    #: drafted | failed | skipped
+    #: drafted | failed | skipped | stale (inputs or breaks changed since the draft)
     status: str
     drafted_at: str | None
     #: ai | stored_chapter_weights | ai_unusable | None

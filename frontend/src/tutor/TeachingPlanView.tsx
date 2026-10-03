@@ -24,6 +24,15 @@ function humanDate(iso: string): string {
   return MONTHS[m - 1] ? `${d} ${MONTHS[m - 1]} ${y}` : iso;
 }
 
+/** An instant shown as a date in the viewer's own zone (the tutor's, here). */
+function localDate(instant: string): string {
+  return new Date(instant).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 /** The Monday of the ISO date's week, as an ISO date (UTC arithmetic, no timezone drift). */
 function weekStart(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -61,12 +70,29 @@ function OutcomeBanner({
       tone: "risk",
       text: outcome.failure_message ?? "The plan could not be drafted.",
     });
+  } else if (outcome?.status === "stale") {
+    notes.push({
+      tone: "warn",
+      text: "Inputs changed since this draft — draft again before accepting.",
+    });
+  } else if (outcome?.status === "skipped") {
+    notes.push({
+      tone: "warn",
+      text: "This draft was not generated, so there is nothing to accept. Draft the plan again.",
+    });
   } else if (outcome?.status === "drafted" && outcome.weight_source !== "ai") {
     notes.push({
       tone: "warn",
       text: `These lesson counts did not come from the AI's advice. ${
         outcome.degraded_reason ?? "No reason was recorded."
       }`,
+    });
+  } else if (outcome?.status === "drafted" && outcome.defaulted_chapters > 0) {
+    notes.push({
+      tone: "warn",
+      text: `${outcome.defaulted_chapters} chapter${
+        outcome.defaulted_chapters === 1 ? " got a default share" : "s got a default share"
+      } — the AI gave no advice for ${outcome.defaulted_chapters === 1 ? "it" : "them"}.`,
     });
   }
   if (notes.length === 0) return null;
@@ -90,11 +116,17 @@ function OutcomeBanner({
 function SlotRow({
   slot,
   chapters,
+  chaptersReady,
+  locked,
   saving,
   onSave,
 }: {
   slot: PlanSlot;
   chapters: Chapter[];
+  /** False until the subject's chapter list has loaded: the select would be empty. */
+  chaptersReady: boolean;
+  /** A draft job is running and will replace generated slots under the tutor's hands. */
+  locked: boolean;
   saving: boolean;
   onSave: (patch: { scheduled_date?: string; chapter_id?: number }, done: () => void) => void;
 }) {
@@ -119,6 +151,7 @@ function SlotRow({
           <span className="block text-xs text-ink-500">Chapter</span>
           <Select
             aria-label="Lesson chapter"
+            disabled={!chaptersReady}
             value={chapterId}
             onChange={(e) => setChapterId(Number(e.target.value))}
           >
@@ -182,6 +215,7 @@ function SlotRow({
         size="sm"
         variant="ghost"
         aria-label={`Edit the ${humanDate(slot.scheduled_date)} lesson`}
+        disabled={locked}
         onClick={() => setEditing(true)}
       >
         Edit
@@ -193,11 +227,15 @@ function SlotRow({
 function SlotList({
   slots,
   chapters,
+  chaptersReady,
+  locked = false,
   saving,
   onSave,
 }: {
   slots: PlanSlot[];
   chapters: Chapter[];
+  chaptersReady: boolean;
+  locked?: boolean;
   saving: boolean;
   onSave: (
     slotId: number,
@@ -218,6 +256,8 @@ function SlotList({
                 key={`${slot.id}-${slot.scheduled_date}-${slot.chapter_id}`}
                 slot={slot}
                 chapters={chapters}
+                chaptersReady={chaptersReady}
+                locked={locked}
                 saving={saving}
                 onSave={(patch, done) => onSave(slot.id, patch, done)}
               />
@@ -244,6 +284,11 @@ function Reasons({ outcome }: { outcome: DraftOutcome }) {
             </span>{" "}
             <span className="tabular-nums text-ink-500">weight {c.weight}</span>
             {c.reason ? ` — ${c.reason}` : ""}
+            {!c.reason && outcome.weight_source === "ai" && outcome.defaulted_chapters > 0 && (
+              <span className="ml-2 rounded-full bg-warn-100 px-2 py-0.5 text-xs text-warn-700">
+                default share
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -320,6 +365,7 @@ export default function TeachingPlanView({
 
   const { draft: proposed, accepted } = plan.data;
   const chapterList = chapters.data ?? [];
+  const chaptersReady = chapters.isSuccess;
   const drafting = Boolean(proposed?.drafting) || draft.isPending;
   const proposedSlots = proposed?.slots ?? [];
   const canAccept =
@@ -335,8 +381,8 @@ export default function TeachingPlanView({
       <h4 className="text-sm font-medium text-ink-900">Live plan</h4>
       <p className="text-sm text-ink-500">
         Exam on {humanDate(live.exam_date)}.
-        {live.accepted_at ? ` Accepted ${humanDate(live.accepted_at.slice(0, 10))}.` : ""} Edit any
-        lesson at any time; it stays accepted.
+        {live.accepted_at ? ` Accepted ${localDate(live.accepted_at)}.` : ""} Edit any lesson at any
+        time; it stays accepted.
       </p>
       {(live.slots ?? []).length === 0 ? (
         <p className="mt-2 text-sm text-ink-500">This plan has no lessons.</p>
@@ -344,6 +390,7 @@ export default function TeachingPlanView({
         <SlotList
           slots={live.slots ?? []}
           chapters={chapterList}
+          chaptersReady={chaptersReady}
           saving={edit.isPending}
           onSave={onSave}
         />
@@ -394,6 +441,8 @@ export default function TeachingPlanView({
             <SlotList
               slots={proposedSlots}
               chapters={chapterList}
+              chaptersReady={chaptersReady}
+              locked={drafting}
               saving={edit.isPending}
               onSave={onSave}
             />

@@ -178,12 +178,29 @@ async def _apply_and_commit(
     lesson_minutes: int,
     past_paper_start_date: date | None,
 ) -> TeachingPlan:
+    changed = (
+        plan.exam_date != exam_date
+        or plan.lessons_per_week != lessons_per_week
+        or plan.lesson_minutes != lesson_minutes
+        or plan.past_paper_start_date != past_paper_start_date
+    )
     plan.exam_date = exam_date
     plan.lessons_per_week = lessons_per_week
     plan.lesson_minutes = lesson_minutes
     plan.past_paper_start_date = past_paper_start_date
+    if changed:
+        mark_draft_stale(plan)
     await session.commit()
     return await _reload(session, plan)
+
+
+def mark_draft_stale(plan: TeachingPlan) -> None:
+    """The slots were built for inputs that no longer hold, so accepting them
+    would promote a plan nobody asked for. A redraft overwrites `draft_result`.
+    Reassigned, not mutated, so the JSON column registers the change. A plan
+    that was never drafted has nothing to go stale."""
+    if plan.draft_result:
+        plan.draft_result = {**plan.draft_result, "status": "stale"}
 
 
 async def _reload(session: AsyncSession, plan: TeachingPlan) -> TeachingPlan:
@@ -211,6 +228,7 @@ async def add_break(
             )
     plan_break = PlanBreak(plan_id=plan.id, start_date=start_date, end_date=end_date, label=label)
     session.add(plan_break)
+    mark_draft_stale(plan)
     await session.commit()
     return plan_break
 
@@ -221,6 +239,7 @@ async def remove_break(session: AsyncSession, *, plan: TeachingPlan, break_id: i
     if plan_break is None:
         return False
     await session.delete(plan_break)
+    mark_draft_stale(plan)
     await session.commit()
     return True
 
@@ -231,18 +250,22 @@ async def remove_break(session: AsyncSession, *, plan: TeachingPlan, break_id: i
 async def _latest_draft_jobs(session: AsyncSession, plan_ids: set[int]) -> dict[int, JobStatus]:
     """Status of the newest `draft_plan` job per plan id, in one query.
 
-    The payload is a JSON column with no equality operator on Postgres, so plan
-    ids are matched in Python over a bounded, newest-first read of that one job
-    type rather than in SQL.
+    Filtered in SQL on the plan id inside the payload, so a busy queue of other
+    classes' drafts cannot push this plan's job out of view. Every status is
+    read, not only the live ones: an older failed job must not be reported as
+    the latest once a newer one has finished.
     """
     if not plan_ids:
         return {}
     rows = (
         await session.execute(
             select(Job.payload, Job.status)
-            .where(Job.type == PLAN_DRAFT_JOB)
+            .where(
+                Job.type == PLAN_DRAFT_JOB,
+                Job.payload["plan_id"].as_integer().in_(plan_ids),
+            )
             .order_by(Job.id.desc())
-            .limit(200)
+            .limit(20 * len(plan_ids))
         )
     ).all()
     latest: dict[int, JobStatus] = {}
@@ -390,7 +413,12 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
     ).all()
     if not slot_ids:
         raise PlanStateError("The draft has no lessons yet. Draft the plan first.")
-    if (draft.draft_result or {}).get("status") != "drafted":
+    result_status = (draft.draft_result or {}).get("status")
+    if result_status == "stale":
+        raise PlanStateError(
+            "The plan inputs or breaks changed since this draft was made. Draft again first."
+        )
+    if result_status != "drafted":
         raise PlanStateError(
             "The last drafting run did not produce a plan. Fix what it reports and draft again."
         )
@@ -407,9 +435,10 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
     draft.status = TeachingPlanStatus.accepted
     draft.accepted_at = utcnow()
     draft.accepted_by_id = user.id
-    await session.commit()
     # Past-paper performance waits on the plan (5.7), and that gate only takes
     # effect on the next recompute, so every student in the class gets one.
+    # Enqueued before the commit (the helper does not commit), so the accept and
+    # its recomputes land together or not at all.
     student_ids = (
         await session.scalars(
             select(GroupMember.student_id).where(GroupMember.group_id == group.id)
@@ -452,7 +481,16 @@ async def edit_slot(
     await session.scalar(
         select(TeachingPlan.id).where(TeachingPlan.id == plan.id).with_for_update()
     )
-    await session.refresh(slot)
+    # Re-read under the lock: a redraft that ran in between may have replaced
+    # the slot, which is then a 404 rather than a failed refresh.
+    reread = await session.scalar(
+        select(PlanSlot)
+        .where(PlanSlot.id == slot_id, PlanSlot.plan_id == plan.id)
+        .execution_options(populate_existing=True)
+    )
+    if reread is None:
+        raise PlanSlotNotFound(slot_id)
+    slot = reread
 
     new_chapter_id = chapter_id if chapter_id is not None else slot.chapter_id
     chapter = await session.scalar(
