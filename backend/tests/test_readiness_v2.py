@@ -40,6 +40,8 @@ from app.models import (
     ReadinessSnapshot,
     Submission,
     SubmissionStatus,
+    TeachingPlan,
+    TeachingPlanStatus,
     Topic,
     User,
     WorkKind,
@@ -1408,3 +1410,108 @@ async def test_a_mock_mark_does_not_feed_topic_mastery_yet(client, tutor, world)
         await session.commit()
 
     assert (await _topic_rows(world))[world["topic1"]].score is None
+
+
+# ---- Past Paper Performance gate (AV-31, task 5.7) ----------------------
+
+
+async def _graded_attempt_and_plan(
+    tutor, world, *, status: TeachingPlanStatus | None, start: date | None
+):
+    """One settled 90% attempt for the student, and — unless `status` is None —
+    a plan on their class with that status and past-paper start."""
+    async with async_session() as session:
+        tutor_user = await session.get(User, tutor["user"]["id"])
+        assert tutor_user is not None
+        org_id = tutor_user.organization_id
+        past_paper = await make_past_paper(
+            session,
+            organization_id=org_id,
+            subject_id=world["subject_id"],
+            session_label="June 2027",
+            paper_number="2",
+        )
+        session.add(
+            PastPaperAttempt(
+                past_paper_id=past_paper.id,
+                student_id=world["student_id"],
+                raw_marks=18,
+                max_marks=20,
+                timed=True,
+                attempted_at=date.today() - timedelta(days=3),
+            )
+        )
+        if status is not None:
+            accepted = status == TeachingPlanStatus.accepted
+            session.add(
+                TeachingPlan(
+                    organization_id=org_id,
+                    group_id=world["group"]["id"],
+                    status=status,
+                    exam_date=date.today() + timedelta(days=400),
+                    lessons_per_week=2,
+                    lesson_minutes=60,
+                    past_paper_start_date=start,
+                    accepted_at=datetime.now(timezone.utc) if accepted else None,
+                    accepted_by_id=tutor_user.id if accepted else None,
+                )
+            )
+        await session.commit()
+
+
+async def _past_paper_row(world, run_id: str) -> FactorEvaluation:
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session, world["student_id"], world["subject_id"], run_id, now=NOW
+        )
+        await session.commit()
+    return next(r for r in rows if r.factor == ReadinessFactor.past_paper_performance)
+
+
+async def test_a_class_with_no_plan_still_scores_past_papers(client, tutor, world):
+    await _graded_attempt_and_plan(tutor, world, status=None, start=None)
+    row = await _past_paper_row(world, "pp-gate-noplan")
+    assert row.score == 90.0
+    assert row.evidence_count == 1
+
+
+async def test_an_accepted_plan_before_its_past_paper_start_gates_the_factor(client, tutor, world):
+    await _graded_attempt_and_plan(
+        tutor,
+        world,
+        status=TeachingPlanStatus.accepted,
+        start=date.today() + timedelta(days=30),
+    )
+    row = await _past_paper_row(world, "pp-gate-future")
+    assert row.score is None
+    assert row.confidence == NO_DATA.confidence
+    assert row.evidence_count == 0
+
+
+async def test_an_accepted_plan_with_no_start_date_gates_the_factor(client, tutor, world):
+    await _graded_attempt_and_plan(tutor, world, status=TeachingPlanStatus.accepted, start=None)
+    row = await _past_paper_row(world, "pp-gate-null")
+    assert row.score is None
+    assert row.evidence_count == 0
+
+
+async def test_a_draft_plan_never_gates(client, tutor, world):
+    await _graded_attempt_and_plan(
+        tutor,
+        world,
+        status=TeachingPlanStatus.draft,
+        start=date.today() + timedelta(days=30),
+    )
+    row = await _past_paper_row(world, "pp-gate-draft")
+    assert row.score == 90.0
+
+
+async def test_an_accepted_plan_past_its_start_date_scores(client, tutor, world):
+    await _graded_attempt_and_plan(
+        tutor,
+        world,
+        status=TeachingPlanStatus.accepted,
+        start=date.today() - timedelta(days=1),
+    )
+    row = await _past_paper_row(world, "pp-gate-past")
+    assert row.score == 90.0
