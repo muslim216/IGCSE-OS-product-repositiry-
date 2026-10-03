@@ -441,11 +441,13 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
     if not slot_ids:
         raise PlanStateError("The draft has no lessons yet. Draft the plan first.")
     # A job still running would write slots into a plan that is already live.
-    if (await _latest_draft_jobs(session, {draft.id})).get(draft.id) in (
-        JobStatus.pending,
-        JobStatus.running,
-    ):
+    latest_job = (await _latest_draft_jobs(session, {draft.id})).get(draft.id)
+    if latest_job in (JobStatus.pending, JobStatus.running):
         raise PlanStateError("The plan is still being drafted. Wait for it to finish.")
+    # A redraft that died leaves the previous run's slots and a "drafted" result
+    # in place, so that result describes a plan the tutor asked to replace.
+    if latest_job is JobStatus.failed:
+        raise PlanStateError("The last drafting attempt failed. Draft again before accepting.")
     result_status = (draft.draft_result or {}).get("status")
     if result_status == "stale":
         raise PlanStateError(
