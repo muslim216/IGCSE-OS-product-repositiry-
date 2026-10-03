@@ -23,6 +23,7 @@ from app.schemas.lessons import (
     LessonUpdate,
 )
 from app.services import plan_lessons
+from app.services.plan_lessons import ScheduleSlotNotFound
 from app.services.teaching_plan import PlanInputError, PlanSlotNotFound, PlanStateError
 
 router = APIRouter(prefix="/lessons", tags=["lessons"])
@@ -97,6 +98,8 @@ async def create_lesson(body: LessonCreate, db: DbSession, user: CurrentUser) ->
         )
     except PlanSlotNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Planned lesson not found") from exc
+    except ScheduleSlotNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Timetable slot not found") from exc
     except PlanInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except PlanStateError as exc:
@@ -156,17 +159,14 @@ async def set_lesson_topics(
     root of Syllabus Coverage. Every student in the group is considered
     taught these topics as of the lesson date."""
     lesson = await _owned_lesson(db, user, lesson_id)
-    existing = (
-        await db.scalars(select(LessonTopic).where(LessonTopic.lesson_id == lesson.id))
-    ).all()
-    for row in existing:
-        await db.delete(row)
-    await db.flush()
-    for topic_id in set(body.topic_ids):
-        topic = await db.get(Topic, topic_id)
-        if topic is not None:
-            db.add(LessonTopic(lesson_id=lesson.id, topic_id=topic_id))
-    await db.commit()
+    group = await db.get(Group, lesson.group_id)
+    assert group is not None  # `_owned_lesson` just resolved it
+    try:
+        await plan_lessons.replace_lesson_topics(
+            db, group=group, lesson=lesson, topic_ids=body.topic_ids
+        )
+    except PlanInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     return await _lesson_out(db, lesson)
 
 

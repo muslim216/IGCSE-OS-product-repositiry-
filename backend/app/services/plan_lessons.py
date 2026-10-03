@@ -18,6 +18,7 @@ from app.models import (
     LessonTopic,
     PlanSlot,
     PlanSlotProvenance,
+    ScheduleSlot,
     TeachingPlan,
     TeachingPlanStatus,
     Topic,
@@ -28,6 +29,42 @@ from app.services.teaching_plan import (
     PlanSlotNotFound,
     PlanStateError,
 )
+
+
+class ScheduleSlotNotFound(LookupError):
+    """No such weekly timetable slot on this class. The router turns it into a 404 (`API-7`)."""
+
+
+async def validated_topic_ids(
+    session: AsyncSession, group: Group, topic_ids: list[int]
+) -> set[int]:
+    """The ids as a set, only if every one is a topic of the class's subject.
+    Subjects are global but topics are not interchangeable across them, so a
+    foreign id must not become coverage (`SEC-8`, `PROD-14`). Shared by create
+    and by replacing a lesson's topics, so the two cannot drift."""
+    wanted = set(topic_ids)
+    if wanted:
+        valid = set(
+            await session.scalars(
+                select(Topic.id).where(Topic.id.in_(wanted), Topic.subject_id == group.subject_id)
+            )
+        )
+        if valid != wanted:
+            raise PlanInputError("A topic is not part of this class's subject")
+    return wanted
+
+
+async def replace_lesson_topics(
+    session: AsyncSession, *, group: Group, lesson: Lesson, topic_ids: list[int]
+) -> None:
+    """Replace the lesson's topics with exactly these. Validates before writing."""
+    wanted = await validated_topic_ids(session, group, topic_ids)
+    for row in await session.scalars(select(LessonTopic).where(LessonTopic.lesson_id == lesson.id)):
+        await session.delete(row)
+    await session.flush()
+    for topic_id in sorted(wanted):
+        session.add(LessonTopic(lesson_id=lesson.id, topic_id=topic_id))
+    await session.commit()
 
 
 async def _accepted_slot(session: AsyncSession, group: Group, slot_id: int) -> PlanSlot:
@@ -67,15 +104,17 @@ async def create_lesson(
     One transaction: a refused slot means no lesson, so a lesson is never
     half-confirmed.
     """
-    wanted = set(topic_ids)
-    if wanted:
-        valid = set(
-            await session.scalars(
-                select(Topic.id).where(Topic.id.in_(wanted), Topic.subject_id == group.subject_id)
+    wanted = await validated_topic_ids(session, group, topic_ids)
+    if schedule_slot_id is not None:
+        # Same class only: a timetable slot of another class or organization
+        # must not be attachable by guessing its id.
+        owned = await session.scalar(
+            select(ScheduleSlot.id).where(
+                ScheduleSlot.id == schedule_slot_id, ScheduleSlot.group_id == group.id
             )
         )
-        if valid != wanted:
-            raise PlanInputError("A topic is not part of this class's subject")
+        if owned is None:
+            raise ScheduleSlotNotFound(schedule_slot_id)
     slot = None
     if plan_slot_id is not None:
         slot = await _accepted_slot(session, group, plan_slot_id)

@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listLessons } from "../api/groups";
 import { recordLesson } from "../api/lessons";
 import { listTopics } from "../api/syllabus";
-import { getNextLesson } from "../api/teachingPlan";
+import { getNextLesson, getPlan, type NextLesson } from "../api/teachingPlan";
 import { friendlyError } from "../lib/errors";
 import { SectionCard } from "../components/ui";
 import { Button, Field, Input } from "../components/controls";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const FALLBACK_MINUTES = 60;
 
 /** "2026-10-13" -> "Tue 13 Oct", from the parts: a bare date is not an instant. */
 function plannedDate(iso: string): string {
@@ -17,10 +19,20 @@ function plannedDate(iso: string): string {
   return `${weekday} ${d} ${MONTHS[m - 1]}`;
 }
 
+/** Monday = 0, matching the weekly timetable's `weekday`. */
+function mondayFirstWeekday(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
 function today(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function suggestionLabel(s: NextLesson): string {
+  return `Chapter ${s.chapter.code} · ${s.chapter.title} (planned ${plannedDate(s.scheduled_date)})`;
 }
 
 /** Record a lesson that was taught. The accepted plan pre-fills the date and
@@ -42,84 +54,135 @@ export default function RecordLessonForm({
     queryKey: ["topics", subjectId],
     queryFn: () => listTopics(subjectId),
   });
+  const plan = useQuery({ queryKey: ["plan", groupId], queryFn: () => getPlan(groupId) });
+  const timetable = useQuery({
+    queryKey: ["lessons", groupId],
+    queryFn: () => listLessons(groupId),
+  });
   const suggestion = next.data ?? null;
 
   const [date, setDate] = useState(today());
   const [topicIds, setTopicIds] = useState<number[]>([]);
   const [notes, setNotes] = useState("");
+  // null until the tutor edits it; the shown value is then the derived default.
+  const [durationEdit, setDurationEdit] = useState<string | null>(null);
+  // The suggested slot the form has adopted, and the one a successful save used
+  // up (never offered again, so a stale cache cannot refill the form).
+  const [appliedSlot, setAppliedSlot] = useState<number | null>(null);
+  const [consumedSlot, setConsumedSlot] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [offer, setOffer] = useState<NextLesson | null>(null);
+  // Set by every edit handler: a form the tutor has touched is never overwritten.
+  const dirty = useRef(false);
 
-  // Pre-fill once per suggested slot. Keyed on the slot, so a refetch that
-  // returns the same slot never overwrites what the tutor has since changed.
-  const prefilled = useRef<number | null>(null);
-  useEffect(() => {
-    if (!suggestion || prefilled.current === suggestion.slot_id) return;
-    prefilled.current = suggestion.slot_id;
+  const usingPlan = suggestion !== null && !dismissed && suggestion.slot_id === appliedSlot;
+
+  // Planned length, else the weekly slot on that weekday, else the class's
+  // timetable default, else 60: never an invented number when one is known.
+  const accepted = plan.data?.accepted ?? null;
+  const weekdaySlot = (timetable.data ?? []).find((l) => l.weekday === mondayFirstWeekday(date));
+  const defaultMinutes =
+    accepted?.lesson_minutes ??
+    weekdaySlot?.duration_min ??
+    plan.data?.timetable_defaults.lesson_minutes ??
+    FALLBACK_MINUTES;
+  const duration = durationEdit ?? String(defaultMinutes);
+
+  function apply(s: NextLesson) {
+    setAppliedSlot(s.slot_id);
     setDismissed(false);
-    setDate(suggestion.scheduled_date);
-    setTopicIds(suggestion.topics.map((t) => t.id));
-  }, [suggestion]);
+    setOffer(null);
+    setDate(s.scheduled_date);
+    setTopicIds(s.topics.map((t) => t.id));
+    dirty.current = false;
+  }
 
-  const usingPlan = suggestion !== null && !dismissed;
+  // A new suggestion seeds an untouched form; a touched one is only offered.
+  useEffect(() => {
+    if (!suggestion || suggestion.slot_id === consumedSlot || suggestion.slot_id === appliedSlot) {
+      return;
+    }
+    if (dirty.current) setOffer(suggestion);
+    else apply(suggestion);
+  }, [suggestion, consumedSlot, appliedSlot]);
 
   const save = useMutation({
     mutationFn: () =>
       recordLesson({
         group_id: groupId,
         date,
-        // The server's own default; the generated type makes the field required.
-        duration_min: 60,
+        duration_min: Number(duration),
         topic_ids: topicIds,
         notes: notes.trim() || null,
         // Only when the tutor kept the suggestion: that is what confirms the slot.
         ...(usingPlan ? { plan_slot_id: suggestion.slot_id } : {}),
       }),
-    onMutate: () => {
-      setError(null);
-      setSaved(false);
-    },
     onSuccess: () => {
-      setSaved(true);
-      setNotes("");
+      if (usingPlan) setConsumedSlot(suggestion.slot_id);
+      setAppliedSlot(null);
+      setDismissed(false);
+      setOffer(null);
+      setDate(today());
       setTopicIds([]);
-      prefilled.current = null;
-      queryClient.invalidateQueries({ queryKey: ["next-lesson", groupId] });
-      queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
+      setNotes("");
+      setDurationEdit(null);
+      dirty.current = false;
+      for (const key of [
+        ["next-lesson", groupId],
+        ["plan", groupId],
+        // Coverage is derived from taught topics (`PROD-14`), so everything that
+        // shows it is stale now.
+        ["analytics", groupId],
+        ["class-overview", groupId],
+        ["group", groupId],
+        ["today"],
+      ]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
     },
-    onError: (err) => setError(friendlyError(err)),
+    // The slot may have been taken elsewhere: ask again what is next.
+    onError: () => queryClient.invalidateQueries({ queryKey: ["next-lesson", groupId] }),
   });
 
-  function toggle(id: number) {
-    setTopicIds((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]));
+  /** Every edit goes through here: it marks the form touched and clears a stale status. */
+  function edit(change: () => void) {
+    dirty.current = true;
+    if (save.isSuccess || save.isError) save.reset();
+    change();
   }
+
+  function toggle(id: number) {
+    edit(() =>
+      setTopicIds((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id])),
+    );
+  }
+
+  const minutes = Number(duration);
+  const durationValid = Number.isInteger(minutes) && minutes >= 15 && minutes <= 480;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    save.mutate();
+    if (durationValid) save.mutate();
   }
 
   return (
     <SectionCard>
       <form onSubmit={onSubmit}>
-        <h3 className="font-medium text-ink-900">Record a lesson you taught</h3>
+        <h2 className="text-lg text-ink-900">Record a lesson you taught</h2>
         <p className="mt-1 text-sm text-ink-500">
           The topics you tick count as taught for every student in the class.
         </p>
 
         {usingPlan && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
-            <span>
-              Suggested by your plan: Chapter {suggestion.chapter.code} · {suggestion.chapter.title}{" "}
-              (planned {plannedDate(suggestion.scheduled_date)})
-            </span>
+            <span>Suggested by your plan: {suggestionLabel(suggestion)}</span>
             <Button
               type="button"
               size="sm"
               variant="ghost"
               onClick={() => {
                 setDismissed(true);
+                dirty.current = true;
                 setTopicIds([]);
                 setDate(today());
               }}
@@ -128,13 +191,37 @@ export default function RecordLessonForm({
             </Button>
           </div>
         )}
+        {offer && offer.slot_id !== appliedSlot && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
+            <span>Your plan now suggests {suggestionLabel(offer)}</span>
+            <Button type="button" size="sm" variant="ghost" onClick={() => apply(offer)}>
+              Apply
+            </Button>
+          </div>
+        )}
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <Field label="Date">
-            <Input type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+            <Input
+              type="date"
+              required
+              value={date}
+              onChange={(e) => edit(() => setDate(e.target.value))}
+            />
+          </Field>
+          <Field label="Duration (min)">
+            <Input
+              type="number"
+              min={15}
+              max={480}
+              step={5}
+              required
+              value={duration}
+              onChange={(e) => edit(() => setDurationEdit(e.target.value))}
+            />
           </Field>
           <Field label="Notes" optional>
-            <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Input value={notes} onChange={(e) => edit(() => setNotes(e.target.value))} />
           </Field>
         </div>
 
@@ -168,18 +255,24 @@ export default function RecordLessonForm({
           )}
         </fieldset>
 
-        {error && (
+        {save.isError && (
           <p role="alert" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
-            {error}
+            {friendlyError(save.error)}
           </p>
         )}
-        {saved && (
+        {save.isSuccess && (
           <p role="status" className="mt-3 text-sm text-ok-700">
             Lesson recorded.
           </p>
         )}
         <div className="mt-4 flex justify-end">
-          <Button type="submit" loading={save.isPending}>
+          <Button
+            type="submit"
+            loading={save.isPending}
+            // While the suggestion refetches the slot may be stale: a fast second
+            // submit must not reuse the one just consumed.
+            disabled={next.isFetching || !durationValid}
+          >
             Record lesson
           </Button>
         </div>

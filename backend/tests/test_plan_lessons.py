@@ -1,7 +1,7 @@
 """Task 6.5 (AV-17, E15): the plan suggests the next lesson, and creating one
 confirms its slot. Lessons are never auto-created."""
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -11,8 +11,10 @@ from app.models import (
     Chapter,
     Lesson,
     LessonTopic,
+    Organization,
     PlanSlot,
     PlanSlotProvenance,
+    ScheduleSlot,
     TeachingPlan,
     TeachingPlanStatus,
     Topic,
@@ -325,3 +327,95 @@ async def test_another_tutor_gets_404_for_the_suggestion(client, tutor, group, c
     )
     headers = {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"}
     assert (await client.get(_next(group), headers=headers)).status_code == 404
+
+
+# --- Review fixes: topic and timetable-slot ownership ---------------------------
+
+
+async def _foreign_topic(*, other_org: bool) -> int:
+    async with async_session() as s:
+        kwargs: dict = {"code": "OTH3"}
+        if other_org:
+            org = Organization(name="Elsewhere")
+            s.add(org)
+            await s.flush()
+            kwargs["organization_id"] = org.id
+        foreign = await make_subject(s, **kwargs)
+        topic = Topic(subject_id=foreign.id, code="9.8", title="Elsewhere")
+        s.add(topic)
+        await s.commit()
+        return topic.id
+
+
+@pytest.mark.parametrize("other_org", [False, True])
+async def test_put_topics_rejects_a_topic_of_another_subject_and_writes_nothing(
+    client, tutor, group, subject, other_org
+):
+    lesson_id = (await _post_lesson(client, tutor, group, topic_ids=[subject["topic1"]])).json()[
+        "id"
+    ]
+    foreign = await _foreign_topic(other_org=other_org)
+    resp = await client.put(
+        f"/api/v1/lessons/{lesson_id}/topics",
+        json={"topic_ids": [subject["topic2"], foreign]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 422
+    async with async_session() as s:
+        rows = (await s.scalars(select(LessonTopic.topic_id))).all()
+    assert rows == [subject["topic1"]]  # nothing was written
+
+
+async def test_put_topics_still_replaces_with_valid_topics(client, tutor, group, subject):
+    lesson_id = (await _post_lesson(client, tutor, group, topic_ids=[subject["topic1"]])).json()[
+        "id"
+    ]
+    resp = await client.put(
+        f"/api/v1/lessons/{lesson_id}/topics",
+        json={"topic_ids": [subject["topic2"]]},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200
+    assert [t["id"] for t in resp.json()["topics"]] == [subject["topic2"]]
+
+
+async def _timetable_slot(group_id: int) -> int:
+    async with async_session() as s:
+        slot = ScheduleSlot(group_id=group_id, weekday=1, start_time=time(17, 0), duration_min=60)
+        s.add(slot)
+        await s.commit()
+        return slot.id
+
+
+async def test_a_timetable_slot_of_another_class_is_404(client, tutor, group, subject):
+    other = (
+        await client.post(
+            "/api/v1/groups",
+            json={"name": "Chem Y11", "subject_id": subject["id"]},
+            headers=tutor["headers"],
+        )
+    ).json()
+    foreign_slot = await _timetable_slot(other["id"])
+    resp = await _post_lesson(client, tutor, group, schedule_slot_id=foreign_slot)
+    assert resp.status_code == 404
+    assert await _lesson_count() == 0
+
+
+async def test_a_timetable_slot_of_this_class_is_accepted(client, tutor, group):
+    slot = await _timetable_slot(group["id"])
+    resp = await _post_lesson(client, tutor, group, schedule_slot_id=slot)
+    assert resp.status_code == 201
+    assert resp.json()["schedule_slot_id"] == slot
+
+
+async def test_deleting_a_lesson_whose_slot_is_completed_sets_it_manually_modified(
+    client, tutor, group, chapters
+):
+    slots = await _plan(group, tutor, [chapters["c1"]])
+    lesson_id = (await _post_lesson(client, tutor, group, plan_slot_id=slots[0])).json()["id"]
+    async with async_session() as s:
+        (await s.get(PlanSlot, slots[0])).provenance = PlanSlotProvenance.completed
+        await s.commit()
+    await client.delete(f"/api/v1/lessons/{lesson_id}", headers=tutor["headers"])
+    # Intended: the lesson is gone, so nothing was taught against this slot.
+    assert await _slot(slots[0]) == (None, PlanSlotProvenance.manually_modified)
