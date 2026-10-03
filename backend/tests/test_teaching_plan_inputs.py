@@ -74,6 +74,8 @@ async def test_no_timetable_prefills_nothing(client, tutor, group):
         "draft": None,
         "accepted": None,
         "timetable_defaults": {"lessons_per_week": None, "lesson_minutes": None},
+        # No accepted plan: no progress, never a fabricated zero (task 6.6).
+        "progress": None,
     }
 
 

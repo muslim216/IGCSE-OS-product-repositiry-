@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.schemas.groups import UpcomingScheduleSlot
 from app.schemas.today import (
+    BehindClass,
     ClassLearnerRow,
     ClassOverview,
     ClassStripRow,
@@ -42,6 +43,7 @@ from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
 from app.services.groups import review_queue_predicate
 from app.services.groups import summaries as group_summaries
+from app.services.plan_progress import class_progress
 from app.services.readiness_shared import scores_of, trend_direction, v2_score_series
 from app.services.timezones import effective_timezone, now_in
 
@@ -146,6 +148,30 @@ async def today_lessons(
     ]
 
 
+async def behind_classes(db: AsyncSession, user: User, today: date) -> list[BehindClass]:
+    """Classes with lessons planned before today and none recorded, most first.
+    One aggregate query for every class (PERF-1, `plan_progress.class_progress`)."""
+    out: list[BehindClass] = []
+    for group_id, (name, progress) in (await class_progress(db, user, today)).items():
+        if progress.missed < 1 or not progress.earliest_missed_chapter:
+            continue
+        chapter_id, code, title = progress.earliest_missed_chapter
+        assert progress.earliest_missed_date is not None
+        out.append(
+            BehindClass(
+                group_id=group_id,
+                group_name=name,
+                missed=progress.missed,
+                earliest_missed_date=progress.earliest_missed_date,
+                chapter_id=chapter_id,
+                chapter_code=code,
+                chapter_title=title,
+            )
+        )
+    out.sort(key=lambda b: (-b.missed, b.group_name, b.group_id))
+    return out
+
+
 async def build_today(db: AsyncSession, user: User) -> TodayView:
     """The tutor's home. Scoped by the authenticated user's own classes — never
     by a path or body parameter (SEC-7)."""
@@ -196,6 +222,7 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
         joined_student_count=sum(r.member_count for r in rows),
         classes_with_evidence=sum(1 for r in rows if r.score is not None),
         chapter_prompts=await chapter_prompts(db, user, today),
+        behind_classes=await behind_classes(db, user, today),
     )
 
 

@@ -7790,6 +7790,54 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/plan/replan": {
+      "post": {
+        "tags": [
+          "teaching-plan"
+        ],
+        "summary": "Replan Plan",
+        "description": "Draft a fresh plan from today and wait for the tutor to accept it (task\n6.6). The live plan is untouched; drafting runs as a job (`BE-13`).",
+        "operationId": "replan_plan_api_v1_groups__group_id__plan_replan_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanOverview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups/{group_id}/plan/accept": {
       "post": {
         "tags": [
@@ -8834,6 +8882,51 @@
           "tokens"
         ],
         "title": "AuthResponse"
+      },
+      "BehindClass": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "missed": {
+            "type": "integer",
+            "title": "Missed"
+          },
+          "earliest_missed_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Earliest Missed Date"
+          },
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "chapter_code": {
+            "type": "string",
+            "title": "Chapter Code"
+          },
+          "chapter_title": {
+            "type": "string",
+            "title": "Chapter Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "missed",
+          "earliest_missed_date",
+          "chapter_id",
+          "chapter_code",
+          "chapter_title"
+        ],
+        "title": "BehindClass",
+        "description": "A class whose accepted plan has lessons dated before today with no lesson\nrecorded (AV-18). Says \"not recorded\", not \"missed\": it may have been taught."
       },
       "Body_create_assignment_with_paper_api_v1_assignments_upload_post": {
         "properties": {
@@ -10508,6 +10601,16 @@
               }
             ],
             "title": "Failure Message"
+          },
+          "reflow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReflowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -13398,6 +13501,16 @@
           },
           "timetable_defaults": {
             "$ref": "#/components/schemas/TimetableDefaultsOut"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -13408,6 +13521,54 @@
         ],
         "title": "PlanOverview",
         "description": "Draft and accepted are separate: a class can hold both (6.1), and either may be null."
+      },
+      "PlanProgressOut": {
+        "properties": {
+          "planned_to_date": {
+            "type": "integer",
+            "title": "Planned To Date"
+          },
+          "taught_to_date": {
+            "type": "integer",
+            "title": "Taught To Date"
+          },
+          "missed": {
+            "type": "integer",
+            "title": "Missed"
+          },
+          "earliest_missed_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Missed Date"
+          },
+          "earliest_missed_chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextLessonChapterOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "planned_to_date",
+          "taught_to_date",
+          "missed",
+          "earliest_missed_date",
+          "earliest_missed_chapter"
+        ],
+        "title": "PlanProgressOut",
+        "description": "How the accepted plan compares with the lessons recorded (task 6.6, AV-18).\n\n\"Not recorded\", never \"missed\": a lesson may have been taught and not logged."
       },
       "PlanSlotOut": {
         "properties": {
@@ -13876,6 +14037,68 @@
           "half_life_days"
         ],
         "title": "ReadinessWeightsUpdate"
+      },
+      "ReflowOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "at",
+          "reason",
+          "failure_message",
+          "last_success_at"
+        ],
+        "title": "ReflowOut",
+        "description": "What the last automatic reflow for a syllabus change did (task 6.8)."
       },
       "RefreshRequest": {
         "properties": {
@@ -16170,6 +16393,14 @@
             },
             "type": "array",
             "title": "Chapter Prompts",
+            "default": []
+          },
+          "behind_classes": {
+            "items": {
+              "$ref": "#/components/schemas/BehindClass"
+            },
+            "type": "array",
+            "title": "Behind Classes",
             "default": []
           }
         },

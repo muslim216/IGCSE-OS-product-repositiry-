@@ -170,8 +170,21 @@ async def release_slot_for_lesson(session: AsyncSession, lesson_id: int) -> None
     back to `generated`: the tutor has touched this slot, and 6.8's reflow must
     not treat it as generator-made and move it (AV-77). Does not commit.
     """
-    slot = await session.scalar(select(PlanSlot).where(PlanSlot.lesson_id == lesson_id))
-    if slot is None:
+    plan_id = await session.scalar(select(PlanSlot.plan_id).where(PlanSlot.lesson_id == lesson_id))
+    if plan_id is None:
+        return
+    # The plan row lock first, as `accept_plan` takes it, so the two serialise:
+    # an accept that is carrying this link to a new plan finishes (and moves the
+    # link) before this clears it, or this finishes before accept reads it.
+    await session.scalar(
+        select(TeachingPlan.id).where(TeachingPlan.id == plan_id).with_for_update()
+    )
+    slot = await session.scalar(
+        select(PlanSlot)
+        .where(PlanSlot.lesson_id == lesson_id)
+        .execution_options(populate_existing=True)
+    )
+    if slot is None:  # accept moved the link while we waited
         return
     slot.lesson_id = None
     slot.provenance = PlanSlotProvenance.manually_modified

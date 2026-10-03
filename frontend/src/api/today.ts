@@ -32,6 +32,10 @@ export interface ClassStripRow {
     with no classified uploaded yet (AV-20, AV-22). */
 export type ChapterPrompt = components["schemas"]["ChapterPrompt"];
 
+/** A class whose accepted plan has lessons dated before today with none recorded
+    (task 6.6). "Not recorded", not "missed": it may have been taught. */
+export type BehindClass = components["schemas"]["BehindClass"];
+
 /**
  * Everything the tutor's home needs, in one response. Replaces a per-class
  * fan-out that itself looped per learner server-side (PERF-1).
@@ -48,6 +52,8 @@ export interface TodayView {
   /** Optional on the wire (the server defaults it to empty); absent and empty
       both mean render nothing. */
   chapter_prompts?: ChapterPrompt[];
+  /** Most unrecorded lessons first; optional on the wire like `chapter_prompts`. */
+  behind_classes?: BehindClass[];
 }
 
 export const todayView = () => api<TodayView>("/api/v1/today");

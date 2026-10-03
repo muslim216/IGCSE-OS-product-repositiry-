@@ -51,6 +51,20 @@ class ChapterPrompt(BaseModel):
     started: bool
 
 
+class BehindClass(BaseModel):
+    """A class whose accepted plan has lessons dated before today with no lesson
+    recorded (AV-18). Says "not recorded", not "missed": it may have been taught."""
+
+    group_id: int
+    group_name: str
+    #: Planned lessons before today with no lesson recorded; always >= 1 here.
+    missed: int
+    earliest_missed_date: date
+    chapter_id: int
+    chapter_code: str
+    chapter_title: str
+
+
 class TodayView(BaseModel):
     """Everything the tutor's home needs, in one response and a bounded number
     of queries — replacing a per-class fan-out that itself looped per learner."""
@@ -70,6 +84,9 @@ class TodayView(BaseModel):
     #: Chapters from accepted plans awaiting a classified, soonest first. Empty
     #: for a tutor with no plan; tutor-only because plans are (AV-19).
     chapter_prompts: list[ChapterPrompt] = []
+    #: Classes behind their accepted plan, most not-recorded lessons first. Empty
+    #: for a tutor with no plan; tutor-only because plans are (AV-19).
+    behind_classes: list[BehindClass] = []
 
 
 class ClassLearnerRow(BaseModel):

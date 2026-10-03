@@ -2676,6 +2676,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/plan/replan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replan Plan
+         * @description Draft a fresh plan from today and wait for the tutor to accept it (task
+         *     6.6). The live plan is untouched; drafting runs as a job (`BE-13`).
+         */
+        post: operations["replan_plan_api_v1_groups__group_id__plan_replan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups/{group_id}/plan/accept": {
         parameters: {
             query?: never;
@@ -3045,6 +3066,30 @@ export interface components {
         AuthResponse: {
             user: components["schemas"]["UserOut"];
             tokens: components["schemas"]["AccessToken"];
+        };
+        /**
+         * BehindClass
+         * @description A class whose accepted plan has lessons dated before today with no lesson
+         *     recorded (AV-18). Says "not recorded", not "missed": it may have been taught.
+         */
+        BehindClass: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Missed */
+            missed: number;
+            /**
+             * Earliest Missed Date
+             * Format: date
+             */
+            earliest_missed_date: string;
+            /** Chapter Id */
+            chapter_id: number;
+            /** Chapter Code */
+            chapter_code: string;
+            /** Chapter Title */
+            chapter_title: string;
         };
         /** Body_create_assignment_with_paper_api_v1_assignments_upload_post */
         Body_create_assignment_with_paper_api_v1_assignments_upload_post: {
@@ -3629,6 +3674,7 @@ export interface components {
             failure_code: string | null;
             /** Failure Message */
             failure_message: string | null;
+            reflow?: components["schemas"]["ReflowOut"] | null;
         };
         /**
          * DraftPaper
@@ -4644,6 +4690,24 @@ export interface components {
             draft: components["schemas"]["PlanInputsOut"] | null;
             accepted: components["schemas"]["PlanInputsOut"] | null;
             timetable_defaults: components["schemas"]["TimetableDefaultsOut"];
+            progress?: components["schemas"]["PlanProgressOut"] | null;
+        };
+        /**
+         * PlanProgressOut
+         * @description How the accepted plan compares with the lessons recorded (task 6.6, AV-18).
+         *
+         *     "Not recorded", never "missed": a lesson may have been taught and not logged.
+         */
+        PlanProgressOut: {
+            /** Planned To Date */
+            planned_to_date: number;
+            /** Taught To Date */
+            taught_to_date: number;
+            /** Missed */
+            missed: number;
+            /** Earliest Missed Date */
+            earliest_missed_date: string | null;
+            earliest_missed_chapter: components["schemas"]["NextLessonChapterOut"] | null;
         };
         /** PlanSlotOut */
         PlanSlotOut: {
@@ -4822,6 +4886,22 @@ export interface components {
             half_life_days: number;
             /** Weak Threshold */
             weak_threshold?: number | null;
+        };
+        /**
+         * ReflowOut
+         * @description What the last automatic reflow for a syllabus change did (task 6.8).
+         */
+        ReflowOut: {
+            /** Status */
+            status: string;
+            /** At */
+            at: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Failure Message */
+            failure_message: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
         };
         /** RefreshRequest */
         RefreshRequest: {
@@ -5582,6 +5662,11 @@ export interface components {
              * @default []
              */
             chapter_prompts: components["schemas"]["ChapterPrompt"][];
+            /**
+             * Behind Classes
+             * @default []
+             */
+            behind_classes: components["schemas"]["BehindClass"][];
         };
         /** TopicEvidence */
         TopicEvidence: {
@@ -10685,6 +10770,37 @@ export interface operations {
         };
     };
     draft_plan_api_v1_groups__group_id__plan_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replan_plan_api_v1_groups__group_id__plan_replan_post: {
         parameters: {
             query?: never;
             header?: never;

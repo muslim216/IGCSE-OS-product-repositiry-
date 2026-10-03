@@ -353,3 +353,35 @@ test("an unreadable past paper under NEEDS YOU links to the shelf that fixes it"
   // Something needs the tutor, so the day is not called clear.
   expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
 });
+
+test("a class with unrecorded planned lessons keeps the day from being called clear", async () => {
+  stubFetch(
+    {
+      classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
+      lessons: [],
+      review_count: 0,
+      class_count: 1,
+      joined_student_count: 11,
+      classes_with_evidence: 1,
+      behind_classes: [
+        {
+          group_id: 3,
+          group_name: "Year 11 Chemistry",
+          missed: 2,
+          earliest_missed_date: "2026-10-06",
+          chapter_id: 9,
+          chapter_code: "4",
+          chapter_title: "Organic chemistry",
+        },
+      ],
+    },
+    null,
+    [],
+  );
+  renderDashboard();
+
+  expect(
+    await screen.findByText(/2 planned lessons haven't been recorded since Tue 6 Oct/),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
+});

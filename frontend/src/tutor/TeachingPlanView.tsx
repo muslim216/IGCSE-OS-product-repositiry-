@@ -5,12 +5,16 @@ import {
   draftPlan,
   editPlanSlot,
   getPlan,
+  replanPlan,
   type DraftOutcome,
   type PlanInputs,
+  type PlanProgress,
+  type ReflowOutcome,
   type PlanSlot,
 } from "../api/teachingPlan";
 import { listChapters, type Chapter } from "../api/syllabus";
 import { friendlyError } from "../lib/errors";
+import { shortDay } from "../lib/planDates";
 import { SectionCard } from "../components/ui";
 import { Button, Input, Select } from "../components/controls";
 import { ConfirmDialog, ErrorState, SectionSkeleton } from "../components/page";
@@ -109,6 +113,67 @@ function OutcomeBanner({
           {n.text}
         </p>
       ))}
+    </div>
+  );
+}
+
+/** Says what the last automatic syllabus-change reflow did (task 6.8). A failure
+ *  is stated; a skip and a success stay quiet. */
+function ReflowNote({ reflow }: { reflow: ReflowOutcome | null | undefined }) {
+  if (!reflow || !reflow.at) return null;
+  const when = localDate(reflow.at);
+  if (reflow.status === "failed") {
+    return (
+      <p role="alert" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
+        Your syllabus changed on {when}, but the plan couldn&apos;t be reshuffled:{" "}
+        {reflow.failure_message ?? "no reason was recorded."}
+      </p>
+    );
+  }
+  if (reflow.status === "skipped") {
+    return (
+      <p className="mt-2 text-xs text-ink-500">
+        Your syllabus changed on {when}; the plan was left as it was
+        {reflow.reason ? ` (${reflow.reason})` : ""}.
+      </p>
+    );
+  }
+  if (reflow.status === "reflowed") {
+    return (
+      <p className="mt-2 text-xs text-ink-500">Updated for your syllabus changes on {when}.</p>
+    );
+  }
+  // An unknown status is not guessed at: say nothing rather than something false.
+  return null;
+}
+
+/** Planned lessons with no recorded lesson (task 6.6, AV-18). "Not recorded" is
+ *  the fact: the lesson may have been taught and never logged, so this does not
+ *  blame. Offers a re-plan that only drafts; the tutor still accepts it. */
+function BehindBanner({
+  progress,
+  busy,
+  onReplan,
+}: {
+  progress: PlanProgress;
+  busy: boolean;
+  onReplan: () => void;
+}) {
+  if (progress.missed < 1 || !progress.earliest_missed_date) return null;
+  const n = progress.missed;
+  return (
+    <div
+      role="status"
+      className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-warn-100 px-3 py-2 text-sm text-warn-700"
+    >
+      <span>
+        {n} planned {n === 1 ? "lesson hasn't" : "lessons haven't"} been recorded since{" "}
+        {shortDay(progress.earliest_missed_date)} — record {n === 1 ? "it" : "them"}, or re-plan
+        from today.
+      </span>
+      <Button size="sm" variant="secondary" loading={busy} disabled={busy} onClick={onReplan}>
+        Re-plan
+      </Button>
     </div>
   );
 }
@@ -336,6 +401,7 @@ export default function TeachingPlanView({
   });
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [confirmingReplan, setConfirmingReplan] = useState(false);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
   const draft = useMutation({
@@ -349,10 +415,24 @@ export default function TeachingPlanView({
     onMutate: () => setError(null),
     onSuccess: (overview) => {
       queryClient.setQueryData(["plan", groupId], overview);
+      // The home's plan-check list reads the accepted plan.
+      queryClient.invalidateQueries({ queryKey: ["today"] });
       setConfirming(false);
     },
     onError: (err) => {
       setConfirming(false);
+      setError(friendlyError(err));
+    },
+  });
+  const replan = useMutation({
+    mutationFn: () => replanPlan(groupId),
+    onMutate: () => setError(null),
+    onSuccess: (overview) => {
+      queryClient.setQueryData(["plan", groupId], overview);
+      setConfirmingReplan(false);
+    },
+    onError: (err) => {
+      setConfirmingReplan(false);
       setError(friendlyError(err));
     },
   });
@@ -365,6 +445,7 @@ export default function TeachingPlanView({
     onMutate: () => setError(null),
     onSuccess: (_saved, v) => {
       v.done();
+      queryClient.invalidateQueries({ queryKey: ["today"] });
       return refresh();
     },
     onError: (err) => setError(friendlyError(err)),
@@ -384,7 +465,7 @@ export default function TeachingPlanView({
   const { draft: proposed, accepted } = plan.data;
   const chapterList = chapters.data ?? [];
   const chaptersReady = chapters.isSuccess;
-  const drafting = Boolean(proposed?.drafting) || draft.isPending;
+  const drafting = Boolean(proposed?.drafting) || draft.isPending || replan.isPending;
   const proposedSlots = proposed?.slots ?? [];
   const canAccept =
     !!proposed && !drafting && proposed.outcome?.status === "drafted" && proposedSlots.length > 0;
@@ -394,6 +475,10 @@ export default function TeachingPlanView({
     done: () => void,
   ) => edit.mutate({ slotId, patch, done });
 
+  // Any existing draft is replaced by a re-plan (its inputs and breaks too, not
+  // only its slots), so it is confirmed whenever one exists.
+  const startReplan = () => (proposed ? setConfirmingReplan(true) : replan.mutate());
+
   const liveSection = (live: PlanInputs) => (
     <div className="mt-4">
       <h4 className="text-sm font-medium text-ink-900">Live plan</h4>
@@ -402,6 +487,14 @@ export default function TeachingPlanView({
         {live.accepted_at ? ` Accepted ${localDate(live.accepted_at)}.` : ""} Edit any lesson at any
         time; it stays accepted.
       </p>
+      {plan.data.progress && (
+        <BehindBanner
+          progress={plan.data.progress}
+          busy={replan.isPending || drafting}
+          onReplan={startReplan}
+        />
+      )}
+      <ReflowNote reflow={live.outcome?.reflow} />
       {(live.slots ?? []).length === 0 ? (
         <p className="mt-2 text-sm text-ink-500">This plan has no lessons.</p>
       ) : (
@@ -452,6 +545,7 @@ export default function TeachingPlanView({
           <h4 className="text-sm font-medium text-ink-900">
             {accepted ? "Proposed changes" : "Draft plan"}
           </h4>
+          <ReflowNote reflow={proposed.outcome?.reflow} />
           <OutcomeBanner
             outcome={proposed.outcome ?? null}
             jobFailed={!!proposed.draft_job_failed}
@@ -489,6 +583,15 @@ export default function TeachingPlanView({
         busy={accept.isPending}
         onConfirm={() => accept.mutate()}
         onCancel={() => setConfirming(false)}
+      />
+      <ConfirmDialog
+        open={confirmingReplan}
+        title="Re-plan from today?"
+        body="This replaces the draft you have with a fresh one. Your live plan stays as it is until you accept the new draft."
+        confirmLabel="Re-plan"
+        busy={replan.isPending}
+        onConfirm={() => replan.mutate()}
+        onCancel={() => setConfirmingReplan(false)}
       />
     </SectionCard>
   );

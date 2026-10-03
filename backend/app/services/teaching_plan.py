@@ -5,6 +5,7 @@ value is a 422 from the API rather than an IntegrityError 500.
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -19,6 +20,7 @@ from app.models import (
     GroupMember,
     Job,
     JobStatus,
+    Lesson,
     PlanBreak,
     PlanSlot,
     PlanSlotProvenance,
@@ -37,6 +39,7 @@ from app.schemas.teaching_plan import (
     PlanBreakOut,
     PlanInputsOut,
     PlanSlotOut,
+    ReflowOut,
 )
 from app.services.plan_drafting import PLAN_DRAFT_JOB, enqueue_plan_draft, renumber_slots
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
@@ -354,6 +357,20 @@ async def _latest_draft_jobs(session: AsyncSession, plan_ids: set[int]) -> dict[
     return latest
 
 
+def _reflow(raw: dict | None) -> ReflowOut | None:
+    """What the last syllabus-change reflow did (task 6.8), for the tutor (PROD-1)."""
+    if not raw:
+        return None
+    failure = raw.get("failure") or {}
+    return ReflowOut(
+        status=raw.get("status", "failed"),
+        at=raw.get("at"),
+        reason=raw.get("reason"),
+        failure_message=failure.get("message"),
+        last_success_at=raw.get("last_success_at"),
+    )
+
+
 def _outcome(raw: dict | None, chapters: dict[int, Chapter]) -> DraftOutcomeOut | None:
     if not raw:
         return None
@@ -381,6 +398,7 @@ def _outcome(raw: dict | None, chapters: dict[int, Chapter]) -> DraftOutcomeOut 
         chapters=entries,
         failure_code=failure.get("code"),
         failure_message=failure.get("message"),
+        reflow=_reflow(raw.get("reflow")),
     )
 
 
@@ -445,10 +463,30 @@ async def plan_views(session: AsyncSession, plans: list[TeachingPlan]) -> dict[i
 # --- Drafting, accepting, editing (task 6.4, AV-13) ----------------------------
 
 
+async def lock_group_plans(session: AsyncSession, group_id: int) -> list[TeachingPlan]:
+    """Every plan row of the class, locked in id order (the order `accept_plan`
+    takes them, so the two cannot deadlock). A no-op lock on SQLite. The caller
+    has already authorised the class, so the class id alone scopes the rows."""
+    return list(
+        (
+            await session.scalars(
+                select(TeachingPlan)
+                .where(TeachingPlan.group_id == group_id)
+                .order_by(TeachingPlan.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+
+
 async def request_draft(session: AsyncSession, group_id: int) -> None:
     """Queue the drafting job for the class's draft. A draft only exists once
     the inputs are saved (6.2), so none means there is nothing to draft from."""
-    draft = await draft_plan_for_group(session, group_id)
+    # The same lock `replan` takes, and the job is checked under it: without
+    # that, a draft click and a re-plan click can each see "no job" and both queue one.
+    rows = await lock_group_plans(session, group_id)
+    draft = next((p for p in rows if p.status is TeachingPlanStatus.draft), None)
     if draft is None:
         raise PlanStateError("Save the plan inputs before drafting a plan")
     # Already queued or running: a second job would redo the same work, and the
@@ -509,15 +547,33 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
             "The last drafting run did not produce a plan. Fix what it reports and draft again."
         )
     if current is not None:
-        # Carrying taught or confirmed slots across a re-plan is task 6.6's job;
-        # until then accepting a new draft replaces the live plan outright.
+        # Recorded lessons keep their slot (task 6.6, E15): a lesson is linked to
+        # a slot of the *accepted* plan, and that plan is about to be deleted.
+        linked_rows = (
+            await session.execute(
+                select(
+                    PlanSlot.lesson_id,
+                    PlanSlot.chapter_id,
+                    PlanSlot.scheduled_date,
+                    PlanSlot.provenance,
+                )
+                .where(PlanSlot.plan_id == current.id, PlanSlot.lesson_id.is_not(None))
+                # Locked so a lesson delete (which takes the plan lock first, see
+                # `release_slot_for_lesson`) cannot clear a link between this read
+                # and the carry below.
+                .with_for_update()
+            )
+        ).all()
+        linked = [(r[0], r[1], r[2], r[3]) for r in linked_rows if r[0] is not None]
         # Children are deleted explicitly because SQLite (the test database) does
         # not enforce ON DELETE CASCADE, and an orphaned slot would be a real row.
+        # Deleting the old slots before linking is what frees `uq_plan_slots_lesson_id`.
         await session.execute(delete(PlanSlot).where(PlanSlot.plan_id == current.id))
         await session.execute(delete(PlanBreak).where(PlanBreak.plan_id == current.id))
         await session.execute(delete(TeachingPlan).where(TeachingPlan.id == current.id))
         session.expunge(current)
         await session.flush()
+        await _carry_lesson_links(session, draft, linked)
     draft.status = TeachingPlanStatus.accepted
     draft.accepted_at = utcnow()
     draft.accepted_by_id = user.id
@@ -533,6 +589,82 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
     for student_id in student_ids:
         await enqueue_readiness_v2_debounced(session, student_id, group.subject_id)
     await session.commit()
+
+
+async def _carry_lesson_links(
+    session: AsyncSession,
+    draft: TeachingPlan,
+    linked: Sequence[tuple[int, int, date, PlanSlotProvenance]],
+) -> None:
+    """Move each recorded lesson's link onto the draft (task 6.6).
+
+    A re-plan copies the taught slots into the draft without their `lesson_id`;
+    each old link goes to the copy matching on chapter + date + provenance. A
+    lesson with no match (a plain redraft never copied it, or the tutor moved the
+    copy) is NOT dropped: it becomes a new slot in the draft with the lesson's
+    old chapter, date and provenance. Losing the link would put a taught lesson
+    back in the plan as an untaught one and 6.5 would suggest it again.
+    """
+    # A lesson deleted since the links were read has nothing to link to; carrying
+    # its id would be a foreign-key failure that aborts the whole accept.
+    alive = set(
+        await session.scalars(select(Lesson.id).where(Lesson.id.in_([r[0] for r in linked])))
+    )
+    linked = [row for row in linked if row[0] in alive]
+    free = list(
+        (
+            await session.scalars(
+                select(PlanSlot)
+                .where(PlanSlot.plan_id == draft.id, PlanSlot.lesson_id.is_(None))
+                .order_by(PlanSlot.sequence, PlanSlot.id)
+            )
+        ).all()
+    )
+    assigned: dict[int, PlanSlot] = {}
+    # Pass 1: every exact (chapter, date, provenance) match, for all links first.
+    # Doing the nearest-copy fallback in the same loop let one lesson take
+    # another's exact-date copy before that lesson was processed, swapping links
+    # between two same-chapter lessons.
+    for lesson_id, chapter_id, scheduled_date, provenance in linked:
+        exact = next(
+            (
+                s
+                for s in free
+                if s.chapter_id == chapter_id
+                and s.scheduled_date == scheduled_date
+                and s.provenance is provenance
+            ),
+            None,
+        )
+        if exact is not None:
+            free.remove(exact)
+            assigned[lesson_id] = exact
+    # Pass 2: only the leftover links, over only the leftover copies. The tutor may
+    # have moved a copy in the draft; its chapter and provenance still say which
+    # lesson it was, so take the nearest such copy rather than leave an edited
+    # "taught" slot with no lesson beside a duplicate that has one.
+    for lesson_id, chapter_id, scheduled_date, provenance in linked:
+        if lesson_id in assigned:
+            continue
+        moved = [s for s in free if s.chapter_id == chapter_id and s.provenance is provenance]
+        near = min(moved, key=lambda s: abs((s.scheduled_date - scheduled_date).days), default=None)
+        if near is not None:
+            free.remove(near)
+            assigned[lesson_id] = near
+            continue
+        fresh = PlanSlot(
+            plan_id=draft.id,
+            chapter_id=chapter_id,
+            scheduled_date=scheduled_date,
+            sequence=0,
+            provenance=provenance,
+        )
+        session.add(fresh)
+        assigned[lesson_id] = fresh
+    for lesson_id, slot in assigned.items():
+        slot.lesson_id = lesson_id
+    await session.flush()
+    await renumber_slots(session, draft.id)
 
 
 async def edit_slot(
