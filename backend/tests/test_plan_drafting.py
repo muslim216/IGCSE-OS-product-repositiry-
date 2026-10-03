@@ -538,6 +538,43 @@ async def test_draft_result_records_weights_reasons_and_provenance(world, monkey
     assert by_id[c3] == {"chapter_id": c3, "weight": 1.0, "reason": None}
 
 
+async def test_a_very_long_reason_still_parses_drafts_and_is_stored_truncated(
+    world, monkeypatch, fake_ai
+):
+    c1 = world["chapter_ids"][0]
+    # Validated through the schema, as a real provider reply would be.
+    reply = PlanWeightingResult.model_validate(
+        {"chapters": [{"chapter_id": c1, "weight": 2.0, "reason": "y" * 2000}]}
+    )
+    monkeypatch.setattr("app.services.plan_drafting.structured_complete", fake_ai(reply))
+    job = await run_job(world)
+    assert job.status is JobStatus.done
+    stored = await draft_result(world)
+    assert stored["status"] == "drafted"
+    by_id = {c["chapter_id"]: c for c in stored["chapters"]}
+    assert by_id[c1]["reason"] == "y" * 300
+    assert len(await slots(world)) == 8
+
+
+async def test_entries_beyond_the_plans_chapter_count_are_ignored(world, monkeypatch, fake_ai):
+    c1, c2, c3 = world["chapter_ids"]
+    entries = [
+        ChapterAdvice(chapter_id=c1, weight=1.0, reason="a"),
+        ChapterAdvice(chapter_id=c1, weight=1.0, reason="dup"),
+        ChapterAdvice(chapter_id=c2, weight=1.0, reason="b"),
+        ChapterAdvice(chapter_id=c3, weight=3.0, reason="too late, past the cap"),
+    ]
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete",
+        fake_ai(PlanWeightingResult(chapters=entries)),
+    )
+    await run_job(world)
+    stored = await draft_result(world)
+    by_id = {c["chapter_id"]: c for c in stored["chapters"]}
+    assert by_id[c3] == {"chapter_id": c3, "weight": 1.0, "reason": None}
+    assert stored["defaulted_chapters"] == 1
+
+
 async def test_an_answer_naming_no_real_chapter_is_recorded_as_unusable_not_ai(
     world, monkeypatch, fake_ai
 ):

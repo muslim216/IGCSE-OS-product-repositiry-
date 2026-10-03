@@ -91,13 +91,13 @@ SKIPPED_ACCEPTED_MIDRUN = "plan was accepted or removed during the run"
 class ChapterAdvice(BaseModel):
     chapter_id: int = Field(description="The chapter_id exactly as printed in the CHAPTER LIST")
     weight: float = Field(description="Relative teaching time, 0.5 to 3.0; 1.0 is an ordinary one")
-    reason: str = Field(
-        max_length=500, description="One sentence a tutor can read and disagree with"
-    )
+    # No length limits on this schema: a limit turns a verbose answer into a parse
+    # failure and a paid retry. Reasons are cut when stored instead.
+    reason: str = Field(description="One sentence a tutor can read and disagree with")
 
 
 class PlanWeightingResult(BaseModel):
-    chapters: list[ChapterAdvice] = Field(max_length=200)
+    chapters: list[ChapterAdvice]
 
 
 @dataclass
@@ -243,7 +243,10 @@ async def weigh_chapters(*, group: Group, subject: Subject, chapters: list[Chapt
     result.prompt_version = response.prompt_version
     result.guidance_used = block is not None
     answered: dict[int, float] = {}
-    for item in advice.chapters:
+    # Bounded here, not in the schema: a schema limit makes a long answer fail
+    # parsing and burns a paid retry. One entry per real chapter is all that can
+    # be used, so anything beyond that is ignored.
+    for item in advice.chapters[: len(chapters)]:
         # Unknown ids are ignored, and the first answer for an id wins, so a
         # model repeating itself or inventing a chapter cannot change the plan.
         if item.chapter_id not in by_id or item.chapter_id in answered:
