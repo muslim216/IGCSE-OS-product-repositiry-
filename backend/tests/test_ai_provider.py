@@ -42,6 +42,7 @@ DEFAULT_MODEL_SURFACES = (
     "syllabus",
     "readiness",
     "booklet",
+    "plan_weighting",
 )
 #: The surfaces pinned to an explicit model because they diverge on purpose.
 #: mistake_tagging is pinned for a different reason from the other four: not

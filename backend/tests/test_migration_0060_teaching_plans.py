@@ -284,6 +284,9 @@ def test_migration_matches_model_metadata(upgraded, table):
         model_shape = _shape(sa.inspect(model_conn), table)
     model_engine.dispose()
     migration_shape = _shape(sa.inspect(upgraded), table)
+    # Columns added by later revisions (0061's draft_result) are in the model but
+    # not in this revision's DDL; test_migration_0061 holds the full-chain parity.
+    model_shape["columns"].pop("draft_result", None)
 
     assert migration_shape["columns"] == model_shape["columns"]
     assert migration_shape["indexes"] == model_shape["indexes"]

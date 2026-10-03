@@ -29,6 +29,7 @@ from app.services.narrative import (
     generate_narrative,
     sweep_parent_narratives,
 )
+from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
 from app.services.syllabus_extraction import extract_syllabus
@@ -83,3 +84,8 @@ def register_all() -> None:
     # failed job row.
     register_handler(CLASS_NARRATIVE_JOB, generate_narrative)
     register_handler(SWEEP_JOB, sweep_parent_narratives)
+    # Drafts a teaching plan's generated slots (task 6.3, AV-14). Enqueued by the
+    # plan-inputs endpoint and re-plan (6.2, 6.4) via `enqueue_plan_draft`. Safe to
+    # re-run (`BE-6`): it replaces only `generated` slots and leaves a tutor's
+    # edits, and anything but a draft plan, alone.
+    register_handler(PLAN_DRAFT_JOB, draft_plan)

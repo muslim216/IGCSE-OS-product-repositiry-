@@ -38,6 +38,13 @@ class AIUnavailableError(RuntimeError):
     """Raised when AI features are used without an API key configured."""
 
 
+class AIKeyMissingError(AIUnavailableError):
+    """The routed provider's API key is not set. Narrower than its parent so a
+    caller can degrade for exactly this (`AI-20`, `INF-9`) without also
+    swallowing a missing optional SDK or a misrouted provider, which are
+    deployment faults that should fail loudly."""
+
+
 class AiProvider(str, enum.Enum):
     anthropic = "anthropic"
     gemini = "gemini"
@@ -71,6 +78,11 @@ SURFACES = (
     # so tagging cannot ride on that call and needs its own routing, pricing
     # and metering (`AI-2`).
     "mistake_tagging",
+    # Relative chapter weights for the teaching plan (task 6.3, AV-14, E5). Its
+    # own surface because it is routed and metered on its own: a judgement about
+    # a syllabus and a tutor's guidance document, not about a student's work or
+    # a document's structure (`AI-2`).
+    "plan_weighting",
 )
 
 # Which ai_usage_events.feature bucket each surface meters into. Several
@@ -93,6 +105,9 @@ SURFACE_FEATURE: dict[str, AiFeature] = {
     # spend inside marking's and make "what does tagging cost" unanswerable
     # (PROD-1) — see the AiFeature.mistake_tagging comment in models/ai_usage.py.
     "mistake_tagging": AiFeature.mistake_tagging,
+    # Own bucket for the same reason as mistake_tagging: "what does planning
+    # cost" must not vanish into another feature's total (PROD-1).
+    "plan_weighting": AiFeature.plan_weighting,
 }
 
 
@@ -157,7 +172,7 @@ class AiResponse(Generic[ParsedT]):
 def get_client() -> AsyncAnthropic:
     settings = get_settings()
     if not settings.anthropic_api_key:
-        raise AIUnavailableError(
+        raise AIKeyMissingError(
             "AI is not configured: set ANTHROPIC_API_KEY in the backend environment"
         )
     return AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -169,7 +184,7 @@ def get_gemini_client():
     routed to Gemini."""
     settings = get_settings()
     if not settings.gemini_api_key:
-        raise AIUnavailableError(
+        raise AIKeyMissingError(
             "AI is not configured: set GEMINI_API_KEY in the backend environment"
         )
     try:

@@ -36,6 +36,12 @@ class AiFeature(str, enum.Enum):
     # construction, a `==`/`is` equality check, or a query filter; none is an
     # if/match chain over the value) — DB-5, DB-6, ADR-0007.
     mistake_tagging = "mistake_tagging"
+    # Weighting a subject's chapters for the teaching plan (task 6.3, AV-14).
+    # Own bucket so planning spend is separable (PROD-1). Re-verified before
+    # adding (DB-6): nothing branches over this enum — every `AiFeature.` hit in
+    # app/ is a `feature=` construction or a SURFACE_FEATURE mapping value. 14
+    # characters, inside the column's length=16, so no migration.
+    plan_weighting = "plan_weighting"
 
 
 class AiUsageEvent(Base):
