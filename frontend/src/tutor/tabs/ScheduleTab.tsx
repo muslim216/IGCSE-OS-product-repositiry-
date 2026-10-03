@@ -12,6 +12,7 @@ import {
 } from "../../lib/schedule";
 import { friendlyError } from "../../lib/errors";
 import { useGroupContext } from "../GroupLayout";
+import TeachingPlanInputs from "../TeachingPlanInputs";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { Button, Field, Input, Select, buttonClasses } from "../../components/controls";
 import { ConfirmDialog, ErrorState, SectionSkeleton } from "../../components/page";
@@ -174,6 +175,8 @@ export default function ScheduleTab() {
           </div>
         </form>
       </SectionCard>
+
+      <TeachingPlanInputs key={groupId} groupId={groupId} />
 
       <ConfirmDialog
         open={removing !== null}

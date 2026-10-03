@@ -2616,6 +2616,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Plan */
+        get: operations["get_plan_api_v1_groups__group_id__plan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/plan/inputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Inputs */
+        put: operations["save_inputs_api_v1_groups__group_id__plan_inputs_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/plan/breaks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Break */
+        post: operations["add_break_api_v1_groups__group_id__plan_breaks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/groups/{group_id}/plan/breaks/{break_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Break */
+        delete: operations["delete_break_api_v1_groups__group_id__plan_breaks__break_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/today": {
         parameters: {
             query?: never;
@@ -4330,6 +4398,79 @@ export interface components {
             /** Topics */
             topics: components["schemas"]["TopicOut"][];
         };
+        /** PlanBreakCreate */
+        PlanBreakCreate: {
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Label */
+            label: string;
+        };
+        /** PlanBreakOut */
+        PlanBreakOut: {
+            /** Id */
+            id: number;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Label */
+            label: string;
+        };
+        /** PlanInputsIn */
+        PlanInputsIn: {
+            /**
+             * Exam Date
+             * Format: date
+             */
+            exam_date: string;
+            /** Lessons Per Week */
+            lessons_per_week: number;
+            /** Lesson Minutes */
+            lesson_minutes: number;
+            /** Past Paper Start Date */
+            past_paper_start_date?: string | null;
+        };
+        /** PlanInputsOut */
+        PlanInputsOut: {
+            /** Id */
+            id: number;
+            /**
+             * Exam Date
+             * Format: date
+             */
+            exam_date: string;
+            /** Lessons Per Week */
+            lessons_per_week: number;
+            /** Lesson Minutes */
+            lesson_minutes: number;
+            /** Past Paper Start Date */
+            past_paper_start_date: string | null;
+            /** Breaks */
+            breaks: components["schemas"]["PlanBreakOut"][];
+        };
+        /**
+         * PlanOverview
+         * @description Draft and accepted are separate: a class can hold both (6.1), and either may be null.
+         */
+        PlanOverview: {
+            draft: components["schemas"]["PlanInputsOut"] | null;
+            accepted: components["schemas"]["PlanInputsOut"] | null;
+            timetable_defaults: components["schemas"]["TimetableDefaultsOut"];
+        };
         /** QuestionIn */
         QuestionIn: {
             /** Number */
@@ -5206,6 +5347,13 @@ export interface components {
             file_mime?: string | null;
             /** Uploaded At */
             uploaded_at?: string | null;
+        };
+        /** TimetableDefaultsOut */
+        TimetableDefaultsOut: {
+            /** Lessons Per Week */
+            lessons_per_week: number | null;
+            /** Lesson Minutes */
+            lesson_minutes: number | null;
         };
         /**
          * TodayView
@@ -10258,6 +10406,137 @@ export interface operations {
                     "image/webp": string;
                     "application/octet-stream": string;
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_plan_api_v1_groups__group_id__plan_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_inputs_api_v1_groups__group_id__plan_inputs_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanInputsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_break_api_v1_groups__group_id__plan_breaks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanBreakCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanBreakOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_break_api_v1_groups__group_id__plan_breaks__break_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+                break_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
