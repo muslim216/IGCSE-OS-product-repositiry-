@@ -597,5 +597,6 @@ async def test_reapplying_an_unchanged_chapter_list_or_a_topic_only_edit_queues_
         extraction_returning(draft_of(chapters=retitled)),
     )
     again = await upload_pdf(client, tutor, title="retitle", name="retitle.pdf")
-    await client.post(f"/api/v1/syllabus-uploads/{again}/apply", headers=tutor["headers"])
+    resp = await client.post(f"/api/v1/syllabus-uploads/{again}/apply", headers=tutor["headers"])
+    assert resp.status_code == 200, resp.text
     assert len(await pending_jobs()) == 1
