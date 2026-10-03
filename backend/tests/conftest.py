@@ -68,6 +68,13 @@ def fake_ai():
     return _fake_structured_complete
 
 
+@pytest.fixture
+def no_ai_key(monkeypatch):
+    """No provider key, so a seed that tried a model call would degrade rather than
+    spend. Opt in with `pytestmark = pytest.mark.usefixtures("no_ai_key")`."""
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "", raising=False)
+
+
 class FakeSigningBackend(storage.LocalBackend):
     """A local backend that also mints signed URLs, standing in for S3 so the
     F3 serving split (proxy vs. signed redirect) can be tested without a real

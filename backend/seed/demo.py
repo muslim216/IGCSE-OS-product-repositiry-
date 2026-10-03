@@ -54,6 +54,7 @@ from app.models import (
     ParentLink,
     PastPaper,
     PastPaperAttempt,
+    PlanSlot,
     QuestionMark,
     QuestionTopic,
     ReadinessSnapshot,
@@ -65,6 +66,8 @@ from app.models import (
     Submission,
     SubmissionFile,
     SubmissionStatus,
+    TeachingPlan,
+    TeachingPlanStatus,
     Topic,
     User,
     UserRole,
@@ -78,6 +81,7 @@ from app.services.grade_boundaries import (
     set_org_boundaries,
 )
 from app.services.grades import predict_grade
+from app.services.plan_scheduler import ChapterWeight, ScheduleInput, schedule
 from app.services.readiness_config import resolve_readiness_config
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.services.readiness_v2_ai import _weighted_reference_score
@@ -200,6 +204,53 @@ async def build_subject(session, *, organization_id: int, data: dict) -> Subject
             )
     await session.flush()
     return subject
+
+
+async def add_demo_plan(
+    session, *, group: Group, tutor: User, weekdays: tuple[int, ...], today: date
+) -> None:
+    """An accepted teaching plan for the demo class (task 6.4, E26).
+
+    Built with the pure scheduler from the chapters' stored weights, so the seed
+    makes no AI call (QA-8 in spirit) and the plan is the even-ish split a tutor
+    who skipped AI weighting would see. Past papers are marked as started so the
+    demo's past-paper readiness is not held back by a phase that has not begun.
+    """
+    chapters = (
+        await session.scalars(
+            select(Chapter).where(Chapter.subject_id == group.subject_id).order_by(Chapter.position)
+        )
+    ).all()
+    exam_date = today + timedelta(days=150)
+    lessons = schedule(
+        ScheduleInput(
+            chapters=tuple(ChapterWeight(c.id, c.weight) for c in chapters),
+            start_date=today,
+            exam_date=exam_date,
+            lesson_weekdays=weekdays,
+            lessons_per_week=len(weekdays),
+        )
+    )
+    plan = TeachingPlan(
+        organization_id=group.organization_id,
+        group_id=group.id,
+        status=TeachingPlanStatus.accepted,
+        exam_date=exam_date,
+        lessons_per_week=len(weekdays),
+        lesson_minutes=90,
+        past_paper_start_date=today - timedelta(days=30),
+        accepted_at=datetime.now(timezone.utc),
+        accepted_by_id=tutor.id,
+    )
+    plan.slots = [
+        PlanSlot(
+            chapter_id=lesson.chapter_id,
+            scheduled_date=lesson.scheduled_date,
+            sequence=lesson.sequence,
+        )
+        for lesson in lessons
+    ]
+    session.add(plan)
 
 
 async def write_demo_snapshot(session, student: User, subject_id: int, now: datetime) -> None:
@@ -847,6 +898,15 @@ async def main() -> None:
             ]
         )
 
+        await add_demo_plan(
+            session,
+            group=group,
+            tutor=tutor,
+            # The two real timetable days only: "Today's lesson" is a demo
+            # convenience for the Today tab, not a lesson the plan teaches on.
+            weekdays=tuple(sorted({slot.weekday for slot in fixed_slots[:2]})),
+            today=now.date(),
+        )
         await session.commit()
 
         for student in students:

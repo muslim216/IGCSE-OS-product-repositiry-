@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -42,6 +42,57 @@ class PlanInputsIn(BaseModel):
         return self
 
 
+class PlanSlotOut(BaseModel):
+    id: int
+    chapter_id: int
+    chapter_code: str
+    chapter_title: str
+    scheduled_date: date
+    sequence: int
+    #: generated | manually_modified | confirmed | completed
+    provenance: str
+
+
+class PlanSlotPatch(BaseModel):
+    """Either field alone is an edit; neither is not."""
+
+    scheduled_date: date | None = None
+    chapter_id: int | None = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> "PlanSlotPatch":
+        if self.scheduled_date is None and self.chapter_id is None:
+            raise ValueError("Give a new date or a new chapter")
+        return self
+
+
+class ChapterReasonOut(BaseModel):
+    chapter_id: int
+    #: None when the chapter has since been removed from the subject.
+    chapter_code: str | None
+    chapter_title: str | None
+    weight: float
+    #: None when the weights did not come from the AI (an even or stored split).
+    reason: str | None
+
+
+class DraftOutcomeOut(BaseModel):
+    """What the last drafting run did, for the tutor (PROD-1, PROD-2)."""
+
+    #: drafted | failed | skipped | stale (inputs or breaks changed since the draft)
+    status: str
+    drafted_at: str | None
+    #: ai | stored_chapter_weights | ai_unusable | None
+    weight_source: str | None
+    degraded_reason: str | None
+    guidance_used: bool
+    guidance_note: str | None
+    defaulted_chapters: int
+    chapters: list[ChapterReasonOut]
+    failure_code: str | None
+    failure_message: str | None
+
+
 class PlanInputsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,6 +102,16 @@ class PlanInputsOut(BaseModel):
     lesson_minutes: int
     past_paper_start_date: date | None
     breaks: list[PlanBreakOut]
+    #: Ordered by (scheduled_date, sequence). Empty until a draft is generated.
+    slots: list[PlanSlotOut] = []
+    #: None until the plan has been drafted at least once.
+    outcome: DraftOutcomeOut | None = None
+    #: A draft job for this plan is queued or running.
+    drafting: bool = False
+    #: The latest draft job for this plan failed outright (a provider fault
+    #: that retries did not clear); `outcome` may then describe an older run.
+    draft_job_failed: bool = False
+    accepted_at: datetime | None = None
 
 
 class TimetableDefaultsOut(BaseModel):
