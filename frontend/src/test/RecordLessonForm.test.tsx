@@ -181,11 +181,18 @@ test("with nothing known the duration is 60", async () => {
 });
 
 test("the default date is today in the tutor's effective zone, not the browser's", async () => {
-  stub({ orgZone: "Pacific/Kiritimati" });
-  renderForm();
-  await waitFor(() =>
-    expect(screen.getByLabelText("Date")).toHaveValue(dayKeyIn(new Date(), "Pacific/Kiritimati")),
-  );
+  // 10:30 UTC on 2 October is already 00:30 on 3 October in Kiritimati (UTC+14),
+  // so the zone and the UTC/browser date always differ and this cannot pass by
+  // coincidence of when the suite runs.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-10-02T10:30:00Z") });
+  try {
+    stub({ orgZone: "Pacific/Kiritimati" });
+    renderForm();
+    await waitFor(() => expect(screen.getByLabelText("Date")).toHaveValue("2026-10-03"));
+    expect(dayKeyIn(new Date(), "UTC")).toBe("2026-10-02");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("after a save the form resets, the old slot is not reused and the next suggestion loads", async () => {

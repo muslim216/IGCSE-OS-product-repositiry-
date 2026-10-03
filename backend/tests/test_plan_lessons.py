@@ -425,6 +425,12 @@ async def test_deleting_a_lesson_whose_slot_is_completed_sets_it_manually_modifi
 async def test_a_slot_taken_between_the_read_and_the_claim_is_409_and_creates_no_lesson(
     client, tutor, group, chapters, monkeypatch
 ):
+    # The suite runs on SQLite only (conftest forces it), where FOR UPDATE is
+    # dropped, so nothing serialises the two requests. This simulates the race at
+    # the claim step: the rival commits between our read and our conditional
+    # UPDATE. On Postgres the row lock would make the rival wait instead, so a
+    # test of that path would need two concurrent connections, not this shape.
+    # The conditional UPDATE's rowcount check is what holds on both.
     slots = await _plan(group, tutor, [chapters["c1"]])
     real = plan_lessons._accepted_slot
 
