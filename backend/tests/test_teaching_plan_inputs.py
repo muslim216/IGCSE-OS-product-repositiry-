@@ -135,6 +135,12 @@ async def test_accepted_plan_is_never_modified(client, tutor, group):
     # The live plan's holidays carry into the new draft.
     assert [b["label"] for b in body["draft"]["breaks"]] == ["Half term"]
 
+    again = await client.put(
+        _url(group, "/inputs"), json=_inputs(lessons_per_week=6), headers=tutor["headers"]
+    )
+    assert again.json()["draft"]["lessons_per_week"] == 6
+    assert [b["label"] for b in again.json()["draft"]["breaks"]] == ["Half term"]
+
 
 async def test_only_the_accepted_plan_is_returned_by_the_reader(client, tutor, group):
     await client.put(_url(group, "/inputs"), json=_inputs(), headers=tutor["headers"])
@@ -286,3 +292,78 @@ async def test_another_organizations_class_is_404(client, tutor, group, other_tu
     # Untouched by the intruder.
     mine = (await client.get(_url(group), headers=tutor["headers"])).json()
     assert len(mine["draft"]["breaks"]) == 1
+
+
+async def test_draft_and_accepted_both_present_delete_of_accepted_break_is_404(
+    client, tutor, group
+):
+    await _make_accepted(group, tutor)
+    await client.put(_url(group, "/inputs"), json=_inputs(), headers=tutor["headers"])
+    async with async_session() as s:
+        accepted = await accepted_plan_for_group(s, group["id"])
+        accepted_break = accepted.breaks[0].id
+    resp = await client.delete(_url(group, f"/breaks/{accepted_break}"), headers=tutor["headers"])
+    assert resp.status_code == 404
+    async with async_session() as s:
+        assert await s.get(PlanBreak, accepted_break) is not None
+
+
+async def test_break_of_another_class_of_the_same_tutor_is_404(client, tutor, group, subject):
+    other = await client.post(
+        "/api/v1/groups",
+        json={"name": "Chem Y11", "subject_id": subject["id"]},
+        headers=tutor["headers"],
+    )
+    other = other.json()
+    await client.put(_url(other, "/inputs"), json=_inputs(), headers=tutor["headers"])
+    created = await client.post(
+        _url(other, "/breaks"),
+        json={"start_date": _day(10), "end_date": _day(11), "label": "x"},
+        headers=tutor["headers"],
+    )
+    break_id = created.json()["id"]
+    await client.put(_url(group, "/inputs"), json=_inputs(), headers=tutor["headers"])
+    resp = await client.delete(_url(group, f"/breaks/{break_id}"), headers=tutor["headers"])
+    assert resp.status_code == 404
+    async with async_session() as s:
+        assert await s.get(PlanBreak, break_id) is not None
+
+
+async def test_losing_the_create_race_updates_the_winners_draft(client, tutor, group, monkeypatch):
+    from app.services import teaching_plan as svc
+
+    real = svc.draft_plan_for_group
+    calls = {"n": 0}
+
+    async def stale_once(session, group_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # A concurrent save lands its draft between our read and insert.
+            async with async_session() as other:
+                other.add(
+                    TeachingPlan(
+                        organization_id=await org_id(other),
+                        group_id=group_id,
+                        status=TeachingPlanStatus.draft,
+                        exam_date=date.today() + timedelta(days=50),
+                        lessons_per_week=1,
+                        lesson_minutes=30,
+                    )
+                )
+                await other.commit()
+            return None
+        return await real(session, group_id)
+
+    monkeypatch.setattr(svc, "draft_plan_for_group", stale_once)
+    resp = await client.put(
+        _url(group, "/inputs"), json=_inputs(lessons_per_week=4), headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["draft"]["lessons_per_week"] == 4
+    async with async_session() as s:
+        drafts = (
+            await s.scalars(
+                select(TeachingPlan).where(TeachingPlan.status == TeachingPlanStatus.draft)
+            )
+        ).all()
+    assert len(drafts) == 1

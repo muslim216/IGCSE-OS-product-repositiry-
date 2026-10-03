@@ -176,7 +176,7 @@ export default function ScheduleTab() {
         </form>
       </SectionCard>
 
-      <TeachingPlanInputs groupId={groupId} />
+      <TeachingPlanInputs key={groupId} groupId={groupId} />
 
       <ConfirmDialog
         open={removing !== null}

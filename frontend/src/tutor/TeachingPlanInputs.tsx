@@ -19,6 +19,15 @@ type Draft = {
   past_paper_start_date: string;
 };
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2027-05-10" -> "10 May 2027" from the parts: a bare date is not an instant,
+ *  and `new Date()` would shift it by the viewer's timezone. */
+function humanDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return MONTHS[m - 1] ? `${d} ${MONTHS[m - 1]} ${y}` : iso;
+}
+
 const FROM_TIMETABLE = "From your timetable";
 
 /** Where a blank form starts: the saved draft, else the timetable's numbers.
@@ -55,7 +64,19 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
         past_paper_start_date: v.past_paper_start_date || null,
       }),
     onMutate: () => setError(null),
-    onSuccess: () => setEdits({}),
+    onSuccess: (saved, submitted) => {
+      // Seed the cache from the response so the saved values show at once and
+      // survive a failed refetch; clear only what was submitted, so anything
+      // typed while the save was in flight is kept.
+      queryClient.setQueryData(["plan", groupId], saved);
+      setEdits((current) => {
+        const kept: Partial<Draft> = {};
+        for (const key of Object.keys(current) as (keyof Draft)[]) {
+          if (current[key] !== submitted[key]) kept[key] = current[key];
+        }
+        return kept;
+      });
+    },
     onError: (err) => setError(friendlyError(err)),
     onSettled,
   });
@@ -86,7 +107,7 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
 
   const data = plan.data;
   const values: Draft = { ...startingValues(data), ...edits };
-  const set = (patch: Partial<Draft>) => setEdits({ ...edits, ...patch });
+  const set = (patch: Partial<Draft>) => setEdits((current) => ({ ...current, ...patch }));
   const defaults = data.timetable_defaults;
   // Marked only while the value is still the timetable's own: once the tutor
   // changes it, or a draft is saved, it is theirs.
@@ -111,8 +132,8 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
       </p>
       {data.accepted && (
         <p className="mt-3 rounded-md bg-surface-muted px-3 py-2 text-sm text-ink-700">
-          A plan is already accepted for the exam on {data.accepted.exam_date}. Changes here are
-          saved as a new draft and do not alter it.
+          A plan is already accepted for the exam on {humanDate(data.accepted.exam_date)}. Changes
+          here are saved as a new draft and do not alter it.
         </p>
       )}
       {error && (

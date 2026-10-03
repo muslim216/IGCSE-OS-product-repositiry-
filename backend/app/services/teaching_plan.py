@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -99,10 +100,11 @@ async def save_plan_inputs(
     lessons_per_week: int,
     lesson_minutes: int,
     past_paper_start_date: date | None,
+    today: date | None = None,
 ) -> TeachingPlan:
     """Create or update the class's draft. An accepted plan is never touched here:
     changing a live plan's inputs is a re-plan (task 6.6)."""
-    validate_inputs(exam_date, lessons_per_week, lesson_minutes, past_paper_start_date)
+    validate_inputs(exam_date, lessons_per_week, lesson_minutes, past_paper_start_date, today=today)
     plan = await draft_plan_for_group(session, group_id)
     if plan is None:
         plan = TeachingPlan(
@@ -122,12 +124,32 @@ async def save_plan_inputs(
                 PlanBreak(start_date=b.start_date, end_date=b.end_date, label=b.label)
                 for b in accepted.breaks
             ]
-        session.add(plan)
-    else:
-        plan.exam_date = exam_date
-        plan.lessons_per_week = lessons_per_week
-        plan.lesson_minutes = lesson_minutes
-        plan.past_paper_start_date = past_paper_start_date
+        try:
+            # A savepoint, so losing the race to a concurrent save (UNIQUE on
+            # group_id + status) rolls back only this insert.
+            async with session.begin_nested():
+                session.add(plan)
+        except IntegrityError:
+            plan = await draft_plan_for_group(session, group_id)
+            if plan is None:
+                raise
+    return await _apply_and_commit(
+        session, plan, exam_date, lessons_per_week, lesson_minutes, past_paper_start_date
+    )
+
+
+async def _apply_and_commit(
+    session: AsyncSession,
+    plan: TeachingPlan,
+    exam_date: date,
+    lessons_per_week: int,
+    lesson_minutes: int,
+    past_paper_start_date: date | None,
+) -> TeachingPlan:
+    plan.exam_date = exam_date
+    plan.lessons_per_week = lessons_per_week
+    plan.lesson_minutes = lesson_minutes
+    plan.past_paper_start_date = past_paper_start_date
     await session.commit()
     return await _reload(session, plan)
 

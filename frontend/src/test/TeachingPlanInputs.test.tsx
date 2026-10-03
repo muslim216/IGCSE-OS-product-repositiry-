@@ -10,6 +10,7 @@ const NO_PLAN = { draft: null, accepted: null };
 
 function stub(defaults: { lessons_per_week: number | null; lesson_minutes: number | null }) {
   const calls: { method: string; url: string; body?: Record<string, unknown> }[] = [];
+  let saved: Record<string, unknown> | null = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -18,13 +19,8 @@ function stub(defaults: { lessons_per_week: number | null; lesson_minutes: numbe
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       calls.push({ method, url: url.pathname, body });
       const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
-      if (method === "PUT")
-        return json({
-          ...NO_PLAN,
-          draft: { id: 1, breaks: [], ...body },
-          timetable_defaults: defaults,
-        });
-      return json({ ...NO_PLAN, timetable_defaults: defaults });
+      if (method === "PUT") saved = { id: 1, breaks: [], ...body };
+      return json({ ...NO_PLAN, draft: saved, timetable_defaults: defaults });
     }),
   );
   return calls;
@@ -77,4 +73,17 @@ test("without a timetable nothing is pre-filled and save stays disabled", async 
   expect(screen.queryByText("From your timetable")).toBeNull();
   expect(screen.getByRole("button", { name: "Save plan inputs" })).toBeDisabled();
   expect(screen.getByText("Save the plan inputs first, then add breaks.")).toBeInTheDocument();
+});
+
+test("after saving, the saved values show and the timetable marker does not return", async () => {
+  stub({ lessons_per_week: 2, lesson_minutes: 90 });
+  renderForm();
+
+  fireEvent.change(await screen.findByLabelText("Exam date"), { target: { value: "2027-05-10" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save plan inputs" }));
+
+  await waitFor(() => expect(screen.queryByText("From your timetable")).toBeNull());
+  expect(screen.getByLabelText("Exam date")).toHaveValue("2027-05-10");
+  expect(screen.getByLabelText("Lessons per week")).toHaveValue(2);
+  expect(screen.queryByText("Save the plan inputs first, then add breaks.")).toBeNull();
 });

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import DbSession, TutorUser
 from app.api.groups import _owned_group
-from app.models import TeachingPlan
+from app.models import Organization, TeachingPlan
 from app.schemas.teaching_plan import (
     PlanBreakCreate,
     PlanBreakOut,
@@ -17,6 +17,7 @@ from app.schemas.teaching_plan import (
     TimetableDefaultsOut,
 )
 from app.services import teaching_plan as plans
+from app.services.timezones import effective_timezone, now_in
 
 router = APIRouter(prefix="/groups/{group_id}/plan", tags=["teaching-plan"])
 
@@ -47,12 +48,16 @@ async def save_inputs(
     group_id: int, body: PlanInputsIn, db: DbSession, user: TutorUser
 ) -> PlanOverview:
     group = await _owned_group(db, user, group_id)
+    # "In the future" is the tutor's calendar, not the server's.
+    org = await db.get(Organization, group.organization_id)
+    today = now_in(effective_timezone(user.time_zone, org.timezone if org else None)).date()
     try:
         await plans.save_plan_inputs(
             db,
             # From the class, never from the request (6.1, `PROD-3`).
             organization_id=group.organization_id,
             group_id=group.id,
+            today=today,
             **body.model_dump(),
         )
     except plans.PlanInputError as exc:
