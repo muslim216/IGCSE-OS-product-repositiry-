@@ -30,6 +30,7 @@ from app.schemas.today import (
     ClassWeakTopic,
     TodayView,
 )
+from app.services.chapter_prompts import chapter_prompts
 from app.services.class_readiness import (
     class_readiness,
     class_scores,
@@ -139,6 +140,10 @@ async def today_lessons(
 async def build_today(db: AsyncSession, user: User) -> TodayView:
     """The tutor's home. Scoped by the authenticated user's own classes — never
     by a path or body parameter (SEC-7)."""
+    # Held for the whole function: the session's identity map is weak, so without
+    # a reference here today_lessons() and chapter_prompts() would each re-read
+    # the organization for its zone.
+    org = await db.get(Organization, user.organization_id)
     lessons = await today_lessons(db, user.id, user.organization_id, user.time_zone)
     groups = await tutor_groups(db, user.id)
     group_ids = [g.id for g in groups]
@@ -180,6 +185,7 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
         class_count=len(rows),
         joined_student_count=sum(r.member_count for r in rows),
         classes_with_evidence=sum(1 for r in rows if r.score is not None),
+        chapter_prompts=await chapter_prompts(db, user, org),
     )
 
 
