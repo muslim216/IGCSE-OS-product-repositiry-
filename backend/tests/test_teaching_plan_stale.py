@@ -85,6 +85,18 @@ async def test_removing_a_break_makes_the_draft_stale(client, tutor, group, chap
     assert (await _accept(client, tutor, group)).status_code == 409
 
 
+async def test_accept_is_refused_while_a_draft_job_is_queued(client, tutor, group, chapters):
+    plan_id = await _drafted_draft(client, tutor, group, chapters)
+    async with async_session() as s:
+        s.add(Job(type=PLAN_DRAFT_JOB, payload={"plan_id": plan_id}, status=JobStatus.pending))
+        await s.commit()
+    resp = await _accept(client, tutor, group)
+    assert resp.status_code == 409
+    assert "still being drafted" in resp.json()["detail"]
+    async with async_session() as s:
+        assert (await s.get(TeachingPlan, plan_id)).status.value == "draft"
+
+
 async def test_a_pending_draft_job_is_found_among_many_other_jobs(client, tutor, group, chapters):
     plan_id = await _save_inputs(client, tutor, group)
     async with async_session() as s:

@@ -183,6 +183,7 @@ async def save_plan_inputs(
                 session.add(plan)
         except IntegrityError:
             plan = await draft_plan_for_group(session, group_id)
+            plan = await _relock_draft(session, plan) if plan is not None else None
             if plan is None:
                 raise
     return await _apply_and_commit(
@@ -439,6 +440,12 @@ async def accept_plan(session: AsyncSession, *, group: Group, user: User) -> Non
     ).all()
     if not slot_ids:
         raise PlanStateError("The draft has no lessons yet. Draft the plan first.")
+    # A job still running would write slots into a plan that is already live.
+    if (await _latest_draft_jobs(session, {draft.id})).get(draft.id) in (
+        JobStatus.pending,
+        JobStatus.running,
+    ):
+        raise PlanStateError("The plan is still being drafted. Wait for it to finish.")
     result_status = (draft.draft_result or {}).get("status")
     if result_status == "stale":
         raise PlanStateError(

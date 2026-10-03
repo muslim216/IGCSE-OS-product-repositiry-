@@ -201,7 +201,10 @@ test("a failed chapter list is reported with a retry beside the chapter select",
       const url = new URL(String(input), "http://localhost");
       if (url.pathname.endsWith("/chapters")) {
         chaptersCalls += 1;
-        return new Response(JSON.stringify({ detail: "boom" }), { status: 500 });
+        // Fails once, then the retry succeeds.
+        return chaptersCalls === 1
+          ? new Response(JSON.stringify({ detail: "boom" }), { status: 500 })
+          : new Response(JSON.stringify(CHAPTERS), { status: 200 });
       }
       return new Response(JSON.stringify(wrap(plan({ slots: [slot], outcome: OUTCOME }))), {
         status: 200,
@@ -212,9 +215,10 @@ test("a failed chapter list is reported with a retry beside the chapter select",
   fireEvent.click(await screen.findByRole("button", { name: "Edit the 4 Jan 2027 lesson" }));
   expect(await screen.findByText(/chapter list didn't load/)).toBeInTheDocument();
   expect(screen.getByLabelText("Lesson chapter")).toBeDisabled();
-  const before = chaptersCalls;
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(chaptersCalls).toBeGreaterThan(before));
+  await waitFor(() => expect(screen.getByLabelText("Lesson chapter")).toBeEnabled());
+  expect(screen.queryByText(/chapter list didn't load/)).not.toBeInTheDocument();
+  expect(chaptersCalls).toBe(2);
 });
 
 test("Edit is disabled on proposed slots while a draft job runs", async () => {
