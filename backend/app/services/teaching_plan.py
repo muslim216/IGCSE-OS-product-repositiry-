@@ -620,8 +620,13 @@ async def _carry_lesson_links(
             )
         ).all()
     )
+    assigned: dict[int, PlanSlot] = {}
+    # Pass 1: every exact (chapter, date, provenance) match, for all links first.
+    # Doing the nearest-copy fallback in the same loop let one lesson take
+    # another's exact-date copy before that lesson was processed, swapping links
+    # between two same-chapter lessons.
     for lesson_id, chapter_id, scheduled_date, provenance in linked:
-        match = next(
+        exact = next(
             (
                 s
                 for s in free
@@ -631,27 +636,33 @@ async def _carry_lesson_links(
             ),
             None,
         )
-        if match is None:
-            # The tutor may have moved the copied slot in the draft. Its chapter
-            # and provenance still say which lesson it was, so take the nearest
-            # such copy rather than leave an edited "taught" slot with no lesson
-            # beside a duplicate that has one.
-            moved = [s for s in free if s.chapter_id == chapter_id and s.provenance is provenance]
-            match = min(
-                moved, key=lambda s: abs((s.scheduled_date - scheduled_date).days), default=None
-            )
-        if match is None:
-            match = PlanSlot(
-                plan_id=draft.id,
-                chapter_id=chapter_id,
-                scheduled_date=scheduled_date,
-                sequence=0,
-                provenance=provenance,
-            )
-            session.add(match)
-        elif match in free:
-            free.remove(match)
-        match.lesson_id = lesson_id
+        if exact is not None:
+            free.remove(exact)
+            assigned[lesson_id] = exact
+    # Pass 2: only the leftover links, over only the leftover copies. The tutor may
+    # have moved a copy in the draft; its chapter and provenance still say which
+    # lesson it was, so take the nearest such copy rather than leave an edited
+    # "taught" slot with no lesson beside a duplicate that has one.
+    for lesson_id, chapter_id, scheduled_date, provenance in linked:
+        if lesson_id in assigned:
+            continue
+        moved = [s for s in free if s.chapter_id == chapter_id and s.provenance is provenance]
+        near = min(moved, key=lambda s: abs((s.scheduled_date - scheduled_date).days), default=None)
+        if near is not None:
+            free.remove(near)
+            assigned[lesson_id] = near
+            continue
+        fresh = PlanSlot(
+            plan_id=draft.id,
+            chapter_id=chapter_id,
+            scheduled_date=scheduled_date,
+            sequence=0,
+            provenance=provenance,
+        )
+        session.add(fresh)
+        assigned[lesson_id] = fresh
+    for lesson_id, slot in assigned.items():
+        slot.lesson_id = lesson_id
     await session.flush()
     await renumber_slots(session, draft.id)
 

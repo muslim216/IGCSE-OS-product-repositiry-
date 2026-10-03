@@ -57,7 +57,11 @@ const progress = (missed: number) => ({
   earliest_missed_chapter: missed ? { id: 1, code: "C1", title: "Atoms" } : null,
 });
 
-function stub(overview: Record<string, unknown>, replanned?: Record<string, unknown>) {
+function stub(
+  overview: Record<string, unknown>,
+  replanned?: Record<string, unknown>,
+  gate?: Promise<void>,
+) {
   const calls: { method: string; url: string }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -67,8 +71,10 @@ function stub(overview: Record<string, unknown>, replanned?: Record<string, unkn
       calls.push({ method, url: url.pathname });
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
       if (url.pathname.endsWith("/chapters")) return json(CHAPTERS);
-      if (method === "POST" && url.pathname.endsWith("/replan"))
+      if (method === "POST" && url.pathname.endsWith("/replan")) {
+        await gate;
         return json({ ...overview, ...replanned }, 202);
+      }
       return json({
         draft: null,
         accepted: null,
@@ -161,9 +167,25 @@ test("re-planning over a draft with only inputs still asks first", async () => {
 });
 
 test("while the re-plan request is out the draft button is disabled too", async () => {
-  stub({ accepted: plan(), progress: progress(2) }, { draft: plan({ id: 2, drafting: true }) });
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // A draft exists and is idle, so only the pending re-plan can disable the button.
+  stub(
+    { accepted: plan(), draft: plan({ id: 2, accepted_at: null }), progress: progress(2) },
+    { draft: plan({ id: 2, accepted_at: null, drafting: true }) },
+    gate,
+  );
   renderView();
-  fireEvent.click(await screen.findByRole("button", { name: "Re-plan" }));
+  const draftButton = await screen.findByRole("button", { name: "Draft a new plan" });
+  await waitFor(() => expect(draftButton).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Re-plan" }));
+  const buttons = await screen.findAllByRole("button", { name: "Re-plan" });
+  fireEvent.click(buttons[buttons.length - 1]); // the dialog's confirm
+  // The request is still out: the draft button is already disabled.
+  await waitFor(() => expect(screen.getByRole("button", { name: /Drafting/ })).toBeDisabled());
+  release();
   expect(await screen.findByRole("button", { name: /Drafting/ })).toBeDisabled();
 });
 

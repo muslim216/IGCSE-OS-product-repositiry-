@@ -739,6 +739,46 @@ async def test_accept_keeps_the_link_on_a_new_slot_when_no_copy_matches(
     assert linked[0].provenance is PlanSlotProvenance.confirmed
 
 
+async def test_two_taught_lessons_of_one_chapter_each_keep_their_own_slot(
+    client, tutor, group, chapters, frozen, monkeypatch, fake_ai
+):
+    """Lesson A (day -9) and lesson B (day -8) share a chapter. The tutor moves A's
+    copy onto B's date; B's exact-date copy must stay B's, not be taken by A."""
+    from app.models import Lesson
+
+    org, uid = await _ctx(group, tutor)
+    conf = PlanSlotProvenance.confirmed
+    await _plan(
+        group["id"], uid, org, [(chapters[0], -9, conf, True), (chapters[0], -7, conf, True)]
+    )
+    async with async_session() as s:
+        lessons = {x.scheduled_date: x.lesson_id for x in (await s.scalars(select(PlanSlot))).all()}
+        dates = {row.id: row.date for row in (await s.scalars(select(Lesson))).all()}
+    await _replan_and_draft(client, tutor, group, chapters, monkeypatch, fake_ai)
+    async with async_session() as s:
+        first = await s.scalar(
+            select(PlanSlot).where(
+                PlanSlot.scheduled_date == _d(-9),
+                PlanSlot.provenance == conf,
+                PlanSlot.lesson_id.is_(None),  # the draft's copy, not the live slot
+            )
+        )
+        first.scheduled_date = _d(-6)  # moved, and now nearer the other lesson's date than its own
+        await s.commit()
+    accepted = await client.post(_url(group, "/accept"), headers=tutor["headers"])
+    assert accepted.status_code == 200, accepted.text
+    async with async_session() as s:
+        got = {
+            x.lesson_id: x.scheduled_date
+            for x in (await s.scalars(select(PlanSlot))).all()
+            if x.lesson_id
+        }
+    # B keeps its own slot; A takes the copy the tutor moved.
+    assert got[lessons[_d(-7)]] == _d(-7)
+    assert got[lessons[_d(-9)]] == _d(-6)
+    assert dates  # both lessons exist
+
+
 # --- Reflow outcome -------------------------------------------------------------
 
 
