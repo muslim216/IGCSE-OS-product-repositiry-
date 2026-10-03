@@ -88,6 +88,15 @@ The observable condition that should reopen this decision.
 | [0008](0008-split-token-storage.md) | Access token in memory, refresh token in an httpOnly cookie | Accepted | §07, §03 |
 | [0009](0009-trust-first-auto-finalized-marking.md) | Confident, scheme-backed marks auto-finalize | Accepted | §09, §01 |
 | [0010](0010-tutor-owned-mistake-categories.md) | Mistake categories are a tutor-owned table, not an enum | Accepted | §06, §01 |
+| [0011](0011-teaching-plan-ai-advises-scheduler-decides.md) | The teaching plan: the AI advises chapter weights, a pure scheduler decides the calendar | Accepted | §01, §04, §09 |
+
+> **Numbering collision to resolve — two different ADR-0010s exist across branches.** On this
+> branch (`docs/phases-4-to-6`) `0010-tutor-owned-mistake-categories.md` is ADR-0010. On
+> `docs/phase-0-to-3-documentation` ADR-0010 is `0010-chapter-is-a-table.md`. Both are
+> Accepted and each is correct on its own branch; whichever merges second collides on the
+> number. Neither has been renumbered here — "numbered sequentially and never reused" means
+> this needs a decision by the architecture owner (and a link fix wherever either is cited),
+> not a silent renumber. ADR-0011 was allocated after both so it does not add a third conflict.
 
 ## Retroactive ADRs
 

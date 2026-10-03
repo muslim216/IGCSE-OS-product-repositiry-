@@ -48,7 +48,7 @@ token semantics and the threat model (§07); the frontend consuming it (§03).
 
 ## Sources
 
-Written from: all 23 routers in `backend/app/api/`; `backend/app/api/deps.py`;
+Written from: the 31 routers in `backend/app/api/` (29 mounted); `backend/app/api/deps.py`;
 `backend/app/main.py`; the 17 modules in `backend/app/schemas/`;
 `frontend/src/api/client.ts`.
 
@@ -74,7 +74,7 @@ more than a better convention followed in half the routers.
 
 ### Versioning and mounting
 
-One version. `main.py` mounts all 23 routers with `app.include_router(router,
+One version. `main.py` mounts 29 routers with `app.include_router(router,
 prefix="/api/v1")` in a single loop, so **no router hardcodes the version**. Health is the
 exception: `GET /api/v1/health` is defined inline on the app, returning a static
 `{"status": "ok"}`.
@@ -98,10 +98,46 @@ roots:
 | `resources.py` | `/groups/{id}/resources`, `/resources/{id}` |
 | `submissions.py` | `/submissions/…`, `/assignments/{id}/submissions`, `/me/assignments` |
 
+**`teaching_plans.py` is prefixed `/groups/{group_id}/plan`**, nested under the class it belongs
+to, so it shares the `/groups` root with `groups.py` without sharing a router.
+
 **Two routers share the `/readiness` prefix** — `readiness.py` and `readiness_weights.py` —
 and both use the `readiness` tag. They do not collide on paths (`/weights` is literal), but
 the arrangement means `/readiness` is owned by two files, and `readiness_v2.py` adds a third
 under `/readiness/v2`.
+
+### The teaching plan (Phase 6)
+
+`api/teaching_plans.py`, prefix `/groups/{group_id}/plan`, tag `teaching-plan`. **Every route is
+tutor-only** (`user: TutorUser` in the signature, `BE-17`/`SEC-11`): a plan and its exam date are
+never shown to students or parents (AV-19). Each handler starts with `_owned_group`, so a class
+that is another tutor's or another organization's is a `404` (`API-7`, `SEC-9`), and the
+organization stored on a plan comes from the class, never the request (`PROD-3`).
+
+| Route | Purpose | Non-2xx |
+|---|---|---|
+| `GET ""` | `PlanOverview`: `draft`, `accepted`, `timetable_defaults`, and `progress` (only when an accepted plan exists) | 404 |
+| `PUT /inputs` | Create or update the **draft's** exam date, pace and past-paper start; never touches an accepted plan. "In the future" is judged in the tutor's own time zone | 404; 422 invalid input (mirrors the CHECK constraints) |
+| `POST /breaks`, `DELETE /breaks/{break_id}` | Add or remove a break on the **draft**. `201` / `204` | 409 no draft yet, or draft no longer a draft; 422 overlap or bad range; 404 unknown break |
+| `POST /draft` | Queue the `draft_plan` job — `202`, never run in the request (`BE-13`). Client polls `GET ""` | 409 no draft (save inputs first) |
+| `POST /accept` | Promote the draft, replacing any accepted plan, in one transaction | 409 no draft, no slots yet, still drafting, last attempt failed, draft `stale`, or last run produced no plan |
+| `PATCH /slots/{slot_id}` | Move a slot or change its chapter (`scheduled_date` and/or `chapter_id`, at least one), on the draft **or** the accepted plan, with no re-acceptance (AV-13) | 404 slot not of this class (`API-7`); 422 chapter not in the class's subject, date on or after the exam, or inside a break |
+| `GET /next-lesson` | The accepted plan's earliest unstarted slot with its chapter's topics, to pre-fill the lesson form. A suggestion — creates nothing. `null` when no accepted plan or nothing left | 404 class |
+| `POST /replan` | Draft a fresh plan from today beside the live one — `202`; the live plan is untouched until accepted | 409 no accepted plan, a draft already pending or running, or the accepted plan's exam date has passed |
+
+**`POST /lessons` gained two optional fields** (task 6.5): `plan_slot_id` (the accepted plan's
+slot this lesson confirms) and `topic_ids` (the syllabus topics covered, exactly as sent). A
+slot id that is not on this class's *accepted* plan — a draft's slot, another class's,
+another organization's — is a `404` "Planned lesson not found", the same response for all
+three. A slot already covered is a `409`; a topic outside the class's subject is a `422`. The
+lesson and the slot's confirmation commit in one transaction, so a refused slot leaves no
+lesson. `lesson_topics` stays the only source of syllabus coverage (`PROD-14`); the plan never
+writes it. Deleting a lesson (`DELETE /lessons/{id}`) frees its slot.
+
+Read-side additions elsewhere: `GET /api/v1/today` carries `chapter_prompts` (a class whose
+accepted plan has reached a chapter that has no classified yet; information, never a gate) and
+`behind_classes` (classes with planned lessons dated before the tutor's today that have no lesson
+recorded; the response says "not recorded", never "missed").
 
 ### Errors
 
@@ -283,6 +319,39 @@ belonging to another organization.
 *Rationale:* a `403` confirms existence. Integer primary keys are enumerable
 (`governance/non-goals.md`), so a distinguishable `403` is an enumeration oracle across
 tenants.
+
+### The teaching plan (Phase 6)
+
+`api/teaching_plans.py`, prefix `/groups/{group_id}/plan`, tag `teaching-plan`. **Every route is
+tutor-only** (`user: TutorUser` in the signature, `BE-17`/`SEC-11`): a plan and its exam date are
+never shown to students or parents (AV-19). Each handler starts with `_owned_group`, so a class
+that is another tutor's or another organization's is a `404` (`API-7`, `SEC-9`), and the
+organization stored on a plan comes from the class, never the request (`PROD-3`).
+
+| Route | Purpose | Non-2xx |
+|---|---|---|
+| `GET ""` | `PlanOverview`: `draft`, `accepted`, `timetable_defaults`, and `progress` (only when an accepted plan exists) | 404 |
+| `PUT /inputs` | Create or update the **draft's** exam date, pace and past-paper start; never touches an accepted plan. "In the future" is judged in the tutor's own time zone | 404; 422 invalid input (mirrors the CHECK constraints) |
+| `POST /breaks`, `DELETE /breaks/{break_id}` | Add or remove a break on the **draft**. `201` / `204` | 409 no draft yet, or draft no longer a draft; 422 overlap or bad range; 404 unknown break |
+| `POST /draft` | Queue the `draft_plan` job — `202`, never run in the request (`BE-13`). Client polls `GET ""` | 409 no draft (save inputs first) |
+| `POST /accept` | Promote the draft, replacing any accepted plan, in one transaction | 409 no draft, no slots yet, still drafting, last attempt failed, draft `stale`, or last run produced no plan |
+| `PATCH /slots/{slot_id}` | Move a slot or change its chapter (`scheduled_date` and/or `chapter_id`, at least one), on the draft **or** the accepted plan, with no re-acceptance (AV-13) | 404 slot not of this class (`API-7`); 422 chapter not in the class's subject, date on or after the exam, or inside a break |
+| `GET /next-lesson` | The accepted plan's earliest unstarted slot with its chapter's topics, to pre-fill the lesson form. A suggestion — creates nothing. `null` when no accepted plan or nothing left | 404 class |
+| `POST /replan` | Draft a fresh plan from today beside the live one — `202`; the live plan is untouched until accepted | 409 no accepted plan, a draft already pending or running, or the accepted plan's exam date has passed |
+
+**`POST /lessons` gained two optional fields** (task 6.5): `plan_slot_id` (the accepted plan's
+slot this lesson confirms) and `topic_ids` (the syllabus topics covered, exactly as sent). A
+slot id that is not on this class's *accepted* plan — a draft's slot, another class's,
+another organization's — is a `404` "Planned lesson not found", the same response for all
+three. A slot already covered is a `409`; a topic outside the class's subject is a `422`. The
+lesson and the slot's confirmation commit in one transaction, so a refused slot leaves no
+lesson. `lesson_topics` stays the only source of syllabus coverage (`PROD-14`); the plan never
+writes it. Deleting a lesson (`DELETE /lessons/{id}`) frees its slot.
+
+Read-side additions elsewhere: `GET /api/v1/today` carries `chapter_prompts` (a class whose
+accepted plan has reached a chapter that has no classified yet; information, never a gate) and
+`behind_classes` (classes with planned lessons dated before the tutor's today that have no lesson
+recorded; the response says "not recorded", never "missed").
 
 ### Errors
 

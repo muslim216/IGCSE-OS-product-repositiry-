@@ -134,6 +134,41 @@ added by AI extraction from an uploaded document (`syllabus_uploads`).
 **Topic** — A node in a subject's syllabus tree, and the unit at which mastery and evidence
 are recorded.
 
+## Teaching plan
+
+**Teaching plan** — What a tutor intends to teach one class, and when: a `teaching_plans` row
+with `plan_slots` and `plan_breaks`. Belongs to a class (*Group*), whose single subject supplies
+its chapters. Tutor-only. See §01, §06.
+
+**Plan slot** — One *planned* lesson occurrence: a chapter on a date, in an order. Table
+`plan_slots`. **Never a Lesson** — a *Lesson* is the confirmed, actual one (`E15`); a slot that
+gets taught keeps its own row and gains a `lesson_id`. `lesson_id IS NULL` means not taught.
+
+**Provenance** — Who last decided a plan slot, `PlanSlotProvenance`: `generated` (the system
+laid it, and may move it), `manually_modified` (the tutor moved or changed it, or freed it from a
+deleted lesson; the system leaves it alone), `confirmed` (a lesson claimed it), `completed`
+(taught). Only `generated` slots are ever moved by a machine (AV-77).
+
+**Draft / accepted / stale** — A plan's `status` is `draft` or `accepted`; a class has at most one
+of each. Nothing reads a draft; accepting is what makes a plan live. **Stale** is not a status:
+it is `draft_result.status` after the inputs or breaks changed since the last drafting run, and a
+stale draft cannot be accepted.
+
+**Draft result** — `teaching_plans.draft_result`: what the last drafting run did and why (weights,
+reasons, AI used or degraded, failure). NULL means never drafted.
+
+**Reflow** — The automatic re-laying of a plan's future `generated` slots when a subject's
+chapters change (6.8, AV-68, E13). No acceptance step, no AI call. Job `reflow_plan`. *Not* a
+re-plan.
+
+**Re-plan** — A tutor's one-click request, for a class that is behind, to draft a fresh plan from
+today beside the live one (6.6, AV-18). Waits for the tutor to accept it. *Not* a reflow.
+
+**Not recorded** — The honest word for a planned lesson dated before today with no lesson against
+it. It may have been taught and never logged, so Avora never says "missed" (`PROD-2`).
+
+---
+
 ## Marking and trust
 
 **Auto-finalized** — A mark accepted with no tutor action, or a submission in which every
@@ -197,7 +232,7 @@ running for the surfaces that call it directly.)
 **Job** — A unit of background work persisted as a row in `jobs`, claimed by the in-process
 worker, with a registered handler keyed by type string. Not a cron entry and not a message.
 
-**Handler** — The async function registered for a job type in `backend/app/main.py`. **Must
+**Handler** — The async function registered for a job type in `backend/app/workers/handlers.py`. **Must
 be safe to re-run on the same payload.**
 
 **Kill switch** — `READINESS_V2_SHADOW_ENABLED`. Despite the name, it does not enable a

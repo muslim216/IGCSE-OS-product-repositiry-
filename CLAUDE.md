@@ -199,7 +199,7 @@ Keep these loaded. Each cites the document holding its full reasoning.
   (`API-20`, `ADR-0004`)
 
 - **A role gate goes in the signature, never in the handler body.** `user: TutorUser` or
-  `user: StudentUser` from `api/deps.py` — 45 routes are tutor-gated and 14 student-gated
+  `user: StudentUser` from `api/deps.py` — 84 handler signatures are tutor-gated and 13 student-gated (counted 2026-10-04)
   this way. A dependency cannot be forgotten; an imperative call can, and omitting it fails
   **open** with nothing to detect it. That was the real state of this codebase until
   recently: eleven hand-copied `_require_tutor`/`_require_student` helpers called in 35
@@ -370,9 +370,9 @@ Keep these loaded. Each cites the document holding its full reasoning.
 
 Full detail in §01 and §04; this is orientation only.
 
-- **Backend** (`backend/app/`): `api/` (30 routers; 28 mounted under `/api/v1` in `main.py` —
+- **Backend** (`backend/app/`): `api/` (31 routers; 29 mounted under `/api/v1` in `main.py` —
   classroom and knowledge are hidden, 0.5/AV-58; shared dependencies in `api/deps.py`),
-  `services/` (44 modules — the real work), `models/` (62 tables, SQLAlchemy 2.0 async),
+  `services/` (52 modules — the real work), `models/` (65 tables, SQLAlchemy 2.0 async),
   `schemas/` (Pydantic contracts), `workers/jobs.py`
   (DB-backed job queue, in-process worker started in `main.py`'s `lifespan`). Roles are
   `student`, `tutor`, `parent`, `admin`.
@@ -387,12 +387,18 @@ Full detail in §01 and §04; this is orientation only.
   shows "not enough data yet". The class score is the mean of learners' latest v2 scores
   (`services/class_readiness.py`). `READINESS_V2_SHADOW_ENABLED` is a **kill switch**, not a
   shadow flag — off, every score freezes at its last snapshot.
-- **AI**: seven surfaces routed independently to Anthropic or Gemini. Bulk document work
-  (marking, extraction, syllabus) → Gemini; reports, readiness, class brief, narrative →
-  Anthropic — every one currently resolves to the `anthropic_model` default (`claude-opus-4-8`);
-  no Sonnet route is live yet (that split is task 3.2, AV-124). Every call is metered into
-  `ai_usage_events`. (The student chat surface, once routed to Haiku, was deleted in 0.3 /
-  AV-57.)
+- **AI**: eleven surfaces (`ai.SURFACES`), each routed independently; every one currently routes
+  to Anthropic (task 3.2 retired Gemini, which stays wired but unused). Six inherit
+  `anthropic_model` (marking, extraction, booklet, syllabus, readiness, plan_weighting); five are
+  pinned to `claude-sonnet-5` (reports, class_brief, narrative, marking_rules, mistake_tagging).
+  `config.py` is the source of truth. Every call is metered into `ai_usage_events`.
+- **The teaching plan** (Phase 6): per class, a `draft` then `accepted` plan of `plan_slots`
+  (planned lessons — never a `Lesson`, `E15`). The model only advises chapter weights
+  (`plan_weighting`); the pure `plan_scheduler` owns the calendar (`ADR-0011`). Nothing reads a
+  draft — go through `accepted_plan_for_group`. Only `generated` slots are ever moved by a
+  machine (AV-77). A syllabus edit **reflows** automatically (`reflow_plan`); a **re-plan** waits
+  for acceptance. Writers lock plan rows by id, then slots (§04). Tutor-only. No accepted plan
+  means the 5.7 past-paper gate does not close.
 - **Storage**: local disk, paths stored relative to `UPLOAD_DIR` so the folder can move to S3
   later without touching data. 20 MB cap; PDF/JPEG/PNG/WebP, with HEIC transcoded to JPEG on
   the way in.

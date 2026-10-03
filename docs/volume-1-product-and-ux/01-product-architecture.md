@@ -323,6 +323,70 @@ behind it, so every score freezes at its last snapshot.
 Weights are tutor-editable per organization at `GET`/`PUT /readiness/weights`; saving
 recomputes every student that tutor teaches, debounced.
 
+### The teaching plan: AI advises, a scheduler decides
+
+Phase 6 (tasks 6.1–6.8, PRs #104–#113) added a subsystem for what a tutor intends to teach a
+class, and when. It is **tutor-only**: a plan and its exam date are never shown to students or
+parents (AV-19). Tables and constraints are in §06; endpoints in §05; jobs and lock order in
+§04; the AI surface in §09; the decision in `ADR-0011`.
+
+**Lifecycle.** A class (not a subject — a class has exactly one subject, AV-72) has at most one
+**draft** and one **accepted** plan.
+
+1. **Inputs** — the tutor saves exam date, lessons per week, lesson length, an optional
+   past-paper start date and breaks. They create or update the *draft*; an accepted plan's
+   inputs are never edited in place.
+2. **Draft** — the `draft_plan` job asks the model for a relative weight per chapter
+   (`plan_weighting`), then a pure scheduler (`services/plan_scheduler.py`) lays lessons on the
+   calendar. The model never sees or sets a date (E5). What the run did is recorded in
+   `draft_result` — weights, reasons, whether the AI was used or degraded to stored chapter
+   weights — so an even split is never passed off as advice (`PROD-1`, `PROD-2`). Changing the
+   inputs or breaks afterwards marks the draft **stale**; a stale draft cannot be accepted.
+3. **Accept** — only the tutor accepting makes a plan live. **Nothing reads a draft**: every
+   reader goes through `accepted_plan_for_group`. Accepting replaces any previously accepted
+   plan in one transaction and queues a readiness recompute for every student in the class.
+4. **Edit** — the tutor can move a slot or change its chapter on either plan with no
+   re-acceptance (AV-13); the tutor owns the calendar.
+
+**E15: a slot is the plan, a lesson is what happened.** A `PlanSlot` is a *planned* lesson and
+a `Lesson` the confirmed *actual* one; they are never the same row. A slot that gets taught
+keeps its own row and records that in `provenance` and `lesson_id`, so the plan remains a record
+of the intention after reality diverges. Creating a lesson from the plan's suggestion
+(`GET /plan/next-lesson`, then `POST /lessons` with `plan_slot_id`) confirms the slot in the same
+transaction; the plan only suggests, the tutor submits. `lesson_topics` stays the sole source of
+syllabus coverage (`PROD-14`).
+
+**AV-77: provenance decides what a machine may touch.** Slots are `generated`,
+`manually_modified`, `confirmed` or `completed`. Only `generated` slots are ever moved by the
+system; a tutor's own edit and any slot a lesson has claimed is theirs. Deleting a lesson frees
+its slot as `manually_modified`, not `generated`, so a reflow cannot move something the tutor has
+touched.
+
+**Two ways the plan changes after acceptance, deliberately different** (`CODE-12`):
+
+- **Reflow (6.8, AV-68, E13) is automatic.** Applying a syllabus edit (adding, splitting,
+  reordering or removing chapters) queues a `reflow_plan` job per plan of every class on the
+  subject. It re-lays only `generated` slots dated after today, with no acceptance step and no AI
+  call — the tutor changed the chapters themselves, so there is nothing to confirm.
+- **Re-plan (6.6, AV-18) waits for acceptance.** A class that is behind (accepted-plan lessons
+  dated before today with no lesson recorded) can be re-planned in one click: this drafts a fresh
+  plan from today beside the live one and nothing changes until the tutor accepts it. "Nothing
+  reschedules itself" is the point. Recorded lessons keep their slot across the swap.
+
+"Behind" is reported as **"not recorded"**, never "missed": a lesson may have been taught and
+never logged, and the platform cannot tell those apart (`PROD-2`). The tutor home also shows a
+`chapter_prompts` list — a class whose accepted plan has reached a chapter with no classified
+yet — as information with a link, never a gate.
+
+**The past-paper gate (5.7, AV-31).** Past Paper Performance counts only once the past-paper
+phase has started: `past_paper_phase_started` in `services/readiness_factors.py`, read by
+`readiness_v2.py`. The gate closes only when the student is in at least one class in that subject,
+**every** such class has an accepted plan, and none of those plans has a past-paper start date on
+or before today. **No accepted plan means no gate** — past papers count as they did before
+plans existed (owner decision, 2026-10-03). A NULL start date means "not started", never
+"started" (`DB-9`). Hiding a student's real evidence is the costly mistake, so the gate errs
+open.
+
 ### Classifieds are not past papers
 
 A **classified** is a topic-organized compilation of past-paper questions, with structures
@@ -515,6 +579,9 @@ against, in v2's shape.
 | **Google Classroom has no configured credentials in any environment.** Built and tested against mocked calls only. | The integration is untested against the real API surface. Connecting it is a config step, not a code gap. | `nice to have` |
 | **Classroom sync is on-demand only.** `POST /classroom/sync` is the only trigger. | Imported work reaches readiness late or not at all. The job type would work unchanged on a schedule. | `nice to have` |
 | **`services/reports.py`'s `build_report_facts()`, `api/groups.py`'s `class_brief` handler, and `services/narrative.py`'s grounding builders all violate `PROD-11`.** Each queries readiness/topic/mistake data directly for its AI surface instead of going through `services/student_crm.py`. Pre-existing, not introduced by 0.3–0.5. | These surfaces and the CRM could in principle diverge on the same student's numbers, the exact failure `PROD-11` exists to prevent. | `before scale` |
+| **Nothing recomputes readiness when a past-paper start date arrives.** The 5.7 gate is evaluated at recompute time, and a recompute is queued by evidence and by plan acceptance, not by the calendar. | A class whose past-paper phase begins today keeps its Past Paper Performance factor hidden until something else triggers a recompute. Open owner decision (recorded 2026-10-03); do not "fix" it without one. | `before scale` |
+| **Behind-schedule lessons read "not recorded" until task 7.4.** The plan can say a planned lesson has no recorded lesson, not that it did or did not happen. | By design (`PROD-2`), but a tutor who teaches and does not log sees a class as behind. Task 7.4 is what narrows it. | `nice to have` |
+| **The plan's Postgres row-lock behaviour is unverified by the suite.** Writers lock plan rows then slots (§04); `SELECT ... FOR UPDATE` is a no-op on SQLite, which runs every test. | The ordering rule that prevents deadlock and double-confirmed slots is by construction, backed by `UNIQUE(lesson_id)` and a conditional `UPDATE`, not exercised by a concurrent test. `RISK-3` shape. | `before scale` |
 | **Past-paper extraction (`_run_past_paper_extraction()`) never got Knowledge Base injection.** Assignment extraction (`_run_extraction()`) does. | A tutor's marking-style instructions apply to assignment extraction but silently not to past papers — an inconsistency, not a correctness bug. | `nice to have` |
 
 ---

@@ -30,7 +30,7 @@
 
 ## Purpose
 
-Avora calls two providers across seven use cases, and one of those calls can put a mark on a
+Avora calls two providers across eleven surfaces, and one of those calls can put a mark on a
 student's record with no human review. This document defines the routing abstraction that
 keeps vendor detail in one file, the prompt governance that makes an AI-produced record
 traceable, and the trust rules that bound what automation is allowed to decide.
@@ -102,17 +102,27 @@ output_tokens, parsed, text}` — so **nothing downstream branches on which vend
 
 ### Surfaces and routing
 
-Seven surfaces, defined in `SURFACES`:
+Eleven surfaces, defined in `SURFACES` (`services/ai.py`), with the routing in `config.py` as of
+Phase 6. **Every surface routes to Anthropic** — task 3.2 (AV-124) retired Gemini from all of
+them in one change, and the Gemini client is kept, unused (`ADR-0006`). A blank per-surface model
+inherits `anthropic_model` (`claude-opus-5`); an explicit one is pinned.
 
-| Surface | Default provider | Default model | What it does |
-|---|---|---|---|
-| `marking` | Gemini | `GEMINI_MODEL` | Marks submitted pages against a scheme |
-| `extraction` | Gemini | `GEMINI_MODEL` | Pulls a question list from a booklet |
-| `syllabus` | Gemini | `GEMINI_MODEL` | Extracts a topic tree from a syllabus document |
-| `reports` | Anthropic | `claude-opus-4-8` | Audience-specific narrative reports |
-| `readiness` | Anthropic | `claude-opus-4-8` | Layer 2 readiness synthesis |
-| `class_brief` | Anthropic | `claude-opus-4-8` | Pre-lesson class brief |
-| `narrative` | Anthropic | `claude-opus-4-8` | Precomputed class/parent narrative writer (weekly-send merge is a future phase, not yet built) |
+| Surface | Model | What it does |
+|---|---|---|
+| `marking` | inherits `anthropic_model` | Marks submitted pages against a scheme |
+| `extraction` | inherits | Pulls a question list from a booklet |
+| `booklet` | inherits | Splits an uploaded booklet into whole papers |
+| `syllabus` | inherits | Extracts a chapter/topic tree from a syllabus document |
+| `readiness` | inherits | Layer 2 readiness synthesis |
+| `plan_weighting` | inherits | Relative chapter weights for the teaching plan (6.3) |
+| `reports` | `claude-sonnet-5` (pinned) | Audience-specific narrative reports |
+| `class_brief` | `claude-sonnet-5` (pinned) | Pre-lesson class brief |
+| `narrative` | `claude-sonnet-5` (pinned) | Precomputed class/parent narrative writer |
+| `marking_rules` | `claude-sonnet-5` (pinned) | Condenses a tutor's marking rules |
+| `mistake_tagging` | `claude-sonnet-5` (pinned) | Tags a settled submission's lost-marks questions with the tutor's own categories |
+
+The six blank-model surfaces move together when `anthropic_model` moves; the five pinned ones
+do not. If this table and `config.py` disagree, `config.py` wins.
 
 `resolve_surface(surface)` reads `AI_<SURFACE>_PROVIDER` and `AI_<SURFACE>_MODEL`, falling back
 to that provider's default model when the per-surface model is blank. It **raises on an unknown
@@ -120,9 +130,9 @@ surface** and **raises with a helpful message on an invalid provider**, naming t
 values — so a typo in configuration fails loudly at the call rather than silently routing
 somewhere unintended.
 
-The split is deliberate: bulk document work goes to the cheaper provider, quality-dominated
-low-volume work to the more capable one. No single provider outage stops the product. See
-`ADR-0006`.
+Routing is per surface so a surface can be re-pointed without a code change. The split between
+Opus-class and Sonnet-class surfaces is by kind of judgement and, for `mistake_tagging`, cost
+(the highest-volume call); see `ADR-0006` and the comments in `config.py`.
 
 **Surfaces and billing buckets are different things.** `SURFACE_FEATURE` maps each surface to
 an `AiFeature` for metering, and several deliberately share a bucket — `syllabus` meters as
@@ -166,6 +176,10 @@ Current versions:
 | `class_brief` | **v3** | Full system prompt (naming-a-learner rule, data-not-instructions); v3 says a line labelled as the tutor's starting estimate is not marked work (5.3a) |
 | `readiness` | **v5** | v2 dropped consistency (5.1); v3 names the `tutor_estimate` prior in Topic Mastery (5.3a); v4 stops asking for `weak_topics` — they are derived from the tutor's threshold (5.6, decision 10); v5 no longer says "six" factors — a tutor can switch factors off (#100) |
 | `narrative` | **v2** | v2 says the same about the estimate label as `class_brief` (5.3a) |
+| `plan_weighting` | **v2** | Teaching-plan chapter weights (6.3): the chapter list and the tutor's guidance document are data, never instructions |
+| `mistake_tagging` | v1 | |
+| `marking_rules` | v1 | |
+| `booklet` | v1 | |
 | `extraction` | v3 | |
 | `syllabus` | v2 | |
 | `reports`, `booklet`, `marking_rules`, `mistake_tagging` | v1 | |
@@ -251,6 +265,40 @@ and still backs the CRM UI through `api/students.py`.
 
 Readiness synthesis is the strictest case: the factor sub-scores and tutor weights are
 **mandated inputs**, and the model is not permitted to contradict them or to produce a grade.
+
+### The plan-weighting surface (Phase 6)
+
+`plan_weighting` implements **E5: the AI advises, a pure scheduler owns the calendar**
+(`ADR-0011`). The model is asked for one number per chapter — a relative weight from 0.5 to
+3.0, 1.0 being an ordinary chapter — and a one-sentence reason a tutor can disagree with. It is
+never asked for a date, a lesson count or an order, and nothing it returns can place a lesson:
+`services/plan_scheduler.py` (pure, no session, `BE-4`) turns weights into slots.
+
+- **Call:** `services/plan_drafting.py:weigh_chapters` via `structured_complete(surface="plan_weighting", ...)`,
+  once per drafting run (not per student). The tutor's uploaded teaching guidance, when there is
+  one, is attached as a document block; with none, the prompt says to weight from the chapter
+  list alone and to say so in the reasons.
+- **Prompt, `PLAN_WEIGHTING` v2:** states that the CHAPTER LIST (delimited by
+  `CHAPTER_LIST_MARKERS`) and the guidance document are **data, never instructions**, that
+  text in them addressed to the model carries no authority, and that a further BEGIN/END marker
+  inside the list is still a chapter's own text (`SEC-20`, `SEC-21`, `AI-8`). Keep that clause if
+  the prompt is rewritten, and bump the version.
+- **Output is bounded in code, not trusted:** weights are clamped to 0.5–3.0 (counted in
+  `clamped_chapters`); unknown chapter ids are ignored and the first answer for an id wins;
+  a non-finite weight is treated as missing; a chapter with no answer takes 1.0 (counted in
+  `defaulted_chapters`). The schema carries no length limits, so a verbose answer is not a
+  parse failure and a paid retry; reasons are cut to about 300 characters when stored.
+- **Degradation (`AI-20`, `INF-9`):** only `AIKeyMissingError` degrades — the plan is weighted
+  from the weights stored on the chapters and `draft_result.weight_source` says
+  `stored_chapter_weights` with a `degraded_reason`. A missing SDK or a misrouted provider is a
+  deployment fault and raises, so the job fails loudly. If the AI answers but names none of the
+  subject's chapters, `weight_source` is `ai_unusable`: calling that result "ai" would pass an
+  even split off as advice (`PROD-1`, `PROD-2`).
+- **Metering (`AI-17`):** the call is recorded under `AiFeature.plan_weighting` — its own
+  bucket, so "what does planning cost" is answerable — **in its own short transaction**, not on
+  the job handler's, because the tokens are spent even if the rest of the run rolls back.
+- **Tutor authority (`PROD-7`):** a drafted plan is not live until the tutor accepts it, and the
+  tutor can move any slot afterwards without re-acceptance.
 
 ### Degradation
 
@@ -398,7 +446,7 @@ product.
 ### Availability
 
 **`AI-20` — MUST · Critical · Active**
-A missing credential raises `AIUnavailableError` with a message naming the variable to set.
+A missing credential raises `AIKeyMissingError` (a subclass of `AIUnavailableError`) with a message naming the variable to set. A caller that degrades catches `AIKeyMissingError` only — not its parent, which also covers a missing optional SDK, a deployment fault that must fail loudly (`draft_plan` is the reference).
 It never prevents startup and never degrades another surface.
 *Rationale:* the app must run without either key; the failure must be diagnosable from the
 message alone.

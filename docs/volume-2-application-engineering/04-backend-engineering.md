@@ -48,8 +48,8 @@ testing (§12); Python style (§13).
 ## Sources
 
 Written from: `backend/app/main.py`; `backend/app/api/deps.py`; `backend/app/db.py`;
-`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 28 modules in
-`backend/app/services/`; the 25 routers in `backend/app/api/` (23 mounted).
+`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 52 modules in
+`backend/app/services/`; the 31 routers in `backend/app/api/` (29 mounted).
 
 ---
 
@@ -83,10 +83,10 @@ backend/app/
   config.py     pydantic-settings Settings, accessed via lru_cache'd get_settings()
   db.py         async engine + get_db
   security.py   bcrypt + PyJWT (access, refresh, OAuth state)
-  api/          25 routers + deps.py (23 mounted; classroom and knowledge are hidden, 0.5/AV-58)
+  api/          31 routers + deps.py and file_responses.py, which define none (29 mounted; classroom and knowledge are hidden, 0.5/AV-58)
   schemas/      Pydantic request/response contracts, one module per domain
-  services/     28 modules — the actual work
-  models/       SQLAlchemy 2.0 async ORM, 51 tables
+  services/     52 modules — the actual work
+  models/       SQLAlchemy 2.0 async ORM, 65 tables
   workers/      jobs.py
 ```
 
@@ -143,7 +143,7 @@ Organization scoping is still applied ad hoc, per query, using `user.organizatio
 
 ### Services
 
-28 modules, each owning one area. The shape that recurs and is worth copying: **a pure core
+52 modules, each owning one area. The shape that recurs and is worth copying: **a pure core
 plus a database-facing shell**. `services/readiness_factors.py` (284 lines) is pure scoring
 math over dataclasses; `services/readiness_v2.py` (356 lines) gathers rows and calls it. The
 same split exists in v1 between `readiness.py`'s pure functions and `recompute_student()`.
@@ -155,7 +155,7 @@ they own a whole unit of work. The caller — router or job handler — commits.
 
 ### Models
 
-51 tables across 15 modules. **`models/__init__.py` is a re-export barrel with an explicit
+65 tables. **`models/__init__.py` is a re-export barrel with an explicit
 `__all__`**, and it is load-bearing twice over: Alembic's `env.py` imports from it to build
 `target_metadata`, and the test suite builds its schema from `Base.metadata`. A model not
 re-exported therefore **silently gets no table in tests** while working fine in production
@@ -171,10 +171,11 @@ when searching for it.
 
 - **Persistence:** a `Job` row with `type`, `payload` (JSON), `status`, `attempts`, `error`,
   and nullable `run_after`.
-- **Registration:** `register_handler(type, fn)` into a module-level dict. All 8 handlers are
-  registered at the top of `main.py`: `extract_assignment`, `extract_past_paper`,
-  `mark_submission`, `recompute_readiness`, `compute_readiness_v2`, `generate_report`,
-  `extract_syllabus`, `sync_classroom`.
+- **Registration:** `register_handler(type, fn)` into a module-level dict. The 16 handlers are
+  registered in `workers/handlers.py` (not `main.py`). The eight this list originally named —
+  `extract_assignment`, `extract_past_paper`, `mark_submission`, `recompute_readiness`,
+  `compute_readiness_v2`, `generate_report`, `extract_syllabus`, `sync_classroom` — are
+  joined by later phases' jobs, among them `draft_plan` and `reflow_plan` (Phase 6).
 - **Claim:** oldest pending job whose `run_after` is null or past, `ORDER BY Job.id LIMIT 1`,
   `with_for_update(skip_locked=True)` — so multiple workers are safe without change, which
   `tests/test_worker_concurrency.py` and `tests/test_two_instance.py` both check against a real
@@ -249,9 +250,41 @@ submissions costs one synthesis call instead of one per submission.
 | `compute_readiness_v2` | Deliberately **append-only** — a re-run is a new audited evaluation, not a duplicate |
 | `generate_report` | Writes into the existing `Report` row |
 | `extract_syllabus` | Replaces the draft on the `SyllabusUpload` |
+| `draft_plan` | Replaces the plan's `generated` slots only; skips a plan that is gone or no longer a draft |
+| `reflow_plan` | Re-lays only `generated` slots after today from recorded weights; a re-run on the same state yields the same slots |
 | `sync_classroom` | `ClassroomWorkLink` makes re-polling idempotent — an already-imported item is updated, never duplicated |
 
 Downstream, `build_homework_evidence()` is idempotent by `source_ref`.
+
+**The teaching plan's two jobs (Phase 6).** Handlers are registered in
+`workers/handlers.py`, not `main.py`, so that file is where `BE-8` is satisfied.
+
+| Handler | Payload | Mechanism |
+|---|---|---|
+| `draft_plan` (`services/plan_drafting.py`) | `{"plan_id": int}` | Replaces the plan's `generated` slots and touches no other provenance, so a re-run yields the same slots, not a second copy. A tutor's `manually_modified` slot and any `confirmed`/`completed` one is theirs (AV-77): its date is taken, it counts toward its chapter's share, and the plan is renumbered around it. Skips (writes nothing) if the plan is gone, no longer a draft, or was accepted mid-run |
+| `reflow_plan` (`services/plan_reflow.py`) | `{"plan_id": int}` | Mechanical, **no AI call**: re-lays only `generated` slots dated after today, using the weights from the plan's last `draft_result`; a chapter that run never weighed takes its stored `Chapter.weight`. Locks the plan row first and re-reads. Skips a plan with no `drafted` result. Enqueued once per plan (draft and accepted) of every class on the subject by `enqueue_reflow_for_subject` when a syllabus apply commits — deliberately not deduped against a pending job, because a skipped enqueue can lose an edit while a duplicate run costs nothing |
+
+Both carry identifiers only (`BE-9`) and re-read the plan, class, chapters, timetable and
+breaks. **Deterministic failures are recorded on the plan, not retried** (`BE-11`): too few
+lessons for the chapters, or no chapters, are written to `draft_result.failure` (drafting) or
+`draft_result.reflow` (reflow) and the job ends `done`, because a retry cannot fix them — so they
+appear in `draft_result` and the log, not in the `jobs` table. Only transient faults, such as a
+provider error, raise and take the worker's one retry. A missing AI key is not a failure of
+`draft_plan`: it degrades to stored chapter weights and says so (§09). Two plan-state
+transitions deliberately differ (`CODE-12`): **reflow writes straight into the plan, accepted or
+draft, with no acceptance step** (the tutor changed the chapters themselves, AV-68, E13),
+while a **re-plan** (`services/plan_replan.py`, 6.6) drafts and waits for the tutor to accept.
+
+**Plan lock order.** Every writer of plan data takes row locks in one order — **plan rows by
+id first, then slots** — and `accept_plan`, `replan`, `request_draft`, `edit_slot`,
+`release_slot_for_lesson`, the lesson-confirm path (`plan_lessons._accepted_slot`) and
+`reflow_plan` all follow it. `lock_group_plans` takes every plan row of a class in id order (the
+order `accept_plan` takes them). Locking a slot first, or both in planner order as a join does,
+deadlocks against a writer holding the plan; so the plan row is selected alone and the slot
+lock uses `with_for_update(of=PlanSlot)`. A lesson confirm claims its slot with one conditional
+`UPDATE` (zero rows = someone else took it), with `UNIQUE(lesson_id)` as the backstop.
+`SELECT ... FOR UPDATE` is a no-op on SQLite, so none of this is exercised by the suite (see §06
+Known Gaps).
 
 **Tests drive jobs synchronously** by calling `process_one_job()` directly; they never run the
 loop. See §12.
