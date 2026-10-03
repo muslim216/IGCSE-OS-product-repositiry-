@@ -30,6 +30,7 @@ from app.services.narrative import (
     sweep_parent_narratives,
 )
 from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
+from app.services.plan_reflow import PLAN_REFLOW_JOB, reflow_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
 from app.services.syllabus_extraction import extract_syllabus
@@ -89,3 +90,7 @@ def register_all() -> None:
     # re-run (`BE-6`): it replaces only `generated` slots and leaves a tutor's
     # edits, and anything but a draft plan, alone.
     register_handler(PLAN_DRAFT_JOB, draft_plan)
+    # Reflows a plan's generated future slots after the subject's chapters change
+    # (task 6.8, AV-68). Enqueued by the syllabus apply. Safe to re-run (`BE-6`):
+    # it replaces only generated slots dated after today, from current state.
+    register_handler(PLAN_REFLOW_JOB, reflow_plan)

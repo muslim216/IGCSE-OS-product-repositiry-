@@ -15,6 +15,7 @@ from app.models import (
 )
 from app.schemas.syllabus import SyllabusDraft, SyllabusUploadDetail, SyllabusUploadOut
 from app.services import storage
+from app.services.plan_reflow import enqueue_reflow_for_subject
 from app.workers.jobs import enqueue
 
 router = APIRouter(prefix="/syllabus-uploads", tags=["syllabus"])
@@ -242,5 +243,14 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
 
     upload.status = SyllabusUploadStatus.applied
     upload.subject_id = subject.id
+    # Chapters are only ever added, renamed and re-ordered here; nothing deletes
+    # one, so `plan_slots.chapter_id ON DELETE RESTRICT` cannot be hit from this
+    # path. A chapter the draft omitted survives (sorted last) and keeps its slots.
+    # Any future path that deletes a chapter must clear its slots first (task 6.8).
+    await db.commit()
+    # Reflow is a job, never request work (`BE-13`). Enqueued after the commit so
+    # the worker sees the new chapters. A second transaction on purpose: the
+    # applied syllabus is already durable and must not depend on the enqueue.
+    await enqueue_reflow_for_subject(db, subject.id)
     await db.commit()
     return _detail(upload)
