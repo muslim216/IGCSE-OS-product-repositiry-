@@ -7,7 +7,7 @@ Jobs are driven with `process_one_job()`, the model is always faked (QA-6..8).""
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import delete, event, select
 
 from app.db import async_session, engine
 from app.models import (
@@ -417,6 +417,92 @@ async def test_replan_reuses_an_idle_draft_and_resets_it_to_the_live_plan(
     assert resp.status_code == 202, resp.text
     assert resp.json()["draft"]["id"] == draft_id
     assert [s["provenance"] for s in resp.json()["draft"]["slots"]] == ["confirmed"]
+
+
+async def _pending_job(plan_id):
+    from app.workers.jobs import enqueue
+
+    async with async_session() as s:
+        await enqueue(s, PLAN_DRAFT_JOB, {"plan_id": plan_id})
+        await s.commit()
+
+
+async def test_replan_is_409_while_a_draft_job_is_pending(client, tutor, group, chapters, frozen):
+    org, uid = await _ctx(group, tutor)
+    await _plan(group["id"], uid, org, [(chapters[0], -3, G)])
+    draft_id, _ = await _plan(
+        group["id"], uid, org, [(chapters[1], 30, G)], status=TeachingPlanStatus.draft
+    )
+    await _pending_job(draft_id)
+    resp = await client.post(_url(group, "/replan"), headers=tutor["headers"])
+    assert resp.status_code == 409
+    async with async_session() as s:
+        assert len((await s.scalars(select(Job))).all()) == 1  # nothing more queued
+        kept = (await s.scalars(select(PlanSlot).where(PlanSlot.plan_id == draft_id))).all()
+        assert len(kept) == 1  # the draft was not reset
+
+
+async def test_a_job_queued_between_read_and_lock_is_seen_under_the_lock(
+    client, tutor, group, chapters, frozen, monkeypatch
+):
+    """The pending-job check is made after the lock is taken, so a drafting job
+    queued just before it still refuses the re-plan."""
+    from app.services import plan_replan
+
+    org, uid = await _ctx(group, tutor)
+    await _plan(group["id"], uid, org, [(chapters[0], -3, G)])
+    draft_id, _ = await _plan(
+        group["id"], uid, org, [(chapters[1], 30, G)], status=TeachingPlanStatus.draft
+    )
+    real = plan_replan._lock_group_plans
+
+    async def queue_then_lock(session, grp):
+        await _pending_job(draft_id)
+        return await real(session, grp)
+
+    monkeypatch.setattr(plan_replan, "_lock_group_plans", queue_then_lock)
+    resp = await client.post(_url(group, "/replan"), headers=tutor["headers"])
+    assert resp.status_code == 409
+
+
+async def test_a_draft_promoted_before_the_lock_never_loses_the_live_plans_slots(
+    client, tutor, group, chapters, frozen, monkeypatch
+):
+    """An accept lands just before the re-plan's lock. The re-plan then reads the
+    promoted plan as the accepted one and drafts beside it; it must not delete it."""
+    from app.services import plan_replan
+
+    org, uid = await _ctx(group, tutor)
+    old_id, _ = await _plan(group["id"], uid, org, [(chapters[0], -3, G)])
+    draft_id, draft_slots = await _plan(
+        group["id"],
+        uid,
+        org,
+        [(chapters[1], 30, G), (chapters[2], 31, G)],
+        status=TeachingPlanStatus.draft,
+    )
+    real = plan_replan._lock_group_plans
+
+    async def accept_then_lock(session, grp):
+        async with async_session() as other:
+            await other.execute(delete(PlanSlot).where(PlanSlot.plan_id == old_id))
+            await other.execute(delete(TeachingPlan).where(TeachingPlan.id == old_id))
+            plan = await other.get(TeachingPlan, draft_id)
+            plan.status = TeachingPlanStatus.accepted
+            plan.accepted_at = datetime.now(timezone.utc)
+            plan.accepted_by_id = uid
+            await other.commit()
+        return await real(session, grp)
+
+    monkeypatch.setattr(plan_replan, "_lock_group_plans", accept_then_lock)
+    resp = await client.post(_url(group, "/replan"), headers=tutor["headers"])
+    assert resp.status_code == 202, resp.text
+    async with async_session() as s:
+        live = (await s.scalars(select(PlanSlot).where(PlanSlot.plan_id == draft_id))).all()
+        plans = {p.status: p.id for p in (await s.scalars(select(TeachingPlan))).all()}
+    assert sorted(x.id for x in live) == sorted(draft_slots)  # the promoted plan is intact
+    assert plans[TeachingPlanStatus.accepted] == draft_id
+    assert plans[TeachingPlanStatus.draft] != draft_id
 
 
 # --- Accepting a re-plan carries the lesson links --------------------------------

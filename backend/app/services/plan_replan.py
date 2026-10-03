@@ -17,15 +17,14 @@ from app.models import (
     PlanSlot,
     PlanSlotProvenance,
     TeachingPlan,
+    TeachingPlanStatus,
 )
 from app.services.plan_drafting import enqueue_plan_draft, renumber_slots
 from app.services.teaching_plan import (
     PlanInputError,
     PlanStateError,
     _latest_draft_jobs,
-    accepted_plan_for_group,
-    draft_plan_for_group,
-    save_plan_inputs,
+    validate_inputs,
 )
 
 
@@ -48,8 +47,32 @@ def keep_in_replan(
     return True
 
 
+async def _lock_group_plans(session: AsyncSession, group: Group) -> list[TeachingPlan]:
+    """Every plan row of the class, locked in id order (the order `accept_plan`
+    takes them, so the two cannot deadlock). A no-op lock on SQLite."""
+    return list(
+        (
+            await session.scalars(
+                select(TeachingPlan)
+                .where(
+                    TeachingPlan.group_id == group.id,
+                    TeachingPlan.organization_id == group.organization_id,
+                )
+                .order_by(TeachingPlan.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+
+
 async def replan(session: AsyncSession, *, group: Group, today: date) -> TeachingPlan:
     """Create (or reuse) the class's draft from the accepted plan and queue drafting.
+
+    One transaction under the plan rows' lock: every check is made after the lock
+    is held, so a concurrent accept, save or reflow cannot slip in between a
+    check and the writes. (6.2's `save_plan_inputs` commits and releases its
+    lock, which is why it is not used here.)
 
     CODE-12: this is deliberately NOT 6.8's reflow (`plan_reflow`). A syllabus
     edit reflows the plan automatically with no acceptance, because the tutor
@@ -57,38 +80,54 @@ async def replan(session: AsyncSession, *, group: Group, today: date) -> Teachin
     and then WAITS: it writes a draft beside the live plan and nothing is
     accepted until the tutor accepts it (E15, "nothing reschedules itself").
     """
-    accepted = await accepted_plan_for_group(session, group.id)
+    rows = await _lock_group_plans(session, group)
+    accepted = next((p for p in rows if p.status is TeachingPlanStatus.accepted), None)
+    draft = next((p for p in rows if p.status is TeachingPlanStatus.draft), None)
     if accepted is None:
         raise PlanStateError("There is no accepted plan to re-plan.")
-    existing = await draft_plan_for_group(session, group.id)
-    if existing is not None and (await _latest_draft_jobs(session, {existing.id})).get(
-        existing.id
-    ) in (JobStatus.pending, JobStatus.running):
+    if draft is not None and (await _latest_draft_jobs(session, {draft.id})).get(draft.id) in (
+        JobStatus.pending,
+        JobStatus.running,
+    ):
         raise PlanStateError("A plan is already being drafted. Wait for it to finish.")
-
-    # 6.2's path: validates, creates or reuses the draft, copies the breaks when
-    # it creates one. An exam date that has passed cannot be planned toward.
+    # An exam date that has passed cannot be planned toward.
     try:
-        draft = await save_plan_inputs(
-            session,
-            organization_id=group.organization_id,
-            group_id=group.id,
-            exam_date=accepted.exam_date,
-            lessons_per_week=accepted.lessons_per_week,
-            lesson_minutes=accepted.lesson_minutes,
-            past_paper_start_date=accepted.past_paper_start_date,
+        validate_inputs(
+            accepted.exam_date,
+            accepted.lessons_per_week,
+            accepted.lesson_minutes,
+            accepted.past_paper_start_date,
             today=today,
         )
     except PlanInputError as exc:
         raise PlanStateError(f"This plan cannot be re-planned: {exc}") from exc
 
-    # A reused draft is reset to the live plan: its breaks and slots are
-    # replaced so the re-plan starts from what the tutor accepted.
+    if draft is None:
+        draft = TeachingPlan(
+            organization_id=group.organization_id,
+            group_id=group.id,
+            status=TeachingPlanStatus.draft,
+            exam_date=accepted.exam_date,
+            lessons_per_week=accepted.lessons_per_week,
+            lesson_minutes=accepted.lesson_minutes,
+            past_paper_start_date=accepted.past_paper_start_date,
+        )
+        session.add(draft)
+        await session.flush()
+    else:
+        draft.exam_date = accepted.exam_date
+        draft.lessons_per_week = accepted.lessons_per_week
+        draft.lesson_minutes = accepted.lesson_minutes
+        draft.past_paper_start_date = accepted.past_paper_start_date
+    # A reused draft is reset to the live plan: its breaks and slots are replaced.
     await session.execute(delete(PlanBreak).where(PlanBreak.plan_id == draft.id))
     await session.execute(delete(PlanSlot).where(PlanSlot.plan_id == draft.id))
+    breaks = (
+        await session.scalars(select(PlanBreak).where(PlanBreak.plan_id == accepted.id))
+    ).all()
     session.add_all(
         PlanBreak(plan_id=draft.id, start_date=b.start_date, end_date=b.end_date, label=b.label)
-        for b in accepted.breaks
+        for b in breaks
     )
     live = (
         await session.scalars(

@@ -111,6 +111,16 @@ test("a class with unrecorded lessons gets a plain banner and a Re-plan button",
   );
   // It only drafts: the tutor still has to accept, and nothing was accepted here.
   expect(calls.some((c) => c.url.endsWith("/accept"))).toBe(false);
+  // The view now says the draft is being made.
+  expect(await screen.findByRole("button", { name: /Drafting/ })).toBeDisabled();
+});
+
+test("a plan with no progress block shows no banner", async () => {
+  stub({ accepted: plan(), progress: null });
+  renderView();
+  await screen.findByText("Live plan");
+  expect(screen.queryByText(/haven't been recorded/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Re-plan" })).not.toBeInTheDocument();
 });
 
 test("no gap, no banner; no accepted plan, no banner", async () => {
@@ -154,6 +164,7 @@ test("a failed reflow says so, with the reason", async () => {
   const note = await screen.findByText(/couldn't be reshuffled/);
   expect(note).toHaveTextContent("Your syllabus changed on");
   expect(note).toHaveTextContent("Only 2 lessons fit before the exam.");
+  expect(screen.getByRole("alert")).toBe(note);
 });
 
 test("a skipped reflow is quiet and a successful one is a subtle note", async () => {
@@ -174,4 +185,15 @@ test("a skipped reflow is quiet and a successful one is a subtle note", async ()
   expect(screen.getByText(/Updated for your syllabus changes on/)).toBeInTheDocument();
   // Neither is an alert.
   expect(screen.queryByText(/couldn't be reshuffled/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("an unknown reflow status renders nothing", async () => {
+  stub({
+    accepted: plan({ outcome: outcome({ status: "mystery", at: "2026-10-01T12:00:00Z" }) }),
+  });
+  renderView();
+  await screen.findByText("Live plan");
+  expect(screen.queryByText(/syllabus/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

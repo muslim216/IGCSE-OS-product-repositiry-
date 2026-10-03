@@ -14,6 +14,7 @@ import {
 } from "../api/teachingPlan";
 import { listChapters, type Chapter } from "../api/syllabus";
 import { friendlyError } from "../lib/errors";
+import { shortDay } from "../lib/planDates";
 import { SectionCard } from "../components/ui";
 import { Button, Input, Select } from "../components/controls";
 import { ConfirmDialog, ErrorState, SectionSkeleton } from "../components/page";
@@ -34,13 +35,6 @@ function localDate(instant: string): string {
     month: "short",
     year: "numeric",
   });
-}
-
-/** "Tue 6 Oct": the day a lesson was planned for, from the parts. */
-function shortDay(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]} ${d} ${MONTHS[m - 1]}`;
 }
 
 /** The Monday of the ISO date's week, as an ISO date (UTC arithmetic, no timezone drift). */
@@ -130,7 +124,7 @@ function ReflowNote({ reflow }: { reflow: ReflowOutcome | null | undefined }) {
   const when = localDate(reflow.at);
   if (reflow.status === "failed") {
     return (
-      <p role="status" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
+      <p role="alert" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
         Your syllabus changed on {when}, but the plan couldn&apos;t be reshuffled:{" "}
         {reflow.failure_message ?? "no reason was recorded."}
       </p>
@@ -144,7 +138,13 @@ function ReflowNote({ reflow }: { reflow: ReflowOutcome | null | undefined }) {
       </p>
     );
   }
-  return <p className="mt-2 text-xs text-ink-500">Updated for your syllabus changes on {when}.</p>;
+  if (reflow.status === "reflowed") {
+    return (
+      <p className="mt-2 text-xs text-ink-500">Updated for your syllabus changes on {when}.</p>
+    );
+  }
+  // An unknown status is not guessed at: say nothing rather than something false.
+  return null;
 }
 
 /** Planned lessons with no recorded lesson (task 6.6, AV-18). "Not recorded" is
@@ -415,6 +415,8 @@ export default function TeachingPlanView({
     onMutate: () => setError(null),
     onSuccess: (overview) => {
       queryClient.setQueryData(["plan", groupId], overview);
+      // The home's plan-check list reads the accepted plan.
+      queryClient.invalidateQueries({ queryKey: ["today"] });
       setConfirming(false);
     },
     onError: (err) => {
@@ -443,6 +445,7 @@ export default function TeachingPlanView({
     onMutate: () => setError(null),
     onSuccess: (_saved, v) => {
       v.done();
+      queryClient.invalidateQueries({ queryKey: ["today"] });
       return refresh();
     },
     onError: (err) => setError(friendlyError(err)),

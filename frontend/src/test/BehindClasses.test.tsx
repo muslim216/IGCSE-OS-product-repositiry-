@@ -26,7 +26,7 @@ test("names the class, the count, the first date and links to its plan, without 
   const { container } = renderList([base]);
   expect(screen.getByText(/Year 11 Chemistry/)).toBeInTheDocument();
   expect(
-    screen.getByText(/3 planned lessons haven't been recorded since Tue, Oct 6/),
+    screen.getByText(/3 planned lessons haven't been recorded since Tue 6 Oct/),
   ).toBeInTheDocument();
   expect(screen.getByText(/Chapter 4 · Organic chemistry/)).toBeInTheDocument();
   expect(container.textContent).not.toMatch(/missed|behind|late/i);

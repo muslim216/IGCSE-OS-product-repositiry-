@@ -1,17 +1,6 @@
 import { Link } from "react-router-dom";
 import type { BehindClass } from "../../api/today";
-
-/** "Tue 6 Oct". The plan's dates are calendar dates with no zone, so they are
-    read from the parts rather than `new Date(iso)`, which parses a bare date as
-    UTC midnight and can print the day before. */
-function shortDate(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
+import { shortDay } from "../../lib/planDates";
 
 /**
  * Classes whose accepted plan has lessons dated before today with none recorded
@@ -36,7 +25,7 @@ export default function BehindClasses({ classes }: { classes: BehindClass[] }) {
             <span className="text-ink-700">
               <span className="font-medium text-ink-900">{c.group_name}</span>: {c.missed} planned{" "}
               {c.missed === 1 ? "lesson hasn't" : "lessons haven't"} been recorded since{" "}
-              {shortDate(c.earliest_missed_date)}
+              {shortDay(c.earliest_missed_date)}
               <span className="text-ink-500">
                 {" "}
                 — starting with Chapter {c.chapter_code} · {c.chapter_title}
