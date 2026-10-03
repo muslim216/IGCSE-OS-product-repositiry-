@@ -190,6 +190,9 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
         c.code: c
         for c in (await db.scalars(select(Chapter).where(Chapter.subject_id == subject.id))).all()
     }
+    # What the plans' schedules depend on: which chapters exist, their titles and
+    # their teaching order. A topic-only edit changes none of it.
+    chapters_before = {code: (c.title, c.position) for code, c in chapters.items()}
     existing = {
         t.code: t
         for t in (await db.scalars(select(Topic).where(Topic.subject_id == subject.id))).all()
@@ -251,6 +254,10 @@ async def apply_syllabus(upload_id: int, db: DbSession, user: CurrentUser) -> Sy
     # commit so the new chapters and the job rows become visible together: the
     # worker can never claim a reflow that predates the chapters it must read, and
     # a failed enqueue rolls the whole apply back rather than leaving a half state.
-    await enqueue_reflow_for_subject(db, subject.id)
+    # Only when the chapter list actually changed: re-applying the same syllabus
+    # or a topic-only edit leaves every plan as it is.
+    chapters_after = {code: (c.title, c.position) for code, c in chapters.items()}
+    if chapters_after != chapters_before:
+        await enqueue_reflow_for_subject(db, subject.id)
     await db.commit()
     return _detail(upload)

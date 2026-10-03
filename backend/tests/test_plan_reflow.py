@@ -258,16 +258,22 @@ async def test_a_new_chapter_gets_slots_without_a_model_call(world):
 
 
 async def test_a_chapter_gone_from_the_subject_loses_its_generated_future_slots(world):
+    # No path deletes a chapter today (apply only adds, retitles and reorders, and
+    # `plan_slots.chapter_id` is ON DELETE RESTRICT), so "gone" is modelled the way
+    # production would have to do it: the chapter's generated slots are removed
+    # first, then the row. Reflow must then lay the plan out without it.
     a, b, c = world["chapter_ids"]
     await reflow(world["plan_id"])
     assert c in {r.chapter_id for r in await slots(world["plan_id"])}
     async with async_session() as session:
+        await session.execute(PlanSlot.__table__.delete().where(PlanSlot.chapter_id == c))
         await session.delete(await session.get(Chapter, c))
         await session.commit()
     await reflow(world["plan_id"])
     rows = await slots(world["plan_id"])
     assert c not in {r.chapter_id for r in rows}
     assert {r.chapter_id for r in rows} == {a, b}
+    assert len(rows) == 7  # the freed lessons went to the remaining chapters
 
 
 async def test_an_infeasible_reflow_changes_nothing_and_says_why(world):
@@ -310,7 +316,9 @@ async def test_a_plan_that_is_gone_finishes_quietly(world):
     await reflow(world["plan_id"] + 999)
 
 
-async def test_enqueue_covers_draft_and_accepted_plans_of_the_subjects_classes_only(world):
+async def test_enqueue_covers_draft_and_accepted_plans_of_the_subjects_classes_only_and_never_dedupes(
+    world,
+):
     async with async_session() as session:
         _, accepted = await make_class(
             session,
@@ -366,16 +374,22 @@ async def test_enqueue_covers_draft_and_accepted_plans_of_the_subjects_classes_o
     assert queued == {world["plan_id"], accepted_id}
     assert other_id not in queued and foreign_id not in queued
 
-    # Deduped while pending; queued again once the earlier ones have run.
-    async with async_session() as session:
-        assert await enqueue_reflow_for_subject(session, world["subject_id"]) == 0
-        await session.commit()
-    assert await process_one_job() is True
-    assert await process_one_job() is True
+    # Never deduped: a second call queues again, and running both is harmless.
     async with async_session() as session:
         assert await enqueue_reflow_for_subject(session, world["subject_id"]) == 2
-        pending = (await session.scalars(select(Job).where(Job.status == JobStatus.pending))).all()
-        assert len(pending) == 2
+        await session.commit()
+    async with async_session() as session:
+        jobs = (await session.scalars(select(Job).where(Job.type == PLAN_REFLOW_JOB))).all()
+    assert len(jobs) == 4
+    for _ in range(4):
+        assert await process_one_job() is True
+    first = shape(await slots(world["plan_id"]))
+    assert await enqueue_reflow_for_subject_plan_run(world["plan_id"]) == first
+
+
+async def enqueue_reflow_for_subject_plan_run(plan_id):
+    await reflow(plan_id)
+    return shape(await slots(plan_id))
 
 
 async def test_applying_a_syllabus_reflows_the_subjects_plans(client, tutor, monkeypatch):
@@ -521,9 +535,67 @@ async def test_a_failed_enqueue_rolls_the_whole_apply_back(client, tutor, monkey
         raise RuntimeError("queue down")
 
     monkeypatch.setattr("app.api.syllabus_uploads.enqueue_reflow_for_subject", _boom)
-    with pytest.raises(RuntimeError):
-        await client.post(f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"])
+    # The client re-raises app exceptions; a deployment would answer 500. Either
+    # way no success may be reported.
+    try:
+        resp = await client.post(
+            f"/api/v1/syllabus-uploads/{upload_id}/apply", headers=tutor["headers"]
+        )
+    except RuntimeError:
+        pass
+    else:
+        assert resp.status_code >= 500
     async with async_session() as session:
         assert (await session.scalars(select(Chapter))).all() == []
     detail = await client.get(f"/api/v1/syllabus-uploads/{upload_id}", headers=tutor["headers"])
     assert detail.json()["status"] == "review"
+
+
+async def test_reapplying_an_unchanged_chapter_list_or_a_topic_only_edit_queues_nothing(
+    client, tutor, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(draft_of(chapters=CHAPTERS)),
+    )
+    first = await upload_pdf(client, tutor)
+    applied = await client.post(f"/api/v1/syllabus-uploads/{first}/apply", headers=tutor["headers"])
+    subject_id = applied.json()["subject_id"]
+    async with async_session() as session:
+        org_id = (await session.get(User, tutor["user"]["id"])).organization_id
+        await make_class(
+            session, org_id, tutor["user"]["id"], subject_id, status=TeachingPlanStatus.draft
+        )
+        await session.commit()
+
+    async def pending_jobs():
+        async with async_session() as session:
+            return (await session.scalars(select(Job).where(Job.type == PLAN_REFLOW_JOB))).all()
+
+    assert await pending_jobs() == []  # the plan was created after the first apply
+
+    topic_edit = [
+        {**CHAPTERS[0], "topics": [{**CHAPTERS[0]["topics"][0], "title": "Renamed topic"}]},
+        CHAPTERS[1],
+    ]
+    for chapters in (CHAPTERS, topic_edit):
+        monkeypatch.setattr(
+            "app.services.syllabus_extraction._run_extraction",
+            extraction_returning(draft_of(chapters=chapters)),
+        )
+        again = await upload_pdf(client, tutor, title="again", name="again.pdf")
+        resp = await client.post(
+            f"/api/v1/syllabus-uploads/{again}/apply", headers=tutor["headers"]
+        )
+        assert resp.status_code == 200, resp.text
+        assert await pending_jobs() == []  # nothing queued
+
+    # A retitle does change what the plan shows, so it does queue.
+    retitled = [{**CHAPTERS[0], "title": "Renamed chapter"}, CHAPTERS[1]]
+    monkeypatch.setattr(
+        "app.services.syllabus_extraction._run_extraction",
+        extraction_returning(draft_of(chapters=retitled)),
+    )
+    again = await upload_pdf(client, tutor, title="retitle", name="retitle.pdf")
+    await client.post(f"/api/v1/syllabus-uploads/{again}/apply", headers=tutor["headers"])
+    assert len(await pending_jobs()) == 1

@@ -32,8 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Chapter,
     Group,
-    Job,
-    JobStatus,
     Organization,
     PlanSlot,
     PlanSlotProvenance,
@@ -204,8 +202,7 @@ async def reflow_plan(session: AsyncSession, payload: dict) -> None:
 
 async def enqueue_reflow_for_subject(session: AsyncSession, subject_id: int) -> int:
     """Queue one reflow per plan (draft and accepted) of every class on the
-    subject, within the subject's own organization (`SEC-7`). A plan that already
-    has a pending reflow is skipped: it will read current state when it runs.
+    subject, within the subject's own organization (`SEC-7`).
     The caller commits. Returns how many jobs were queued."""
     subject = await session.get(Subject, subject_id)
     if subject is None or subject.organization_id is None:
@@ -226,21 +223,12 @@ async def enqueue_reflow_for_subject(session: AsyncSession, subject_id: int) -> 
     )
     if not plan_ids:
         return 0
-    pending = set(
-        (
-            await session.scalars(
-                select(Job.payload["plan_id"].as_integer()).where(
-                    Job.type == PLAN_REFLOW_JOB,
-                    Job.status == JobStatus.pending,
-                    Job.payload["plan_id"].as_integer().in_(plan_ids),
-                )
-            )
-        ).all()
-    )
+    # One job per plan per call, never deduped against a pending one. A skipped
+    # enqueue can lose an edit: the pending job may be claimed and read the
+    # chapters before this caller's commit lands. The job is mechanical and
+    # idempotent, so a duplicate run costs nothing and a lost one is a stale plan.
     queued = 0
     for plan_id in plan_ids:
-        if plan_id in pending:
-            continue
         await enqueue(session, PLAN_REFLOW_JOB, {"plan_id": plan_id})
         queued += 1
     return queued
