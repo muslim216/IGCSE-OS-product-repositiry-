@@ -19,8 +19,17 @@ from app.models import (
 from app.services.chapter_prompts import CHAPTER_LOOKAHEAD_DAYS
 from tests.factories import make_subject
 
-# The tests run with no organization or user zone, so "today" is the UTC date.
-TODAY = datetime.now(timezone.utc).date()
+# A fixed day, injected where the tutor home asks for the time, so a run that
+# straddles midnight (or a tutor zone) cannot move "today" under an assertion.
+TODAY = date(2026, 10, 3)
+
+
+@pytest.fixture(autouse=True)
+def frozen_today(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.today.now_in",
+        lambda _zone: datetime(TODAY.year, TODAY.month, TODAY.day, 12, tzinfo=timezone.utc),
+    )
 
 
 def _days(n: int) -> date:

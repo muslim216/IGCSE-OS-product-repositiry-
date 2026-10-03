@@ -8,6 +8,7 @@ class, each of which looped `db.get(User)` plus a readiness select per learner
 """
 
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +43,7 @@ from app.services.grades import grade_band, predict_grade
 from app.services.groups import review_queue_predicate
 from app.services.groups import summaries as group_summaries
 from app.services.readiness_shared import scores_of, trend_direction, v2_score_series
-from app.services.timezones import effective_timezone, today_weekday
+from app.services.timezones import effective_timezone, now_in
 
 #: Exceptions first. A tutor opening their home is looking for what needs them,
 #: so the strip is ordered by how much attention a class wants, and the healthy
@@ -88,7 +89,11 @@ async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
 
 
 async def today_lessons(
-    db: AsyncSession, tutor_id: int, organization_id: int, user_zone: str | None = None
+    db: AsyncSession,
+    tutor_id: int,
+    organization_id: int,
+    user_zone: str | None = None,
+    today: date | None = None,
 ) -> list[UpcomingScheduleSlot]:
     """The tutor's lessons for *their* today.
 
@@ -107,7 +112,11 @@ async def today_lessons(
     # account's. It defaults to None so a caller that has no user row still gets
     # the organization's answer rather than silently getting UTC.
     org = await db.get(Organization, organization_id)
-    weekday = today_weekday(effective_timezone(user_zone, org.timezone if org else None))
+    # A caller that also needs the date (build_today) passes it, so one response
+    # cannot straddle midnight between this weekday and its other date reads.
+    if today is None:
+        today = now_in(effective_timezone(user_zone, org.timezone if org else None)).date()
+    weekday = today.weekday()
     rows = (
         await db.execute(
             select(ScheduleSlot, Group, func.count(GroupMember.id))
@@ -141,10 +150,11 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
     """The tutor's home. Scoped by the authenticated user's own classes — never
     by a path or body parameter (SEC-7)."""
     # Held for the whole function: the session's identity map is weak, so without
-    # a reference here today_lessons() and chapter_prompts() would each re-read
-    # the organization for its zone.
+    # a reference here today_lessons() would re-read the organization for its zone.
     org = await db.get(Organization, user.organization_id)
-    lessons = await today_lessons(db, user.id, user.organization_id, user.time_zone)
+    # One "today" for the whole response, in the tutor's own zone.
+    today = now_in(effective_timezone(user.time_zone, org.timezone if org else None)).date()
+    lessons = await today_lessons(db, user.id, user.organization_id, user.time_zone, today)
     groups = await tutor_groups(db, user.id)
     group_ids = [g.id for g in groups]
     # One latest-snapshot read feeds both the class cards' coverage count and
@@ -185,7 +195,7 @@ async def build_today(db: AsyncSession, user: User) -> TodayView:
         class_count=len(rows),
         joined_student_count=sum(r.member_count for r in rows),
         classes_with_evidence=sum(1 for r in rows if r.score is not None),
-        chapter_prompts=await chapter_prompts(db, user, org),
+        chapter_prompts=await chapter_prompts(db, user, today),
     )
 
 

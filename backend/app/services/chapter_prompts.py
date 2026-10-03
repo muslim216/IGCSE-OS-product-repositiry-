@@ -14,7 +14,6 @@ from app.models import (
     Chapter,
     Classified,
     Group,
-    Organization,
     PlanSlot,
     Subject,
     TeachingPlan,
@@ -22,7 +21,6 @@ from app.models import (
     User,
 )
 from app.schemas.today import ChapterPrompt
-from app.services.timezones import effective_timezone, now_in
 
 #: How far ahead a chapter that has not started yet is surfaced. A week is long
 #: enough to find, scan and upload a classified before the first lesson, and
@@ -31,9 +29,7 @@ from app.services.timezones import effective_timezone, now_in
 CHAPTER_LOOKAHEAD_DAYS = 7
 
 
-async def chapter_prompts(
-    db: AsyncSession, user: User, org: Organization | None
-) -> list[ChapterPrompt]:
+async def chapter_prompts(db: AsyncSession, user: User, today: date) -> list[ChapterPrompt]:
     """One prompt per (class, chapter) that has begun or begins within the
     lookahead, whose last planned lesson is not past, and that has no classified
     in the tutor's organization. Soonest first.
@@ -41,14 +37,9 @@ async def chapter_prompts(
     The organization and tutor come from the authenticated user, never from the
     request (PROD-4, SEC-7). One query: slots are aggregated per (plan, chapter)
     in SQL and the classified check is a correlated EXISTS, so cost does not grow
-    with the number of classes (PERF-1). The caller passes the organization it
-    has already loaded, so the zone costs no extra read.
+    with the number of classes (PERF-1). `today` is the caller's, in the tutor's
+    zone and shared with the lesson list, so one response cannot straddle two days.
     """
-    # The same "today" as the lesson list: the tutor's own zone, else the
-    # organization's, else UTC. A chapter starting "today" must agree with the
-    # lessons shown beside it.
-    zone = effective_timezone(user.time_zone, org.timezone if org else None)
-    today = now_in(zone).date()
     horizon = today + timedelta(days=CHAPTER_LOOKAHEAD_DAYS)
 
     first = func.min(PlanSlot.scheduled_date)

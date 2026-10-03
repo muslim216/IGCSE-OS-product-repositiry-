@@ -38,7 +38,7 @@ test("a started chapter names the class, the chapter and links to the upload", (
 
 test("a chapter still ahead says when it starts", () => {
   renderPrompts([{ ...base, started: false, starts_on: "2026-10-09" }]);
-  expect(screen.getByText(/starts .*9/)).toBeInTheDocument();
+  expect(screen.getByText(/starts Fri, Oct 9:/)).toBeInTheDocument();
 });
 
 test("one row per prompt", () => {
