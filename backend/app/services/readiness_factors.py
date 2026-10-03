@@ -195,6 +195,36 @@ class PastPaperAttemptPoint:
     attempted_at: date
 
 
+@dataclass(frozen=True)
+class ClassPastPaperPlan:
+    """A class's accepted plan, reduced to what the gate reads."""
+
+    past_paper_start_date: date | None  # None: the tutor has not set one
+
+
+def past_paper_phase_started(class_plans: list[ClassPastPaperPlan | None], today: date) -> bool:
+    """Whether Past Paper Performance may count (AV-31, task 5.7).
+
+    One entry per class the student is taught in that subject; `None` means
+    that class has no accepted plan. The gate closes (False) only when the
+    student is in at least one class, every class has an accepted plan, and
+    none of those plans has started its past-paper phase. A class with no
+    accepted plan, or no class at all, leaves past papers counting as before.
+
+    Hiding a student's real evidence is the costly mistake, so the gate closes
+    only when every class they are taught in agrees the phase has not begun.
+    A NULL start date means "not started", never "started" (`DB-9`)."""
+    if not class_plans:
+        return True
+    if any(plan is None for plan in class_plans):
+        return True
+    return any(
+        plan.past_paper_start_date is not None and plan.past_paper_start_date <= today
+        for plan in class_plans
+        if plan is not None
+    )
+
+
 def past_paper_performance(attempts: list[PastPaperAttemptPoint]) -> FactorResult:
     if not attempts:
         return NO_DATA

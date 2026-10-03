@@ -10,6 +10,7 @@ from app.services.readiness_factors import (
     HALF_LIFE_DAYS,
     NO_DATA,
     AssessmentPoint,
+    ClassPastPaperPlan,
     FactorResult,
     HomeworkPoint,
     MarkedQuestion,
@@ -24,6 +25,7 @@ from app.services.readiness_factors import (
     homework_performance,
     mistake_analysis,
     past_paper_performance,
+    past_paper_phase_started,
     syllabus_coverage,
     topic_mastery,
 )
@@ -384,3 +386,49 @@ def test_the_default_half_life_is_unchanged():
         assessment_performance(points, NOW).score
         == assessment_performance(points, NOW, half_life=HALF_LIFE_DAYS).score
     )
+
+
+# ---- Past-paper phase gate (AV-31, task 5.7) -----------------------------
+
+_TODAY = date(2026, 10, 3)
+
+
+def test_phase_gate_no_class_is_not_gated():
+    assert past_paper_phase_started([], _TODAY) is True
+
+
+def test_phase_gate_class_without_accepted_plan_is_not_gated():
+    assert past_paper_phase_started([None], _TODAY) is True
+
+
+def test_phase_gate_null_start_date_has_not_started():
+    assert past_paper_phase_started([ClassPastPaperPlan(None)], _TODAY) is False
+
+
+def test_phase_gate_future_start_has_not_started():
+    plan = ClassPastPaperPlan(_TODAY + timedelta(days=1))
+    assert past_paper_phase_started([plan], _TODAY) is False
+
+
+def test_phase_gate_start_today_has_started():
+    assert past_paper_phase_started([ClassPastPaperPlan(_TODAY)], _TODAY) is True
+
+
+def test_phase_gate_past_start_has_started():
+    plan = ClassPastPaperPlan(_TODAY - timedelta(days=30))
+    assert past_paper_phase_started([plan], _TODAY) is True
+
+
+def test_phase_gate_one_gated_class_and_one_unplanned_class_is_not_gated():
+    gated = ClassPastPaperPlan(None)
+    assert past_paper_phase_started([gated, None], _TODAY) is True
+
+
+def test_phase_gate_every_class_not_started_is_gated():
+    plans = [ClassPastPaperPlan(None), ClassPastPaperPlan(_TODAY + timedelta(days=9))]
+    assert past_paper_phase_started(plans, _TODAY) is False
+
+
+def test_phase_gate_one_started_class_among_unstarted_is_not_gated():
+    plans = [ClassPastPaperPlan(None), ClassPastPaperPlan(_TODAY - timedelta(days=1))]
+    assert past_paper_phase_started(plans, _TODAY) is True

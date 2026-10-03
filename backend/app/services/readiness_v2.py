@@ -38,12 +38,16 @@ from app.models import (
     QuestionMark,
     ReadinessFactor,
     Submission,
+    TeachingPlan,
+    TeachingPlanStatus,
     Topic,
 )
 from app.services.evidence import COUNTS_FOR_READINESS
 from app.services.readiness_factors import (
     HALF_LIFE_DAYS,
+    NO_DATA,
     AssessmentPoint,
+    ClassPastPaperPlan,
     FactorResult,
     HomeworkPoint,
     MarkedQuestion,
@@ -56,6 +60,7 @@ from app.services.readiness_factors import (
     homework_performance,
     mistake_analysis,
     past_paper_performance,
+    past_paper_phase_started,
     syllabus_coverage,
     topic_mastery,
 )
@@ -165,6 +170,30 @@ async def _marked_questions_by_topic(
                 )
             )
     return by_topic
+
+
+async def _class_past_paper_plans(
+    session: AsyncSession, student_id: int, subject_id: int
+) -> list[ClassPastPaperPlan | None]:
+    """One entry per class of the subject the student is in: its accepted
+    plan, or None. `accepted` sits in the join condition, not the WHERE, so a
+    class with only a draft (or no plan) still comes back as a row — a WHERE
+    would drop it and the gate would read it as "no such class". Nothing reads
+    a draft plan (task 6.4)."""
+    rows = (
+        await session.execute(
+            select(TeachingPlan.id, TeachingPlan.past_paper_start_date)
+            .select_from(GroupMember)
+            .join(Group, Group.id == GroupMember.group_id)
+            .outerjoin(
+                TeachingPlan,
+                (TeachingPlan.group_id == Group.id)
+                & (TeachingPlan.status == TeachingPlanStatus.accepted),
+            )
+            .where(GroupMember.student_id == student_id, Group.subject_id == subject_id)
+        )
+    ).all()
+    return [ClassPastPaperPlan(start) if plan_id is not None else None for plan_id, start in rows]
 
 
 async def _past_paper_attempts(
@@ -482,7 +511,15 @@ async def evaluate_subject_factors(
             )
         )
 
-    pp_result = past_paper_performance(await _past_paper_attempts(session, student_id, subject_id))
+    # Same reference date as the decaying factors, so the gate and decay agree.
+    if past_paper_phase_started(
+        await _class_past_paper_plans(session, student_id, subject_id), now.date()
+    ):
+        pp_result = past_paper_performance(
+            await _past_paper_attempts(session, student_id, subject_id)
+        )
+    else:
+        pp_result = NO_DATA
     rows.append(
         _factor_row(
             evaluation_run_id,
