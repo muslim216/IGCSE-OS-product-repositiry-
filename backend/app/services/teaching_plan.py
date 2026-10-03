@@ -704,6 +704,9 @@ async def edit_slot(
     reread = await session.scalar(
         select(PlanSlot)
         .where(PlanSlot.id == slot_id, PlanSlot.plan_id == plan.id)
+        # Plan lock is already held, so plan-then-slot order holds. The slot lock
+        # stops a concurrent lesson confirm landing between this read and the write.
+        .with_for_update(of=PlanSlot)
         .execution_options(populate_existing=True)
     )
     if reread is None:
@@ -729,7 +732,10 @@ async def edit_slot(
         # A confirmed or completed slot records a lesson that is happening or
         # happened (E15); moving it must not erase that. Only a slot that is
         # still the plan's intention becomes the tutor's own.
-        if slot.provenance in (PlanSlotProvenance.generated, PlanSlotProvenance.manually_modified):
+        if slot.lesson_id is None and slot.provenance in (
+            PlanSlotProvenance.generated,
+            PlanSlotProvenance.manually_modified,
+        ):
             slot.provenance = PlanSlotProvenance.manually_modified
         await session.flush()
         await renumber_slots(session, plan.id)

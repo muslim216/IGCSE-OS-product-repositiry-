@@ -361,6 +361,9 @@ async def draft_plan_slots(session: AsyncSession, plan_id: int) -> DraftResult:
         result = _failed(plan.id, exc.code, str(exc))
     if result.skipped != SKIPPED_ACCEPTED_MIDRUN:
         # An accepted plan is the tutor's now; nothing of ours is written to it.
+        # CODE-12: a redraft deliberately replaces the whole record, including any
+        # nested `reflow`, because that record described slots the redraft just
+        # replaced. Do not "fix" this by merging.
         plan.draft_result = result.to_json()
         await session.flush()
     if result.status == "failed":

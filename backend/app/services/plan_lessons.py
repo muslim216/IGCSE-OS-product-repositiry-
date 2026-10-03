@@ -70,18 +70,27 @@ async def replace_lesson_topics(
 async def _accepted_slot(session: AsyncSession, group: Group, slot_id: int) -> PlanSlot:
     """The slot, only if it sits on this class's *accepted* plan. A draft's slot,
     another class's and another organization's all look the same: not found."""
-    slot = await session.scalar(
-        select(PlanSlot)
-        .join(TeachingPlan, TeachingPlan.id == PlanSlot.plan_id)
+    # Lock order, followed by every writer (accept_plan, replan, edit_slot,
+    # release_slot_for_lesson): plan rows by id first, then slots. Locking the slot
+    # first (or both in planner order, as a join does) deadlocks against a writer
+    # holding the plan, so the plan row is taken alone here.
+    plan_id = await session.scalar(
+        select(TeachingPlan.id)
         .where(
-            PlanSlot.id == slot_id,
             TeachingPlan.group_id == group.id,
             TeachingPlan.organization_id == group.organization_id,
             TeachingPlan.status == TeachingPlanStatus.accepted,
         )
-        # Serialises two requests confirming one slot (a no-op on SQLite); the
-        # UNIQUE on `lesson_id` is the backstop.
         .with_for_update()
+    )
+    if plan_id is None:
+        raise PlanSlotNotFound(slot_id)
+    slot = await session.scalar(
+        select(PlanSlot)
+        .where(PlanSlot.id == slot_id, PlanSlot.plan_id == plan_id)
+        # Serialises two requests confirming one slot (a no-op on SQLite); the
+        # UNIQUE on `lesson_id` is the backstop. `of=` keeps the lock off the plan.
+        .with_for_update(of=PlanSlot)
     )
     if slot is None:
         raise PlanSlotNotFound(slot_id)
