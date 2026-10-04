@@ -52,5 +52,14 @@ export const editPlanSlot = (groupId: number, slotId: number, body: PlanSlotPatc
  *  there is no accepted plan or no unstarted slot. */
 export type NextLesson = components["schemas"]["NextLessonOut"];
 
-export const getNextLesson = (groupId: number) =>
-  api<NextLesson | null>(`${base(groupId)}/next-lesson`);
+export const getNextLesson = (groupId: number, slotId?: number | null) =>
+  api<NextLesson | null>(
+    `${base(groupId)}/next-lesson${slotId != null ? `?slot_id=${slotId}` : ""}`,
+  );
+
+/** Cancelling a planned lesson shifts the plan on its own (task 7.4, `AV-120`);
+ *  `message` is set when there was no room before the exam and nothing moved. */
+export type CancelSlotResult = components["schemas"]["CancelSlotOut"];
+
+export const cancelPlanSlot = (groupId: number, slotId: number) =>
+  api<CancelSlotResult>(`${base(groupId)}/slots/${slotId}/cancel`, { method: "POST" });

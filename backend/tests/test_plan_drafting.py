@@ -81,7 +81,10 @@ async def world():
             Topic(subject_id=subject.id, chapter_id=chapters[0].id, code="1.1", title="Moles")
         )
         session.add_all(
-            ScheduleSlot(group_id=group.id, weekday=d, start_time=dtime(17, 0)) for d in (0, 3)
+            ScheduleSlot(
+                group_id=group.id, weekday=d, start_time=dtime(17, 0) if d == 0 else dtime(15, 30)
+            )
+            for d in (0, 3)
         )
         plan = TeachingPlan(
             organization_id=org.id,
@@ -709,3 +712,19 @@ async def test_the_plan_accepted_during_the_ai_call_is_not_rewritten(world, monk
         await session.commit()
     assert out.skipped
     assert await slots(world) == []
+
+
+async def test_generated_slots_take_their_start_time_from_the_weekly_timetable(
+    world, monkeypatch, fake_ai
+):
+    """AV-119: each planned lesson stores its own start time, defaulted from the
+    timetable for its weekday (here Mon and Thu at 17:00)."""
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
+    )
+    job = await run_job(world)
+    assert job.status is JobStatus.done, job.error
+    rows = await slots(world)
+    assert rows
+    for r in rows:  # Monday 17:00, Thursday 15:30: per row, not one value for all
+        assert r.start_time == (dtime(17, 0) if r.scheduled_date.weekday() == 0 else dtime(15, 30))

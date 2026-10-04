@@ -162,6 +162,15 @@ class Settings(BaseSettings):
     # otherwise it describes pre-marking readiness and then looks fresh. This is
     # the margin for the run itself, not just for it becoming due.
     narrative_readiness_margin_seconds: int = 300
+    # Lessons of an accepted plan count as taught once their local end has passed
+    # (services/lesson_autorecord.py, AV-119). A kill switch, not a shadow flag:
+    # off, the sweep keeps re-arming itself and records nothing, so turning it
+    # back on needs no restart.
+    lesson_autorecord_enabled: bool = True
+    # How often the sweep runs, and so the lag between a lesson ending and it
+    # being recorded; "behind" does not count a lesson inside that lag. ge=1: at
+    # zero the successor is due on arrival and the sweep spins the worker.
+    lesson_autorecord_interval_minutes: int = Field(default=15, ge=1)
     # Google Classroom integration (see services/google_classroom.py). Both
     # unset -> the feature reports "not configured" everywhere and the app
     # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful

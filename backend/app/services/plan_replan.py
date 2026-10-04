@@ -150,11 +150,20 @@ async def replan(session: AsyncSession, *, group: Group, today: date) -> Teachin
             scheduled_date=s.scheduled_date,
             sequence=s.sequence,
             provenance=s.provenance,
+            # Always carried: the draft's own default would be the timetable's,
+            # losing a time the tutor set per lesson (AV-119).
+            start_time=s.start_time,
             # No `lesson_id`: it is unique, and the accepted plan still owns the
             # link until accept moves it across.
         )
         for s in live
-        if keep_in_replan(s.provenance, s.lesson_id is not None, s.scheduled_date, today)
+        # A cancelled slot is never carried: it is the old plan's record of intent
+        # and carried as live it would become a lesson that is not cancelled. The
+        # redraft schedules its chapter again from today (a cancelled slot takes
+        # no share), which is exactly the catch-up "behind" asks for, so the gap
+        # the cancellation left is closed rather than hidden.
+        if s.cancelled_at is None
+        and keep_in_replan(s.provenance, s.lesson_id is not None, s.scheduled_date, today)
     )
     # The old outcome described slots that are gone.
     draft.draft_result = None

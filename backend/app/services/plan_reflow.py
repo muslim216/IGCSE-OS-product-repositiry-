@@ -46,6 +46,8 @@ from app.services.plan_scheduler import (
     ScheduleInput,
     schedule,
 )
+from app.services.plan_start_times import timetable_start_times
+from app.services.plan_timing import timetable_default
 from app.services.timezones import now_in
 from app.workers.jobs import enqueue
 
@@ -173,9 +175,12 @@ async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
             PlanSlot.plan_id == plan.id,
             PlanSlot.provenance == PlanSlotProvenance.generated,
             PlanSlot.scheduled_date > today,
+            # A cancelled slot is the tutor's record of intent; never regenerated away.
+            PlanSlot.cancelled_at.is_(None),
         )
         .execution_options(synchronize_session=False)
     )
+    start_times = (await timetable_start_times(session, [group.id])).get(group.id, {})
     session.add_all(
         PlanSlot(
             plan_id=plan.id,
@@ -183,6 +188,7 @@ async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
             scheduled_date=lesson.scheduled_date,
             sequence=lesson.sequence,
             provenance=PlanSlotProvenance.generated,
+            start_time=timetable_default(start_times, lesson.scheduled_date),
         )
         for lesson in lessons_out
     )

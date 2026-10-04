@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -64,6 +64,8 @@ from app.services.plan_scheduler import (
     effective_weekdays,
     schedule,
 )
+from app.services.plan_start_times import timetable_start_times
+from app.services.plan_timing import timetable_default
 from app.services.prompts import CHAPTER_LIST_MARKERS
 from app.services.timezones import now_in
 from app.workers.jobs import enqueue
@@ -314,9 +316,16 @@ async def _calendar(
     `generated_through` (the reflow, task 6.8) also treats generated slots dated
     on or before it as kept: a reflow leaves them where they are, so they are
     dates already taken and lessons already given to their chapter."""
-    keep = PlanSlot.provenance != PlanSlotProvenance.generated
+    # A cancelled slot is a kept record of intent, not a lesson: it neither blocks
+    # its date nor counts toward its chapter's share (task 7.4, AV-120).
+    keep = and_(
+        PlanSlot.provenance != PlanSlotProvenance.generated, PlanSlot.cancelled_at.is_(None)
+    )
     if generated_through is not None:
-        keep = or_(keep, PlanSlot.scheduled_date <= generated_through)
+        keep = or_(
+            keep,
+            and_(PlanSlot.scheduled_date <= generated_through, PlanSlot.cancelled_at.is_(None)),
+        )
     plan_breaks = (
         await session.scalars(select(PlanBreak).where(PlanBreak.plan_id == plan.id))
     ).all()
@@ -449,9 +458,15 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     # idempotent and a tutor's edit safe.
     await session.execute(
         delete(PlanSlot)
-        .where(PlanSlot.plan_id == plan.id, PlanSlot.provenance == PlanSlotProvenance.generated)
+        .where(
+            PlanSlot.plan_id == plan.id,
+            PlanSlot.provenance == PlanSlotProvenance.generated,
+            # A cancelled slot is the tutor's record, never regenerated away.
+            PlanSlot.cancelled_at.is_(None),
+        )
         .execution_options(synchronize_session=False)
     )
+    start_times = (await timetable_start_times(session, [group.id])).get(group.id, {})
     session.add_all(
         PlanSlot(
             plan_id=plan.id,
@@ -459,6 +474,8 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
             scheduled_date=lesson.scheduled_date,
             sequence=lesson.sequence,
             provenance=PlanSlotProvenance.generated,
+            # Defaulted from the weekly timetable; editable per lesson (AV-119).
+            start_time=timetable_default(start_times, lesson.scheduled_date),
         )
         for lesson in lessons_out
     )

@@ -153,6 +153,7 @@ TUTOR_ONLY = [
     "/api/v1/me/today-lessons",
     "/api/v1/readiness/weights",
     "/api/v1/submissions/review-queue",
+    "/api/v1/today/reminders",
     "/api/v1/syllabus-uploads",
 ]
 

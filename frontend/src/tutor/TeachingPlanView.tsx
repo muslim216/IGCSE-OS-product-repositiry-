@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptPlan,
+  cancelPlanSlot,
   draftPlan,
   editPlanSlot,
   getPlan,
@@ -36,6 +37,13 @@ function localDate(instant: string): string {
     year: "numeric",
   });
 }
+
+/** "17:00:00" -> "17:00". null stays null: an unknown time is not midnight. */
+function hhmm(time: string | null | undefined): string | null {
+  return time ? time.slice(0, 5) : null;
+}
+
+type SlotPatch = { scheduled_date?: string; chapter_id?: number; start_time?: string };
 
 /** The Monday of the ISO date's week, as an ISO date (UTC arithmetic, no timezone drift). */
 function weekStart(iso: string): string {
@@ -187,6 +195,9 @@ function SlotRow({
   locked,
   saving,
   onSave,
+  onCancel,
+  cancelling = false,
+  cancelBusy = false,
 }: {
   slot: PlanSlot;
   chapters: Chapter[];
@@ -198,14 +209,21 @@ function SlotRow({
   /** A draft job is running and will replace generated slots under the tutor's hands. */
   locked: boolean;
   saving: boolean;
-  onSave: (patch: { scheduled_date?: string; chapter_id?: number }, done: () => void) => void;
+  onSave: (patch: SlotPatch, done: () => void) => void;
+  /** Only the accepted plan's untaught lessons can be cancelled (AV-120). */
+  onCancel?: () => void;
+  cancelling?: boolean;
+  /** Any cancel is in flight: the shift is one at a time, so none may start. */
+  cancelBusy?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(slot.scheduled_date);
   const [chapterId, setChapterId] = useState(slot.chapter_id);
+  const [startTime, setStartTime] = useState(hhmm(slot.start_time) ?? "");
 
   if (editing) {
-    const changed = date !== slot.scheduled_date || chapterId !== slot.chapter_id;
+    const startChanged = startTime !== "" && startTime !== hhmm(slot.start_time);
+    const changed = date !== slot.scheduled_date || chapterId !== slot.chapter_id || startChanged;
     return (
       <li className="flex flex-wrap items-end gap-3 px-3 py-2">
         <label className="text-sm text-ink-700">
@@ -215,6 +233,15 @@ function SlotRow({
             aria-label="Lesson date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
+          />
+        </label>
+        <label className="text-sm text-ink-700">
+          <span className="block text-xs text-ink-500">Starts at</span>
+          <Input
+            type="time"
+            aria-label="Lesson start time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
           />
         </label>
         <label className="min-w-40 text-sm text-ink-700">
@@ -249,6 +276,7 @@ function SlotRow({
               {
                 ...(date !== slot.scheduled_date ? { scheduled_date: date } : {}),
                 ...(chapterId !== slot.chapter_id ? { chapter_id: chapterId } : {}),
+                ...(startChanged ? { start_time: startTime } : {}),
               },
               () => setEditing(false),
             )
@@ -262,6 +290,7 @@ function SlotRow({
           onClick={() => {
             setDate(slot.scheduled_date);
             setChapterId(slot.chapter_id);
+            setStartTime(hhmm(slot.start_time) ?? "");
             setEditing(false);
           }}
         >
@@ -270,33 +299,63 @@ function SlotRow({
       </li>
     );
   }
+  const taught = slot.provenance === "confirmed" || slot.provenance === "completed";
   return (
     <li className="flex items-center justify-between gap-3 px-3 py-2">
       <span className="min-w-0 text-sm text-ink-700">
-        <span className="tabular-nums text-ink-500">{humanDate(slot.scheduled_date)}</span>{" "}
-        <span className="font-medium text-ink-900">
+        <span className="tabular-nums text-ink-500">
+          {humanDate(slot.scheduled_date)}
+          {hhmm(slot.start_time) && ` · ${hhmm(slot.start_time)}`}
+        </span>{" "}
+        <span className={slot.cancelled ? "text-ink-500 line-through" : "font-medium text-ink-900"}>
           {slot.chapter_code} {slot.chapter_title}
         </span>
+        {slot.cancelled && (
+          <span className="ml-2 rounded-full bg-risk-100 px-2 py-0.5 text-xs text-risk-600">
+            cancelled
+          </span>
+        )}
+        {slot.lesson_origin === "plan" && (
+          <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
+            Recorded from the plan
+          </span>
+        )}
         {slot.provenance === "manually_modified" && (
           <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">
             hand-edited
           </span>
         )}
-        {(slot.provenance === "confirmed" || slot.provenance === "completed") && (
+        {taught && (
           <span className="ml-2 rounded-full bg-ok-100 px-2 py-0.5 text-xs text-ok-700">
             taught
           </span>
         )}
       </span>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Edit the ${humanDate(slot.scheduled_date)} lesson`}
-        disabled={locked}
-        onClick={() => setEditing(true)}
-      >
-        Edit
-      </Button>
+      {!slot.cancelled && (
+        <span className="flex shrink-0 items-center gap-1">
+          {onCancel && !taught && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Cancel the ${humanDate(slot.scheduled_date)} lesson`}
+              disabled={locked || cancelBusy}
+              loading={cancelling}
+              onClick={onCancel}
+            >
+              Cancel lesson
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Edit the ${humanDate(slot.scheduled_date)} lesson`}
+            disabled={locked}
+            onClick={() => setEditing(true)}
+          >
+            Edit
+          </Button>
+        </span>
+      )}
     </li>
   );
 }
@@ -310,6 +369,9 @@ function SlotList({
   locked = false,
   saving,
   onSave,
+  onCancel,
+  cancellingId = null,
+  cancelBusy = false,
 }: {
   slots: PlanSlot[];
   chapters: Chapter[];
@@ -318,11 +380,10 @@ function SlotList({
   onRetryChapters: () => void;
   locked?: boolean;
   saving: boolean;
-  onSave: (
-    slotId: number,
-    patch: { scheduled_date?: string; chapter_id?: number },
-    done: () => void,
-  ) => void;
+  onSave: (slotId: number, patch: SlotPatch, done: () => void) => void;
+  onCancel?: (slotId: number) => void;
+  cancellingId?: number | null;
+  cancelBusy?: boolean;
 }) {
   return (
     <div className="mt-3 space-y-4">
@@ -343,6 +404,9 @@ function SlotList({
                 locked={locked}
                 saving={saving}
                 onSave={(patch, done) => onSave(slot.id, patch, done)}
+                onCancel={onCancel ? () => onCancel(slot.id) : undefined}
+                cancelling={cancellingId === slot.id}
+                cancelBusy={cancelBusy}
               />
             ))}
           </ul>
@@ -402,6 +466,8 @@ export default function TeachingPlanView({
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmingReplan, setConfirmingReplan] = useState(false);
+  // Said when a cancelled lesson could not be rescheduled (AV-120).
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
   const draft = useMutation({
@@ -436,12 +502,25 @@ export default function TeachingPlanView({
       setError(friendlyError(err));
     },
   });
+  const cancelSlot = useMutation({
+    mutationFn: (slotId: number) => cancelPlanSlot(groupId, slotId),
+    onMutate: () => {
+      setError(null);
+      setNotice(null);
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(["plan", groupId], result.plan);
+      // The shift moved lessons the home and the next-lesson suggestion read.
+      for (const key of [["today"], ["lesson-reminders"], ["next-lesson", groupId]]) {
+        queryClient.invalidateQueries({ queryKey: key });
+      }
+      if (!result.shifted) setNotice(result.message ?? null);
+    },
+    onError: (err) => setError(friendlyError(err)),
+  });
   const edit = useMutation({
-    mutationFn: (v: {
-      slotId: number;
-      patch: { scheduled_date?: string; chapter_id?: number };
-      done: () => void;
-    }) => editPlanSlot(groupId, v.slotId, v.patch),
+    mutationFn: (v: { slotId: number; patch: SlotPatch; done: () => void }) =>
+      editPlanSlot(groupId, v.slotId, v.patch),
     onMutate: () => setError(null),
     onSuccess: (_saved, v) => {
       v.done();
@@ -469,11 +548,8 @@ export default function TeachingPlanView({
   const proposedSlots = proposed?.slots ?? [];
   const canAccept =
     !!proposed && !drafting && proposed.outcome?.status === "drafted" && proposedSlots.length > 0;
-  const onSave = (
-    slotId: number,
-    patch: { scheduled_date?: string; chapter_id?: number },
-    done: () => void,
-  ) => edit.mutate({ slotId, patch, done });
+  const onSave = (slotId: number, patch: SlotPatch, done: () => void) =>
+    edit.mutate({ slotId, patch, done });
 
   // Any existing draft is replaced by a re-plan (its inputs and breaks too, not
   // only its slots), so it is confirmed whenever one exists.
@@ -506,6 +582,9 @@ export default function TeachingPlanView({
           onRetryChapters={() => chapters.refetch()}
           saving={edit.isPending}
           onSave={onSave}
+          onCancel={(slotId) => cancelSlot.mutate(slotId)}
+          cancellingId={cancelSlot.isPending ? (cancelSlot.variables ?? null) : null}
+          cancelBusy={cancelSlot.isPending}
         />
       )}
     </div>
@@ -535,6 +614,12 @@ export default function TeachingPlanView({
       {error && (
         <p role="alert" className="mt-3 rounded-md bg-risk-100 px-3 py-2 text-sm text-risk-600">
           {error}
+        </p>
+      )}
+
+      {notice && (
+        <p role="status" className="mt-3 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
+          {notice}
         </p>
       )}
 

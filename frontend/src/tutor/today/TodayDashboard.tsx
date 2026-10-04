@@ -14,6 +14,7 @@ import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
 import { ABSENT, REASON_LABELS } from "../../lib/labels";
 import { coverageLabel, isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import BehindClasses from "./BehindClasses";
+import LessonReminders from "./LessonReminders";
 import ChapterPrompts from "./ChapterPrompts";
 import ClassNarrative from "./ClassNarrative";
 import CreateLessonModal from "./CreateLessonModal";
@@ -112,11 +113,16 @@ export default function TodayDashboard() {
 
   if (today.isError || !today.data) {
     return (
-      <ErrorState
-        title="Today couldn't be loaded"
-        error={today.error}
-        onRetry={() => today.refetch()}
-      />
+      <>
+        <ErrorState
+          title="Today couldn't be loaded"
+          error={today.error}
+          onRetry={() => today.refetch()}
+        />
+        {/* Fetches its own data: a lesson about to start must not hide behind a
+            failed home aggregate. */}
+        <LessonReminders />
+      </>
     );
   }
 
@@ -213,6 +219,10 @@ export default function TodayDashboard() {
           )}
         </Section>
       )}
+
+      {/* A planned lesson starting within 15 minutes (AV-120). Fetches its own
+          data and renders nothing when there is none. */}
+      <LessonReminders />
 
       {/* Not suppressed on a clear day: it is about next week's preparation, not
           today's backlog, and the lookahead is its whole point. */}

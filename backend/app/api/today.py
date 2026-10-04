@@ -20,7 +20,13 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import DbSession, TutorUser
 from app.models import Group, UserRole
+from app.schemas.teaching_plan import (
+    LessonReminderOut,
+    NextLessonChapterOut,
+    NextLessonTopicOut,
+)
 from app.schemas.today import ClassOverview, TodayView
+from app.services.lesson_reminders import due_reminders
 from app.services.today import build_class_overview, build_today
 
 router = APIRouter(prefix="/today", tags=["today"])
@@ -29,6 +35,27 @@ router = APIRouter(prefix="/today", tags=["today"])
 @router.get("", response_model=TodayView)
 async def today_view(db: DbSession, user: TutorUser) -> TodayView:
     return await build_today(db, user)
+
+
+@router.get("/reminders", response_model=list[LessonReminderOut])
+async def lesson_reminders(db: DbSession, user: TutorUser) -> list[LessonReminderOut]:
+    """Planned lessons starting within 15 minutes, or under way, with what the plan
+    says they cover (task 7.4, AV-120). In-app only; computed at read time."""
+    return [
+        LessonReminderOut(
+            slot_id=r.slot_id,
+            group_id=r.group_id,
+            group_name=r.group_name,
+            scheduled_date=r.scheduled_date,
+            start_time=r.start_time,
+            starts_at=r.starts_at,
+            chapter=NextLessonChapterOut(
+                id=r.chapter.id, code=r.chapter.code, title=r.chapter.title
+            ),
+            topics=[NextLessonTopicOut(id=t.id, code=t.code, title=t.title) for t in r.topics],
+        )
+        for r in await due_reminders(db, user)
+    ]
 
 
 @router.get("/classes/{group_id}", response_model=ClassOverview)

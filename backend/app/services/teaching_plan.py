@@ -7,7 +7,7 @@ value is a 422 from the API rather than an IntegrityError 500.
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +21,7 @@ from app.models import (
     Job,
     JobStatus,
     Lesson,
+    LessonOrigin,
     PlanBreak,
     PlanSlot,
     PlanSlotProvenance,
@@ -42,6 +43,8 @@ from app.schemas.teaching_plan import (
     ReflowOut,
 )
 from app.services.plan_drafting import PLAN_DRAFT_JOB, enqueue_plan_draft, renumber_slots
+from app.services.plan_start_times import timetable_start_times
+from app.services.plan_timing import split_topics, timetable_default
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 
 
@@ -82,9 +85,21 @@ async def accepted_plan_for_group(session: AsyncSession, group_id: int) -> Teach
     return await _plan_with_status(session, group_id, TeachingPlanStatus.accepted)
 
 
+#: Key in `TeachingPlan.draft_result`: ids of cancelled slots whose content was
+#: not rescheduled (task 7.4). A key rather than a column because 7.4 adds no
+#: migration. Written by `plan_cancel` and `plan_lessons`; read by `plan_progress`.
+UNRESCHEDULED_KEY = "unrescheduled_cancellations"
+
 #: A slot in either state is already spoken for: `confirmed` is a lesson in hand,
 #: `completed` one that happened (E15). Neither is "next".
 STARTED_PROVENANCE = (PlanSlotProvenance.confirmed, PlanSlotProvenance.completed)
+
+
+def note_unrescheduled(plan: TeachingPlan, slot_id: int) -> None:
+    """Record that this cancelled slot's content was not rescheduled, so "behind"
+    reports it. Reassigned, not mutated, so the JSON column registers the change."""
+    held = (plan.draft_result or {}).get(UNRESCHEDULED_KEY) or []
+    plan.draft_result = {**(plan.draft_result or {}), UNRESCHEDULED_KEY: sorted({*held, slot_id})}
 
 
 @dataclass(frozen=True)
@@ -94,41 +109,89 @@ class NextLesson:
     topics: list[Topic]
 
 
-async def next_unstarted_slot(session: AsyncSession, group_id: int) -> NextLesson | None:
-    """The earliest slot of the *accepted* plan that no lesson has started, with
-    its chapter's topics (task 6.5, AV-17). None when there is no accepted plan
-    or nothing is left.
+def effective_start_time(
+    slot_start: time | None, by_weekday: dict[int, time], day: date
+) -> time | None:
+    """The slot's own start time, else the timetable's for its weekday, else None.
+    The one read-time fallback for slots that predate the column (`DB-9`): NULL is
+    unknown, never midnight."""
+    return slot_start if slot_start is not None else timetable_default(by_weekday, day)
 
-    Goes through `accepted_plan_for_group`, so a draft is never suggested from.
-    "Unstarted" is `lesson_id IS NULL` and provenance not confirmed/completed;
-    both are checked because 6.8 may mark a slot taught without a lesson row.
-    Topics are the chapter's own, inside the class's subject (`SEC-8`).
-    """
-    plan = await accepted_plan_for_group(session, group_id)
-    if plan is None:
-        return None
-    slot = await session.scalar(
-        select(PlanSlot)
-        .where(
-            PlanSlot.plan_id == plan.id,
-            PlanSlot.lesson_id.is_(None),
-            PlanSlot.provenance.not_in(STARTED_PROVENANCE),
-        )
-        .order_by(PlanSlot.scheduled_date, PlanSlot.sequence, PlanSlot.id)
-        .limit(1)
-    )
-    if slot is None:
-        return None
-    chapter = await session.get(Chapter, slot.chapter_id)
-    if chapter is None:  # RESTRICT on the FK makes this unreachable; never invent one.
-        return None
-    topics = list(
+
+async def chapter_topics(session: AsyncSession, chapter: Chapter) -> list[Topic]:
+    """The chapter's topics in teaching order, inside its own subject (`SEC-8`)."""
+    return list(
         await session.scalars(
             select(Topic)
             .where(Topic.chapter_id == chapter.id, Topic.subject_id == chapter.subject_id)
             .order_by(Topic.id)
         )
     )
+
+
+async def topic_share(
+    session: AsyncSession, *, plan_id: int, slot: PlanSlot, chapter: Chapter
+) -> list[Topic]:
+    """The slot's share of its chapter's topics (task 7.4, AV-119): the chapter's
+    topics split in order across the chapter's non-cancelled planned lessons,
+    ordered by date then sequence. A cancelled slot is not a lesson, so it takes
+    no share and its replacement takes its place in the order."""
+    ordered = list(
+        await session.scalars(
+            select(PlanSlot.id)
+            .where(
+                PlanSlot.plan_id == plan_id,
+                PlanSlot.chapter_id == chapter.id,
+                PlanSlot.cancelled_at.is_(None),
+            )
+            .order_by(PlanSlot.scheduled_date, PlanSlot.sequence, PlanSlot.id)
+        )
+    )
+    if slot.id not in ordered:
+        return []
+    return split_topics(
+        await chapter_topics(session, chapter), ordered.index(slot.id), len(ordered)
+    )
+
+
+async def next_unstarted_slot(
+    session: AsyncSession, group_id: int, slot_id: int | None = None
+) -> NextLesson | None:
+    """The earliest slot of the *accepted* plan that no lesson has started, with
+    its share of the chapter's topics (task 6.5, AV-17; the share is 7.4, AV-119).
+    None when there is no accepted plan or nothing is left.
+
+    Goes through `accepted_plan_for_group`, so a draft is never suggested from.
+    "Unstarted" is `lesson_id IS NULL` and provenance not confirmed/completed;
+    both are checked because 6.8 may mark a slot taught without a lesson row. A
+    cancelled slot is not a lesson to suggest. Topics are the same share the
+    auto-record writes, so the suggestion and the record agree.
+
+    `slot_id` asks about one specific slot instead (the reminder's "Review"
+    opens the form for the lesson about to start, which is not always the
+    earliest unstarted one). It must still be an unstarted, uncancelled slot of
+    this class's accepted plan, or the answer is None.
+    """
+    plan = await accepted_plan_for_group(session, group_id)
+    if plan is None:
+        return None
+    query = select(PlanSlot).where(
+        PlanSlot.plan_id == plan.id,
+        PlanSlot.lesson_id.is_(None),
+        PlanSlot.provenance.not_in(STARTED_PROVENANCE),
+        PlanSlot.cancelled_at.is_(None),
+    )
+    if slot_id is not None:
+        query = query.where(PlanSlot.id == slot_id)
+    slot = await session.scalar(
+        query.order_by(PlanSlot.scheduled_date, PlanSlot.sequence, PlanSlot.id).limit(1)
+    )
+    if slot is None:
+        return None
+    chapter = await session.get(Chapter, slot.chapter_id)
+    if chapter is None:  # RESTRICT on the FK makes this unreachable; never invent one.
+        return None
+    topics = await topic_share(session, plan_id=plan.id, slot=slot, chapter=chapter)
     return NextLesson(slot=slot, chapter=chapter, topics=topics)
 
 
@@ -372,7 +435,10 @@ def _reflow(raw: dict | None) -> ReflowOut | None:
 
 
 def _outcome(raw: dict | None, chapters: dict[int, Chapter]) -> DraftOutcomeOut | None:
-    if not raw:
+    # `draft_result` also carries plan-level notes written after drafting (task
+    # 7.4's unrescheduled cancellations); a dict with no drafting status is not
+    # a drafting outcome and must not read as a failed one.
+    if not raw or "status" not in raw:
         return None
     failure = raw.get("failure") or {}
     entries = []
@@ -402,7 +468,12 @@ def _outcome(raw: dict | None, chapters: dict[int, Chapter]) -> DraftOutcomeOut 
     )
 
 
-def _slot_out(slot: PlanSlot, chapter: Chapter) -> PlanSlotOut:
+def _slot_out(
+    slot: PlanSlot,
+    chapter: Chapter,
+    by_weekday: dict[int, time],
+    lesson_origin: LessonOrigin | None = None,
+) -> PlanSlotOut:
     return PlanSlotOut(
         id=slot.id,
         chapter_id=chapter.id,
@@ -411,6 +482,10 @@ def _slot_out(slot: PlanSlot, chapter: Chapter) -> PlanSlotOut:
         scheduled_date=slot.scheduled_date,
         sequence=slot.sequence,
         provenance=slot.provenance.value,
+        start_time=effective_start_time(slot.start_time, by_weekday, slot.scheduled_date),
+        cancelled=slot.cancelled_at is not None,
+        lesson_id=slot.lesson_id,
+        lesson_origin=lesson_origin.value if lesson_origin else None,
     )
 
 
@@ -433,6 +508,17 @@ async def plan_views(session: AsyncSession, plans: list[TeachingPlan]) -> dict[i
         )
     ).all()
     chapter_ids = {c.id for _, c in slot_rows}
+    timetable = await timetable_start_times(session, [p.group_id for p in plans])
+    lesson_ids = {slot.lesson_id for slot, _ in slot_rows if slot.lesson_id is not None}
+    origins: dict[int, LessonOrigin] = {}
+    if lesson_ids:
+        origins = dict(
+            (
+                await session.execute(
+                    select(Lesson.id, Lesson.origin).where(Lesson.id.in_(lesson_ids))
+                )
+            ).all()  # type: ignore[arg-type]
+        )
     for plan in plans:
         chapter_ids.update(i["chapter_id"] for i in (plan.draft_result or {}).get("chapters", []))
     chapters = {
@@ -450,7 +536,14 @@ async def plan_views(session: AsyncSession, plans: list[TeachingPlan]) -> dict[i
             past_paper_start_date=plan.past_paper_start_date,
             breaks=[PlanBreakOut.model_validate(b) for b in plan.breaks],
             slots=[
-                _slot_out(slot, chapter) for slot, chapter in slot_rows if slot.plan_id == plan.id
+                _slot_out(
+                    slot,
+                    chapter,
+                    timetable.get(plan.group_id, {}),
+                    origins.get(slot.lesson_id) if slot.lesson_id is not None else None,
+                )
+                for slot, chapter in slot_rows
+                if slot.plan_id == plan.id
             ],
             outcome=_outcome(plan.draft_result, chapters),
             drafting=job in (JobStatus.pending, JobStatus.running),
@@ -611,6 +704,11 @@ async def _carry_lesson_links(
         await session.scalars(select(Lesson.id).where(Lesson.id.in_([r[0] for r in linked])))
     )
     linked = [row for row in linked if row[0] in alive]
+    lesson_starts: dict[int, time | None] = dict(
+        (await session.execute(select(Lesson.id, Lesson.start_time).where(Lesson.id.in_(alive))))
+        .tuples()
+        .all()
+    )
     free = list(
         (
             await session.scalars(
@@ -658,6 +756,8 @@ async def _carry_lesson_links(
             scheduled_date=scheduled_date,
             sequence=0,
             provenance=provenance,
+            # The lesson's own start time: the slot's was on a plan being replaced.
+            start_time=lesson_starts.get(lesson_id),
         )
         session.add(fresh)
         assigned[lesson_id] = fresh
@@ -674,6 +774,7 @@ async def edit_slot(
     slot_id: int,
     scheduled_date: date | None,
     chapter_id: int | None,
+    start_time: time | None = None,
 ) -> PlanSlotOut:
     """Move a slot or change its chapter, on the draft or the accepted plan.
 
@@ -712,6 +813,8 @@ async def edit_slot(
     if reread is None:
         raise PlanSlotNotFound(slot_id)
     slot = reread
+    if slot.cancelled_at is not None:
+        raise PlanStateError("That lesson was cancelled; it cannot be edited")
 
     new_chapter_id = chapter_id if chapter_id is not None else slot.chapter_id
     chapter = await session.scalar(
@@ -726,9 +829,20 @@ async def edit_slot(
         if brk.start_date <= new_date <= brk.end_date:
             raise PlanInputError(f"That date falls in the break '{brk.label}'")
 
-    if new_date != slot.scheduled_date or new_chapter_id != slot.chapter_id:
+    by_weekday = (await timetable_start_times(session, [group.id])).get(group.id, {})
+    date_moved = new_date != slot.scheduled_date
+    start_changed = start_time is not None and start_time != slot.start_time
+    if date_moved or new_chapter_id != slot.chapter_id or start_changed:
+        old_weekday = slot.scheduled_date.weekday()
         slot.scheduled_date = new_date
         slot.chapter_id = new_chapter_id
+        if start_time is not None:
+            slot.start_time = start_time
+        elif date_moved and (slot.start_time is None or new_date.weekday() != old_weekday):
+            # A new weekday has a different timetable time; keeping the old time
+            # would put the lesson at an hour that class never meets. NULL when
+            # the timetable has none for that day (never midnight, `DB-9`).
+            slot.start_time = timetable_default(by_weekday, new_date)
         # A confirmed or completed slot records a lesson that is happening or
         # happened (E15); moving it must not erase that. Only a slot that is
         # still the plan's intention becomes the tutor's own.
@@ -741,4 +855,9 @@ async def edit_slot(
         await renumber_slots(session, plan.id)
         await session.commit()
         await session.refresh(slot)
-    return _slot_out(slot, chapter)
+    origin = (
+        await session.scalar(select(Lesson.origin).where(Lesson.id == slot.lesson_id))
+        if slot.lesson_id is not None
+        else None
+    )
+    return _slot_out(slot, chapter, by_weekday, origin)

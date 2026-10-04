@@ -44,6 +44,7 @@ from app.api import (
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
+from app.services.lesson_autorecord import ensure_lesson_autorecord_scheduled
 from app.services.narrative import ensure_narrative_sweep_scheduled
 from app.services.past_paper_phase import ensure_past_paper_phase_sweep_scheduled
 from app.services.rate_limit import close_all_limiters, rate_limit_health
@@ -81,6 +82,15 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:  # noqa: BLE001 — startup must survive a cold database
         log.exception("could not schedule the past-paper-phase sweep at startup")
+
+    # The same floor under the plan auto-record sweep (AV-119): it re-arms itself,
+    # and a lost row would stop lessons counting as taught without a sound.
+    try:
+        async with async_session() as session:
+            await ensure_lesson_autorecord_scheduled(session)
+            await session.commit()
+    except Exception:  # noqa: BLE001 — startup must survive a cold database
+        log.exception("could not schedule the lesson auto-record sweep at startup")
 
     # Runs inside the API by default, which is the deployment today. Setting
     # RUN_WORKER_IN_API=false is half of the cutover to a separate worker
