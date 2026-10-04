@@ -4,21 +4,11 @@ the student's and the parent's endpoints — the core assertion of the task."""
 import pytest
 
 from app.db import async_session
-from app.models import FactorConfidence, ParentLink, Subject, Topic, User, UserRole
+from app.models import FactorConfidence, ParentLink, Topic, User, UserRole
 from app.services.class_verdicts import class_verdicts
-from app.services.grade_boundaries import set_org_boundaries
-from tests.factories import subject_defaults, write_v2_snapshot
+from tests.factories import chemistry_with_topics, write_v2_snapshot
 
 API = "/api/v1"
-BOUNDS = [
-    {"grade": "9", "min": 90},
-    {"grade": "8", "min": 80},
-    {"grade": "7", "min": 70},
-    {"grade": "6", "min": 60},
-    {"grade": "5", "min": 50},
-    {"grade": "4", "min": 40},
-    {"grade": "U", "min": 0},
-]
 
 
 async def _login(client, identifier, password="password123"):
@@ -31,25 +21,9 @@ async def _login(client, identifier, password="password123"):
 @pytest.fixture
 async def world(client, tutor):
     async with async_session() as session:
-        subject = Subject(
-            **await subject_defaults(session),
-            exam_board="Edexcel IGCSE",
-            code="4CH1",
-            name="Chemistry",
-            grade_scale="9-1",
+        subject_id, topic_ids = await chemistry_with_topics(
+            session, ["Atomic structure", "Ionic bonding", "Moles"]
         )
-        session.add(subject)
-        await session.flush()
-        topics = [
-            Topic(subject_id=subject.id, code="1", title="Atomic structure", weight=1.0),
-            Topic(subject_id=subject.id, code="2", title="Ionic bonding", weight=1.0),
-            Topic(subject_id=subject.id, code="3", title="Moles", weight=1.0),
-        ]
-        session.add_all(topics)
-        await set_org_boundaries(session, subject.organization_id, subject.id, BOUNDS)
-        await session.commit()
-        subject_id = subject.id
-        topic_ids = [t.id for t in topics]
 
     group = (
         await client.post(

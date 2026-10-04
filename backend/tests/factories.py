@@ -20,6 +20,7 @@ from app.models import (
     ReadinessSnapshot,
     Subject,
     SubjectLevel,
+    Topic,
 )
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 
@@ -107,6 +108,40 @@ async def subject_defaults(session) -> dict:
     it actually cares about: `Subject(**await subject_defaults(session), code=...)`.
     """
     return {"organization_id": await org_id(session), "level": SubjectLevel.igcse}
+
+
+NINE_TO_ONE_BOUNDS = [
+    {"grade": "9", "min": 90},
+    {"grade": "8", "min": 80},
+    {"grade": "7", "min": 70},
+    {"grade": "6", "min": 60},
+    {"grade": "5", "min": 50},
+    {"grade": "4", "min": 40},
+    {"grade": "U", "min": 0},
+]
+
+
+async def chemistry_with_topics(session, titles: list[str]) -> tuple[int, list[int]]:
+    """A 9-1 Chemistry subject with the given topics (codes "1", "2", ...) and
+    round-number boundaries, committed. Returns (subject_id, topic_ids) so a
+    verdict test can state only the topics it reasons about."""
+    subject = Subject(
+        **await subject_defaults(session),
+        exam_board="Edexcel IGCSE",
+        code="4CH1",
+        name="Chemistry",
+        grade_scale="9-1",
+    )
+    session.add(subject)
+    await session.flush()
+    topics = [
+        Topic(subject_id=subject.id, code=str(i), title=t, weight=1.0)
+        for i, t in enumerate(titles, start=1)
+    ]
+    session.add_all(topics)
+    await set_org_boundaries(session, subject.organization_id, subject.id, NINE_TO_ONE_BOUNDS)
+    await session.commit()
+    return subject.id, [t.id for t in topics]
 
 
 async def subject_for_tutor(session, email: str, **kwargs) -> Subject:

@@ -5,42 +5,17 @@ import pytest
 from sqlalchemy import event
 
 from app.db import async_session, engine
-from app.models import FactorConfidence, Subject, Topic
+from app.models import FactorConfidence, Subject
 from app.services.grade_boundaries import set_org_boundaries
-from tests.factories import subject_defaults, write_v2_snapshot
+from tests.factories import chemistry_with_topics, write_v2_snapshot
 
 API = "/api/v1"
-BOUNDS = [
-    {"grade": "9", "min": 90},
-    {"grade": "8", "min": 80},
-    {"grade": "7", "min": 70},
-    {"grade": "6", "min": 60},
-    {"grade": "5", "min": 50},
-    {"grade": "4", "min": 40},
-    {"grade": "U", "min": 0},
-]
 
 
 @pytest.fixture
 async def world(client, tutor):
     async with async_session() as session:
-        subject = Subject(
-            **await subject_defaults(session),
-            exam_board="Edexcel IGCSE",
-            code="4CH1",
-            name="Chemistry",
-            grade_scale="9-1",
-        )
-        session.add(subject)
-        await session.flush()
-        topics = [
-            Topic(subject_id=subject.id, code="1", title="Atomic structure", weight=1.0),
-            Topic(subject_id=subject.id, code="2", title="Ionic bonding", weight=1.0),
-        ]
-        session.add_all(topics)
-        await set_org_boundaries(session, subject.organization_id, subject.id, BOUNDS)
-        await session.commit()
-        ids = (subject.id, [t.id for t in topics])
+        ids = await chemistry_with_topics(session, ["Atomic structure", "Ionic bonding"])
     group = (
         await client.post(
             f"{API}/groups",
