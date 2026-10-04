@@ -1,6 +1,6 @@
 """Attendance read surfaces for student, parent and tutor (task 7.2, AV-44)."""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import update
@@ -41,7 +41,7 @@ async def history(client, tutor, group, student):
         await s.execute(
             update(GroupMember)
             .where(GroupMember.student_id == sid)
-            .values(created_at=date.today() - timedelta(days=60))
+            .values(created_at=datetime.now(timezone.utc) - timedelta(days=60))
         )
         await s.commit()
     await _mark(client, tutor, group, sid, 10, "present")
@@ -76,8 +76,15 @@ async def test_no_marks_gives_null_rate_not_zero(client, tutor, group, student):
 
 
 async def test_lesson_before_joining_is_not_counted_as_not_taken(client, tutor, group, student):
+    async with async_session() as s:
+        await s.execute(
+            update(GroupMember)
+            .where(GroupMember.student_id == student["user"]["id"])
+            .values(created_at=datetime.now(timezone.utc) - timedelta(days=2))
+        )
+        await s.commit()
     await _lesson(client, tutor, group, date=_day(3))
-    await _lesson(client, tutor, group, date=date.today().isoformat())
+    await _lesson(client, tutor, group, date=_day(1))
     body = (await client.get(f"{API}/me/attendance", headers=student["headers"])).json()
     assert (body["lessons"], body["not_taken"]) == (1, 1)
 
@@ -141,6 +148,31 @@ async def test_service_never_reads_another_organizations_lessons(client, history
         result = await student_attendance(s, student_id=history, organization_id=rival_org)
     assert result.classes == []
     assert result.rate is None
+
+
+async def _today_lesson(client, tutor, group, **extra):
+    return await _lesson(client, tutor, group, date=date.today().isoformat(), **extra)
+
+
+async def test_a_lesson_later_today_is_not_yet_not_taken(client, tutor, group, student):
+    # Student joined "now"; a lesson with no start time, or one starting in the
+    # future, cannot have been missed yet. Start 23:59 ends after any test clock
+    # except the last minute, so use an organization zone far ahead of it.
+    await _today_lesson(client, tutor, group)  # no start_time
+    await _today_lesson(client, tutor, group, start_time="23:59:00")
+    body = (await client.get(f"{API}/me/attendance", headers=student["headers"])).json()
+    assert body["lessons"] == 0
+    assert body["not_taken"] == 0
+
+
+async def test_a_lesson_earlier_today_that_has_ended_is_not_taken(client, tutor, group, student):
+    # 00:00 for 15 minutes has ended unless the test runs in the first quarter hour (UTC).
+    now = datetime.now(timezone.utc)
+    if now.hour == 0 and now.minute < 20:
+        pytest.skip("too close to midnight UTC to assert an ended lesson")
+    await _today_lesson(client, tutor, group, start_time="00:00:00", duration_min=15)
+    body = (await client.get(f"{API}/me/attendance", headers=student["headers"])).json()
+    assert (body["lessons"], body["not_taken"]) == (1, 1)
 
 
 async def _second_tutor_class(group, student_id, mark_state):

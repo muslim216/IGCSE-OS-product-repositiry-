@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { myAttendance, studentAttendance, type ClassAttendance } from "../api/attendance";
+import {
+  myAttendance,
+  studentAttendance,
+  type ClassAttendance,
+  type StudentAttendance,
+} from "../api/attendance";
 import { ABSENT } from "../lib/labels";
 import { shortDay } from "../lib/planDates";
 import { EmptyState, SectionCard, SectionHeader } from "./ui";
@@ -23,6 +28,23 @@ export function rateSentence(present: number, absent: number, notTaken: number):
   return notTaken > 0 ? `${base} · ${notTaken} not taken` : base;
 }
 
+/** A 200 whose body is not the contract reads as a failed load, not a crash. */
+function wellFormed(data: StudentAttendance | undefined): data is StudentAttendance {
+  return (
+    Array.isArray(data?.classes) &&
+    data.classes.every(
+      (c) =>
+        c !== null &&
+        typeof c === "object" &&
+        typeof c.group_id === "number" &&
+        typeof c.present === "number" &&
+        typeof c.absent === "number" &&
+        typeof c.not_taken === "number" &&
+        Array.isArray(c.recent),
+    )
+  );
+}
+
 export default function AttendancePanel({
   studentId,
   own = false,
@@ -43,7 +65,7 @@ export default function AttendancePanel({
         title="Attendance"
         description="Recorded by the tutor. Not part of the readiness score."
       />
-      {attendance.isError || !Array.isArray(attendance.data?.classes) ? (
+      {attendance.isError || !wellFormed(attendance.data) ? (
         // A malformed 200 reads as a failed load rather than crashing the page.
         <p className="mt-3 text-sm text-ink-500">{ABSENT.loadFailed}</p>
       ) : attendance.data.classes.length === 0 ? (

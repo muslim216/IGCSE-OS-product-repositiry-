@@ -269,6 +269,8 @@ export default function ProgressPage() {
         {/* All-subject criteria need no class subject, and the parent's view
             shows them regardless — the student must not see less. */}
         <CustomCriteriaPanel studentId={readiness.data.student_id} />
+        {/* Attendance does not depend on readiness evidence. */}
+        <AttendancePanel studentId={readiness.data.student_id} own />
       </div>
     );
   }

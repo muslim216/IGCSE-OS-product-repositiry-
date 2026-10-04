@@ -95,6 +95,12 @@ test("a malformed response shows the load-failed message instead of crashing", a
   expect(screen.getByRole("heading", { name: /attendance/i })).toBeTruthy();
 });
 
+test("a class entry that is not the contract reads as a failed load", async () => {
+  stub({ ...EMPTY, classes: [null] });
+  renderPanel({ studentId: 2 });
+  expect(await screen.findByText(/usually temporary/)).toBeTruthy();
+});
+
 test("a tutor or parent reads by student id", async () => {
   const urls = stub(EMPTY);
   renderPanel({ studentId: 7 });

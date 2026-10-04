@@ -7,7 +7,7 @@ recorded, and is reported as such (`PROD-2`) — never defaulted to absent.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
@@ -265,6 +265,15 @@ def _local_date(moment: datetime, zone: str | None) -> date:
     return moment.astimezone(timezone.utc).date()
 
 
+def _has_ended(lesson: Lesson, now_local: datetime) -> bool:
+    """Whether a lesson dated today has finished, in the organization's zone.
+    Unknown start time means unknown end: not ended."""
+    if lesson.start_time is None:
+        return False
+    end = datetime.combine(lesson.date, lesson.start_time) + timedelta(minutes=lesson.duration_min)
+    return end <= now_local.replace(tzinfo=None)
+
+
 async def student_attendance(
     session: AsyncSession,
     *,
@@ -276,7 +285,8 @@ async def student_attendance(
     """One student's attendance per class, inside one organization. This is the
     single read reports (task 8.6) will call; do not write a second query.
 
-    Counts lessons dated on or before the organization's today. A class the
+    Counts lessons dated on or before the organization's today (an unmarked
+    lesson today only once it has ended). A class the
     student sits in contributes every such lesson; one they have left
     contributes only lessons that carry a mark for them. Lessons held before
     the student joined are not "not taken": `GroupMember.created_at` is the
@@ -293,7 +303,8 @@ async def student_attendance(
     if org is None:
         log.warning("organization %s not found; attendance falls back to UTC", organization_id)
     zone = org.timezone if org else None
-    today = now_in(zone).date()
+    now_local = now_in(zone)
+    today = now_local.date()
 
     member_q = (
         select(GroupMember.group_id, GroupMember.created_at)
@@ -331,6 +342,10 @@ async def student_attendance(
     for lesson, state in (await session.execute(lesson_q)).all():
         joined_on = joined.get(lesson.group_id)
         if state is None and joined_on is not None and lesson.date < joined_on:
+            continue
+        if state is None and lesson.date == today and not _has_ended(lesson, now_local):
+            # Today's lesson is not "not taken" until it is over; with no start
+            # time we cannot tell, so it counts from tomorrow.
             continue
         entry = per_group.setdefault(lesson.group_id, ClassAttendance(lesson.group_id, ""))
         entry.lessons += 1
