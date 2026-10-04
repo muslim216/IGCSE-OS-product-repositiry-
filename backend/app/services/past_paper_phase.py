@@ -52,6 +52,11 @@ SWEEP_JOB = "sweep_past_paper_phase"
 RECOMPUTE_SPACING_SECONDS = 30
 
 
+def utc_today() -> date:
+    """The gate's reference date (UTC). A seam so tests can pin the clock."""
+    return datetime.now(timezone.utc).date()
+
+
 def _aware(value: datetime) -> datetime:
     # SQLite returns tz-naive datetimes where Postgres returns aware ones.
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
@@ -117,23 +122,33 @@ async def pairs_needing_phase_recompute(
     # read, so it never counts either; retrying is bounded to one run per pair
     # per sweep interval. Rows written before `phase_started` existed lack the
     # key and count as not fresh: one recompute, after which they carry it.
-    newest_ready = (
-        select(func.max(ReadinessSnapshot.id))
+    # "Latest" uses the ordering readiness history reads by (created_at DESC,
+    # id DESC), not the highest id, so the two can never disagree.
+    ranked = (
+        select(
+            ReadinessSnapshot.student_id,
+            ReadinessSnapshot.subject_id,
+            ReadinessSnapshot.evaluation_run_id,
+            func.row_number()
+            .over(
+                partition_by=(ReadinessSnapshot.student_id, ReadinessSnapshot.subject_id),
+                order_by=(ReadinessSnapshot.created_at.desc(), ReadinessSnapshot.id.desc()),
+            )
+            .label("rank"),
+        )
         .where(
             ReadinessSnapshot.student_id.in_(students),
             ReadinessSnapshot.status == AiSynthesisStatus.ready,
         )
-        .group_by(ReadinessSnapshot.student_id, ReadinessSnapshot.subject_id)
+        .subquery()
     )
     run_ids = {
         (student_id, subject_id): run_id
         for student_id, subject_id, run_id in (
             await session.execute(
-                select(
-                    ReadinessSnapshot.student_id,
-                    ReadinessSnapshot.subject_id,
-                    ReadinessSnapshot.evaluation_run_id,
-                ).where(ReadinessSnapshot.id.in_(newest_ready))
+                select(ranked.c.student_id, ranked.c.subject_id, ranked.c.evaluation_run_id).where(
+                    ranked.c.rank == 1
+                )
             )
         ).all()
     }
@@ -230,8 +245,7 @@ async def sweep_past_paper_phase(session: AsyncSession, payload: dict) -> None:
     if not settings.readiness_v2_shadow_enabled:
         log.info("past-paper phase sweep: readiness v2 kill switch is off, nothing queued")
         return
-    today = datetime.now(timezone.utc).date()
-    pairs = await pairs_needing_phase_recompute(session, today)
+    pairs = await pairs_needing_phase_recompute(session, utc_today())
     # Read once, not per pair (PERF-1). A running job counts as covering: if it
     # began before the phase opened its snapshot is dated after the start, and
     # if it somehow used the old gate the next sweep re-checks. Selection needs

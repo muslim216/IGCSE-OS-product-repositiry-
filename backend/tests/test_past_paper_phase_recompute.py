@@ -8,7 +8,7 @@ the ordinary debounced v2 run. Assertions are on the queued Job rows: no
 recompute runs here, so no AI provider is reachable (QA-8).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -46,6 +46,13 @@ from tests.factories import (
 from tests.factories import org_id as default_org_id
 
 TODAY = datetime.now(timezone.utc).date()
+
+
+@pytest.fixture(autouse=True)
+def pinned_clock(monkeypatch):
+    """The module's TODAY is fixed at import; pin the sweep to it so a run
+    straddling UTC midnight cannot disagree with the dates the tests wrote."""
+    monkeypatch.setattr("app.services.past_paper_phase.utc_today", lambda: TODAY)
 
 
 @pytest.fixture
@@ -261,6 +268,14 @@ async def test_only_the_latest_ready_run_counts(opened):
     assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
 
 
+async def test_latest_is_by_created_at_not_by_highest_id(opened):
+    """Readiness history orders by created_at DESC, id DESC. The higher id here
+    is the OLDER run, so choosing by id would wrongly call the pair fresh."""
+    await _snapshot(opened, phase_started=False)  # newer, lower id
+    await _snapshot(opened, phase_started=True, age_days=5)  # older, higher id
+    assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
+
+
 async def test_failed_run_is_still_due_and_warns(opened, caplog):
     """An AI outage writes a failed snapshot; it must not count as fresh."""
     await _snapshot(opened, status=AiSynthesisStatus.failed)
@@ -400,7 +415,7 @@ async def test_engine_records_the_gate_outcome_in_the_factor_detail(
             world["student_id"],
             world["subject_id"],
             "run-x",
-            now=datetime.now(timezone.utc),
+            now=datetime.combine(TODAY, time(12), tzinfo=timezone.utc),
         )
     row = next(r for r in rows if r.factor == ReadinessFactor.past_paper_performance)
     assert row.detail["phase_started"] is expected
