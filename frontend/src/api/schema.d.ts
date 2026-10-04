@@ -2829,7 +2829,8 @@ export interface paths {
          * Next Lesson
          * @description What the accepted plan says to teach next, to pre-fill the add-lesson form
          *     (task 6.5, AV-17). A suggestion: it creates nothing. `null` when there is no
-         *     accepted plan or no unstarted slot.
+         *     accepted plan or no unstarted slot. `slot_id` asks about that one slot (the
+         *     reminder's Review); another class's or a started slot is `null`, not an error.
          */
         get: operations["next_lesson_api_v1_groups__group_id__plan_next_lesson_get"];
         put?: never;
@@ -2916,6 +2917,28 @@ export interface paths {
         patch: operations["edit_slot_api_v1_groups__group_id__plan_slots__slot_id__patch"];
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/plan/slots/{slot_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Slot
+         * @description Cancel a planned lesson of the accepted plan and shift the plan around it
+         *     (task 7.4, AV-120). No acceptance step. When nothing can be rescheduled the
+         *     lesson stays cancelled and `message` says how to catch up.
+         */
+        post: operations["cancel_slot_api_v1_groups__group_id__plan_slots__slot_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups/{group_id}/plan/inputs": {
         parameters: {
             query?: never;
@@ -2976,6 +2999,27 @@ export interface paths {
         };
         /** Today View */
         get: operations["today_view_api_v1_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/today/reminders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lesson Reminders
+         * @description Planned lessons starting within 15 minutes, or under way, with what the plan
+         *     says they cover (task 7.4, AV-120). In-app only; computed at read time.
+         */
+        get: operations["lesson_reminders_api_v1_today_reminders_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3523,6 +3567,19 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /**
+         * CancelSlotOut
+         * @description The result of cancelling one planned lesson (task 7.4, AV-120).
+         */
+        CancelSlotOut: {
+            /** Shifted */
+            shifted: boolean;
+            /** Moved */
+            moved: number;
+            /** Message */
+            message?: string | null;
+            plan: components["schemas"]["PlanOverview"];
         };
         /**
          * CategoryTally
@@ -4229,6 +4286,37 @@ export interface components {
             meeting_provider?: components["schemas"]["MeetingProvider"] | null;
             /** Meeting Link */
             meeting_link?: string | null;
+        };
+        /**
+         * LessonReminderOut
+         * @description A planned lesson starting within 15 minutes (or under way), for the tutor
+         *     (task 7.4, AV-120). Computed at read time from the accepted plan.
+         */
+        LessonReminderOut: {
+            /** Slot Id */
+            slot_id: number;
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /**
+             * Scheduled Date
+             * Format: date
+             */
+            scheduled_date: string;
+            /**
+             * Start Time
+             * Format: time
+             */
+            start_time: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            chapter: components["schemas"]["NextLessonChapterOut"];
+            /** Topics */
+            topics: components["schemas"]["NextLessonTopicOut"][];
         };
         /** LessonTopicsUpdate */
         LessonTopicsUpdate: {
@@ -5067,16 +5155,29 @@ export interface components {
             sequence: number;
             /** Provenance */
             provenance: string;
+            /** Start Time */
+            start_time?: string | null;
+            /**
+             * Cancelled
+             * @default false
+             */
+            cancelled: boolean;
+            /** Lesson Id */
+            lesson_id?: number | null;
+            /** Lesson Origin */
+            lesson_origin?: string | null;
         };
         /**
          * PlanSlotPatch
-         * @description Either field alone is an edit; neither is not.
+         * @description Any one field alone is an edit; none is not.
          */
         PlanSlotPatch: {
             /** Scheduled Date */
             scheduled_date?: string | null;
             /** Chapter Id */
             chapter_id?: number | null;
+            /** Start Time */
+            start_time?: string | null;
         };
         /** QuestionIn */
         QuestionIn: {
@@ -11437,7 +11538,9 @@ export interface operations {
     };
     next_lesson_api_v1_groups__group_id__plan_next_lesson_get: {
         parameters: {
-            query?: never;
+            query?: {
+                slot_id?: number | null;
+            };
             header?: never;
             path: {
                 group_id: number;
@@ -11595,6 +11698,38 @@ export interface operations {
             };
         };
     };
+    cancel_slot_api_v1_groups__group_id__plan_slots__slot_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+                slot_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelSlotOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     save_inputs_api_v1_groups__group_id__plan_inputs_put: {
         parameters: {
             query?: never;
@@ -11711,6 +11846,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodayView"];
+                };
+            };
+        };
+    };
+    lesson_reminders_api_v1_today_reminders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonReminderOut"][];
                 };
             };
         };

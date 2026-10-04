@@ -20,6 +20,8 @@ from app.services.extraction import (
     extract_past_paper,
 )
 from app.services.google_classroom import sync_classroom
+from app.services.lesson_autorecord import SWEEP_JOB as AUTORECORD_SWEEP_JOB
+from app.services.lesson_autorecord import sweep_planned_lessons
 from app.services.marking import mark_submission
 from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
 from app.services.meeting_integrations import IMPORT_JOB, import_meeting_attendance
@@ -90,6 +92,9 @@ def register_all() -> None:
     register_handler(SWEEP_JOB, sweep_parent_narratives)
     # Readiness recompute for students whose class's past-paper phase has opened.
     register_handler(PAST_PAPER_PHASE_SWEEP_JOB, sweep_past_paper_phase)
+    # Plan lessons count as taught once their end has passed (AV-119); the sweep
+    # re-arms itself, see services/lesson_autorecord.py.
+    register_handler(AUTORECORD_SWEEP_JOB, sweep_planned_lessons)
     # Drafts a teaching plan's generated slots (task 6.3, AV-14). Enqueued by the
     # plan-inputs endpoint and re-plan (6.2, 6.4) via `enqueue_plan_draft`. Safe to
     # re-run (`BE-6`): it replaces only `generated` slots and leaves a tutor's

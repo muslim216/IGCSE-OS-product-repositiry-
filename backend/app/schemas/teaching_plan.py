@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -51,18 +51,29 @@ class PlanSlotOut(BaseModel):
     sequence: int
     #: generated | manually_modified | confirmed | completed
     provenance: str
+    #: Local wall clock in the organization's zone: the slot's own, else the
+    #: weekly timetable's for that weekday. None = unknown, never midnight.
+    start_time: time | None = None
+    #: The tutor cancelled this lesson; the row is kept as the record of intent.
+    cancelled: bool = False
+    #: The lesson recorded against this slot, and who recorded it (tutor | plan):
+    #: `plan` means it was recorded from the plan because nobody said otherwise.
+    lesson_id: int | None = None
+    lesson_origin: str | None = None
 
 
 class PlanSlotPatch(BaseModel):
-    """Either field alone is an edit; neither is not."""
+    """Any one field alone is an edit; none is not."""
 
     scheduled_date: date | None = None
     chapter_id: int | None = None
+    #: Local wall clock in the organization's zone.
+    start_time: time | None = None
 
     @model_validator(mode="after")
     def _something_to_change(self) -> "PlanSlotPatch":
-        if self.scheduled_date is None and self.chapter_id is None:
-            raise ValueError("Give a new date or a new chapter")
+        if self.scheduled_date is None and self.chapter_id is None and self.start_time is None:
+            raise ValueError("Give a new date, chapter or start time")
         return self
 
 
@@ -182,4 +193,34 @@ class NextLessonOut(BaseModel):
     slot_id: int
     scheduled_date: date
     chapter: NextLessonChapterOut
+    topics: list[NextLessonTopicOut]
+
+
+class CancelSlotOut(BaseModel):
+    """The result of cancelling one planned lesson (task 7.4, AV-120)."""
+
+    #: True when later lessons moved up to make room for the cancelled one's content.
+    shifted: bool
+    #: How many lessons moved, the replacement included.
+    moved: int
+    #: Set when nothing could be rescheduled: the lesson stays cancelled and the
+    #: tutor is told how to catch up.
+    message: str | None = None
+    plan: PlanOverview
+
+
+class LessonReminderOut(BaseModel):
+    """A planned lesson starting within 15 minutes (or under way), for the tutor
+    (task 7.4, AV-120). Computed at read time from the accepted plan."""
+
+    slot_id: int
+    group_id: int
+    group_name: str
+    scheduled_date: date
+    #: Local wall clock in the organization's zone.
+    start_time: time
+    #: The same moment as a UTC instant, for a countdown.
+    starts_at: datetime
+    chapter: NextLessonChapterOut
+    #: What the plan says this lesson covers: its share of the chapter's topics.
     topics: list[NextLessonTopicOut]

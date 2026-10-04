@@ -102,3 +102,9 @@ export interface ClassOverview {
 
 export const classOverview = (groupId: number) =>
   api<ClassOverview>(`/api/v1/today/classes/${groupId}`);
+
+/** A planned lesson starting within 15 minutes, or under way (task 7.4, AV-120).
+    Computed server-side from the accepted plan; in-app only. */
+export type LessonReminder = components["schemas"]["LessonReminderOut"];
+
+export const lessonReminders = () => api<LessonReminder[]>("/api/v1/today/reminders");

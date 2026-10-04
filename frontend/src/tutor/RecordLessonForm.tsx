@@ -43,10 +43,27 @@ export default function RecordLessonForm({
   subjectId: number;
 }) {
   const queryClient = useQueryClient();
-  const next = useQuery({
-    queryKey: ["next-lesson", groupId],
-    queryFn: () => getNextLesson(groupId),
+  // "Review" on a lesson reminder lands here with `?slot=`: pre-fill from that
+  // planned lesson instead of the earliest unstarted one (task 7.4, AV-120).
+  // Read once at mount; the link always mounts the form fresh.
+  const [reviewSlot] = useState(() => {
+    const raw = new URLSearchParams(window.location.search).get("slot");
+    const id = raw === null ? NaN : Number(raw);
+    return Number.isInteger(id) && id > 0 ? id : null;
   });
+  // The tutor chose to give up on the reminder's lesson and take the plan's next.
+  const [useNextInstead, setUseNextInstead] = useState(false);
+  const next = useQuery({
+    queryKey: ["next-lesson", groupId, reviewSlot, useNextInstead],
+    // Asked for one lesson, answered for that lesson only: a slot that is gone,
+    // recorded or cancelled yields nothing, never another lesson's chapter and
+    // topics (the tutor is told, and may choose the next one).
+    queryFn: () =>
+      reviewSlot !== null && !useNextInstead
+        ? getNextLesson(groupId, reviewSlot)
+        : getNextLesson(groupId),
+  });
+  const reviewGone = reviewSlot !== null && !useNextInstead && next.isSuccess && next.data === null;
   const topics = useQuery({
     queryKey: ["topics", subjectId],
     queryFn: () => listTopics(subjectId),
@@ -193,6 +210,17 @@ export default function RecordLessonForm({
           The topics you tick count as taught for every student in the class.
         </p>
 
+        {reviewGone && (
+          <div
+            role="status"
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700"
+          >
+            <span>That lesson is no longer open — it was recorded or cancelled.</span>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setUseNextInstead(true)}>
+              Use the next planned lesson
+            </Button>
+          </div>
+        )}
         {usingPlan && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
             <span>Suggested by your plan: {suggestionLabel(suggestion)}</span>

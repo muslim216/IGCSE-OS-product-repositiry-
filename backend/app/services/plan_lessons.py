@@ -1,9 +1,20 @@
-"""Creating and deleting a lesson against the teaching plan (task 6.5, AV-17, E15).
+"""Creating and deleting a lesson against the teaching plan (task 6.5, AV-17, E15;
+auto-record added in 7.4, AV-119).
 
-A lesson is never created for the tutor: the plan only suggests, the tutor
-submits. When they keep the suggestion the lesson confirms its slot, in the
-same transaction. `lesson_topics` stays the sole source of syllabus coverage
-(`PROD-14`), written from exactly what the tutor sent and never from the plan.
+Until 7.4 a lesson was never created for the tutor: the plan only suggested and
+the tutor submitted. AV-119 deliberately changes that. A class with an accepted
+plan *counts as taught*: when a planned lesson's local end has passed and
+nobody has recorded or cancelled it, `lesson_autorecord` creates the lesson
+through this module's `create_lesson` (so the claim on the slot, the topic
+validation and the race rules are one code path, not two). Why: tutors who
+taught but never logged left coverage and readiness blind to real teaching, and
+the platform could not tell "forgot to log" from "did not happen". Those lessons
+carry `origin = plan` so they stay traceable and are labelled as recorded from
+the plan (`PROD-1`); the tutor can still edit or delete them.
+
+`lesson_topics` stays the sole source of syllabus coverage (`PROD-14`). A tutor's
+lesson writes exactly what the tutor sent; an auto-recorded one writes the
+slot's share of its chapter (`teaching_plan.topic_share`).
 """
 
 from datetime import date, time
@@ -16,6 +27,7 @@ from app.models import (
     Group,
     Lesson,
     LessonMode,
+    LessonOrigin,
     LessonTopic,
     PlanSlot,
     PlanSlotProvenance,
@@ -24,11 +36,14 @@ from app.models import (
     TeachingPlanStatus,
     Topic,
 )
+from app.models.base import utcnow
+from app.services.plan_start_times import slot_has_ended
 from app.services.teaching_plan import (
     STARTED_PROVENANCE,
     PlanInputError,
     PlanSlotNotFound,
     PlanStateError,
+    note_unrescheduled,
 )
 
 
@@ -92,6 +107,8 @@ async def _accepted_slot(session: AsyncSession, group: Group, slot_id: int) -> P
         # Serialises two requests confirming one slot (a no-op on SQLite); the
         # UNIQUE on `lesson_id` is the backstop. `of=` keeps the lock off the plan.
         .with_for_update(of=PlanSlot)
+        # Fresh state: callers decide on this row after waiting for its lock.
+        .execution_options(populate_existing=True)
     )
     if slot is None:
         raise PlanSlotNotFound(slot_id)
@@ -110,6 +127,8 @@ async def create_lesson(
     plan_slot_id: int | None,
     mode: LessonMode = LessonMode.in_person,
     start_time: time | None = None,
+    origin: LessonOrigin = LessonOrigin.tutor,
+    require_slot_date: bool = False,
 ) -> Lesson:
     """Create the lesson, its topics, and (when given) confirm the plan slot.
 
@@ -130,6 +149,8 @@ async def create_lesson(
     slot = None
     if plan_slot_id is not None:
         slot = await _accepted_slot(session, group, plan_slot_id)
+        if slot.cancelled_at is not None:
+            raise PlanStateError("That planned lesson was cancelled")
         if slot.lesson_id is not None or slot.provenance in STARTED_PROVENANCE:
             raise PlanStateError("A lesson already covers that planned lesson")
 
@@ -142,6 +163,7 @@ async def create_lesson(
         schedule_slot_id=schedule_slot_id,
         mode=mode,
         start_time=start_time,
+        origin=origin,
     )
     session.add(lesson)
     await session.flush()
@@ -158,6 +180,11 @@ async def create_lesson(
                 PlanSlot.id == slot.id,
                 PlanSlot.lesson_id.is_(None),
                 PlanSlot.provenance.not_in(STARTED_PROVENANCE),
+                # A cancel that landed after the read above must still win.
+                PlanSlot.cancelled_at.is_(None),
+                # The auto-record's backstop: a slot moved to another day since
+                # it was judged due is not this lesson any more.
+                *((PlanSlot.scheduled_date == lesson_date,) if require_slot_date else ()),
             )
             .values(lesson_id=lesson.id, provenance=PlanSlotProvenance.confirmed)
             .execution_options(synchronize_session=False)
@@ -200,6 +227,19 @@ async def release_slot_for_lesson(session: AsyncSession, lesson_id: int) -> None
     )
     if slot is None:  # accept moved the link while we waited
         return
+    lesson = await session.get(Lesson, lesson_id)
     slot.lesson_id = None
+    plan = await session.get(TeachingPlan, plan_id, populate_existing=True)
+    # Whatever the lesson's origin: a slot whose end has passed and is freed as
+    # untaught would be re-recorded by the next sweep, overriding the tutor who
+    # just deleted it (`PROD-7`). It is cancelled instead, and noted as not
+    # rescheduled so "behind" still reports the gap and a re-plan can catch the
+    # content up (AV-119, AV-120). A slot still in the future is freed as before.
+    if plan is not None and (
+        (lesson is not None and lesson.origin is LessonOrigin.plan)
+        or await slot_has_ended(session, slot, plan)
+    ):
+        slot.cancelled_at = utcnow()
+        note_unrescheduled(plan, slot.id)
     slot.provenance = PlanSlotProvenance.manually_modified
     await session.flush()

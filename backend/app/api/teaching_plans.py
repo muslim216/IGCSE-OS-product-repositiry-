@@ -9,6 +9,7 @@ from app.api.deps import DbSession, TutorUser
 from app.api.groups import _owned_group
 from app.models import Organization
 from app.schemas.teaching_plan import (
+    CancelSlotOut,
     NextLessonChapterOut,
     NextLessonOut,
     NextLessonTopicOut,
@@ -21,7 +22,7 @@ from app.schemas.teaching_plan import (
     PlanSlotPatch,
     TimetableDefaultsOut,
 )
-from app.services import plan_progress
+from app.services import plan_cancel, plan_progress
 from app.services import teaching_plan as plans
 from app.services.plan_replan import replan
 from app.services.timezones import effective_timezone, now_in
@@ -72,12 +73,15 @@ async def get_plan(group_id: int, db: DbSession, user: TutorUser) -> PlanOvervie
 
 
 @router.get("/next-lesson", response_model=NextLessonOut | None)
-async def next_lesson(group_id: int, db: DbSession, user: TutorUser) -> NextLessonOut | None:
+async def next_lesson(
+    group_id: int, db: DbSession, user: TutorUser, slot_id: int | None = None
+) -> NextLessonOut | None:
     """What the accepted plan says to teach next, to pre-fill the add-lesson form
     (task 6.5, AV-17). A suggestion: it creates nothing. `null` when there is no
-    accepted plan or no unstarted slot."""
+    accepted plan or no unstarted slot. `slot_id` asks about that one slot (the
+    reminder's Review); another class's or a started slot is `null`, not an error."""
     group = await _owned_group(db, user, group_id)
-    nxt = await plans.next_unstarted_slot(db, group.id)
+    nxt = await plans.next_unstarted_slot(db, group.id, slot_id)
     if nxt is None:
         return None
     return NextLessonOut(
@@ -138,11 +142,37 @@ async def edit_slot(
             slot_id=slot_id,
             scheduled_date=body.scheduled_date,
             chapter_id=body.chapter_id,
+            start_time=body.start_time,
         )
     except plans.PlanSlotNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found") from exc
     except plans.PlanInputError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except plans.PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.post("/slots/{slot_id}/cancel", response_model=CancelSlotOut)
+async def cancel_slot(group_id: int, slot_id: int, db: DbSession, user: TutorUser) -> CancelSlotOut:
+    """Cancel a planned lesson of the accepted plan and shift the plan around it
+    (task 7.4, AV-120). No acceptance step. When nothing can be rescheduled the
+    lesson stays cancelled and `message` says how to catch up."""
+    group = await _owned_group(db, user, group_id)
+    today = await plan_progress.tutor_today(db, user)
+    try:
+        outcome = await plan_cancel.cancel_slot(
+            db, group=group, user=user, slot_id=slot_id, today=today
+        )
+    except plans.PlanSlotNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lesson not found") from exc
+    except plans.PlanStateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return CancelSlotOut(
+        shifted=outcome.shifted,
+        moved=outcome.moved,
+        message=outcome.message,
+        plan=await _overview(db, user, group.id),
+    )
 
 
 @router.put("/inputs", response_model=PlanOverview)
