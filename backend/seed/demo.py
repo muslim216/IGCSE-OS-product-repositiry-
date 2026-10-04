@@ -35,6 +35,7 @@ from app.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentStatus,
+    AttendanceState,
     Booklet,
     BookletStatus,
     Chapter,
@@ -47,9 +48,13 @@ from app.models import (
     KnowledgeEntry,
     KnowledgeEntryKind,
     Lesson,
+    LessonMode,
     LessonObservation,
     LessonTopic,
     MarkConfidence,
+    Mistake,
+    MistakeSource,
+    MistakeTopic,
     Organization,
     ParentLink,
     PastPaper,
@@ -59,6 +64,9 @@ from app.models import (
     QuestionTopic,
     ReadinessSnapshot,
     ReadinessWeights,
+    Report,
+    ReportAudience,
+    ReportStatus,
     ResourceKind,
     ScheduleSlot,
     Subject,
@@ -73,16 +81,21 @@ from app.models import (
     UserRole,
     WorkKind,
 )
+from app.models.base import utcnow
+from app.models.homework import SETTLED_STATUSES
 from app.security import hash_password
 from app.services import storage
+from app.services.attendance import AttendanceEntry, set_attendance
 from app.services.grade_boundaries import (
     defaults_for_scale,
     resolve_grade_boundaries,
     set_org_boundaries,
 )
 from app.services.grades import predict_grade
+from app.services.mistake_categories import ensure_categories
 from app.services.plan_scheduler import ChapterWeight, ScheduleInput, schedule
 from app.services.readiness_config import resolve_readiness_config
+from app.services.readiness_summary_v2 import build_summary_v2
 from app.services.readiness_v2 import evaluate_subject_factors
 from app.services.readiness_v2_ai import _weighted_reference_score
 from app.services.work import create_work
@@ -319,6 +332,196 @@ async def write_demo_snapshot(session, student: User, subject_id: int, now: date
     )
 
 
+def on_timetable(day: date, weekdays: set[int]) -> date:
+    """The latest day on or before `day` that the class's timetable meets, so a
+    seeded lesson sits on a day the class actually has a slot. It only moves
+    backwards, so a past lesson never becomes a future one."""
+    while day.weekday() not in weekdays:
+        day -= timedelta(days=1)
+    return day
+
+
+#: The default mistake category a tutor would most plausibly record for a lost
+#: mark on each demo question, keyed by the feedback key the seed writes. The
+#: seed alone reads these names; product code never branches on a category's
+#: value (see MistakeCategory).
+_CATEGORY_FOR_QUESTION = {
+    "isotope": "Content gap",
+    "ions": "Misread the question",
+    "nacl": "Careless",
+    "mgo": "Content gap",
+    "cacl2": "Calculation",
+}
+
+
+async def add_demo_mistakes(
+    session, *, organization_id: int, subject_id: int, student_ids: list[int], keys: dict[int, str]
+) -> None:
+    """Tag a realistic share of the demo's lost marks, and mark every settled
+    submission analysed, without a model (QA-8 in spirit).
+
+    Writes the rows `tag_mistakes` writes (a `Mistake` with `source=ai`, plus a
+    `MistakeTopic` per topic the question tests) from a fixed generator, so the
+    tutor's rollups and the student's pages have data. `mistakes_analysed_at` is
+    set on every settled submission, the clean ones included: the readiness
+    factor reads a blank as "no evidence" (`PROD-2`), and a submission with
+    nothing lost has been examined. A submission waiting for review is left
+    alone, the same gate the readiness side applies.
+
+    `keys` maps AssignmentQuestion.id to the feedback key above.
+    """
+    categories = {c.name: c for c in await ensure_categories(session, organization_id, subject_id)}
+    rng = random.Random(1337)
+    rows = (
+        await session.execute(
+            select(QuestionMark, AssignmentQuestion, Submission)
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .join(AssignmentQuestion, AssignmentQuestion.id == QuestionMark.question_id)
+            .where(
+                Submission.student_id.in_(student_ids),
+                Submission.status.in_(SETTLED_STATUSES),
+            )
+            .order_by(QuestionMark.id)
+        )
+    ).all()
+    alternatives = [categories[name] for name in sorted(categories)]
+    analysed: dict[int, Submission] = {}
+    for mark, question, submission in rows:
+        analysed[submission.id] = submission
+        if mark.final_marks is None or mark.final_marks >= question.max_marks:
+            continue
+        # Not every lost mark is a tagged mistake: about four in five are, so
+        # the counts are not simply "marks lost".
+        if rng.random() > 0.8:
+            continue
+        share = (question.max_marks - mark.final_marks) / question.max_marks
+        severity = 3 if share >= 0.6 else 2 if share >= 0.3 else 1
+        name = _CATEGORY_FOR_QUESTION.get(keys.get(question.id, ""))
+        if name in categories and rng.random() < 0.75:
+            category = categories[name]
+        else:
+            category = rng.choice(alternatives)
+        mistake = Mistake(
+            student_id=submission.student_id,
+            question_mark_id=mark.id,
+            category_id=category.id,
+            severity=severity,
+            source=MistakeSource.ai,
+        )
+        session.add(mistake)
+        await session.flush()
+        topic_ids = (
+            await session.scalars(
+                select(QuestionTopic.topic_id).where(QuestionTopic.question_id == question.id)
+            )
+        ).all()
+        for topic_id in topic_ids:
+            session.add(MistakeTopic(mistake_id=mistake.id, topic_id=topic_id))
+    stamp = utcnow()
+    for submission in analysed.values():
+        submission.mistakes_analysed_at = stamp
+    await session.flush()
+
+
+#: (lesson index oldest-first, student position) pairs the demo marks absent,
+#: and the pairs it leaves not taken. Everything else is present. A fixed
+#: pattern, so the data is the same every time.
+_ABSENT = {(1, 2), (2, 2), (3, 2), (3, 3), (4, 5), (5, 1)}
+_NOT_TAKEN = {(0, 4), (0, 5), (1, 5)}
+
+
+async def add_demo_attendance(
+    session, *, tutor: User, lessons: list[Lesson], students: list[User]
+) -> None:
+    """Attendance on the demo's in-person lessons, through the real service, so
+    a row is exactly what a tutor's save writes. Mostly present, a few absent,
+    and a couple never taken, which stay missing from the data rather than
+    becoming absent (`PROD-2`)."""
+    for index, lesson in enumerate(lessons):
+        entries = [
+            AttendanceEntry(
+                student_id=student.id,
+                state=AttendanceState.absent
+                if (index, position) in _ABSENT
+                else AttendanceState.present,
+            )
+            for position, student in enumerate(students)
+            if (index, position) not in _NOT_TAKEN
+        ]
+        await set_attendance(session, lesson, entries, recorded_by=tutor)
+
+
+def _report_markdown(student: User, summary, audience: ReportAudience) -> str:
+    """A report body written from the recorded numbers alone. It says so,
+    because no model wrote it (`PROD-1`)."""
+    lines = [
+        f"# Progress report: {student.name}",
+        "",
+        "_Compiled from the readiness, homework and marking records Avora holds. "
+        "No AI summary was written for this sample report._",
+    ]
+    for s in summary.subjects:
+        lines += ["", f"## {s.subject_name}"]
+        if s.score is None:
+            lines.append("Not enough data yet to give a readiness figure.")
+            continue
+        grade = f" (estimated grade {s.predicted_grade})" if s.predicted_grade else ""
+        lines.append(f"Overall readiness is {s.score:.0f}%{grade}.")
+        if s.direction is not None and s.month_delta is not None:
+            word = {"up": "improved", "down": "declined", "flat": "held steady"}[s.direction]
+            lines.append(f"Trend: {word} ({s.month_delta:+.1f} points in the last 30 days).")
+        strong = sorted(s.topics, key=lambda t: t.score, reverse=True)[:3]
+        if strong:
+            lines.append(
+                "Strongest topics: "
+                + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in strong)
+            )
+        if s.weak_topics:
+            label = "To target in lessons" if audience == ReportAudience.tutor else "To work on"
+            lines.append(
+                f"{label}: " + ", ".join(f"{t.topic_title} ({t.score:.0f}%)" for t in s.weak_topics)
+            )
+        if s.homework_assignment_count:
+            lines.append(
+                f"Homework: handed in {s.homework_submitted_count} of "
+                f"{s.homework_assignment_count} assignments."
+            )
+        if s.averaging_score is not None:
+            lines.append(
+                f"Average on marked work: {s.averaging_score:.0f}% "
+                f"across {s.marked_piece_count} marked pieces."
+            )
+    return "\n".join(lines)
+
+
+async def add_demo_reports(
+    session, *, tutor: User, subject_id: int, students: list[User], parent_student: User
+) -> None:
+    """A ready report per student for the tutor, and a parent-facing one for the
+    student the demo parent is linked to, so the Reports pages are not empty.
+    Written from the readiness summary directly, never through the AI surface."""
+    now = utcnow()
+    for student in students:
+        audiences = [ReportAudience.tutor]
+        if student.id == parent_student.id:
+            audiences.append(ReportAudience.parent)
+        summary = await build_summary_v2(session, student, [subject_id])
+        for audience in audiences:
+            session.add(
+                Report(
+                    student_id=student.id,
+                    subject_id=subject_id,
+                    generated_by_id=tutor.id,
+                    audience=audience,
+                    status=ReportStatus.ready,
+                    title=f"Chemistry progress report: {student.name}",
+                    content=_report_markdown(student, summary, audience),
+                    generated_at=now,
+                )
+            )
+    await session.flush()
+
+
 async def main() -> None:
     async with async_session() as session:
         existing = await session.scalar(select(User).where(User.email == "demo-tutor@example.com"))
@@ -400,6 +603,7 @@ async def main() -> None:
         session.add(group)
         await session.flush()
         today_weekday = datetime.now(timezone.utc).weekday()
+        term_start = datetime.now(timezone.utc) - timedelta(days=100)
         fixed_slots = [
             ScheduleSlot(
                 group_id=group.id,
@@ -431,9 +635,15 @@ async def main() -> None:
             )
         session.add_all(
             [
-                GroupMember(group_id=group.id, student_id=student1.id),
-                GroupMember(group_id=group.id, student_id=student2.id),
-                *[GroupMember(group_id=group.id, student_id=c.id) for c in classmates],
+                # Joined at the start of term, so lessons already held count
+                # towards each student's attendance (a lesson before someone
+                # joined is not "not taken") rather than the demo showing none.
+                GroupMember(group_id=group.id, student_id=student1.id, created_at=term_start),
+                GroupMember(group_id=group.id, student_id=student2.id, created_at=term_start),
+                *[
+                    GroupMember(group_id=group.id, student_id=c.id, created_at=term_start)
+                    for c in classmates
+                ],
                 ParentLink(parent_id=parent.id, student_id=student1.id),
                 *fixed_slots,
             ]
@@ -485,31 +695,46 @@ async def main() -> None:
 
         # A taught lesson covering the first topic, with a per-student
         # observation — exercises the new Lessons core entity end to end.
-        lesson = Lesson(
-            organization_id=org.id,
-            group_id=group.id,
-            date=date.today() - timedelta(days=7),
-            duration_min=90,
-            notes="Covered atomic structure basics; assigned HW1 for practice.",
+        # Held on the class's timetable days, in person, at the slot's start time
+        # (the demo's lessons are not online, so no meeting link is faked).
+        timetable = {slot.weekday: slot for slot in fixed_slots[:2]}
+
+        def held(day: date, notes: str) -> Lesson:
+            day = on_timetable(day, set(timetable))
+            slot = timetable[day.weekday()]
+            return Lesson(
+                organization_id=org.id,
+                group_id=group.id,
+                date=day,
+                duration_min=slot.duration_min,
+                notes=notes,
+                schedule_slot_id=slot.id,
+                mode=LessonMode.in_person,
+                start_time=slot.start_time,
+            )
+
+        lesson = held(
+            date.today() - timedelta(days=7),
+            "Covered atomic structure basics; assigned HW1 for practice.",
         )
         session.add(lesson)
         await session.flush()
+        held_lessons: list[Lesson] = []
         session.add(LessonTopic(lesson_id=lesson.id, topic_id=topics[0].id))
         # Ninety days into term a tutor has taught most of the course. Syllabus
         # coverage is derived from lesson_topics (PROD-14), so a demo with one
         # recorded lesson scored every student at a few percent coverage and
         # dragged the whole class's readiness down with it.
         for weeks_ago, topic in zip(range(11, 1, -2), topics[1:6], strict=False):
-            taught = Lesson(
-                organization_id=org.id,
-                group_id=group.id,
-                date=date.today() - timedelta(weeks=weeks_ago),
-                duration_min=90,
-                notes=f"Taught {topic.title.lower()}; worked examples and an exit quiz.",
+            taught = held(
+                date.today() - timedelta(weeks=weeks_ago),
+                f"Taught {topic.title.lower()}; worked examples and an exit quiz.",
             )
             session.add(taught)
             await session.flush()
             session.add(LessonTopic(lesson_id=taught.id, topic_id=topic.id))
+            held_lessons.append(taught)
+        held_lessons.append(lesson)
         session.add(
             LessonObservation(
                 lesson_id=lesson.id,
@@ -925,11 +1150,32 @@ async def main() -> None:
             weekdays=tuple(sorted({slot.weekday for slot in fixed_slots[:2]})),
             today=now.date(),
         )
+        await add_demo_mistakes(
+            session,
+            organization_id=org.id,
+            subject_id=subject.id,
+            student_ids=[st.id for st in students],
+            keys=feedback_keys,
+        )
         await session.commit()
 
         for student in students:
             await write_demo_snapshot(session, student, subject.id, now)
         await session.commit()
+
+        # After the snapshots: a report is written from the readiness summary.
+        await add_demo_reports(
+            session,
+            tutor=tutor,
+            subject_id=subject.id,
+            students=students,
+            parent_student=student1,
+        )
+        await session.commit()
+        # Oldest first. The accepted plan's slots start today, so every one is
+        # still ahead: the auto-record sweep records them as they pass.
+        held_lessons.sort(key=lambda held_lesson: held_lesson.date)
+        await add_demo_attendance(session, tutor=tutor, lessons=held_lessons, students=students)
 
         print("demo data created — sign in as demo-tutor@example.com / demo1234")
 
