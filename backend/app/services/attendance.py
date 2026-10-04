@@ -252,17 +252,21 @@ class StudentAttendance:
         return self.present / marked if marked else None
 
 
-def _local_date(moment: datetime, zone: str | None) -> date:
-    """The calendar day `moment` falls on in the organization's zone. A naive
-    datetime (SQLite) is UTC; an unusable zone degrades to UTC like `now_in`."""
+def _in_zone(moment: datetime, zone: str | None) -> datetime:
+    """`moment` in the organization's zone. A naive datetime (SQLite) is UTC; an
+    unusable zone degrades to UTC like `now_in`."""
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
     if zone:
         try:
-            return moment.astimezone(ZoneInfo(zone)).date()
+            return moment.astimezone(ZoneInfo(zone))
         except Exception:  # noqa: BLE001 - same degrade-to-UTC rule as now_in
             pass
-    return moment.astimezone(timezone.utc).date()
+    return moment.astimezone(timezone.utc)
+
+
+def _local_date(moment: datetime, zone: str | None) -> date:
+    return _in_zone(moment, zone).date()
 
 
 def _has_ended(lesson: Lesson, now_local: datetime) -> bool:
@@ -281,6 +285,7 @@ async def student_attendance(
     organization_id: int,
     group_id: int | None = None,
     tutor_id: int | None = None,
+    now: datetime | None = None,
 ) -> StudentAttendance:
     """One student's attendance per class, inside one organization. This is the
     single read reports (task 8.6) will call; do not write a second query.
@@ -303,7 +308,8 @@ async def student_attendance(
     if org is None:
         log.warning("organization %s not found; attendance falls back to UTC", organization_id)
     zone = org.timezone if org else None
-    now_local = now_in(zone)
+    # `now` exists so tests can pin the clock; production passes nothing.
+    now_local = _in_zone(now, zone) if now is not None else now_in(zone)
     today = now_local.date()
 
     member_q = (

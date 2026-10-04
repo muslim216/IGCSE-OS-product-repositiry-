@@ -154,25 +154,41 @@ async def _today_lesson(client, tutor, group, **extra):
     return await _lesson(client, tutor, group, date=date.today().isoformat(), **extra)
 
 
-async def test_a_lesson_later_today_is_not_yet_not_taken(client, tutor, group, student):
-    # Student joined "now"; a lesson with no start time, or one starting in the
-    # future, cannot have been missed yet. Start 23:59 ends after any test clock
-    # except the last minute, so use an organization zone far ahead of it.
-    await _today_lesson(client, tutor, group)  # no start_time
-    await _today_lesson(client, tutor, group, start_time="23:59:00")
-    body = (await client.get(f"{API}/me/attendance", headers=student["headers"])).json()
-    assert body["lessons"] == 0
-    assert body["not_taken"] == 0
+async def _attendance_at(student_id, group_org, now):
+    from app.services.attendance import student_attendance
+
+    async with async_session() as s:
+        return await student_attendance(
+            s, student_id=student_id, organization_id=group_org, now=now
+        )
 
 
-async def test_a_lesson_earlier_today_that_has_ended_is_not_taken(client, tutor, group, student):
-    # 00:00 for 15 minutes has ended unless the test runs in the first quarter hour (UTC).
-    now = datetime.now(timezone.utc)
-    if now.hour == 0 and now.minute < 20:
-        pytest.skip("too close to midnight UTC to assert an ended lesson")
-    await _today_lesson(client, tutor, group, start_time="00:00:00", duration_min=15)
-    body = (await client.get(f"{API}/me/attendance", headers=student["headers"])).json()
-    assert (body["lessons"], body["not_taken"]) == (1, 1)
+async def test_today_counts_only_once_the_lesson_has_ended(client, tutor, group, student):
+    sid = student["user"]["id"]
+    async with async_session() as s:
+        await s.execute(
+            update(GroupMember)
+            .where(GroupMember.student_id == sid)
+            .values(created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+        )
+        org_id = (await s.get(User, tutor["user"]["id"])).organization_id
+        await s.commit()
+    day = "2026-03-10"
+    for extra in (
+        {},  # no start time: unknown end, counts from tomorrow
+        {"start_time": "13:00:00", "duration_min": 60},  # ends 14:00, after "now"
+        {"start_time": "09:00:00", "duration_min": 60},  # ended 10:00
+    ):
+        await _lesson(client, tutor, group, date=day, **extra)
+
+    noon = datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc)
+    result = await _attendance_at(sid, org_id, noon)
+    assert (result.lessons, result.not_taken) == (1, 1)
+
+    # The next morning every one of them is over, or is a past day.
+    tomorrow = datetime(2026, 3, 11, 8, 0, tzinfo=timezone.utc)
+    result = await _attendance_at(sid, org_id, tomorrow)
+    assert (result.lessons, result.not_taken) == (3, 3)
 
 
 async def _second_tutor_class(group, student_id, mark_state):
