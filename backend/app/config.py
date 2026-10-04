@@ -146,6 +146,11 @@ class Settings(BaseSettings):
     # ge=1: at zero or negative the successor is already due on arrival and the
     # sweep re-arms itself continuously, spinning the worker.
     narrative_sweep_interval_hours: int = Field(default=24, ge=1)
+    # How often the past-paper-phase sweep looks for classes whose phase has
+    # opened (AV-31). Several times a day so a UTC-day boundary is caught
+    # promptly; the sweep is idempotent, so frequency costs nothing. ge=1 for the
+    # same reason as the narrative sweep: zero would respin the worker.
+    past_paper_phase_sweep_interval_hours: int = Field(default=6, ge=1)
     # Most learners one sweep will enqueue. ge=1: at zero the sweep runs
     # forever and writes nothing. The cap exists so a first run against an
     # established installation drains over several cycles rather than spending
