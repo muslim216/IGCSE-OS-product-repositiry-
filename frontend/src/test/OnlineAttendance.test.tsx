@@ -11,6 +11,11 @@ type Calls = { method: string; url: string; body: unknown }[];
 
 function stub(opts: { meeting?: object; integrations?: object[]; register?: object[] }): Calls {
   const calls: Calls = [];
+  const rows = (opts.register ?? []) as {
+    student_id: number;
+    state: string | null;
+    source: string | null;
+  }[];
   const meeting = {
     provider: "zoom",
     link: "https://zoom.us/j/81234567890",
@@ -43,10 +48,28 @@ function stub(opts: { meeting?: object; integrations?: object[]; register?: obje
         );
       }
       if (url.includes("/resolve")) {
-        return new Response(JSON.stringify({ id: 5, resolved: true }), { status: 200 });
+        // The server records the decision: the next reads show it.
+        const decided = JSON.parse(String(init?.body)) as { student_id: number };
+        const pid = Number(url.match(/participants\/(\d+)\/resolve/)?.[1]);
+        const people = meeting.participants as {
+          id: number;
+          matched_student_id: number | null;
+          resolved: boolean;
+        }[];
+        const person = people.find((p) => p.id === pid);
+        if (person) {
+          person.matched_student_id = decided.student_id;
+          person.resolved = true;
+        }
+        const mark = rows.find((r) => r.student_id === decided.student_id);
+        if (mark) {
+          mark.state = "present";
+          mark.source = "tutor";
+        }
+        return new Response(JSON.stringify({ id: pid, resolved: true }), { status: 200 });
       }
       if (url.endsWith("/attendance")) {
-        return new Response(JSON.stringify(opts.register ?? []), { status: 200 });
+        return new Response(JSON.stringify(rows), { status: 200 });
       }
       return new Response("{}", { status: 200 });
     }),
@@ -106,6 +129,8 @@ test("unmatched participants are listed and picking a student resolves them", as
   renderIt();
 
   expect(await screen.findByText("Not matched to a student")).toBeInTheDocument();
+  // The register has loaded before it is asserted on.
+  expect((await screen.findAllByText("from Zoom")).length).toBe(2);
   expect(screen.getByText("S. A.")).toBeInTheDocument();
   expect(screen.getByText(/No email shared · 20 min/)).toBeInTheDocument();
   // Matched people are not asked about.
@@ -122,6 +147,37 @@ test("unmatched participants are listed and picking a student resolves them", as
       body: { student_id: 13 },
     }),
   );
+  // After the refetch the participant is resolved: gone from the list, and the
+  // student's mark reads as set by the tutor.
+  await waitFor(() =>
+    expect(screen.queryByText("Not matched to a student")).not.toBeInTheDocument(),
+  );
+  expect(await screen.findByText("set by you")).toBeInTheDocument();
+});
+
+test("a failed integrations lookup is shown, with a retry", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/meeting")) {
+        return new Response(
+          JSON.stringify({
+            provider: "zoom",
+            link: "https://zoom.us/j/1",
+            last_import: null,
+            participants: [],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/api/v1/integrations")) return new Response("{}", { status: 500 });
+      return new Response("[]", { status: 200 });
+    }),
+  );
+  renderIt();
+  expect(await screen.findByText(/Couldn't check whether Zoom is connected/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
 });
 
 test("a provider that is not set up says so rather than offering an import", async () => {

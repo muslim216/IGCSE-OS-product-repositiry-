@@ -259,7 +259,7 @@ export default function RecordLessonForm({
           {mode === "online" && (
             <Field label="Meeting link" optional hint="Zoom or Google Meet, to fill in attendance">
               <Input
-                type="url"
+                type="text"
                 value={meetingLink}
                 placeholder="https://zoom.us/j/…"
                 onChange={(e) => edit(() => setMeetingLink(e.target.value))}

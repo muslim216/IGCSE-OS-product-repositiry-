@@ -161,6 +161,7 @@ def upgrade() -> None:
             sa.ForeignKey("users.id", name="fk_lesson_meeting_imports_requested_by_id_users"),
             nullable=False,
         ),
+        sa.Column("attempt", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("requested_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),

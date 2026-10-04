@@ -170,7 +170,20 @@ def pick_session(items: list[tuple[datetime, _T]], moment: LessonMoment) -> _T |
             for start, item in items
             if abs(start - moment.start) <= START_TOLERANCE
         ]
-        return min(near, key=lambda pair: pair[0])[1] if near else None
+        if not near:
+            return None
+        best = min(distance for distance, _ in near)
+        closest = [item for distance, item in near if distance == best]
+        if len(closest) > 1:
+            # Two sessions equally near: taking the first would import someone
+            # else's class.
+            raise MeetingProviderError(
+                NOT_FOUND,
+                "There was more than one meeting that could be this lesson with this link. "
+                "Set the lesson's start time (or check the link) so Avora can tell which one "
+                "it was.",
+            )
+        return closest[0]
     that_day = [item for start, item in items if moment.day_start <= start < moment.day_end]
     if len(that_day) > 1:
         raise MeetingProviderError(

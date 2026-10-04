@@ -24,7 +24,14 @@ function stub(items: object[]) {
           },
         );
       }
-      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (init?.method === "DELETE") {
+        // The server forgets the connection: the next read says so.
+        for (const item of items as { connected: boolean; account_email: string | null }[]) {
+          item.connected = false;
+          item.account_email = null;
+        }
+        return new Response(null, { status: 204 });
+      }
       return new Response(JSON.stringify(items), { status: 200 });
     }),
   );
@@ -88,4 +95,8 @@ test("a connected provider shows the account and can be disconnected", async () 
   expect(await screen.findByText(/Connected as host@school.example/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Disconnect Zoom" }));
   await waitFor(() => expect(calls).toContain("DELETE /api/v1/integrations/zoom"));
+  // After the refetch the row reads disconnected and offers Connect again.
+  expect(await screen.findByText("Not connected.")).toBeInTheDocument();
+  expect(screen.queryByText(/Connected as/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Connect Zoom" })).toBeEnabled();
 });

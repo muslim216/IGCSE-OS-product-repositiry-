@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import timedelta, timezone
 from types import ModuleType
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -93,6 +93,11 @@ class ParticipantNotFound(LookupError):
     """No such participant on this lesson. The router turns it into a 404 (`API-7`)."""
 
 
+class ParticipantAlreadyResolved(RuntimeError):
+    """Someone (maybe a concurrent request) already decided who this participant is.
+    The router turns it into a 409."""
+
+
 class StudentNotEnrolled(LookupError):
     """The chosen student is not in the lesson's class. The router turns it into a 404."""
 
@@ -132,7 +137,9 @@ async def connect(
     module = _module(provider)
     grant = await module.exchange_code(code)
     # Google lets the user untick individual permissions on the consent screen.
-    if provider == MeetingProvider.google_meet and grant.scopes:
+    if provider == MeetingProvider.google_meet:
+        # An empty or missing `scope` is a refusal too, not a pass: both
+        # permissions must be positively shown to have been granted.
         granted = grant.scopes.split()
         if google_meet.MEET_SCOPE not in granted:
             raise MeetingProviderError(
@@ -299,8 +306,13 @@ async def request_import(session: AsyncSession, lesson: Lesson, user: User) -> L
     row.requested_by_id = user.id
     row.requested_at = now
     row.finished_at = None
+    row.attempt = (row.attempt or 0) + 1
     await session.flush()
-    await enqueue(session, IMPORT_JOB, {"lesson_id": lesson.id, "user_id": user.id})
+    await enqueue(
+        session,
+        IMPORT_JOB,
+        {"lesson_id": lesson.id, "user_id": user.id, "attempt": row.attempt},
+    )
     return row
 
 
@@ -319,8 +331,38 @@ class _Outcome:
     warning: str | None
 
 
-async def _fail(session: AsyncSession, row: LessonMeetingImport, code: str, message: str) -> None:
-    row.status = MeetingImportStatus.failed
+async def _current(
+    session: AsyncSession, row_id: int, attempt: int, *, lock: bool = False
+) -> LessonMeetingImport | None:
+    """The import row, if this job's attempt is still the current one; else None.
+    Always read fresh. `lock` holds the row (`FOR UPDATE`) so a re-request cannot
+    slip in between this check and the register being written."""
+    query = (
+        select(LessonMeetingImport)
+        .where(LessonMeetingImport.id == row_id)
+        .execution_options(populate_existing=True)
+    )
+    if lock:
+        query = query.with_for_update()
+    row = await session.scalar(query)
+    return row if row is not None and row.attempt == attempt else None
+
+
+async def _finish(
+    session: AsyncSession,
+    row_id: int,
+    attempt: int,
+    status: MeetingImportStatus,
+    code: str | None,
+    message: str | None,
+) -> None:
+    """Record the outcome — unless a newer request has superseded this attempt, in
+    which case this worker says nothing."""
+    row = await _current(session, row_id, attempt)
+    if row is None:
+        await session.rollback()
+        return
+    row.status = status
     row.error_code = code
     row.message = message
     row.finished_at = utcnow()
@@ -333,6 +375,7 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
     user = await session.get(User, payload["user_id"])
     if lesson is None or user is None or lesson.organization_id != user.organization_id:
         return  # the lesson went away, or this was never the requester's: nothing to say to anyone
+    attempt = int(payload.get("attempt", 0))
     row = await session.scalar(
         select(LessonMeetingImport).where(LessonMeetingImport.lesson_id == lesson.id)
     )
@@ -343,18 +386,29 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
             status=MeetingImportStatus.queued,
             requested_by_id=user.id,
             requested_at=utcnow(),
+            attempt=attempt,
         )
         session.add(row)
         await session.flush()
+    if row.attempt != attempt:
+        return  # a newer request owns this lesson's import now
     row_id = row.id
+    failed = MeetingImportStatus.failed
     provider, ref = lesson.meeting_provider, lesson.meeting_ref
     if provider is None or ref is None:
-        await _fail(session, row, "no_link", "This lesson has no Zoom or Meet link to read.")
+        await _finish(
+            session, row_id, attempt, failed, "no_link", "This lesson has no Zoom or Meet link."
+        )
         return
     connection = await get_connection(session, user.id, provider)
     if connection is None:
-        await _fail(
-            session, row, NOT_CONNECTED, f"{PROVIDER_LABEL[provider]} isn't connected any more."
+        await _finish(
+            session,
+            row_id,
+            attempt,
+            failed,
+            NOT_CONNECTED,
+            f"{PROVIDER_LABEL[provider]} isn't connected any more.",
         )
         return
 
@@ -373,6 +427,10 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
             raise MeetingProviderError(
                 NO_DATA, f"{PROVIDER_LABEL[provider]} returned no attendance. {hint}"
             )
+        # The fetch is the slow part: re-check, and hold the row, before writing.
+        if await _current(session, row_id, attempt, lock=True) is None:
+            await session.rollback()
+            return
         outcome = await _apply(
             session, lesson, user, connection, provider, result.participants, result.warning
         )
@@ -380,7 +438,7 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
         # Nothing has been written that a rollback would not undo, so a failure
         # leaves the register as it was.
         await session.rollback()
-        await _fail(session, await _reload(session, row_id), exc.code, exc.message)
+        await _finish(session, row_id, attempt, failed, exc.code, exc.message)
         return
     except Exception:
         # Anything unforeseen (a malformed answer, a lost race): the tutor still
@@ -388,9 +446,11 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
         # failed too so it is visible to operations.
         logger.exception("meeting attendance import failed for lesson %s", payload["lesson_id"])
         await session.rollback()
-        await _fail(
+        await _finish(
             session,
-            await _reload(session, row_id),
+            row_id,
+            attempt,
+            failed,
             PROVIDER_ERROR,
             "Something went wrong while reading the attendance. Try again, or mark the "
             "register by hand.",
@@ -409,18 +469,7 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
         message += f" {outcome.kept} kept as you marked them."
     if outcome.warning:
         message += " " + outcome.warning
-    row = await _reload(session, row_id)
-    row.status = MeetingImportStatus.succeeded
-    row.error_code = None
-    row.message = message
-    row.finished_at = utcnow()
-    await session.commit()
-
-
-async def _reload(session: AsyncSession, row_id: int) -> LessonMeetingImport:
-    row = await session.get(LessonMeetingImport, row_id)
-    assert row is not None  # it was created or found at the start of this job
-    return row
+    await _finish(session, row_id, attempt, MeetingImportStatus.succeeded, None, message)
 
 
 async def _apply(
@@ -546,8 +595,21 @@ async def resolve_participant(
     )
     if enrolled is None:
         raise StudentNotEnrolled
-    participant.matched_student_id = student_id
-    participant.resolved_by_id = user.id
+    # Conditional update: of two concurrent resolves only one can win, and a
+    # participant already decided is not silently re-attributed (the earlier
+    # present mark would be left behind on the wrong student).
+    won = await session.execute(
+        update(MeetingParticipant)
+        .where(
+            MeetingParticipant.id == participant.id,
+            MeetingParticipant.resolved_by_id.is_(None),
+        )
+        .values(matched_student_id=student_id, resolved_by_id=user.id)
+    )
+    if won.rowcount != 1:  # type: ignore[attr-defined]
+        await session.rollback()
+        raise ParticipantAlreadyResolved
+    await session.refresh(participant)
     # Committed together with the mark by `set_attendance`.
     await attendance.set_attendance(
         session,

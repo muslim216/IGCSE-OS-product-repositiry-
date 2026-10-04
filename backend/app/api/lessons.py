@@ -171,6 +171,10 @@ async def update_lesson(
         lesson.notes = body.notes
     if body.mode is not None:
         lesson.mode = body.mode
+    # An in-person lesson has no meeting: drop the link and whatever was imported
+    # from it (a tutor's own attendance marks stay).
+    if lesson.mode == LessonMode.in_person and lesson.meeting_provider is not None:
+        await meeting_integrations.set_lesson_meeting(db, lesson, None)
     # An explicit null clears the time (back to unknown); omitting it leaves it.
     if "start_time" in body.model_fields_set:
         lesson.start_time = body.start_time

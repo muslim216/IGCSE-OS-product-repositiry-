@@ -10,6 +10,7 @@ caller must persist `TokenGrant.refresh_token` each time (see
 `meeting_integrations.access_token_for`).
 """
 
+from datetime import datetime
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -177,13 +178,22 @@ async def _instance_uuid(
     http: httpx.AsyncClient, access_token: str, meeting_id: str, moment: LessonMoment
 ) -> str:
     """A meeting ID is reused by every occurrence; the report is per instance."""
-    body = await _get(http, access_token, f"/past_meetings/{meeting_id}/instances", {})
-    with readable(MeetingProvider.zoom):
-        found = [
-            (parse_timestamp(m["start_time"]), str(m["uuid"]))
-            for m in body.get("meetings", [])
-            if m.get("uuid") and m.get("start_time")
-        ]
+    found: list[tuple[datetime, str]] = []
+    token = ""
+    for _ in range(_MAX_PAGES):
+        params: dict[str, str | int] = {"page_size": _PAGE_SIZE}
+        if token:
+            params["next_page_token"] = token
+        body = await _get(http, access_token, f"/past_meetings/{meeting_id}/instances", params)
+        with readable(MeetingProvider.zoom):
+            found.extend(
+                (parse_timestamp(m["start_time"]), str(m["uuid"]))
+                for m in body.get("meetings", [])
+                if m.get("uuid") and m.get("start_time")
+            )
+            token = body.get("next_page_token") or ""
+        if not token:
+            break
     uuid = pick_session(found, moment)
     if uuid is None:
         raise MeetingProviderError(

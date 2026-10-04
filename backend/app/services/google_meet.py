@@ -226,13 +226,13 @@ async def _conference_record(
 
 async def _emails(
     http: httpx.AsyncClient, access_token: str, user_ids: list[str]
-) -> tuple[dict[str, str], bool]:
+) -> dict[str, str]:
     """Meet identifies a signed-in participant by user id, not email. Resolved
-    through the People API; anyone it cannot resolve simply has no email and is
-    surfaced to the tutor rather than guessed at. The flag says a lookup itself
-    failed (as opposed to a person having no email), so it can be reported."""
+    through the People API. A person with no email there is simply absent from the
+    result and is surfaced to the tutor rather than guessed at. A FAILED lookup
+    (revoked or under-scoped token, rate limit, outage) is an error, never "no
+    email": treating it as absence would hide that nobody could be identified."""
     found: dict[str, str] = {}
-    failed = False
     for i in range(0, len(user_ids), _PEOPLE_BATCH):
         chunk = user_ids[i : i + _PEOPLE_BATCH]
         params: list[tuple[str, str | int | float | bool | None]] = [
@@ -245,15 +245,28 @@ async def _emails(
                 headers={"Authorization": f"Bearer {access_token}"},
                 params=params,
             )
-        except httpx.HTTPError:
-            failed = True
-            continue
-        if resp.status_code >= 400:
-            failed = True
-            continue
-        try:
-            responses = resp.json().get("responses", [])
-            for item in responses:
+        except httpx.HTTPError as exc:
+            raise MeetingProviderError(
+                PROVIDER_ERROR, "Couldn't reach Google. Try again shortly."
+            ) from exc
+        if resp.status_code == 403:
+            raise MeetingProviderError(
+                FORBIDDEN,
+                "Google wouldn't let Avora look up participants' emails. The directory "
+                "permission may be missing: disconnect and connect again, leaving every "
+                "permission ticked.",
+            )
+        raise_for_provider_status(resp, MeetingProvider.google_meet)
+        with readable(MeetingProvider.google_meet):
+            for item in resp.json().get("responses", []):
+                status = int(item.get("httpStatusCode") or 200)
+                if status == 404:
+                    continue  # no such person: genuinely no email
+                if status >= 400:
+                    raise MeetingProviderError(
+                        PROVIDER_ERROR,
+                        "Google couldn't look up some participants' emails. Try again shortly.",
+                    )
                 person = item.get("person") or {}
                 addresses = person.get("emailAddresses") or []
                 primary = next(
@@ -263,9 +276,7 @@ async def _emails(
                 resource = str(item.get("requestedResourceName") or "")
                 if chosen and chosen.get("value") and resource.startswith("people/"):
                     found[resource.removeprefix("people/")] = str(chosen["value"])
-        except (ValueError, TypeError, AttributeError):
-            failed = True
-    return found, failed
+    return found
 
 
 async def fetch_participants(
@@ -295,9 +306,7 @@ async def fetch_participants(
                 for r in rows
                 if (r.get("signedinUser") or {}).get("user")
             ]
-        emails, lookup_failed = (
-            await _emails(http, access_token, user_ids) if user_ids else ({}, False)
-        )
+        emails = await _emails(http, access_token, user_ids) if user_ids else {}
 
     participants: list[ParticipantRecord] = []
     with readable(MeetingProvider.google_meet):
@@ -315,11 +324,6 @@ async def fetch_participants(
             participants.append(ParticipantRecord(name, email, seconds, verified=email is not None))
     missing = sum(1 for p in participants if p.email is None)
     notes = []
-    if lookup_failed:
-        notes.append(
-            "Google wouldn't let Avora look up some participants' emails (the directory "
-            "permission may be missing or limited)."
-        )
     if missing:
         notes.append(
             f"Google didn't share an email for {missing} "

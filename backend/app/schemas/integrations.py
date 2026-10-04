@@ -33,7 +33,9 @@ class MeetingParticipantOut(BaseModel):
     #: A student whose email matched but whom the provider did not verify: the
     #: tutor confirms with one tap; nothing was marked.
     suggested_student_id: int | None = None
-    #: True when a tutor chose the student rather than an exact email match.
+    #: True once a tutor has decided who this is (by resolving it), as opposed to a
+    #: provider-verified email match made by the import. A resolved participant is
+    #: kept across re-imports and cannot be resolved again.
     resolved: bool
 
 

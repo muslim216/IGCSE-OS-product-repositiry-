@@ -1172,7 +1172,7 @@ async def test_malformed_provider_answers_are_a_clear_error(monkeypatch):
         await zoom.refresh("old")
 
 
-async def test_a_failed_people_lookup_is_reported_not_swallowed(monkeypatch):
+def _people_handler(people_status: int, items: list | None = None):
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if "conferenceRecords?" in url:
@@ -1189,15 +1189,169 @@ async def test_a_failed_people_lookup_is_reported_not_swallowed(monkeypatch):
                 },
             )
         if "people:batchGet" in url:
-            return httpx.Response(403, json={})
+            return httpx.Response(people_status, json={"responses": items or []})
         return httpx.Response(
             200, json={"participants": [{"signedinUser": {"user": "users/1", "displayName": "S"}}]}
         )
 
-    _mock(monkeypatch, google_meet, handler)
+    return handler
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(401, "auth_failed"), (403, "forbidden"), (429, "rate_limited"), (503, "provider_error")],
+)
+async def test_a_failed_people_lookup_is_an_error_never_no_email(monkeypatch, status, code):
+    _mock(monkeypatch, google_meet, _people_handler(status))
+    with pytest.raises(MeetingProviderError) as exc:
+        await google_meet.fetch_participants("tok", "abc-defg-hij", MOMENT)
+    assert exc.value.code == code
+
+
+async def test_a_person_the_directory_does_not_know_is_just_without_an_email(monkeypatch):
+    _mock(
+        monkeypatch,
+        google_meet,
+        _people_handler(200, [{"requestedResourceName": "people/1", "httpStatusCode": 404}]),
+    )
     result = await google_meet.fetch_participants("tok", "abc-defg-hij", MOMENT)
     assert result.participants[0].email is None and result.participants[0].verified is False
-    assert result.warning is not None and "look up" in result.warning
+    assert result.warning is not None and "didn't share an email" in result.warning
+    # A per-person error that is not "not found" is a failed lookup, not absence.
+    _mock(
+        monkeypatch,
+        google_meet,
+        _people_handler(200, [{"requestedResourceName": "people/1", "httpStatusCode": 500}]),
+    )
+    with pytest.raises(MeetingProviderError):
+        await google_meet.fetch_participants("tok", "abc-defg-hij", MOMENT)
+
+
+async def test_a_google_grant_with_no_scope_at_all_is_refused(client, tutor, fake, monkeypatch):
+    for scopes in ("", google_meet.DIRECTORY_SCOPE):
+
+        async def exchange_code(code, scopes=scopes):
+            return TokenGrant("a", "r", scopes)
+
+        monkeypatch.setattr(google_meet, "exchange_code", exchange_code)
+        url = await client.get(
+            "/api/v1/integrations/google_meet/authorize-url", headers=tutor["headers"]
+        )
+        resp = await client.get(
+            "/api/v1/integrations/google_meet/callback",
+            params={"code": "x", "state": url.json()["state"]},
+            headers=tutor["headers"],
+        )
+        assert resp.status_code == 400, scopes
+    async with async_session() as s:
+        assert (await s.scalars(select(MeetingConnection))).all() == []
+
+
+def test_two_equally_near_sessions_are_ambiguous_not_first_wins():
+    moment = lesson_moment(dt.date(2026, 7, 14), dt.time(12, 0), None)
+    sessions = [(_utc(14, 11), "earlier"), (_utc(14, 13), "later")]
+    with pytest.raises(MeetingProviderError) as exc:
+        pick_session(sessions, moment)
+    assert "start time" in exc.value.message
+    # Either order: it never silently takes the first.
+    with pytest.raises(MeetingProviderError):
+        pick_session(list(reversed(sessions)), moment)
+    # A strictly nearer one still wins.
+    assert pick_session([*sessions, (_utc(14, 12, 5), "near")], moment) == "near"
+
+
+async def test_zoom_instances_are_read_across_pages(monkeypatch):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.raw_path.decode().split("?")[0]
+        if path.endswith("/instances"):
+            seen.append(request.url.params.get("next_page_token"))
+            if request.url.params.get("next_page_token") != "p2":
+                return httpx.Response(
+                    200,
+                    json={
+                        "next_page_token": "p2",
+                        "meetings": [{"uuid": "OLD", "start_time": "2026-06-01T15:00:00Z"}],
+                    },
+                )
+            return httpx.Response(
+                200, json={"meetings": [{"uuid": "RIGHT", "start_time": "2026-07-14T15:00:00Z"}]}
+            )
+        assert "/past_meetings/RIGHT/participants" in path
+        return httpx.Response(200, json={"participants": [{"name": "A", "duration": 5}]})
+
+    _mock(monkeypatch, zoom, handler)
+    result = await zoom.fetch_participants("tok", "81234567890", MOMENT)
+    assert seen == [None, "p2"] and result.participants[0].display_name == "A"
+
+
+async def test_a_superseded_worker_writes_nothing(client, tutor, group, student, fake):
+    """A stale re-queue starts attempt 2; attempt 1's worker must not touch the register."""
+    await _connect(client, tutor["headers"], "google_meet")
+    lesson = await _online(client, tutor, group, link=MEET_LINK)
+    fake.participants = [ParticipantRecord("Sara", "sara@example.com", 60, verified=True)]
+    url = f"/api/v1/lessons/{lesson['id']}/attendance/import"
+    await client.post(url, headers=tutor["headers"])  # attempt 1, job 1
+    async with async_session() as s:
+        row = (await s.scalars(select(LessonMeetingImport))).one()
+        row.requested_at = row.requested_at - dt.timedelta(hours=1)  # presumed lost
+        await s.commit()
+    await client.post(url, headers=tutor["headers"])  # attempt 2, job 2
+
+    assert await process_one_job() is True  # job 1: no longer current
+    assert fake.fetched == []
+    assert await _register(client, tutor, lesson) == {"Sara": (None, None)}
+    async with async_session() as s:
+        row = (await s.scalars(select(LessonMeetingImport))).one()
+        assert (row.attempt, row.status.value) == (2, "queued")
+
+    assert await process_one_job() is True  # job 2 does the work
+    assert await _register(client, tutor, lesson) == {"Sara": ("present", "google_meet")}
+
+
+async def test_a_resolved_participant_cannot_be_resolved_again(client, tutor, group, student, fake):
+    sara = student["user"]["id"]
+    omar = await _add_student(client, tutor, group, "Omar", "omar@example.com")
+    lesson, pid = await _imported_with_one_unmatched(client, tutor, group, fake)
+    url = f"/api/v1/lessons/{lesson['id']}/participants/{pid}/resolve"
+    first = await client.post(url, json={"student_id": sara}, headers=tutor["headers"])
+    second = await client.post(url, json={"student_id": omar}, headers=tutor["headers"])
+    assert (first.status_code, second.status_code) == (200, 409)
+    assert await _register(client, tutor, lesson) == {
+        "Sara": ("present", "tutor"),
+        "Omar": (None, None),
+    }
+    async with async_session() as s:
+        part = (await s.scalars(select(MeetingParticipant))).one()
+        assert part.matched_student_id == sara
+
+
+async def test_switching_a_lesson_to_in_person_drops_the_meeting_but_not_tutor_marks(
+    client, tutor, group, student, fake
+):
+    omar = await _add_student(client, tutor, group, "Omar", "omar@example.com")
+    await _connect(client, tutor["headers"], "google_meet")
+    lesson = await _online(client, tutor, group, link=MEET_LINK)
+    fake.participants = [ParticipantRecord("Sara", "sara@example.com", 60, verified=True)]
+    await _import(client, tutor, lesson)
+    await client.put(
+        f"/api/v1/lessons/{lesson['id']}/attendance",
+        json={"entries": [{"student_id": omar, "state": "present"}]},
+        headers=tutor["headers"],
+    )
+    patched = await client.patch(
+        f"/api/v1/lessons/{lesson['id']}", json={"mode": "in_person"}, headers=tutor["headers"]
+    )
+    assert patched.status_code == 200
+    assert (patched.json()["meeting_provider"], patched.json()["meeting_link"]) == (None, None)
+    assert await _register(client, tutor, lesson) == {
+        "Sara": (None, None),
+        "Omar": ("present", "tutor"),
+    }
+    async with async_session() as s:
+        assert (await s.scalars(select(MeetingParticipant))).all() == []
+        assert (await s.scalars(select(LessonMeetingImport))).all() == []
 
 
 # --- Changing the link ---------------------------------------------------------------------------

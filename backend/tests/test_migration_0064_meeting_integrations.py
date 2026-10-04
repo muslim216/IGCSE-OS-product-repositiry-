@@ -70,6 +70,26 @@ def test_tables_match_the_models(chain, model_insp, table):
     assert _shape(sa.inspect(conn), table) == _shape(model_insp, table)
 
 
+def test_lesson_children_cascade_and_an_import_is_unique_per_lesson(chain):
+    """Stated outright, not just compared with the model: a lesson's participants
+    and import row must go with the lesson in Postgres, and a lesson has at most
+    one import row."""
+    conn, _ = chain
+    insp = sa.inspect(conn)
+    for table in ("meeting_participants", "lesson_meeting_imports"):
+        assert _shape(insp, table)["fks"]["lesson_id"] == ("lessons", "CASCADE"), table
+    imports = _shape(insp, "lesson_meeting_imports")
+    unique_on_lesson = [cols for cols in imports["uniques"].values() if cols == ["lesson_id"]] + [
+        cols
+        for cols, is_unique in imports["indexes"].values()
+        if is_unique and cols == ["lesson_id"]
+    ]
+    assert unique_on_lesson, imports
+    # The columns the import generation and the Zoom suggestion rely on exist.
+    assert "attempt" in imports["columns"]
+    assert "suggested_student_id" in _shape(insp, "meeting_participants")["columns"]
+
+
 def test_connection_is_unique_per_tutor_and_provider(chain):
     conn, _ = chain
     shape = _shape(sa.inspect(conn), "meeting_connections")

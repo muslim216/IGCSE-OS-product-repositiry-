@@ -166,6 +166,12 @@ async def resolve_participant(
         p = await mi.resolve_participant(db, lesson, participant_id, body.student_id, user)
     except mi.ParticipantNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Participant not found") from exc
+    except mi.ParticipantAlreadyResolved as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This participant has already been matched to a student. Change the register "
+            "directly if that was a mistake.",
+        ) from exc
     except mi.StudentNotEnrolled as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in this class") from exc
     except AttendanceConflict as exc:

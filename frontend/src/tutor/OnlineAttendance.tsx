@@ -73,7 +73,16 @@ export default function OnlineAttendance({ lessonId }: { lessonId: number }) {
 
       {provider && label && (
         <div>
-          {integrations.isLoading ? null : !integration ? null : !integration.configured ? (
+          {integrations.isLoading ? null : integrations.isError ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <p role="alert" className="text-sm text-risk-600">
+                Couldn't check whether {label} is connected. {friendlyError(integrations.error)}
+              </p>
+              <Button size="sm" variant="secondary" onClick={() => integrations.refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : !integration ? null : !integration.configured ? (
             <p className="text-sm text-ink-500">
               {label} attendance isn't set up for Avora yet, so it can't be imported here.
             </p>
@@ -190,7 +199,7 @@ function MeetingLinkRow({ lessonId, data }: { lessonId: number; data: LessonMeet
       <div className="min-w-[14rem] flex-1">
         <Input
           id={`meeting-link-${lessonId}`}
-          type="url"
+          type="text"
           value={draft}
           placeholder="https://zoom.us/j/…"
           onChange={(e) => setDraft(e.target.value)}

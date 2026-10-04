@@ -100,5 +100,9 @@ class LessonMeetingImport(TimestampMixin, Base):
     requested_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # When the current import was asked for: a `queued` row older than this
     # window is treated as lost, not as still running.
+    # Which request the current import is. A job carries the number it was queued
+    # with; a worker whose number is no longer this one (the import was re-asked
+    # after a presumed loss) must not write status or attendance.
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
