@@ -75,7 +75,7 @@ export default function MarkingRulesPage() {
     <PageHeader
       title="AI marking agreement"
       description="How you want work in a subject marked, in your own words — method marks, units, working, the things you would tell a new tutor. Written once, it applies to every chapter and piece of work in the subject, alongside the exam board's own conventions rather than instead of them."
-      back={{ to: "/tutor/library", label: "Library" }}
+      back={{ to: "/tutor/settings", label: "Settings" }}
     />
   );
 

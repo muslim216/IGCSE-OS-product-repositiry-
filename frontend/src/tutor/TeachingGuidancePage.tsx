@@ -80,7 +80,7 @@ export default function TeachingGuidancePage() {
     <PageHeader
       title="Teaching guidance"
       description="Your scheme of work for a subject — the order you teach it in and how long each chapter takes. It's kept beside the syllabus, ready for the teaching plan to use when that arrives; nothing reads it yet. One document per subject: uploading again replaces it."
-      back={{ to: "/tutor/library", label: "Library" }}
+      back={{ to: "/tutor/settings", label: "Settings" }}
     />
   );
 

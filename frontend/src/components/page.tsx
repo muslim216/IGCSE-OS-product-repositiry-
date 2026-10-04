@@ -1,4 +1,12 @@
-import { Component, useCallback, useEffect, type ErrorInfo, type ReactNode } from "react";
+import {
+  Component,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, Compass, RefreshCw } from "lucide-react";
 import { Button, buttonClasses } from "./controls";
@@ -24,6 +32,14 @@ export function useDocumentTitle(title: string | null | undefined) {
 }
 
 /**
+ * Inside this provider a PageHeader is a section heading, not a page title: an
+ * <h2>, no back link, no tab title. It lets a page that stands alone at its own
+ * URL also be one section of a longer page (Settings) without a second copy of
+ * its body and without two <h1>s.
+ */
+export const EmbeddedPageContext = createContext(false);
+
+/**
  * The top of every page: an optional way back, the page's one <h1>, a sentence
  * saying what the page is for, and its primary actions. Also titles the tab.
  */
@@ -46,7 +62,26 @@ export function PageHeader({
   /** Tab title when `title` is not plain text. */
   documentTitle?: string;
 }) {
-  useDocumentTitle(documentTitle ?? (typeof title === "string" ? title : null));
+  const embedded = useContext(EmbeddedPageContext);
+  useDocumentTitle(embedded ? null : (documentTitle ?? (typeof title === "string" ? title : null)));
+  if (embedded) {
+    return (
+      <header className="mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-xl leading-tight text-ink-900">{title}</h2>
+            {meta && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">{meta}</div>}
+            {description && (
+              <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-500">
+                {description}
+              </p>
+            )}
+          </div>
+          {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        </div>
+      </header>
+    );
+  }
   return (
     <header className="avora-enter mb-8">
       {back && (

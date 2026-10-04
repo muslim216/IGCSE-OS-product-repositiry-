@@ -13,6 +13,18 @@ export interface NavItem {
   icon: LucideIcon;
   /** "bottom" items sit apart from the main workflow nav. */
   slot?: "main" | "bottom";
+  /** Extra path prefixes that count as being "in" this destination, so a page
+      one level below it (a past paper under Papers & mocks) keeps it lit. */
+  also?: string[];
+}
+
+/** `end` keeps "/tutor" from matching every tutor page, so nesting has to be
+    declared: an item is active on its own path or under any `also` prefix. */
+function isWithin(item: NavItem, pathname: string, linkActive: boolean): boolean {
+  return (
+    linkActive ||
+    (item.also ?? []).some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  );
 }
 
 /** The most tabs the bottom bar shows before the rest fold into "More". Four
@@ -25,13 +37,14 @@ function Brand() {
 }
 
 function SidebarLink({ item }: { item: NavItem }) {
+  const { pathname } = useLocation();
   return (
     <NavLink
       to={item.to}
       end
       className={({ isActive }) =>
         `avora-press flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
-          isActive
+          isWithin(item, pathname, isActive)
             ? "bg-brand-600 font-medium text-canvas"
             : "text-ink-500 hover:bg-surface hover:text-ink-900"
         }`
@@ -46,6 +59,7 @@ function SidebarLink({ item }: { item: NavItem }) {
 /** A single destination in the fixed bottom bar: icon over label, ≥44px tall,
     the touch-target floor WCAG 2.5.5 sets. */
 function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+  const { pathname } = useLocation();
   return (
     <NavLink
       to={item.to}
@@ -53,7 +67,7 @@ function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => voi
       onClick={onNavigate}
       className={({ isActive }) =>
         `flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium avora-press transition ${
-          isActive ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
+          isWithin(item, pathname, isActive) ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
         }`
       }
     >
@@ -69,6 +83,7 @@ function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => voi
     primary tab). */
 function MoreTab({ items }: { items: NavItem[] }) {
   const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
   return (
     <div className="relative flex flex-1">
       <button
@@ -106,7 +121,9 @@ function MoreTab({ items }: { items: NavItem[] }) {
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-3 py-2.5 text-sm transition ${
-                    isActive ? "font-medium text-brand-600" : "text-ink-700 hover:bg-surface-muted"
+                    isWithin(item, pathname, isActive)
+                      ? "font-medium text-brand-600"
+                      : "text-ink-700 hover:bg-surface-muted"
                   }`
                 }
               >

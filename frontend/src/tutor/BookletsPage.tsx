@@ -361,7 +361,7 @@ export default function BookletsPage() {
       <PageHeader
         title="Booklets"
         description="One PDF holding several whole past papers. The AI reads out what is inside, you check the list, and each paper is cut into its own past paper for students to sit."
-        back={{ to: "/tutor/library", label: "Library" }}
+        back={{ to: "/tutor/papers", label: "Papers & mocks" }}
       />
 
       <div className="space-y-6">

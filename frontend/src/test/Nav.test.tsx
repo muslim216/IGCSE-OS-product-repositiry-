@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -87,32 +87,124 @@ test("the old Readiness URL still lands, on Progress", async () => {
   expect(await screen.findByText("No progress to show yet.")).toBeInTheDocument();
 });
 
-test("the tutor primary nav has exactly four items", async () => {
+test("the tutor nav has seven destinations in the owner's order", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  for (const label of ["Today", "Classes", "Review", "Library"]) {
-    expect(within(sidebar).getByText(label)).toBeInTheDocument();
-  }
-  // The six that moved onto the Library shelf are gone from the primary nav.
-  for (const label of ["Class readiness", "Homework", "Past papers", "Mocks", "Syllabuses"]) {
-    expect(within(sidebar).queryByText(label)).not.toBeInTheDocument();
+  const labels = within(sidebar)
+    .getAllByRole("link")
+    .map((link) => link.textContent);
+  expect(labels).toEqual([
+    "Today",
+    "Classes",
+    "Review",
+    "Readiness",
+    "Papers & mocks",
+    "Library",
+    "Settings",
+  ]);
+});
+
+test("Readiness in the nav is the class readiness page", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  expect(within(sidebar).getByRole("link", { name: "Readiness" })).toHaveAttribute(
+    "href",
+    "/tutor/readiness",
+  );
+});
+
+test("the Papers & mocks hub links to past papers, booklets and mocks", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/papers");
+  for (const [label, href] of [
+    ["Past papers", "/tutor/past-papers"],
+    ["Booklets", "/tutor/booklets"],
+    ["Mocks", "/tutor/mocks"],
+  ]) {
+    const card = (await screen.findAllByRole("link", { name: new RegExp(label) })).find(
+      (link) => link.getAttribute("href") === href,
+    );
+    expect(card).toBeDefined();
   }
 });
 
-test("the Library shelf links to every destination that left the nav", async () => {
+test("the Library lists only source material, not setup, readiness or papers", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/library");
+  expect(await screen.findByRole("link", { name: /Syllabuses/ })).toBeInTheDocument();
+  const main = screen.getByRole("main");
   for (const label of [
     "Past papers",
     "Mocks",
-    "Syllabuses",
     "Class readiness",
     "Preferences",
-    "Settings",
+    "Grade boundaries",
+    "Teaching guidance",
   ]) {
-    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(within(main).queryByText(label)).not.toBeInTheDocument();
   }
+});
+
+test("Settings renders every section under its heading, in order", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/settings");
+  await screen.findByRole("heading", { level: 1, name: "Settings" });
+  const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+  const wanted = [
+    "Teaching guidance",
+    "AI marking agreement",
+    "Grade boundaries",
+    "Mistake categories",
+    "Preferences",
+    "Account and integrations",
+  ];
+  expect(wanted.map((w) => headings.indexOf(w))).toEqual(
+    [...wanted.map((w) => headings.indexOf(w))].sort((a, b) => a - b),
+  );
+  for (const w of wanted) expect(headings).toContain(w);
+  const index = screen.getByRole("navigation", { name: "Settings sections" });
+  expect(within(index).getAllByRole("link")).toHaveLength(wanted.length);
+});
+
+test.each([
+  ["teaching-guidance", "Teaching guidance"],
+  ["marking-rules", "AI marking agreement"],
+  ["boundaries", "Grade boundaries"],
+  ["mistake-categories", "Mistake categories"],
+  ["preferences", "Preferences"],
+])("the old %s URL lands on Settings at that section", async (path, heading) => {
+  mockAuthedFetch("tutor");
+  const scroll = vi.fn();
+  Element.prototype.scrollIntoView = scroll;
+  renderApp(`/tutor/${path}`);
+  expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: heading })).toBeInTheDocument();
+  await waitFor(() => expect(scroll).toHaveBeenCalled());
+  expect(scroll.mock.contexts[0]).toHaveProperty("id", path);
+});
+
+test("a nested page keeps its parent nav item active", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/syllabuses");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  const library = within(sidebar).getByRole("link", { name: "Library" });
+  await waitFor(() => expect(library.className).toContain("bg-brand-600"));
+  expect(within(sidebar).getByRole("link", { name: "Papers & mocks" }).className).not.toContain(
+    "bg-brand-600",
+  );
+});
+
+test("a past paper page highlights Papers & mocks", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/past-papers");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  const link = within(sidebar).getByRole("link", { name: "Papers & mocks" });
+  await waitFor(() => expect(link.className).toContain("bg-brand-600"));
+  expect(within(sidebar).getByRole("link", { name: "Library" }).className).not.toContain(
+    "bg-brand-600",
+  );
 });
 
 test("a bookmarked retired route lands on its successor, never a 404", async () => {

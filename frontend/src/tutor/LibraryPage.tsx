@@ -1,104 +1,29 @@
 import { Link } from "react-router-dom";
-import {
-  BookOpen,
-  ChevronRight,
-  ClipboardList,
-  FileText,
-  Gauge,
-  Layers,
-  PenLine,
-  Ruler,
-  Scale,
-  Tags,
-  Settings as SettingsIcon,
-  SlidersHorizontal,
-  type LucideIcon,
-} from "lucide-react";
+import { BookOpen, ChevronRight, type LucideIcon } from "lucide-react";
 import { PageHeader } from "../components/page";
 import { SectionHeader } from "../components/ui";
 
 /**
- * Library is the tutor's shelf: the reference and content surfaces that don't
- * belong in the daily workflow (Today · Classes · Review) but must stay one tap
- * away. Collapsing nine nav items to four moved these here rather than deleting
- * them — every destination the old sidebar offered is still reachable.
+ * Library is the tutor's source material, today the syllabuses. It held eleven
+ * entries (papers, mocks, readiness, five setup pages, settings) until the
+ * coherence pass: the owner liked how Classes is set up but not that major
+ * parts of the app were "just thrown into Library". Those now have their own
+ * homes (Papers & mocks, Readiness, Settings); this shelf is what remains.
+ * It stays a shelf so new material kinds slot in as cards.
  */
-interface Shelf {
+export interface Shelf {
   to: string;
   label: string;
   hint: string;
   icon: LucideIcon;
 }
 
-const CONTENT: Shelf[] = [
-  {
-    to: "/tutor/past-papers",
-    label: "Past papers",
-    hint: "Add full past papers for every student taking that subject to sit.",
-    icon: FileText,
-  },
-  {
-    to: "/tutor/booklets",
-    label: "Booklets",
-    hint: "One PDF holding several papers — the AI reads out what's inside and you check the list.",
-    icon: Layers,
-  },
-  {
-    to: "/tutor/mocks",
-    label: "Mocks",
-    hint: "Enter and track mock results.",
-    icon: PenLine,
-  },
+const MATERIAL: Shelf[] = [
   {
     to: "/tutor/syllabuses",
     label: "Syllabuses",
     hint: "Upload a syllabus to build its topic tree.",
     icon: BookOpen,
-  },
-  {
-    to: "/tutor/teaching-guidance",
-    label: "Teaching guidance",
-    hint: "Your scheme of work per subject, kept for the teaching plan to use.",
-    icon: ClipboardList,
-  },
-  {
-    to: "/tutor/readiness",
-    label: "Class readiness",
-    hint: "Drill into a class and flag learners who need attention.",
-    icon: Gauge,
-  },
-];
-
-const SETTINGS: Shelf[] = [
-  {
-    to: "/tutor/marking-rules",
-    label: "AI marking agreement",
-    hint: "How you want work in a subject marked, in your own words.",
-    icon: Scale,
-  },
-  {
-    to: "/tutor/boundaries",
-    label: "Grade boundaries",
-    hint: "What percentage earns each grade. Every predicted grade is read through these.",
-    icon: Ruler,
-  },
-  {
-    to: "/tutor/mistake-categories",
-    label: "Mistake categories",
-    hint: "The words you use for what went wrong, per subject. Marking tags against these.",
-    icon: Tags,
-  },
-  {
-    to: "/tutor/preferences",
-    label: "Preferences",
-    hint: "How much each kind of evidence counts towards readiness.",
-    icon: SlidersHorizontal,
-  },
-  {
-    to: "/tutor/settings",
-    label: "Settings",
-    hint: "Time zones, and the criteria you score students on by hand.",
-    icon: SettingsIcon,
   },
 ];
 
@@ -124,7 +49,7 @@ function ShelfCard({ item }: { item: Shelf }) {
   );
 }
 
-function ShelfSection({
+export function ShelfSection({
   title,
   description,
   items,
@@ -150,18 +75,13 @@ export default function LibraryPage() {
     <div>
       <PageHeader
         title="Library"
-        description="Your teaching material and the settings behind marking and readiness, all in one place."
+        description="Your source material. Papers and mocks, readiness and settings each have their own place in the sidebar."
       />
       <div className="space-y-8">
         <ShelfSection
-          title="Content"
-          description="What your students sit and study."
-          items={CONTENT}
-        />
-        <ShelfSection
-          title="Account"
-          description="How marking, grades and readiness work for you."
-          items={SETTINGS}
+          title="Material"
+          description="What the topic tree and your teaching are built from."
+          items={MATERIAL}
         />
       </div>
     </div>

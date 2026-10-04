@@ -95,7 +95,7 @@ export default function GradeBoundariesPage() {
     <PageHeader
       title="Grade boundaries"
       description="The percentage that earns each grade. Every predicted grade in avora is read through these, so a change here shows everywhere the next time a page loads."
-      back={{ to: "/tutor/library", label: "Library" }}
+      back={{ to: "/tutor/settings", label: "Settings" }}
     />
   );
 

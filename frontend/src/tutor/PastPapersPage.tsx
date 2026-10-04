@@ -254,7 +254,7 @@ export default function PastPapersPage() {
       <PageHeader
         title="Past papers"
         description="Upload a full paper once and every student taking that subject can sit it. Their answers are marked question by question, feeding both topic mastery and their past-paper score."
-        back={{ to: "/tutor/library", label: "Library" }}
+        back={{ to: "/tutor/papers", label: "Papers & mocks" }}
       />
 
       <div className="space-y-6">
