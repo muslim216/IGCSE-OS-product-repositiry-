@@ -28,13 +28,16 @@ class WeakTopic(BaseModel):
     tutor_estimate: bool = False
 
 
+VerdictStatus = Literal["on_track", "needs_attention", "at_risk", "not_enough_data"]
+
+
 class SubjectVerdict(BaseModel):
     """The one verdict for this (student, subject), identical for the tutor, the
     student and the parent — they differ only in wording, which the frontend
     owns (services/student_verdict.py). `status` is "on_track" |
     "needs_attention" | "at_risk" | "not_enough_data"."""
 
-    status: str
+    status: VerdictStatus
     reason_topics: list[str] = []
     next_step: str
 

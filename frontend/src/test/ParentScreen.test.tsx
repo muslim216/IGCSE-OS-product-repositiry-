@@ -20,7 +20,9 @@ const NO_ATTENDANCE_RECORD = {
 };
 
 /** The server derives the verdict from the same band; fixtures mirror that. */
-function verdictFor(status: string | null): SubjectReadiness["verdict"] {
+function verdictFor(
+  status: SubjectReadiness["verdict"]["status"] | null,
+): SubjectReadiness["verdict"] {
   if (status === null) {
     return {
       status: "not_enough_data",
@@ -32,7 +34,9 @@ function verdictFor(status: string | null): SubjectReadiness["verdict"] {
     status,
     reason_topics: status === "on_track" ? [] : ["Ionic bonding", "Moles"],
     next_step:
-      status === "on_track" ? "Keep up the current plan." : "Revise Ionic bonding and Moles next.",
+      status === "on_track"
+        ? "Nothing flagged in this subject."
+        : "Weakest right now: Ionic bonding and Moles.",
   };
 }
 
@@ -271,8 +275,32 @@ test("a child who needs attention is never told nothing is needed", async () => 
   renderParent();
   expect(await screen.findByText("Sara needs attention in Chemistry.")).toBeInTheDocument();
   expect(screen.getByText("Ionic bonding, Moles")).toBeInTheDocument();
-  expect(screen.getByText("Chemistry: Revise Ionic bonding and Moles next.")).toBeInTheDocument();
+  expect(
+    screen.getByText("Chemistry: Weakest right now: Ionic bonding and Moles."),
+  ).toBeInTheDocument();
   expect(screen.queryByText(/nothing is needed/i)).not.toBeInTheDocument();
+});
+
+test("nothing is needed only when a measured subject exists and all measured are on track", () => {
+  // Marked work exists but no subject has a verdict (e.g. no boundaries): no claim.
+  expect(whatYouCanDo([unmeasured({ marked_piece_count: 3 })])).toBe(
+    "There isn't enough marked work yet to say whether anything is needed.",
+  );
+  // Some on track, one not yet measured: say which.
+  expect(whatYouCanDo([subject(), unmeasured({ subject_id: 2, subject_name: "Biology" })])).toBe(
+    "Nothing is needed right now in Chemistry. Biology isn't measured yet.",
+  );
+  // All measured and on track.
+  expect(whatYouCanDo([subject(), biology()])).toBe(
+    "Nothing is needed right now. We'll tell you if that changes.",
+  );
+  // Flagged wins over unmeasured.
+  expect(
+    whatYouCanDo([
+      subject({ status: "needs_attention" }),
+      unmeasured({ subject_id: 2, subject_name: "Biology" }),
+    ]),
+  ).toMatch(/^Chemistry: Weakest right now/);
 });
 
 test("an unmeasured subject is neither on track nor in trouble", () => {

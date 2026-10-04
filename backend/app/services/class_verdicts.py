@@ -16,7 +16,8 @@ async def class_verdicts(db: AsyncSession, group: Group) -> dict[int, Verdict]:
     fixed number of queries whatever the roster (PERF-1). A learner with no
     ready snapshot gets "not_enough_data". Same inputs as the profile's
     summary — latest ready snapshot, the organization's boundaries, the
-    resolved threshold — so the two cannot disagree. SEC-7: the caller passes a
+    resolved threshold — so the two cannot disagree. The tutor class rows in
+    services/today.py switch to this after the Overview PR merges (tracked). SEC-7: the caller passes a
     group it has already scoped to the authenticated tutor."""
     snapshots = (await latest_learner_snapshots(db, [group.id]))[group.id]
     roster = (
@@ -52,8 +53,12 @@ async def class_verdicts(db: AsyncSession, group: Group) -> dict[int, Verdict]:
                 score=None, predicted_grade=None, boundaries=boundaries, weak_topics=[]
             )
             continue
+        # Rows for topics that still exist are filtered *before* the weak-topic
+        # cap, as readiness_summary_v2 does, so a deleted topic cannot take one
+        # of the places and make this list differ from the profile's.
         weak_rows = weak_topic_rows(
-            rows_by_run.get(snap.evaluation_run_id, []), config.weak_threshold
+            [r for r in rows_by_run.get(snap.evaluation_run_id, []) if r.topic_id in titles],
+            config.weak_threshold,
         )
         out[student_id] = student_verdict(
             score=snap.score,

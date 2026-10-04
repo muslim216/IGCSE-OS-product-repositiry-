@@ -102,5 +102,18 @@ export function whatYouCanDo(subjects: SubjectReadiness[]): string {
   // child the tutor has flagged (coherence C.1).
   const urgent = measuredBySeverity(subjects).find((s) => s.verdict.status !== "on_track");
   if (urgent) return `${urgent.subject_name}: ${urgent.verdict.next_step}`;
+  // "Nothing is needed" is a claim about measured subjects only: it needs at
+  // least one, and every one of them on track (PROD-2).
+  const banded = bandedSubjects(subjects);
+  if (banded.length === 0) {
+    return "There isn't enough marked work yet to say whether anything is needed.";
+  }
+  const unmeasured = subjects.filter((s) => s.verdict.status === "not_enough_data");
+  if (unmeasured.length > 0) {
+    const measured = banded.map((s) => s.subject_name).join(" and ");
+    const names = unmeasured.map((s) => s.subject_name).join(" and ");
+    const verb = unmeasured.length === 1 ? "isn't" : "aren't";
+    return `Nothing is needed right now in ${measured}. ${names} ${verb} measured yet.`;
+  }
   return "Nothing is needed right now. We'll tell you if that changes.";
 }

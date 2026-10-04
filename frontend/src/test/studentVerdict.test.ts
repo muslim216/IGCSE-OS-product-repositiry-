@@ -4,7 +4,7 @@ import { measuredBySeverity, wordingFor, type StudentVerdict } from "../lib/stud
 const attention: StudentVerdict = {
   status: "needs_attention",
   reason_topics: ["Ionic bonding", "Moles"],
-  next_step: "Revise Ionic bonding and Moles next.",
+  next_step: "Weakest right now: Ionic bonding and Moles.",
 };
 const onTrack: StudentVerdict = { status: "on_track", reason_topics: [], next_step: "Keep going." };
 const none: StudentVerdict = { status: "not_enough_data", reason_topics: [], next_step: "x" };
@@ -23,7 +23,7 @@ test("the student's wording is kinder but names the same topics", () => {
 });
 
 test("at risk keeps its status for adults and is never a bare alarm for a student", () => {
-  const risk = { ...attention, status: "at_risk" };
+  const risk: StudentVerdict = { ...attention, status: "at_risk" };
   expect(wordingFor("tutor", risk).line).toBe("At risk: Ionic bonding, Moles");
   expect(wordingFor("student", risk).line).toBe("Focus on: Ionic bonding, Moles");
 });
@@ -45,7 +45,7 @@ test("severity ordering excludes subjects with no verdict", () => {
     { n: "a", verdict: onTrack },
     { n: "b", verdict: none },
     { n: "c", verdict: attention },
-    { n: "d", verdict: { ...attention, status: "at_risk" } },
+    { n: "d", verdict: { ...attention, status: "at_risk" as const } },
   ];
   expect(measuredBySeverity(rows).map((r) => r.n)).toEqual(["d", "c", "a"]);
 });

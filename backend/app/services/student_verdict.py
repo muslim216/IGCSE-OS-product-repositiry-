@@ -17,12 +17,14 @@ may not, because the summary imports it.
 """
 
 from dataclasses import dataclass
+from typing import cast
 
+from app.schemas.readiness import VerdictStatus
 from app.services.grades import grade_band
 
 #: The status when there is nothing to base a verdict on (PROD-2). The other
 #: three are `grade_band`'s own values, so the app has one status vocabulary.
-NOT_ENOUGH_DATA = "not_enough_data"
+NOT_ENOUGH_DATA: VerdictStatus = "not_enough_data"
 
 #: A verdict names at most this many topics — a longer list stops being a
 #: reason and becomes the whole syllabus.
@@ -32,7 +34,7 @@ MAX_REASON_TOPICS = 3
 @dataclass(frozen=True)
 class Verdict:
     #: "on_track" | "needs_attention" | "at_risk" | "not_enough_data"
-    status: str
+    status: VerdictStatus
     #: Titles of the weakest topics below the tutor's threshold, lowest first.
     #: Empty for on_track and not_enough_data.
     reason_topics: list[str]
@@ -65,9 +67,12 @@ def student_verdict(
             next_step="Marked work will build this picture.",
         )
     if band == "on_track":
-        return Verdict(status=band, reason_topics=[], next_step="Keep up the current plan.")
+        return Verdict(
+            status="on_track", reason_topics=[], next_step="Nothing flagged in this subject."
+        )
     reasons = list(weak_topics[:MAX_REASON_TOPICS])
+    # A statement of what the data shows, never an instruction (AV-42).
     next_step = (
-        f"Revise {_join(reasons)} next." if reasons else "Review this subject with the tutor."
+        f"Weakest right now: {_join(reasons)}." if reasons else "No single topic stands out."
     )
-    return Verdict(status=band, reason_topics=reasons, next_step=next_step)
+    return Verdict(status=cast(VerdictStatus, band), reason_topics=reasons, next_step=next_step)

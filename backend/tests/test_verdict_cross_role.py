@@ -151,6 +151,57 @@ async def test_class_loader_agrees_with_the_profile_verdict(client, tutor, world
     )
 
 
+async def test_deleted_topics_do_not_take_weak_topic_places(client, tutor, world):
+    """Rows for deleted topics are dropped before the weak-topic cap, so the
+    class loader names the same topics as the profile."""
+    from sqlalchemy import delete, select
+    from sqlalchemy.orm import selectinload
+
+    from app.models import Group
+
+    async with async_session() as session:
+        extra = [
+            Topic(subject_id=world["subject_id"], code=f"x{i}", title=f"Extra {i}", weight=1.0)
+            for i in range(4)
+        ]
+        session.add_all(extra)
+        await session.flush()
+        base = (
+            await session.scalars(select(Topic).where(Topic.subject_id == world["subject_id"]))
+        ).all()
+        scores = {t.id: (85.0, FactorConfidence.high) for t in base if t.code == "1"}
+        scores.update({t.id: (40.0, FactorConfidence.high) for t in base if t.code == "2"})
+        scores.update({t.id: (55.0, FactorConfidence.medium) for t in base if t.code == "3"})
+        for t, s in zip(extra, (10.0, 20.0, 30.0, 35.0), strict=True):
+            scores[t.id] = (s, FactorConfidence.high)
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=62.0,
+            predicted_grade="6",
+            topics=scores,
+        )
+        # The three lowest topics are deleted after the run.
+        await session.execute(delete(Topic).where(Topic.id.in_([t.id for t in extra[:3]])))
+        await session.commit()
+
+    profile = _verdict(
+        (
+            await client.get(
+                f"{API}/readiness/students/{world['student_id']}", headers=tutor["headers"]
+            )
+        ).json()
+    )
+    async with async_session() as session:
+        group = await session.scalar(
+            select(Group).where(Group.id == world["group_id"]).options(selectinload(Group.subject))
+        )
+        v = (await class_verdicts(session, group))[world["student_id"]]
+    assert profile["reason_topics"] == ["Extra 3", "Ionic bonding", "Moles"]
+    assert v.reason_topics == profile["reason_topics"]
+
+
 async def test_no_readiness_yet_is_not_enough_data_for_every_role(client, tutor, world):
     async with async_session() as session:
         from sqlalchemy import delete

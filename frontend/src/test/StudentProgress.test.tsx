@@ -33,7 +33,11 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     computed_at: null,
     rationale: null,
     recommended_revision: null,
-    verdict: { status: "on_track", reason_topics: [], next_step: "Keep up the current plan." },
+    verdict: {
+      status: "on_track",
+      reason_topics: [],
+      next_step: "Nothing flagged in this subject.",
+    },
     ...over,
   };
 }

@@ -22,7 +22,7 @@ export interface VerdictWording {
 
 const NOT_ENOUGH = "Not enough data yet";
 
-const ADULT_LABEL: Record<string, string> = {
+const ADULT_LABEL: Record<"on_track" | "needs_attention" | "at_risk", string> = {
   on_track: "On track",
   needs_attention: "Needs attention",
   at_risk: "At risk",
@@ -33,18 +33,29 @@ export function wordingFor(role: VerdictRole, verdict: StudentVerdict): VerdictW
   const reason = topics.length > 0 ? topics.join(", ") : null;
   const nextStep = verdict.next_step;
 
-  if (verdict.status === "not_enough_data") {
-    return { line: NOT_ENOUGH, label: NOT_ENOUGH, reason: null, nextStep };
-  }
-  if (role === "student") {
-    if (verdict.status === "on_track") {
-      return { line: "You're on track", label: "You're on track", reason: null, nextStep };
+  const status = verdict.status;
+  switch (status) {
+    case "not_enough_data":
+      return { line: NOT_ENOUGH, label: NOT_ENOUGH, reason: null, nextStep };
+    case "on_track": {
+      const label = role === "student" ? "You're on track" : ADULT_LABEL.on_track;
+      return { line: label, label, reason: null, nextStep };
     }
-    const label = reason ? "Focus on" : "Worth a closer look";
-    return { line: reason ? `Focus on: ${reason}` : label, label, reason, nextStep };
+    case "needs_attention":
+    case "at_risk": {
+      if (role === "student") {
+        const label = reason ? "Focus on" : "Worth a closer look";
+        return { line: reason ? `Focus on: ${reason}` : label, label, reason, nextStep };
+      }
+      const label = ADULT_LABEL[status];
+      return { line: reason ? `${label}: ${reason}` : label, label, reason, nextStep };
+    }
+    default: {
+      // A new server status must be worded here before this compiles.
+      const unreachable: never = status;
+      return unreachable;
+    }
   }
-  const label = ADULT_LABEL[verdict.status] ?? NOT_ENOUGH;
-  return { line: reason ? `${label}: ${reason}` : label, label, reason, nextStep };
 }
 
 const SEVERITY: Record<string, number> = { at_risk: 0, needs_attention: 1, on_track: 2 };

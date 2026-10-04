@@ -5889,8 +5889,11 @@ export interface components {
          *     "needs_attention" | "at_risk" | "not_enough_data".
          */
         SubjectVerdict: {
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "on_track" | "needs_attention" | "at_risk" | "not_enough_data";
             /**
              * Reason Topics
              * @default []

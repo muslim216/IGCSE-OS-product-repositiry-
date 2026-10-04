@@ -17135,6 +17135,12 @@
         "properties": {
           "status": {
             "type": "string",
+            "enum": [
+              "on_track",
+              "needs_attention",
+              "at_risk",
+              "not_enough_data"
+            ],
             "title": "Status"
           },
           "reason_topics": {

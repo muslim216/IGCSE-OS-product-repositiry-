@@ -35,7 +35,11 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     computed_at: null,
     rationale: null,
     recommended_revision: null,
-    verdict: { status: "on_track", reason_topics: [], next_step: "Keep up the current plan." },
+    verdict: {
+      status: "on_track",
+      reason_topics: [],
+      next_step: "Nothing flagged in this subject.",
+    },
     ...over,
   };
 }
@@ -279,7 +283,7 @@ test("nothing due never reads as all clear when the verdict needs attention", as
         verdict: {
           status: "needs_attention",
           reason_topics: ["Ionic bonding", "Moles"],
-          next_step: "Revise Ionic bonding and Moles next.",
+          next_step: "Weakest right now: Ionic bonding and Moles.",
         },
       }),
     ],
