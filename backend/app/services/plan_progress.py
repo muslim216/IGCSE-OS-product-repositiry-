@@ -144,13 +144,14 @@ async def class_progress(
     group_id: int | None = None,
     *,
     own_classes_only: bool = True,
+    now: datetime | None = None,
 ) -> dict[int, tuple[str, Progress]]:
     """(class name, progress) for the tutor's classes whose accepted plan has at
     least one lesson dated before today; one query however many classes
     (`PERF-1`). Organization and tutor come from the user (`SEC-7`), never from
     the request. `group_id` narrows it to one class. `own_classes_only=False` is
     for a class the caller has already been authorised for (an admin viewing a
-    tutor's class); the organization filter still binds."""
+    tutor's class); the organization filter still binds. `now` pins the clock for tests."""
     query = (
         select(
             Group.id,
@@ -195,7 +196,7 @@ async def class_progress(
     # see a different "behind" than the tutor).
     zones: dict[int, str | None] = {}
     timetables = await timetable_start_times(db, list({r[0] for r in rows}))
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     names: dict[int, str] = {}
     facts: dict[int, list[SlotFact]] = defaultdict(list)
     for (

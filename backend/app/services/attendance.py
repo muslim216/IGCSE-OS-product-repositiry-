@@ -253,7 +253,7 @@ class StudentAttendance:
         return self.present / marked if marked else None
 
 
-def _in_zone(moment: datetime, zone: str | None) -> datetime:
+def in_zone(moment: datetime, zone: str | None) -> datetime:
     """`moment` in `zone`. A naive datetime (SQLite) is UTC; an
     unusable zone degrades to UTC like `now_in`."""
     if moment.tzinfo is None:
@@ -266,8 +266,8 @@ def _in_zone(moment: datetime, zone: str | None) -> datetime:
     return moment.astimezone(timezone.utc)
 
 
-def _local_date(moment: datetime, zone: str | None) -> date:
-    return _in_zone(moment, zone).date()
+def local_date(moment: datetime, zone: str | None) -> date:
+    return in_zone(moment, zone).date()
 
 
 def _has_ended(lesson: Lesson, now_local: datetime) -> bool:
@@ -277,6 +277,28 @@ def _has_ended(lesson: Lesson, now_local: datetime) -> bool:
         return False
     end = datetime.combine(lesson.date, lesson.start_time) + timedelta(minutes=lesson.duration_min)
     return end <= now_local.replace(tzinfo=None)
+
+
+def counts_for_attendance(
+    lesson: Lesson,
+    state: AttendanceState | None,
+    joined_on: date | None,
+    today: date,
+    now_local: datetime,
+) -> bool:
+    """Whether one (lesson, student) pair is part of attendance at all. The one
+    definition: `student_attendance` and the tutor home's week and last-lesson
+    figures both call it, so "not taken" cannot mean two things.
+
+    A lesson after the class's today never counts. An unmarked lesson held before
+    the student joined is not "not taken". An unmarked lesson today is not "not
+    taken" until it is over; with no start time we cannot tell, so it counts from
+    tomorrow. A marked pair always counts (once the date has come)."""
+    if lesson.date > today:
+        return False
+    if state is None and joined_on is not None and lesson.date < joined_on:
+        return False
+    return not (state is None and lesson.date == today and not _has_ended(lesson, now_local))
 
 
 async def student_attendance(
@@ -329,7 +351,7 @@ async def student_attendance(
     # `now` exists so tests can pin the clock; production passes nothing. "Today"
     # is per class, because the cutoff is read on the class's clock.
     nows: dict[int, datetime] = {
-        gid: _in_zone(now, zone) if now is not None else now_in(zone) for gid, zone in zones.items()
+        gid: in_zone(now, zone) if now is not None else now_in(zone) for gid, zone in zones.items()
     }
     today_of = {gid: moment.date() for gid, moment in nows.items()}
 
@@ -343,7 +365,7 @@ async def student_attendance(
     if tutor_id is not None:
         member_q = member_q.where(Group.tutor_id == tutor_id)
     joined = {
-        gid: _local_date(created, zones.get(gid))
+        gid: local_date(created, zones.get(gid))
         for gid, created in (await session.execute(member_q)).all()
     }
     # The SQL bound is the latest "today" of any class; each row is then held to its
@@ -371,15 +393,13 @@ async def student_attendance(
 
     per_group: dict[int, ClassAttendance] = {}
     for lesson, state in (await session.execute(lesson_q)).all():
-        today = today_of[lesson.group_id]
-        if lesson.date > today:
-            continue
-        joined_on = joined.get(lesson.group_id)
-        if state is None and joined_on is not None and lesson.date < joined_on:
-            continue
-        if state is None and lesson.date == today and not _has_ended(lesson, nows[lesson.group_id]):
-            # Today's lesson is not "not taken" until it is over; with no start
-            # time we cannot tell, so it counts from tomorrow.
+        if not counts_for_attendance(
+            lesson,
+            state,
+            joined.get(lesson.group_id),
+            today_of[lesson.group_id],
+            nows[lesson.group_id],
+        ):
             continue
         entry = per_group.setdefault(lesson.group_id, ClassAttendance(lesson.group_id, ""))
         entry.lessons += 1

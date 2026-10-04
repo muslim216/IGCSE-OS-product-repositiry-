@@ -32,6 +32,16 @@ function suggestionLabel(s: NextLesson): string {
   return `Chapter ${s.chapter.code} · ${s.chapter.title} (planned ${plannedDate(s.scheduled_date)})`;
 }
 
+/** A real calendar date in YYYY-MM-DD form: 2026-02-30 round-trips to a different
+    day and is rejected. */
+function isRealDate(raw: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
 /** Record a lesson that was taught. The accepted plan pre-fills the date and
  *  the topics from its next unstarted slot (`AV-17`); everything stays
  *  editable, and nothing is created until the tutor submits. */
@@ -51,6 +61,18 @@ export default function RecordLessonForm({
     const id = raw === null ? NaN : Number(raw);
     return Number.isInteger(id) && id > 0 ? id : null;
   });
+  // "Record" on today's agenda lands here with `?date=` as well: the lesson is
+  // dated that day, whatever date the slot carries (coherence C.3). A date the
+  // tutor changes by hand afterwards is never overwritten.
+  const [dateParam] = useState(() => new URLSearchParams(window.location.search).get("date"));
+  const [forcedDate, setForcedDate] = useState<string | null>(() =>
+    dateParam !== null && isRealDate(dateParam) ? dateParam : null,
+  );
+  // A link parameter that was supplied but cannot be used is said so, never
+  // silently replaced by the plan's date.
+  const badDate = dateParam !== null && !isRealDate(dateParam);
+  const [slotParam] = useState(() => new URLSearchParams(window.location.search).get("slot"));
+  const badSlot = slotParam !== null && reviewSlot === null;
   // The tutor chose to give up on the reminder's lesson and take the plan's next.
   const [useNextInstead, setUseNextInstead] = useState(false);
   const next = useQuery({
@@ -118,11 +140,11 @@ export default function RecordLessonForm({
     FALLBACK_MINUTES;
   const duration = durationEdit ?? String(defaultMinutes);
 
-  function apply(s: NextLesson) {
+  function apply(s: NextLesson, forced: string | null) {
     setAppliedSlot(s.slot_id);
     setDismissed(false);
     setOffer(null);
-    setDateSet(s.scheduled_date);
+    setDateSet(forced ?? s.scheduled_date);
     setTopicIds(s.topics.map((t) => t.id));
     dirty.current = false;
   }
@@ -133,8 +155,15 @@ export default function RecordLessonForm({
       return;
     }
     if (dirty.current) setOffer(suggestion);
-    else apply(suggestion);
-  }, [suggestion, consumedSlot, appliedSlot]);
+    else apply(suggestion, forcedDate);
+  }, [suggestion, consumedSlot, appliedSlot, forcedDate]);
+
+  // With no plan slot to adopt, a valid ?date= still seeds the untouched form.
+  useEffect(() => {
+    if (forcedDate !== null && suggestion === null && next.isSuccess && !dirty.current) {
+      setDateSet(forcedDate);
+    }
+  }, [forcedDate, suggestion, next.isSuccess]);
 
   const save = useMutation({
     mutationFn: () =>
@@ -156,9 +185,11 @@ export default function RecordLessonForm({
       // not the same ?slot= again.
       setReviewSlot(null);
       setUseNextInstead(false);
+      setForcedDate(null);
       const params = new URLSearchParams(window.location.search);
-      if (params.has("slot")) {
+      if (params.has("slot") || params.has("date")) {
         params.delete("slot");
+        params.delete("date");
         const query = params.toString();
         window.history.replaceState(
           window.history.state,
@@ -224,6 +255,13 @@ export default function RecordLessonForm({
           The topics you tick count as taught for every student in the class.
         </p>
 
+        {(badDate || badSlot) && !reviewGone && (
+          <p role="status" className="mt-3 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
+            {badDate
+              ? "The date in that link wasn't a real date, so the form uses the plan's suggestion instead."
+              : "The lesson in that link couldn't be identified, so the form uses the plan's next lesson."}
+          </p>
+        )}
         {reviewGone && (
           <div
             role="status"
@@ -256,7 +294,12 @@ export default function RecordLessonForm({
         {offer && offer.slot_id !== appliedSlot && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
             <span>Your plan now suggests {suggestionLabel(offer)}</span>
-            <Button type="button" size="sm" variant="ghost" onClick={() => apply(offer)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => apply(offer, forcedDate)}
+            >
               Apply
             </Button>
           </div>

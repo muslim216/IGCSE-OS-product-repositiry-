@@ -2,95 +2,49 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, CalendarPlus, ChevronRight, Ruler, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { todayView, type ClassStripRow } from "../../api/today";
+import { todayOverview, todayView } from "../../api/today";
 import { listGroups } from "../../api/groups";
 import { myOrganization } from "../../api/auth";
 import { useMyTimezone } from "../../auth/AuthContext";
 import { assignmentsNeedingAttention } from "../../api/homework";
-import { attentionHref } from "../../lib/attention";
-import { StatusBadge, useToast } from "../../components/ui";
+import { useToast } from "../../components/ui";
 import { Button, buttonClasses } from "../../components/controls";
 import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
-import { ABSENT, REASON_LABELS } from "../../lib/labels";
-import { coverageLabel, isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
-import BehindClasses from "./BehindClasses";
+import { isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import LessonReminders from "./LessonReminders";
 import ChapterPrompts from "./ChapterPrompts";
+import ClassCards from "./ClassCards";
 import ClassNarrative from "./ClassNarrative";
 import CreateLessonModal from "./CreateLessonModal";
+import NeedsYou from "./NeedsYou";
+import TodayAgenda from "./TodayAgenda";
+import WeekGlance from "./WeekGlance";
 
 /**
- * The tutor's home, rebuilt: verdict → class strip → TODAY → WHAT CHANGED →
- * NEEDS YOU.
+ * The tutor's Overview: verdict → week at a glance → today's agenda → class
+ * cards → what changed → needs you.
  *
  * The rule that shapes every branch below: a section with nothing to report is
- * NOT RENDERED (UX-29). It never becomes an empty card, a spinner where the
- * previous value would do, or a `0` standing in for a missing measurement
- * (PROD-2, UX-19). A completely clear day ends with a sentence, not a screen of
- * empty panels.
+ * NOT RENDERED (UX-29) unless saying so is the answer ("No lessons scheduled
+ * today."). It never becomes an empty card, or a `0` standing in for a missing
+ * measurement (PROD-2, UX-19). A completely clear day ends with a sentence.
+ *
+ * Plan-check and classified prompts: the "N lessons behind" text and its fix
+ * moved onto each class card (it was a separate "Plan check" list); the
+ * "coming up" prompts about missing classifieds are not on a card and stay.
  */
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="avora-label mb-3">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function ClassRow({ row }: { row: ClassStripRow }) {
-  const coverage = coverageLabel(row);
-  return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line py-3.5">
-      <Link
-        to={`/tutor/groups/${row.group_id}/students`}
-        className="font-medium text-ink-900 hover:text-brand-600"
-      >
-        {row.name}
-      </Link>
-      <span className="text-sm text-ink-500">{row.subject_name}</span>
-
-      {row.status ? (
-        <>
-          {/* Labelled: a bare "5" beside a class name did not say it was the
-              class's predicted grade. */}
-          <span className="text-sm text-ink-700">
-            Predicted grade{" "}
-            <span className="font-display text-[15px] tabular-nums text-ink-900">
-              {row.predicted_grade}
-            </span>
-          </span>
-          <StatusBadge status={row.status} />
-        </>
-      ) : row.boundaries_missing ? (
-        <span className="text-sm text-ink-500">
-          {ABSENT.noBoundaries}{" "}
-          <Link to="/tutor/boundaries" className="font-medium text-brand-600 hover:text-brand-700">
-            {ABSENT.noBoundariesAction}
-          </Link>
-        </span>
-      ) : (
-        <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
-      )}
-
-      {coverage && (
-        <span
-          className="ml-auto text-xs tabular-nums text-ink-500"
-          title="Learners with a readiness score"
-        >
-          {coverage} with a score
-        </span>
-      )}
-    </li>
-  );
-}
-
 export default function TodayDashboard() {
   const [createOpen, setCreateOpen] = useState(false);
   const { toast, showToast } = useToast();
 
   const today = useQuery({ queryKey: ["today"], queryFn: todayView });
+  // The overview feeds the week strip, the agenda and the cards. Polled so
+  // "in 10 min" and a lesson that has just ended are never long out of date.
+  const overview = useQuery({
+    queryKey: ["today-overview"],
+    queryFn: todayOverview,
+    refetchInterval: 60_000,
+  });
   const attention = useQuery({
     queryKey: ["assignments-attention"],
     queryFn: assignmentsNeedingAttention,
@@ -129,13 +83,19 @@ export default function TodayDashboard() {
   const view = today.data;
   const line1 = verdictLine1(view);
   const line2 = verdictLine2(view);
-  const attentionItems = (attention.data ?? []).slice(0, 5);
+  const attentionItems = attention.data ?? [];
+  const remarks = overview.data?.remarks ?? [];
   // The aggregate's review_count and the attention list are different measures
   // from different endpoints — attention also carries extraction failures, which
   // are not submissions awaiting review. So the day is only "clear" when neither
   // has anything, or the surface could print "That's everything" directly above
   // a NEEDS YOU section listing work.
-  const clear = isClearDay(view) && attentionItems.length === 0;
+  //
+  // And only when both reads actually succeeded: a failed read is not an empty
+  // one, so the sign-off must not be printed over a Needs-you list we could not
+  // load (PROD-2).
+  const loaded = overview.isSuccess && attention.isSuccess;
+  const clear = loaded && isClearDay(view) && attentionItems.length === 0 && remarks.length === 0;
   // Classes with lessons not recorded against their plan keep the sign-off from
   // being printed, but do not change which sections open (task 6.6).
   const showSignOff = clear && (view.behind_classes ?? []).length === 0;
@@ -143,9 +103,6 @@ export default function TodayDashboard() {
   // Before any class exists the only useful thing on this surface is the way to
   // make one — every other section would be an honest but useless absence.
   if (view.class_count === 0) return <Welcome headline={line1} />;
-
-  const exceptions = view.classes.filter((c) => c.status !== "on_track");
-  const healthy = view.classes.filter((c) => c.status === "on_track");
 
   return (
     <div className="space-y-8">
@@ -170,66 +127,26 @@ export default function TodayDashboard() {
         }
       />
 
-      {/* Class strip. Healthy classes collapse to one line so the exceptions are
-          what the eye lands on — nothing is hidden, it is summarised. */}
-      <Section title="Classes">
-        <ul>
-          {exceptions.map((row) => (
-            <ClassRow key={row.group_id} row={row} />
-          ))}
-          {healthy.length > 0 && (
-            <li className="border-t border-line py-2.5 text-sm text-ink-500">
-              <span className="text-ok-700">●</span>{" "}
-              {healthy.length === 1
-                ? `${healthy[0].name} is on track`
-                : `${healthy.length} classes on track`}
-              <span className="ml-2 text-ink-500">
-                {healthy
-                  .map((c) =>
-                    c.predicted_grade ? `${c.name} · Grade ${c.predicted_grade}` : c.name,
-                  )
-                  .join("  ·  ")}
-              </span>
-            </li>
-          )}
-        </ul>
-      </Section>
-
-      {!clear && (
-        <Section title="Today">
-          {view.lessons.length === 0 ? (
-            <p className="text-sm text-ink-500">No lessons scheduled.</p>
-          ) : (
-            <ul className="text-sm">
-              {view.lessons.map((lesson) => (
-                <li key={lesson.id} className="flex items-center gap-3 border-t border-line py-3.5">
-                  <span className="font-display tabular-nums text-ink-900">
-                    {lesson.start_time.slice(0, 5)}
-                  </span>
-                  <Link
-                    to={`/tutor/groups/${lesson.group_id}/students`}
-                    className="font-medium text-ink-900 hover:text-brand-600"
-                  >
-                    {lesson.group_name}
-                  </Link>
-                  <span className="text-ink-500">{lesson.subject_name}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
+      {overview.data ? (
+        <WeekGlance week={overview.data.week} />
+      ) : (
+        overview.isError && (
+          <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
+            Couldn&apos;t load this week and today&apos;s lessons.
+            <Button type="button" size="sm" variant="ghost" onClick={() => overview.refetch()}>
+              Retry
+            </Button>
+          </p>
+        )
       )}
 
-      {/* A planned lesson starting within 15 minutes (AV-120). Fetches its own
-          data and renders nothing when there is none. */}
-      <LessonReminders />
+      {overview.data && <TodayAgenda items={overview.data.agenda} />}
+
+      <ClassCards rows={view.classes} cards={overview.data?.classes} />
 
       {/* Not suppressed on a clear day: it is about next week's preparation, not
           today's backlog, and the lookahead is its whole point. */}
       <ChapterPrompts prompts={view.chapter_prompts ?? []} />
-
-      {/* Information with a link to the class's plan, where the re-plan is. */}
-      <BehindClasses classes={view.behind_classes ?? []} />
 
       {/* WHAT CHANGED reads the stored narrative — present on open, never a
           surface waiting on a model call (spec §8). Suppressed on a clear day,
@@ -237,43 +154,18 @@ export default function TodayDashboard() {
       {!clear && <ClassNarrative classes={view.classes} />}
 
       {/* Gated on the rows it renders, not on review_count: the count comes from
-          the aggregate and the rows from a separate query, so while that query
-          loads (or if it resolves empty) the old condition rendered a heading
-          over an empty list — the empty panel UX-29 forbids. */}
-      {attentionItems.length > 0 && (
-        <Section title="Needs you">
-          <ul className="text-sm">
-            {attentionItems.map((item, i) => (
-              <li
-                key={i}
-                className="flex flex-wrap items-center justify-between gap-2 border-t border-line py-2.5"
-              >
-                <Link
-                  to={attentionHref(item)}
-                  className="font-medium text-brand-600 hover:text-brand-700"
-                >
-                  {item.assignment_title}
-                  {/* Two students' work on the same homework would otherwise
-                      be two identical rows. */}
-                  {item.student_name && (
-                    <span className="font-normal text-ink-500"> · {item.student_name}</span>
-                  )}
-                  {item.past_paper_id && (
-                    <span className="font-normal text-ink-500"> · past paper</span>
-                  )}
-                </Link>
-                <span className="text-warn-700">{REASON_LABELS[item.reason] ?? item.reason}</span>
-              </li>
-            ))}
-          </ul>
-          <Link
-            to="/tutor/review"
-            className="mt-3 inline-block text-sm font-medium text-brand-600 hover:text-brand-700"
-          >
-            Open the review queue →
-          </Link>
-        </Section>
+          the aggregate and the rows from separate queries, so while those load
+          (or resolve empty) a heading over an empty list is the empty panel
+          UX-29 forbids. */}
+      {attention.isError && (
+        <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
+          Couldn&apos;t check what needs you.
+          <Button type="button" size="sm" variant="ghost" onClick={() => attention.refetch()}>
+            Retry
+          </Button>
+        </p>
       )}
+      <NeedsYou items={attentionItems} remarks={remarks} />
 
       {showSignOff && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
 
@@ -281,7 +173,9 @@ export default function TodayDashboard() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         groups={groups.data}
-        onCreated={() => showToast("Lesson scheduled.")}
+        onCreated={() => {
+          showToast("Lesson scheduled.");
+        }}
       />
       {toast}
     </div>

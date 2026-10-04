@@ -25,9 +25,10 @@ from app.schemas.teaching_plan import (
     NextLessonChapterOut,
     NextLessonTopicOut,
 )
-from app.schemas.today import ClassOverview, TodayView
+from app.schemas.today import ClassOverview, TodayOverview, TodayView
 from app.services.lesson_reminders import due_reminders
 from app.services.today import build_class_overview, build_today
+from app.services.today_overview import build_overview
 
 router = APIRouter(prefix="/today", tags=["today"])
 
@@ -35,6 +36,13 @@ router = APIRouter(prefix="/today", tags=["today"])
 @router.get("", response_model=TodayView)
 async def today_view(db: DbSession, user: TutorUser) -> TodayView:
     return await build_today(db, user)
+
+
+@router.get("/overview", response_model=TodayOverview)
+async def today_overview(db: DbSession, user: TutorUser) -> TodayOverview:
+    """The Overview's week strip, today's agenda and class cards (coherence B).
+    The tutor's own classes only, scoped by the authenticated user (SEC-7)."""
+    return await build_overview(db, user)
 
 
 @router.get("/reminders", response_model=list[LessonReminderOut])

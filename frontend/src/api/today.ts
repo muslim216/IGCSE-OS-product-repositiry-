@@ -58,6 +58,17 @@ export interface TodayView {
 
 export const todayView = () => api<TodayView>("/api/v1/today");
 
+/** The Overview's week strip, today's agenda, class cards and remark requests
+    (coherence B). Every absent measurement is null, never 0 (PROD-2). */
+export type TodayOverview = components["schemas"]["TodayOverview"];
+export type WeekGlance = components["schemas"]["WeekGlance"];
+export type AgendaItem = components["schemas"]["AgendaItem"];
+export type ClassCard = components["schemas"]["ClassCard"];
+export type ClassAttention = components["schemas"]["ClassAttention"];
+export type RemarkItem = components["schemas"]["RemarkItem"];
+
+export const todayOverview = () => api<TodayOverview>("/api/v1/today/overview");
+
 /** One learner on the class page. `direction` is what NEEDS YOU selects on —
     null means too little history to say, and renders as no arrow at all. */
 export interface ClassLearnerRow {

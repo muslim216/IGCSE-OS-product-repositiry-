@@ -3007,6 +3007,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/today/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Today Overview
+         * @description The Overview's week strip, today's agenda and class cards (coherence B).
+         *     The tutor's own classes only, scoped by the authenticated user (SEC-7).
+         */
+        get: operations["today_overview_api_v1_today_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/today/reminders": {
         parameters: {
             query?: never;
@@ -3087,6 +3108,57 @@ export interface components {
             count: number;
             /** Items */
             items: components["schemas"]["ActivityItem"][];
+        };
+        /**
+         * AgendaItem
+         * @description One of today's lessons. Time-dependent wording (starting soon, under way,
+         *     ended) is decided by the surface from `starts_at` / `ends_at`, so it stays
+         *     right between refetches.
+         */
+        AgendaItem: {
+            /** Key */
+            key: string;
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string;
+            /** Slot Id */
+            slot_id?: number | null;
+            /** Lesson Id */
+            lesson_id?: number | null;
+            /** Source */
+            source: string;
+            /** Start Time */
+            start_time?: string | null;
+            /** Starts At */
+            starts_at?: string | null;
+            /** Ends At */
+            ends_at?: string | null;
+            /** Duration Min */
+            duration_min?: number | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
+            /** Chapter Code */
+            chapter_code?: string | null;
+            /** Chapter Title */
+            chapter_title?: string | null;
+            /**
+             * Topics
+             * @default []
+             */
+            topics: components["schemas"]["ClassTopicRef"][];
+            /**
+             * Local Date
+             * Format: date
+             */
+            local_date: string;
+            /**
+             * Recorded
+             * @default false
+             */
+            recorded: boolean;
         };
         /** AgreementStats */
         AgreementStats: {
@@ -3710,10 +3782,71 @@ export interface components {
             /** Recent */
             recent: components["schemas"]["RecentLessonOut"][];
         };
+        /**
+         * ClassAttention
+         * @description The one thing about a class that most needs the tutor, with its reason
+         *     already in words. `message` names the students and the topic; the surface
+         *     links by `kind` plus the ids.
+         */
+        ClassAttention: {
+            /** Kind */
+            kind: string;
+            /** Message */
+            message: string;
+            /** Topic Id */
+            topic_id?: number | null;
+            /**
+             * Student Ids
+             * @default []
+             */
+            student_ids: number[];
+            /**
+             * Student Names
+             * @default []
+             */
+            student_names: string[];
+        };
         /** ClassBrief */
         ClassBrief: {
             /** Brief */
             brief: string;
+        };
+        /** ClassCard */
+        ClassCard: {
+            /** Group Id */
+            group_id: number;
+            /** Plan State */
+            plan_state: string;
+            /** Plan Chapter Code */
+            plan_chapter_code?: string | null;
+            /** Plan Chapter Title */
+            plan_chapter_title?: string | null;
+            /**
+             * Plan Missed
+             * @default 0
+             */
+            plan_missed: number;
+            /** Plan Earliest Missed Date */
+            plan_earliest_missed_date?: string | null;
+            /** Readiness Direction */
+            readiness_direction?: string | null;
+            /**
+             * Readiness Compared Count
+             * @default 0
+             */
+            readiness_compared_count: number;
+            last_lesson?: components["schemas"]["LastLessonAttendance"] | null;
+            /**
+             * Homework Out
+             * @default 0
+             */
+            homework_out: number;
+            /**
+             * Homework Missing
+             * @default 0
+             */
+            homework_missing: number;
+            attention?: components["schemas"]["ClassAttention"] | null;
         };
         /**
          * ClassLearnerRow
@@ -3827,6 +3960,15 @@ export interface components {
              * @default 0
              */
             awaiting_review_count: number;
+        };
+        /** ClassTopicRef */
+        ClassTopicRef: {
+            /** Id */
+            id: number;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
         };
         /** ClassWeakTopic */
         ClassWeakTopic: {
@@ -4177,6 +4319,22 @@ export interface components {
         JoinRequest: {
             /** Invite Code */
             invite_code: string;
+        };
+        /** LastLessonAttendance */
+        LastLessonAttendance: {
+            /** Lesson Id */
+            lesson_id: number;
+            /**
+             * Lesson Date
+             * Format: date
+             */
+            lesson_date: string;
+            /** Present */
+            present: number;
+            /** Absent */
+            absent: number;
+            /** Not Taken */
+            not_taken: number;
         };
         /** LessonCreate */
         LessonCreate: {
@@ -5362,6 +5520,19 @@ export interface components {
             /** Refresh Token */
             refresh_token?: string | null;
         };
+        /** RemarkItem */
+        RemarkItem: {
+            /** Submission Id */
+            submission_id: number;
+            /** Assignment Title */
+            assignment_title: string;
+            /** Student Name */
+            student_name: string;
+            /** Group Name */
+            group_name: string;
+            /** Reason */
+            reason?: string | null;
+        };
         /** RemarkRequestCreate */
         RemarkRequestCreate: {
             /** Reason */
@@ -6130,6 +6301,16 @@ export interface components {
             /** Lesson Minutes */
             lesson_minutes: number | null;
         };
+        /** TodayOverview */
+        TodayOverview: {
+            week: components["schemas"]["WeekGlance"];
+            /** Agenda */
+            agenda: components["schemas"]["AgendaItem"][];
+            /** Classes */
+            classes: components["schemas"]["ClassCard"][];
+            /** Remarks */
+            remarks: components["schemas"]["RemarkItem"][];
+        };
         /**
          * TodayView
          * @description Everything the tutor's home needs, in one response and a bounded number
@@ -6409,6 +6590,43 @@ export interface components {
             topic_title: string | null;
             /** Score */
             score: number;
+        };
+        /**
+         * WeekGlance
+         * @description The week-at-a-glance strip. Every figure carries what it was counted from
+         *     (PROD-1) and a missing measurement is null, never 0 (PROD-2).
+         */
+        WeekGlance: {
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+            /**
+             * Week End
+             * Format: date
+             */
+            week_end: string;
+            /** Lessons Planned */
+            lessons_planned: number;
+            /** Lessons Taught */
+            lessons_taught: number;
+            /** Marking Waiting */
+            marking_waiting: number;
+            /** Attendance Present */
+            attendance_present: number;
+            /** Attendance Absent */
+            attendance_absent: number;
+            /** Attendance Not Taken */
+            attendance_not_taken: number;
+            /** Attendance Rate */
+            attendance_rate?: number | null;
+            /** Readiness Drop Count */
+            readiness_drop_count: number;
+            /** Readiness Compared Count */
+            readiness_compared_count: number;
+            /** Readiness Drop Threshold */
+            readiness_drop_threshold: number;
         };
     };
     responses: never;
@@ -11868,6 +12086,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodayView"];
+                };
+            };
+        };
+    };
+    today_overview_api_v1_today_overview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayOverview"];
                 };
             };
         };

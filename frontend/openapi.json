@@ -8742,6 +8742,33 @@
         ]
       }
     },
+    "/api/v1/today/overview": {
+      "get": {
+        "tags": [
+          "today"
+        ],
+        "summary": "Today Overview",
+        "description": "The Overview's week strip, today's agenda and class cards (coherence B).\nThe tutor's own classes only, scoped by the authenticated user (SEC-7).",
+        "operationId": "today_overview_api_v1_today_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayOverview"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/today/reminders": {
       "get": {
         "tags": [
@@ -8902,6 +8929,161 @@
           "items"
         ],
         "title": "ActivitySummary"
+      },
+      "AgendaItem": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "slot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slot Id"
+          },
+          "lesson_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lesson Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "duration_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Min"
+          },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
+          "chapter_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Code"
+          },
+          "chapter_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Title"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/ClassTopicRef"
+            },
+            "type": "array",
+            "title": "Topics",
+            "default": []
+          },
+          "local_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Local Date"
+          },
+          "recorded": {
+            "type": "boolean",
+            "title": "Recorded",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "group_id",
+          "group_name",
+          "subject_name",
+          "source",
+          "local_date"
+        ],
+        "title": "AgendaItem",
+        "description": "One of today's lessons. Time-dependent wording (starting soon, under way,\nended) is decided by the surface from `starts_at` / `ends_at`, so it stays\nright between refetches."
       },
       "AgreementStats": {
         "properties": {
@@ -10752,6 +10934,52 @@
         ],
         "title": "ClassAttendanceOut"
       },
+      "ClassAttention": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          },
+          "student_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Student Ids",
+            "default": []
+          },
+          "student_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Student Names",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "ClassAttention",
+        "description": "The one thing about a class that most needs the tutor, with its reason\nalready in words. `message` names the students and the topic; the surface\nlinks by `kind` plus the ids."
+      },
       "ClassBrief": {
         "properties": {
           "brief": {
@@ -10764,6 +10992,109 @@
           "brief"
         ],
         "title": "ClassBrief"
+      },
+      "ClassCard": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "plan_state": {
+            "type": "string",
+            "title": "Plan State"
+          },
+          "plan_chapter_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Chapter Code"
+          },
+          "plan_chapter_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Chapter Title"
+          },
+          "plan_missed": {
+            "type": "integer",
+            "title": "Plan Missed",
+            "default": 0
+          },
+          "plan_earliest_missed_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Earliest Missed Date"
+          },
+          "readiness_direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Direction"
+          },
+          "readiness_compared_count": {
+            "type": "integer",
+            "title": "Readiness Compared Count",
+            "default": 0
+          },
+          "last_lesson": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastLessonAttendance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "homework_out": {
+            "type": "integer",
+            "title": "Homework Out",
+            "default": 0
+          },
+          "homework_missing": {
+            "type": "integer",
+            "title": "Homework Missing",
+            "default": 0
+          },
+          "attention": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClassAttention"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "plan_state"
+        ],
+        "title": "ClassCard"
       },
       "ClassLearnerRow": {
         "properties": {
@@ -11022,6 +11353,29 @@
         ],
         "title": "ClassStripRow",
         "description": "One class on the tutor's home strip.\n\nEvery absent measurement is null, never 0: a class with no confident\nevidence has `score`, `predicted_grade` and `status` all null and renders as\n\"not enough data yet\" (PROD-2, UX-19). Coverage travels as a pair so a\nsurface can say `9/11` rather than implying the score speaks for the whole\nclass \u2014 a status without coverage is a claim about a class made from part\nof it."
+      },
+      "ClassTopicRef": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "title"
+        ],
+        "title": "ClassTopicRef"
       },
       "ClassWeakTopic": {
         "properties": {
@@ -12029,6 +12383,40 @@
           "invite_code"
         ],
         "title": "JoinRequest"
+      },
+      "LastLessonAttendance": {
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "title": "Lesson Id"
+          },
+          "lesson_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Lesson Date"
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present"
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent"
+          },
+          "not_taken": {
+            "type": "integer",
+            "title": "Not Taken"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lesson_id",
+          "lesson_date",
+          "present",
+          "absent",
+          "not_taken"
+        ],
+        "title": "LastLessonAttendance"
       },
       "LessonCreate": {
         "properties": {
@@ -15491,6 +15879,45 @@
         "type": "object",
         "title": "RefreshRequest"
       },
+      "RemarkItem": {
+        "properties": {
+          "submission_id": {
+            "type": "integer",
+            "title": "Submission Id"
+          },
+          "assignment_title": {
+            "type": "string",
+            "title": "Assignment Title"
+          },
+          "student_name": {
+            "type": "string",
+            "title": "Student Name"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submission_id",
+          "assignment_title",
+          "student_name",
+          "group_name"
+        ],
+        "title": "RemarkItem"
+      },
       "RemarkRequestCreate": {
         "properties": {
           "reason": {
@@ -17814,6 +18241,42 @@
         ],
         "title": "TimetableDefaultsOut"
       },
+      "TodayOverview": {
+        "properties": {
+          "week": {
+            "$ref": "#/components/schemas/WeekGlance"
+          },
+          "agenda": {
+            "items": {
+              "$ref": "#/components/schemas/AgendaItem"
+            },
+            "type": "array",
+            "title": "Agenda"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/ClassCard"
+            },
+            "type": "array",
+            "title": "Classes"
+          },
+          "remarks": {
+            "items": {
+              "$ref": "#/components/schemas/RemarkItem"
+            },
+            "type": "array",
+            "title": "Remarks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week",
+          "agenda",
+          "classes",
+          "remarks"
+        ],
+        "title": "TodayOverview"
+      },
       "TodayView": {
         "properties": {
           "classes": {
@@ -18517,6 +18980,83 @@
         ],
         "title": "WeakTopicOut",
         "description": "Derived from this run's Topic Mastery rows and the tutor's current\nthreshold (task 5.6) \u2014 the score is the reason; the AI no longer writes one."
+      },
+      "WeekGlance": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Week Start"
+          },
+          "week_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Week End"
+          },
+          "lessons_planned": {
+            "type": "integer",
+            "title": "Lessons Planned"
+          },
+          "lessons_taught": {
+            "type": "integer",
+            "title": "Lessons Taught"
+          },
+          "marking_waiting": {
+            "type": "integer",
+            "title": "Marking Waiting"
+          },
+          "attendance_present": {
+            "type": "integer",
+            "title": "Attendance Present"
+          },
+          "attendance_absent": {
+            "type": "integer",
+            "title": "Attendance Absent"
+          },
+          "attendance_not_taken": {
+            "type": "integer",
+            "title": "Attendance Not Taken"
+          },
+          "attendance_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attendance Rate"
+          },
+          "readiness_drop_count": {
+            "type": "integer",
+            "title": "Readiness Drop Count"
+          },
+          "readiness_compared_count": {
+            "type": "integer",
+            "title": "Readiness Compared Count"
+          },
+          "readiness_drop_threshold": {
+            "type": "number",
+            "title": "Readiness Drop Threshold"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "week_end",
+          "lessons_planned",
+          "lessons_taught",
+          "marking_waiting",
+          "attendance_present",
+          "attendance_absent",
+          "attendance_not_taken",
+          "readiness_drop_count",
+          "readiness_compared_count",
+          "readiness_drop_threshold"
+        ],
+        "title": "WeekGlance",
+        "description": "The week-at-a-glance strip. Every figure carries what it was counted from\n(PROD-1) and a missing measurement is null, never 0 (PROD-2)."
       }
     },
     "securitySchemes": {
