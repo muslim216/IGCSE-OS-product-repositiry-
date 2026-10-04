@@ -2,7 +2,7 @@
 ever calling a model, and stays idempotent."""
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 
 import app.services.ai as ai_module
 from app.db import async_session
@@ -13,11 +13,15 @@ from app.models import (
     LessonAttendance,
     LessonMode,
     Mistake,
+    MistakeSource,
     MistakeTopic,
     PlanSlot,
+    QuestionMark,
+    ReadinessSnapshot,
     Report,
     ReportStatus,
     Subject,
+    Submission,
     User,
 )
 from app.services.attendance import student_attendance
@@ -134,3 +138,61 @@ async def test_attendance_is_mixed_and_summarised_from_the_timetable(no_model):
             )
             == 0
         )
+
+
+async def test_seeded_mistakes_are_example_data_not_ai(no_model):
+    await demo.main()
+    async with async_session() as session:
+        sources = set((await session.scalars(select(Mistake.source))).all())
+        assert sources == {MistakeSource.demo}
+
+
+async def test_a_real_retag_replaces_the_seeded_mistakes(no_model, fake_ai, monkeypatch):
+    from app.services import mistake_tagging
+    from app.services.mistake_tagging import MistakeTaggingResult
+
+    await demo.main()
+    async with async_session() as session:
+        # A submission that carries seeded rows.
+        submission_id = await session.scalar(
+            select(QuestionMark.submission_id)
+            .join(Mistake, Mistake.question_mark_id == QuestionMark.id)
+            .limit(1)
+        )
+        total_before = await _count(session, Mistake)
+        monkeypatch.setattr(
+            mistake_tagging, "structured_complete", fake_ai(MistakeTaggingResult(mistakes=[]))
+        )
+        await mistake_tagging.tag_mistakes(session, {"submission_id": submission_id})
+        remaining = await session.scalar(
+            select(func.count())
+            .select_from(Mistake)
+            .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
+            .where(QuestionMark.submission_id == submission_id)
+        )
+        assert remaining == 0
+        # Other submissions' example rows are untouched.
+        assert 0 < await _count(session, Mistake) < total_before
+
+
+async def test_a_rerun_completes_a_partial_seed(no_model):
+    tables = (Mistake, MistakeTopic, Report, LessonAttendance, ReadinessSnapshot)
+    await demo.main()
+    async with async_session() as session:
+        full = [await _count(session, m) for m in tables]
+        # Simulate a seed that died after the core rows.
+        await session.execute(delete(MistakeTopic))
+        await session.execute(delete(Mistake))
+        await session.execute(update(Submission).values(mistakes_analysed_at=None))
+        await session.execute(delete(Report))
+        await session.execute(delete(LessonAttendance))
+        await session.execute(delete(ReadinessSnapshot))
+        await session.commit()
+
+    await demo.main()
+    async with async_session() as session:
+        assert [await _count(session, m) for m in tables] == full
+
+    await demo.main()  # and a further run changes nothing
+    async with async_session() as session:
+        assert [await _count(session, m) for m in tables] == full

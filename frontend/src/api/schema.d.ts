@@ -4536,7 +4536,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "ai" | "tutor";
+            source: "ai" | "tutor" | "demo";
             /** Note */
             note?: string | null;
         };

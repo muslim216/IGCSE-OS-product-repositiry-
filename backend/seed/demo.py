@@ -48,8 +48,10 @@ from app.models import (
     KnowledgeEntry,
     KnowledgeEntryKind,
     Lesson,
+    LessonAttendance,
     LessonMode,
     LessonObservation,
+    LessonOrigin,
     LessonTopic,
     MarkConfidence,
     Mistake,
@@ -353,14 +355,24 @@ _CATEGORY_FOR_QUESTION = {
     "cacl2": "Calculation",
 }
 
+#: Question text -> feedback key, so a re-run can recover the key from the rows
+#: alone rather than needing the in-memory ids of the first run.
+_KEY_BY_SUMMARY = {
+    "Define an isotope and give one example": "isotope",
+    "Explain how ions form from atoms": "ions",
+    "Draw a dot-and-cross diagram for sodium chloride": "nacl",
+    "Explain why magnesium oxide has a high melting point": "mgo",
+    "Predict the formula of the compound formed by calcium and chlorine": "cacl2",
+}
+
 
 async def add_demo_mistakes(
-    session, *, organization_id: int, subject_id: int, student_ids: list[int], keys: dict[int, str]
+    session, *, organization_id: int, subject_id: int, student_ids: list[int]
 ) -> None:
     """Tag a realistic share of the demo's lost marks, and mark every settled
     submission analysed, without a model (QA-8 in spirit).
 
-    Writes the rows `tag_mistakes` writes (a `Mistake` with `source=ai`, plus a
+    Writes the rows `tag_mistakes` writes (a `Mistake` with `source=demo`, plus a
     `MistakeTopic` per topic the question tests) from a fixed generator, so the
     tutor's rollups and the student's pages have data. `mistakes_analysed_at` is
     set on every settled submission, the clean ones included: the readiness
@@ -368,7 +380,8 @@ async def add_demo_mistakes(
     nothing lost has been examined. A submission waiting for review is left
     alone, the same gate the readiness side applies.
 
-    `keys` maps AssignmentQuestion.id to the feedback key above.
+    Idempotent: only submissions not yet analysed are touched, and the rows and
+    the stamp commit together, so a re-run after a partial seed completes it.
     """
     categories = {c.name: c for c in await ensure_categories(session, organization_id, subject_id)}
     rng = random.Random(1337)
@@ -380,6 +393,7 @@ async def add_demo_mistakes(
             .where(
                 Submission.student_id.in_(student_ids),
                 Submission.status.in_(SETTLED_STATUSES),
+                Submission.mistakes_analysed_at.is_(None),
             )
             .order_by(QuestionMark.id)
         )
@@ -396,7 +410,7 @@ async def add_demo_mistakes(
             continue
         share = (question.max_marks - mark.final_marks) / question.max_marks
         severity = 3 if share >= 0.6 else 2 if share >= 0.3 else 1
-        name = _CATEGORY_FOR_QUESTION.get(keys.get(question.id, ""))
+        name = _CATEGORY_FOR_QUESTION.get(_KEY_BY_SUMMARY.get(question.text_summary, ""))
         if name in categories and rng.random() < 0.75:
             category = categories[name]
         else:
@@ -406,7 +420,9 @@ async def add_demo_mistakes(
             question_mark_id=mark.id,
             category_id=category.id,
             severity=severity,
-            source=MistakeSource.ai,
+            # `demo`, not `ai`: no model tagged these, and the review page says
+            # so (`PROD-1`). A real re-tag replaces them like its own rows.
+            source=MistakeSource.demo,
         )
         session.add(mistake)
         await session.flush()
@@ -522,11 +538,125 @@ async def add_demo_reports(
     await session.flush()
 
 
+async def complete_demo(session) -> bool:
+    """Run every stage that follows the core rows, each only when its own rows
+    are missing, reading everything from the database. Returns whether anything
+    was written.
+
+    Shared by a first seed and a re-run, so a seed that died part-way (the core
+    rows commit first, the later stages after) is finished by running it again
+    instead of being skipped for having a tutor already.
+    """
+    tutor = await session.scalar(select(User).where(User.email == "demo-tutor@example.com"))
+    group = await session.scalar(
+        select(Group).where(Group.tutor_id == tutor.id).order_by(Group.id).limit(1)
+    )
+    if group is None:
+        return False
+    subject_id = group.subject_id
+    students = list(
+        (
+            await session.scalars(
+                select(User)
+                .join(GroupMember, GroupMember.student_id == User.id)
+                .where(GroupMember.group_id == group.id)
+                .order_by(User.id)
+            )
+        ).all()
+    )
+    student_ids = [st.id for st in students]
+    wrote = False
+
+    unanalysed = await session.scalar(
+        select(func.count(Submission.id)).where(
+            Submission.student_id.in_(student_ids),
+            Submission.status.in_(SETTLED_STATUSES),
+            Submission.mistakes_analysed_at.is_(None),
+        )
+    )
+    if unanalysed:
+        await add_demo_mistakes(
+            session,
+            organization_id=group.organization_id,
+            subject_id=subject_id,
+            student_ids=student_ids,
+        )
+        await session.commit()
+        wrote = True
+
+    have_snapshot = set(
+        (
+            await session.scalars(
+                select(ReadinessSnapshot.student_id).where(
+                    ReadinessSnapshot.subject_id == subject_id,
+                    ReadinessSnapshot.student_id.in_(student_ids),
+                )
+            )
+        ).all()
+    )
+    now = datetime.now(timezone.utc)
+    for student in students:
+        if student.id not in have_snapshot:
+            await write_demo_snapshot(session, student, subject_id, now)
+            wrote = True
+    await session.commit()
+
+    # After the snapshots: a report is written from the readiness summary.
+    reported = set(
+        (
+            await session.scalars(
+                select(Report.student_id).where(Report.student_id.in_(student_ids))
+            )
+        ).all()
+    )
+    missing = [st for st in students if st.id not in reported]
+    if missing:
+        parent_student = await session.scalar(
+            select(User).where(User.email == "demo-student@example.com")
+        )
+        await add_demo_reports(
+            session,
+            tutor=tutor,
+            subject_id=subject_id,
+            students=missing,
+            parent_student=parent_student,
+        )
+        await session.commit()
+        wrote = True
+
+    # Attendance only on a class with none at all, so a re-run never stamps marks
+    # onto lessons a tutor recorded since. The accepted plan's slots start today,
+    # so every one is still ahead: the auto-record sweep records them as they pass.
+    marked = await session.scalar(
+        select(func.count(LessonAttendance.id))
+        .join(Lesson, Lesson.id == LessonAttendance.lesson_id)
+        .where(Lesson.group_id == group.id)
+    )
+    if not marked:
+        lessons = list(
+            (
+                await session.scalars(
+                    select(Lesson)
+                    .where(Lesson.group_id == group.id, Lesson.origin == LessonOrigin.tutor)
+                    .order_by(Lesson.date, Lesson.id)
+                )
+            ).all()
+        )
+        if lessons:
+            await add_demo_attendance(session, tutor=tutor, lessons=lessons, students=students)
+            wrote = True
+    return wrote
+
+
 async def main() -> None:
     async with async_session() as session:
         existing = await session.scalar(select(User).where(User.email == "demo-tutor@example.com"))
         if existing is not None:
-            print("demo data already present — nothing to do")
+            # The core rows are there; finish any later stage a partial run left.
+            if await complete_demo(session):
+                print("demo data completed — a previous seed stopped part-way")
+            else:
+                print("demo data already present — nothing to do")
             return
 
         pw = hash_password(PASSWORD)
@@ -1150,32 +1280,7 @@ async def main() -> None:
             weekdays=tuple(sorted({slot.weekday for slot in fixed_slots[:2]})),
             today=now.date(),
         )
-        await add_demo_mistakes(
-            session,
-            organization_id=org.id,
-            subject_id=subject.id,
-            student_ids=[st.id for st in students],
-            keys=feedback_keys,
-        )
-        await session.commit()
-
-        for student in students:
-            await write_demo_snapshot(session, student, subject.id, now)
-        await session.commit()
-
-        # After the snapshots: a report is written from the readiness summary.
-        await add_demo_reports(
-            session,
-            tutor=tutor,
-            subject_id=subject.id,
-            students=students,
-            parent_student=student1,
-        )
-        await session.commit()
-        # Oldest first. The accepted plan's slots start today, so every one is
-        # still ahead: the auto-record sweep records them as they pass.
-        held_lessons.sort(key=lambda held_lesson: held_lesson.date)
-        await add_demo_attendance(session, tutor=tutor, lessons=held_lessons, students=students)
+        await complete_demo(session)
 
         print("demo data created — sign in as demo-tutor@example.com / demo1234")
 

@@ -213,7 +213,7 @@ class MistakeRow(BaseModel):
     #: on the exact word, so a third `MistakeSource` member added later must
     #: fail the frontend's type check rather than fall through that branch and
     #: label the AI's decision as the tutor's.
-    source: Literal["ai", "tutor"]
+    source: Literal["ai", "tutor", "demo"]
     #: What the tagging job flagged as reading like an instruction rather than
     #: data (`SEC-20`). Null on every ordinary tag; when set, it is the whole
     #: reason this row is worth a tutor's attention.

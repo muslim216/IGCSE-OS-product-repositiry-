@@ -246,7 +246,9 @@ async def _delete_own_mistakes(session: AsyncSession, submission_id: int) -> Non
             .join(MistakeCategory, MistakeCategory.id == Mistake.category_id)
             .where(
                 QuestionMark.submission_id == submission_id,
-                Mistake.source == MistakeSource.ai,
+                # Seeded demo rows are replaced like the job's own: a real
+                # re-tag must not stack on top of example data.
+                Mistake.source.in_((MistakeSource.ai, MistakeSource.demo)),
                 MistakeCategory.archived_at.is_(None),
             )
         )
