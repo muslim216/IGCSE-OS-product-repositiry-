@@ -35,9 +35,10 @@ export function useDocumentTitle(title: string | null | undefined) {
  * Inside this provider a PageHeader is a section heading, not a page title: an
  * <h2>, no back link, no tab title. It lets a page that stands alone at its own
  * URL also be one section of a longer page (Settings) without a second copy of
- * its body and without two <h1>s.
+ * its body and without two <h1>s. The value is the h2 id, so the host section
+ * can name itself with aria-labelledby.
  */
-export const EmbeddedPageContext = createContext(false);
+export const EmbeddedPageContext = createContext<string | false>(false);
 
 /**
  * The top of every page: an optional way back, the page's one <h1>, a sentence
@@ -69,7 +70,12 @@ export function PageHeader({
       <header className="mb-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <h2 className="text-xl leading-tight text-ink-900">{title}</h2>
+            <h2
+              id={typeof embedded === "string" ? embedded : undefined}
+              className="text-xl leading-tight text-ink-900"
+            >
+              {title}
+            </h2>
             {meta && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">{meta}</div>}
             {description && (
               <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-500">

@@ -255,3 +255,56 @@ test("the sidebar has no self-link", async () => {
   await screen.findAllByText("Today");
   expect(screen.queryByText("AI Guidance")).not.toBeInTheDocument();
 });
+
+test("the tutor More sheet holds the destinations that do not fit the bar", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor");
+  const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
+  fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
+  const menu = await screen.findByRole("menu");
+  for (const label of ["Readiness", "Papers & mocks", "Library", "Settings"]) {
+    expect(within(menu).getByText(label)).toBeInTheDocument();
+  }
+});
+
+test("a nested route sets aria-current on its parent destination", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/past-papers");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  const papers = within(sidebar).getByRole("link", { name: "Papers & mocks" });
+  await waitFor(() => expect(papers).toHaveAttribute("aria-current", "page"));
+  expect(within(sidebar).getByRole("link", { name: "Library" })).not.toHaveAttribute(
+    "aria-current",
+  );
+  expect(within(sidebar).getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
+});
+
+test("the More button lights while the page is one of its destinations", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/settings");
+  const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
+  const more = within(tabBar).getByRole("button", { name: /More/ });
+  expect(more.className).toContain("text-brand-600");
+  fireEvent.click(more);
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).getByRole("menuitem", { name: "Settings" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("an old setup URL moves focus to its Settings section", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/boundaries");
+  await screen.findByRole("heading", { level: 1, name: "Settings" });
+  await waitFor(() => expect(document.activeElement?.id).toBe("boundaries"));
+  expect(document.activeElement).toHaveAccessibleName("Grade boundaries");
+});
+
+test("the section index moves focus to the section it names", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/settings");
+  const index = await screen.findByRole("navigation", { name: "Settings sections" });
+  fireEvent.click(within(index).getByRole("link", { name: "Preferences" }));
+  await waitFor(() => expect(document.activeElement?.id).toBe("preferences"));
+});

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { InitialsAvatar } from "./ui";
@@ -18,12 +18,16 @@ export interface NavItem {
   also?: string[];
 }
 
-/** `end` keeps "/tutor" from matching every tutor page, so nesting has to be
-    declared: an item is active on its own path or under any `also` prefix. */
-function isWithin(item: NavItem, pathname: string, linkActive: boolean): boolean {
+/** Active on its own path or under any `also` prefix. Computed here rather than
+    by NavLink because NavLink only knows the exact match, and both the styling
+    and aria-current must agree about a nested page (a past paper is "in"
+    Papers & mocks). Exact, not prefix, for the item itself: the tutor home must
+    not light for every tutor page. */
+function isCurrent(item: NavItem, pathname: string): boolean {
+  const here = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   return (
-    linkActive ||
-    (item.also ?? []).some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+    here === item.to ||
+    (item.also ?? []).some((prefix) => here === prefix || here.startsWith(`${prefix}/`))
   );
 }
 
@@ -38,21 +42,20 @@ function Brand() {
 
 function SidebarLink({ item }: { item: NavItem }) {
   const { pathname } = useLocation();
+  const current = isCurrent(item, pathname);
   return (
-    <NavLink
+    <Link
       to={item.to}
-      end
-      className={({ isActive }) =>
-        `avora-press flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
-          isWithin(item, pathname, isActive)
-            ? "bg-brand-600 font-medium text-canvas"
-            : "text-ink-500 hover:bg-surface hover:text-ink-900"
-        }`
-      }
+      aria-current={current ? "page" : undefined}
+      className={`avora-press flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition ${
+        current
+          ? "bg-brand-600 font-medium text-canvas"
+          : "text-ink-500 hover:bg-surface hover:text-ink-900"
+      }`}
     >
       <item.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
       {item.label}
-    </NavLink>
+    </Link>
   );
 }
 
@@ -60,30 +63,31 @@ function SidebarLink({ item }: { item: NavItem }) {
     the touch-target floor WCAG 2.5.5 sets. */
 function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const { pathname } = useLocation();
+  const current = isCurrent(item, pathname);
   return (
-    <NavLink
+    <Link
       to={item.to}
-      end
+      aria-current={current ? "page" : undefined}
       onClick={onNavigate}
-      className={({ isActive }) =>
-        `flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium avora-press transition ${
-          isWithin(item, pathname, isActive) ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
-        }`
-      }
+      className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium avora-press transition ${
+        current ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
+      }`}
     >
       <item.icon aria-hidden className="h-5 w-5 shrink-0" />
       <span className="truncate">{item.label}</span>
-    </NavLink>
+    </Link>
   );
 }
 
 /** The overflow control and the sheet it opens. Every destination that does not
     fit the bar is reachable here, so nothing the sidebar offers is lost on a
     phone (the slot split is preserved: "bottom"-slot items live here, never as a
-    primary tab). */
+    primary tab). The button is lit while the current page is one of them, so a
+    reader on Settings can tell where they are. */
 function MoreTab({ items }: { items: NavItem[] }) {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
+  const inside = items.some((item) => isCurrent(item, pathname));
   return (
     <div className="relative flex flex-1">
       <button
@@ -92,7 +96,7 @@ function MoreTab({ items }: { items: NavItem[] }) {
         aria-haspopup="menu"
         onClick={() => setOpen((v) => !v)}
         className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition ${
-          open ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
+          open || inside ? "text-brand-600" : "text-ink-500 hover:text-ink-900"
         }`}
       >
         <MoreHorizontal aria-hidden className="h-5 w-5 shrink-0" />
@@ -112,25 +116,24 @@ function MoreTab({ items }: { items: NavItem[] }) {
             role="menu"
             className="absolute bottom-full right-2 z-40 mb-2 min-w-44 rounded-lg border border-line bg-surface py-1 shadow-lg"
           >
-            {items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end
-                role="menuitem"
-                onClick={() => setOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 px-3 py-2.5 text-sm transition ${
-                    isWithin(item, pathname, isActive)
-                      ? "font-medium text-brand-600"
-                      : "text-ink-700 hover:bg-surface-muted"
-                  }`
-                }
-              >
-                <item.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
-                {item.label}
-              </NavLink>
-            ))}
+            {items.map((item) => {
+              const current = isCurrent(item, pathname);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  role="menuitem"
+                  aria-current={current ? "page" : undefined}
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 text-sm transition ${
+                    current ? "font-medium text-brand-600" : "text-ink-700 hover:bg-surface-muted"
+                  }`}
+                >
+                  <item.icon aria-hidden className="h-[18px] w-[18px] shrink-0" />
+                  {item.label}
+                </Link>
+              );
+            })}
           </div>
         </>
       )}

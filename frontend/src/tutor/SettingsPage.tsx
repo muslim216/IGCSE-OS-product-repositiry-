@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import TimezoneSetting from "./TimezoneSetting";
 import CustomCriteriaSetting from "./CustomCriteriaSetting";
 import IntegrationsSetting from "./IntegrationsSetting";
@@ -32,10 +32,62 @@ export const SETTINGS_SECTIONS = [
   { id: "account", label: "Account and integrations" },
 ] as const;
 
-function Section({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+/** How long after arriving the page keeps correcting its scroll position. The
+ *  sections above the target load and grow after first paint, so the spot the
+ *  browser scrolled to at mount is not where the section ends up. */
+export const SETTLE_MS = 1500;
+const POLL_MS = 100;
+const USER_INPUT = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+
+/** Scroll the hash target into view and keep doing so while it moves, until the
+ *  settle window passes or the reader takes over by scrolling, touching or
+ *  typing. Focus goes to the section once, so keyboard and screen-reader users
+ *  land where the page scrolled to (WCAG 2.4.3). Returns a cleanup. */
+export function followTarget(id: string): () => void {
+  let lastTop: number | null = null;
+  let focused = false;
+  const started = Date.now();
+
+  const stop = () => {
+    window.clearInterval(timer);
+    for (const type of USER_INPUT) window.removeEventListener(type, stop);
+  };
+  const align = () => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    if (top !== lastTop) {
+      lastTop = top;
+      el.scrollIntoView?.();
+    }
+    if (!focused) {
+      focused = true;
+      el.focus({ preventScroll: true });
+    }
+  };
+  const tick = () => {
+    align();
+    if (Date.now() - started >= SETTLE_MS) stop();
+  };
+
+  const timer = window.setInterval(tick, POLL_MS);
+  for (const type of USER_INPUT) window.addEventListener(type, stop, { passive: true });
+  align();
+  return stop;
+}
+
+/** A section labelled by its own heading, which the embedded page's PageHeader
+ *  renders with the id given through context. */
+function Section({ id, children }: { id: string; children: ReactNode }) {
+  const headingId = `${id}-heading`;
   return (
-    <section id={id} aria-label={label} className="scroll-mt-6 border-t border-line pt-8">
-      {children}
+    <section
+      id={id}
+      tabIndex={-1}
+      aria-labelledby={headingId}
+      className="scroll-mt-6 border-t border-line pt-8 focus:outline-none"
+    >
+      <EmbeddedPageContext.Provider value={headingId}>{children}</EmbeddedPageContext.Provider>
     </section>
   );
 }
@@ -43,11 +95,9 @@ function Section({ id, label, children }: { id: string; label: string; children:
 export default function SettingsPage() {
   const { hash } = useLocation();
 
-  // The browser only scrolls to a #fragment present at load; this page is
-  // reached by client-side redirect, so do it by hand once the section exists.
   useEffect(() => {
     if (!hash) return;
-    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.();
+    return followTarget(decodeURIComponent(hash.slice(1)));
   }, [hash]);
 
   return (
@@ -60,40 +110,45 @@ export default function SettingsPage() {
         <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           {SETTINGS_SECTIONS.map((section) => (
             <li key={section.id}>
-              <a href={`#${section.id}`} className="text-ink-700 hover:text-brand-600">
+              <Link to={`#${section.id}`} className="text-ink-700 hover:text-brand-600">
                 {section.label}
-              </a>
+              </Link>
             </li>
           ))}
         </ul>
       </nav>
       <div className="space-y-10">
-        <EmbeddedPageContext.Provider value={true}>
-          <Section id="teaching-guidance" label="Teaching guidance">
-            <TeachingGuidancePage />
-          </Section>
-          <Section id="marking-rules" label="AI marking agreement">
-            <MarkingRulesPage />
-          </Section>
-          <Section id="boundaries" label="Grade boundaries">
-            <GradeBoundariesPage />
-          </Section>
-          <Section id="mistake-categories" label="Mistake categories">
-            <MistakeCategoriesPage />
-          </Section>
-          <Section id="preferences" label="Preferences">
-            <PreferencesPage />
-          </Section>
-        </EmbeddedPageContext.Provider>
-        <Section id="account" label="Account and integrations">
-          <h2 className="mb-6 text-xl leading-tight text-ink-900">Account and integrations</h2>
+        <Section id="teaching-guidance">
+          <TeachingGuidancePage />
+        </Section>
+        <Section id="marking-rules">
+          <MarkingRulesPage />
+        </Section>
+        <Section id="boundaries">
+          <GradeBoundariesPage />
+        </Section>
+        <Section id="mistake-categories">
+          <MistakeCategoriesPage />
+        </Section>
+        <Section id="preferences">
+          <PreferencesPage />
+        </Section>
+        <section
+          id="account"
+          tabIndex={-1}
+          aria-labelledby="account-heading"
+          className="scroll-mt-6 border-t border-line pt-8 focus:outline-none"
+        >
+          <h2 id="account-heading" className="mb-6 text-xl leading-tight text-ink-900">
+            Account and integrations
+          </h2>
           <div className="space-y-6">
             <TimezoneSetting />
             <MyTimezoneSetting />
             <CustomCriteriaSetting />
             <IntegrationsSetting />
           </div>
-        </Section>
+        </section>
       </div>
     </div>
   );
