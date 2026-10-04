@@ -5,6 +5,7 @@ import { SectionCard } from "../components/ui";
 import { Button } from "../components/controls";
 import { ErrorState, SectionSkeleton } from "../components/page";
 import AttendanceRegister from "./AttendanceRegister";
+import OnlineAttendance from "./OnlineAttendance";
 
 /** "2026-10-13" and "16:30:00" as written: a bare date and a wall-clock time are
  *  not instants, so no timezone conversion applies. */
@@ -17,7 +18,7 @@ function when(date: string, startTime: string | null): string {
 const RECENT = 3;
 
 /** Lessons already taught, each with its attendance. In-person lessons get a
- *  register; online ones will take attendance from Zoom or Google Meet. */
+ *  register to mark; online ones take attendance from Zoom or Google Meet. */
 export default function RecordedLessons({ groupId }: { groupId: number }) {
   const [showAll, setShowAll] = useState(false);
   const lessons = useQuery({
@@ -51,9 +52,7 @@ export default function RecordedLessons({ groupId }: { groupId: number }) {
           </div>
           <div className="mt-3">
             {lesson.mode === "online" ? (
-              <p className="text-sm text-ink-500">
-                Attendance comes from Zoom or Google Meet — not connected yet.
-              </p>
+              <OnlineAttendance lessonId={lesson.id} />
             ) : (
               <AttendanceRegister lessonId={lesson.id} />
             )}

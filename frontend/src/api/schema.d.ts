@@ -839,6 +839,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Integrations */
+        get: operations["list_integrations_api_v1_integrations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{provider}/authorize-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Authorize Url */
+        get: operations["authorize_url_api_v1_integrations__provider__authorize_url_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Callback */
+        get: operations["callback_api_v1_integrations__provider__callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect */
+        delete: operations["disconnect_api_v1_integrations__provider__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lessons/{lesson_id}/meeting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lesson Meeting */
+        get: operations["lesson_meeting_api_v1_lessons__lesson_id__meeting_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lessons/{lesson_id}/attendance/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Attendance */
+        post: operations["import_attendance_api_v1_lessons__lesson_id__attendance_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lessons/{lesson_id}/participants/{participant_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve Participant */
+        post: operations["resolve_participant_api_v1_lessons__lesson_id__participants__participant_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/lessons": {
         parameters: {
             query?: never;
@@ -3951,6 +4070,27 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** IntegrationAuthUrlOut */
+        IntegrationAuthUrlOut: {
+            /** Url */
+            url: string;
+            /** State */
+            state: string;
+        };
+        /** IntegrationStatusOut */
+        IntegrationStatusOut: {
+            provider: components["schemas"]["MeetingProvider"];
+            /** Configured */
+            configured: boolean;
+            /** Connected */
+            connected: boolean;
+            /** Account Email */
+            account_email: string | null;
+            /** Connected At */
+            connected_at: string | null;
+            /** Note */
+            note: string;
+        };
         /** InviteOut */
         InviteOut: {
             /** Code */
@@ -4007,6 +4147,17 @@ export interface components {
             mode: components["schemas"]["LessonMode"];
             /** Start Time */
             start_time?: string | null;
+            /** Meeting Link */
+            meeting_link?: string | null;
+        };
+        /** LessonMeetingOut */
+        LessonMeetingOut: {
+            provider: components["schemas"]["MeetingProvider"] | null;
+            /** Link */
+            link: string | null;
+            last_import: components["schemas"]["MeetingImportOut"] | null;
+            /** Participants */
+            participants: components["schemas"]["MeetingParticipantOut"][];
         };
         /**
          * LessonMode
@@ -4075,6 +4226,9 @@ export interface components {
             origin: components["schemas"]["LessonOrigin"];
             /** Topics */
             topics: components["schemas"]["TopicOut"][];
+            meeting_provider?: components["schemas"]["MeetingProvider"] | null;
+            /** Meeting Link */
+            meeting_link?: string | null;
         };
         /** LessonTopicsUpdate */
         LessonTopicsUpdate: {
@@ -4092,6 +4246,8 @@ export interface components {
             mode?: components["schemas"]["LessonMode"] | null;
             /** Start Time */
             start_time?: string | null;
+            /** Meeting Link */
+            meeting_link?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -4191,6 +4347,43 @@ export interface components {
             /** Summary */
             summary?: string | null;
         };
+        /** MeetingImportOut */
+        MeetingImportOut: {
+            status: components["schemas"]["MeetingImportStatus"];
+            /** Error Code */
+            error_code: string | null;
+            /** Message */
+            message: string | null;
+            /** Finished At */
+            finished_at: string | null;
+        };
+        /**
+         * MeetingImportStatus
+         * @enum {string}
+         */
+        MeetingImportStatus: "queued" | "succeeded" | "failed";
+        /** MeetingParticipantOut */
+        MeetingParticipantOut: {
+            /** Id */
+            id: number;
+            /** Display Name */
+            display_name: string;
+            /** Email */
+            email: string | null;
+            /** Duration Seconds */
+            duration_seconds: number;
+            /** Matched Student Id */
+            matched_student_id: number | null;
+            /** Suggested Student Id */
+            suggested_student_id?: number | null;
+            /** Resolved */
+            resolved: boolean;
+        };
+        /**
+         * MeetingProvider
+         * @enum {string}
+         */
+        MeetingProvider: "zoom" | "google_meet";
         /** MistakeCategoriesIn */
         MistakeCategoriesIn: {
             /** Categories */
@@ -4628,6 +4821,11 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** ParticipantResolve */
+        ParticipantResolve: {
+            /** Student Id */
+            student_id: number;
         };
         /** PastPaperAttemptOut */
         PastPaperAttemptOut: {
@@ -7547,6 +7745,218 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_integrations_api_v1_integrations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationStatusOut"][];
+                };
+            };
+        };
+    };
+    authorize_url_api_v1_integrations__provider__authorize_url_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: components["schemas"]["MeetingProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationAuthUrlOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_api_v1_integrations__provider__callback_get: {
+        parameters: {
+            query: {
+                code: string;
+                state: string;
+            };
+            header?: never;
+            path: {
+                provider: components["schemas"]["MeetingProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disconnect_api_v1_integrations__provider__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: components["schemas"]["MeetingProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lesson_meeting_api_v1_lessons__lesson_id__meeting_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LessonMeetingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_attendance_api_v1_lessons__lesson_id__attendance_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_participant_api_v1_lessons__lesson_id__participants__participant_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: number;
+                participant_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParticipantResolve"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeetingParticipantOut"];
+                };
             };
             /** @description Validation Error */
             422: {

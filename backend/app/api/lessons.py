@@ -7,6 +7,7 @@ from app.models import (
     Group,
     GroupMember,
     Lesson,
+    LessonMode,
     LessonObservation,
     LessonTopic,
     Topic,
@@ -24,7 +25,8 @@ from app.schemas.lessons import (
     LessonTopicsUpdate,
     LessonUpdate,
 )
-from app.services import attendance, plan_lessons
+from app.services import attendance, meeting_integrations, plan_lessons
+from app.services.meeting_common import MeetingLinkError, parse_meeting_link
 from app.services.plan_lessons import ScheduleSlotNotFound
 from app.services.teaching_plan import PlanInputError, PlanSlotNotFound, PlanStateError
 
@@ -65,6 +67,18 @@ async def _owned_lesson(db: AsyncSession, user: User, lesson_id: int) -> Lesson:
     return lesson
 
 
+def _check_meeting_link(link: str, mode: LessonMode) -> None:
+    """A meeting link must be a Zoom/Meet one and belongs to an online lesson."""
+    if mode != LessonMode.online:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Only an online lesson can have a meeting link."
+        )
+    try:
+        parse_meeting_link(link)
+    except MeetingLinkError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
 async def _lesson_out(db: AsyncSession, lesson: Lesson) -> LessonOut:
     topic_rows = (
         await db.scalars(
@@ -84,12 +98,16 @@ async def _lesson_out(db: AsyncSession, lesson: Lesson) -> LessonOut:
         start_time=lesson.start_time,
         origin=lesson.origin,
         topics=[TopicOut.model_validate(t) for t in topic_rows],
+        meeting_provider=lesson.meeting_provider,
+        meeting_link=meeting_integrations.lesson_link(lesson),
     )
 
 
 @router.post("", response_model=LessonOut, status_code=status.HTTP_201_CREATED)
 async def create_lesson(body: LessonCreate, db: DbSession, user: CurrentUser) -> LessonOut:
     group = await _owned_group(db, user, body.group_id)
+    if body.meeting_link is not None:
+        _check_meeting_link(body.meeting_link, body.mode)
     try:
         lesson = await plan_lessons.create_lesson(
             db,
@@ -111,6 +129,9 @@ async def create_lesson(body: LessonCreate, db: DbSession, user: CurrentUser) ->
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except PlanStateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if body.meeting_link is not None:
+        await meeting_integrations.set_lesson_meeting(db, lesson, body.meeting_link)
+        await db.commit()
     return await _lesson_out(db, lesson)
 
 
@@ -140,6 +161,8 @@ async def update_lesson(
     lesson_id: int, body: LessonUpdate, db: DbSession, user: CurrentUser
 ) -> LessonOut:
     lesson = await _owned_lesson(db, user, lesson_id)
+    if body.meeting_link is not None:
+        _check_meeting_link(body.meeting_link, body.mode or lesson.mode)
     if body.date is not None:
         lesson.date = body.date
     if body.duration_min is not None:
@@ -151,6 +174,9 @@ async def update_lesson(
     # An explicit null clears the time (back to unknown); omitting it leaves it.
     if "start_time" in body.model_fields_set:
         lesson.start_time = body.start_time
+    # An explicit null clears the link (and what was imported from it).
+    if "meeting_link" in body.model_fields_set:
+        await meeting_integrations.set_lesson_meeting(db, lesson, body.meeting_link)
     await db.commit()
     return await _lesson_out(db, lesson)
 
@@ -160,6 +186,7 @@ async def delete_lesson(lesson_id: int, db: DbSession, user: CurrentUser) -> Non
     lesson = await _owned_lesson(db, user, lesson_id)
     await plan_lessons.release_slot_for_lesson(db, lesson.id)
     await attendance.delete_for_lesson(db, lesson.id)
+    await meeting_integrations.delete_for_lesson(db, lesson.id)
     await db.delete(lesson)
     await db.commit()
 

@@ -49,6 +49,7 @@ import MarkingRulesPage from "./tutor/MarkingRulesPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
 import TeachingGuidancePage from "./tutor/TeachingGuidancePage";
 import SettingsPage from "./tutor/SettingsPage";
+import IntegrationCallbackPage from "./tutor/IntegrationCallbackPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
 import BookletsPage from "./tutor/BookletsPage";
 
@@ -143,6 +144,10 @@ export default function App() {
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
           <Route path="/tutor/settings" element={<SettingsPage />} />
+          <Route
+            path="/tutor/settings/integrations/:provider/callback"
+            element={<IntegrationCallbackPage />}
+          />
           <Route path="/tutor/past-papers" element={<TutorPastPapersPage />} />
           <Route path="/tutor/booklets" element={<BookletsPage />} />
         </Route>

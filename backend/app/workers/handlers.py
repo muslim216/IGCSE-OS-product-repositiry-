@@ -22,6 +22,7 @@ from app.services.extraction import (
 from app.services.google_classroom import sync_classroom
 from app.services.marking import mark_submission
 from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
+from app.services.meeting_integrations import IMPORT_JOB, import_meeting_attendance
 from app.services.mistake_tagging import tag_mistakes
 from app.services.narrative import (
     CLASS_NARRATIVE_JOB,
@@ -98,3 +99,7 @@ def register_all() -> None:
     # (task 6.8, AV-68). Enqueued by the syllabus apply. Safe to re-run (`BE-6`):
     # it replaces only generated slots dated after today, from current state.
     register_handler(PLAN_REFLOW_JOB, reflow_plan)
+    # Pulls a lesson's Zoom/Meet participants into its attendance register (task
+    # 7.3, AV-118). Safe to re-run (`BE-6`): provider rows are replaced except
+    # those a tutor resolved, and a tutor's own mark is never overwritten.
+    register_handler(IMPORT_JOB, import_meeting_attendance)

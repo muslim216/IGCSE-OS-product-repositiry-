@@ -1,5 +1,6 @@
 import TimezoneSetting from "./TimezoneSetting";
 import CustomCriteriaSetting from "./CustomCriteriaSetting";
+import IntegrationsSetting from "./IntegrationsSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { PageHeader } from "../components/page";
 
@@ -17,13 +18,14 @@ export default function SettingsPage() {
     <div className="max-w-2xl">
       <PageHeader
         title="Settings"
-        description="The time zones days are counted in, and the criteria you score students on by hand."
+        description="The time zones days are counted in, the criteria you score students on by hand, and Zoom and Google Meet for online attendance."
         back={{ to: "/tutor/library", label: "Library" }}
       />
       <div className="space-y-6">
         <TimezoneSetting />
         <MyTimezoneSetting />
         <CustomCriteriaSetting />
+        <IntegrationsSetting />
       </div>
     </div>
   );

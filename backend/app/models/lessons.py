@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    String,
     Text,
     Time,
     UniqueConstraint,
@@ -15,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
+from app.models.integrations import MeetingProvider
 
 
 class LessonMode(str, enum.Enum):
@@ -79,6 +81,13 @@ class Lesson(TimestampMixin, Base):
         server_default=LessonOrigin.tutor.value,
         nullable=False,
     )
+    # The Zoom/Meet meeting an online lesson was held in, parsed from the link
+    # the tutor pasted (services/meeting_integrations.py). The link itself —
+    # which may carry a passcode — is not stored. Both NULL = no link.
+    meeting_provider: Mapped[MeetingProvider | None] = mapped_column(
+        Enum(MeetingProvider, native_enum=False, length=12), nullable=True
+    )
+    meeting_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class LessonTopic(Base):
