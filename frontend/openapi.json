@@ -11128,16 +11128,8 @@
             ],
             "title": "Predicted Grade"
           },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
+          "verdict": {
+            "$ref": "#/components/schemas/SubjectVerdict"
           },
           "direction": {
             "anyOf": [
@@ -11176,10 +11168,11 @@
         "type": "object",
         "required": [
           "student_id",
-          "student_name"
+          "student_name",
+          "verdict"
         ],
         "title": "ClassLearnerRow",
-        "description": "One learner on the class page.\n\n`direction` is what NEEDS YOU selects on, not `status`: a learner sliding\nfrom a grade 8 to a 6 is the one the tutor can still help, while a learner\nwho has been a stable grade 4 all year is why the class carries its status\nbut is not news. null means too little history to say \u2014 rendered as no\narrow at all, never \"flat\", which would be a claim (UX-31, PROD-2)."
+        "description": "One learner on the class page.\n\n`direction` is what NEEDS YOU selects on, not the verdict: a learner sliding\nfrom a grade 8 to a 6 is the one the tutor can still help, while a learner\nwho has been a stable grade 4 all year is why the class carries its status\nbut is not news. null means too little history to say \u2014 rendered as no\narrow at all, never \"flat\", which would be a claim (UX-31, PROD-2)."
       },
       "ClassOverview": {
         "properties": {

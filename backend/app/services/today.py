@@ -7,7 +7,9 @@ class, each of which looped `db.get(User)` plus a readiness select per learner
 (PERF-1).
 """
 
+import logging
 from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import date
 
 from sqlalchemy import func, select
@@ -24,6 +26,7 @@ from app.models import (
     User,
 )
 from app.schemas.groups import UpcomingScheduleSlot
+from app.schemas.readiness import SubjectVerdict
 from app.schemas.today import (
     BehindClass,
     ClassLearnerRow,
@@ -39,13 +42,17 @@ from app.services.class_readiness import (
     latest_learner_snapshots,
     weak_topic_means,
 )
+from app.services.class_verdicts import class_verdicts
 from app.services.grade_boundaries import boundaries_for, org_boundaries
 from app.services.grades import grade_band, predict_grade
 from app.services.groups import review_queue_predicate
 from app.services.groups import summaries as group_summaries
 from app.services.plan_progress import class_progress
 from app.services.readiness_shared import scores_of, trend_direction, v2_score_series
+from app.services.student_verdict import student_verdict
 from app.services.timezones import effective_timezone, now_in
+
+logger = logging.getLogger(__name__)
 
 #: Exceptions first. A tutor opening their home is looking for what needs them,
 #: so the strip is ordered by how much attention a class wants, and the healthy
@@ -252,6 +259,16 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
     snapshots = await latest_learner_snapshots(db, [group.id])
     summary = (await group_summaries(db, [group.id], snapshots_by_group=snapshots))[group.id]
     detail = await class_readiness(db, group.id, learners=snapshots[group.id])
+    # One batched read for the whole roster (PERF-1). It resolves its own
+    # boundaries with resolve_grade_boundaries; `boundaries` above comes from
+    # org_boundaries — both read this organization's grade_boundaries rows
+    # through the same _as_bands, so the two lists are identical.
+    verdicts = await class_verdicts(db, group, snapshots[group.id])
+    # A learner who joined between the two roster reads has no verdict yet:
+    # say so rather than 500 the page or invent a status (PROD-2).
+    no_verdict = student_verdict(
+        score=None, predicted_grade=None, boundaries=boundaries, weak_topics=[]
+    )
     # Every scored learner's series in one query, not one per learner (PERF-1).
     # Unscored learners are never looked up here — their `series.get(...)`
     # below returns [] and trend_direction([]) is None, which is exactly what
@@ -265,13 +282,22 @@ async def build_class_overview(db: AsyncSession, user: User, group: Group) -> Cl
         # for an unscored learner: class_readiness() never sets one for them.
         grade = s.predicted_grade if boundaries else None
         hw = detail.homework.get(s.student_id)
+        verdict = verdicts.get(s.student_id)
+        if verdict is None:
+            if s.score is not None:
+                logger.warning(
+                    "class %s: scored learner %s has no verdict; showing not_enough_data",
+                    group.id,
+                    s.student_id,
+                )
+            verdict = no_verdict
         learners.append(
             ClassLearnerRow(
                 student_id=s.student_id,
                 student_name=s.student_name,
                 score=s.score,
                 predicted_grade=grade,
-                status=grade_band(grade, boundaries),
+                verdict=SubjectVerdict(**asdict(verdict)),
                 direction=trend_direction(scores_of(series.get(s.student_id, []))),
                 homework_assignment_count=hw[0] if hw else None,
                 homework_submitted_count=hw[1] if hw else None,
