@@ -9,7 +9,7 @@ import { useMyTimezone } from "../auth/AuthContext";
 import { friendlyError } from "../lib/errors";
 import { dayKeyIn } from "../lib/timezones";
 import { SectionCard } from "../components/ui";
-import { Button, Field, Input } from "../components/controls";
+import { Button, Field, Input, Select } from "../components/controls";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -70,6 +70,9 @@ export default function RecordLessonForm({
   const date = dateSet ?? todayKey;
   const [topicIds, setTopicIds] = useState<number[]>([]);
   const [notes, setNotes] = useState("");
+  const [mode, setMode] = useState<"in_person" | "online">("in_person");
+  // "" = unknown: the server stores NULL, never midnight.
+  const [startTime, setStartTime] = useState("");
   // null until the tutor edits it; the shown value is then the derived default.
   const [durationEdit, setDurationEdit] = useState<string | null>(null);
   // The suggested slot the form has adopted, and the one a successful save used
@@ -122,6 +125,8 @@ export default function RecordLessonForm({
         duration_min: Number(duration),
         topic_ids: topicIds,
         notes: notes.trim() || null,
+        mode,
+        start_time: startTime || null,
         // Only when the tutor kept the suggestion: that is what confirms the slot.
         ...(usingPlan ? { plan_slot_id: suggestion.slot_id } : {}),
       }),
@@ -133,10 +138,13 @@ export default function RecordLessonForm({
       setDateSet(null);
       setTopicIds([]);
       setNotes("");
+      setMode("in_person");
+      setStartTime("");
       setDurationEdit(null);
       dirty.current = false;
       for (const key of [
         ["next-lesson", groupId],
+        ["taught-lessons", groupId],
         ["plan", groupId],
         // Coverage is derived from taught topics (`PROD-14`), so everything that
         // shows it is stale now.
@@ -209,6 +217,22 @@ export default function RecordLessonForm({
         )}
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <Field label="Mode">
+            <Select
+              value={mode}
+              onChange={(e) => edit(() => setMode(e.target.value as "in_person" | "online"))}
+            >
+              <option value="in_person">In person</option>
+              <option value="online">Online</option>
+            </Select>
+          </Field>
+          <Field label="Starts at" optional>
+            <Input
+              type="time"
+              value={startTime}
+              onChange={(e) => edit(() => setStartTime(e.target.value))}
+            />
+          </Field>
           <Field label="Date">
             <Input
               type="date"

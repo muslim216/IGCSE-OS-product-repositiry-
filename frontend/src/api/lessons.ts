@@ -8,3 +8,23 @@ export type TaughtLessonBody = components["schemas"]["LessonCreate"];
 
 export const recordLesson = (body: TaughtLessonBody) =>
   api<TaughtLesson>("/api/v1/lessons", { method: "POST", body: JSON.stringify(body) });
+
+export type AttendanceRow = components["schemas"]["AttendanceRowOut"];
+export type AttendanceState = NonNullable<AttendanceRow["state"]>;
+
+export const listTaughtLessons = (groupId: number) =>
+  api<TaughtLesson[]>(`/api/v1/lessons/group/${groupId}`);
+
+/** The register for one lesson. `state: null` means attendance was not taken. */
+export const getAttendance = (lessonId: number) =>
+  api<AttendanceRow[]>(`/api/v1/lessons/${lessonId}/attendance`);
+
+/** `state: null` clears a mark. */
+export const setAttendance = (
+  lessonId: number,
+  entries: { student_id: number; state: AttendanceState | null }[],
+) =>
+  api<AttendanceRow[]>(`/api/v1/lessons/${lessonId}/attendance`, {
+    method: "PUT",
+    body: JSON.stringify({ entries }),
+  });

@@ -932,6 +932,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lessons/{lesson_id}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Lesson Attendance
+         * @description The register: every student in the class, `state: null` where not taken.
+         */
+        get: operations["lesson_attendance_api_v1_lessons__lesson_id__attendance_get"];
+        /** Set Lesson Attendance */
+        put: operations["set_lesson_attendance_api_v1_lessons__lesson_id__attendance_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/subjects/{subject_id}/marking-rules": {
         parameters: {
             query?: never;
@@ -3062,6 +3083,38 @@ export interface components {
              */
             submission_count: number;
         };
+        /** AttendanceEntryIn */
+        AttendanceEntryIn: {
+            /** Student Id */
+            student_id: number;
+            state: components["schemas"]["AttendanceState"] | null;
+        };
+        /** AttendanceRowOut */
+        AttendanceRowOut: {
+            /** Student Id */
+            student_id: number;
+            /** Name */
+            name: string;
+            state: components["schemas"]["AttendanceState"] | null;
+            source: components["schemas"]["AttendanceSource"] | null;
+            /** Recorded At */
+            recorded_at: string | null;
+        };
+        /**
+         * AttendanceSource
+         * @enum {string}
+         */
+        AttendanceSource: "tutor" | "zoom" | "google_meet";
+        /**
+         * AttendanceState
+         * @enum {string}
+         */
+        AttendanceState: "present" | "absent";
+        /** AttendanceUpdate */
+        AttendanceUpdate: {
+            /** Entries */
+            entries: components["schemas"]["AttendanceEntryIn"][];
+        };
         /** AuthResponse */
         AuthResponse: {
             user: components["schemas"]["UserOut"];
@@ -3886,7 +3939,16 @@ export interface components {
             topic_ids?: number[];
             /** Plan Slot Id */
             plan_slot_id?: number | null;
+            /** @default in_person */
+            mode: components["schemas"]["LessonMode"];
+            /** Start Time */
+            start_time?: string | null;
         };
+        /**
+         * LessonMode
+         * @enum {string}
+         */
+        LessonMode: "in_person" | "online";
         /** LessonObservationCreate */
         LessonObservationCreate: {
             /** Student Id */
@@ -3918,6 +3980,14 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * LessonOrigin
+         * @description Who said this lesson happened. `plan` is a lesson auto-recorded from the
+         *     plan because nobody said otherwise (AV-119) — kept apart so it stays
+         *     traceable (`PROD-1`).
+         * @enum {string}
+         */
+        LessonOrigin: "tutor" | "plan";
         /** LessonOut */
         LessonOut: {
             /** Id */
@@ -3935,6 +4005,10 @@ export interface components {
             notes: string | null;
             /** Schedule Slot Id */
             schedule_slot_id: number | null;
+            mode: components["schemas"]["LessonMode"];
+            /** Start Time */
+            start_time: string | null;
+            origin: components["schemas"]["LessonOrigin"];
             /** Topics */
             topics: components["schemas"]["TopicOut"][];
         };
@@ -3951,6 +4025,9 @@ export interface components {
             duration_min?: number | null;
             /** Notes */
             notes?: string | null;
+            mode?: components["schemas"]["LessonMode"] | null;
+            /** Start Time */
+            start_time?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -7636,6 +7713,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LessonObservationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lesson_attendance_api_v1_lessons__lesson_id__attendance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRowOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_lesson_attendance_api_v1_lessons__lesson_id__attendance_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lesson_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttendanceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRowOut"][];
                 };
             };
             /** @description Validation Error */

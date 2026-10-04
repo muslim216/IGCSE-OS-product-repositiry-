@@ -29,7 +29,16 @@ from app.models.homework import (
     SubmissionStatus,
 )
 from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
-from app.models.lessons import Lesson, LessonObservation, LessonTopic
+from app.models.lessons import (
+    AttendanceSource,
+    AttendanceState,
+    Lesson,
+    LessonAttendance,
+    LessonMode,
+    LessonObservation,
+    LessonOrigin,
+    LessonTopic,
+)
 from app.models.mocks import Mock, MockOpening, MockQuestion, MockQuestionTopic, MockStatus
 from app.models.narrative import Narrative, NarrativeAudience
 from app.models.orgs import Organization
@@ -140,6 +149,11 @@ __all__ = [
     "PastPaperQuestion",
     "PastPaperQuestionTopic",
     "PlanBreak",
+    "AttendanceSource",
+    "AttendanceState",
+    "LessonAttendance",
+    "LessonMode",
+    "LessonOrigin",
     "PlanSlot",
     "PlanSlotProvenance",
     "QuestionDifficulty",

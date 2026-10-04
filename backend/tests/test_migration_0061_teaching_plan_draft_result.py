@@ -68,6 +68,10 @@ def test_full_chain_matches_the_model_for_every_plan_table(chain):
                 model_shape["columns"].pop("lesson_id")
                 model_shape["fks"].pop("lesson_id")
                 model_shape["uniques"].pop("uq_plan_slots_lesson_id")
+                # And 0063's columns.
+                for later in ("start_time", "cancelled_at", "cancelled_by_id"):
+                    model_shape["columns"].pop(later)
+                model_shape["fks"].pop("cancelled_by_id")
             assert _shape(sa.inspect(conn), table) == model_shape
     model_engine.dispose()
 

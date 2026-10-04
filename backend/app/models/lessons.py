@@ -1,9 +1,47 @@
-from datetime import date
+import enum
+from datetime import date, datetime, time
 
-from sqlalchemy import Date, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    Time,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
+
+
+class LessonMode(str, enum.Enum):
+    in_person = "in_person"
+    online = "online"
+
+
+class LessonOrigin(str, enum.Enum):
+    """Who said this lesson happened. `plan` is a lesson auto-recorded from the
+    plan because nobody said otherwise (AV-119) — kept apart so it stays
+    traceable (`PROD-1`)."""
+
+    tutor = "tutor"
+    plan = "plan"
+
+
+class AttendanceState(str, enum.Enum):
+    # Two states only (owner decision 2026-10-04): no late, no excused. A
+    # student with no row was simply not recorded — never read that as absent.
+    present = "present"
+    absent = "absent"
+
+
+class AttendanceSource(str, enum.Enum):
+    tutor = "tutor"
+    zoom = "zoom"
+    google_meet = "google_meet"
 
 
 class Lesson(TimestampMixin, Base):
@@ -24,6 +62,22 @@ class Lesson(TimestampMixin, Base):
     # lessons (no template) leave this null.
     schedule_slot_id: Mapped[int | None] = mapped_column(
         ForeignKey("schedule_slots.id"), nullable=True
+    )
+    # Existing lessons backfill to in_person in migration 0063.
+    mode: Mapped[LessonMode] = mapped_column(
+        Enum(LessonMode, native_enum=False, length=10),
+        default=LessonMode.in_person,
+        server_default=LessonMode.in_person.value,
+        nullable=False,
+    )
+    # Local wall-clock time in the organization's timezone. NULL means unknown:
+    # never read it as midnight (`DB-9`).
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    origin: Mapped[LessonOrigin] = mapped_column(
+        Enum(LessonOrigin, native_enum=False, length=10),
+        default=LessonOrigin.tutor,
+        server_default=LessonOrigin.tutor.value,
+        nullable=False,
     )
 
 
@@ -52,3 +106,38 @@ class LessonObservation(TimestampMixin, Base):
     topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0..100
+
+
+class LessonAttendance(TimestampMixin, Base):
+    """Whether a student was present at a lesson. One row per (lesson, student).
+
+    No row means attendance was not taken for that student — never absent
+    (`PROD-2`). Attendance is not a readiness factor (AV-33): nothing here is
+    `Evidence`. Declared here as well as in migration 0063 (`DB-12`)."""
+
+    __tablename__ = "lesson_attendance"
+    __table_args__ = (
+        UniqueConstraint(
+            "lesson_id", "student_id", name="uq_lesson_attendance_lesson_id_student_id"
+        ),
+        Index("ix_lesson_attendance_student_id", "student_id"),
+        Index("ix_lesson_attendance_organization_id", "organization_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    # CASCADE in Postgres; SQLite (tests) has FKs off, so `delete_lesson`
+    # removes these rows explicitly as well.
+    lesson_id: Mapped[int] = mapped_column(
+        ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False
+    )
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    state: Mapped[AttendanceState] = mapped_column(
+        Enum(AttendanceState, native_enum=False, length=10), nullable=False
+    )
+    source: Mapped[AttendanceSource] = mapped_column(
+        Enum(AttendanceSource, native_enum=False, length=12), nullable=False
+    )
+    # NULL for integration writes (Zoom / Meet): nobody at Avora recorded them.
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -20,7 +20,7 @@ Nothing reads a draft plan (task 6.4): any reader must filter
 """
 
 import enum
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
     JSON,
@@ -32,6 +32,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Time,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -173,6 +174,15 @@ class PlanSlot(TimestampMixin, Base):
     lesson_id: Mapped[int | None] = mapped_column(
         ForeignKey("lessons.id", ondelete="SET NULL", name="fk_plan_slots_lesson_id_lessons"),
         nullable=True,
+    )
+
+    # This lesson's own start time, defaulted from the weekly timetable and
+    # editable per lesson. NULL means unknown — never read it as midnight (`DB-9`).
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    # NULL means not cancelled (`DB-9`).
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_plan_slots_cancelled_by_id_users"), nullable=True
     )
 
     plan: Mapped[TeachingPlan] = relationship(back_populates="slots")
