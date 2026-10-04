@@ -416,8 +416,9 @@ def test_the_marking_context_is_the_only_thing_that_reads_a_classified_s_notes()
     #: Whole-file exemptions, and only for files with nothing to do with a
     #: classified's notes: `assignments.py` *writes* the field on creation, and
     #: `student_crm.py` has its own unrelated `notes` (TutorNote), and
-    #: `plan_lessons.py` writes a taught `Lesson`'s own notes.
-    exempt_files = {"assignments.py", "student_crm.py", "plan_lessons.py"}
+    #: `plan_lessons.py` writes a taught `Lesson`'s own notes, as does
+    #: `lesson_autorecord.py` when it records a planned lesson (always `None`).
+    exempt_files = {"assignments.py", "student_crm.py", "plan_lessons.py", "lesson_autorecord.py"}
     #: `marking_context.py` is **not** exempt as a file. `E16` says one
     #: *function* owns the precedence, so only that function's own line range is
     #: allowed — a second reader added elsewhere in the same module is exactly

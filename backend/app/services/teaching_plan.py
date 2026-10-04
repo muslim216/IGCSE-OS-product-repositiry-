@@ -704,12 +704,11 @@ async def _carry_lesson_links(
         await session.scalars(select(Lesson.id).where(Lesson.id.in_([r[0] for r in linked])))
     )
     linked = [row for row in linked if row[0] in alive]
-    lesson_starts: dict[int, time | None] = {
-        lid: start
-        for lid, start in (
-            await session.execute(select(Lesson.id, Lesson.start_time).where(Lesson.id.in_(alive)))
-        ).tuples()
-    }
+    lesson_starts: dict[int, time | None] = dict(
+        (await session.execute(select(Lesson.id, Lesson.start_time).where(Lesson.id.in_(alive))))
+        .tuples()
+        .all()
+    )
     free = list(
         (
             await session.scalars(
