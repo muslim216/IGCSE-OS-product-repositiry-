@@ -28,6 +28,13 @@ from app.models.homework import (
     SubmissionFile,
     SubmissionStatus,
 )
+from app.models.integrations import (
+    LessonMeetingImport,
+    MeetingConnection,
+    MeetingImportStatus,
+    MeetingParticipant,
+    MeetingProvider,
+)
 from app.models.knowledge import KnowledgeEntry, KnowledgeEntryKind
 from app.models.lessons import (
     AttendanceSource,
@@ -152,6 +159,11 @@ __all__ = [
     "AttendanceSource",
     "AttendanceState",
     "LessonAttendance",
+    "LessonMeetingImport",
+    "MeetingConnection",
+    "MeetingImportStatus",
+    "MeetingParticipant",
+    "MeetingProvider",
     "LessonMode",
     "LessonOrigin",
     "PlanSlot",

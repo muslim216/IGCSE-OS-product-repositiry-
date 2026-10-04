@@ -176,6 +176,24 @@ services:
       - key: GOOGLE_TOKEN_ENCRYPTION_KEY
         generateValue: true
 
+      # --- Zoom and Google Meet attendance (task 7.3, AV-118) -------------
+      # Each provider's id and secret unset -> that provider reports "not set
+      # up yet" and nothing else changes. The redirect URIs are frontend pages
+      # and must be registered verbatim on the Zoom app / Google OAuth client.
+      # Meet uses its own Google client, separate from the Classroom one above.
+      - key: ZOOM_CLIENT_ID
+        sync: false
+      - key: ZOOM_CLIENT_SECRET
+        sync: false
+      - key: ZOOM_REDIRECT_URI
+        value: https://igcse-os-product-repositiry.vercel.app/tutor/settings/integrations/zoom/callback
+      - key: GOOGLE_MEET_CLIENT_ID
+        sync: false
+      - key: GOOGLE_MEET_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_MEET_REDIRECT_URI
+        value: https://igcse-os-product-repositiry.vercel.app/tutor/settings/integrations/google_meet/callback
+
       # --- Web ----------------------------------------------------------
       # The Vercel frontend does not need CORS while it proxies /api/*
       # server-side (the browser sees one origin); this only matters for a

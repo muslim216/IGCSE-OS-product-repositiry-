@@ -174,6 +174,22 @@ class Settings(BaseSettings):
     # key from JWT_SECRET when unset, so tokens are never stored in plaintext
     # even without extra config — set a dedicated value in production.
     google_token_encryption_key: str | None = None
+    # Zoom and Google Meet attendance (task 7.3, AV-118; services/zoom.py,
+    # services/google_meet.py). Unset -> that provider reports "not configured
+    # yet" and nothing else is affected; a missing key never blocks startup
+    # (`AI-20` style). The redirect URI is a *frontend* page: it must match the
+    # one registered with the provider exactly, and the page hands the code to
+    # the API with the tutor's own session. Meet uses its own Google client so
+    # the dormant Classroom one is not disturbed. Refresh tokens are encrypted
+    # with google_token_encryption_key (shared helper).
+    zoom_client_id: str | None = None
+    zoom_client_secret: str | None = None
+    zoom_redirect_uri: str = "http://localhost:5173/tutor/settings/integrations/zoom/callback"
+    google_meet_client_id: str | None = None
+    google_meet_client_secret: str | None = None
+    google_meet_redirect_uri: str = (
+        "http://localhost:5173/tutor/settings/integrations/google_meet/callback"
+    )
     upload_dir: str = "uploads"
     # "local" writes under upload_dir; "s3" targets any S3-compatible store
     # (AWS S3, Cloudflare R2, MinIO). Local is the default so development and

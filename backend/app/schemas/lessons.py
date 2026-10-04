@@ -5,7 +5,13 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from app.models import AttendanceSource, AttendanceState, LessonMode, LessonOrigin
+from app.models import (
+    AttendanceSource,
+    AttendanceState,
+    LessonMode,
+    LessonOrigin,
+    MeetingProvider,
+)
 from app.schemas.groups import TopicOut
 
 
@@ -36,6 +42,9 @@ class LessonCreate(BaseModel):
     mode: LessonMode = LessonMode.in_person
     #: Local wall-clock time in the organization's timezone; omitted = unknown.
     start_time: WallClockTime | None = None
+    #: A Zoom or Google Meet link, online lessons only. Parsed server-side into
+    #: provider + meeting id; anything else is a 422 (7.3).
+    meeting_link: Annotated[str, Field(max_length=500)] | None = None
 
 
 class LessonUpdate(BaseModel):
@@ -44,6 +53,8 @@ class LessonUpdate(BaseModel):
     notes: str | None = None
     mode: LessonMode | None = None
     start_time: WallClockTime | None = None
+    #: An explicit null clears the link; omitting it leaves it.
+    meeting_link: Annotated[str, Field(max_length=500)] | None = None
 
 
 class LessonOut(BaseModel):
@@ -57,6 +68,9 @@ class LessonOut(BaseModel):
     start_time: time_ | None
     origin: LessonOrigin
     topics: list[TopicOut]
+    meeting_provider: MeetingProvider | None = None
+    #: Rebuilt from the stored provider + meeting id; a Zoom passcode is never kept.
+    meeting_link: str | None = None
 
 
 class LessonTopicsUpdate(BaseModel):

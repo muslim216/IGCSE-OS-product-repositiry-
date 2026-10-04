@@ -73,6 +73,8 @@ export default function RecordLessonForm({
   const [mode, setMode] = useState<"in_person" | "online">("in_person");
   // "" = unknown: the server stores NULL, never midnight.
   const [startTime, setStartTime] = useState("");
+  // A Zoom or Meet link, online lessons only; the server parses and rejects others.
+  const [meetingLink, setMeetingLink] = useState("");
   // null until the tutor edits it; the shown value is then the derived default.
   const [durationEdit, setDurationEdit] = useState<string | null>(null);
   // The suggested slot the form has adopted, and the one a successful save used
@@ -127,6 +129,7 @@ export default function RecordLessonForm({
         notes: notes.trim() || null,
         mode,
         start_time: startTime || null,
+        ...(mode === "online" && meetingLink.trim() ? { meeting_link: meetingLink.trim() } : {}),
         // Only when the tutor kept the suggestion: that is what confirms the slot.
         ...(usingPlan ? { plan_slot_id: suggestion.slot_id } : {}),
       }),
@@ -140,6 +143,7 @@ export default function RecordLessonForm({
       setNotes("");
       setMode("in_person");
       setStartTime("");
+      setMeetingLink("");
       setDurationEdit(null);
       dirty.current = false;
       for (const key of [
@@ -252,6 +256,16 @@ export default function RecordLessonForm({
               onChange={(e) => edit(() => setDurationEdit(e.target.value))}
             />
           </Field>
+          {mode === "online" && (
+            <Field label="Meeting link" optional hint="Zoom or Google Meet, to fill in attendance">
+              <Input
+                type="text"
+                value={meetingLink}
+                placeholder="https://zoom.us/j/…"
+                onChange={(e) => edit(() => setMeetingLink(e.target.value))}
+              />
+            </Field>
+          )}
           <Field label="Notes" optional>
             <Input value={notes} onChange={(e) => edit(() => setNotes(e.target.value))} />
           </Field>
