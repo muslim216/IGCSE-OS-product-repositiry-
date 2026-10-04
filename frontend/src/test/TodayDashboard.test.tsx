@@ -1,10 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import { AuthProvider } from "../auth/AuthContext";
-import type { TodayView } from "../api/today";
+import type { TodayOverview, TodayView } from "../api/today";
 
 const TUTOR = {
   id: 1,
@@ -39,7 +39,32 @@ const EMPTY_VIEW: TodayView = {
   classes_with_evidence: 0,
 };
 
-function stubFetch(view: TodayView, narrative: string | null = null, attention?: unknown[]) {
+const EMPTY_OVERVIEW: TodayOverview = {
+  week: {
+    week_start: "2026-10-05",
+    week_end: "2026-10-11",
+    lessons_planned: 0,
+    lessons_taught: 0,
+    marking_waiting: 0,
+    attendance_present: 0,
+    attendance_absent: 0,
+    attendance_not_taken: 0,
+    attendance_rate: null,
+    readiness_drop_count: 0,
+    readiness_compared_count: 0,
+    readiness_drop_threshold: 5,
+  },
+  agenda: [],
+  classes: [],
+  remarks: [],
+};
+
+function stubFetch(
+  view: TodayView,
+  narrative: string | null = null,
+  attention?: unknown[],
+  overview: TodayOverview | "fail" = EMPTY_OVERVIEW,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -48,6 +73,10 @@ function stubFetch(view: TodayView, narrative: string | null = null, attention?:
       if (url.includes("/auth/me")) return json(TUTOR);
       if (url.includes("/narrative")) {
         return json({ text: narrative, generated_at: null, prompt_version: null });
+      }
+      if (url.includes("/api/v1/today/overview")) {
+        if (overview === "fail") return new Response("{}", { status: 500 });
+        return json(overview);
       }
       if (url.includes("/api/v1/today")) return json(view);
       if (url.includes("/assignments/attention")) {
@@ -116,7 +145,7 @@ test("a clear day ends with a sentence and renders no empty panels", async () =>
   expect(screen.queryByText("0%")).not.toBeInTheDocument();
 });
 
-test("eight healthy classes collapse to one line", async () => {
+test("every class gets its own card, in the strip's order", async () => {
   const classes = Array.from({ length: 8 }, (_, i) =>
     classRow({
       group_id: i + 1,
@@ -136,10 +165,12 @@ test("eight healthy classes collapse to one line", async () => {
   });
   renderDashboard();
 
-  // One summarising line, not eight rows — and nothing is hidden: every class
-  // name still appears on that line.
-  expect(await screen.findByText(/8 classes on track/)).toBeInTheDocument();
-  expect(screen.getByText(/Class 1 · Grade 8/)).toBeInTheDocument();
+  // One card per class: nothing collapsed or hidden.
+  const links = await screen.findAllByRole("link", { name: /^Class \d$/ });
+  expect(links.map((l) => l.textContent)).toEqual(
+    Array.from({ length: 8 }, (_, i) => `Class ${i + 1}`),
+  );
+  expect(links[0]).toHaveAttribute("href", "/tutor/groups/1/students");
 });
 
 test("the verdict counts classes needing attention, in words", async () => {
@@ -201,7 +232,7 @@ test("a class without evidence says so in words, never a zero or an empty bar", 
   renderDashboard();
 
   expect(await screen.findByText("Nothing marked yet.")).toBeInTheDocument();
-  expect(await screen.findByText("not enough data yet")).toBeInTheDocument();
+  expect(await screen.findByText("No readiness yet")).toBeInTheDocument();
   expect(screen.queryByText("0%")).not.toBeInTheDocument();
 });
 
@@ -354,34 +385,381 @@ test("an unreadable past paper under NEEDS YOU links to the shelf that fixes it"
   expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
 });
 
-test("a class with unrecorded planned lessons keeps the day from being called clear", async () => {
+/* ------------------------------------------------------------------------
+   Coherence B: week at a glance, today's agenda, class cards, needs-you.
+   ------------------------------------------------------------------------ */
+
+const ONE_CLASS: TodayView = {
+  classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
+  lessons: [],
+  review_count: 0,
+  class_count: 1,
+  joined_student_count: 11,
+  classes_with_evidence: 1,
+};
+
+function overviewWith(over: Partial<TodayOverview>): TodayOverview {
+  return { ...EMPTY_OVERVIEW, ...over };
+}
+
+function card(over: Partial<TodayOverview["classes"][number]> = {}) {
+  return {
+    group_id: 5,
+    plan_state: "on_track",
+    plan_chapter_code: "2",
+    plan_chapter_title: "Bonding",
+    plan_missed: 0,
+    readiness_direction: null,
+    readiness_compared_count: 0,
+    last_lesson: null,
+    homework_out: 0,
+    homework_missing: 0,
+    attention: null,
+    ...over,
+  };
+}
+
+function agendaItem(over: Partial<TodayOverview["agenda"][number]> = {}) {
+  return {
+    key: "slot-7",
+    group_id: 5,
+    group_name: "Physics A",
+    subject_name: "Physics",
+    slot_id: 7,
+    lesson_id: null,
+    source: "plan",
+    start_time: "16:00:00",
+    starts_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+    ends_at: new Date(Date.now() + 70 * 60_000).toISOString(),
+    duration_min: 60,
+    chapter_id: 2,
+    chapter_code: "2",
+    chapter_title: "Bonding",
+    topics: [{ id: 13, code: "2.1", title: "Ionic bonding" }],
+    local_date: "2026-10-07",
+    recorded: false,
+    ...over,
+  };
+}
+
+test("the week strip says what each figure was counted from", async () => {
   stubFetch(
-    {
-      classes: [classRow({ status: "on_track", predicted_grade: "8", score: 82 })],
-      lessons: [],
-      review_count: 0,
-      class_count: 1,
-      joined_student_count: 11,
-      classes_with_evidence: 1,
-      behind_classes: [
-        {
-          group_id: 3,
-          group_name: "Year 11 Chemistry",
-          missed: 2,
-          earliest_missed_date: "2026-10-06",
-          chapter_id: 9,
-          chapter_code: "4",
-          chapter_title: "Organic chemistry",
-        },
-      ],
-    },
+    ONE_CLASS,
     null,
     [],
+    overviewWith({
+      week: {
+        ...EMPTY_OVERVIEW.week,
+        lessons_planned: 5,
+        lessons_taught: 3,
+        marking_waiting: 4,
+        attendance_present: 9,
+        attendance_absent: 1,
+        attendance_not_taken: 2,
+        attendance_rate: 0.9,
+        readiness_drop_count: 1,
+        readiness_compared_count: 6,
+      },
+    }),
   );
   renderDashboard();
 
+  expect(await screen.findByText("3 of 5 taught")).toBeInTheDocument();
+  expect(screen.getByText("4 pieces")).toBeInTheDocument();
+  expect(screen.getByText("90% present")).toBeInTheDocument();
+  // Not-taken is stated as left out of the rate, not silently dropped.
+  expect(screen.getByText("9 of 10 marked · 2 not taken, left out")).toBeInTheDocument();
+  expect(screen.getByText("1 student dropped")).toBeInTheDocument();
+  expect(screen.getByText("5+ points, of 6 compared")).toBeInTheDocument();
+});
+
+test("the week strip with nothing behind a figure says so, never 0 or 0%", async () => {
+  stubFetch(ONE_CLASS, null, []);
+  renderDashboard();
+
+  expect(await screen.findByText("No lessons this week")).toBeInTheDocument();
+  expect(screen.getByText("No attendance taken this week")).toBeInTheDocument();
+  expect(screen.getByText("No history to compare yet")).toBeInTheDocument();
+  expect(screen.getByText("Nothing waiting")).toBeInTheDocument();
+  expect(screen.queryByText(/0%/)).not.toBeInTheDocument();
+});
+
+test("today's agenda: a lesson about to start shows its plan, Review and Cancel", async () => {
+  const calls: string[] = [];
+  stubFetch(ONE_CLASS, null, [], overviewWith({ agenda: [agendaItem()], classes: [card()] }));
+  const answer = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${new URL(String(input), "http://x").pathname}`);
+      return answer(input, init);
+    }),
+  );
+  renderDashboard();
+
+  expect(await screen.findByText("16:00")).toBeInTheDocument();
+  expect(screen.getByText(/in 10 min/)).toBeInTheDocument();
+  expect(screen.getByText("Plan: Chapter 2 · Bonding — Ionic bonding")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Review the Physics A lesson" })).toHaveAttribute(
+    "href",
+    "/tutor/groups/5/schedule?slot=7&date=2026-10-07",
+  );
+  expect(screen.queryByRole("link", { name: /Record/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel the Physics A lesson" }));
+  await waitFor(() => expect(calls).toContain("POST /api/v1/groups/5/plan/slots/7/cancel"));
+});
+
+test("a lesson that has ended and was not recorded offers Record, dated today", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      agenda: [
+        agendaItem({
+          starts_at: new Date(Date.now() - 120 * 60_000).toISOString(),
+          ends_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+        }),
+      ],
+    }),
+  );
+  renderDashboard();
+
+  const record = await screen.findByRole("link", {
+    name: "Record the Physics A lesson, dated today",
+  });
+  // Today's date AND that slot — not the plan's next (future) slot.
+  expect(record).toHaveAttribute("href", "/tutor/groups/5/schedule?slot=7&date=2026-10-07");
+  expect(screen.queryByRole("button", { name: /Cancel/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: /Review the/ })).not.toBeInTheDocument();
+});
+
+test("a recorded lesson says Recorded and offers attendance", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      agenda: [
+        agendaItem({
+          key: "lesson-3",
+          lesson_id: 3,
+          recorded: true,
+          starts_at: new Date(Date.now() - 120 * 60_000).toISOString(),
+          ends_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+        }),
+      ],
+    }),
+  );
+  renderDashboard();
+
+  expect(await screen.findByText("Recorded")).toBeInTheDocument();
   expect(
-    await screen.findByText(/2 planned lessons haven't been recorded since Tue 6 Oct/),
+    screen.getByRole("link", { name: "Take attendance for the Physics A lesson" }),
+  ).toHaveAttribute("href", "/tutor/groups/5/schedule");
+  expect(screen.queryByRole("link", { name: /Record the/ })).not.toBeInTheDocument();
+});
+
+test("a lesson under way reads as under way, and a day with none says so", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      agenda: [agendaItem({ starts_at: new Date(Date.now() - 5 * 60_000).toISOString() })],
+    }),
+  );
+  renderDashboard();
+  expect(await screen.findByText(/under way/)).toBeInTheDocument();
+});
+
+test("a day with no lessons says so", async () => {
+  stubFetch(ONE_CLASS, null, []);
+  renderDashboard();
+  expect(await screen.findByText("No lessons scheduled today.")).toBeInTheDocument();
+});
+
+test("if the overview fails to load, the rest of the page stays and Retry is offered", async () => {
+  stubFetch(ONE_CLASS, null, [], "fail");
+  renderDashboard();
+
+  expect(
+    await screen.findByText(/Couldn't load this week and today's lessons/),
   ).toBeInTheDocument();
-  expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  // The classes still render from the home aggregate.
+  expect(screen.getByRole("link", { name: "Physics A" })).toBeInTheDocument();
+  // And a failure is not presented as an empty day.
+  expect(screen.queryByText("No lessons scheduled today.")).not.toBeInTheDocument();
+});
+
+test("a class card carries plan position, readiness, attendance, homework and the reason", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      classes: [
+        card({
+          plan_state: "behind",
+          plan_missed: 2,
+          readiness_direction: "down",
+          readiness_compared_count: 4,
+          last_lesson: {
+            lesson_id: 3,
+            lesson_date: "2026-10-06",
+            present: 7,
+            absent: 1,
+            not_taken: 1,
+          },
+          homework_out: 2,
+          homework_missing: 6,
+          attention: {
+            kind: "weak_topic",
+            message: "Sara, Omar below 50% on 1.3 Ionic bonding",
+            topic_id: 4,
+            student_ids: [11, 12],
+            student_names: ["Sara", "Omar"],
+          },
+        }),
+      ],
+    }),
+  );
+  renderDashboard();
+
+  expect(await screen.findByText("2 lessons behind")).toBeInTheDocument();
+  expect(screen.getByText("Average readiness 82 · down since last week")).toBeInTheDocument();
+  expect(screen.getByText("Last lesson: 7 of 9 present · 1 not taken")).toBeInTheDocument();
+  expect(screen.getByText("2 homework out · 6 hand-ins missing")).toBeInTheDocument();
+  // The reason names the students and the topic, and links to the fix.
+  expect(screen.getByText(/Sara, Omar below 50% on 1\.3 Ionic bonding/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open topic →" })).toHaveAttribute(
+    "href",
+    "/tutor/groups/5/analytics",
+  );
+  // Never a bare "needs a look".
+  expect(screen.queryByText(/needs a look/i)).not.toBeInTheDocument();
+  // The card itself opens the class.
+  expect(screen.getByRole("link", { name: "Physics A" })).toHaveAttribute(
+    "href",
+    "/tutor/groups/5/students",
+  );
+});
+
+test("a card with no data says so in words", async () => {
+  stubFetch(
+    { ...ONE_CLASS, classes: [classRow({ score: null, status: null, predicted_grade: null })] },
+    null,
+    [],
+    overviewWith({
+      classes: [card({ plan_state: "none", plan_chapter_code: null, plan_chapter_title: null })],
+    }),
+  );
+  renderDashboard();
+
+  expect(await screen.findByText("No readiness yet")).toBeInTheDocument();
+  expect(screen.getByText("No teaching plan yet")).toBeInTheDocument();
+  expect(screen.getByText("No lessons held yet")).toBeInTheDocument();
+  expect(screen.getByText("No homework out")).toBeInTheDocument();
+  expect(screen.getByText("Nothing flagged")).toBeInTheDocument();
+});
+
+test("a last lesson nobody marked says attendance was not taken, not 0 present", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      classes: [
+        card({
+          last_lesson: {
+            lesson_id: 3,
+            lesson_date: "2026-10-06",
+            present: 0,
+            absent: 0,
+            not_taken: 9,
+          },
+        }),
+      ],
+    }),
+  );
+  renderDashboard();
+  expect(await screen.findByText("Last lesson: attendance not taken")).toBeInTheDocument();
+  expect(screen.queryByText(/0 of 9/)).not.toBeInTheDocument();
+});
+
+test("a single dropped student links to their own page", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      classes: [
+        card({
+          attention: {
+            kind: "readiness_drop",
+            message: "Sara dropped 5+ points in readiness since last week",
+            student_ids: [11],
+            student_names: ["Sara"],
+          },
+        }),
+      ],
+    }),
+  );
+  renderDashboard();
+  expect(await screen.findByRole("link", { name: "Open student →" })).toHaveAttribute(
+    "href",
+    "/tutor/students/11",
+  );
+});
+
+test("Needs you says why: a re-mark request quotes the student, other work its reason", async () => {
+  stubFetch(
+    { ...ONE_CLASS, review_count: 2 },
+    null,
+    [
+      {
+        assignment_id: 3,
+        assignment_title: "Forces worksheet",
+        reason: "needs_review",
+        detail: null,
+        submission_id: 7,
+        student_name: "Aya Hassan",
+      },
+      {
+        assignment_id: 4,
+        assignment_title: "Moles",
+        reason: "ai_marked",
+        detail: null,
+        submission_id: 8,
+        student_name: "Omar Ali",
+      },
+    ],
+    overviewWith({
+      remarks: [
+        {
+          submission_id: 7,
+          assignment_title: "Forces worksheet",
+          student_name: "Aya Hassan",
+          group_name: "Physics A",
+          reason: "I showed my working",
+        },
+      ],
+    }),
+  );
+  renderDashboard();
+
+  expect(await screen.findByText("Asked for a re-mark: “I showed my working”")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Forces worksheet/ })).toHaveAttribute(
+    "href",
+    "/tutor/submissions/7",
+  );
+  // The remarked submission is listed once, as the request — not again as a
+  // generic "some marks need your decision".
+  expect(screen.queryByText("Some marks need your decision")).not.toBeInTheDocument();
+  expect(screen.getByText("AI-marked — awaiting your review")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: /Moles/ })).toHaveAttribute(
+    "href",
+    "/tutor/submissions/8",
+  );
 });

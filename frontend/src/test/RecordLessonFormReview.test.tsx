@@ -110,3 +110,19 @@ test("after a successful save the ?slot= override is cleared so the next lesson 
     ).toBeGreaterThan(0),
   );
 });
+
+test("?date= dates the lesson that day, not the slot's own date (Record on today's agenda)", async () => {
+  window.history.pushState({}, "", "/tutor/groups/5/schedule?slot=9&date=2026-10-07");
+  stub(true);
+  renderForm();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /Bonding/ })).toBeChecked());
+  expect(screen.getByLabelText("Date")).toHaveValue("2026-10-07");
+});
+
+test("a malformed ?date= is ignored and the slot's date is used", async () => {
+  window.history.pushState({}, "", "/tutor/groups/5/schedule?slot=9&date=tomorrow");
+  stub(true);
+  renderForm();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /Bonding/ })).toBeChecked());
+  expect(screen.getByLabelText("Date")).toHaveValue("2026-10-15");
+});

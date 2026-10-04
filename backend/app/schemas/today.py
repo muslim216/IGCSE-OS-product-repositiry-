@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, time
 
 from pydantic import BaseModel
 
@@ -147,3 +147,128 @@ class ClassWeakTopic(BaseModel):
 
 
 ClassOverview.model_rebuild()
+
+
+class WeekGlance(BaseModel):
+    """The week-at-a-glance strip. Every figure carries what it was counted from
+    (PROD-1) and a missing measurement is null, never 0 (PROD-2)."""
+
+    week_start: date
+    week_end: date
+    #: Lessons this week: accepted-plan slots (cancelled ones excluded) plus
+    #: lessons recorded this week that no slot of the week accounts for.
+    lessons_planned: int
+    lessons_taught: int
+    #: The review queue's own count (same predicate as the Review page).
+    marking_waiting: int
+    #: Attendance this week over the tutor's classes, by the one definition in
+    #: services/attendance.py. `rate` is present / (present + absent), null when
+    #: nothing was marked; not-taken pairs are excluded from it and counted apart.
+    attendance_present: int
+    attendance_absent: int
+    attendance_not_taken: int
+    attendance_rate: float | None = None
+    #: Students whose readiness fell by at least `readiness_drop_threshold`
+    #: points against their latest snapshot at least 7 days old. A student with
+    #: no such older snapshot is not in the comparison at all.
+    readiness_drop_count: int
+    readiness_compared_count: int
+    readiness_drop_threshold: float
+
+
+class ClassTopicRef(BaseModel):
+    id: int
+    code: str
+    title: str
+
+
+class AgendaItem(BaseModel):
+    """One of today's lessons. Time-dependent wording (starting soon, under way,
+    ended) is decided by the surface from `starts_at` / `ends_at`, so it stays
+    right between refetches."""
+
+    key: str
+    group_id: int
+    group_name: str
+    subject_name: str
+    #: The accepted plan's slot, when the lesson comes from (or is recorded
+    #: against) one. Null for a timetable-only or ad-hoc lesson.
+    slot_id: int | None = None
+    #: The recorded lesson, when there is one.
+    lesson_id: int | None = None
+    #: plan | lesson | timetable — where this row came from (PROD-1).
+    source: str
+    start_time: time | None = None
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    duration_min: int | None = None
+    chapter_id: int | None = None
+    chapter_code: str | None = None
+    chapter_title: str | None = None
+    #: The lesson's share of its chapter's topics (the one split the
+    #: next-lesson suggestion and the auto-record use).
+    topics: list[ClassTopicRef] = []
+    #: Today in the tutor's zone — what "Record" dates the lesson.
+    local_date: date
+    recorded: bool = False
+
+
+class LastLessonAttendance(BaseModel):
+    lesson_id: int
+    lesson_date: date
+    present: int
+    absent: int
+    not_taken: int
+
+
+class ClassAttention(BaseModel):
+    """The one thing about a class that most needs the tutor, with its reason
+    already in words. `message` names the students and the topic; the surface
+    links by `kind` plus the ids."""
+
+    #: weak_topic | readiness_drop | behind_plan | marking
+    kind: str
+    message: str
+    topic_id: int | None = None
+    student_ids: list[int] = []
+    student_names: list[str] = []
+
+
+class ClassCard(BaseModel):
+    group_id: int
+    #: none | on_track | behind | complete
+    plan_state: str
+    plan_chapter_code: str | None = None
+    plan_chapter_title: str | None = None
+    #: Planned lessons before today with no lesson recorded (behind only).
+    plan_missed: int = 0
+    plan_earliest_missed_date: date | None = None
+    #: Direction of the class's readiness against a week ago, over students who
+    #: have both ends. null when no student has history to compare (PROD-2).
+    readiness_direction: str | None = None
+    readiness_compared_count: int = 0
+    last_lesson: LastLessonAttendance | None = None
+    #: Published assignments some enrolled student has not handed in, and how
+    #: many hand-ins are missing in total.
+    homework_out: int = 0
+    homework_missing: int = 0
+    attention: ClassAttention | None = None
+
+
+class RemarkItem(BaseModel):
+    submission_id: int
+    assignment_title: str
+    student_name: str
+    group_name: str
+    #: The student's reason, as written; null when they gave none.
+    reason: str | None = None
+
+
+class TodayOverview(BaseModel):
+    week: WeekGlance
+    agenda: list[AgendaItem]
+    #: One card per class, in tutor_groups order; the surface re-orders by the
+    #: home strip's exceptions-first order.
+    classes: list[ClassCard]
+    #: Open remark requests on submissions waiting in the tutor's queue.
+    remarks: list[RemarkItem]

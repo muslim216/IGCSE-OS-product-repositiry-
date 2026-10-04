@@ -19,6 +19,7 @@ number of queries per call, whatever the roster size.
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,7 +84,7 @@ class ClassReadiness:
 
 
 async def latest_learner_snapshots(
-    session: AsyncSession, group_ids: list[int]
+    session: AsyncSession, group_ids: list[int], before: datetime | None = None
 ) -> dict[int, dict[int, LearnerSnapshot]]:
     """Each enrolled learner's latest ready snapshot in their class's subject,
     for every given class, in one query.
@@ -93,6 +94,9 @@ async def latest_learner_snapshots(
     a learner is never scored here while their profile says "not enough data
     yet". Partitioned by (group, student), not student alone: one student in
     two classes of different subjects has a different latest snapshot in each.
+    `before` makes it "latest as of then" (snapshots created at or before it) —
+    the tutor home's week-over-week comparison reads the same rule at an earlier
+    moment, so the two ends of a change cannot be chosen by different definitions.
     SEC-7: group_ids arrive scoped to the authenticated tutor by every caller.
     """
     if not group_ids:
@@ -125,6 +129,7 @@ async def latest_learner_snapshots(
         .where(
             GroupMember.group_id.in_(group_ids),
             ReadinessSnapshot.status == AiSynthesisStatus.ready,
+            *([ReadinessSnapshot.created_at <= before] if before is not None else []),
         )
         .subquery()
     )

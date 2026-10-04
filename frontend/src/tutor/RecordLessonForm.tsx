@@ -51,6 +51,13 @@ export default function RecordLessonForm({
     const id = raw === null ? NaN : Number(raw);
     return Number.isInteger(id) && id > 0 ? id : null;
   });
+  // "Record" on today's agenda lands here with `?date=` as well: the lesson is
+  // dated that day, whatever date the slot carries (coherence C.3). A date the
+  // tutor changes by hand afterwards is never overwritten.
+  const [forcedDate, setForcedDate] = useState<string | null>(() => {
+    const raw = new URLSearchParams(window.location.search).get("date");
+    return raw !== null && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  });
   // The tutor chose to give up on the reminder's lesson and take the plan's next.
   const [useNextInstead, setUseNextInstead] = useState(false);
   const next = useQuery({
@@ -118,11 +125,11 @@ export default function RecordLessonForm({
     FALLBACK_MINUTES;
   const duration = durationEdit ?? String(defaultMinutes);
 
-  function apply(s: NextLesson) {
+  function apply(s: NextLesson, forced: string | null) {
     setAppliedSlot(s.slot_id);
     setDismissed(false);
     setOffer(null);
-    setDateSet(s.scheduled_date);
+    setDateSet(forced ?? s.scheduled_date);
     setTopicIds(s.topics.map((t) => t.id));
     dirty.current = false;
   }
@@ -133,8 +140,8 @@ export default function RecordLessonForm({
       return;
     }
     if (dirty.current) setOffer(suggestion);
-    else apply(suggestion);
-  }, [suggestion, consumedSlot, appliedSlot]);
+    else apply(suggestion, forcedDate);
+  }, [suggestion, consumedSlot, appliedSlot, forcedDate]);
 
   const save = useMutation({
     mutationFn: () =>
@@ -156,9 +163,11 @@ export default function RecordLessonForm({
       // not the same ?slot= again.
       setReviewSlot(null);
       setUseNextInstead(false);
+      setForcedDate(null);
       const params = new URLSearchParams(window.location.search);
-      if (params.has("slot")) {
+      if (params.has("slot") || params.has("date")) {
         params.delete("slot");
+        params.delete("date");
         const query = params.toString();
         window.history.replaceState(
           window.history.state,
@@ -256,7 +265,12 @@ export default function RecordLessonForm({
         {offer && offer.slot_id !== appliedSlot && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-brand-50 px-3 py-2 text-sm text-brand-700">
             <span>Your plan now suggests {suggestionLabel(offer)}</span>
-            <Button type="button" size="sm" variant="ghost" onClick={() => apply(offer)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => apply(offer, forcedDate)}
+            >
               Apply
             </Button>
           </div>
