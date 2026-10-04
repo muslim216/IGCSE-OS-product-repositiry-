@@ -29,6 +29,8 @@ from app.services.narrative import (
     generate_narrative,
     sweep_parent_narratives,
 )
+from app.services.past_paper_phase import SWEEP_JOB as PAST_PAPER_PHASE_SWEEP_JOB
+from app.services.past_paper_phase import sweep_past_paper_phase
 from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
 from app.services.plan_reflow import PLAN_REFLOW_JOB, reflow_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
@@ -85,6 +87,8 @@ def register_all() -> None:
     # failed job row.
     register_handler(CLASS_NARRATIVE_JOB, generate_narrative)
     register_handler(SWEEP_JOB, sweep_parent_narratives)
+    # Readiness recompute for students whose class's past-paper phase has opened.
+    register_handler(PAST_PAPER_PHASE_SWEEP_JOB, sweep_past_paper_phase)
     # Drafts a teaching plan's generated slots (task 6.3, AV-14). Enqueued by the
     # plan-inputs endpoint and re-plan (6.2, 6.4) via `enqueue_plan_draft`. Safe to
     # re-run (`BE-6`): it replaces only `generated` slots and leaves a tutor's
