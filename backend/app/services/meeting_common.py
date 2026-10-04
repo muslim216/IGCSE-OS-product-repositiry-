@@ -128,7 +128,7 @@ def parse_timestamp(value: str) -> datetime:
 @dataclass(frozen=True)
 class LessonMoment:
     """When a lesson was held, as UTC instants, built from the lesson's local date
-    (and start time, if known) in the organization's timezone. Provider times are
+    (and start time, if known) in the class's zone (tutor override, else organization). Provider times are
     UTC; comparing them to a bare date at noon UTC picks the wrong session for an
     evening lesson west of Greenwich or a morning one east of it."""
 

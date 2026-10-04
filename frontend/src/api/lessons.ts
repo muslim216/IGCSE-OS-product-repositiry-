@@ -9,6 +9,13 @@ export type TaughtLessonBody = components["schemas"]["LessonCreate"];
 export const recordLesson = (body: TaughtLessonBody) =>
   api<TaughtLesson>("/api/v1/lessons", { method: "POST", body: JSON.stringify(body) });
 
+export type TaughtLessonPatch = components["schemas"]["LessonUpdate"];
+
+/** Changes a recorded lesson. The server validates the meeting link and clears the
+ *  meeting data when the lesson becomes in person. */
+export const updateLesson = (lessonId: number, body: TaughtLessonPatch) =>
+  api<TaughtLesson>(`/api/v1/lessons/${lessonId}`, { method: "PATCH", body: JSON.stringify(body) });
+
 export type AttendanceRow = components["schemas"]["AttendanceRowOut"];
 export type AttendanceState = NonNullable<AttendanceRow["state"]>;
 

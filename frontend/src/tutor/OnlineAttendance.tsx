@@ -33,7 +33,7 @@ export default function OnlineAttendance({ lessonId }: { lessonId: number }) {
   });
   const integrations = useQuery({ queryKey: ["integrations"], queryFn: listIntegrations });
   const register = useQuery({
-    queryKey: ["attendance", lessonId],
+    queryKey: ["lesson-attendance", lessonId],
     queryFn: () => getAttendance(lessonId),
   });
 
@@ -42,7 +42,7 @@ export default function OnlineAttendance({ lessonId }: { lessonId: number }) {
   const previous = useRef(status);
   useEffect(() => {
     if (previous.current === "queued" && status !== "queued") {
-      queryClient.invalidateQueries({ queryKey: ["attendance", lessonId] });
+      queryClient.invalidateQueries({ queryKey: ["lesson-attendance", lessonId] });
     }
     previous.current = status;
   }, [status, lessonId, queryClient]);
@@ -163,7 +163,7 @@ function MeetingLinkRow({ lessonId, data }: { lessonId: number; data: LessonMeet
     onSuccess: () => {
       setEditing(false);
       queryClient.invalidateQueries({ queryKey: ["lesson-meeting", lessonId] });
-      queryClient.invalidateQueries({ queryKey: ["attendance", lessonId] });
+      queryClient.invalidateQueries({ queryKey: ["lesson-attendance", lessonId] });
       queryClient.invalidateQueries({ queryKey: ["taught-lessons"] });
     },
   });
@@ -236,7 +236,7 @@ function UnmatchedRow({
     mutationFn: (studentId: number) => resolveParticipant(lessonId, participant.id, studentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["lesson-meeting", lessonId] });
-      queryClient.invalidateQueries({ queryKey: ["attendance", lessonId] });
+      queryClient.invalidateQueries({ queryKey: ["lesson-attendance", lessonId] });
     },
   });
   const minutes = Math.round(participant.duration_seconds / 60);

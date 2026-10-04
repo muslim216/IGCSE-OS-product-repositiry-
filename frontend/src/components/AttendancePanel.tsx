@@ -53,7 +53,7 @@ export default function AttendancePanel({
   own?: boolean;
 }) {
   const attendance = useQuery({
-    queryKey: ["attendance", own ? "me" : studentId],
+    queryKey: ["student-attendance", own ? "me" : studentId],
     queryFn: () => (own ? myAttendance() : studentAttendance(studentId)),
   });
 

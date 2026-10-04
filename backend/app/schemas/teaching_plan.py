@@ -53,7 +53,7 @@ class PlanSlotOut(BaseModel):
     sequence: int
     #: generated | manually_modified | confirmed | completed
     provenance: str
-    #: Local wall clock in the organization's zone: the slot's own, else the
+    #: Local wall clock in the class's zone (tutor override, else organization): the slot's own, else the
     #: weekly timetable's for that weekday. None = unknown, never midnight.
     start_time: time | None = None
     #: The tutor cancelled this lesson; the row is kept as the record of intent.
@@ -69,7 +69,7 @@ class PlanSlotPatch(BaseModel):
 
     scheduled_date: date | None = None
     chapter_id: int | None = None
-    #: Local wall clock in the organization's zone.
+    #: Local wall clock in the class's zone (tutor override, else organization).
     start_time: WallClockTime | None = None
 
     @model_validator(mode="after")
@@ -219,7 +219,7 @@ class LessonReminderOut(BaseModel):
     group_id: int
     group_name: str
     scheduled_date: date
-    #: Local wall clock in the organization's zone.
+    #: Local wall clock in the class's zone (tutor override, else organization).
     start_time: time
     #: The same moment as a UTC instant, for a countdown.
     starts_at: datetime
