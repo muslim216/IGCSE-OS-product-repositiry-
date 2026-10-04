@@ -40,7 +40,6 @@ from app.models import (
     MeetingImportStatus,
     MeetingParticipant,
     MeetingProvider,
-    Organization,
     User,
 )
 from app.models.base import utcnow
@@ -59,6 +58,7 @@ from app.services.meeting_common import (
     lesson_moment,
     parse_meeting_link,
 )
+from app.services.plan_start_times import class_zone
 from app.services.timezones import is_valid_timezone
 
 logger = logging.getLogger(__name__)
@@ -413,8 +413,9 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
         return
 
     try:
-        org = await session.get(Organization, lesson.organization_id)
-        zone = org.timezone if org and org.timezone and is_valid_timezone(org.timezone) else None
+        # The lesson's wall clock is its class's (tutor override, else organization).
+        class_zone_name = await class_zone(session, lesson.group_id)
+        zone = class_zone_name if class_zone_name and is_valid_timezone(class_zone_name) else None
         moment = lesson_moment(lesson.date, lesson.start_time, zone)
         token = await access_token_for(session, connection)
         result = await _module(provider).fetch_participants(token, ref, moment)

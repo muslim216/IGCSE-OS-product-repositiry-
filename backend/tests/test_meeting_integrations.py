@@ -1040,6 +1040,33 @@ async def test_the_import_asks_for_the_session_in_the_organizations_timezone(
     assert fake.fetched[0][2].start == _utc(15, 5)
 
 
+async def test_the_import_reads_the_lesson_on_its_classs_clock_tutor_override_first(
+    client, tutor, group, student, fake
+):
+    from app.models import Organization, User
+
+    async with async_session() as s:
+        owner = await s.get(User, tutor["user"]["id"])
+        owner.time_zone = "Europe/London"
+        org = await s.get(Organization, owner.organization_id)
+        org.timezone = "Asia/Dubai"
+        await s.commit()
+    await _connect(client, tutor["headers"], "google_meet")
+    lesson = await _lesson(
+        client,
+        tutor,
+        group,
+        mode="online",
+        meeting_link=MEET_LINK,
+        start_time="18:00:00",
+        date="2026-07-14",
+    )
+    fake.participants = [ParticipantRecord("Sara", "sara@example.com", 60, verified=True)]
+    await _import(client, tutor, lesson)
+    # 18:00 London (BST) is 17:00 UTC; the org's Dubai clock would give 14:00.
+    assert fake.fetched[0][2].start == _utc(14, 17)
+
+
 # --- Failure handling ---------------------------------------------------------------------------
 
 

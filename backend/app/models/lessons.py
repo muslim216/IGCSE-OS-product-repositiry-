@@ -72,7 +72,7 @@ class Lesson(TimestampMixin, Base):
         server_default=LessonMode.in_person.value,
         nullable=False,
     )
-    # Local wall-clock time in the organization's timezone. NULL means unknown:
+    # Local wall-clock time in the class's zone (tutor override, else organization). NULL means unknown:
     # never read it as midnight (`DB-9`).
     start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     origin: Mapped[LessonOrigin] = mapped_column(

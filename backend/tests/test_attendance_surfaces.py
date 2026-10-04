@@ -269,3 +269,30 @@ async def test_join_cutoff_uses_the_organizations_timezone(client, tutor, group,
     # Joined on boundary+1 locally, so the boundary-day lesson predates them.
     assert body["lessons"] == 1
     assert body["classes"][0]["recent"][0]["date"] == (boundary + timedelta(days=1)).isoformat()
+
+
+async def test_a_lesson_is_read_on_its_classs_clock_not_the_organizations(
+    client, tutor, group, student
+):
+    """Org Dubai (UTC+4), tutor London (UTC+1 in July): an 18:00-19:00 lesson is the
+    tutor's wall clock. At 17:30 UTC it is 18:30 in London (still running) but 21:30
+    in Dubai, so reading it on the org clock would wrongly count it as not taken."""
+    sid = student["user"]["id"]
+    async with async_session() as s:
+        tutor_row = await s.get(User, tutor["user"]["id"])
+        tutor_row.time_zone = "Europe/London"
+        org = await s.get(Organization, tutor_row.organization_id)
+        org.timezone = "Asia/Dubai"
+        org_id = org.id
+        await s.execute(
+            update(GroupMember)
+            .where(GroupMember.student_id == sid)
+            .values(created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+        )
+        await s.commit()
+    await _lesson(client, tutor, group, date="2026-07-14", start_time="18:00:00", duration_min=60)
+
+    running = await _attendance_at(sid, org_id, datetime(2026, 7, 14, 17, 30, tzinfo=timezone.utc))
+    assert running.lessons == 0
+    over = await _attendance_at(sid, org_id, datetime(2026, 7, 14, 18, 30, tzinfo=timezone.utc))
+    assert (over.lessons, over.not_taken) == (1, 1)

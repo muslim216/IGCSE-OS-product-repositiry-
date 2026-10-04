@@ -26,6 +26,7 @@ from app.models import (
     User,
 )
 from app.models.base import utcnow
+from app.services.plan_start_times import resolve_zone
 from app.services.timezones import now_in
 
 log = logging.getLogger(__name__)
@@ -253,7 +254,7 @@ class StudentAttendance:
 
 
 def _in_zone(moment: datetime, zone: str | None) -> datetime:
-    """`moment` in the organization's zone. A naive datetime (SQLite) is UTC; an
+    """`moment` in `zone`. A naive datetime (SQLite) is UTC; an
     unusable zone degrades to UTC like `now_in`."""
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
@@ -270,7 +271,7 @@ def _local_date(moment: datetime, zone: str | None) -> date:
 
 
 def _has_ended(lesson: Lesson, now_local: datetime) -> bool:
-    """Whether a lesson dated today has finished, in the organization's zone.
+    """Whether a lesson dated today has finished, on its class's clock (`now_local`).
     Unknown start time means unknown end: not ended."""
     if lesson.start_time is None:
         return False
@@ -290,14 +291,15 @@ async def student_attendance(
     """One student's attendance per class, inside one organization. This is the
     single read reports (task 8.6) will call; do not write a second query.
 
-    Counts lessons dated on or before the organization's today (an unmarked
+    Counts lessons dated on or before the class's today (its zone: the tutor's
+    override, else the organization's; an unmarked
     lesson today only once it has ended). A class the
     student sits in contributes every such lesson; one they have left
     contributes only lessons that carry a mark for them. Lessons held before
     the student joined are not "not taken": `GroupMember.created_at` is the
     join moment (a row is added at enrolment), and a marked lesson always
     counts whatever the date. The join moment is converted to the
-    organization's timezone before comparing with the lesson date.
+    class's zone before comparing with the lesson date.
 
     `tutor_id` limits the read to classes that tutor teaches; a tutor must not
     see a shared student's classes taught by someone else. Admin, parent and
@@ -307,10 +309,29 @@ async def student_attendance(
     org = await session.get(Organization, organization_id)
     if org is None:
         log.warning("organization %s not found; attendance falls back to UTC", organization_id)
-    zone = org.timezone if org else None
-    # `now` exists so tests can pin the clock; production passes nothing.
-    now_local = _in_zone(now, zone) if now is not None else now_in(zone)
-    today = now_local.date()
+    org_zone = org.timezone if org else None
+
+    # A lesson's wall clock is its class's zone: the class tutor's override, else
+    # the organization's. One query for every class in scope, not one per class.
+    zone_q = (
+        select(Group.id, User.time_zone)
+        .outerjoin(User, User.id == Group.tutor_id)
+        .where(Group.organization_id == organization_id)
+    )
+    if group_id is not None:
+        zone_q = zone_q.where(Group.id == group_id)
+    if tutor_id is not None:
+        zone_q = zone_q.where(Group.tutor_id == tutor_id)
+    zones = {
+        gid: resolve_zone(user_zone, org_zone, gid)
+        for gid, user_zone in (await session.execute(zone_q)).all()
+    }
+    # `now` exists so tests can pin the clock; production passes nothing. "Today"
+    # is per class, because the cutoff is read on the class's clock.
+    nows: dict[int, datetime] = {
+        gid: _in_zone(now, zone) if now is not None else now_in(zone) for gid, zone in zones.items()
+    }
+    today_of = {gid: moment.date() for gid, moment in nows.items()}
 
     member_q = (
         select(GroupMember.group_id, GroupMember.created_at)
@@ -322,8 +343,12 @@ async def student_attendance(
     if tutor_id is not None:
         member_q = member_q.where(Group.tutor_id == tutor_id)
     joined = {
-        gid: _local_date(created, zone) for gid, created in (await session.execute(member_q)).all()
+        gid: _local_date(created, zones.get(gid))
+        for gid, created in (await session.execute(member_q)).all()
     }
+    # The SQL bound is the latest "today" of any class; each row is then held to its
+    # own class's today below.
+    latest_today = max(today_of.values(), default=date.min)
 
     lesson_q = (
         select(Lesson, LessonAttendance.state)
@@ -334,7 +359,7 @@ async def student_attendance(
         )
         .where(
             Lesson.organization_id == organization_id,
-            Lesson.date <= today,
+            Lesson.date <= latest_today,
             Lesson.group_id.in_(joined) | LessonAttendance.id.is_not(None),
         )
         .order_by(Lesson.date.desc(), Lesson.id.desc())
@@ -346,10 +371,13 @@ async def student_attendance(
 
     per_group: dict[int, ClassAttendance] = {}
     for lesson, state in (await session.execute(lesson_q)).all():
+        today = today_of[lesson.group_id]
+        if lesson.date > today:
+            continue
         joined_on = joined.get(lesson.group_id)
         if state is None and joined_on is not None and lesson.date < joined_on:
             continue
-        if state is None and lesson.date == today and not _has_ended(lesson, now_local):
+        if state is None and lesson.date == today and not _has_ended(lesson, nows[lesson.group_id]):
             # Today's lesson is not "not taken" until it is over; with no start
             # time we cannot tell, so it counts from tomorrow.
             continue

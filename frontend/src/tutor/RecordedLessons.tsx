@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { listTaughtLessons } from "../api/lessons";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { listTaughtLessons, updateLesson, type TaughtLesson } from "../api/lessons";
 import { SectionCard } from "../components/ui";
-import { Button } from "../components/controls";
+import { Button, Field, Input, Select } from "../components/controls";
+import { friendlyError } from "../lib/errors";
 import { ErrorState, SectionSkeleton } from "../components/page";
 import AttendanceRegister from "./AttendanceRegister";
 import OnlineAttendance from "./OnlineAttendance";
@@ -50,6 +51,10 @@ export default function RecordedLessons({ groupId }: { groupId: number }) {
               {lesson.mode === "online" ? "Online" : "In person"}
             </span>
           </div>
+          {lesson.origin === "plan" && (
+            <p className="text-xs text-ink-500">Recorded from the plan</p>
+          )}
+          <LessonEdit lesson={lesson} groupId={groupId} />
           <div className="mt-3">
             {lesson.mode === "online" ? (
               <OnlineAttendance lessonId={lesson.id} />
@@ -65,5 +70,85 @@ export default function RecordedLessons({ groupId }: { groupId: number }) {
         </Button>
       )}
     </div>
+  );
+}
+
+/** Switch a recorded lesson between in person and online and set or clear its
+ *  meeting link. A lesson recorded from the plan starts in person with no link, so
+ *  without this its Zoom or Meet attendance could never be reached. */
+function LessonEdit({ lesson, groupId }: { lesson: TaughtLesson; groupId: number }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"in_person" | "online">(lesson.mode);
+  const [link, setLink] = useState(lesson.meeting_link ?? "");
+  const save = useMutation({
+    mutationFn: () =>
+      updateLesson(
+        lesson.id,
+        // The server refuses a link on an in-person lesson, so none is sent.
+        mode === "online" ? { mode, meeting_link: link.trim() || null } : { mode },
+      ),
+    onSuccess: () => {
+      setEditing(false);
+      queryClient.invalidateQueries({ queryKey: ["taught-lessons", groupId] });
+      queryClient.invalidateQueries({ queryKey: ["lesson-meeting", lesson.id] });
+      queryClient.invalidateQueries({ queryKey: ["attendance", lesson.id] });
+    },
+  });
+
+  if (!editing) {
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => {
+          setMode(lesson.mode);
+          setLink(lesson.meeting_link ?? "");
+          save.reset();
+          setEditing(true);
+        }}
+      >
+        Edit
+      </Button>
+    );
+  }
+  return (
+    <form
+      className="mt-2 grid gap-3 sm:grid-cols-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <Field label="Mode">
+        <Select value={mode} onChange={(e) => setMode(e.target.value as "in_person" | "online")}>
+          <option value="in_person">In person</option>
+          <option value="online">Online</option>
+        </Select>
+      </Field>
+      {mode === "online" && (
+        <Field label="Meeting link" optional hint="Zoom or Google Meet, to fill in attendance">
+          <Input
+            type="text"
+            value={link}
+            placeholder="https://zoom.us/j/…"
+            onChange={(e) => setLink(e.target.value)}
+          />
+        </Field>
+      )}
+      <div className="flex items-center gap-2 sm:col-span-2">
+        <Button type="submit" size="sm" loading={save.isPending}>
+          Save
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </div>
+      {save.isError && (
+        <p role="alert" className="text-sm text-risk-600 sm:col-span-2">
+          {friendlyError(save.error)}
+        </p>
+      )}
+    </form>
   );
 }

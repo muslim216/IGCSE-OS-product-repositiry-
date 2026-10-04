@@ -16,7 +16,7 @@ from app.schemas.groups import TopicOut
 
 
 def _wall_clock(value: time_) -> time_:
-    # A lesson's start is local wall-clock time in the organization's timezone.
+    # A lesson's start is local wall-clock time in the class's zone (tutor override, else organization).
     # "17:00+02:00" would be stored as a bare 17:00 with its offset silently
     # dropped, so an offset is refused rather than half-honoured.
     if value.tzinfo is not None:
@@ -40,7 +40,7 @@ class LessonCreate(BaseModel):
     #: created for a slot by anything but the tutor submitting this.
     plan_slot_id: Annotated[int, Field(ge=1)] | None = None
     mode: LessonMode = LessonMode.in_person
-    #: Local wall-clock time in the organization's timezone; omitted = unknown.
+    #: Local wall-clock time in the class's zone (tutor override, else organization); omitted = unknown.
     start_time: WallClockTime | None = None
     #: A Zoom or Google Meet link, online lessons only. Parsed server-side into
     #: provider + meeting id; anything else is a 422 (7.3).
