@@ -24,7 +24,7 @@ const PAPERS: Shelf[] = [
   {
     to: "/tutor/mocks",
     label: "Mocks",
-    hint: "Enter and track mock results.",
+    hint: "Enter a class's mock or test marks and look back at what you have recorded.",
     icon: PenLine,
   },
 ];

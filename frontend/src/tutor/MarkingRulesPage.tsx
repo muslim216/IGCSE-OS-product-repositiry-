@@ -8,7 +8,7 @@ import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
 
 /**
- * The AI marking agreement — the marking rules a tutor writes once for a
+ * The marking rules: what a tutor writes once for a
  * subject (`AV-75`, `AV-111`).
  *
  * Two things this screen must never imply. It does not decide **when a mark
@@ -73,7 +73,7 @@ export default function MarkingRulesPage() {
 
   const header = (
     <PageHeader
-      title="AI marking agreement"
+      title="Marking rules"
       description="How you want work in a subject marked, in your own words — method marks, units, working, the things you would tell a new tutor. Written once, it applies to every chapter and piece of work in the subject, alongside the exam board's own conventions rather than instead of them."
       back={{ to: "/tutor/settings", label: "Settings" }}
     />

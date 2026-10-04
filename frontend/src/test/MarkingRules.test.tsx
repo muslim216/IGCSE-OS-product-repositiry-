@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import MarkingRulesPage from "../tutor/MarkingRulesPage";
 import type { MarkingRules } from "../api/markingRules";
 
-/* The AI marking agreement (2.6, AV-75/AV-111). What has to hold on screen:
+/* The Marking rules (2.6, AV-75/AV-111). What has to hold on screen:
    an unset subject says so rather than looking unfinished, a draft belongs to
    the subject it was typed for, and the page never claims to decide when a mark
    counts (AV-25) or that marking already reads these rules (PROD-1). */

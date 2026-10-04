@@ -1,7 +1,7 @@
 import { api } from "./client";
 import type { components } from "./schema";
 
-/** The per-subject marking rules — Library's "AI marking agreement"
+/** The per-subject marking rules — Settings' "Marking rules"
  *  (`AV-75`, `AV-111`). They describe **how** the AI marks, never **when a mark
  *  counts**: nothing here reaches auto-finalization (`AV-25`). */
 export type MarkingRules = components["schemas"]["MarkingRulesOut"];

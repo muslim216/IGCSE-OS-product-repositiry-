@@ -25,7 +25,7 @@ import { EmbeddedPageContext, ErrorState, PageHeader } from "../components/page"
  */
 export const SETTINGS_SECTIONS = [
   { id: "teaching-guidance", label: "Teaching guidance" },
-  { id: "marking-rules", label: "AI marking agreement" },
+  { id: "marking-rules", label: "Marking rules" },
   { id: "boundaries", label: "Grade boundaries" },
   { id: "mistake-categories", label: "Mistake categories" },
   { id: "preferences", label: "Preferences" },
@@ -161,7 +161,7 @@ export default function SettingsPage() {
         <Section id="teaching-guidance" label="Teaching guidance">
           <TeachingGuidancePage />
         </Section>
-        <Section id="marking-rules" label="AI marking agreement">
+        <Section id="marking-rules" label="Marking rules">
           <MarkingRulesPage />
         </Section>
         <Section id="boundaries" label="Grade boundaries">

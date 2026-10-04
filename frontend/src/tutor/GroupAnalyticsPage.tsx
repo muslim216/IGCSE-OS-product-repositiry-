@@ -45,7 +45,7 @@ export default function GroupAnalyticsPage() {
     <div className="space-y-6">
       <SectionCard>
         <CardTitle
-          title="AI marking agreement"
+          title="How often you agreed with the AI"
           description="How often your final mark matched the AI's first mark, on questions you reviewed yourself."
         />
         {a.agreement.agreement_rate !== null ? (

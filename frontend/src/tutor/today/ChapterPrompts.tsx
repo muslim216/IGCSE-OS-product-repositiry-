@@ -44,7 +44,7 @@ export default function ChapterPrompts({ prompts }: { prompts: ChapterPrompt[] }
               to={`/tutor/groups/${p.group_id}/new-homework`}
               className="font-medium text-brand-600 hover:text-brand-700"
             >
-              Upload a classified →
+              Set homework for this chapter →
             </Link>
           </li>
         ))}
