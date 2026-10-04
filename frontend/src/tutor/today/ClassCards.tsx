@@ -96,7 +96,22 @@ function Card({ row, card }: { row: ClassStripRow; card: ClassCard | undefined }
         )}
       </div>
       <ul className="mt-2 space-y-0.5 text-sm text-ink-700">
-        {card && <li>{planLine(card)}</li>}
+        {card && (
+          <li>
+            {card.plan_state === "behind" ? (
+              // The re-plan lives on the class's schedule tab, whichever
+              // attention item the card is showing.
+              <Link
+                to={`/tutor/groups/${row.group_id}/schedule`}
+                className="relative z-10 font-medium text-brand-600 hover:text-brand-700"
+              >
+                {planLine(card)} →
+              </Link>
+            ) : (
+              planLine(card)
+            )}
+          </li>
+        )}
         <li>{readinessLine(row, card)}</li>
         {card && (
           <>

@@ -62,7 +62,7 @@ const EMPTY_OVERVIEW: TodayOverview = {
 function stubFetch(
   view: TodayView,
   narrative: string | null = null,
-  attention?: unknown[],
+  attention?: unknown[] | "fail",
   overview: TodayOverview | "fail" = EMPTY_OVERVIEW,
 ) {
   vi.stubGlobal(
@@ -80,6 +80,7 @@ function stubFetch(
       }
       if (url.includes("/api/v1/today")) return json(view);
       if (url.includes("/assignments/attention")) {
+        if (attention === "fail") return new Response("{}", { status: 500 });
         if (attention !== undefined) return json(attention);
         return json([
           {
@@ -627,7 +628,7 @@ test("a class card carries plan position, readiness, attendance, homework and th
   );
   renderDashboard();
 
-  expect(await screen.findByText("2 lessons behind")).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: "2 lessons behind →" })).toBeInTheDocument();
   expect(screen.getByText("Average readiness 82 · down since last week")).toBeInTheDocument();
   expect(screen.getByText("Last lesson: 7 of 9 present · 1 not taken")).toBeInTheDocument();
   expect(screen.getByText("2 homework out · 6 hand-ins missing")).toBeInTheDocument();
@@ -761,5 +762,48 @@ test("Needs you says why: a re-mark request quotes the student, other work its r
   expect(screen.getByRole("link", { name: /Moles/ })).toHaveAttribute(
     "href",
     "/tutor/submissions/8",
+  );
+});
+
+test("a failed overview never prints the sign-off", async () => {
+  stubFetch({ ...ONE_CLASS }, null, [], "fail");
+  renderDashboard();
+  await screen.findByText(/Couldn't load this week and today's lessons/);
+  expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
+});
+
+test("a failed attention list never prints the sign-off and offers its own retry", async () => {
+  stubFetch({ ...ONE_CLASS }, null, "fail");
+  renderDashboard();
+  expect(await screen.findByText(/Couldn't check what needs you/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  expect(screen.queryByText("That's everything. Enjoy your day.")).not.toBeInTheDocument();
+});
+
+test("the behind-plan line links to the class schedule whichever item the card shows", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      classes: [
+        card({
+          plan_state: "behind",
+          plan_missed: 2,
+          attention: {
+            kind: "weak_topic",
+            message: "Sara below 50% on 1.3 Ionic bonding",
+            topic_id: 4,
+            student_ids: [11],
+            student_names: ["Sara"],
+          },
+        }),
+      ],
+    }),
+  );
+  renderDashboard();
+  expect(await screen.findByRole("link", { name: "2 lessons behind →" })).toHaveAttribute(
+    "href",
+    "/tutor/groups/5/schedule",
   );
 });

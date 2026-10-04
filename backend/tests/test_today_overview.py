@@ -504,3 +504,54 @@ async def test_query_count_is_flat_in_the_number_of_classes(client, tutor, subje
     stop()
     assert len(ov.classes) == 5
     assert len(queries) == baseline, f"{len(queries)} queries for 5 classes vs {baseline} for 1"
+
+
+async def test_a_behind_class_always_has_an_attention_item_even_without_a_chapter():
+    from app.services.plan_progress import Progress
+    from app.services.today_overview import _attention
+
+    item = _attention({}, [], Progress(2, 0, 2, None, None), 0)
+    assert item is not None and item.kind == "behind_plan"
+    assert item.message == "2 planned lessons not recorded"
+
+
+async def test_last_lesson_with_no_one_to_count_is_none_not_zero_present(client, tutor, group):
+    await _lesson(group["id"], TUE)  # a class with no students and no marks
+    assert (await _overview(tutor)).classes[0].last_lesson is None
+
+
+async def test_the_same_run_a_week_ago_is_not_compared_with_itself(
+    client, tutor, group, student, subject
+):
+    # Only one snapshot, 10 days old: it is both the latest and the >=7-day-old one.
+    await _snap(student["user"]["id"], subject["id"], 55.0, 10)
+    ov = await _overview(tutor)
+    assert (ov.week.readiness_drop_count, ov.week.readiness_compared_count) == (0, 0)
+    assert ov.classes[0].readiness_direction is None
+
+
+async def test_two_remarked_questions_on_one_submission_are_one_row(
+    client, tutor, group, student, published_assignment
+):
+    async with async_session() as s:
+        work_id = await s.scalar(
+            select(Assignment.work_id).where(Assignment.id == published_assignment["id"])
+        )
+        sub = Submission(
+            work_id=work_id, student_id=student["user"]["id"], status=SubmissionStatus.needs_review
+        )
+        s.add(sub)
+        await s.flush()
+        for reason in ("first", "second"):
+            mark = QuestionMark(submission_id=sub.id, question_id=None, final_marks=1)
+            s.add(mark)
+            await s.flush()
+            s.add(
+                RemarkRequest(
+                    question_mark_id=mark.id, requested_by_id=student["user"]["id"], reason=reason
+                )
+            )
+        await s.commit()
+        sub_id = sub.id
+    remarks = (await _overview(tutor)).remarks
+    assert [(r.submission_id, r.reason) for r in remarks] == [(sub_id, "first")]

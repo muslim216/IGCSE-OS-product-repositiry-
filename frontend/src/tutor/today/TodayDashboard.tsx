@@ -90,7 +90,12 @@ export default function TodayDashboard() {
   // are not submissions awaiting review. So the day is only "clear" when neither
   // has anything, or the surface could print "That's everything" directly above
   // a NEEDS YOU section listing work.
-  const clear = isClearDay(view) && attentionItems.length === 0 && remarks.length === 0;
+  //
+  // And only when both reads actually succeeded: a failed read is not an empty
+  // one, so the sign-off must not be printed over a Needs-you list we could not
+  // load (PROD-2).
+  const loaded = overview.isSuccess && attention.isSuccess;
+  const clear = loaded && isClearDay(view) && attentionItems.length === 0 && remarks.length === 0;
   // Classes with lessons not recorded against their plan keep the sign-off from
   // being printed, but do not change which sections open (task 6.6).
   const showSignOff = clear && (view.behind_classes ?? []).length === 0;
@@ -152,6 +157,14 @@ export default function TodayDashboard() {
           the aggregate and the rows from separate queries, so while those load
           (or resolve empty) a heading over an empty list is the empty panel
           UX-29 forbids. */}
+      {attention.isError && (
+        <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
+          Couldn&apos;t check what needs you.
+          <Button type="button" size="sm" variant="ghost" onClick={() => attention.refetch()}>
+            Retry
+          </Button>
+        </p>
+      )}
       <NeedsYou items={attentionItems} remarks={remarks} />
 
       {showSignOff && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}

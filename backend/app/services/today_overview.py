@@ -341,6 +341,10 @@ async def build_overview(
             eligible, key=lambda lesson: (lesson.date, lesson.start_time or time.min, lesson.id)
         )
         p, a, n = tallies[latest.id]
+        if p + a + n == 0:
+            # Nobody to count (no enrolled students, no marks): nothing to report,
+            # and never a "0 present".
+            continue
         last_lesson[gid] = LastLessonAttendance(
             lesson_id=latest.id, lesson_date=latest.date, present=p, absent=a, not_taken=n
         )
@@ -358,6 +362,9 @@ async def build_overview(
         for sid, latest_snap in now_snaps.get(gid, {}).items():
             old = then_snaps.get(gid, {}).get(sid)
             if latest_snap.score is None or old is None or old.score is None:
+                continue
+            if old.evaluation_run_id == latest_snap.evaluation_run_id:
+                # The same run at both ends is not a week of history.
                 continue
             compared_students.add(sid)
             class_pairs[gid].append((old.score, latest_snap.score))
@@ -579,15 +586,17 @@ def _attention(
             student_ids=[s.student_id for s in snaps],
             student_names=[s.student_name for s in snaps],
         )
-    if behind is not None and behind.earliest_missed_chapter:
-        _cid, code, title = behind.earliest_missed_chapter
+    if behind is not None:
         n = behind.missed
+        first = (
+            f", starting with Chapter {behind.earliest_missed_chapter[1]} "
+            f"{behind.earliest_missed_chapter[2]}"
+            if behind.earliest_missed_chapter
+            else ""
+        )
         return ClassAttention(
             kind="behind_plan",
-            message=(
-                f"{n} planned {'lesson' if n == 1 else 'lessons'} not recorded, "
-                f"starting with Chapter {code} {title}"
-            ),
+            message=f"{n} planned {'lesson' if n == 1 else 'lessons'} not recorded{first}",
         )
     if marking > 0:
         return ClassAttention(
@@ -750,13 +759,19 @@ async def _remarks(db: AsyncSession, user: User, names: dict[int, str]) -> list[
             .order_by(RemarkRequest.created_at, RemarkRequest.id)
         )
     ).all()
-    return [
-        RemarkItem(
-            submission_id=sid,
-            assignment_title=title,
-            student_name=student,
-            group_name=names[gid],
-            reason=reason,
+    # One row per submission, not per remarked question: the tutor opens the
+    # submission either way, and a list key must be unique. The earliest
+    # request's reason is the one quoted.
+    items: dict[int, RemarkItem] = {}
+    for sid, title, student, gid, reason in rows:
+        items.setdefault(
+            sid,
+            RemarkItem(
+                submission_id=sid,
+                assignment_title=title,
+                student_name=student,
+                group_name=names[gid],
+                reason=reason,
+            ),
         )
-        for sid, title, student, gid, reason in rows
-    ]
+    return list(items.values())

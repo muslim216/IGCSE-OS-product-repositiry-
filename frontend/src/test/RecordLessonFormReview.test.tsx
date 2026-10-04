@@ -126,3 +126,32 @@ test("a malformed ?date= is ignored and the slot's date is used", async () => {
   await waitFor(() => expect(screen.getByRole("checkbox", { name: /Bonding/ })).toBeChecked());
   expect(screen.getByLabelText("Date")).toHaveValue("2026-10-15");
 });
+
+test("an impossible calendar date is rejected with a notice, not silently replaced", async () => {
+  window.history.pushState({}, "", "/tutor/groups/5/schedule?slot=9&date=2026-02-30");
+  stub(true);
+  renderForm();
+  expect(await screen.findByText(/wasn't a real date/)).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByLabelText("Date")).toHaveValue("2026-10-15"));
+});
+
+test("a junk slot parameter is said so", async () => {
+  window.history.pushState({}, "", "/tutor/groups/5/schedule?slot=abc");
+  stub(true);
+  renderForm();
+  expect(await screen.findByText(/couldn't be identified/)).toBeInTheDocument();
+});
+
+test("a valid ?date= still prefills when the plan has no suggestion", async () => {
+  window.history.pushState({}, "", "/tutor/groups/5/schedule?date=2026-10-07");
+  stub(true);
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  const inner = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
+    new URL(String(input), "http://localhost").pathname.endsWith("/next-lesson")
+      ? new Response("null", { status: 200 })
+      : inner(input, init),
+  );
+  renderForm();
+  await waitFor(() => expect(screen.getByLabelText("Date")).toHaveValue("2026-10-07"));
+});
