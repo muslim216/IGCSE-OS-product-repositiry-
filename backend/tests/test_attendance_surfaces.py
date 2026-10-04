@@ -217,7 +217,10 @@ async def _second_tutor_class(group, student_id, mark_state):
         s.add(b)
         await s.flush()
         s.add(GroupMember(group_id=b.id, student_id=student_id))
-        lesson = Lesson(organization_id=a.organization_id, group_id=b.id, date=date.today())
+        # Yesterday in UTC, not the machine's local `date.today()`: east of UTC that is
+        # already tomorrow for a UTC organization, and a future lesson is not counted.
+        held = datetime.now(timezone.utc).date() - timedelta(days=1)
+        lesson = Lesson(organization_id=a.organization_id, group_id=b.id, date=held)
         s.add(lesson)
         await s.flush()
         s.add(
