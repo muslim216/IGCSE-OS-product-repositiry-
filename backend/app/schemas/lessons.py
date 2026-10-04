@@ -3,10 +3,22 @@ from datetime import datetime
 from datetime import time as time_
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from app.models import AttendanceSource, AttendanceState, LessonMode, LessonOrigin
 from app.schemas.groups import TopicOut
+
+
+def _wall_clock(value: time_) -> time_:
+    # A lesson's start is local wall-clock time in the organization's timezone.
+    # "17:00+02:00" would be stored as a bare 17:00 with its offset silently
+    # dropped, so an offset is refused rather than half-honoured.
+    if value.tzinfo is not None:
+        raise ValueError("Give the start time without a timezone offset")
+    return value
+
+
+WallClockTime = Annotated[time_, AfterValidator(_wall_clock)]
 
 
 class LessonCreate(BaseModel):
@@ -23,7 +35,7 @@ class LessonCreate(BaseModel):
     plan_slot_id: Annotated[int, Field(ge=1)] | None = None
     mode: LessonMode = LessonMode.in_person
     #: Local wall-clock time in the organization's timezone; omitted = unknown.
-    start_time: time_ | None = None
+    start_time: WallClockTime | None = None
 
 
 class LessonUpdate(BaseModel):
@@ -31,7 +43,7 @@ class LessonUpdate(BaseModel):
     duration_min: int | None = Field(default=None, ge=15, le=480)
     notes: str | None = None
     mode: LessonMode | None = None
-    start_time: time_ | None = None
+    start_time: WallClockTime | None = None
 
 
 class LessonOut(BaseModel):

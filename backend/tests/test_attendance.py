@@ -364,6 +364,51 @@ async def test_a_lost_race_on_the_unique_row_is_409(client, tutor, group, studen
     assert "same time" in resp.json()["detail"]
 
 
+async def test_a_tutor_mark_made_mid_import_still_wins(client, tutor, group, student, monkeypatch):
+    lesson = await _lesson(client, tutor, group)
+    sid = student["user"]["id"]
+    await _service_write(
+        lesson["id"],
+        [svc.AttendanceEntry(sid, AttendanceState.absent)],
+        recorded_by=None,
+        source=AttendanceSource.zoom,
+    )
+    real = svc._enrolled_ids
+
+    async def _then_the_tutor_marks(session, les):
+        ids = await real(session, les)
+        # The import has already read the Zoom row; the tutor saves after that.
+        async with async_session() as other:
+            row = await other.scalar(select(LessonAttendance))
+            row.state, row.source = AttendanceState.absent, AttendanceSource.tutor
+            await other.commit()
+        return ids
+
+    monkeypatch.setattr(svc, "_enrolled_ids", _then_the_tutor_marks)
+    async with async_session() as s:
+        skipped = await svc.set_attendance(
+            s,
+            await s.get(Lesson, lesson["id"]),
+            [svc.AttendanceEntry(sid, AttendanceState.present)],
+            recorded_by=None,
+            source=AttendanceSource.zoom,
+        )
+    assert skipped == [sid]
+    async with async_session() as s:
+        row = await s.scalar(select(LessonAttendance).execution_options(populate_existing=True))
+        assert (row.state, row.source) == (AttendanceState.absent, AttendanceSource.tutor)
+
+
+async def test_a_start_time_with_an_offset_is_refused(client, tutor, group):
+    lesson = await _lesson(client, tutor, group)
+    resp = await client.patch(
+        f"/api/v1/lessons/{lesson['id']}",
+        json={"start_time": "17:00:00+02:00"},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 422
+
+
 async def test_a_tutor_can_change_and_clear_a_student_who_left(client, tutor, group, student):
     from app.models import GroupMember
 
@@ -432,5 +477,15 @@ async def test_the_group_listing_orders_by_date_then_time_then_id(client, tutor,
     b = await _lesson(client, tutor, group, start_time="15:00:00")
     c = await _lesson(client, tutor, group)  # unknown time sorts last within the day
     d = await _lesson(client, tutor, group)
+    # Date outranks time: a later day with no time still comes first.
+    later = await _lesson(client, tutor, group, date="2026-07-15")
+    earlier = await _lesson(client, tutor, group, date="2026-07-13", start_time="23:00:00")
     resp = await client.get(f"/api/v1/lessons/group/{group['id']}", headers=tutor["headers"])
-    assert [r["id"] for r in resp.json()] == [b["id"], a["id"], d["id"], c["id"]]
+    assert [r["id"] for r in resp.json()] == [
+        later["id"],
+        b["id"],
+        a["id"],
+        d["id"],
+        c["id"],
+        earlier["id"],
+    ]

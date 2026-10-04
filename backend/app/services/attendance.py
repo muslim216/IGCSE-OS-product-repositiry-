@@ -8,7 +8,7 @@ recorded, and is reported as such (`PROD-2`) — never defaulted to absent.
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,11 +141,27 @@ async def set_attendance(
             )
             session.add(row)
             existing[entry.student_id] = row
-        else:
+        elif from_tutor:
+            # Two tutors saving the same mark: last writer wins. Both are the
+            # authoritative source, so neither save is lost data.
             row.state = entry.state
             row.source = source
-            row.recorded_by_id = recorded_by.id if from_tutor and recorded_by else None
+            row.recorded_by_id = recorded_by.id if recorded_by else None
             row.recorded_at = now
+        else:
+            # Conditional in the database, not on the row read above: a tutor may
+            # have marked this student since, and their mark must still win.
+            updated = await session.execute(
+                update(LessonAttendance)
+                .where(
+                    LessonAttendance.id == row.id,
+                    LessonAttendance.source != AttendanceSource.tutor,
+                )
+                .values(state=entry.state, source=source, recorded_by_id=None, recorded_at=now)
+                .execution_options(synchronize_session=False)
+            )
+            if updated.rowcount != 1:  # type: ignore[attr-defined]
+                skipped.append(entry.student_id)
     try:
         await session.commit()
     except IntegrityError as exc:  # lost a race on UNIQUE (lesson, student)
