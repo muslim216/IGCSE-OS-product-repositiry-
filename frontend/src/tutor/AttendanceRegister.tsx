@@ -27,7 +27,7 @@ export default function AttendanceRegister({
   online?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const key = ["attendance", lessonId];
+  const key = ["lesson-attendance", lessonId];
   const register = useQuery({ queryKey: key, queryFn: () => getAttendance(lessonId) });
   const mark = useMutation({
     mutationFn: (v: { studentId: number; state: AttendanceState | null }) =>

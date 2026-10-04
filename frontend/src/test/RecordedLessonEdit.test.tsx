@@ -25,8 +25,11 @@ const base = {
 
 afterEach(() => vi.unstubAllGlobals());
 
-function stub(patchResponse: (body: Record<string, unknown>) => Response) {
-  let lesson: Record<string, unknown> = { ...base };
+function stub(
+  patchResponse: (body: Record<string, unknown>) => Response,
+  initial: Record<string, unknown> = {},
+) {
+  let lesson: Record<string, unknown> = { ...base, ...initial };
   const calls: { method: string; url: string; body: Record<string, unknown> | null }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -106,6 +109,53 @@ test("a link the server refuses shows its message and leaves the lesson as it wa
   expect(await screen.findByRole("alert")).toHaveTextContent("That isn't a Zoom or Google Meet");
   await waitFor(() => expect(screen.getAllByText("In person").length).toBeGreaterThan(0));
   expect(screen.queryByText(/Zoom link:/)).not.toBeInTheDocument();
+});
+
+const online = {
+  mode: "online",
+  meeting_provider: "zoom",
+  meeting_link: "https://zoom.us/j/81234567890",
+};
+
+test("switching a lesson that has a meeting to in person asks first; Cancel aborts", async () => {
+  const calls = stub(() => new Response(JSON.stringify({ ...base }), { status: 200 }), online);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "in_person" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(await screen.findByText(/removes the attendance imported from Zoom\/Meet/)).toBeVisible();
+  expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByText(/removes the attendance imported/)).not.toBeInTheDocument();
+  expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+});
+
+test("Confirm saves a changed link on a lesson that has a meeting", async () => {
+  const calls = stub(() => new Response(JSON.stringify({ ...base }), { status: 200 }), online);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.change(screen.getByLabelText(/Meeting link/), {
+    target: { value: "https://zoom.us/j/99999999999" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+  await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+  expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({
+    mode: "online",
+    meeting_link: "https://zoom.us/j/99999999999",
+  });
+});
+
+test("an unchanged link on a lesson that has a meeting saves without asking", async () => {
+  const calls = stub(() => new Response(JSON.stringify({ ...base }), { status: 200 }), online);
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
 });
 
 test("saving an in-person lesson sends the mode and no link", async () => {

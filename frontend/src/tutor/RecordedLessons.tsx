@@ -81,6 +81,7 @@ function LessonEdit({ lesson, groupId }: { lesson: TaughtLesson; groupId: number
   const [editing, setEditing] = useState(false);
   const [mode, setMode] = useState<"in_person" | "online">(lesson.mode);
   const [link, setLink] = useState(lesson.meeting_link ?? "");
+  const [confirming, setConfirming] = useState(false);
   const save = useMutation({
     mutationFn: () =>
       updateLesson(
@@ -92,9 +93,15 @@ function LessonEdit({ lesson, groupId }: { lesson: TaughtLesson; groupId: number
       setEditing(false);
       queryClient.invalidateQueries({ queryKey: ["taught-lessons", groupId] });
       queryClient.invalidateQueries({ queryKey: ["lesson-meeting", lesson.id] });
-      queryClient.invalidateQueries({ queryKey: ["attendance", lesson.id] });
+      queryClient.invalidateQueries({ queryKey: ["lesson-attendance", lesson.id] });
+      queryClient.invalidateQueries({ queryKey: ["student-attendance"] });
     },
   });
+  // The server drops what was imported from the old meeting when the lesson goes in
+  // person or its link changes, so say so before it happens.
+  const dropsImport =
+    lesson.meeting_provider != null &&
+    (mode === "in_person" || (link.trim() || null) !== (lesson.meeting_link ?? null));
 
   if (!editing) {
     return (
@@ -105,6 +112,7 @@ function LessonEdit({ lesson, groupId }: { lesson: TaughtLesson; groupId: number
           setMode(lesson.mode);
           setLink(lesson.meeting_link ?? "");
           save.reset();
+          setConfirming(false);
           setEditing(true);
         }}
       >
@@ -117,11 +125,18 @@ function LessonEdit({ lesson, groupId }: { lesson: TaughtLesson; groupId: number
       className="mt-2 grid gap-3 sm:grid-cols-2"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate();
+        if (dropsImport && !confirming) setConfirming(true);
+        else save.mutate();
       }}
     >
       <Field label="Mode">
-        <Select value={mode} onChange={(e) => setMode(e.target.value as "in_person" | "online")}>
+        <Select
+          value={mode}
+          onChange={(e) => {
+            setMode(e.target.value as "in_person" | "online");
+            setConfirming(false);
+          }}
+        >
           <option value="in_person">In person</option>
           <option value="online">Online</option>
         </Select>
@@ -132,13 +147,22 @@ function LessonEdit({ lesson, groupId }: { lesson: TaughtLesson; groupId: number
             type="text"
             value={link}
             placeholder="https://zoom.us/j/…"
-            onChange={(e) => setLink(e.target.value)}
+            onChange={(e) => {
+              setLink(e.target.value);
+              setConfirming(false);
+            }}
           />
         </Field>
       )}
+      {confirming && (
+        <p role="status" className="text-sm text-ink-700 sm:col-span-2">
+          This removes the attendance imported from Zoom/Meet for this lesson. Marks you set
+          yourself stay.
+        </p>
+      )}
       <div className="flex items-center gap-2 sm:col-span-2">
         <Button type="submit" size="sm" loading={save.isPending}>
-          Save
+          {confirming ? "Confirm" : "Save"}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
           Cancel
