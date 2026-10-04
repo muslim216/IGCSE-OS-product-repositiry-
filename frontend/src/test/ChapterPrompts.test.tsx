@@ -29,7 +29,7 @@ test("a started chapter names the class, the chapter and links to the upload", (
   expect(screen.getByText("Coming up in your plan")).toBeInTheDocument();
   expect(screen.getByText(/Year 11 Chemistry/)).toBeInTheDocument();
   expect(screen.getByText(/Chapter 4 · Organic chemistry/)).toBeInTheDocument();
-  expect(screen.getByText(/no classified uploaded yet/)).toBeInTheDocument();
+  expect(screen.getByText(/no homework for it yet/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /Set homework for this chapter/ })).toHaveAttribute(
     "href",
     "/tutor/groups/3/new-homework",
