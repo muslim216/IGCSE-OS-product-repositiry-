@@ -22,8 +22,8 @@ level.** A page that answers two is split; a page that answers none is removed.
 |---|---|---|---|
 | D1 | **Core steps block; the rest is guided.** Only what the loop needs blocks onboarding. Everything else ships with a default, labelled *default — review*, and sits on a persistent setup checklist. | approved | AV-56 (all steps blocking) |
 | D2 | **"Where are you up to?"** — onboarding captures the topics each class has already been taught, so coverage starts correct and the plan drafts from there. | approved | new; absorbs coherence C.4 |
-| D3 | **Settings by level: Account → Subject → Class.** Each setting lives at exactly one level and is edited where it was first set. | proposed — owner unsure; decide from mockups | AV-110 |
-| D4 | **Library holds material, not settings.** Settings leave Library (see §5). Whether Library remains a tab at all is open. | proposed (owner raised it) | AV-110, AV-111 |
+| D3 | **Settings by level: Account → Subject → Class.** Each setting lives at exactly one level and is edited where it was first set. | REJECTED — do not split Settings by level. How the Settings page is organised stays open until Phase 9 design. | AV-110 |
+| D4 | **Library holds material, not settings.** Settings leave Library (see §5). Whether Library remains a tab at all is open. | approved — Option A: Library stays as a tab holding teaching material only (classifieds, files & recordings, source documents); AV-105's 10-item nav unchanged | AV-110, AV-111 |
 | D5 | **Avora agent comes later and separately** (after Phase 8); it may later drive these same server-side onboarding steps. | approved | — |
 | D6 | **No in-app person-to-person messaging.** The agent is rate-limited. | approved | confirms experience-design §2.3 |
 
@@ -106,7 +106,7 @@ material", or move classifieds into each subject and drop the tab.
   Chemistry). Preferences and Library-as-settings dissolve into them.
 - **One readiness format everywhere** (grade + status + %) — coherence C.6.
 
-## 7. Sequencing (proposed — owner confirms)
+## 7. Sequencing (CONFIRMED — 2026-10-04)
 
 Phase 7 → coherence pass → Phase 8 → **Phase 9 (this brief)**. Phase 9 absorbs coherence C.4
 (plan from what's taught, via C2) and C.5 (navigation, Library split), since both are the

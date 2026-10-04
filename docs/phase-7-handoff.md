@@ -22,10 +22,11 @@ without testing it.
 
 | ID | Task | Size | Depends on | Status |
 |---|---|---|---|---|
-| 7.1 | `LessonAttendance` model, lesson mode (in person / online), in-person register | M | — | NOT STARTED |
-| 7.2 | Attendance surfaces (tutor, student, parent, reports — AV-44) | S | 7.1 | NOT STARTED |
-| 7.3 | Zoom and Google Meet attendance integration | L | 7.1 | NOT STARTED |
-| 7.4 | Lesson pre-fill from the plan + 15-minute reminder; "counts as taught unless said otherwise" | M | 7.1 | NOT STARTED |
+| 7.1 | `LessonAttendance` model, lesson mode (in person / online), in-person register | M | — | MERGED (#114, migration 0063) |
+| 7.2 | Attendance surfaces (tutor, student, parent, reports — AV-44) | S | 7.1 | PR #116 |
+| 7.3 | Zoom and Google Meet attendance integration | L | 7.1 | PR #117 (migration 0064) |
+| 7.4 | Lesson pre-fill from the plan + 15-minute reminder; "counts as taught unless said otherwise" | M | 7.1 | PR #118 |
+| AV-31 | Daily past-paper readiness recompute | — | — | MERGED (#115) |
 
 **Waves** (owner rule from Phase 6: parallel subagents unless a task builds on another):
 `7.1` alone → then `7.2 ∥ 7.3 ∥ 7.4` in separate worktrees, one PR each → phase sweep.
@@ -139,26 +140,25 @@ second query. Regenerate OpenAPI types in the same PR (`FE-4`).
 
 ---
 
-## 4. Questions for the owner — raise before building, do not decide
+## 4. Questions for the owner — ANSWERED 2026-10-04
 
-1. **7.4 needs email and push, which Phase 8 builds (8.1, 8.7).** Options: ship 7.4 in-app only
-   and add channels when 8.1/8.7 land; or pull 8.1 forward before 7.4. Plan says 8.7 "delivers
-   the 15-minute lesson reminder", so the in-app-first split is consistent with it — confirm.
-2. **Lessons have no start time.** The reminder needs one. Source it from `ScheduleSlot.start_time`
-   (only works for lessons tied to a template, and plan slots carry no slot link) or add a time
-   to `PlanSlot` / `Lesson`. This is a data-model call.
-3. **"Counts as taught" — what is the record?** Today a taught lesson is a `Lesson` row the tutor
-   created. Auto-taught means either a job creates `Lesson` + `LessonTopic` rows when a planned
-   slot's time passes, or coverage reads uncancelled past `PlanSlot`s directly. The first keeps
-   `PROD-14` (coverage from `lesson_topics`) intact; the second breaks it. Recommendation: the
-   job. And: is a lesson auto-taught for a class **with no accepted plan**? (Nothing to pre-fill.)
-4. **Attendance states.** Spec names none. Minimum `present | absent`; `late` and `excused`
-   are common asks. Punctuality appears only in the tutor's weekly send (AV-32) — does that
-   mean `late` is recorded here?
-5. **7.3 vendor approvals** — does the owner have / want to create the Zoom and Google Cloud
-   apps now? Without them 7.3 can be built and tested against fakes but not shipped.
-6. Carried from Phase 6, still open: a daily readiness recompute when a plan's
-   `past_paper_start_date` arrives (sweep finding, not built).
+1. **7.4 needs email and push, which Phase 8 builds (8.1, 8.7).** ANSWERED — Reminders in-app
+   first; email/push come in Phase 8 (8.1/8.7).
+2. **Lessons have no start time.** ANSWERED — Each planned lesson stores its own start time
+   (`plan_slots.start_time`, default from the weekly timetable, editable per lesson); lessons
+   have `start_time` too.
+3. **"Counts as taught" — what is the record?** ANSWERED — Auto-taught only for classes with
+   an ACCEPTED plan; a sweep job writes real `Lesson` (origin=plan) + `LessonTopic` rows
+   (`PROD-14` kept). Topics = a contiguous share of the chapter across its lessons (5 topics/3
+   lessons → 1–2, 3–4, 5); the next-lesson pre-fill uses the same split.
+4. **Attendance states.** ANSWERED — present | absent only.
+5. **7.3 vendor approvals** — ANSWERED — Zoom/Google built against fakes; owner registers the
+   apps later (setup guide handed over separately).
+6. Carried from Phase 6: a daily readiness recompute when a plan's `past_paper_start_date`
+   arrives. ANSWERED — Built (PR #115).
+7. **Cancelling a planned lesson.** Cancelling a planned lesson shifts the plan automatically
+   (no re-plan acceptance); with no room before the exam the cancel stands and the class shows
+   as behind.
 
 ---
 
@@ -175,8 +175,7 @@ second query. Regenerate OpenAPI types in the same PR (`FE-4`).
 - Discrimination checks: break the fix, watch the test fail, restore.
 - Implementers run targeted tests only; the full suite (~8–10 min) runs once per PR.
 - Tests never call a real AI provider or a real Zoom/Google endpoint (`QA-8`).
-- Phase 6 deploys (migrations 0060–0062) are `UNVERIFIED` on Render/Vercel — confirm green
-  before stacking 0063 on them (`INF-1`, runbooks R2/R4).
+- Phase 6 deploys (migrations 0060–0062) confirmed live on Render/Vercel 2026-10-04.
 
 ---
 
