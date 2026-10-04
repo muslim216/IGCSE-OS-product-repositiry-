@@ -82,6 +82,8 @@ test("a topic's evidence that fails to load can be retried in place", async () =
     vi.fn(async (input: RequestInfo | URL) => {
       const path = new URL(String(input), "http://localhost").pathname;
       const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+      if (path.endsWith("/attendance"))
+        return json({ lessons: 0, present: 0, absent: 0, not_taken: 0, rate: null, classes: [] });
       if (path === "/api/v1/readiness/students/2")
         return json({ student_id: 2, student_name: "Sara", subjects: [SUBJECT] });
       if (path === "/api/v1/readiness/students/2/topics/10/evidence")

@@ -162,6 +162,7 @@ TUTOR_ONLY = [
 STUDENT_ONLY = [
     "/api/v1/me/assessments",
     "/api/v1/me/assignments",
+    "/api/v1/me/attendance",
     "/api/v1/readiness/me",
 ]
 

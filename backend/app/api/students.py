@@ -19,6 +19,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.schemas.attendance import StudentAttendanceOut
 from app.schemas.crm import (
     CrmHomeworkItem,
     ParentCommunicationCreate,
@@ -35,6 +36,7 @@ from app.schemas.crm import (
 from app.schemas.custom_criteria import CustomCriterionScoreIn, StudentCriterionScoreOut
 from app.schemas.groups import InviteOut
 from app.schemas.mistake_rollup import StudentMistakeRollup
+from app.services.attendance import student_attendance
 from app.services.custom_criteria import (
     CriterionConflict,
     CriterionNotFound,
@@ -361,6 +363,28 @@ async def add_communication(
         body=comm.body,
         created_at=comm.created_at,
     )
+
+
+@router.get("/{student_id}/attendance", response_model=StudentAttendanceOut)
+async def student_attendance_view(
+    student_id: int, db: DbSession, user: CurrentUser
+) -> StudentAttendanceOut:
+    """A student's attendance for a tutor who teaches them, an admin of their
+    organization, or a linked parent. `_viewable_student` is the one ownership
+    check (a refusal is a 404, `API-7`). The organization is the viewing staff
+    member's own, so a tutor never reads another tenant's lessons (`SEC-7`); a
+    parent reads in the child's home organization.
+    """
+    student = await _viewable_student(db, user, student_id)
+    staff = user.role in (UserRole.tutor, UserRole.admin)
+    result = await student_attendance(
+        db,
+        student_id=student.id,
+        organization_id=user.organization_id if staff else student.organization_id,
+        # A tutor sees only the classes they teach; admin, parent and student see all.
+        tutor_id=user.id if user.role == UserRole.tutor else None,
+    )
+    return StudentAttendanceOut.model_validate(result)
 
 
 @router.get("/{student_id}/mistakes", response_model=StudentMistakeRollup)

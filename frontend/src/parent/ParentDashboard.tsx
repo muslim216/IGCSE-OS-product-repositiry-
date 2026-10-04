@@ -13,6 +13,7 @@ import {
 } from "../components/page";
 import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
+import AttendancePanel from "../components/AttendancePanel";
 import { ABSENT } from "../lib/labels";
 import { parentVerdict, provenance, whatYouCanDo } from "../lib/parent";
 
@@ -248,6 +249,9 @@ export default function ParentDashboard() {
       {/* The tutor's hand scores for this child, beside readiness and never
           in it (owner decisions 6 and 18). */}
       {selected !== null && <CustomCriteriaPanel studentId={selected} />}
+
+      {/* Beside readiness, never in it (AV-33). */}
+      {selected !== null && <AttendancePanel studentId={selected} />}
 
       {selected !== null && (
         <ReportsPanel studentId={selected} audiences={["parent"]} canGenerate={false} />
