@@ -6,7 +6,7 @@ same transaction. `lesson_topics` stays the sole source of syllabus coverage
 (`PROD-14`), written from exactly what the tutor sent and never from the plan.
 """
 
-from datetime import date
+from datetime import date, time
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Group,
     Lesson,
+    LessonMode,
     LessonTopic,
     PlanSlot,
     PlanSlotProvenance,
@@ -107,6 +108,8 @@ async def create_lesson(
     schedule_slot_id: int | None,
     topic_ids: list[int],
     plan_slot_id: int | None,
+    mode: LessonMode = LessonMode.in_person,
+    start_time: time | None = None,
 ) -> Lesson:
     """Create the lesson, its topics, and (when given) confirm the plan slot.
 
@@ -137,6 +140,8 @@ async def create_lesson(
         duration_min=duration_min,
         notes=notes,
         schedule_slot_id=schedule_slot_id,
+        mode=mode,
+        start_time=start_time,
     )
     session.add(lesson)
     await session.flush()

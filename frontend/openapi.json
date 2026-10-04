@@ -2622,6 +2622,117 @@
         }
       }
     },
+    "/api/v1/lessons/{lesson_id}/attendance": {
+      "get": {
+        "tags": [
+          "lessons"
+        ],
+        "summary": "Lesson Attendance",
+        "description": "The register: every student in the class, `state: null` where not taken.",
+        "operationId": "lesson_attendance_api_v1_lessons__lesson_id__attendance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lesson_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lesson Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AttendanceRowOut"
+                  },
+                  "title": "Response Lesson Attendance Api V1 Lessons  Lesson Id  Attendance Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "lessons"
+        ],
+        "summary": "Set Lesson Attendance",
+        "operationId": "set_lesson_attendance_api_v1_lessons__lesson_id__attendance_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lesson_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Lesson Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttendanceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AttendanceRowOut"
+                  },
+                  "title": "Response Set Lesson Attendance Api V1 Lessons  Lesson Id  Attendance Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/subjects/{subject_id}/marking-rules": {
       "get": {
         "tags": [
@@ -8867,6 +8978,118 @@
         ],
         "title": "AssignmentOut"
       },
+      "AttendanceEntryIn": {
+        "properties": {
+          "student_id": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Student Id"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "state"
+        ],
+        "title": "AttendanceEntryIn"
+      },
+      "AttendanceRowOut": {
+        "properties": {
+          "student_id": {
+            "type": "integer",
+            "title": "Student Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recorded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "name",
+          "state",
+          "source",
+          "recorded_at"
+        ],
+        "title": "AttendanceRowOut"
+      },
+      "AttendanceSource": {
+        "type": "string",
+        "enum": [
+          "tutor",
+          "zoom",
+          "google_meet"
+        ],
+        "title": "AttendanceSource"
+      },
+      "AttendanceState": {
+        "type": "string",
+        "enum": [
+          "present",
+          "absent"
+        ],
+        "title": "AttendanceState"
+      },
+      "AttendanceUpdate": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AttendanceEntryIn"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "title": "AttendanceUpdate"
+      },
       "AuthResponse": {
         "properties": {
           "user": {
@@ -11183,6 +11406,22 @@
               }
             ],
             "title": "Plan Slot Id"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/LessonMode",
+            "default": "in_person"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
           }
         },
         "type": "object",
@@ -11191,6 +11430,14 @@
           "date"
         ],
         "title": "LessonCreate"
+      },
+      "LessonMode": {
+        "type": "string",
+        "enum": [
+          "in_person",
+          "online"
+        ],
+        "title": "LessonMode"
       },
       "LessonObservationCreate": {
         "properties": {
@@ -11293,6 +11540,15 @@
         ],
         "title": "LessonObservationOut"
       },
+      "LessonOrigin": {
+        "type": "string",
+        "enum": [
+          "tutor",
+          "plan"
+        ],
+        "title": "LessonOrigin",
+        "description": "Who said this lesson happened. `plan` is a lesson auto-recorded from the\nplan because nobody said otherwise (AV-119) \u2014 kept apart so it stays\ntraceable (`PROD-1`)."
+      },
       "LessonOut": {
         "properties": {
           "id": {
@@ -11334,6 +11590,24 @@
             ],
             "title": "Schedule Slot Id"
           },
+          "mode": {
+            "$ref": "#/components/schemas/LessonMode"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/LessonOrigin"
+          },
           "topics": {
             "items": {
               "$ref": "#/components/schemas/TopicOut"
@@ -11350,6 +11624,9 @@
           "duration_min",
           "notes",
           "schedule_slot_id",
+          "mode",
+          "start_time",
+          "origin",
           "topics"
         ],
         "title": "LessonOut"
@@ -11407,6 +11684,28 @@
               }
             ],
             "title": "Notes"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LessonMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
           }
         },
         "type": "object",

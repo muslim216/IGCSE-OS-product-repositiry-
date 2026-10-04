@@ -1,9 +1,11 @@
 from datetime import date as date_
 from datetime import datetime
+from datetime import time as time_
 from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from app.models import AttendanceSource, AttendanceState, LessonMode, LessonOrigin
 from app.schemas.groups import TopicOut
 
 
@@ -19,12 +21,17 @@ class LessonCreate(BaseModel):
     #: The accepted plan's slot this lesson confirms (AV-17). A lesson is never
     #: created for a slot by anything but the tutor submitting this.
     plan_slot_id: Annotated[int, Field(ge=1)] | None = None
+    mode: LessonMode = LessonMode.in_person
+    #: Local wall-clock time in the organization's timezone; omitted = unknown.
+    start_time: time_ | None = None
 
 
 class LessonUpdate(BaseModel):
     date: date_ | None = None
     duration_min: int | None = Field(default=None, ge=15, le=480)
     notes: str | None = None
+    mode: LessonMode | None = None
+    start_time: time_ | None = None
 
 
 class LessonOut(BaseModel):
@@ -34,6 +41,9 @@ class LessonOut(BaseModel):
     duration_min: int
     notes: str | None
     schedule_slot_id: int | None
+    mode: LessonMode
+    start_time: time_ | None
+    origin: LessonOrigin
     topics: list[TopicOut]
 
 
@@ -56,3 +66,22 @@ class LessonObservationOut(BaseModel):
     body: str
     rating: int | None
     created_at: datetime
+
+
+class AttendanceEntryIn(BaseModel):
+    student_id: Annotated[int, Field(ge=1)]
+    #: `null` clears the mark (not taken).
+    state: AttendanceState | None
+
+
+class AttendanceUpdate(BaseModel):
+    entries: list[AttendanceEntryIn] = Field(max_length=500)
+
+
+class AttendanceRowOut(BaseModel):
+    student_id: int
+    name: str
+    #: `null` means attendance was not taken — never absent.
+    state: AttendanceState | None
+    source: AttendanceSource | None
+    recorded_at: datetime | None

@@ -291,6 +291,10 @@ def test_migration_matches_model_metadata(upgraded, table):
     model_shape["columns"].pop("lesson_id", None)
     model_shape["fks"].pop("lesson_id", None)
     model_shape["uniques"].pop("uq_plan_slots_lesson_id", None)
+    # And 0063's plan_slots start_time / cancelled_at / cancelled_by_id.
+    for later in ("start_time", "cancelled_at", "cancelled_by_id"):
+        model_shape["columns"].pop(later, None)
+    model_shape["fks"].pop("cancelled_by_id", None)
 
     assert migration_shape["columns"] == model_shape["columns"]
     assert migration_shape["indexes"] == model_shape["indexes"]

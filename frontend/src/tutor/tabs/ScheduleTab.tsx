@@ -13,6 +13,7 @@ import {
 import { friendlyError } from "../../lib/errors";
 import { useGroupContext } from "../GroupLayout";
 import RecordLessonForm from "../RecordLessonForm";
+import RecordedLessons from "../RecordedLessons";
 import TeachingPlanInputs from "../TeachingPlanInputs";
 import TeachingPlanView from "../TeachingPlanView";
 import { EmptyState, SectionCard } from "../../components/ui";
@@ -61,6 +62,7 @@ export default function ScheduleTab() {
   return (
     <div className="space-y-6">
       <RecordLessonForm key={`record-${groupId}`} groupId={groupId} subjectId={group.subject.id} />
+      <RecordedLessons key={`recorded-${groupId}`} groupId={groupId} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

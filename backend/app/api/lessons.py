@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, DbSession, assert_tutor
+from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import (
     Group,
     GroupMember,
@@ -15,6 +15,8 @@ from app.models import (
 )
 from app.schemas.groups import TopicOut
 from app.schemas.lessons import (
+    AttendanceRowOut,
+    AttendanceUpdate,
     LessonCreate,
     LessonObservationCreate,
     LessonObservationOut,
@@ -22,7 +24,7 @@ from app.schemas.lessons import (
     LessonTopicsUpdate,
     LessonUpdate,
 )
-from app.services import plan_lessons
+from app.services import attendance, plan_lessons
 from app.services.plan_lessons import ScheduleSlotNotFound
 from app.services.teaching_plan import PlanInputError, PlanSlotNotFound, PlanStateError
 
@@ -78,6 +80,9 @@ async def _lesson_out(db: AsyncSession, lesson: Lesson) -> LessonOut:
         duration_min=lesson.duration_min,
         notes=lesson.notes,
         schedule_slot_id=lesson.schedule_slot_id,
+        mode=lesson.mode,
+        start_time=lesson.start_time,
+        origin=lesson.origin,
         topics=[TopicOut.model_validate(t) for t in topic_rows],
     )
 
@@ -95,6 +100,8 @@ async def create_lesson(body: LessonCreate, db: DbSession, user: CurrentUser) ->
             schedule_slot_id=body.schedule_slot_id,
             topic_ids=body.topic_ids,
             plan_slot_id=body.plan_slot_id,
+            mode=body.mode,
+            start_time=body.start_time,
         )
     except PlanSlotNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Planned lesson not found") from exc
@@ -116,7 +123,7 @@ async def list_group_lessons(group_id: int, db: DbSession, user: CurrentUser) ->
             # Same rule as `_owned_lesson`: the lesson's own organization, not
             # only its group's (`SEC-7`).
             .where(Lesson.group_id == group.id, Lesson.organization_id == user.organization_id)
-            .order_by(Lesson.date.desc())
+            .order_by(Lesson.date.desc(), Lesson.start_time.desc().nulls_last(), Lesson.id.desc())
         )
     ).all()
     return [await _lesson_out(db, lesson) for lesson in lessons]
@@ -139,6 +146,11 @@ async def update_lesson(
         lesson.duration_min = body.duration_min
     if body.notes is not None:
         lesson.notes = body.notes
+    if body.mode is not None:
+        lesson.mode = body.mode
+    # An explicit null clears the time (back to unknown); omitting it leaves it.
+    if "start_time" in body.model_fields_set:
+        lesson.start_time = body.start_time
     await db.commit()
     return await _lesson_out(db, lesson)
 
@@ -147,6 +159,7 @@ async def update_lesson(
 async def delete_lesson(lesson_id: int, db: DbSession, user: CurrentUser) -> None:
     lesson = await _owned_lesson(db, user, lesson_id)
     await plan_lessons.release_slot_for_lesson(db, lesson.id)
+    await attendance.delete_for_lesson(db, lesson.id)
     await db.delete(lesson)
     await db.commit()
 
@@ -240,3 +253,50 @@ async def list_lesson_observations(
         )
         for o in rows
     ]
+
+
+async def _register(db: AsyncSession, lesson: Lesson) -> list[AttendanceRowOut]:
+    rows = await attendance.lesson_register(db, lesson)
+    return [
+        AttendanceRowOut(
+            student_id=r.student_id,
+            name=r.name,
+            state=r.state,
+            source=r.source,
+            recorded_at=r.recorded_at,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/{lesson_id}/attendance", response_model=list[AttendanceRowOut])
+async def lesson_attendance(
+    lesson_id: int, db: DbSession, user: TutorUser
+) -> list[AttendanceRowOut]:
+    """The register: every student in the class, `state: null` where not taken."""
+    lesson = await _owned_lesson(db, user, lesson_id)
+    return await _register(db, lesson)
+
+
+@router.put("/{lesson_id}/attendance", response_model=list[AttendanceRowOut])
+async def set_lesson_attendance(
+    lesson_id: int, body: AttendanceUpdate, db: DbSession, user: TutorUser
+) -> list[AttendanceRowOut]:
+    lesson = await _owned_lesson(db, user, lesson_id)
+    try:
+        await attendance.set_attendance(
+            db,
+            lesson,
+            [attendance.AttendanceEntry(e.student_id, e.state) for e in body.entries],
+            recorded_by=user,
+        )
+    except attendance.AttendanceConflict as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Attendance was changed at the same time — refresh and try again",
+        ) from exc
+    except attendance.AttendanceStudentNotFound as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Student not found in this lesson's group"
+        ) from exc
+    return await _register(db, lesson)
