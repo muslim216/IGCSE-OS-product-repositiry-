@@ -13,11 +13,13 @@ from app.models import (
     User,
 )
 from app.schemas.activity import ActivitySummary
+from app.schemas.attendance import StudentAttendanceOut
 from app.schemas.auth import UserOut, UserTimezoneUpdate
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
 from app.schemas.mistake_rollup import MyCategoryCount, MyMistakePattern
 from app.schemas.orgs import OrganizationOut, OrganizationTimezoneUpdate
 from app.services import activity
+from app.services.attendance import student_attendance
 from app.services.mistake_rollup import roll_up_mistakes
 from app.services.subjects import visible_subject_ids
 from app.services.timezones import normalize_timezone
@@ -67,6 +69,14 @@ async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleS
         )
         for slot, group in rows
     ]
+
+
+@router.get("/attendance", response_model=StudentAttendanceOut)
+async def my_attendance(db: DbSession, user: StudentUser) -> StudentAttendanceOut:
+    """The caller's own attendance. The student is the token's, never a parameter
+    (`SEC-7`); a parent reads a child's through `/students/{id}/attendance`."""
+    result = await student_attendance(db, student_id=user.id, organization_id=user.organization_id)
+    return StudentAttendanceOut.model_validate(result)
 
 
 @router.get("/today-lessons", response_model=list[UpcomingScheduleSlot])

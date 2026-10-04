@@ -10,6 +10,15 @@ import type { SubjectReadiness } from "../api/readiness";
    visit rarely, and who read ambiguity as bad news that then lands on the
    child. Every test here is about one of those three facts. */
 
+const NO_ATTENDANCE_RECORD = {
+  lessons: 0,
+  present: 0,
+  absent: 0,
+  not_taken: 0,
+  rate: null,
+  classes: [],
+};
+
 function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
   return {
     subject_id: 1,
@@ -65,6 +74,7 @@ function stubFetch(subjects: SubjectReadiness[], narrative: string | null = null
       if (url.includes("/readiness/students/")) {
         return json({ student_id: 2, student_name: "Sara", subjects });
       }
+      if (url.includes("/attendance")) return json(NO_ATTENDANCE_RECORD);
       return json([]);
     }),
   );
@@ -153,6 +163,7 @@ test("a summary that failed to load says so and can be retried", async () => {
       if (url.includes("/readiness/students/")) {
         return json({ student_id: 2, student_name: "Sara", subjects: [subject()] });
       }
+      if (url.includes("/attendance")) return json(NO_ATTENDANCE_RECORD);
       return json([]);
     }),
   );

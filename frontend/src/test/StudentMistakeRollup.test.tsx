@@ -85,6 +85,9 @@ function stub(mistakes: unknown, failWith?: number, subjects = [SUBJECT]) {
       const url = new URL(String(input), "http://localhost");
       calls.push(url.pathname + url.search);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+      if (url.pathname.endsWith("/attendance")) {
+        return json({ lessons: 0, present: 0, absent: 0, not_taken: 0, rate: null, classes: [] });
+      }
       if (url.pathname === "/api/v1/readiness/students/2") {
         return json({ student_id: 2, student_name: "Sara", subjects });
       }

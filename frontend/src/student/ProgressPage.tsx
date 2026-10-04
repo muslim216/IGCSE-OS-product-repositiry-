@@ -5,6 +5,7 @@ import { DirectionMark, EmptyState, SectionCard } from "../components/ui";
 import { ErrorState, PageHeader, PageSkeleton } from "../components/page";
 import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
+import AttendancePanel from "../components/AttendancePanel";
 import { ABSENT } from "../lib/labels";
 import {
   GAP_REASON,
@@ -268,6 +269,8 @@ export default function ProgressPage() {
         {/* All-subject criteria need no class subject, and the parent's view
             shows them regardless — the student must not see less. */}
         <CustomCriteriaPanel studentId={readiness.data.student_id} />
+        {/* Attendance does not depend on readiness evidence. */}
+        <AttendancePanel studentId={readiness.data.student_id} own />
       </div>
     );
   }
@@ -280,6 +283,7 @@ export default function ProgressPage() {
       ))}
       {/* Beside readiness, never in it (owner decisions 6 and 18). */}
       <CustomCriteriaPanel studentId={readiness.data.student_id} />
+      <AttendancePanel studentId={readiness.data.student_id} own />
       {/* Written reports are the last rung of the hierarchy — detail, under the
           numbers and their explanation. They moved here with the rest of the
           student's backward-looking view when the old Readiness page was

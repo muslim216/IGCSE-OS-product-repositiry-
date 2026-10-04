@@ -1013,6 +1013,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Attendance
+         * @description The caller's own attendance. The student is the token's, never a parameter
+         *     (`SEC-7`); a parent reads a child's through `/students/{id}/attendance`.
+         */
+        get: operations["my_attendance_api_v1_me_attendance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/today-lessons": {
         parameters: {
             query?: never;
@@ -2116,6 +2137,30 @@ export interface paths {
         put?: never;
         /** Add Communication */
         post: operations["add_communication_api_v1_students__student_id__communications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student Attendance View
+         * @description A student's attendance for a tutor who teaches them, an admin of their
+         *     organization, or a linked parent. `_viewable_student` is the one ownership
+         *     check (a refusal is a 404, `API-7`). The organization is the viewing staff
+         *     member's own, so a tutor never reads another tenant's lessons (`SEC-7`); a
+         *     parent reads in the child's home organization.
+         */
+        get: operations["student_attendance_view_api_v1_students__student_id__attendance_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3469,6 +3514,25 @@ export interface components {
             weight: number;
             /** Reason */
             reason: string | null;
+        };
+        /** ClassAttendanceOut */
+        ClassAttendanceOut: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Lessons */
+            lessons: number;
+            /** Present */
+            present: number;
+            /** Absent */
+            absent: number;
+            /** Not Taken */
+            not_taken: number;
+            /** Rate */
+            rate: number | null;
+            /** Recent */
+            recent: components["schemas"]["RecentLessonOut"][];
         };
         /** ClassBrief */
         ClassBrief: {
@@ -4964,6 +5028,20 @@ export interface components {
             /** Weak Threshold */
             weak_threshold?: number | null;
         };
+        /** RecentLessonOut */
+        RecentLessonOut: {
+            /** Lesson Id */
+            lesson_id: number;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Start Time */
+            start_time: string | null;
+            mode: components["schemas"]["LessonMode"];
+            state: components["schemas"]["AttendanceState"] | null;
+        };
         /**
          * ReflowOut
          * @description What the last automatic reflow for a syllabus change did (task 6.8).
@@ -5193,6 +5271,21 @@ export interface components {
              * @default false
              */
             highest_in_class: boolean;
+        };
+        /** StudentAttendanceOut */
+        StudentAttendanceOut: {
+            /** Lessons */
+            lessons: number;
+            /** Present */
+            present: number;
+            /** Absent */
+            absent: number;
+            /** Not Taken */
+            not_taken: number;
+            /** Rate */
+            rate: number | null;
+            /** Classes */
+            classes: components["schemas"]["ClassAttendanceOut"][];
         };
         /**
          * StudentCreate
@@ -7898,6 +7991,26 @@ export interface operations {
             };
         };
     };
+    my_attendance_api_v1_me_attendance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentAttendanceOut"];
+                };
+            };
+        };
+    };
     my_today_lessons_api_v1_me_today_lessons_get: {
         parameters: {
             query?: never;
@@ -9938,6 +10051,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ParentCommunicationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    student_attendance_view_api_v1_students__student_id__attendance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudentAttendanceOut"];
                 };
             };
             /** @description Validation Error */

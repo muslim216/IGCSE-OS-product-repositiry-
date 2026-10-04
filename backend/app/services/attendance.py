@@ -5,8 +5,10 @@ Attendance is not a readiness factor (AV-33): nothing here touches `Evidence`,
 recorded, and is reported as such (`PROD-2`) — never defaulted to absent.
 """
 
-from dataclasses import dataclass
-from datetime import datetime
+import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -15,12 +17,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     AttendanceSource,
     AttendanceState,
+    Group,
     GroupMember,
     Lesson,
     LessonAttendance,
+    LessonMode,
+    Organization,
     User,
 )
 from app.models.base import utcnow
+from app.services.timezones import now_in
+
+log = logging.getLogger(__name__)
+
+#: How many of the latest lessons a class lists.
+RECENT_LESSONS = 8
 
 
 class AttendanceConflict(RuntimeError):
@@ -181,3 +192,182 @@ async def delete_for_lesson(session: AsyncSession, lesson_id: int) -> None:
     ):
         await session.delete(row)
     await session.flush()
+
+
+@dataclass(frozen=True)
+class RecentLesson:
+    lesson_id: int
+    date: date
+    start_time: time | None
+    mode: LessonMode
+    #: `None` means not taken — never absent (`PROD-2`).
+    state: AttendanceState | None
+
+
+@dataclass
+class ClassAttendance:
+    group_id: int
+    group_name: str
+    #: Lessons the class held that count for this student.
+    lessons: int = 0
+    present: int = 0
+    absent: int = 0
+    not_taken: int = 0
+    recent: list[RecentLesson] = field(default_factory=list)
+
+    @property
+    def marked(self) -> int:
+        return self.present + self.absent
+
+    @property
+    def rate(self) -> float | None:
+        """present / (present + absent). Not-taken lessons are excluded, and
+        `None` — not 0 — when nothing was marked (`PROD-2`)."""
+        return self.present / self.marked if self.marked else None
+
+
+@dataclass
+class StudentAttendance:
+    classes: list[ClassAttendance] = field(default_factory=list)
+
+    @property
+    def lessons(self) -> int:
+        return sum(c.lessons for c in self.classes)
+
+    @property
+    def present(self) -> int:
+        return sum(c.present for c in self.classes)
+
+    @property
+    def absent(self) -> int:
+        return sum(c.absent for c in self.classes)
+
+    @property
+    def not_taken(self) -> int:
+        return sum(c.not_taken for c in self.classes)
+
+    @property
+    def rate(self) -> float | None:
+        marked = self.present + self.absent
+        return self.present / marked if marked else None
+
+
+def _in_zone(moment: datetime, zone: str | None) -> datetime:
+    """`moment` in the organization's zone. A naive datetime (SQLite) is UTC; an
+    unusable zone degrades to UTC like `now_in`."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    if zone:
+        try:
+            return moment.astimezone(ZoneInfo(zone))
+        except Exception:  # noqa: BLE001 - same degrade-to-UTC rule as now_in
+            pass
+    return moment.astimezone(timezone.utc)
+
+
+def _local_date(moment: datetime, zone: str | None) -> date:
+    return _in_zone(moment, zone).date()
+
+
+def _has_ended(lesson: Lesson, now_local: datetime) -> bool:
+    """Whether a lesson dated today has finished, in the organization's zone.
+    Unknown start time means unknown end: not ended."""
+    if lesson.start_time is None:
+        return False
+    end = datetime.combine(lesson.date, lesson.start_time) + timedelta(minutes=lesson.duration_min)
+    return end <= now_local.replace(tzinfo=None)
+
+
+async def student_attendance(
+    session: AsyncSession,
+    *,
+    student_id: int,
+    organization_id: int,
+    group_id: int | None = None,
+    tutor_id: int | None = None,
+    now: datetime | None = None,
+) -> StudentAttendance:
+    """One student's attendance per class, inside one organization. This is the
+    single read reports (task 8.6) will call; do not write a second query.
+
+    Counts lessons dated on or before the organization's today (an unmarked
+    lesson today only once it has ended). A class the
+    student sits in contributes every such lesson; one they have left
+    contributes only lessons that carry a mark for them. Lessons held before
+    the student joined are not "not taken": `GroupMember.created_at` is the
+    join moment (a row is added at enrolment), and a marked lesson always
+    counts whatever the date. The join moment is converted to the
+    organization's timezone before comparing with the lesson date.
+
+    `tutor_id` limits the read to classes that tutor teaches; a tutor must not
+    see a shared student's classes taught by someone else. Admin, parent and
+    student pass `None` for the full view. A student enrolled in another
+    organization's class is not shown (cross-org enrolment is a backlog item).
+    """
+    org = await session.get(Organization, organization_id)
+    if org is None:
+        log.warning("organization %s not found; attendance falls back to UTC", organization_id)
+    zone = org.timezone if org else None
+    # `now` exists so tests can pin the clock; production passes nothing.
+    now_local = _in_zone(now, zone) if now is not None else now_in(zone)
+    today = now_local.date()
+
+    member_q = (
+        select(GroupMember.group_id, GroupMember.created_at)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(GroupMember.student_id == student_id, Group.organization_id == organization_id)
+    )
+    if group_id is not None:
+        member_q = member_q.where(GroupMember.group_id == group_id)
+    if tutor_id is not None:
+        member_q = member_q.where(Group.tutor_id == tutor_id)
+    joined = {
+        gid: _local_date(created, zone) for gid, created in (await session.execute(member_q)).all()
+    }
+
+    lesson_q = (
+        select(Lesson, LessonAttendance.state)
+        .join(Group, Group.id == Lesson.group_id)
+        .outerjoin(
+            LessonAttendance,
+            (LessonAttendance.lesson_id == Lesson.id) & (LessonAttendance.student_id == student_id),
+        )
+        .where(
+            Lesson.organization_id == organization_id,
+            Lesson.date <= today,
+            Lesson.group_id.in_(joined) | LessonAttendance.id.is_not(None),
+        )
+        .order_by(Lesson.date.desc(), Lesson.id.desc())
+    )
+    if group_id is not None:
+        lesson_q = lesson_q.where(Lesson.group_id == group_id)
+    if tutor_id is not None:
+        lesson_q = lesson_q.where(Group.tutor_id == tutor_id)
+
+    per_group: dict[int, ClassAttendance] = {}
+    for lesson, state in (await session.execute(lesson_q)).all():
+        joined_on = joined.get(lesson.group_id)
+        if state is None and joined_on is not None and lesson.date < joined_on:
+            continue
+        if state is None and lesson.date == today and not _has_ended(lesson, now_local):
+            # Today's lesson is not "not taken" until it is over; with no start
+            # time we cannot tell, so it counts from tomorrow.
+            continue
+        entry = per_group.setdefault(lesson.group_id, ClassAttendance(lesson.group_id, ""))
+        entry.lessons += 1
+        if state == AttendanceState.present:
+            entry.present += 1
+        elif state == AttendanceState.absent:
+            entry.absent += 1
+        else:
+            entry.not_taken += 1
+        if len(entry.recent) < RECENT_LESSONS:
+            entry.recent.append(
+                RecentLesson(lesson.id, lesson.date, lesson.start_time, lesson.mode, state)
+            )
+    if not per_group:
+        return StudentAttendance()
+    name_rows = await session.execute(select(Group.id, Group.name).where(Group.id.in_(per_group)))
+    for gid, name in name_rows.all():
+        per_group[gid].group_name = name
+    return StudentAttendance(classes=sorted(per_group.values(), key=lambda c: c.group_name.lower()))

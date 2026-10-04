@@ -2896,6 +2896,33 @@
         ]
       }
     },
+    "/api/v1/me/attendance": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "My Attendance",
+        "description": "The caller's own attendance. The student is the token's, never a parameter\n(`SEC-7`); a parent reads a child's through `/students/{id}/attendance`.",
+        "operationId": "my_attendance_api_v1_me_attendance_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAttendanceOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/me/today-lessons": {
       "get": {
         "tags": [
@@ -6237,6 +6264,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ParentCommunicationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/attendance": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Student Attendance View",
+        "description": "A student's attendance for a tutor who teaches them, an admin of their\norganization, or a linked parent. `_viewable_student` is the one ownership\ncheck (a refusal is a 404, `API-7`). The organization is the viewing staff\nmember's own, so a tutor never reads another tenant's lessons (`SEC-7`); a\nparent reads in the child's home organization.",
+        "operationId": "student_attendance_view_api_v1_students__student_id__attendance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudentAttendanceOut"
                 }
               }
             }
@@ -10137,6 +10212,64 @@
           "reason"
         ],
         "title": "ChapterReasonOut"
+      },
+      "ClassAttendanceOut": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "lessons": {
+            "type": "integer",
+            "title": "Lessons"
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present"
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent"
+          },
+          "not_taken": {
+            "type": "integer",
+            "title": "Not Taken"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "recent": {
+            "items": {
+              "$ref": "#/components/schemas/RecentLessonOut"
+            },
+            "type": "array",
+            "title": "Recent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "lessons",
+          "present",
+          "absent",
+          "not_taken",
+          "rate",
+          "recent"
+        ],
+        "title": "ClassAttendanceOut"
       },
       "ClassBrief": {
         "properties": {
@@ -14337,6 +14470,53 @@
         ],
         "title": "ReadinessWeightsUpdate"
       },
+      "RecentLessonOut": {
+        "properties": {
+          "lesson_id": {
+            "type": "integer",
+            "title": "Lesson Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/LessonMode"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "lesson_id",
+          "date",
+          "start_time",
+          "mode",
+          "state"
+        ],
+        "title": "RecentLessonOut"
+      },
       "ReflowOut": {
         "properties": {
           "status": {
@@ -15024,6 +15204,54 @@
           "submission_status"
         ],
         "title": "StudentAssignment"
+      },
+      "StudentAttendanceOut": {
+        "properties": {
+          "lessons": {
+            "type": "integer",
+            "title": "Lessons"
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present"
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent"
+          },
+          "not_taken": {
+            "type": "integer",
+            "title": "Not Taken"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/ClassAttendanceOut"
+            },
+            "type": "array",
+            "title": "Classes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lessons",
+          "present",
+          "absent",
+          "not_taken",
+          "rate",
+          "classes"
+        ],
+        "title": "StudentAttendanceOut"
       },
       "StudentCreate": {
         "properties": {

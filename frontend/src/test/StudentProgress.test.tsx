@@ -47,6 +47,9 @@ function stubFetch(subjects: SubjectReadiness[], criteria: unknown[] = []) {
         return json({ student_id: 1, student_name: "Sara", subjects });
       }
       if (url.includes("/custom-criteria")) return json(criteria);
+      if (url.includes("/attendance")) {
+        return json({ lessons: 0, present: 0, absent: 0, not_taken: 0, rate: null, classes: [] });
+      }
       return json([]);
     }),
   );
@@ -116,6 +119,14 @@ test("two scores inside one grade read as a match, because that is what is shown
 
 test("no averaging grade means no sentence at all", () => {
   expect(gradeGap(subject({ averaging_grade: null, averaging_score: null }))).toBeNull();
+});
+
+test("a student with no subjects still sees their attendance", async () => {
+  // Attendance is independent of readiness evidence.
+  stubFetch([]);
+  renderProgress();
+  expect(await screen.findByRole("heading", { name: /attendance/i })).toBeInTheDocument();
+  expect(screen.getByText("No attendance recorded yet")).toBeInTheDocument();
 });
 
 test("a weak topic shows its score with the evidence count from its topic row", async () => {

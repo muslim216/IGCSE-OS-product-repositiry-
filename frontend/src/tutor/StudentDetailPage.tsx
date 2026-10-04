@@ -15,6 +15,7 @@ import { studentMistakes, type MistakeTally } from "../api/students";
 import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
+import AttendancePanel from "../components/AttendancePanel";
 import { ABSENT, sourceLabel } from "../lib/labels";
 import { ApiError } from "../api/client";
 import { EmptyState, SectionCard } from "../components/ui";
@@ -242,6 +243,9 @@ export default function StudentDetailPage() {
 
         {/* Beside readiness, never in it (owner decision 6). */}
         <CustomCriteriaPanel studentId={sid} editable />
+
+        {/* Beside readiness, never in it (AV-33). */}
+        <AttendancePanel studentId={sid} />
 
         {/* One per subject, each named. A single section fed by the page's
             `subjectId` showed the first subject's mistakes under a bare
