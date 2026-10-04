@@ -41,11 +41,38 @@ def resolve_zone(user_zone: str | None, org_zone: str | None, group_id: int) -> 
     loaded. The caller keeps the UTC fallback (`plan_timing`); the warning is so
     "lessons end at the wrong hour" is traceable to a missing zone (AV-67)."""
     zone = effective_timezone(user_zone, org_zone)
-    if zone is None:
-        log.warning("class %s has no timezone (user or organization); using UTC", group_id)
-    elif not is_valid_timezone(zone):
-        log.warning("class %s timezone %r cannot be loaded; using UTC", group_id, zone)
+    if (zone is None or not is_valid_timezone(zone)) and (group_id, zone) not in _warned:
+        # Once per class (and zone value) until the sweep clears the set, not once
+        # per slot: a class with a missing zone would otherwise log per lesson.
+        _warned.add((group_id, zone))
+        if zone is None:
+            log.warning("class %s has no timezone (user or organization); using UTC", group_id)
+        else:
+            log.warning("class %s timezone %r cannot be loaded; using UTC", group_id, zone)
     return zone
+
+
+_warned: set[tuple[int, str | None]] = set()
+
+
+def reset_zone_warnings() -> None:
+    """Called at the start of each sweep: a still-broken zone warns again next time."""
+    _warned.clear()
+
+
+async def class_zone(session: AsyncSession, group_id: int) -> str | None:
+    """The class's effective zone: its tutor's override, else the organization's
+    (the auto-record's rule, so every surface agrees on when a lesson ends)."""
+    row = (
+        await session.execute(
+            select(User.time_zone, Organization.timezone)
+            .select_from(Group)
+            .join(User, User.id == Group.tutor_id)
+            .join(Organization, Organization.id == Group.organization_id)
+            .where(Group.id == group_id)
+        )
+    ).one_or_none()
+    return resolve_zone(row[0], row[1], group_id) if row else None
 
 
 async def slot_has_ended(
@@ -53,16 +80,7 @@ async def slot_has_ended(
 ) -> bool:
     """Has this planned lesson's local end passed? Same rule the auto-record uses
     (start, else timetable, else end of the local day)."""
-    row = (
-        await session.execute(
-            select(User.time_zone, Organization.timezone)
-            .select_from(Group)
-            .join(User, User.id == Group.tutor_id)
-            .join(Organization, Organization.id == Group.organization_id)
-            .where(Group.id == plan.group_id)
-        )
-    ).one_or_none()
-    zone = resolve_zone(row[0], row[1], plan.group_id) if row else None
+    zone = await class_zone(session, plan.group_id)
     by_weekday = (await timetable_start_times(session, [plan.group_id])).get(plan.group_id, {})
     start = (
         slot.start_time

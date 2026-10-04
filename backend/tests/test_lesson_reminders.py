@@ -270,3 +270,59 @@ def test_a_recorded_past_lesson_is_taught_and_a_future_one_is_not_considered():
         [_fact(date(2026, 10, 8), has_lesson=True, sid=1), _fact(date(2026, 10, 12), sid=2)], today
     )
     assert (p.planned_to_date, p.taught_to_date, p.missed) == (1, 1, 0)
+
+
+async def test_editing_the_date_to_the_same_weekday_keeps_a_custom_time(
+    client, tutor, group, subject
+):
+    await add_timetable(group, 0, time(17, 0))
+    ch = await make_chapters(subject)
+    _, ids = await make_plan(group, tutor, [(ch["c1"], MON, time(18, 0))])
+    resp = await client.patch(
+        _slot_url(group, ids[0]),
+        json={"scheduled_date": (MON + timedelta(days=7)).isoformat()},
+        headers=tutor["headers"],
+    )
+    assert resp.json()["start_time"] == "18:00:00"
+
+
+async def test_an_offset_aware_start_time_is_422(client, tutor, group, subject):
+    ch = await make_chapters(subject)
+    _, ids = await make_plan(group, tutor, [(ch["c1"], MON, time(18, 0))])
+    resp = await client.patch(
+        _slot_url(group, ids[0]), json={"start_time": "17:00:00+02:00"}, headers=tutor["headers"]
+    )
+    assert resp.status_code == 422
+
+
+async def test_progress_uses_each_classs_tutor_zone_not_the_viewers(
+    client, tutor, group, subject, monkeypatch
+):
+    from app.models import Organization, UserRole
+    from app.services import plan_progress
+
+    await set_org_timezone("Africa/Cairo")
+    ch = await make_chapters(subject)
+    await make_plan(group, tutor, [(ch["c1"], MON, time(9, 0))])
+    async with async_session() as s:
+        org = await s.scalar(select(Organization))
+        admin = User(
+            email="admin-zone@example.com",
+            password_hash="x",
+            role=UserRole.admin,
+            name="Admin",
+            organization_id=org.id,
+            time_zone="Pacific/Kiritimati",
+        )
+        s.add(admin)
+        await s.commit()
+        seen: list[str | None] = []
+        real = plan_progress.slot_end_utc
+
+        def spy(day, start, minutes, zone):
+            seen.append(zone)
+            return real(day, start, minutes, zone)
+
+        monkeypatch.setattr(plan_progress, "slot_end_utc", spy)
+        await plan_progress.class_progress(s, admin, date(2026, 10, 20), own_classes_only=False)
+    assert seen == ["Africa/Cairo"]

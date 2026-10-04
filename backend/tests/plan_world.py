@@ -20,7 +20,7 @@ from app.models import (
 from tests.factories import org_id
 
 EXAM = date.today() + timedelta(days=200)
-LONG_AGO = datetime.now(timezone.utc) - timedelta(days=60)
+LONG_AGO = datetime(2020, 1, 1, tzinfo=timezone.utc)  # before any date a test uses
 
 
 async def make_chapters(subject, *, topics_in_c1: int = 5) -> dict:

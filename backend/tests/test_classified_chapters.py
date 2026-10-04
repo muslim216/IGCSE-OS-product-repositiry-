@@ -418,7 +418,10 @@ def test_the_marking_context_is_the_only_thing_that_reads_a_classified_s_notes()
     #: `student_crm.py` has its own unrelated `notes` (TutorNote), and
     #: `plan_lessons.py` writes a taught `Lesson`'s own notes, as does
     #: `lesson_autorecord.py` when it records a planned lesson (always `None`).
-    exempt_files = {"assignments.py", "student_crm.py", "plan_lessons.py", "lesson_autorecord.py"}
+    exempt_files = {"assignments.py", "student_crm.py", "plan_lessons.py"}
+    #: `lesson_autorecord.py` is exempt only for the `notes=None` *keyword* of its
+    #: `create_lesson` call; an `.notes` attribute read there is still guarded.
+    exempt_none_keyword_files = {"lesson_autorecord.py"}
     #: `marking_context.py` is **not** exempt as a file. `E16` says one
     #: *function* owns the precedence, so only that function's own line range is
     #: allowed — a second reader added elsewhere in the same module is exactly
@@ -441,6 +444,13 @@ def test_the_marking_context_is_the_only_thing_that_reads_a_classified_s_notes()
                 isinstance(node, ast.keyword) and node.arg == "notes"
             ):
                 if path == assembler and node.lineno in allowed_lines:
+                    continue
+                if (
+                    path.name in exempt_none_keyword_files
+                    and isinstance(node, ast.keyword)
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value is None
+                ):
                     continue
                 found.append(f"{path.name}:{node.lineno}")
     assert found == [], (

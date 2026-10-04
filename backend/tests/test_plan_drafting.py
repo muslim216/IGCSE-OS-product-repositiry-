@@ -81,7 +81,10 @@ async def world():
             Topic(subject_id=subject.id, chapter_id=chapters[0].id, code="1.1", title="Moles")
         )
         session.add_all(
-            ScheduleSlot(group_id=group.id, weekday=d, start_time=dtime(17, 0)) for d in (0, 3)
+            ScheduleSlot(
+                group_id=group.id, weekday=d, start_time=dtime(17, 0) if d == 0 else dtime(15, 30)
+            )
+            for d in (0, 3)
         )
         plan = TeachingPlan(
             organization_id=org.id,
@@ -722,4 +725,6 @@ async def test_generated_slots_take_their_start_time_from_the_weekly_timetable(
     job = await run_job(world)
     assert job.status is JobStatus.done, job.error
     rows = await slots(world)
-    assert rows and all(r.start_time == dtime(17, 0) for r in rows)
+    assert rows
+    for r in rows:  # Monday 17:00, Thursday 15:30: per row, not one value for all
+        assert r.start_time == (dtime(17, 0) if r.scheduled_date.weekday() == 0 else dtime(15, 30))

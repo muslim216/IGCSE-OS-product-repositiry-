@@ -18,7 +18,7 @@ Lock order is `plan_lessons._accepted_slot`'s: the plan row, then its slots.
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,8 +28,8 @@ from app.models.base import utcnow
 from app.services.plan_drafting import _weekdays, renumber_slots
 from app.services.plan_lessons import _accepted_slot
 from app.services.plan_scheduler import DateRange, available_lesson_dates
-from app.services.plan_start_times import timetable_start_times
-from app.services.plan_timing import timetable_default
+from app.services.plan_start_times import class_zone, timetable_start_times
+from app.services.plan_timing import slot_end_utc, timetable_default
 from app.services.teaching_plan import (
     STARTED_PROVENANCE,
     PlanStateError,
@@ -56,7 +56,13 @@ def _is_untaught(slot: PlanSlot) -> bool:
 
 
 async def cancel_slot(
-    session: AsyncSession, *, group: Group, user: User, slot_id: int, today: date
+    session: AsyncSession,
+    *,
+    group: Group,
+    user: User,
+    slot_id: int,
+    today: date,
+    now: datetime | None = None,
 ) -> CancelOutcome:
     """Cancel the slot and shift the tail. One transaction."""
     target = await _accepted_slot(session, group, slot_id)
@@ -94,13 +100,24 @@ async def cancel_slot(
     weekdays = await _weekdays(session, group, plan)
     start = max(target.scheduled_date + timedelta(days=1), today)
     free = available_lesson_dates(start, plan.exam_date, weekdays, blocked)
+    start_times = (await timetable_start_times(session, [group.id])).get(group.id, {})
+    if free and free[0] == today:
+        # A late cancel must not put a lesson on today's date when today's lesson
+        # window has already ended (tutor-local): it would be due at once.
+        ends = slot_end_utc(
+            today,
+            timetable_default(start_times, today),
+            plan.lesson_minutes,
+            await class_zone(session, group.id),
+        )
+        if ends <= (now or datetime.now(timezone.utc)):
+            free = free[1:]
 
     if len(free) < len(tail) + 1:
         note_unrescheduled(plan, target.id)
         await session.commit()
         return CancelOutcome(shifted=False, moved=0, message=NO_ROOM_MESSAGE)
 
-    start_times = (await timetable_start_times(session, [group.id])).get(group.id, {})
     replacement = PlanSlot(
         plan_id=plan.id,
         chapter_id=target.chapter_id,

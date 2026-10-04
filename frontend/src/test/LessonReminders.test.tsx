@@ -45,6 +45,7 @@ function renderIt() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return client;
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -64,8 +65,10 @@ test("shows the class, the time, what the plan covers and a Review link to the p
 
 test("renders nothing when no lesson is about to start", async () => {
   stub([]);
-  const { container } = (renderIt(), { container: document.body });
-  await waitFor(() => expect(container.textContent).toBe(""));
+  const client = renderIt();
+  // Wait for the answer itself, so "nothing" is the result and not the moment before it.
+  await waitFor(() => expect(client.getQueryState(["lesson-reminders"])?.status).toBe("success"));
+  expect(document.body.textContent).toBe("");
 });
 
 test("Cancel is one tap and posts to the slot's cancel endpoint", async () => {
@@ -121,4 +124,44 @@ test("a failed check says so, with a retry, instead of looking like nothing is c
   fail = false;
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(await screen.findByText(/Year 11 Chemistry/)).toBeInTheDocument();
+});
+
+test("a failed refresh is still said out loud when older rows are cached", async () => {
+  let fail = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      fail
+        ? new Response(JSON.stringify({ detail: "down" }), { status: 500 })
+        : new Response(JSON.stringify([REMINDER]), { status: 200 }),
+    ),
+  );
+  const client = renderIt();
+  expect(await screen.findByText(/Year 11 Chemistry/)).toBeInTheDocument();
+  fail = true;
+  await client.refetchQueries({ queryKey: ["lesson-reminders"] });
+  expect(await screen.findByText(/Couldn't check for upcoming lessons/)).toBeInTheDocument();
+  expect(screen.getByText(/Year 11 Chemistry/)).toBeInTheDocument();
+});
+
+test("a cancelled lesson leaves the list at once, before any refetch answers", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/cancel"))
+        return new Response(JSON.stringify({ shifted: true, moved: 1, message: null, plan: {} }));
+      // The refetch keeps returning the stale row.
+      return new Response(JSON.stringify([REMINDER]));
+    }),
+  );
+  const client = renderIt();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Cancel the Year 11 Chemistry lesson" }),
+  );
+  await waitFor(() =>
+    expect((client.getQueryData(["lesson-reminders"]) as unknown[] | undefined)?.length ?? 0).toBe(
+      0,
+    ),
+  );
 });

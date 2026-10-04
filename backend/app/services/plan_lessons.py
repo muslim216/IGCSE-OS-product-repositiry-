@@ -17,6 +17,7 @@ lesson writes exactly what the tutor sent; an auto-recorded one writes the
 slot's share of its chapter (`teaching_plan.topic_share`).
 """
 
+from dataclasses import dataclass
 from datetime import date, time
 
 from sqlalchemy import select, update
@@ -45,6 +46,16 @@ from app.services.teaching_plan import (
     PlanStateError,
     note_unrescheduled,
 )
+
+
+@dataclass(frozen=True)
+class ClaimGuard:
+    """The slot values an auto-record decided on. The claim UPDATE requires them
+    unchanged, so an edit landing after the decision cannot be recorded over."""
+
+    scheduled_date: date
+    chapter_id: int
+    start_time: time | None  # the slot's own stored value (NULL = none)
 
 
 class ScheduleSlotNotFound(LookupError):
@@ -128,7 +139,7 @@ async def create_lesson(
     mode: LessonMode = LessonMode.in_person,
     start_time: time | None = None,
     origin: LessonOrigin = LessonOrigin.tutor,
-    require_slot_date: bool = False,
+    claim_guard: ClaimGuard | None = None,
 ) -> Lesson:
     """Create the lesson, its topics, and (when given) confirm the plan slot.
 
@@ -182,9 +193,19 @@ async def create_lesson(
                 PlanSlot.provenance.not_in(STARTED_PROVENANCE),
                 # A cancel that landed after the read above must still win.
                 PlanSlot.cancelled_at.is_(None),
-                # The auto-record's backstop: a slot moved to another day since
-                # it was judged due is not this lesson any more.
-                *((PlanSlot.scheduled_date == lesson_date,) if require_slot_date else ()),
+                # The auto-record's backstop: a slot moved, re-chaptered or re-timed
+                # since it was judged due (and its topics chosen) is not this lesson.
+                *(
+                    (
+                        PlanSlot.scheduled_date == claim_guard.scheduled_date,
+                        PlanSlot.chapter_id == claim_guard.chapter_id,
+                        PlanSlot.start_time.is_(None)
+                        if claim_guard.start_time is None
+                        else PlanSlot.start_time == claim_guard.start_time,
+                    )
+                    if claim_guard is not None
+                    else ()
+                ),
             )
             .values(lesson_id=lesson.id, provenance=PlanSlotProvenance.confirmed)
             .execution_options(synchronize_session=False)
@@ -211,22 +232,36 @@ async def release_slot_for_lesson(session: AsyncSession, lesson_id: int) -> None
     back to `generated`: the tutor has touched this slot, and 6.8's reflow must
     not treat it as generator-made and move it (AV-77). Does not commit.
     """
-    plan_id = await session.scalar(select(PlanSlot.plan_id).where(PlanSlot.lesson_id == lesson_id))
-    if plan_id is None:
-        return
     # The plan row lock first, as `accept_plan` takes it, so the two serialise:
     # an accept that is carrying this link to a new plan finishes (and moves the
-    # link) before this clears it, or this finishes before accept reads it.
-    await session.scalar(
-        select(TeachingPlan.id).where(TeachingPlan.id == plan_id).with_for_update()
-    )
-    slot = await session.scalar(
-        select(PlanSlot)
-        .where(PlanSlot.lesson_id == lesson_id)
-        .execution_options(populate_existing=True)
-    )
-    if slot is None:  # accept moved the link while we waited
-        return
+    # link) before this clears it, or this finishes before accept reads it. The
+    # link may have moved to the *new* plan while we waited, so the slot is
+    # re-read under the lock and, if it now sits on another plan, that plan is
+    # locked and the read repeated. What gets cancelled is always the slot that
+    # holds the link now, never the old plan's.
+    slot = None
+    locked_plan_id = None
+    for _ in range(3):
+        plan_id = await session.scalar(
+            select(PlanSlot.plan_id).where(PlanSlot.lesson_id == lesson_id)
+        )
+        if plan_id is None:
+            return
+        await session.scalar(
+            select(TeachingPlan.id).where(TeachingPlan.id == plan_id).with_for_update()
+        )
+        slot = await session.scalar(
+            select(PlanSlot)
+            .where(PlanSlot.lesson_id == lesson_id)
+            .execution_options(populate_existing=True)
+        )
+        if slot is None:  # the link is gone (the lesson was released elsewhere)
+            return
+        locked_plan_id = plan_id
+        if slot.plan_id == plan_id:
+            break
+    assert slot is not None and locked_plan_id is not None
+    plan_id = slot.plan_id
     lesson = await session.get(Lesson, lesson_id)
     slot.lesson_id = None
     plan = await session.get(TeachingPlan, plan_id, populate_existing=True)

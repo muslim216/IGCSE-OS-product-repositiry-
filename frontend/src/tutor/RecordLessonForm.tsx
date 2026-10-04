@@ -46,7 +46,7 @@ export default function RecordLessonForm({
   // "Review" on a lesson reminder lands here with `?slot=`: pre-fill from that
   // planned lesson instead of the earliest unstarted one (task 7.4, AV-120).
   // Read once at mount; the link always mounts the form fresh.
-  const [reviewSlot] = useState(() => {
+  const [reviewSlot, setReviewSlot] = useState<number | null>(() => {
     const raw = new URLSearchParams(window.location.search).get("slot");
     const id = raw === null ? NaN : Number(raw);
     return Number.isInteger(id) && id > 0 ? id : null;
@@ -152,6 +152,20 @@ export default function RecordLessonForm({
       }),
     onSuccess: () => {
       if (usingPlan) setConsumedSlot(suggestion.slot_id);
+      // The reminder's lesson is done: the next suggestion is the plan's next,
+      // not the same ?slot= again.
+      setReviewSlot(null);
+      setUseNextInstead(false);
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("slot")) {
+        params.delete("slot");
+        const query = params.toString();
+        window.history.replaceState(
+          window.history.state,
+          "",
+          window.location.pathname + (query ? `?${query}` : "") + window.location.hash,
+        );
+      }
       setAppliedSlot(null);
       setDismissed(false);
       setOffer(null);

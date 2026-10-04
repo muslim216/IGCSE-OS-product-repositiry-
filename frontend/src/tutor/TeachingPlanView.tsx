@@ -197,6 +197,7 @@ function SlotRow({
   onSave,
   onCancel,
   cancelling = false,
+  cancelBusy = false,
 }: {
   slot: PlanSlot;
   chapters: Chapter[];
@@ -212,6 +213,8 @@ function SlotRow({
   /** Only the accepted plan's untaught lessons can be cancelled (AV-120). */
   onCancel?: () => void;
   cancelling?: boolean;
+  /** Any cancel is in flight: the shift is one at a time, so none may start. */
+  cancelBusy?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(slot.scheduled_date);
@@ -335,7 +338,7 @@ function SlotRow({
               size="sm"
               variant="ghost"
               aria-label={`Cancel the ${humanDate(slot.scheduled_date)} lesson`}
-              disabled={locked}
+              disabled={locked || cancelBusy}
               loading={cancelling}
               onClick={onCancel}
             >
@@ -368,6 +371,7 @@ function SlotList({
   onSave,
   onCancel,
   cancellingId = null,
+  cancelBusy = false,
 }: {
   slots: PlanSlot[];
   chapters: Chapter[];
@@ -379,6 +383,7 @@ function SlotList({
   onSave: (slotId: number, patch: SlotPatch, done: () => void) => void;
   onCancel?: (slotId: number) => void;
   cancellingId?: number | null;
+  cancelBusy?: boolean;
 }) {
   return (
     <div className="mt-3 space-y-4">
@@ -401,6 +406,7 @@ function SlotList({
                 onSave={(patch, done) => onSave(slot.id, patch, done)}
                 onCancel={onCancel ? () => onCancel(slot.id) : undefined}
                 cancelling={cancellingId === slot.id}
+                cancelBusy={cancelBusy}
               />
             ))}
           </ul>
@@ -578,6 +584,7 @@ export default function TeachingPlanView({
           onSave={onSave}
           onCancel={(slotId) => cancelSlot.mutate(slotId)}
           cancellingId={cancelSlot.isPending ? (cancelSlot.variables ?? null) : null}
+          cancelBusy={cancelSlot.isPending}
         />
       )}
     </div>

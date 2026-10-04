@@ -98,3 +98,15 @@ def test_reminder_cannot_fire_without_a_start(bad):
     assert not reminder_window_open(
         bad, datetime(2026, 10, 5, tzinfo=timezone.utc), datetime.now(timezone.utc)
     )
+
+
+def test_end_is_fold_safe_across_a_fall_back():
+    # New York falls back at 02:00 EDT on 1 Nov 2026. 00:30 EDT + 90 minutes is
+    # 06:00 UTC; wall-clock arithmetic (02:00 "local", read as EST) gives 07:00.
+    end = slot_end_utc(date(2026, 11, 1), time(0, 30), 90, "America/New_York")
+    assert end == datetime(2026, 11, 1, 6, 0, tzinfo=timezone.utc)
+
+
+def test_an_offset_aware_start_time_is_refused_not_silently_dropped():
+    with pytest.raises(ValueError):
+        local_instant(date(2026, 10, 5), time(9, 0, tzinfo=timezone.utc), "Africa/Cairo")

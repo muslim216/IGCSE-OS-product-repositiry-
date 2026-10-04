@@ -2,6 +2,8 @@ from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.schemas.lessons import WallClockTime
+
 #: Here and not in the service, because services import schemas and not the reverse.
 LESSONS_PER_WEEK_RANGE = (1, 14)
 LESSON_MINUTES_RANGE = (15, 300)
@@ -68,7 +70,7 @@ class PlanSlotPatch(BaseModel):
     scheduled_date: date | None = None
     chapter_id: int | None = None
     #: Local wall clock in the organization's zone.
-    start_time: time | None = None
+    start_time: WallClockTime | None = None
 
     @model_validator(mode="after")
     def _something_to_change(self) -> "PlanSlotPatch":

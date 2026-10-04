@@ -113,11 +113,16 @@ export default function TodayDashboard() {
 
   if (today.isError || !today.data) {
     return (
-      <ErrorState
-        title="Today couldn't be loaded"
-        error={today.error}
-        onRetry={() => today.refetch()}
-      />
+      <>
+        <ErrorState
+          title="Today couldn't be loaded"
+          error={today.error}
+          onRetry={() => today.refetch()}
+        />
+        {/* Fetches its own data: a lesson about to start must not hide behind a
+            failed home aggregate. */}
+        <LessonReminders />
+      </>
     );
   }
 

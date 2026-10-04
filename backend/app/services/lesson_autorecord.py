@@ -21,9 +21,9 @@ Each slot is its own transaction, so one failure never costs the others.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import Date, cast, func, literal_column, select
+from sqlalchemy import Date, cast, func, literal, literal_column, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -42,7 +42,12 @@ from app.models import (
     User,
 )
 from app.services import plan_lessons
-from app.services.plan_start_times import resolve_zone, slot_has_ended, timetable_start_times
+from app.services.plan_start_times import (
+    reset_zone_warnings,
+    resolve_zone,
+    slot_has_ended,
+    timetable_start_times,
+)
 from app.services.plan_timing import slot_end_utc
 from app.services.teaching_plan import (
     STARTED_PROVENANCE,
@@ -60,6 +65,9 @@ SWEEP_JOB = "autorecord_planned_lessons"
 #: One sweep records at most this many, oldest first. The first run against an
 #: established installation drains over several cycles instead of one long burst.
 MAX_PER_SWEEP = 200
+PAGE_SIZE = 200
+#: A hard stop on paging, so a pathological table cannot hold one sweep forever.
+MAX_PAGES = 50
 
 
 def _aware(value: datetime) -> datetime:
@@ -89,11 +97,18 @@ async def due_slot_ids(session: AsyncSession, now: datetime) -> list[int]:
     """Slots of accepted plans whose lesson has ended and nobody has recorded or
     cancelled, oldest first. The local end is decided per class in the tutor's
     own zone (override, else the organization's), never the server's."""
-    rows = (
-        await session.execute(
+    due: list[int] = []
+    zones: dict[int, str | None] = {}
+    cursor: tuple[date, int, int] | None = None
+    # Keyset pages, not one LIMIT: slots that are backed off, not yet ended or
+    # pre-acceptance would otherwise fill the first page and starve the due ones
+    # behind them. Stops when the batch is full or the rows run out.
+    for _ in range(MAX_PAGES):
+        query = (
             select(
                 PlanSlot.id,
                 PlanSlot.scheduled_date,
+                PlanSlot.sequence,
                 PlanSlot.start_time,
                 TeachingPlan.lesson_minutes,
                 TeachingPlan.accepted_at,
@@ -115,29 +130,35 @@ async def due_slot_ids(session: AsyncSession, now: datetime) -> list[int]:
                 PlanSlot.scheduled_date >= _accepted_lower_bound(session),
             )
             .order_by(PlanSlot.scheduled_date, PlanSlot.sequence, PlanSlot.id)
-            .limit(MAX_PER_SWEEP * 4)
+            .limit(PAGE_SIZE)
         )
-    ).all()
-    timetables = await timetable_start_times(session, list({r[5] for r in rows}))
-    zones: dict[int, str | None] = {}
-    due: list[int] = []
-    for slot_id, day, start, minutes, accepted_at, group_id, user_zone, org_zone in rows:
-        if (
-            _sweep_counter - _failed_at.get(slot_id, -FAILURE_BACKOFF_SWEEPS)
-            < FAILURE_BACKOFF_SWEEPS
-        ):
-            continue
-        if group_id not in zones:  # warns once per class per sweep
-            zones[group_id] = resolve_zone(user_zone, org_zone, group_id)
-        start = effective_start_time(start, timetables.get(group_id, {}), day)
-        end = slot_end_utc(day, start, minutes, zones[group_id])
-        if end > now:
-            continue
-        if accepted_at is not None and end <= _aware(accepted_at):
-            continue  # ended before the tutor accepted this plan (exact check)
-        due.append(slot_id)
-        if len(due) >= MAX_PER_SWEEP:
+        if cursor is not None:
+            query = query.where(
+                tuple_(PlanSlot.scheduled_date, PlanSlot.sequence, PlanSlot.id)
+                > tuple_(literal(cursor[0]), literal(cursor[1]), literal(cursor[2]))
+            )
+        rows = (await session.execute(query)).all()
+        timetables = await timetable_start_times(session, list({r[6] for r in rows}))
+        for slot_id, day, _seq, start, minutes, accepted_at, group_id, user_zone, org_zone in rows:
+            if _sweep_counter - _failed_at.get(slot_id, -FAILURE_BACKOFF_SWEEPS) < (
+                FAILURE_BACKOFF_SWEEPS
+            ):
+                continue
+            if group_id not in zones:  # warns once per class per sweep
+                zones[group_id] = resolve_zone(user_zone, org_zone, group_id)
+            start = effective_start_time(start, timetables.get(group_id, {}), day)
+            end = slot_end_utc(day, start, minutes, zones[group_id])
+            if end > now:
+                continue
+            if accepted_at is not None and end <= _aware(accepted_at):
+                continue  # ended before the tutor accepted this plan (exact check)
+            due.append(slot_id)
+            if len(due) >= MAX_PER_SWEEP:
+                return due
+        if len(rows) < PAGE_SIZE:
             break
+        last = rows[-1]
+        cursor = (last[1], last[2], last[0])
     return due
 
 
@@ -197,7 +218,9 @@ async def record_planned_lesson(session: AsyncSession, slot_id: int, *, now: dat
             mode=LessonMode.in_person,
             start_time=start,
             origin=LessonOrigin.plan,
-            require_slot_date=True,
+            claim_guard=plan_lessons.ClaimGuard(
+                slot.scheduled_date, slot.chapter_id, slot.start_time
+            ),
         )
     except (PlanStateError, PlanSlotNotFound):
         # The tutor (or another sweep) took the slot first: exactly one lesson.
@@ -216,6 +239,7 @@ async def sweep_planned_lessons(session: AsyncSession, payload: dict) -> None:
     recorded = 0
     global _sweep_counter
     _sweep_counter += 1
+    reset_zone_warnings()
     for slot_id in await due_slot_ids(session, now):
         try:
             if await record_planned_lesson(session, slot_id, now=now):

@@ -833,11 +833,12 @@ async def edit_slot(
     date_moved = new_date != slot.scheduled_date
     start_changed = start_time is not None and start_time != slot.start_time
     if date_moved or new_chapter_id != slot.chapter_id or start_changed:
+        old_weekday = slot.scheduled_date.weekday()
         slot.scheduled_date = new_date
         slot.chapter_id = new_chapter_id
         if start_time is not None:
             slot.start_time = start_time
-        elif date_moved:
+        elif date_moved and (slot.start_time is None or new_date.weekday() != old_weekday):
             # A new weekday has a different timetable time; keeping the old time
             # would put the lesson at an hour that class never meets. NULL when
             # the timetable has none for that day (never midnight, `DB-9`).

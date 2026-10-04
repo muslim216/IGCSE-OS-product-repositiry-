@@ -443,30 +443,54 @@ async def test_a_slot_moved_since_the_listing_is_not_recorded(client, tutor, gro
     assert await lessons() == []
 
 
-async def test_the_claim_itself_refuses_a_slot_on_another_date(client, tutor, group, subject):
+@pytest.mark.parametrize("changed", ["date", "chapter", "start_time"])
+async def test_the_claim_refuses_a_slot_changed_since_the_decision(
+    client, tutor, group, subject, changed
+):
+    """The guard holds the values the auto-record decided on (and chose topics
+    from); the claim UPDATE requires the slot to still carry them."""
+    from app.models import Group
     from app.services import plan_lessons
     from app.services.teaching_plan import PlanStateError
 
     ch = await make_chapters(subject)
     (d1, d2, _) = _past_week()
-    plan_id, (slot_id,) = await make_plan(group, tutor, [(ch["c1"], d1, time(16, 0))])
+    _, (slot_id,) = await make_plan(group, tutor, [(ch["c1"], d1, time(16, 0))])
+    guard = {
+        "date": plan_lessons.ClaimGuard(d2, ch["c1"], time(16, 0)),
+        "chapter": plan_lessons.ClaimGuard(d1, ch["c2"], time(16, 0)),
+        "start_time": plan_lessons.ClaimGuard(d1, ch["c1"], time(9, 0)),
+    }[changed]
     async with async_session() as s:
-        from app.models import Group
-
         g = await s.get(Group, group["id"])
         with pytest.raises(PlanStateError):
             await plan_lessons.create_lesson(
                 s,
                 group=g,
-                lesson_date=d2,  # not the slot's date
+                lesson_date=d1,
                 duration_min=60,
                 notes=None,
                 schedule_slot_id=None,
                 topic_ids=[],
                 plan_slot_id=slot_id,
-                require_slot_date=True,
+                claim_guard=guard,
             )
     assert await lessons() == []
+    # And the matching guard claims it.
+    async with async_session() as s:
+        g = await s.get(Group, group["id"])
+        await plan_lessons.create_lesson(
+            s,
+            group=g,
+            lesson_date=d1,
+            duration_min=60,
+            notes=None,
+            schedule_slot_id=None,
+            topic_ids=[],
+            plan_slot_id=slot_id,
+            claim_guard=plan_lessons.ClaimGuard(d1, ch["c1"], time(16, 0)),
+        )
+    assert len(await lessons()) == 1
 
 
 async def test_pre_acceptance_gaps_do_not_crowd_the_batch(
@@ -524,3 +548,67 @@ async def test_a_missing_or_unloadable_zone_warns_and_keeps_the_utc_fallback(
             ids = await due_slot_ids(s, datetime.now(timezone.utc))
         assert len(ids) == 1  # UTC fallback still decides
         assert any(needle in r.message and r.levelname == "WARNING" for r in caplog.records)
+
+
+async def test_release_cancels_the_slot_that_holds_the_link_after_an_accept_moved_it(
+    client, tutor, group, subject, monkeypatch
+):
+    """The plan id read before the lock can be the old plan's. The slot is
+    re-read under the lock and the cancel lands on the plan that holds it now."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.services import plan_lessons
+
+    ch = await make_chapters(subject)
+    (d1, *_) = _past_week()
+    plan_id, (slot_id,) = await make_plan(group, tutor, [(ch["c1"], d1, time(16, 0))])
+    await _sweep()
+    (lesson,) = await lessons()
+
+    real = AsyncSession.scalar
+    state = {"first": True}
+
+    async def stale_first(self, statement, *a, **k):
+        if state["first"]:
+            state["first"] = False
+            return 999_999  # a plan id that no longer exists: the old plan's
+        return await real(self, statement, *a, **k)
+
+    async with async_session() as s:
+        monkeypatch.setattr(AsyncSession, "scalar", stale_first)
+        await plan_lessons.release_slot_for_lesson(s, lesson.id)
+        monkeypatch.setattr(AsyncSession, "scalar", real)
+        await s.commit()
+    (row,) = await slot_rows(plan_id)
+    assert row.lesson_id is None and row.cancelled_at is not None
+
+
+async def test_paging_reaches_due_slots_behind_backed_off_ones(
+    client, tutor, group, subject, monkeypatch
+):
+    monkeypatch.setattr(lesson_autorecord, "PAGE_SIZE", 2)
+    ch = await make_chapters(subject)
+    today = date.today()
+    _, ids = await make_plan(
+        group, tutor, [(ch["c1"], today - timedelta(days=9 - i), time(9, 0)) for i in range(4)]
+    )
+    monkeypatch.setattr(
+        lesson_autorecord,
+        "_failed_at",
+        dict.fromkeys(ids[:3], lesson_autorecord._sweep_counter),
+    )
+    async with async_session() as s:
+        assert await due_slot_ids(s, datetime.now(timezone.utc)) == [ids[3]]
+
+
+def test_the_zone_warning_is_once_per_class_until_the_sweep_resets_it(caplog):
+    from app.services.plan_start_times import reset_zone_warnings, resolve_zone
+
+    reset_zone_warnings()
+    caplog.clear()
+    for _ in range(5):
+        resolve_zone(None, None, 41)
+    assert len([r for r in caplog.records if "no timezone" in r.message]) == 1
+    reset_zone_warnings()
+    resolve_zone(None, None, 41)
+    assert len([r for r in caplog.records if "no timezone" in r.message]) == 2

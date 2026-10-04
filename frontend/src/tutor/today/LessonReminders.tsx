@@ -33,6 +33,10 @@ function Reminder({
       // tutor is told how to catch up. Lifted out because this row is gone on
       // the refetch below, and its own message with it.
       onNotice(result.shifted ? null : (result.message ?? null));
+      // The cancelled lesson is gone whatever the refetch says.
+      queryClient.setQueryData<LessonReminder[]>(["lesson-reminders"], (old) =>
+        Array.isArray(old) ? old.filter((x) => x.slot_id !== r.slot_id) : old,
+      );
       // The plan shifted (or said it could not), so everything reading it is stale.
       for (const key of [["lesson-reminders"], ["plan", r.group_id], ["next-lesson"], ["today"]]) {
         queryClient.invalidateQueries({ queryKey: key });
@@ -103,18 +107,17 @@ export default function LessonReminders() {
   // An extra on the home page: anything but a list renders nothing rather than
   // taking the page down with it.
   const rows = Array.isArray(reminders.data) ? reminders.data : [];
-  // A failed check is not "nothing starting soon" (PROD-2): say so, quietly.
-  if (reminders.isError && rows.length === 0 && !notice) {
-    return (
-      <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
-        Couldn&apos;t check for upcoming lessons.
-        <Button type="button" size="sm" variant="ghost" onClick={() => reminders.refetch()}>
-          Retry
-        </Button>
-      </p>
-    );
-  }
-  if (rows.length === 0 && !notice) return null;
+  // A failed check is not "nothing starting soon" (PROD-2): say so, quietly, even
+  // when older rows are still cached (they may be stale).
+  const failed = reminders.isError ? (
+    <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
+      Couldn&apos;t check for upcoming lessons.
+      <Button type="button" size="sm" variant="ghost" onClick={() => reminders.refetch()}>
+        Retry
+      </Button>
+    </p>
+  ) : null;
+  if (rows.length === 0 && !notice) return failed;
   return (
     <section aria-labelledby="lesson-reminders-heading">
       <h2 id="lesson-reminders-heading" className="avora-label mb-3">
@@ -125,6 +128,7 @@ export default function LessonReminders() {
           {notice}
         </p>
       )}
+      {failed}
       <ul>
         {rows.map((r) => (
           <Reminder key={r.slot_id} r={r} now={now} onNotice={setNotice} />

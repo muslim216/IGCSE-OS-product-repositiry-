@@ -38,7 +38,7 @@ from app.models import (
     TeachingPlanStatus,
     User,
 )
-from app.services.plan_start_times import timetable_start_times
+from app.services.plan_start_times import resolve_zone, timetable_start_times
 from app.services.plan_timing import slot_end_utc
 from app.services.teaching_plan import (
     STARTED_PROVENANCE,
@@ -167,11 +167,15 @@ async def class_progress(
             PlanSlot.cancelled_at,
             TeachingPlan.lesson_minutes,
             TeachingPlan.draft_result,
+            User.time_zone,
+            Organization.timezone,
         )
         .select_from(PlanSlot)
         .join(TeachingPlan, TeachingPlan.id == PlanSlot.plan_id)
         .join(Group, Group.id == TeachingPlan.group_id)
         .join(Chapter, Chapter.id == PlanSlot.chapter_id)
+        .join(User, User.id == Group.tutor_id)
+        .join(Organization, Organization.id == TeachingPlan.organization_id)
         .where(
             TeachingPlan.organization_id == user.organization_id,
             # Nothing reads a draft plan (task 6.4).
@@ -186,8 +190,10 @@ async def class_progress(
     if group_id is not None:
         query = query.where(Group.id == group_id)
     rows = (await db.execute(query)).all()
-    org = await db.get(Organization, user.organization_id)
-    zone = effective_timezone(user.time_zone, org.timezone if org else None)
+    # Each class's zone comes from its own tutor, as the auto-record sweep decides
+    # it, not from whoever is looking (an admin in another zone would otherwise
+    # see a different "behind" than the tutor).
+    zones: dict[int, str | None] = {}
     timetables = await timetable_start_times(db, list({r[0] for r in rows}))
     now = datetime.now(timezone.utc)
     names: dict[int, str] = {}
@@ -207,8 +213,12 @@ async def class_progress(
         cancelled_at,
         minutes,
         result,
+        tz_user,
+        tz_org,
     ) in rows:
         names[gid] = name
+        if gid not in zones:
+            zones[gid] = resolve_zone(tz_user, tz_org, gid)
         start = effective_start_time(start, timetables.get(gid, {}), day)
         unrescheduled = sid in ((result or {}).get(UNRESCHEDULED_KEY) or [])
         facts[gid].append(
@@ -221,7 +231,7 @@ async def class_progress(
                 title,
                 lesson_id is not None,
                 prov,
-                ends_at=slot_end_utc(day, start, minutes, zone),
+                ends_at=slot_end_utc(day, start, minutes, zones[gid]),
                 cancelled=cancelled_at is not None,
                 unrescheduled=unrescheduled,
             )

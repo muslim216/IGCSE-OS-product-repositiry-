@@ -59,8 +59,12 @@ def _zone(name: str | None) -> timezone | ZoneInfo:
 
 
 def local_instant(day: date, at: time, zone_name: str | None) -> datetime:
-    """The aware instant for a local wall-clock date and time."""
-    return datetime.combine(day, at.replace(tzinfo=None), tzinfo=_zone(zone_name))
+    """The aware instant for a local wall-clock date and time. `at` must be a
+    naive wall-clock time (the API rejects offsets, `WallClockTime`): an offset
+    here would be silently discarded, and this is the place that would hide it."""
+    if at.tzinfo is not None:
+        raise ValueError("a wall-clock start time must not carry an offset")
+    return datetime.combine(day, at, tzinfo=_zone(zone_name))
 
 
 def slot_start_utc(day: date, start: time | None, zone_name: str | None) -> datetime | None:
@@ -78,8 +82,10 @@ def slot_end_utc(day: date, start: time | None, minutes: int, zone_name: str | N
         return local_instant(day + timedelta(days=1), time(0, 0), zone_name).astimezone(
             timezone.utc
         )
-    return (local_instant(day, start, zone_name) + timedelta(minutes=minutes)).astimezone(
-        timezone.utc
+    # Start to UTC first, then add the duration: wall-clock arithmetic across a
+    # DST change would be an hour out (and ambiguous inside a fall-back fold).
+    return local_instant(day, start, zone_name).astimezone(timezone.utc) + timedelta(
+        minutes=minutes
     )
 
 

@@ -140,3 +140,34 @@ test("the start time can be edited per lesson", async () => {
     expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ start_time: "18:30" }),
   );
 });
+
+test("while one cancel is in flight no other lesson can be cancelled", async () => {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const overview = {
+    draft: null,
+    accepted: accepted([slot(1, "2027-02-01"), slot(2, "2027-02-04")]),
+    timetable_defaults: { lessons_per_week: 2, lesson_minutes: 60 },
+    progress: null,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/chapters")) return new Response(JSON.stringify(CHAPTERS));
+      if (url.pathname.endsWith("/cancel")) {
+        await gate;
+        return new Response(
+          JSON.stringify({ shifted: true, moved: 1, message: null, plan: overview }),
+        );
+      }
+      return new Response(JSON.stringify(overview));
+    }),
+  );
+  renderView();
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel the 1 Feb 2027 lesson" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Cancel the 4 Feb 2027 lesson" })).toBeDisabled(),
+  );
+  release();
+});

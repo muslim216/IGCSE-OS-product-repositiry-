@@ -353,3 +353,36 @@ async def test_an_explicit_time_gives_way_to_the_timetable_when_the_weekday_chan
     # The Thursday lesson moved to the following Monday: Monday's timetable time.
     assert rows[ids[1]].scheduled_date.weekday() == MON
     assert rows[ids[1]].start_time == time(17, 0)
+
+
+async def test_a_late_cancel_does_not_put_the_replacement_on_todays_ended_lesson(
+    client, tutor, group, subject
+):
+    from app.db import async_session
+    from app.models import Group, User
+    from app.services.plan_cancel import cancel_slot
+    from tests.test_lesson_autorecord import utc
+
+    today = date(2026, 10, 5)  # a Monday
+    await add_timetable(group, MON, time(9, 0))  # Mondays 09:00-10:00
+    ch = await make_chapters(subject)
+    plan_id, ids = await make_plan(
+        group,
+        tutor,
+        [
+            (ch["c1"], today - timedelta(days=7), None),  # the one being cancelled
+            (ch["c1"], today, None),
+            (ch["c1"], today + timedelta(days=7), None),
+        ],
+        lessons_per_week=1,
+    )
+    async with async_session() as s:
+        g = await s.get(Group, group["id"])
+        user = await s.get(User, tutor["user"]["id"])
+        outcome = await cancel_slot(
+            s, group=g, user=user, slot_id=ids[0], today=today, now=utc(today, 12)
+        )
+    assert outcome.shifted
+    live = [r for r in await slot_rows(plan_id) if r.cancelled_at is None]
+    assert all(r.scheduled_date != today for r in live)  # today's window ended at 10:00
+    assert live[0].scheduled_date == today + timedelta(days=7)

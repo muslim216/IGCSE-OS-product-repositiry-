@@ -88,3 +88,25 @@ test("a junk slot parameter is ignored", async () => {
   await waitFor(() => expect(screen.getByRole("checkbox", { name: /Atoms/ })).toBeChecked());
   expect(urls.some((u) => u.includes("slot_id"))).toBe(false);
 });
+
+test("after a successful save the ?slot= override is cleared so the next lesson prefills", async () => {
+  window.history.pushState({}, "", "/tutor/groups/5/schedule?slot=9");
+  const urls = stub(true);
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  const inner = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST" && url.pathname.endsWith("/lessons"))
+      return new Response(JSON.stringify({ id: 1 }), { status: 201 });
+    return inner(input, init);
+  });
+  renderForm();
+  await waitFor(() => expect(screen.getByRole("checkbox", { name: /Bonding/ })).toBeChecked());
+  fireEvent.click(screen.getByRole("button", { name: "Record lesson" }));
+  await waitFor(() => expect(window.location.search).toBe(""));
+  await waitFor(() =>
+    expect(
+      urls.filter((u) => u.includes("/next-lesson") && !u.includes("slot_id")).length,
+    ).toBeGreaterThan(0),
+  );
+});
