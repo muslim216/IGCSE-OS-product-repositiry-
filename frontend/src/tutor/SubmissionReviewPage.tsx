@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, FileText } from "lucide-react";
+import { mistakeSourceLabel } from "./mistakeSourceLabel";
 import {
   fetchFileUrl,
   finalizeSubmission,
@@ -670,9 +671,7 @@ function MistakeTag({
           <option value={2}>Moderate</option>
           <option value={3}>Major</option>
         </select>
-        <span className="text-xs text-ink-500">
-          {mistake.source === "tutor" ? "Your call" : "Tagged by AI"}
-        </span>
+        <span className="text-xs text-ink-500">{mistakeSourceLabel(mistake.source)}</span>
       </div>
       {mistake.note && (
         // SEC-20's flag-rather-than-obey half: the job saw something on the

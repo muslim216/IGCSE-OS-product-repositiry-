@@ -104,6 +104,10 @@ class MistakeSource(str, enum.Enum):
 
     ai = "ai"
     tutor = "tutor"
+    # Written by `seed.demo` with no model involved. Kept apart from `ai` so no
+    # screen claims a model tagged it (`PROD-1`); the tagging job replaces these
+    # exactly as it replaces its own rows. Fits the column's length of 8.
+    demo = "demo"
 
 
 class MistakeTopic(Base):

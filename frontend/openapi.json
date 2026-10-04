@@ -13127,7 +13127,8 @@
             "type": "string",
             "enum": [
               "ai",
-              "tutor"
+              "tutor",
+              "demo"
             ],
             "title": "Source"
           },
