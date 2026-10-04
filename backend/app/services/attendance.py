@@ -118,51 +118,54 @@ async def set_attendance(
     entries = list({e.student_id: e for e in entries}.values())
     skipped: list[int] = []
     now = utcnow()
-    for entry in entries:
-        row = existing.get(entry.student_id)
-        if not from_tutor and row is not None and row.source == AttendanceSource.tutor:
-            skipped.append(entry.student_id)
-            continue
-        if entry.state is None:
-            # An integration cannot "not take" what it never saw; only a tutor clears.
-            if row is not None and from_tutor:
-                await session.delete(row)
-                existing.pop(entry.student_id)
-            continue
-        if row is None:
-            row = LessonAttendance(
-                organization_id=lesson.organization_id,
-                lesson_id=lesson.id,
-                student_id=entry.student_id,
-                state=entry.state,
-                source=source,
-                recorded_by_id=recorded_by.id if from_tutor and recorded_by else None,
-                recorded_at=now,
-            )
-            session.add(row)
-            existing[entry.student_id] = row
-        elif from_tutor:
-            # Two tutors saving the same mark: last writer wins. Both are the
-            # authoritative source, so neither save is lost data.
-            row.state = entry.state
-            row.source = source
-            row.recorded_by_id = recorded_by.id if recorded_by else None
-            row.recorded_at = now
-        else:
-            # Conditional in the database, not on the row read above: a tutor may
-            # have marked this student since, and their mark must still win.
-            updated = await session.execute(
-                update(LessonAttendance)
-                .where(
-                    LessonAttendance.id == row.id,
-                    LessonAttendance.source != AttendanceSource.tutor,
-                )
-                .values(state=entry.state, source=source, recorded_by_id=None, recorded_at=now)
-                .execution_options(synchronize_session=False)
-            )
-            if updated.rowcount != 1:  # type: ignore[attr-defined]
-                skipped.append(entry.student_id)
+    # One try around the writes as well as the commit: an UPDATE below can
+    # autoflush rows added earlier in the batch, and a lost race on the unique
+    # (lesson, student) surfaces there rather than at commit.
     try:
+        for entry in entries:
+            row = existing.get(entry.student_id)
+            if not from_tutor and row is not None and row.source == AttendanceSource.tutor:
+                skipped.append(entry.student_id)
+                continue
+            if entry.state is None:
+                # An integration cannot "not take" what it never saw; only a tutor clears.
+                if row is not None and from_tutor:
+                    await session.delete(row)
+                    existing.pop(entry.student_id)
+                continue
+            if row is None:
+                row = LessonAttendance(
+                    organization_id=lesson.organization_id,
+                    lesson_id=lesson.id,
+                    student_id=entry.student_id,
+                    state=entry.state,
+                    source=source,
+                    recorded_by_id=recorded_by.id if from_tutor and recorded_by else None,
+                    recorded_at=now,
+                )
+                session.add(row)
+                existing[entry.student_id] = row
+            elif from_tutor:
+                # Two tutors saving the same mark: last writer wins. Both are the
+                # authoritative source, so neither save is lost data.
+                row.state = entry.state
+                row.source = source
+                row.recorded_by_id = recorded_by.id if recorded_by else None
+                row.recorded_at = now
+            else:
+                # Conditional in the database, not on the row read above: a tutor may
+                # have marked this student since, and their mark must still win.
+                updated = await session.execute(
+                    update(LessonAttendance)
+                    .where(
+                        LessonAttendance.id == row.id,
+                        LessonAttendance.source != AttendanceSource.tutor,
+                    )
+                    .values(state=entry.state, source=source, recorded_by_id=None, recorded_at=now)
+                    .execution_options(synchronize_session=False)
+                )
+                if updated.rowcount != 1:  # type: ignore[attr-defined]
+                    skipped.append(entry.student_id)
         await session.commit()
     except IntegrityError as exc:  # lost a race on UNIQUE (lesson, student)
         await session.rollback()

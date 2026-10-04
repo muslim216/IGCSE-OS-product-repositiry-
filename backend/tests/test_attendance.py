@@ -489,3 +489,62 @@ async def test_the_group_listing_orders_by_date_then_time_then_id(client, tutor,
         c["id"],
         earlier["id"],
     ]
+
+
+async def test_a_conflict_surfacing_mid_batch_is_still_409_not_500(
+    client, tutor, group, student, monkeypatch
+):
+    """An UPDATE in a mixed import batch autoflushes the batch's earlier INSERT;
+    a rival's row for that student makes the flush fail there, not at commit."""
+    invite = await client.post(f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"])
+    omar = await client.post(
+        "/api/v1/auth/register/student",
+        json={
+            "invite_code": invite.json()["code"],
+            "name": "Omar",
+            "email": "omar@example.com",
+            "password": "password123",
+        },
+    )
+    assert omar.status_code == 201, omar.text
+    sara, omar_id = student["user"]["id"], omar.json()["user"]["id"]
+    lesson = await _lesson(client, tutor, group)
+    # Omar already has a Zoom mark, so the import UPDATEs him; Sara is an INSERT.
+    await _service_write(
+        lesson["id"],
+        [svc.AttendanceEntry(omar_id, AttendanceState.absent)],
+        recorded_by=None,
+        source=AttendanceSource.zoom,
+    )
+    real = svc._enrolled_ids
+
+    async def _then_a_rival_marks_sara(session, les):
+        ids = await real(session, les)
+        async with async_session() as other:
+            other.add(
+                LessonAttendance(
+                    organization_id=les.organization_id,
+                    lesson_id=les.id,
+                    student_id=sara,
+                    state=AttendanceState.present,
+                    source=AttendanceSource.tutor,
+                    recorded_by_id=None,
+                    recorded_at=utcnow(),
+                )
+            )
+            await other.commit()
+        return ids
+
+    monkeypatch.setattr(svc, "_enrolled_ids", _then_a_rival_marks_sara)
+    async with async_session() as s:
+        with pytest.raises(svc.AttendanceConflict):
+            await svc.set_attendance(
+                s,
+                await s.get(Lesson, lesson["id"]),
+                [
+                    svc.AttendanceEntry(sara, AttendanceState.present),
+                    svc.AttendanceEntry(omar_id, AttendanceState.present),
+                ],
+                recorded_by=None,
+                source=AttendanceSource.zoom,
+            )
