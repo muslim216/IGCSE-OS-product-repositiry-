@@ -5,6 +5,17 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import { AuthProvider } from "../auth/AuthContext";
 
+const EMPTY_TODAY = {
+  class_count: 0,
+  joined_student_count: 0,
+  classes_with_evidence: 0,
+  classes: [],
+  lessons: [],
+  review_count: 0,
+  chapter_prompts: [],
+  behind_classes: [],
+};
+
 function mockAuthedFetch(role: "student" | "tutor") {
   const user = { id: 1, email: "demo@example.com", username: null, role, name: "Demo User" };
   vi.stubGlobal(
@@ -13,6 +24,10 @@ function mockAuthedFetch(role: "student" | "tutor") {
       const url = String(input);
       if (url.includes("/api/v1/auth/me")) {
         return new Response(JSON.stringify(user), { status: 200 });
+      }
+      if (url.endsWith("/api/v1/today")) {
+        // The empty-account shape: Today renders its welcome instead of crashing.
+        return new Response(JSON.stringify(EMPTY_TODAY), { status: 200 });
       }
       return new Response(JSON.stringify([]), { status: 200 });
     }),

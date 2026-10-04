@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { Component, Fragment, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import TimezoneSetting from "./TimezoneSetting";
 import CustomCriteriaSetting from "./CustomCriteriaSetting";
@@ -9,7 +9,7 @@ import GradeBoundariesPage from "./GradeBoundariesPage";
 import MistakeCategoriesPage from "./MistakeCategoriesPage";
 import PreferencesPage from "./PreferencesPage";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
-import { EmbeddedPageContext, PageHeader } from "../components/page";
+import { EmbeddedPageContext, ErrorState, PageHeader } from "../components/page";
 
 /**
  * Everything the tutor configures lives here, as sections of one page. It used
@@ -76,9 +76,47 @@ export function followTarget(id: string): () => void {
   return stop;
 }
 
+/** One section crashing must not take the other five down with it: they used to
+ *  be separate pages, each with the page boundary to itself. The fallback keeps
+ *  the section's heading (the section is labelled by it) and offers a retry that
+ *  remounts only this section. */
+class SectionBoundary extends Component<
+  { headingId?: string; label: string; children: ReactNode },
+  { failed: boolean; attempt: number }
+> {
+  state = { failed: false, attempt: 0 };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <>
+          {this.props.headingId ? (
+            <h2 id={this.props.headingId} className="mb-6 text-xl leading-tight text-ink-900">
+              {this.props.label}
+            </h2>
+          ) : null}
+          <ErrorState
+            title="This section didn't load"
+            onRetry={() => this.setState((s) => ({ failed: false, attempt: s.attempt + 1 }))}
+          />
+        </>
+      );
+    }
+    return <Fragment key={this.state.attempt}>{this.props.children}</Fragment>;
+  }
+}
+
 /** A section labelled by its own heading, which the embedded page's PageHeader
  *  renders with the id given through context. */
-function Section({ id, children }: { id: string; children: ReactNode }) {
+function Section({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   const headingId = `${id}-heading`;
   return (
     <section
@@ -87,7 +125,9 @@ function Section({ id, children }: { id: string; children: ReactNode }) {
       aria-labelledby={headingId}
       className="scroll-mt-6 border-t border-line pt-8 focus:outline-none"
     >
-      <EmbeddedPageContext.Provider value={headingId}>{children}</EmbeddedPageContext.Provider>
+      <SectionBoundary headingId={headingId} label={label}>
+        <EmbeddedPageContext.Provider value={headingId}>{children}</EmbeddedPageContext.Provider>
+      </SectionBoundary>
     </section>
   );
 }
@@ -118,19 +158,19 @@ export default function SettingsPage() {
         </ul>
       </nav>
       <div className="space-y-10">
-        <Section id="teaching-guidance">
+        <Section id="teaching-guidance" label="Teaching guidance">
           <TeachingGuidancePage />
         </Section>
-        <Section id="marking-rules">
+        <Section id="marking-rules" label="AI marking agreement">
           <MarkingRulesPage />
         </Section>
-        <Section id="boundaries">
+        <Section id="boundaries" label="Grade boundaries">
           <GradeBoundariesPage />
         </Section>
-        <Section id="mistake-categories">
+        <Section id="mistake-categories" label="Mistake categories">
           <MistakeCategoriesPage />
         </Section>
-        <Section id="preferences">
+        <Section id="preferences" label="Preferences">
           <PreferencesPage />
         </Section>
         <section
@@ -142,12 +182,14 @@ export default function SettingsPage() {
           <h2 id="account-heading" className="mb-6 text-xl leading-tight text-ink-900">
             Account and integrations
           </h2>
-          <div className="space-y-6">
-            <TimezoneSetting />
-            <MyTimezoneSetting />
-            <CustomCriteriaSetting />
-            <IntegrationsSetting />
-          </div>
+          <SectionBoundary label="Account and integrations">
+            <div className="space-y-6">
+              <TimezoneSetting />
+              <MyTimezoneSetting />
+              <CustomCriteriaSetting />
+              <IntegrationsSetting />
+            </div>
+          </SectionBoundary>
         </section>
       </div>
     </div>
