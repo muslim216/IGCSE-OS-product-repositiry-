@@ -38,13 +38,13 @@ export default function ChapterPrompts({ prompts }: { prompts: ChapterPrompt[] }
               <span className="font-medium text-ink-900">{p.group_name}</span>{" "}
               {p.started ? "is on" : `starts ${shortDate(p.starts_on)}:`} Chapter {p.chapter_code} ·{" "}
               {p.chapter_title}
-              <span className="text-ink-500"> — no classified uploaded yet</span>
+              <span className="text-ink-500"> — no homework for it yet</span>
             </span>
             <Link
               to={`/tutor/groups/${p.group_id}/new-homework`}
               className="font-medium text-brand-600 hover:text-brand-700"
             >
-              Upload a classified →
+              Set homework for this chapter →
             </Link>
           </li>
         ))}

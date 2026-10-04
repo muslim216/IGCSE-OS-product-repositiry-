@@ -169,7 +169,7 @@ test("Settings renders every section under its heading, in order", async () => {
   const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
   const wanted = [
     "Teaching guidance",
-    "AI marking agreement",
+    "Marking rules",
     "Grade boundaries",
     "Mistake categories",
     "Preferences",
@@ -185,7 +185,7 @@ test("Settings renders every section under its heading, in order", async () => {
 
 test.each([
   ["teaching-guidance", "Teaching guidance"],
-  ["marking-rules", "AI marking agreement"],
+  ["marking-rules", "Marking rules"],
   ["boundaries", "Grade boundaries"],
   ["mistake-categories", "Mistake categories"],
   ["preferences", "Preferences"],

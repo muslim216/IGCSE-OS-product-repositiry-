@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock } from "lucide-react";
 import { WEEKDAYS, createLesson, deleteLesson, listLessons } from "../../api/groups";
@@ -17,7 +16,7 @@ import RecordedLessons from "../RecordedLessons";
 import TeachingPlanInputs from "../TeachingPlanInputs";
 import TeachingPlanView from "../TeachingPlanView";
 import { EmptyState, SectionCard } from "../../components/ui";
-import { Button, Field, Input, Select, buttonClasses } from "../../components/controls";
+import { Button, Field, Input, Select } from "../../components/controls";
 import { ConfirmDialog, ErrorState, SectionSkeleton } from "../../components/page";
 
 export default function ScheduleTab() {
@@ -69,9 +68,6 @@ export default function ScheduleTab() {
           <h2 className="text-lg text-ink-900">Weekly lessons</h2>
           <p className="text-sm text-ink-500">Students see these on their dashboard.</p>
         </div>
-        <Link to={`/tutor/groups/${groupId}/mock`} className={buttonClasses("secondary", "sm")}>
-          Record mock or test marks
-        </Link>
       </div>
 
       {actionError && (

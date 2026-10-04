@@ -36,7 +36,7 @@ test("one section throwing leaves the rest of Settings usable, and retries alone
     </QueryClientProvider>,
   );
 
-  const broken = await screen.findByRole("region", { name: "AI marking agreement" });
+  const broken = await screen.findByRole("region", { name: "Marking rules" });
   expect(within(broken).getByText("This section didn't load")).toBeInTheDocument();
 
   for (const heading of [
