@@ -177,3 +177,11 @@ second query. Regenerate OpenAPI types in the same PR (`FE-4`).
 - Tests never call a real AI provider or a real Zoom/Google endpoint (`QA-8`).
 - Phase 6 deploys (migrations 0060–0062) are `UNVERIFIED` on Render/Vercel — confirm green
   before stacking 0063 on them (`INF-1`, runbooks R2/R4).
+
+---
+
+## 6. After Phase 7 — the coherence pass
+
+Owner, 2026-10-04: a cross-role "make it one system" pass is scoped for **after** Phase 7 —
+`docs/coherence-pass-after-phase-7.md`. It moves the Schedule tab, class header, navigation and
+parent screen. Build 7.1/7.2 to the current layout; do not pre-empt that pass.
