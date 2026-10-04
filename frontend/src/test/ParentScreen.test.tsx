@@ -19,6 +19,23 @@ const NO_ATTENDANCE_RECORD = {
   classes: [],
 };
 
+/** The server derives the verdict from the same band; fixtures mirror that. */
+function verdictFor(status: string | null): SubjectReadiness["verdict"] {
+  if (status === null) {
+    return {
+      status: "not_enough_data",
+      reason_topics: [],
+      next_step: "Marked work will build this picture.",
+    };
+  }
+  return {
+    status,
+    reason_topics: status === "on_track" ? [] : ["Ionic bonding", "Moles"],
+    next_step:
+      status === "on_track" ? "Keep up the current plan." : "Revise Ionic bonding and Moles next.",
+  };
+}
+
 function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
   return {
     subject_id: 1,
@@ -43,6 +60,7 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     computed_at: null,
     rationale: null,
     recommended_revision: null,
+    verdict: verdictFor("status" in over ? (over.status ?? null) : "on_track"),
     ...over,
   };
 }
@@ -219,15 +237,15 @@ test.each([
   // One or two measured subjects are named rather than counted: the counting
   // template produced "needs support in one of one subjects".
   [[subject()], "Sara is on track in Chemistry."],
-  [[subject({ status: "at_risk" })], "Sara needs support in Chemistry."],
+  [[subject({ status: "at_risk" })], "Sara needs attention in Chemistry."],
   [[subject(), biology()], "Sara is on track in Chemistry and Biology."],
   [
     [subject(), biology({ status: "at_risk" })],
-    "Sara is on track in Chemistry but needs support in Biology.",
+    "Sara is on track in Chemistry but needs attention in Biology.",
   ],
   [
     [subject({ status: "at_risk" }), biology({ status: "needs_attention" })],
-    "Sara needs support in Chemistry and Biology.",
+    "Sara needs attention in Chemistry and Biology.",
   ],
   // From three up the count reads naturally.
   [[subject(), biology(), physics()], "Sara is on track in all three subjects."],
@@ -241,11 +259,20 @@ test.each([
       biology({ status: "at_risk" }),
       physics({ status: "at_risk" }),
     ],
-    "Sara needs support in all three subjects.",
+    "Sara needs attention in all three subjects.",
   ],
   [[unmeasured()], "There isn't enough marked work yet to say how Sara is doing."],
 ])("the verdict states the child's position", (subjects, expected) => {
   expect(parentVerdict("Sara", subjects)).toBe(expected);
+});
+
+test("a child who needs attention is never told nothing is needed", async () => {
+  stubFetch([subject({ status: "needs_attention" })]);
+  renderParent();
+  expect(await screen.findByText("Sara needs attention in Chemistry.")).toBeInTheDocument();
+  expect(screen.getByText("Ionic bonding, Moles")).toBeInTheDocument();
+  expect(screen.getByText("Chemistry: Revise Ionic bonding and Moles next.")).toBeInTheDocument();
+  expect(screen.queryByText(/nothing is needed/i)).not.toBeInTheDocument();
 });
 
 test("an unmeasured subject is neither on track nor in trouble", () => {

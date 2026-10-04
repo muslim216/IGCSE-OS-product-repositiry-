@@ -1,4 +1,5 @@
 import type { ReadinessStatus } from "../components/ui";
+import type { StudentVerdict } from "../lib/studentVerdict";
 import { api } from "./client";
 import type { components } from "./schema";
 
@@ -36,6 +37,9 @@ export interface SubjectReadiness {
       source of the colour surfaces show. null when there is no grade or no
       boundaries, and is then rendered as absent, never a defaulted colour. */
   status: ReadinessStatus | null;
+  /** The one verdict for this subject — identical for tutor, student and
+      parent; each role words it differently (lib/studentVerdict.ts). */
+  verdict: StudentVerdict;
   /** The plain mean of marked work, mapped through the same boundaries as
       predicted_grade — backward-looking where the prediction looks forward.
       null when nothing is marked yet, never 0. */

@@ -26,6 +26,7 @@ const base: SubjectReadiness = {
   computed_at: null,
   rationale: null,
   recommended_revision: null,
+  verdict: { status: "on_track", reason_topics: [], next_step: "Keep up the current plan." },
 };
 
 test("shows the score with no updating badge when nothing is queued", () => {
