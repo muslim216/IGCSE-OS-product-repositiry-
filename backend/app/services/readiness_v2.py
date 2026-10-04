@@ -10,6 +10,7 @@ per the "run out-of-band" rule for deterministic computation.
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -512,14 +513,19 @@ async def evaluate_subject_factors(
         )
 
     # Same reference date as the decaying factors, so the gate and decay agree.
-    if past_paper_phase_started(
+    phase_started = past_paper_phase_started(
         await _class_past_paper_plans(session, student_id, subject_id), now.date()
-    ):
+    )
+    if phase_started:
         pp_result = past_paper_performance(
             await _past_paper_attempts(session, student_id, subject_id)
         )
     else:
         pp_result = NO_DATA
+    # Record what the gate decided, so the past-paper-phase sweep can tell a run
+    # that saw the phase open from one that merely finished after midnight. A new
+    # dict: NO_DATA's shared detail must never be written through.
+    pp_result = replace(pp_result, detail={**pp_result.detail, "phase_started": phase_started})
     rows.append(
         _factor_row(
             evaluation_run_id,

@@ -17,11 +17,14 @@ from app.config import get_settings
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
+    FactorConfidence,
+    FactorEvaluation,
     Group,
     GroupMember,
     Job,
     JobStatus,
     PastPaperAttempt,
+    ReadinessFactor,
     Subject,
     TeachingPlan,
     TeachingPlanStatus,
@@ -32,6 +35,7 @@ from app.services.past_paper_phase import (
     pairs_needing_phase_recompute,
     sweep_past_paper_phase,
 )
+from app.services.readiness_v2 import evaluate_subject_factors
 from app.workers.jobs import enqueue, process_one_job
 from tests.factories import (
     make_past_paper,
@@ -122,15 +126,54 @@ async def _attempt(world, *, subject_id=None, org_id=None, marks=15):
         await session.commit()
 
 
-async def _snapshot(world, created_at):
+async def _snapshot(world, *, phase_started=None, status=AiSynthesisStatus.ready, age_days=0):
+    """One run for the pair. `phase_started=None` writes no past-paper factor
+    row at all — a run from before the gate outcome was recorded."""
     async with async_session() as session:
-        await write_v2_snapshot(
+        run_id = await write_v2_snapshot(
             session,
             student_id=world["student_id"],
             subject_id=world["subject_id"],
-            score=50.0,
-            created_at=created_at,
+            score=50.0 if status == AiSynthesisStatus.ready else None,
+            created_at=datetime.now(timezone.utc) - timedelta(days=age_days),
+            status=status,
         )
+        if phase_started is not None:
+            session.add(
+                FactorEvaluation(
+                    evaluation_run_id=run_id,
+                    student_id=world["student_id"],
+                    subject_id=world["subject_id"],
+                    factor=ReadinessFactor.past_paper_performance,
+                    score=None,
+                    confidence=FactorConfidence.no_data,
+                    evidence_count=0,
+                    detail={"phase_started": phase_started},
+                )
+            )
+        await session.commit()
+
+
+@pytest.fixture
+async def opened(world):
+    """The common case: phase open today, one marked past-paper attempt."""
+    await _plan(world, start=TODAY)
+    await _attempt(world)
+    return world
+
+
+async def _sweep():
+    async with async_session() as session:
+        await sweep_past_paper_phase(session, {})
+        await session.commit()
+
+
+async def _enqueue_compute(subject_id, status=JobStatus.pending, *, student_id):
+    async with async_session() as session:
+        job = await enqueue(
+            session, "compute_readiness_v2", {"student_id": student_id, "subject_id": subject_id}
+        )
+        job.status = status
         await session.commit()
 
 
@@ -151,26 +194,21 @@ async def _pending_sweeps() -> int:
         )
 
 
-async def test_start_date_today_selects_the_pair(world):
-    await _plan(world, start=TODAY)
-    await _attempt(world)
-    assert await _pairs() == [(world["student_id"], world["subject_id"])]
+async def test_start_date_today_selects_the_pair(opened):
+    assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
 
 
-async def test_start_date_in_the_future_selects_nothing(world):
-    await _plan(world, start=TODAY + timedelta(days=1))
-    await _attempt(world)
-    assert await _pairs() == []
-
-
-async def test_null_start_date_selects_nothing(world):
-    await _plan(world, start=None)
-    await _attempt(world)
-    assert await _pairs() == []
-
-
-async def test_draft_plan_selects_nothing(world):
-    await _plan(world, start=TODAY - timedelta(days=2), status=TeachingPlanStatus.draft)
+@pytest.mark.parametrize(
+    ("start_offset_days", "status"),
+    [
+        (1, TeachingPlanStatus.accepted),  # start date in the future
+        (None, TeachingPlanStatus.accepted),  # NULL start date
+        (-2, TeachingPlanStatus.draft),  # nothing reads a draft
+    ],
+)
+async def test_closed_phase_selects_nothing(world, start_offset_days, status):
+    start = None if start_offset_days is None else TODAY + timedelta(days=start_offset_days)
+    await _plan(world, start=start, status=status)
     await _attempt(world)
     assert await _pairs() == []
 
@@ -200,68 +238,46 @@ async def test_unmarked_attempt_is_not_evidence(world):
     assert await _pairs() == []
 
 
-async def test_run_computed_before_the_start_date_is_selected(world):
-    await _plan(world, start=TODAY - timedelta(days=1))
-    await _attempt(world)
-    await _snapshot(world, datetime.now(timezone.utc) - timedelta(days=5))
-    assert await _pairs() == [(world["student_id"], world["subject_id"])]
-
-
-async def test_run_computed_after_the_start_date_is_not_selected(world):
+async def test_run_that_saw_the_phase_open_is_not_selected(opened):
     """Idempotence: once recomputed the pair drops out."""
-    await _plan(world, start=TODAY - timedelta(days=1))
-    await _attempt(world)
-    await _snapshot(world, datetime.now(timezone.utc))
+    await _snapshot(opened, phase_started=True)
     assert await _pairs() == []
 
 
-async def test_failed_run_after_the_start_date_is_still_due(world, caplog):
+async def test_run_that_read_the_date_before_midnight_is_still_due(opened):
+    """The snapshot is newer than the start date, but the gate had said no."""
+    await _snapshot(opened, phase_started=False)
+    assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
+
+
+async def test_legacy_run_without_the_gate_outcome_is_due(opened):
+    await _snapshot(opened, phase_started=None)
+    assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
+
+
+async def test_only_the_latest_ready_run_counts(opened):
+    await _snapshot(opened, phase_started=True, age_days=5)
+    await _snapshot(opened, phase_started=False)
+    assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
+
+
+async def test_failed_run_is_still_due_and_warns(opened, caplog):
     """An AI outage writes a failed snapshot; it must not count as fresh."""
-    await _plan(world, start=TODAY - timedelta(days=1))
-    await _attempt(world)
-    async with async_session() as session:
-        await write_v2_snapshot(
-            session,
-            student_id=world["student_id"],
-            subject_id=world["subject_id"],
-            score=None,
-            created_at=datetime.now(timezone.utc),
-            status=AiSynthesisStatus.failed,
-        )
-        await session.commit()
+    await _snapshot(opened, status=AiSynthesisStatus.failed)
     with caplog.at_level("WARNING", logger="past_paper_phase"):
-        assert await _pairs() == [(world["student_id"], world["subject_id"])]
+        assert await _pairs() == [(opened["student_id"], opened["subject_id"])]
     assert any("failed run" in r.message for r in caplog.records)
 
 
-async def test_pending_wildcard_job_covers_the_pair(world):
-    await _plan(world, start=TODAY)
-    await _attempt(world)
-    async with async_session() as session:
-        await enqueue(
-            session, "compute_readiness_v2", {"student_id": world["student_id"], "subject_id": None}
-        )
-        await session.commit()
-    async with async_session() as session:
-        await sweep_past_paper_phase(session, {})
-        await session.commit()
-    assert len(await _compute_jobs()) == 1
-
-
-async def test_running_job_for_the_pair_is_not_requeued(world):
-    await _plan(world, start=TODAY)
-    await _attempt(world)
-    async with async_session() as session:
-        job = await enqueue(
-            session,
-            "compute_readiness_v2",
-            {"student_id": world["student_id"], "subject_id": world["subject_id"]},
-        )
-        job.status = JobStatus.running
-        await session.commit()
-    async with async_session() as session:
-        await sweep_past_paper_phase(session, {})
-        await session.commit()
+@pytest.mark.parametrize(
+    ("subject_for_job", "job_status"),
+    [(None, JobStatus.pending), ("pair", JobStatus.running)],
+)
+async def test_job_already_in_flight_covers_the_pair(opened, subject_for_job, job_status):
+    """A wildcard job covers every subject; a running job counts too."""
+    subject_id = opened["subject_id"] if subject_for_job == "pair" else None
+    await _enqueue_compute(subject_id, job_status, student_id=opened["student_id"])
+    await _sweep()
     assert len(await _compute_jobs()) == 1
 
 
@@ -304,36 +320,26 @@ async def test_two_classes_in_one_subject_give_one_pair(world):
     assert await _pairs() == [(world["student_id"], world["subject_id"])]
 
 
-async def test_sweep_enqueues_the_pair_once_even_when_run_twice(world):
-    await _plan(world, start=TODAY)
-    await _attempt(world)
-    for _ in range(2):
-        async with async_session() as session:
-            await sweep_past_paper_phase(session, {})
-            await session.commit()
+async def test_sweep_enqueues_the_pair_once_even_when_run_twice(opened):
+    await _sweep()
+    await _sweep()
     jobs = await _compute_jobs()
     assert len(jobs) == 1
     assert jobs[0].payload == {
-        "student_id": world["student_id"],
-        "subject_id": world["subject_id"],
+        "student_id": opened["student_id"],
+        "subject_id": opened["subject_id"],
     }
 
 
-async def test_kill_switch_off_enqueues_no_compute_jobs_but_still_rearms(world, monkeypatch):
-    await _plan(world, start=TODAY)
-    await _attempt(world)
+async def test_kill_switch_off_enqueues_no_compute_jobs_but_still_rearms(opened, monkeypatch):
     monkeypatch.setattr(get_settings(), "readiness_v2_shadow_enabled", False)
-    async with async_session() as session:
-        await sweep_past_paper_phase(session, {})
-        await session.commit()
+    await _sweep()
     assert await _compute_jobs() == []
     assert await _pending_sweeps() == 1
 
 
 async def test_sweep_rearms_itself_with_future_run_after(world):
-    async with async_session() as session:
-        await sweep_past_paper_phase(session, {})
-        await session.commit()
+    await _sweep()
     async with async_session() as session:
         sweep = await session.scalar(
             select(Job).where(Job.type == SWEEP_JOB, Job.status == JobStatus.pending)
@@ -366,11 +372,9 @@ async def test_ensure_scheduled_is_idempotent(world):
     assert count == 1
 
 
-async def test_handler_is_registered_and_runs_through_the_worker(world):
+async def test_handler_is_registered_and_runs_through_the_worker(opened):
     """Through process_one_job (QA-6): the registered handler queues the compute
     job and the next sweep. The compute job is delayed, so no AI is called."""
-    await _plan(world, start=TODAY)
-    await _attempt(world)
     async with async_session() as session:
         await ensure_past_paper_phase_sweep_scheduled(session)
         await session.commit()
@@ -381,3 +385,22 @@ async def test_handler_is_registered_and_runs_through_the_worker(world):
 
 def test_interval_setting_is_at_least_one_hour():
     assert get_settings().past_paper_phase_sweep_interval_hours >= 1
+
+
+@pytest.mark.parametrize(("start_offset_days", "expected"), [(0, True), (1, False)])
+async def test_engine_records_the_gate_outcome_in_the_factor_detail(
+    world, start_offset_days, expected
+):
+    """The sweep's freshness check reads this key, so the engine must write it."""
+    await _plan(world, start=TODAY + timedelta(days=start_offset_days))
+    await _attempt(world)
+    async with async_session() as session:
+        rows = await evaluate_subject_factors(
+            session,
+            world["student_id"],
+            world["subject_id"],
+            "run-x",
+            now=datetime.now(timezone.utc),
+        )
+    row = next(r for r in rows if r.factor == ReadinessFactor.past_paper_performance)
+    assert row.detail["phase_started"] is expected

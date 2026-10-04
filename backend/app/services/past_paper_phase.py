@@ -27,12 +27,14 @@ from app.config import get_settings
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
+    FactorEvaluation,
     Group,
     GroupMember,
     Job,
     JobStatus,
     PastPaper,
     PastPaperAttempt,
+    ReadinessFactor,
     ReadinessSnapshot,
     TeachingPlan,
     TeachingPlanStatus,
@@ -61,7 +63,7 @@ async def pairs_needing_phase_recompute(
     """(student_id, subject_id) pairs whose readiness predates the opening of
     the past-paper phase and which actually have past-paper evidence to reveal.
 
-    Two grouped queries however many students there are (PERF-1). Organization
+    A fixed handful of grouped queries however many students there are (PERF-1). Organization
     scoping comes from the joins: the plan must belong to the same organization
     as its class, and the paper to the same organization as the class, so a
     subject shared by name across tenants never mixes (SEC-8).
@@ -107,48 +109,81 @@ async def pairs_needing_phase_recompute(
     if not opened:
         return []
 
-    # Only a `ready` run counts as having seen the phase open: a `failed` one
-    # (AI outage) leaves no score a student can read, and treating it as fresh
-    # would drop the pair for good. Retrying is bounded to one run per pair per
-    # sweep interval.
-    latest: dict[tuple[int, int], datetime] = {}
-    failed: dict[tuple[int, int], datetime] = {}
-    for student_id, subject_id, status, created in (
-        await session.execute(
-            select(
-                ReadinessSnapshot.student_id,
-                ReadinessSnapshot.subject_id,
-                ReadinessSnapshot.status,
-                func.max(ReadinessSnapshot.created_at),
-            )
-            .where(ReadinessSnapshot.student_id.in_({row[0] for row in opened}))
-            .group_by(
-                ReadinessSnapshot.student_id,
-                ReadinessSnapshot.subject_id,
-                ReadinessSnapshot.status,
-            )
+    students = {row[0] for row in opened}
+    # A pair is fresh only if its latest READY run's gate said the phase had
+    # started. Not a timestamp comparison: a run that read the date before the
+    # start but finished after midnight is newer than the start yet never saw
+    # the phase open. A `failed` run (AI outage) leaves no score a student can
+    # read, so it never counts either; retrying is bounded to one run per pair
+    # per sweep interval. Rows written before `phase_started` existed lack the
+    # key and count as not fresh: one recompute, after which they carry it.
+    newest_ready = (
+        select(func.max(ReadinessSnapshot.id))
+        .where(
+            ReadinessSnapshot.student_id.in_(students),
+            ReadinessSnapshot.status == AiSynthesisStatus.ready,
         )
-    ).all():
-        target = latest if status == AiSynthesisStatus.ready else failed
-        target[(student_id, subject_id)] = _aware(created)
+        .group_by(ReadinessSnapshot.student_id, ReadinessSnapshot.subject_id)
+    )
+    run_ids = {
+        (student_id, subject_id): run_id
+        for student_id, subject_id, run_id in (
+            await session.execute(
+                select(
+                    ReadinessSnapshot.student_id,
+                    ReadinessSnapshot.subject_id,
+                    ReadinessSnapshot.evaluation_run_id,
+                ).where(ReadinessSnapshot.id.in_(newest_ready))
+            )
+        ).all()
+    }
+    # `detail` is generic JSON (DB-7), so it is read in Python rather than
+    # filtered in SQL, which would differ between SQLite and Postgres.
+    saw_phase_open: set[str] = set()
+    if run_ids:
+        for run_id, detail in (
+            await session.execute(
+                select(FactorEvaluation.evaluation_run_id, FactorEvaluation.detail).where(
+                    FactorEvaluation.evaluation_run_id.in_(set(run_ids.values())),
+                    FactorEvaluation.factor == ReadinessFactor.past_paper_performance,
+                )
+            )
+        ).all():
+            if isinstance(detail, dict) and detail.get("phase_started") is True:
+                saw_phase_open.add(run_id)
+
+    failed_at: dict[tuple[int, int], datetime] = {
+        (student_id, subject_id): _aware(created)
+        for student_id, subject_id, created in (
+            await session.execute(
+                select(
+                    ReadinessSnapshot.student_id,
+                    ReadinessSnapshot.subject_id,
+                    func.max(ReadinessSnapshot.created_at),
+                )
+                .where(
+                    ReadinessSnapshot.student_id.in_(students),
+                    ReadinessSnapshot.status == AiSynthesisStatus.failed,
+                )
+                .group_by(ReadinessSnapshot.student_id, ReadinessSnapshot.subject_id)
+            )
+        ).all()
+    }
 
     due: list[tuple[int, int]] = []
     for student_id, subject_id, start in opened:
-        # The gate reads `now.date()` in UTC, so a run written at or after the
-        # start date's UTC midnight already saw the phase open. A run straddling
-        # midnight may have used yesterday's date; accepted, because the sweep
-        # recurs every few hours and picks the pair up again if so.
-        opens_at = datetime.combine(start, time.min, tzinfo=timezone.utc)
-        last = latest.get((student_id, subject_id))
-        if last is None or last < opens_at:
-            due.append((student_id, subject_id))
-            failed_at = failed.get((student_id, subject_id))
-            if failed_at is not None and failed_at >= opens_at:
-                log.warning(
-                    "past-paper phase recompute retried after a failed run: student=%s subject=%s",
-                    student_id,
-                    subject_id,
-                )
+        if run_ids.get((student_id, subject_id)) in saw_phase_open:
+            continue
+        due.append((student_id, subject_id))
+        failed_when = failed_at.get((student_id, subject_id))
+        if failed_when is not None and failed_when >= datetime.combine(
+            start, time.min, tzinfo=timezone.utc
+        ):
+            log.warning(
+                "past-paper phase recompute retried after a failed run: student=%s subject=%s",
+                student_id,
+                subject_id,
+            )
     return due
 
 
