@@ -7,7 +7,7 @@ import GroupLayout from "../tutor/GroupLayout";
 
 // The class headline has its own tests and its own requests; here it is only
 // something the layout renders above the tabs.
-vi.mock("../tutor/ClassOverview", () => ({ default: () => null }));
+vi.mock("../tutor/ClassOverview", () => ({ default: () => <p>Class headline</p> }));
 
 /* A class URL that cannot name a class is a wrong link, not a failed load:
    "didn't load — try again" offers a retry that can never succeed. */
@@ -108,4 +108,19 @@ test("opening a class by its bare URL is an arrival, and changing tab is not", a
 
   expect(await screen.findByText("Students tab")).toBeInTheDocument();
   expect(heading().closest(".avora-still")).not.toBeNull();
+});
+
+test("the class headline shows on the landing tab and not on the others", async () => {
+  renderClassAt("/tutor/groups/1");
+
+  expect(await screen.findByText("Homework tab")).toBeInTheDocument();
+  expect(screen.getByText("Class headline")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("link", { name: "Students" }));
+
+  expect(await screen.findByText("Students tab")).toBeInTheDocument();
+  expect(screen.queryByText("Class headline")).not.toBeInTheDocument();
+  // The class name line and the tabs are still there.
+  expect(screen.getByRole("heading", { name: "Year 10 Chemistry" })).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Class sections" })).toBeInTheDocument();
 });

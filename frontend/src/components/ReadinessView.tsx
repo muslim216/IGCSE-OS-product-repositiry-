@@ -1,21 +1,14 @@
 import { Sparkles } from "lucide-react";
 import type { SubjectReadiness } from "../api/readiness";
-import type { ReadinessStatus } from "./ui";
+import ReadinessFigure from "./ReadinessFigure";
 import { ABSENT } from "../lib/labels";
 import { VerdictLine } from "./VerdictLine";
 
-/* Colour comes from the subject's band — its predicted grade's position in the
-   subject's own boundary list, sent by the backend as `status` — never from a
-   percentage cut-off (UX-28). This card used to colour scores against a
-   literal 70/50, which disagreed with the badge every other surface shows for
-   any subject whose boundaries are not on that scale. A topic has no band of
-   its own, so its bar is drawn in one neutral colour and the number beside it
-   carries the meaning. */
-const SCORE_TONE: Record<ReadinessStatus, string> = {
-  on_track: "text-ok-700",
-  needs_attention: "text-warn-700",
-  at_risk: "text-risk-600",
-};
+/* A topic has no band of its own, so its bar is drawn in one neutral colour and
+   the number beside it carries the meaning (UX-28). The subject's own band is
+   the status badge in its verdict line and in <ReadinessFigure>, derived from
+   the grade's position in the subject's boundaries, never a percentage
+   cut-off. */
 
 /** The two markers a topic row can carry, each explained once in words below
     the list — a tooltip alone is invisible on a phone or tablet. */
@@ -70,27 +63,16 @@ export function SubjectReadinessCard({
           </div>
         </div>
         {subject.score !== null ? (
+          // The status is the badge in the verdict line beside the name, so it
+          // is not printed twice; grade and score follow the shared format.
           <div className="shrink-0 text-right">
-            <div
-              className={`font-display text-3xl leading-none tabular-nums ${
-                subject.status ? SCORE_TONE[subject.status] : "text-ink-900"
-              }`}
-            >
-              {Math.round(subject.score)}%
-            </div>
-            <div className="mt-1 text-xs text-ink-500">readiness</div>
-            <div className="mt-1 text-sm text-ink-500">
-              {/* A score with no boundaries to map it through has no grade,
-                  and says so rather than leaving "Predicted grade" hanging. */}
-              {subject.predicted_grade !== null ? (
-                <>
-                  Predicted grade{" "}
-                  <span className="font-semibold text-ink-900">{subject.predicted_grade}</span>
-                </>
-              ) : (
-                ABSENT.noBoundaries
-              )}
-            </div>
+            <ReadinessFigure
+              score={subject.score}
+              grade={subject.predicted_grade}
+              status={null}
+              boundariesMissing={subject.predicted_grade === null}
+              size="lg"
+            />
           </div>
         ) : (
           <span className="shrink-0 rounded-md bg-surface-muted px-2 py-1 text-xs text-ink-500">

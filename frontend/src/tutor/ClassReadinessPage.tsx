@@ -50,6 +50,7 @@ export default function ClassReadinessPage() {
               student_name: l.student_name,
               subject_name: data.subject_name,
               score: l.score,
+              predicted_grade: l.predicted_grade,
               status: l.verdict.status,
               group_id: data.group_id,
               group_name: data.name,

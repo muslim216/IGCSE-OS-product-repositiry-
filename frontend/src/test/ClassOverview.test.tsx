@@ -190,7 +190,9 @@ test("grades are labelled as grades, never a bare number", async () => {
   stubFetch({ ...BASE, learners: [learner({ predicted_grade: "6" })] });
   renderPanel();
 
-  expect(await screen.findByText("Predicted grade")).toBeInTheDocument();
+  // The class headline reads grade · status · percentage (coherence C.6).
+  expect(await screen.findByText("Learners")).toBeInTheDocument();
+  expect(screen.getAllByText(/Grade/).length).toBeGreaterThan(1);
   const learners = (await screen.findByText("Learners")).closest("section")!;
   expect(within(learners).getByText(/Grade/)).toHaveTextContent("Grade 6");
 });

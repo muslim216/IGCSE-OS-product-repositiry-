@@ -16,13 +16,14 @@ const BASE: TutorAnalytics = {
   agreement: { total_marked_questions: 0, ai_agreed: 0, agreement_rate: null },
 };
 
-function stubFetch(analytics: TutorAnalytics) {
+function stubFetch(analytics: TutorAnalytics, overview: unknown = { learners: [] }) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       if (url.includes("/analytics/groups/")) return json(analytics);
+      if (url.includes("/today/classes/")) return json(overview);
       return json([]);
     }),
   );
@@ -150,4 +151,39 @@ test("a weakest topic from marked work alone carries no estimate label", async (
   // The code is still rendered — beside the title, in its own element.
   expect(screen.getByText("1.3")).toBeInTheDocument();
   expect(screen.queryByText("includes tutor estimate")).not.toBeInTheDocument();
+});
+
+test("readiness by student reads grade, status and percentage, lowest first", async () => {
+  const learner = (id: number, name: string, score: number | null, grade: string | null) => ({
+    student_id: id,
+    student_name: name,
+    score,
+    predicted_grade: grade,
+    verdict: {
+      status: score === null ? "not_enough_data" : "on_track",
+      reason_topics: [],
+      next_step: "",
+    },
+  });
+  stubFetch(
+    { ...BASE, weak_students: [SARA] },
+    {
+      boundaries_missing: false,
+      learners: [
+        learner(1, "Sara", 88, "8"),
+        learner(2, "Lowe", 41, "3"),
+        learner(3, "Unscored", null, null),
+      ],
+    },
+  );
+  renderPage();
+
+  const lowe = (await screen.findByText("Lowe")).closest("li")!;
+  expect(lowe.textContent).toContain("Grade 3");
+  expect(lowe.textContent).toContain("On track");
+  expect(lowe.textContent).toContain("41%");
+  // A learner without a score is absent, never a 0% row.
+  expect(screen.queryByText("Unscored")).not.toBeInTheDocument();
+  const names = screen.getAllByRole("link").map((a) => a.textContent);
+  expect(names.indexOf("Lowe")).toBeLessThan(names.indexOf("Sara"));
 });
