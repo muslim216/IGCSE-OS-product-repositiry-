@@ -406,15 +406,17 @@ async def add_demo_mistakes(
             continue
         # Not every lost mark is a tagged mistake: about four in five are, so
         # the counts are not simply "marks lost".
-        if rng.random() > 0.8:
+        # rng is a fixed-seed generator so the demo is reproducible; nothing here
+        # is security-sensitive.
+        if rng.random() > 0.8:  # NOSONAR
             continue
         share = (question.max_marks - mark.final_marks) / question.max_marks
         severity = 3 if share >= 0.6 else 2 if share >= 0.3 else 1
         name = _CATEGORY_FOR_QUESTION.get(_KEY_BY_SUMMARY.get(question.text_summary, ""))
-        if name in categories and rng.random() < 0.75:
+        if name in categories and rng.random() < 0.75:  # NOSONAR
             category = categories[name]
         else:
-            category = rng.choice(alternatives)
+            category = rng.choice(alternatives)  # NOSONAR
         mistake = Mistake(
             student_id=submission.student_id,
             question_mark_id=mark.id,
