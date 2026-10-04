@@ -7,6 +7,7 @@ import {
   FolderOpen,
   Gauge,
   GraduationCap,
+  Settings as SettingsIcon,
   Home as HomeIcon,
   Sunrise,
   Users,
@@ -38,16 +39,12 @@ import StudentDetailPage from "./tutor/StudentDetailPage";
 import GroupAnalyticsPage from "./tutor/GroupAnalyticsPage";
 import MockEntryPage from "./tutor/MockEntryPage";
 import ClassReadinessPage from "./tutor/ClassReadinessPage";
-import PreferencesPage from "./tutor/PreferencesPage";
-import GradeBoundariesPage from "./tutor/GradeBoundariesPage";
-import MistakeCategoriesPage from "./tutor/MistakeCategoriesPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
+import PapersHubPage from "./tutor/PapersHubPage";
 import MocksPage from "./tutor/MocksPage";
-import MarkingRulesPage from "./tutor/MarkingRulesPage";
 import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
-import TeachingGuidancePage from "./tutor/TeachingGuidancePage";
 import SettingsPage from "./tutor/SettingsPage";
 import IntegrationCallbackPage from "./tutor/IntegrationCallbackPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
@@ -90,15 +87,27 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/recordings", label: "Recordings", icon: Video },
 ];
 
-// Four destinations, not nine. Today · Classes · Review · Library is the whole
-// daily loop; everything else (past papers, mocks, syllabuses, class readiness,
-// preferences, settings) moved onto the Library shelf, still one tap away and
-// still reachable by its old URL — no bookmark 404s (edge case 20).
+// Seven destinations, set by the owner (2026-10-05): "don't change the full
+// structure ... only the skeletons". Classes was right; the trouble was that
+// readiness, exam papers and every setup page had been dropped onto the Library
+// shelf. Each now has a name where the tutor looks for it: Readiness and
+// Papers & mocks are the work, Library is source material, Settings is where
+// marking, grades and the account are configured. The daily loop stays first.
+// Old URLs still land (setup pages redirect into Settings), so no bookmark
+// 404s (edge case 20). `also` keeps a nested page's parent lit.
 const TUTOR_NAV: NavItem[] = [
   { to: "/tutor", label: "Today", icon: Sunrise },
-  { to: "/tutor/classes", label: "Classes", icon: Users },
+  { to: "/tutor/classes", label: "Classes", icon: Users, also: ["/tutor/groups"] },
   { to: "/tutor/review", label: "Review", icon: ClipboardCheck },
-  { to: "/tutor/library", label: "Library", icon: BookOpen },
+  { to: "/tutor/readiness", label: "Readiness", icon: Gauge },
+  {
+    to: "/tutor/papers",
+    label: "Papers & mocks",
+    icon: FileText,
+    also: ["/tutor/past-papers", "/tutor/booklets", "/tutor/mocks"],
+  },
+  { to: "/tutor/library", label: "Library", icon: BookOpen, also: ["/tutor/syllabuses"] },
+  { to: "/tutor/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function App() {
@@ -117,13 +126,30 @@ export default function App() {
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
           <Route path="/tutor/library" element={<LibraryPage />} />
+          <Route path="/tutor/papers" element={<PapersHubPage />} />
+          {/* Setup pages became sections of Settings; the old URLs land on theirs. */}
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
-          <Route path="/tutor/boundaries" element={<GradeBoundariesPage />} />
-          <Route path="/tutor/mistake-categories" element={<MistakeCategoriesPage />} />
+          <Route
+            path="/tutor/boundaries"
+            element={<Navigate to="/tutor/settings#boundaries" replace />}
+          />
+          <Route
+            path="/tutor/mistake-categories"
+            element={<Navigate to="/tutor/settings#mistake-categories" replace />}
+          />
           <Route path="/tutor/syllabuses" element={<SyllabusUploadPage />} />
-          <Route path="/tutor/teaching-guidance" element={<TeachingGuidancePage />} />
-          <Route path="/tutor/marking-rules" element={<MarkingRulesPage />} />
-          <Route path="/tutor/preferences" element={<PreferencesPage />} />
+          <Route
+            path="/tutor/teaching-guidance"
+            element={<Navigate to="/tutor/settings#teaching-guidance" replace />}
+          />
+          <Route
+            path="/tutor/marking-rules"
+            element={<Navigate to="/tutor/settings#marking-rules" replace />}
+          />
+          <Route
+            path="/tutor/preferences"
+            element={<Navigate to="/tutor/settings#preferences" replace />}
+          />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
           {/* Homework overview folded into Review; the old bookmark still lands. */}

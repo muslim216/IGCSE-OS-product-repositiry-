@@ -173,7 +173,7 @@ export default function MistakeCategoriesPage() {
     <PageHeader
       title="Mistake categories"
       description="The words used to sort what went wrong on a marked answer. These are your organisation's own — nothing forces every tutor of every subject to sort mistakes the same way."
-      back={{ to: "/tutor/library", label: "Library" }}
+      back={{ to: "/tutor/settings", label: "Settings" }}
     />
   );
 

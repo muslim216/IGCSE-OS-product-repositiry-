@@ -211,7 +211,7 @@ export default function PreferencesPage() {
       <PageHeader
         title="Preferences"
         description="How much each of the six readiness factors counts towards your students' scores, for all subjects or just one. Saving a change to the factors recalculates everyone you teach."
-        back={{ to: "/tutor/library", label: "Library" }}
+        back={{ to: "/tutor/settings", label: "Settings" }}
       />
 
       <div className="space-y-6">
