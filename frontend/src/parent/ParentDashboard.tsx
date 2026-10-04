@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { myChildren } from "../api/groups";
 import { studentNarrative } from "../api/narrative";
 import { studentReadiness, type SubjectReadiness } from "../api/readiness";
-import { DirectionMark, EmptyState, SectionCard, StatusBadge } from "../components/ui";
+import { DirectionMark, EmptyState, SectionCard } from "../components/ui";
+import { VerdictLine } from "../components/VerdictLine";
 import {
   ErrorState,
   PageHeader,
@@ -47,7 +48,7 @@ function SubjectRow({ subject }: { subject: SubjectReadiness }) {
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-3">
       <span className="min-w-36 font-medium text-ink-900">{subject.subject_name}</span>
-      {subject.status === null ? (
+      {subject.verdict.status === "not_enough_data" ? (
         // No band. Distinguish "nothing marked yet" from "marked work exists but
         // the subject has no grade boundaries to map it through" — the two are
         // different facts and only the first is "not enough data yet" (CodeRabbit).
@@ -56,7 +57,7 @@ function SubjectRow({ subject }: { subject: SubjectReadiness }) {
         </span>
       ) : (
         <>
-          <StatusBadge status={subject.status} />
+          <VerdictLine role="parent" verdict={subject.verdict} showNextStep={false} />
           {/* Each grade says which grade it is. "predicted 6 · averaging 8"
               left a parent to guess what "averaging" meant, and which of the
               two numbers was the school's view. */}

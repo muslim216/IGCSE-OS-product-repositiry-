@@ -35,6 +35,11 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     computed_at: null,
     rationale: null,
     recommended_revision: null,
+    verdict: {
+      status: "on_track",
+      reason_topics: [],
+      next_step: "Nothing flagged in this subject.",
+    },
     ...over,
   };
 }
@@ -208,7 +213,7 @@ test("the cleared state offers exactly one action, and it is past papers", async
   stubFetch([subject()], []);
   renderHome();
 
-  expect(await screen.findByText("You're clear. Nothing due.")).toBeInTheDocument();
+  expect(await screen.findByText("Nothing due.")).toBeInTheDocument();
   expect(screen.getByText("Sit a past paper")).toBeInTheDocument();
   // There is no practice, quiz or revision generator behind any other verb, and
   // a control with nothing behind it is worse than no control.
@@ -224,7 +229,7 @@ test("a closed, unsubmitted assignment is not offered as work to start", async (
   // toward the day's verdict (Qodo).
   stubFetch([subject()], [assignment({ is_open: false, submission_status: "not_submitted" })]);
   renderHome();
-  expect(await screen.findByText("You're clear. Nothing due.")).toBeInTheDocument();
+  expect(await screen.findByText("Nothing due.")).toBeInTheDocument();
   expect(screen.queryByText("Start →")).not.toBeInTheDocument();
 });
 
@@ -268,4 +273,25 @@ test("no standing is rendered anywhere on the home", async () => {
   await screen.findByText("74%");
   expect(container.textContent).not.toMatch(/\d+(st|nd|rd|th) of \d+/);
   expect(container.textContent).not.toMatch(/class average/i);
+});
+
+test("nothing due never reads as all clear when the verdict needs attention", async () => {
+  stubFetch(
+    [
+      subject({
+        status: "needs_attention",
+        verdict: {
+          status: "needs_attention",
+          reason_topics: ["Ionic bonding", "Moles"],
+          next_step: "Weakest right now: Ionic bonding and Moles.",
+        },
+      }),
+    ],
+    [],
+  );
+  renderHome();
+  // Both facts, each honest: no homework, and where the student stands.
+  expect(await screen.findByText("Nothing due.")).toBeInTheDocument();
+  expect(screen.getByText("Focus on: Ionic bonding, Moles")).toBeInTheDocument();
+  expect(screen.queryByText(/you're clear/i)).not.toBeInTheDocument();
 });

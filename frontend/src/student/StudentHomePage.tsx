@@ -8,6 +8,7 @@ import { myAssignments } from "../api/homework";
 import { DirectionMark, SectionCard } from "../components/ui";
 import { ErrorState, PageHeader, PageSkeleton } from "../components/page";
 import { ABSENT } from "../lib/labels";
+import { VerdictLine } from "../components/VerdictLine";
 import { greetingFor } from "../lib/readiness";
 import { calendarDaysUntil, formatDayMonth } from "../lib/timezones";
 import { useMyTimezone } from "../auth/AuthContext";
@@ -185,6 +186,25 @@ export default function StudentHomePage() {
         title={dueVerdict(due.length)}
         documentTitle="Home"
       />
+
+      {/* Homework due and the verdict are different facts, and both are shown:
+          "nothing due" must never read as "all is well" when the tutor's
+          verdict says otherwise (coherence C.1). */}
+      {subjects.length > 0 && (
+        <HomeSection title="Where you stand">
+          <ul className="divide-y divide-line text-sm">
+            {subjects.map((s) => (
+              <li
+                key={s.subject_id}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3"
+              >
+                <span className="font-medium text-ink-900">{s.subject_name}</span>
+                <VerdictLine role="student" verdict={s.verdict} />
+              </li>
+            ))}
+          </ul>
+        </HomeSection>
+      )}
 
       {due.length > 0 && (
         <HomeSection title="Do">

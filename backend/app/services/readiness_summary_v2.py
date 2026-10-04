@@ -20,6 +20,7 @@ Two deliberate behaviours:
 """
 
 from collections.abc import Sequence
+from dataclasses import asdict
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,7 @@ from app.models import (
 from app.schemas.readiness import (
     StudentReadinessSummary,
     SubjectReadiness,
+    SubjectVerdict,
     TopicReadinessOut,
     WeakTopic,
 )
@@ -51,6 +53,7 @@ from app.services.readiness_shared import (
     v2_score_points,
 )
 from app.services.readiness_v2_ai import in_flight_readiness_pairs, resolve_grade_boundaries
+from app.services.student_verdict import student_verdict
 
 # Job types whose presence means "a new score is on its way".
 _IN_FLIGHT = (JobStatus.pending, JobStatus.running)
@@ -226,6 +229,16 @@ async def _subject_from_snapshot(
         # boundaries again.
         predicted_grade=snapshot.predicted_grade if boundaries else None,
         status=grade_band(snapshot.predicted_grade, boundaries),
+        verdict=SubjectVerdict(
+            **asdict(
+                student_verdict(
+                    score=snapshot.score,
+                    predicted_grade=snapshot.predicted_grade if boundaries else None,
+                    boundaries=boundaries,
+                    weak_topics=[w.topic_title for w in weak],
+                )
+            )
+        ),
         averaging_score=averaging.score,
         averaging_grade=averaging_grade,
         marked_piece_count=averaging.marked_piece_count,
@@ -277,6 +290,13 @@ async def _subject_without_snapshot(
         score=None,
         predicted_grade=None,
         status=None,
+        verdict=SubjectVerdict(
+            **asdict(
+                student_verdict(
+                    score=None, predicted_grade=None, boundaries=boundaries, weak_topics=[]
+                )
+            )
+        ),
         averaging_score=averaging.score,
         averaging_grade=(
             predict_grade(averaging.score, boundaries)

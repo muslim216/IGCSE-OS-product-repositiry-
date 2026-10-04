@@ -5828,6 +5828,7 @@ export interface components {
             predicted_grade: string | null;
             /** Status */
             status?: string | null;
+            verdict: components["schemas"]["SubjectVerdict"];
             /** Averaging Score */
             averaging_score?: number | null;
             /** Averaging Grade */
@@ -5879,6 +5880,27 @@ export interface components {
             subject_name: string;
             /** Points */
             points: components["schemas"]["TrendPoint"][];
+        };
+        /**
+         * SubjectVerdict
+         * @description The one verdict for this (student, subject), identical for the tutor, the
+         *     student and the parent — they differ only in wording, which the frontend
+         *     owns (services/student_verdict.py). `status` is "on_track" |
+         *     "needs_attention" | "at_risk" | "not_enough_data".
+         */
+        SubjectVerdict: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "on_track" | "needs_attention" | "at_risk" | "not_enough_data";
+            /**
+             * Reason Topics
+             * @default []
+             */
+            reason_topics: string[];
+            /** Next Step */
+            next_step: string;
         };
         /** SubmissionDetail */
         SubmissionDetail: {

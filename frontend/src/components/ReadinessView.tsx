@@ -2,6 +2,7 @@ import { Sparkles } from "lucide-react";
 import type { SubjectReadiness } from "../api/readiness";
 import type { ReadinessStatus } from "./ui";
 import { ABSENT } from "../lib/labels";
+import { VerdictLine } from "./VerdictLine";
 
 /* Colour comes from the subject's band — its predicted grade's position in the
    subject's own boundary list, sent by the backend as `status` — never from a
@@ -64,6 +65,9 @@ export function SubjectReadinessCard({
             )}
           </div>
           <p className="text-sm text-ink-500">{subject.exam_board}</p>
+          <div className="mt-1.5">
+            <VerdictLine role="tutor" verdict={subject.verdict} />
+          </div>
         </div>
         {subject.score !== null ? (
           <div className="shrink-0 text-right">

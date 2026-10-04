@@ -41,6 +41,7 @@ const SUBJECT = {
   computed_at: null,
   rationale: null,
   recommended_revision: null,
+  verdict: { status: "on_track", reason_topics: [], next_step: "Nothing flagged in this subject." },
 };
 
 const EVIDENCE = {

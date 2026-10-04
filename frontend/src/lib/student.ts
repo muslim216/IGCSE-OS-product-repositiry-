@@ -65,7 +65,7 @@ export function subjectStrip(subjects: SubjectReadiness[]): SubjectValue[] {
 /** Line one of the home (copy §4.5). Ends in a full stop — a verdict without
     one reads as a label. */
 export function dueVerdict(dueCount: number): string {
-  if (dueCount === 0) return "You're clear. Nothing due.";
+  if (dueCount === 0) return "Nothing due.";
   const word = countWord(dueCount);
   return `${word.charAt(0).toUpperCase()}${word.slice(1)} thing${dueCount === 1 ? "" : "s"} to do today.`;
 }

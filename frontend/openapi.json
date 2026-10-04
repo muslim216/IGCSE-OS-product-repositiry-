@@ -16953,6 +16953,9 @@
             ],
             "title": "Status"
           },
+          "verdict": {
+            "$ref": "#/components/schemas/SubjectVerdict"
+          },
           "averaging_score": {
             "anyOf": [
               {
@@ -17096,6 +17099,7 @@
           "grade_scale",
           "score",
           "predicted_grade",
+          "verdict",
           "topics",
           "weak_topics"
         ],
@@ -17126,6 +17130,39 @@
           "points"
         ],
         "title": "SubjectTrend"
+      },
+      "SubjectVerdict": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "on_track",
+              "needs_attention",
+              "at_risk",
+              "not_enough_data"
+            ],
+            "title": "Status"
+          },
+          "reason_topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Topics",
+            "default": []
+          },
+          "next_step": {
+            "type": "string",
+            "title": "Next Step"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "next_step"
+        ],
+        "title": "SubjectVerdict",
+        "description": "The one verdict for this (student, subject), identical for the tutor, the\nstudent and the parent \u2014 they differ only in wording, which the frontend\nowns (services/student_verdict.py). `status` is \"on_track\" |\n\"needs_attention\" | \"at_risk\" | \"not_enough_data\"."
       },
       "SubmissionDetail": {
         "properties": {

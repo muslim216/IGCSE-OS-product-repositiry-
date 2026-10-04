@@ -59,6 +59,11 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     computed_at: null,
     rationale: null,
     recommended_revision: null,
+    verdict: {
+      status: "on_track",
+      reason_topics: [],
+      next_step: "Nothing flagged in this subject.",
+    },
     ...over,
   };
 }
@@ -70,7 +75,7 @@ test("counts up to ten are words in the verdict", () => {
 });
 
 test("nothing due is a sentence, never a zero", () => {
-  expect(dueVerdict(0)).toBe("You're clear. Nothing due.");
+  expect(dueVerdict(0)).toBe("Nothing due.");
 });
 
 test("every verdict ends in a full stop", () => {

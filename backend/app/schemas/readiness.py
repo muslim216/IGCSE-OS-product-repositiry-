@@ -28,6 +28,20 @@ class WeakTopic(BaseModel):
     tutor_estimate: bool = False
 
 
+VerdictStatus = Literal["on_track", "needs_attention", "at_risk", "not_enough_data"]
+
+
+class SubjectVerdict(BaseModel):
+    """The one verdict for this (student, subject), identical for the tutor, the
+    student and the parent — they differ only in wording, which the frontend
+    owns (services/student_verdict.py). `status` is "on_track" |
+    "needs_attention" | "at_risk" | "not_enough_data"."""
+
+    status: VerdictStatus
+    reason_topics: list[str] = []
+    next_step: str
+
+
 class SubjectReadiness(BaseModel):
     subject_id: int
     subject_name: str
@@ -40,6 +54,8 @@ class SubjectReadiness(BaseModel):
     # source of the colour every surface shows (UX-28). None when there is no
     # grade or no boundaries, so an absent band renders as absent (PROD-2).
     status: str | None = None
+    # The shared verdict built from this subject's status and weak topics.
+    verdict: SubjectVerdict
     # The plain mean of marked work, mapped through the same boundaries as the
     # predicted grade above. Backward-looking, where predicted_grade is
     # forward-looking; the gap between them is what the surfaces explain
