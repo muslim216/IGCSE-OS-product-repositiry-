@@ -23,6 +23,7 @@ from app.models import (
     LessonAttendance,
     PlanSlot,
     QuestionMark,
+    ReadinessWeights,
     RemarkRequest,
     Submission,
     SubmissionStatus,
@@ -269,14 +270,49 @@ async def test_attention_names_the_students_and_the_topic(client, tutor, group, 
     attention = (await _overview(tutor)).classes[0].attention
     assert attention is not None
     assert attention.kind == "weak_topic"
-    assert attention.message == "Omar, Sara below 50% on 1.6 Ionic bonding"
+    assert attention.message == "Omar, Sara at or below 60% on 1.6 Ionic bonding"
     assert attention.topic_id == subject["topic2"]
 
 
-async def test_a_low_confidence_topic_score_is_not_named(client, tutor, group, student, subject):
-    weak = {subject["topic2"]: (30.0, FactorConfidence.low)}
-    await _snap(student["user"]["id"], subject["id"], 50.0, 1, topics=weak)
+async def test_a_no_data_topic_is_not_named_but_low_confidence_is_like_the_verdict(
+    client, tutor, group, student, subject
+):
+    # `weak_topic_rows` excludes only "no data"; the Overview defers to it, so a
+    # topic is weak here exactly when the shared verdict names it.
+    sid = student["user"]["id"]
+    await _snap(
+        sid, subject["id"], 50.0, 1, topics={subject["topic2"]: (30.0, FactorConfidence.no_data)}
+    )
     assert (await _overview(tutor)).classes[0].attention is None
+    await _snap(
+        sid, subject["id"], 50.0, 0, topics={subject["topic2"]: (30.0, FactorConfidence.low)}
+    )
+    attention = (await _overview(tutor)).classes[0].attention
+    assert attention is not None and attention.kind == "weak_topic"
+
+
+async def test_weak_topic_uses_the_tutors_threshold_not_a_fixed_fifty(
+    client, tutor, group, student, subject
+):
+    async with async_session() as s:
+        s.add(
+            ReadinessWeights(
+                organization_id=await _org(group),
+                tutor_id=tutor["user"]["id"],
+                weak_threshold=65.0,
+            )
+        )
+        await s.commit()
+    await _snap(
+        student["user"]["id"],
+        subject["id"],
+        70.0,
+        1,
+        topics={subject["topic2"]: (58.0, FactorConfidence.high)},
+    )
+    attention = (await _overview(tutor)).classes[0].attention
+    assert attention is not None and attention.kind == "weak_topic"
+    assert attention.message == "Sara at or below 65% on 1.6 Ionic bonding"
 
 
 # ---------------------------------------------------------------- class cards
@@ -335,9 +371,19 @@ async def test_last_lesson_with_nobody_marked_reports_not_taken(client, tutor, g
     assert (last.present, last.absent, last.not_taken) == (0, 0, 1)
 
 
-async def test_homework_out_counts_published_assignments_with_missing_handins(
+async def _set_due(assignment, due_at):
+    async with async_session() as s:
+        await s.execute(
+            update(Assignment).where(Assignment.id == assignment["id"]).values(due_at=due_at)
+        )
+        await s.commit()
+
+
+async def test_homework_past_due_without_a_handin_is_missing(
     client, tutor, group, student, published_assignment
 ):
+    await _joined_long_ago()
+    await _set_due(published_assignment, NOW - timedelta(days=1))
     card = (await _overview(tutor)).classes[0]
     assert (card.homework_out, card.homework_missing) == (1, 1)
     async with async_session() as s:
@@ -348,6 +394,35 @@ async def test_homework_out_counts_published_assignments_with_missing_handins(
         await s.commit()
     card = (await _overview(tutor)).classes[0]
     assert (card.homework_out, card.homework_missing) == (0, 0)
+
+
+async def test_homework_not_yet_due_is_out_but_not_missing(
+    client, tutor, group, student, published_assignment
+):
+    await _joined_long_ago()
+    await _set_due(published_assignment, NOW + timedelta(days=1))
+    card = (await _overview(tutor)).classes[0]
+    assert (card.homework_out, card.homework_missing) == (1, 0)
+
+
+async def test_homework_with_no_due_date_is_never_missing(
+    client, tutor, group, student, published_assignment
+):
+    await _joined_long_ago()
+    card = (await _overview(tutor)).classes[0]
+    assert (card.homework_out, card.homework_missing) == (1, 0)
+
+
+async def test_a_student_who_joined_after_the_deadline_is_not_missing_it(
+    client, tutor, group, student, published_assignment
+):
+    await _set_due(published_assignment, NOW - timedelta(days=3))
+    async with async_session() as s:
+        await s.execute(update(GroupMember).values(created_at=NOW - timedelta(days=1)))
+        await s.commit()
+    card = (await _overview(tutor)).classes[0]
+    # Still out (nobody has handed it in) but not missing: she joined after it fell due.
+    assert (card.homework_out, card.homework_missing) == (1, 0)
 
 
 async def test_open_remark_requests_are_listed_with_the_students_reason(
@@ -510,7 +585,7 @@ async def test_a_behind_class_always_has_an_attention_item_even_without_a_chapte
     from app.services.plan_progress import Progress
     from app.services.today_overview import _attention
 
-    item = _attention({}, [], Progress(2, 0, 2, None, None), 0)
+    item = _attention({}, [], Progress(2, 0, 2, None, None), 0, 60.0)
     assert item is not None and item.kind == "behind_plan"
     assert item.message == "2 planned lessons not recorded"
 

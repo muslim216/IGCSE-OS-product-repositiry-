@@ -103,7 +103,7 @@ test("each learner reads grade, status and percentage in one cell (coherence C.6
   expect(ayaRow.textContent).toContain("43%");
 });
 
-test("a subject with no boundaries says so instead of colouring against a threshold", async () => {
+test("a subject with no boundaries keeps its scored learners, unbanded, and says why", async () => {
   stubFetch({
     ...OVERVIEW,
     boundaries_missing: true,
@@ -117,11 +117,23 @@ test("a subject with no boundaries says so instead of colouring against a thresh
   });
   renderPage();
 
-  expect(await screen.findByText("no grade boundaries set")).toBeInTheDocument();
-  expect(screen.getByText("Set them →")).toBeInTheDocument();
+  // The score is shown — the class page shows it too — not "No readiness evidence yet".
+  const ayaRow = (await screen.findByText("Aya Hassan")).closest("tr")!;
+  expect(ayaRow.textContent).toContain("43%");
+  expect(screen.queryByText("No readiness evidence yet.")).not.toBeInTheDocument();
+  expect(screen.getByText(/no grade boundaries yet/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Set them →" })).toHaveAttribute(
+    "href",
+    "/tutor/settings#boundaries",
+  );
   // No learner is banded against a cutoff the subject does not have.
-  expect(screen.queryByText("At risk")).not.toBeInTheDocument();
-  expect(screen.queryByText("On track")).not.toBeInTheDocument();
+  const table = screen.getByRole("table");
+  expect(within(table).queryByText("At risk")).not.toBeInTheDocument();
+  expect(within(table).queryByText("On track")).not.toBeInTheDocument();
+  // Unbanded learners are in "All" only, not claimed as needing attention.
+  expect(screen.getByRole("button", { name: /^All 2/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Needs attention 0/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^On track 0/ })).toBeInTheDocument();
 });
 
 test("says a class needs to be created rather than showing an empty table", async () => {

@@ -210,7 +210,7 @@ const SETUP_STEPS = [
     icon: Ruler,
     title: "Set your grade boundaries",
     body: "The percentage each grade starts at. Predicted grades are read through these — never invented by the AI.",
-    to: "/tutor/boundaries",
+    to: "/tutor/settings#boundaries",
     cta: "Set boundaries",
   },
   {

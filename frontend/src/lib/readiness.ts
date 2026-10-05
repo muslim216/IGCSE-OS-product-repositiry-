@@ -1,65 +1,27 @@
-import type { Group } from "../api/groups";
-import type { TutorAnalytics } from "../api/readiness";
 import type { ReadinessStatus } from "../components/ui";
 
-/* Pure derivation over readiness evidence — no React, unit-testable.
-   Shared by the Today dashboard and reusable by readiness / org-level views. */
-
-/* No longer exported: a readiness band is derived from a grade's position in
-   its subject's boundary list, not a percentage threshold (UX-28), and that
-   band arrives from the backend as SubjectReadiness.status. This last score
-   threshold is kept private and confined to the legacy analytics-driven learner
-   table below, whose only datum per student is a bare score with no grade or
-   boundaries; a later stage replaces that table and this with it. */
-function statusOf(score: number): ReadinessStatus {
-  if (score >= 70) return "on_track";
-  if (score >= 50) return "needs_attention";
-  return "at_risk";
-}
-
+/** One row of the Readiness table. `status` is the band the backend derived from
+    the grade's boundary position (UX-28) and is null when there is none — a
+    learner with a score but no boundaries is shown with the score only, never
+    given a band computed here (PROD-2). */
 export interface LearnerRow {
   student_id: number;
   student_name: string;
   subject_name: string;
   score: number;
-  status: ReadinessStatus;
-  /** Absent on the legacy analytics-derived rows, which carry only a score. */
+  status: ReadinessStatus | null;
   predicted_grade?: string | null;
   group_id: number;
   group_name: string;
 }
 
-/**
- * Flatten per-group analytics into one learner list. The backend returns every
- * student with confident evidence (lowest scores first, capped per group);
- * students without marked evidence are absent by design — never invented here.
- * A student appearing in several groups for the same subject keeps their
- * lowest score, the one a tutor most needs to see.
- */
-export function deriveLearnerRows(
-  groups: Group[],
-  analytics: (TutorAnalytics | undefined)[],
-): LearnerRow[] {
-  const byKey = new Map<string, LearnerRow>();
-  groups.forEach((group, i) => {
-    const data = analytics[i];
-    if (!data?.weak_students) return;
-    for (const s of data.weak_students) {
-      const key = `${s.student_id}:${s.subject_name}`;
-      const existing = byKey.get(key);
-      if (existing && existing.score <= s.score) continue;
-      byKey.set(key, {
-        student_id: s.student_id,
-        student_name: s.student_name,
-        subject_name: s.subject_name,
-        score: s.score,
-        status: statusOf(s.score),
-        group_id: group.id,
-        group_name: group.name,
-      });
-    }
-  });
-  return [...byKey.values()].sort((a, b) => a.score - b.score);
+const BANDS: readonly string[] = ["on_track", "needs_attention", "at_risk"];
+
+/** The wire types a status as a plain string (and adds "not_enough_data"); this
+    narrows it to a band, or null. It checks membership — it never derives a
+    band from a score. */
+export function bandOf(status: string | null | undefined): ReadinessStatus | null {
+  return status != null && BANDS.includes(status) ? (status as ReadinessStatus) : null;
 }
 
 export function greetingFor(hour: number): string {

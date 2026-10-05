@@ -5,6 +5,7 @@ import { classOverview } from "../api/today";
 import { Button } from "../components/controls";
 import ReadinessFigure from "../components/ReadinessFigure";
 import { ABSENT } from "../lib/labels";
+import { bandOf } from "../lib/readiness";
 import { SectionCard } from "../components/ui";
 import { ErrorState, SectionSkeleton } from "../components/page";
 
@@ -118,7 +119,7 @@ export default function GroupAnalyticsPage() {
                   <ReadinessFigure
                     score={s.score}
                     grade={s.predicted_grade}
-                    status={s.verdict.status === "not_enough_data" ? null : s.verdict.status}
+                    status={bandOf(s.verdict.status)}
                     boundariesMissing={overview.data?.boundaries_missing ?? false}
                   />
                 </li>
@@ -172,7 +173,7 @@ export default function GroupAnalyticsPage() {
                   <p className="mt-1">
                     You set the threshold in{" "}
                     <Link
-                      to="/tutor/preferences"
+                      to="/tutor/settings#preferences"
                       className="font-medium text-brand-600 hover:text-brand-700"
                     >
                       Preferences

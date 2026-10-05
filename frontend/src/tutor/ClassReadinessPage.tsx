@@ -3,12 +3,11 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listGroups } from "../api/groups";
 import { classOverview } from "../api/today";
-import type { LearnerRow } from "../lib/readiness";
+import { bandOf, type LearnerRow } from "../lib/readiness";
 import ReadinessTable, { type ReadinessFilter } from "../components/ReadinessTable";
 import { EmptyState, SectionCard } from "../components/ui";
 import { Field, Select, buttonClasses } from "../components/controls";
 import { ErrorState, PageHeader } from "../components/page";
-import { ABSENT } from "../lib/labels";
 
 /**
  * Class readiness, rendered through the shared <ReadinessTable>.
@@ -21,8 +20,8 @@ import { ABSENT } from "../lib/labels";
  * endpoint bands each learner from the organization's own grade boundaries, so
  * the colour here is the same claim the rest of the product makes.
  *
- * A subject with no boundaries therefore has no band, and this page says so
- * rather than colouring learners against a threshold it does not have (PROD-2).
+ * A subject with no boundaries therefore has no band: its learners stay in the
+ * table with their score, uncoloured, and the table says why (PROD-2).
  */
 export default function ClassReadinessPage() {
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
@@ -42,7 +41,11 @@ export default function ClassReadinessPage() {
     return data.learners.flatMap((l) =>
       // A learner with no score or no band is absent rather than fabricated:
       // the table colours by band, and there is no honest colour without one.
-      l.score === null || l.verdict.status === "not_enough_data"
+      // No score means nothing to show. A score with no status (no grade
+      // boundaries, or too little to band) stays: the figure prints the score
+      // alone and the table says why there is no status, rather than the
+      // learner vanishing into "No readiness evidence yet".
+      l.score === null || l.score === undefined
         ? []
         : [
             {
@@ -51,7 +54,7 @@ export default function ClassReadinessPage() {
               subject_name: data.subject_name,
               score: l.score,
               predicted_grade: l.predicted_grade,
-              status: l.verdict.status,
+              status: bandOf(l.verdict.status),
               group_id: data.group_id,
               group_name: data.name,
             },
@@ -98,30 +101,14 @@ export default function ClassReadinessPage() {
             </Field>
           )}
 
-          {overview.data?.boundaries_missing ? (
-            <SectionCard>
-              <EmptyState
-                title={ABSENT.noBoundaries}
-                hint="Readiness needs this subject's grade boundaries before it can band a learner."
-                action={
-                  <Link
-                    to="/tutor/boundaries"
-                    className="font-medium text-brand-600 hover:text-brand-700"
-                  >
-                    {ABSENT.noBoundariesAction}
-                  </Link>
-                }
-              />
-            </SectionCard>
-          ) : (
-            <ReadinessTable
-              rows={rows}
-              filter={filter}
-              onFilter={setFilter}
-              loading={groups.isLoading || overview.isLoading}
-              error={overview.isError}
-            />
-          )}
+          <ReadinessTable
+            rows={rows}
+            filter={filter}
+            onFilter={setFilter}
+            loading={groups.isLoading || overview.isLoading}
+            error={overview.isError}
+            boundariesMissing={overview.data?.boundaries_missing ?? false}
+          />
         </div>
       )}
     </div>

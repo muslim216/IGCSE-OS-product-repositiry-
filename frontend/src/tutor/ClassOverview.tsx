@@ -10,6 +10,7 @@ import { VerdictLine } from "../components/VerdictLine";
 import { SectionSkeleton } from "../components/page";
 import ReadinessFigure from "../components/ReadinessFigure";
 import { ABSENT } from "../lib/labels";
+import { bandOf } from "../lib/readiness";
 import { friendlyError } from "../lib/errors";
 
 /**
@@ -216,7 +217,7 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
         <ReadinessFigure
           score={c.score}
           grade={c.predicted_grade}
-          status={c.status}
+          status={bandOf(c.status)}
           boundariesMissing={c.boundaries_missing}
           size="lg"
         />
