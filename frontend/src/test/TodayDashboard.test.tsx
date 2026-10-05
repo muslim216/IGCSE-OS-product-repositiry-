@@ -78,6 +78,15 @@ function stubFetch(
       if (url.includes("/narrative")) {
         return json({ text: narrative, generated_at: null, prompt_version: null });
       }
+      // Nothing outstanding, so the setup card stays out of these tests.
+      if (url.includes("/api/v1/onboarding")) {
+        return json({
+          complete: true,
+          account: { key: "account_basics", kind: "defaulted", state: "set_by_you" },
+          subjects: [],
+          next_step: null,
+        });
+      }
       if (url.includes("/api/v1/today/overview")) {
         if (overview === "fail") return new Response("{}", { status: 500 });
         return json(overview);

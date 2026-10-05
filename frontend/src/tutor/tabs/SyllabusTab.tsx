@@ -6,6 +6,8 @@ import { useGroupContext } from "../GroupLayout";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { Button } from "../../components/controls";
 import { ErrorState, SectionSkeleton } from "../../components/page";
+import { PlainSection, useFollowHash } from "../SectionedPage";
+import TaughtBeforeEditor from "../TaughtBeforeEditor";
 
 interface TopicNode extends Topic {
   children: TopicNode[];
@@ -54,7 +56,23 @@ function TopicRow({ node, scores }: { node: TopicNode; scores: Map<string, numbe
   );
 }
 
+/** The class's Syllabus tab: where the class is up to, then the coverage below it. */
 export default function SyllabusTab() {
+  const { group, groupId } = useGroupContext();
+  // The Setup checklist links to #taught-before; follow it so the section scrolls
+  // into view and takes focus.
+  useFollowHash();
+  return (
+    <div className="space-y-8">
+      <PlainSection id="taught-before" label="Where is this class up to?">
+        <TaughtBeforeEditor groupId={groupId} subjectId={group.subject.id} />
+      </PlainSection>
+      <SyllabusCoverage />
+    </div>
+  );
+}
+
+function SyllabusCoverage() {
   const { group, groupId } = useGroupContext();
   const subjectId = group.subject.id;
 

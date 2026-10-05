@@ -18,6 +18,7 @@ import WeeklySendLink from "../../components/WeeklySendLink";
 import ClassNarrative from "./ClassNarrative";
 import CreateLessonModal from "./CreateLessonModal";
 import NeedsYou from "./NeedsYou";
+import SetupChecklist from "./SetupChecklist";
 import TodayAgenda from "./TodayAgenda";
 import WeekGlance from "./WeekGlance";
 
@@ -127,6 +128,9 @@ export default function TodayDashboard() {
           </>
         }
       />
+
+      {/* Not in Welcome: before any class exists that surface is the setup path. */}
+      <SetupChecklist />
 
       {overview.data ? (
         <WeekGlance week={overview.data.week} />

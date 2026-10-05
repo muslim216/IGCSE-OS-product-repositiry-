@@ -6,6 +6,7 @@ import { Button, Field, Select, Textarea } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import SetupState from "./SetupState";
 import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
@@ -70,6 +71,7 @@ export default function MarkingRulesPage() {
       // discarded, with Save still enabled (cubic).
       setDraft(saved.rules);
       queryClient.invalidateQueries({ queryKey: ["marking-rules", selected] });
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       showToast(saved.configured ? "Marking rules saved." : "Marking rules cleared.");
     },
     onError: (err) => setError(friendlyError(err, "Your rules didn't save. Try again.")),
@@ -78,6 +80,7 @@ export default function MarkingRulesPage() {
   const header = (
     <PageHeader
       title="Marking rules"
+      meta={<SetupState item="marking_rules" />}
       description="How you want work in a subject marked, in your own words — method marks, units, working, the things you would tell a new tutor. Written once, it applies to every chapter and piece of work in the subject, alongside the exam board's own conventions rather than instead of them."
       back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />

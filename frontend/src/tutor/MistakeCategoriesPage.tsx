@@ -13,6 +13,7 @@ import { Button, buttonClasses, Field, Input, Select, Textarea } from "../compon
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import SetupState from "./SetupState";
 import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
@@ -135,6 +136,7 @@ export default function MistakeCategoriesPage() {
       // taking what was actually stored is right here and wrong there.
       setHydratedFor(data.subject_id);
       setDraft(toDraft(data.categories));
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       showToast("Mistake categories saved.");
     },
   });
@@ -176,6 +178,7 @@ export default function MistakeCategoriesPage() {
   const header = (
     <PageHeader
       title="Mistake categories"
+      meta={<SetupState item="mistake_categories" />}
       description="The words used to sort what went wrong on a marked answer. These are your organisation's own — nothing forces every tutor of every subject to sort mistakes the same way."
       back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />

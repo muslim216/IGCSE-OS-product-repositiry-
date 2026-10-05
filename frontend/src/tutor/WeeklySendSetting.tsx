@@ -27,7 +27,11 @@ export default function WeeklySendSetting() {
   const org = useQuery({ queryKey: ["my-organization"], queryFn: myOrganization });
   const save = useMutation({
     mutationFn: setOrganizationSettings,
-    onSuccess: (data) => queryClient.setQueryData(["my-organization"], data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["my-organization"], data);
+      // Weekday, hour and AI language decide whether the account is on defaults.
+      void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
+    },
   });
 
   return (

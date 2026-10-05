@@ -19,7 +19,10 @@ export default function TimezoneSetting() {
 
   const save = useMutation({
     mutationFn: setOrganizationTimezone,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["my-organization"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
+      return queryClient.invalidateQueries({ queryKey: ["my-organization"] });
+    },
   });
 
   const zones = supportedTimezones();

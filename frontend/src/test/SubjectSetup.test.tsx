@@ -36,16 +36,25 @@ const FACTORS = [
 ];
 
 let requested: string[] = [];
+// What GET /onboarding returns; unset means the stub answers with an invalid body,
+// which the app must treat as "no label" rather than a crash.
+let onboarding: unknown;
+let bodies: { path: string; body: unknown }[] = [];
 
 function stub(subjects: unknown[] = SUBJECTS) {
   requested = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       const path = url.pathname;
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       requested.push(path + url.search);
+      if (path === "/api/v1/onboarding" && onboarding !== undefined) return json(onboarding);
+      if (path === "/api/v1/onboarding/acknowledgements") {
+        bodies.push({ path, body: JSON.parse(String(init?.body)) });
+        return json(onboarding);
+      }
       if (path === "/api/v1/auth/me")
         return json({ id: 1, email: "t@example.com", username: null, role: "tutor", name: "T" });
       if (path === "/api/v1/subjects") return json(subjects);
@@ -122,6 +131,8 @@ function renderApp(entry: string) {
 const subjectPicker = () => screen.getByRole("combobox", { name: "Subject" });
 
 beforeEach(() => {
+  onboarding = undefined;
+  bodies = [];
   state.broken = false;
   Element.prototype.scrollIntoView = vi.fn();
 });
@@ -326,4 +337,121 @@ test("one section throwing does not take the others down, and retries alone", as
   state.broken = false;
   fireEvent.click(within(broken).getByRole("button", { name: /Try again/ }));
   expect(await within(broken).findByLabelText(/Marking rules for Chemistry/)).toBeInTheDocument();
+});
+
+const item = (key: string, state: string, kind = "defaulted") => ({ key, kind, state });
+
+function subjectStatus(id: number, name: string, items: ReturnType<typeof item>[]) {
+  return {
+    subject_id: id,
+    subject_name: name,
+    required: [{ key: "syllabus", done: true }],
+    items,
+    reviewed_count: 0,
+    review_total: 4,
+    classes: [],
+  };
+}
+
+const ONBOARDING = {
+  complete: false,
+  account: item("account_basics", "set_by_you"),
+  subjects: [
+    subjectStatus(7, "Chemistry", [
+      item("boundaries", "not_set"),
+      item("marking_rules", "default"),
+      item("mistake_categories", "reviewed"),
+      item("weak_threshold", "set_by_you"),
+      item("teaching_guidance", "not_set", "optional"),
+    ]),
+    subjectStatus(8, "Physics", [
+      item("boundaries", "set_by_you"),
+      item("marking_rules", "set_by_you"),
+      item("mistake_categories", "default"),
+      item("weak_threshold", "default"),
+      item("teaching_guidance", "set_by_you", "optional"),
+    ]),
+  ],
+  next_step: null,
+};
+
+test("each section says whether its value is the default, for the selected subject", async () => {
+  onboarding = ONBOARDING;
+  stub();
+  renderPage();
+  const boundaries = await screen.findByRole("region", { name: "Grade boundaries" });
+  expect(
+    await within(boundaries).findByText("Not set: no predicted grades for this subject yet"),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Marking rules" })).getByText("Avora's default"),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Mistake categories" })).getByText(
+      "Default, reviewed by you",
+    ),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Preferences" })).getByText(
+      "Weak-topic threshold: Set by you",
+    ),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("region", { name: "Teaching guidance" })).getByText(
+      "Not set (optional)",
+    ),
+  ).toBeInTheDocument();
+
+  // Switching subject switches the labels.
+  fireEvent.change(subjectPicker(), { target: { value: "8" } });
+  const marking = screen.getByRole("region", { name: "Marking rules" });
+  await waitFor(() => expect(within(marking).getByText("Set by you")).toBeInTheDocument());
+  expect(
+    within(screen.getByRole("region", { name: "Mistake categories" })).getByText("Avora's default"),
+  ).toBeInTheDocument();
+});
+
+test("no label shows when the onboarding read has not answered with a valid state", async () => {
+  stub();
+  renderPage();
+  const marking = await screen.findByRole("region", { name: "Marking rules" });
+  await screen.findByLabelText(/Marking rules for Chemistry/);
+  expect(within(marking).queryByText("Avora's default")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Keep the default/ })).not.toBeInTheDocument();
+});
+
+test("a default offers Keep the default, which acknowledges that item for that subject", async () => {
+  onboarding = ONBOARDING;
+  stub();
+  renderPage();
+  const keep = await screen.findByRole("button", {
+    name: "Keep the default for Marking rules, Chemistry",
+  });
+  // Boundaries are not_set: there is no default in force to keep.
+  expect(screen.getAllByRole("button", { name: /Keep the default/ })).toHaveLength(1);
+  fireEvent.click(keep);
+  await waitFor(() =>
+    expect(bodies).toEqual([
+      {
+        path: "/api/v1/onboarding/acknowledgements",
+        body: { item: "marking_rules", subject_id: 7 },
+      },
+    ]),
+  );
+});
+
+test("saving marking rules refetches the onboarding state", async () => {
+  onboarding = ONBOARDING;
+  stub();
+  renderPage();
+  const marking = await screen.findByRole("region", { name: "Marking rules" });
+  const box = await within(marking).findByLabelText(/Marking rules for Chemistry/);
+  await within(marking).findByText("Avora's default");
+  const reads = () => requested.filter((r) => r === "/api/v1/onboarding").length;
+  // Let the labels' own mount-time reads settle, so only the save moves the count.
+  await new Promise((r) => setTimeout(r, 50));
+  const before = reads();
+  fireEvent.change(box, { target: { value: "Always show units" } });
+  fireEvent.click(within(marking).getByRole("button", { name: /^Save/ }));
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
 });

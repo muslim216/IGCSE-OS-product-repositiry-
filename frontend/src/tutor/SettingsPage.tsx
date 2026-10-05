@@ -6,6 +6,7 @@ import WeeklySendSetting from "./WeeklySendSetting";
 import MessagesSetting from "./MessagesSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { PageHeader } from "../components/page";
+import SetupState from "./SetupState";
 import { hashTarget, PlainSection, SectionIndex, useFollowHash } from "./SectionedPage";
 import { SUBJECT_SETUP_SECTIONS } from "./SubjectSetupPage";
 
@@ -48,6 +49,11 @@ export default function SettingsPage() {
         title="Settings"
         description="The messages Avora sends you, and the time zones, criteria and integrations behind your account. What belongs to a subject is in Subject setup."
       />
+      {/* The server's word on whether weekday, hour and AI language are still on
+          Avora's defaults; nothing is shown while that is unknown. */}
+      <div className="mb-6 flex flex-wrap items-center gap-2 text-sm text-ink-500 empty:hidden">
+        <SetupState account prefix="Weekly send day and AI language" />
+      </div>
       <SectionIndex label="Settings sections" sections={SETTINGS_SECTIONS} />
       <div className="space-y-10">
         <PlainSection id="messages" label="Messages">
