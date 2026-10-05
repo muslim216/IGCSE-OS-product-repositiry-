@@ -53,12 +53,11 @@ class NextStep(BaseModel):
 
 class OnboardingState(BaseModel):
     complete: bool
-    #: True while the tutor's home is the setup flow: none of the caller's classes
-    #: has an accepted teaching plan, and none is already in use (a student, a
-    #: recorded lesson or homework). Not simply `not complete`: a class set up
-    #: before a newer required step existed (e.g. `taught_before`), or run
-    #: without a plan before the flow existed, owes those steps on the checklist,
-    #: but its tutor must not be sent back into the flow.
+    #: True while none of the caller's classes has an accepted teaching plan: the
+    #: tutor's home is the setup flow. Not simply `not complete`: a class set up
+    #: before a newer required step existed (e.g. `taught_before`) owes that step
+    #: on the checklist, but its tutor has crossed the finish line and must not be
+    #: sent back into the flow.
     in_flow: bool
     account: ItemStatus
     subjects: list[SubjectStatus]

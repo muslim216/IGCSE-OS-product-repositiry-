@@ -10,8 +10,6 @@ from app.db import async_session
 from app.models import (
     Chapter,
     Group,
-    GroupMember,
-    Lesson,
     Organization,
     ReadinessWeights,
     ScheduleSlot,
@@ -28,13 +26,7 @@ from app.security import create_access_token
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 from app.services.mistake_categories import ensure_categories
 from app.services.onboarding import acknowledge
-from tests.factories import (
-    make_subject,
-    make_user,
-    publish_assignment,
-    register_other_tutor,
-    register_parent,
-)
+from tests.factories import make_subject, make_user, register_other_tutor, register_parent
 
 API = "/api/v1/onboarding"
 ACK = f"{API}/acknowledgements"
@@ -254,64 +246,6 @@ async def test_in_flow_until_a_plan_is_accepted_at_every_stage(client, tutor):
     body = await _get(client, tutor)
     assert body["in_flow"] is False
     assert body["complete"] is True
-
-
-async def _enrol(group_id):
-    async with async_session() as session:
-        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group_id))
-        student = await make_user(
-            session, organization_id=org_id, role=UserRole.student, name="S", email="s@example.com"
-        )
-        session.add(GroupMember(group_id=group_id, student_id=student.id))
-        await session.commit()
-
-
-async def _lesson(group_id):
-    async with async_session() as session:
-        org_id = await session.scalar(select(Group.organization_id).where(Group.id == group_id))
-        session.add(Lesson(organization_id=org_id, group_id=group_id, date=date(2026, 9, 1)))
-        await session.commit()
-
-
-async def _homework(group_id):
-    async with async_session() as session:
-        group = await session.get(Group, group_id)
-        await publish_assignment(
-            session,
-            group_id=group_id,
-            subject_id=group.subject_id,
-            organization_id=group.organization_id,
-        )
-        await session.commit()
-
-
-@pytest.mark.parametrize("use", [_enrol, _lesson, _homework])
-async def test_a_class_already_in_use_is_not_sent_into_the_flow(client, tutor, use):
-    """A tutor who was running a class before the flow existed never accepted a
-    plan; the flow must not replace their dashboard. The plan is still owed."""
-    sid = await _subject(tutor, chapters=1)
-    gid = await _group(tutor, sid)
-    assert (await _get(client, tutor))["in_flow"] is True  # a bare class is still setup
-    await use(gid)
-    body = await _get(client, tutor)
-    assert body["in_flow"] is False
-    assert body["complete"] is False
-    assert body["next_step"] == {"key": "timetable", "subject_id": sid, "group_id": gid}
-
-
-async def test_a_colleagues_class_in_use_does_not_end_this_tutors_flow(client, tutor):
-    sid = await _subject(tutor, chapters=1)
-    async with async_session() as session:
-        org_id = (await _user()).organization_id
-        colleague = await make_user(
-            session, organization_id=org_id, role=UserRole.tutor, name="C", email="c@example.com"
-        )
-        group = Group(organization_id=org_id, tutor_id=colleague.id, subject_id=sid, name="Theirs")
-        session.add(group)
-        await session.commit()
-        colleague_group = group.id
-    await _lesson(colleague_group)
-    assert (await _get(client, tutor))["in_flow"] is True
 
 
 async def test_another_tutors_accepted_plan_does_not_end_this_tutors_flow(client, tutor):

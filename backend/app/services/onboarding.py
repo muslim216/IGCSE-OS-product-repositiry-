@@ -30,12 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     ACCOUNT_ITEMS,
-    Assignment,
     Chapter,
     GradeBoundary,
     Group,
-    GroupMember,
-    Lesson,
     MistakeCategory,
     Organization,
     ReadinessWeights,
@@ -110,10 +107,6 @@ class ClassFacts:
     taught_before_answered: bool
     has_plan_inputs: bool
     plan_accepted: bool
-    #: The class is already being run on Avora: it has a student, a recorded
-    #: lesson or a piece of homework. The flow creates none of those, so a class
-    #: that has one was not made by a tutor who is still setting up.
-    in_use: bool = False
 
 
 def categories_differ(rows: Iterable[tuple[str, str | None, bool]]) -> bool:
@@ -254,13 +247,8 @@ def build_state(
 
     return OnboardingState(
         complete=complete,
-        # The finish line is an accepted plan on any of the caller's classes. A
-        # tutor already running a class is past it too, plan or no plan: the flow
-        # arrived after they started, and taking their dashboard away to walk
-        # them through setup would be a regression (owner, 2026-10-06). What they
-        # still owe is on the checklist. "No class yet" alone would not do as the
-        # test: the flow's own class step would end the flow three steps early.
-        in_flow=not any(c.plan_accepted or c.in_use for c in classes),
+        # The finish line is an accepted plan on any of the caller's classes.
+        in_flow=not any(c.plan_accepted for c in classes),
         account=ItemStatus(
             key=SetupItem.account_basics.value,
             kind="defaulted",
@@ -369,12 +357,6 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
     ).all():
         plan_status[plan_group_id].add(plan_state)
 
-    in_use_groups: set[int] = set()
-    for column in (GroupMember.group_id, Lesson.group_id, Assignment.group_id):
-        in_use_groups.update(
-            await db.scalars(select(column).where(column.in_(group_ids)).distinct())
-        )
-
     account = AccountFacts(
         differs_from_default=(
             org.weekly_send_weekday != DEFAULT_WEEKLY_SEND_WEEKDAY
@@ -412,7 +394,6 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
             # accepted plan was a draft.
             has_plan_inputs=bool(plan_status.get(g.id)),
             plan_accepted=TeachingPlanStatus.accepted in plan_status.get(g.id, ()),
-            in_use=g.id in in_use_groups,
         )
         for g in groups
     ]
