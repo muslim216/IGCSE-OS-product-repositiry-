@@ -483,6 +483,9 @@ export default function TeachingPlanView({
       queryClient.setQueryData(["plan", groupId], overview);
       // The home's plan-check list reads the accepted plan.
       queryClient.invalidateQueries({ queryKey: ["today"] });
+      // Accepting is the onboarding finish line: the server's state decides
+      // whether the home is still the setup flow.
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       setConfirming(false);
     },
     onError: (err) => {

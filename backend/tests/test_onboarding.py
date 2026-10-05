@@ -129,6 +129,7 @@ async def test_brand_new_tutor(client, tutor):
     body = await _get(client, tutor)
     assert body["subjects"] == []
     assert body["complete"] is False
+    assert body["in_flow"] is True
     assert body["next_step"] == {"key": "syllabus", "subject_id": None, "group_id": None}
     assert body["account"] == {"key": "account_basics", "kind": "defaulted", "state": "default"}
 
@@ -216,6 +217,58 @@ async def test_an_accepted_plan_without_the_taught_before_answer_is_not_complete
     body = await _get(client, tutor)
     assert body["complete"] is False
     assert body["next_step"] == {"key": "taught_before", "subject_id": sid, "group_id": gid}
+    # Not complete, yet past the finish line: the missing answer is owed on the
+    # checklist, the tutor is not sent back into the flow.
+    assert body["in_flow"] is False
+
+
+async def test_in_flow_until_a_plan_is_accepted_at_every_stage(client, tutor):
+    assert (await _get(client, tutor))["in_flow"] is True
+    sid = await _subject(tutor)
+    assert (await _get(client, tutor))["in_flow"] is True  # no syllabus
+    async with async_session() as session:
+        session.add(Chapter(subject_id=sid, code="1", title="Ch", position=0))
+        await session.commit()
+    assert (await _get(client, tutor))["in_flow"] is True  # no class
+    gid = await _group(tutor, sid)
+    assert (await _get(client, tutor))["in_flow"] is True  # no timetable
+    await _slot(gid)
+    await _answer_taught_before(gid)
+    assert (await _get(client, tutor))["in_flow"] is True  # no plan
+    await _plan(gid, TeachingPlanStatus.draft)
+    assert (await _get(client, tutor))["in_flow"] is True  # draft only
+    async with async_session() as session:
+        plan = await session.scalar(select(TeachingPlan).where(TeachingPlan.group_id == gid))
+        plan.status = TeachingPlanStatus.accepted
+        plan.accepted_at = utcnow()
+        plan.accepted_by_id = tutor["user"]["id"]
+        await session.commit()
+    body = await _get(client, tutor)
+    assert body["in_flow"] is False
+    assert body["complete"] is True
+
+
+async def test_another_tutors_accepted_plan_does_not_end_this_tutors_flow(client, tutor):
+    sid = await _subject(tutor, chapters=1)
+    async with async_session() as session:
+        org_id = (await _user()).organization_id
+        colleague = await make_user(
+            session, organization_id=org_id, role=UserRole.tutor, name="C", email="c@example.com"
+        )
+        group = Group(organization_id=org_id, tutor_id=colleague.id, subject_id=sid, name="Theirs")
+        session.add(group)
+        await session.commit()
+        colleague_group = group.id
+        colleague_id = colleague.id
+    await _plan(colleague_group, TeachingPlanStatus.accepted, colleague_id)
+    assert (await _get(client, tutor))["in_flow"] is True
+
+    other = await register_other_tutor(client)
+    other_sid = await _subject(other, code="4MA1", name="Maths", chapters=1)
+    other_gid = await _group(other, other_sid, name="Other")
+    await _plan(other_gid, TeachingPlanStatus.accepted, other["user"]["id"])
+    assert (await _get(client, other))["in_flow"] is False
+    assert (await _get(client, tutor))["in_flow"] is True
 
 
 # --- Defaulted items ---------------------------------------------------------

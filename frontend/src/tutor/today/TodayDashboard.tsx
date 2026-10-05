@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { BookOpen, CalendarPlus, ChevronRight, Ruler, Users } from "lucide-react";
+import { CalendarPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { todayOverview, todayView } from "../../api/today";
 import { listGroups } from "../../api/groups";
@@ -9,7 +9,10 @@ import { useMyTimezone } from "../../auth/AuthContext";
 import { assignmentsNeedingAttention } from "../../api/homework";
 import { useToast } from "../../components/ui";
 import { Button, buttonClasses } from "../../components/controls";
-import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
+import { EmbeddedPageContext, ErrorState, PageHeader, PageSkeleton } from "../../components/page";
+import { EmptyState, SectionCard } from "../../components/ui";
+import { useOnboarding } from "../../lib/onboarding";
+import OnboardingFlow from "../onboarding/OnboardingFlow";
 import { isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import LessonReminders from "./LessonReminders";
 import ChapterPrompts from "./ChapterPrompts";
@@ -41,21 +44,56 @@ export default function TodayDashboard() {
   const [setupSaves, setSetupSaves] = useState(0);
   const { toast, showToast } = useToast();
 
-  const today = useQuery({ queryKey: ["today"], queryFn: todayView });
+  // What decides whether this page is the setup flow (9.1c). The server says
+  // (`in_flow`, SEC-10); this only reads it.
+  const onboarding = useOnboarding();
+  const inFlow = onboarding.data?.in_flow === true;
+  // Per visit, in component state: the line below shows when this page has just
+  // changed from the flow to the dashboard, and is gone on the next visit.
+  const [sawFlow, setSawFlow] = useState(false);
+  useEffect(() => {
+    if (inFlow) setSawFlow(true);
+  }, [inFlow]);
+
+  // Skeleton on the first answer only. A failed read is retried when the Setup
+  // card below mounts and reads the same query, which puts it back to "loading":
+  // gating on that would unmount the card, fail again, and loop.
+  const [onboardingSettled, setOnboardingSettled] = useState(false);
+  useEffect(() => {
+    if (!onboarding.isLoading) setOnboardingSettled(true);
+  }, [onboarding.isLoading]);
+  // A tutor in the flow who already runs a class keeps the dashboard underneath
+  // it (owner, 2026-10-06): every tutor without an accepted plan is in the flow,
+  // and replacing the page for one with lessons today would take away the agenda,
+  // the reminders and the way to schedule a lesson, none of which live anywhere
+  // else. It would also strand a class that cannot get a plan (everything already
+  // taught, or the exam too close) on a page with nothing else on it.
+  const hasClass = onboarding.data?.subjects.some((s) => s.classes.length > 0) ?? false;
+  const flowAlone = inFlow && !hasClass;
+  // The dashboard's own reads stop once the server says this tutor is in the
+  // flow with no class, where nothing shows them. They are NOT held back while
+  // that answer is still loading: this is the most-viewed page, and waiting would
+  // put an extra round trip in front of it for every tutor on every visit, to
+  // save a new tutor one set of requests once.
+  const dashboardEnabled = !flowAlone;
+
+  const today = useQuery({ queryKey: ["today"], queryFn: todayView, enabled: dashboardEnabled });
   // The overview feeds the week strip, the agenda and the cards. Polled so
   // "in 10 min" and a lesson that has just ended are never long out of date.
   const overview = useQuery({
     queryKey: ["today-overview"],
     queryFn: todayOverview,
     refetchInterval: 60_000,
+    enabled: dashboardEnabled,
   });
   const attention = useQuery({
     queryKey: ["assignments-attention"],
     queryFn: assignmentsNeedingAttention,
+    enabled: dashboardEnabled,
   });
   // Only the lesson modal needs full Group objects; the surface itself renders
   // from the aggregate, so this never gates what the tutor reads.
-  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
+  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups, enabled: dashboardEnabled });
   // The zone the API decided "today" in: the tutor's own override, else the
   // organization's, else UTC (`effective_timezone`). The organization is only
   // asked for when there is no override to win over it.
@@ -63,19 +101,43 @@ export default function TodayDashboard() {
   const org = useQuery({
     queryKey: ["my-organization"],
     queryFn: myOrganization,
-    enabled: !myZone,
+    enabled: !myZone && dashboardEnabled,
   });
   const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
-  if (today.isLoading) return <PageSkeleton rows={3} label="Loading overview" />;
+  if (onboarding.isLoading && !onboardingSettled) {
+    return <PageSkeleton rows={3} label="Loading overview" />;
+  }
+  // A failed or malformed onboarding read falls through to the dashboard as it
+  // was before the flow existed: a read that failed must not trap a tutor on a
+  // home they cannot use. The Setup card says on its own that it did not load.
+  if (flowAlone && onboarding.data) return <OnboardingFlow data={onboarding.data} />;
+  // Above every state of the dashboard, a failed one included: the guide reads
+  // its own data and must not disappear because the home aggregate did not load.
+  const flow =
+    inFlow && onboarding.data ? <OnboardingFlow data={onboarding.data} overDashboard /> : null;
+
+  if (today.isLoading) {
+    return (
+      <>
+        {flow}
+        <PageSkeleton rows={3} label="Loading overview" />
+      </>
+    );
+  }
 
   if (today.isError || !today.data) {
     return (
       <>
+        {flow}
         <ErrorState
           title="Overview couldn't be loaded"
           error={today.error}
-          onRetry={() => today.refetch()}
+          onRetry={() => {
+            void today.refetch();
+            // The onboarding read may be what failed: the home also hangs on it.
+            void onboarding.refetch();
+          }}
         />
         {/* Fetches its own data: a lesson about to start must not hide behind a
             failed home aggregate. */}
@@ -104,9 +166,34 @@ export default function TodayDashboard() {
   // being printed, but do not change which sections open (task 6.6).
   const showSignOff = clear && (view.behind_classes ?? []).length === 0;
 
-  // Before any class exists the only useful thing on this surface is the way to
-  // make one — every other section would be an honest but useless absence.
-  if (view.class_count === 0) return <Welcome headline={line1} />;
+  // Only reached when the onboarding read failed (otherwise a tutor with no class
+  // is in the flow): every section below would be an honest but useless absence,
+  // so say so plainly and point at where a class begins.
+  if (view.class_count === 0) {
+    return (
+      <>
+        {flow}
+        <SectionCard>
+          <EmptyState
+            title="No classes yet."
+            hint="A class starts from a subject's syllabus."
+            action={
+              <Link to="/tutor/subject-setup" className={buttonClasses("primary")}>
+                Open Subject setup
+              </Link>
+            }
+          />
+        </SectionCard>
+      </>
+    );
+  }
+
+  // The class the accepted plan belongs to, read from the state that ended the flow.
+  const acceptedClass = sawFlow
+    ? onboarding.data?.subjects
+        .flatMap((s) => s.classes)
+        .find((c) => c.steps.some((st) => st.key === "plan_accepted" && st.done))
+    : undefined;
 
   return (
     <div className="space-y-8">
@@ -115,29 +202,44 @@ export default function TodayDashboard() {
       <p role="status" className="sr-only">
         {setupSaves > 0 ? `Saved. Setup updated.${setupSaves % 2 ? "" : "\u00a0"}` : ""}
       </p>
-      {/* The verdict is the first thing read and the primary target. */}
-      <PageHeader
-        eyebrow={dayZone ? todayLabel(dayZone) : undefined}
-        title={line1}
-        documentTitle="Overview"
-        description={line2 ?? undefined}
-        actions={
-          <>
-            <Button variant="secondary" onClick={() => setCreateOpen(true)}>
-              <CalendarPlus aria-hidden className="h-4 w-4" />
-              Schedule a lesson
-            </Button>
-            {view.review_count > 0 && (
-              <Link to="/tutor/review" className={buttonClasses("primary")}>
-                Review marking
-              </Link>
-            )}
-          </>
-        }
-      />
+      {acceptedClass && (
+        <p className="rounded-lg bg-surface-muted px-4 py-3 text-sm text-ink-700">
+          Your teaching plan is accepted. Students can be added from the class page.{" "}
+          <Link
+            to={`/tutor/groups/${acceptedClass.group_id}/students`}
+            className="text-brand-600 hover:underline"
+          >
+            Open the Students tab for {acceptedClass.group_name}
+          </Link>
+        </p>
+      )}
+      {flow}
+      {/* The verdict is the first thing read and the primary target. Under the
+          guide it is a section heading: the guide holds the page's one h1. */}
+      <EmbeddedPageContext.Provider value={flow ? "overview-verdict" : false}>
+        <PageHeader
+          eyebrow={dayZone ? todayLabel(dayZone) : undefined}
+          title={line1}
+          documentTitle="Overview"
+          description={line2 ?? undefined}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+                <CalendarPlus aria-hidden className="h-4 w-4" />
+                Schedule a lesson
+              </Button>
+              {view.review_count > 0 && (
+                <Link to="/tutor/review" className={buttonClasses("primary")}>
+                  Review marking
+                </Link>
+              )}
+            </>
+          }
+        />
+      </EmbeddedPageContext.Provider>
 
-      {/* Not in Welcome: before any class exists that surface is the setup path. */}
-      <SetupChecklist onAcknowledged={() => setSetupSaves((n) => n + 1)} />
+      {/* Not in the flow: while a tutor is in it, the flow is the setup path. */}
+      {!flow && <SetupChecklist onAcknowledged={() => setSetupSaves((n) => n + 1)} />}
 
       {overview.data ? (
         <WeekGlance week={overview.data.week} />
@@ -211,84 +313,4 @@ function todayLabel(timeZone: string): string {
   } catch {
     return new Date().toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
   }
-}
-
-const SETUP_STEPS = [
-  {
-    icon: BookOpen,
-    title: "Add your subject's syllabus",
-    body: "Upload the exam board's syllabus PDF. avora drafts its chapters and topics for you to check — homework and readiness are tracked against them.",
-    to: "/tutor/subject-setup#syllabus",
-    cta: "Upload a syllabus",
-  },
-  {
-    icon: Ruler,
-    title: "Set your grade boundaries",
-    body: "The percentage each grade starts at. Predicted grades are read through these — never invented by the AI.",
-    to: "/tutor/subject-setup#boundaries",
-    cta: "Set boundaries",
-  },
-  {
-    icon: Users,
-    title: "Create a class and invite students",
-    body: "Each class gets a join code. Share it with your students; parents get a private link to follow their own child.",
-    to: "/tutor/classes",
-    cta: "Create a class",
-  },
-] as const;
-
-/**
- * A new tutor's first screen. Before any class exists every section of Today
- * would be an honest absence, so this replaces them with the setup path, in the
- * order the experience spec fixes (subject and syllabus, boundaries, class —
- * §7). It links to the existing pages rather than enforcing an order; the
- * blocking, server-tracked onboarding of spec §9.1 is a later phase.
- */
-function Welcome({ headline }: { headline: string }) {
-  return (
-    <div>
-      <PageHeader
-        eyebrow="Welcome to avora"
-        title="Let's set up your first class."
-        documentTitle="Overview"
-        description={
-          <>
-            <span>{headline}</span> Three steps get you from an empty account to marked homework and
-            live readiness — about ten minutes.
-          </>
-        }
-      />
-      <ol className="grid gap-4 lg:grid-cols-3">
-        {SETUP_STEPS.map(({ icon: Icon, title, body, to, cta }, i) => (
-          <li
-            key={title}
-            className="flex flex-col rounded-xl border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(44,26,14,0.06)]"
-          >
-            <div className="flex items-center justify-between">
-              <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-50 text-brand-600">
-                <Icon aria-hidden className="h-5 w-5" />
-              </span>
-              <span className="font-display text-sm text-ink-500">Step {i + 1}</span>
-            </div>
-            <h2 className="mt-5 font-sans text-base font-semibold text-ink-900">{title}</h2>
-            <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-500">{body}</p>
-            <Link
-              to={to}
-              className={buttonClasses(
-                i === SETUP_STEPS.length - 1 ? "primary" : "secondary",
-                "md",
-                "mt-5 self-start",
-              )}
-            >
-              {cta}
-              <ChevronRight aria-hidden className="h-4 w-4" />
-            </Link>
-          </li>
-        ))}
-      </ol>
-      <p className="mt-6 text-sm text-ink-500">
-        Then set the first homework from your class page — students hand it in by taking a photo.
-      </p>
-    </div>
-  );
 }

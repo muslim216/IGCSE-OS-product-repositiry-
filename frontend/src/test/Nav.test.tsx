@@ -26,7 +26,8 @@ function mockAuthedFetch(role: "student" | "tutor") {
         return new Response(JSON.stringify(user), { status: 200 });
       }
       if (url.endsWith("/api/v1/today")) {
-        // The empty-account shape: Today renders its welcome instead of crashing.
+        // The empty-account shape: Today renders without crashing (the onboarding
+        // read below answers with a list, so it falls back to the plain empty state).
         return new Response(JSON.stringify(EMPTY_TODAY), { status: 200 });
       }
       return new Response(JSON.stringify([]), { status: 200 });
