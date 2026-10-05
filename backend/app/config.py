@@ -171,6 +171,14 @@ class Settings(BaseSettings):
     # being recorded; "behind" does not count a lesson inside that lag. ge=1: at
     # zero the successor is due on arrival and the sweep spins the worker.
     lesson_autorecord_interval_minutes: int = Field(default=15, ge=1)
+    # Messages sent at a moment rather than on an event — homework due tomorrow,
+    # a lesson about to start, work waiting for review
+    # (services/notifications/triggers.py, task 8.5). A kill switch: off, the
+    # sweep keeps re-arming itself and sends nothing.
+    message_triggers_enabled: bool = True
+    # Five minutes, because the lesson reminder has a fifteen-minute window and
+    # must be seen at least twice inside it. ge=1: zero would spin the worker.
+    message_trigger_sweep_interval_minutes: int = Field(default=5, ge=1)
     # Google Classroom integration (see services/google_classroom.py). Both
     # unset -> the feature reports "not configured" everywhere and the app
     # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful
