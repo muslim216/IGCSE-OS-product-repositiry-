@@ -42,6 +42,7 @@ from app.api import (
     teaching_plans,
     today,
     webhooks,
+    weekly_sends,
 )
 from app.config import get_settings
 from app.db import async_session
@@ -50,6 +51,7 @@ from app.services.lesson_autorecord import ensure_lesson_autorecord_scheduled
 from app.services.narrative import ensure_narrative_sweep_scheduled
 from app.services.past_paper_phase import ensure_past_paper_phase_sweep_scheduled
 from app.services.rate_limit import close_all_limiters, rate_limit_health
+from app.services.weekly_send import ensure_weekly_send_sweep_scheduled
 from app.workers.handlers import register_all
 from app.workers.jobs import WorkerStatus, worker_status
 from app.workers.runner import supervised_worker
@@ -93,6 +95,15 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:  # noqa: BLE001 — startup must survive a cold database
         log.exception("could not schedule the lesson auto-record sweep at startup")
+
+    # And under the weekly send (task 8.2): a lost sweep row would stop every
+    # account's weekly report, and nobody is told when a report does not arrive.
+    try:
+        async with async_session() as session:
+            await ensure_weekly_send_sweep_scheduled(session)
+            await session.commit()
+    except Exception:  # noqa: BLE001 — startup must survive a cold database
+        log.exception("could not schedule the weekly send sweep at startup")
 
     # Runs inside the API by default, which is the deployment today. Setting
     # RUN_WORKER_IN_API=false is half of the cutover to a separate worker
@@ -354,6 +365,7 @@ def create_app() -> FastAPI:
         teaching_guidance.router,
         teaching_plans.router,
         today.router,
+        weekly_sends.router,
     ):
         app.include_router(router, prefix="/api/v1")
     return app

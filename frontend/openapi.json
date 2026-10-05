@@ -9478,6 +9478,171 @@
           }
         }
       }
+    },
+    "/api/v1/weekly-sends": {
+      "get": {
+        "tags": [
+          "weekly-sends"
+        ],
+        "summary": "My Weekly Sends",
+        "description": "The caller's own sends, newest first \u2014 \"earlier reports\".",
+        "operationId": "my_weekly_sends_api_v1_weekly_sends_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WeeklySendListItem"
+                  },
+                  "type": "array",
+                  "title": "Response My Weekly Sends Api V1 Weekly Sends Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/weekly-sends/latest": {
+      "get": {
+        "tags": [
+          "weekly-sends"
+        ],
+        "summary": "My Latest Weekly Send",
+        "description": "The caller's most recent send, or null when none has gone out yet \u2014 a\nstated absence the home page renders as nothing, not as an empty report.",
+        "operationId": "my_latest_weekly_send_api_v1_weekly_sends_latest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WeeklySendOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response My Latest Weekly Send Api V1 Weekly Sends Latest Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/weekly-sends/{send_id}": {
+      "get": {
+        "tags": [
+          "weekly-sends"
+        ],
+        "summary": "Weekly Send",
+        "operationId": "weekly_send_api_v1_weekly_sends__send_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "send_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Send Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklySendOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/weekly-sends": {
+      "get": {
+        "tags": [
+          "weekly-sends"
+        ],
+        "summary": "Student Weekly Sends",
+        "description": "What went to one learner and to their parents, newest first.",
+        "operationId": "student_weekly_sends_api_v1_students__student_id__weekly_sends_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WeeklySendListItem"
+                  },
+                  "title": "Response Student Weekly Sends Api V1 Students  Student Id  Weekly Sends Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10338,6 +10503,47 @@
           "state"
         ],
         "title": "AttendanceEntryIn"
+      },
+      "AttendanceFacts": {
+        "properties": {
+          "lessons_held": {
+            "type": "integer",
+            "title": "Lessons Held"
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present"
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent"
+          },
+          "not_taken": {
+            "type": "integer",
+            "title": "Not Taken"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lessons_held",
+          "present",
+          "absent",
+          "not_taken",
+          "rate"
+        ],
+        "title": "AttendanceFacts",
+        "description": "Lessons in the window and the register's two states. `not_taken` is a\nlesson nobody marked, never an absence (`PROD-2`)."
       },
       "AttendanceReport": {
         "properties": {
@@ -11567,6 +11773,24 @@
           "reason"
         ],
         "title": "ChapterReasonOut"
+      },
+      "ChapterRef": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "title"
+        ],
+        "title": "ChapterRef"
       },
       "ChapterReport": {
         "properties": {
@@ -13143,6 +13367,29 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HomeworkFacts": {
+        "properties": {
+          "set_count": {
+            "type": "integer",
+            "title": "Set Count"
+          },
+          "handed_in_count": {
+            "type": "integer",
+            "title": "Handed In Count"
+          },
+          "missing_count": {
+            "type": "integer",
+            "title": "Missing Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "set_count",
+          "handed_in_count",
+          "missing_count"
+        ],
+        "title": "HomeworkFacts"
+      },
       "IntegrationAuthUrlOut": {
         "properties": {
           "url": {
@@ -14173,6 +14420,24 @@
           "question_id"
         ],
         "title": "MarkUpdate"
+      },
+      "MarkedFacts": {
+        "properties": {
+          "marked": {
+            "type": "integer",
+            "title": "Marked"
+          },
+          "auto_finalized": {
+            "type": "integer",
+            "title": "Auto Finalized"
+          }
+        },
+        "type": "object",
+        "required": [
+          "marked",
+          "auto_finalized"
+        ],
+        "title": "MarkedFacts"
       },
       "MarkingRulesIn": {
         "properties": {
@@ -15610,6 +15875,138 @@
         "type": "object",
         "title": "OrganizationTimezoneUpdate"
       },
+      "ParentChildFacts": {
+        "properties": {
+          "child_name": {
+            "type": "string",
+            "title": "Child Name"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/ParentClassFacts"
+            },
+            "type": "array",
+            "title": "Classes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "child_name",
+          "classes"
+        ],
+        "title": "ParentChildFacts"
+      },
+      "ParentClassFacts": {
+        "properties": {
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Name"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "on_track",
+              "needs_attention",
+              "at_risk",
+              "not_enough_data"
+            ],
+            "title": "Verdict"
+          },
+          "readiness_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Score"
+          },
+          "predicted_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Grade"
+          },
+          "readiness_direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "flat",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Direction"
+          },
+          "chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChapterRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attendance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "homework": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomeworkFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_name",
+          "subject_name",
+          "verdict",
+          "readiness_score",
+          "predicted_grade",
+          "readiness_direction",
+          "chapter",
+          "attendance",
+          "homework"
+        ],
+        "title": "ParentClassFacts",
+        "description": "No topic list and no mistakes: the parent report is readiness, grade,\nattendance and homework (AV-64). The chapter is a name, not a breakdown."
+      },
       "ParentCommunicationCreate": {
         "properties": {
           "body": {
@@ -15657,6 +16054,39 @@
           "created_at"
         ],
         "title": "ParentCommunicationOut"
+      },
+      "ParentFacts": {
+        "properties": {
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/ParentChildFacts"
+            },
+            "type": "array",
+            "title": "Children"
+          },
+          "dropped_links": {
+            "type": "integer",
+            "title": "Dropped Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_start",
+          "window_end",
+          "children",
+          "dropped_links"
+        ],
+        "title": "ParentFacts"
       },
       "ParentRegisterRequest": {
         "properties": {
@@ -16201,6 +16631,88 @@
         ],
         "title": "PlanBreakOut"
       },
+      "PlanFacts": {
+        "properties": {
+          "this_week_chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChapterRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChapterRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_chapter_homework_set": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Chapter Homework Set"
+          },
+          "lessons_planned_this_week": {
+            "type": "integer",
+            "title": "Lessons Planned This Week"
+          },
+          "lessons_taught_this_week": {
+            "type": "integer",
+            "title": "Lessons Taught This Week"
+          },
+          "lessons_behind": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Behind"
+          },
+          "lessons_ahead": {
+            "type": "integer",
+            "title": "Lessons Ahead"
+          },
+          "weeks_to_exam": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weeks To Exam"
+          }
+        },
+        "type": "object",
+        "required": [
+          "this_week_chapter",
+          "next_chapter",
+          "next_chapter_homework_set",
+          "lessons_planned_this_week",
+          "lessons_taught_this_week",
+          "lessons_behind",
+          "lessons_ahead",
+          "weeks_to_exam"
+        ],
+        "title": "PlanFacts",
+        "description": "Where a class stands on its accepted plan. Absent when it has none."
+      },
       "PlanInputsIn": {
         "properties": {
           "exam_date": {
@@ -16727,6 +17239,25 @@
           "preferences"
         ],
         "title": "PreferencesUpdate"
+      },
+      "Punctuality": {
+        "properties": {
+          "on_time": {
+            "type": "integer",
+            "title": "On Time"
+          },
+          "late": {
+            "type": "integer",
+            "title": "Late"
+          }
+        },
+        "type": "object",
+        "required": [
+          "on_time",
+          "late"
+        ],
+        "title": "Punctuality",
+        "description": "Tutor variant only. Hand-ins in the window against their own deadline."
       },
       "QuestionIn": {
         "properties": {
@@ -18018,6 +18549,140 @@
         ],
         "title": "StudentAttendanceOut"
       },
+      "StudentClassFacts": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Name"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "on_track",
+              "needs_attention",
+              "at_risk",
+              "not_enough_data"
+            ],
+            "title": "Verdict"
+          },
+          "readiness_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Score"
+          },
+          "predicted_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Grade"
+          },
+          "readiness_direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "flat",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Direction"
+          },
+          "weak_topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Weak Topics"
+          },
+          "this_week_chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChapterRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_chapter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChapterRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attendance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "homework": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomeworkFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "subject_name",
+          "verdict",
+          "readiness_score",
+          "predicted_grade",
+          "readiness_direction",
+          "weak_topics",
+          "this_week_chapter",
+          "next_chapter",
+          "attendance",
+          "homework"
+        ],
+        "title": "StudentClassFacts"
+      },
       "StudentCreate": {
         "properties": {
           "name": {
@@ -18214,6 +18879,50 @@
         ],
         "title": "StudentCrmOut",
         "description": "The student's full academic record \u2014 the one aggregation that feeds\nboth the CRM UI and the AI's grounding context (services/student_context.py)."
+      },
+      "StudentFacts": {
+        "properties": {
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "student_name": {
+            "type": "string",
+            "title": "Student Name"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/StudentClassFacts"
+            },
+            "type": "array",
+            "title": "Classes"
+          },
+          "marked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarkedFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_start",
+          "window_end",
+          "student_name",
+          "classes",
+          "marked"
+        ],
+        "title": "StudentFacts"
       },
       "StudentMarkRow": {
         "properties": {
@@ -19791,6 +20500,24 @@
         "title": "TodayView",
         "description": "Everything the tutor's home needs, in one response and a bounded number\nof queries \u2014 replacing a per-class fan-out that itself looped per learner."
       },
+      "TopicCount": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "learners": {
+            "type": "integer",
+            "title": "Learners"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "learners"
+        ],
+        "title": "TopicCount"
+      },
       "TopicEvidence": {
         "properties": {
           "topic_id": {
@@ -20106,6 +20833,162 @@
           "agreement"
         ],
         "title": "TutorAnalytics"
+      },
+      "TutorClassFacts": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Name"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/VerdictCount"
+            },
+            "type": "array",
+            "title": "Verdicts"
+          },
+          "readiness_direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "flat",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Readiness Direction"
+          },
+          "readiness_compared_count": {
+            "type": "integer",
+            "title": "Readiness Compared Count"
+          },
+          "weak_topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicCount"
+            },
+            "type": "array",
+            "title": "Weak Topics"
+          },
+          "attendance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttendanceFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "homework": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomeworkFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "punctuality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Punctuality"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "subject_name",
+          "plan",
+          "verdicts",
+          "readiness_direction",
+          "readiness_compared_count",
+          "weak_topics",
+          "attendance",
+          "homework",
+          "punctuality"
+        ],
+        "title": "TutorClassFacts"
+      },
+      "TutorFacts": {
+        "properties": {
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/TutorClassFacts"
+            },
+            "type": "array",
+            "title": "Classes"
+          },
+          "review_queue": {
+            "type": "integer",
+            "title": "Review Queue"
+          },
+          "marked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarkedFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "window_start",
+          "window_end",
+          "classes",
+          "review_queue",
+          "marked"
+        ],
+        "title": "TutorFacts"
       },
       "TutorNoteCreate": {
         "properties": {
@@ -20490,6 +21373,30 @@
         ],
         "title": "ValidationError"
       },
+      "VerdictCount": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "on_track",
+              "needs_attention",
+              "at_risk",
+              "not_enough_data"
+            ],
+            "title": "Status"
+          },
+          "learners": {
+            "type": "integer",
+            "title": "Learners"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "learners"
+        ],
+        "title": "VerdictCount"
+      },
       "WeakStudent": {
         "properties": {
           "student_id": {
@@ -20658,6 +21565,146 @@
         ],
         "title": "WeekGlance",
         "description": "The week-at-a-glance strip. Every figure carries what it was counted from\n(PROD-1) and a missing measurement is null, never 0 (PROD-2)."
+      },
+      "WeeklySendAudience": {
+        "type": "string",
+        "enum": [
+          "tutor",
+          "student",
+          "parent"
+        ],
+        "title": "WeeklySendAudience"
+      },
+      "WeeklySendListItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/WeeklySendAudience"
+          },
+          "recipient_user_id": {
+            "type": "integer",
+            "title": "Recipient User Id"
+          },
+          "recipient_name": {
+            "type": "string",
+            "title": "Recipient Name"
+          },
+          "week_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Week Start"
+          },
+          "week_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Week End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "audience",
+          "recipient_user_id",
+          "recipient_name",
+          "week_start",
+          "week_end"
+        ],
+        "title": "WeeklySendListItem"
+      },
+      "WeeklySendOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/WeeklySendAudience"
+          },
+          "recipient_user_id": {
+            "type": "integer",
+            "title": "Recipient User Id"
+          },
+          "week_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Week Start"
+          },
+          "week_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Week End"
+          },
+          "tutor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TutorFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "student": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParentFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paragraphs": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklySendParagraph"
+            },
+            "type": "array",
+            "title": "Paragraphs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "audience",
+          "recipient_user_id",
+          "week_start",
+          "week_end",
+          "paragraphs"
+        ],
+        "title": "WeeklySendOut",
+        "description": "One reader's week. Exactly one of `tutor`, `student`, `parent` is set \u2014\nthe one `audience` names \u2014 so a client reads a typed fact set rather than\nguessing the shape of a blob (`FE-4`)."
+      },
+      "WeeklySendParagraph": {
+        "properties": {
+          "about": {
+            "type": "string",
+            "title": "About"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "about",
+          "text"
+        ],
+        "title": "WeeklySendParagraph",
+        "description": "A stored narrative as it stood at the send: who or what it is about, and\nthe text. The same row the class page or parent screen was showing."
       }
     },
     "securitySchemes": {

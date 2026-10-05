@@ -40,6 +40,9 @@ from app.services.plan_reflow import PLAN_REFLOW_JOB, reflow_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report
 from app.services.syllabus_extraction import extract_syllabus
+from app.services.weekly_send import BUILD_JOB as WEEKLY_SEND_BUILD_JOB
+from app.services.weekly_send import SWEEP_JOB as WEEKLY_SEND_SWEEP_JOB
+from app.services.weekly_send import build_weekly_sends, sweep_weekly_sends
 from app.workers.jobs import register_handler
 
 
@@ -112,3 +115,7 @@ def register_all() -> None:
     # Delivers one outbox row (task 8.1). Safe to re-run (`BE-6`): only a
     # `queued` notification is acted on.
     register_handler(SEND_JOB, send_notification)
+    # The weekly send (task 8.2): a sweep finds organizations whose week has
+    # closed and queues one build each. Both are safe to re-run (`BE-6`).
+    register_handler(WEEKLY_SEND_SWEEP_JOB, sweep_weekly_sends)
+    register_handler(WEEKLY_SEND_BUILD_JOB, build_weekly_sends)

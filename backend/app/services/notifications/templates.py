@@ -61,11 +61,13 @@ TEMPLATES: dict[NotificationKind, Template] = {
     for t in (
         _t(
             NotificationKind.weekly_send,
-            ("student_name", "lessons_count", "homework_done"),
-            "{student_name}'s week",
-            "Here is {student_name}'s week: {lessons_count} lessons and "
+            # `whose` is a possessive the sender builds — "Sara's", "your",
+            # "your classes'" — because one template serves all three readers.
+            ("whose", "lessons_count", "homework_done"),
+            "This week on Avora",
+            "Here is {whose} week on Avora: {lessons_count} lessons and "
             "{homework_done} homework pieces handed in.",
-            "Here is {{1}}'s week: {{2}} lessons and {{3}} homework pieces handed in. "
+            "Here is {{1}} week on Avora: {{2}} lessons and {{3}} homework pieces handed in. "
             "See the full picture: {{4}}",
         ),
         _t(

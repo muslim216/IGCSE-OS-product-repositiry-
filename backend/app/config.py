@@ -171,6 +171,17 @@ class Settings(BaseSettings):
     # being recorded; "behind" does not count a lesson inside that lag. ge=1: at
     # zero the successor is due on arrival and the sweep spins the worker.
     lesson_autorecord_interval_minutes: int = Field(default=15, ge=1)
+    # The weekly send (services/weekly_send.py, task 8.2). A kill switch, not a
+    # shadow flag: off, the sweep keeps re-arming itself and builds nothing, so
+    # stored sends stay readable and turning it back on needs no restart.
+    weekly_send_enabled: bool = True
+    # How often the sweep looks for an organization whose week has closed, and so
+    # the most a send can lag its chosen hour. ge=1: at zero the successor is due
+    # on arrival and the sweep spins the worker.
+    weekly_send_sweep_interval_minutes: int = Field(default=30, ge=1)
+    # How long the build waits after the sweep asks the narrative writer to
+    # refresh, so the paragraphs it copies are this week's.
+    weekly_send_narrative_lead_minutes: int = Field(default=10, ge=0)
     # Google Classroom integration (see services/google_classroom.py). Both
     # unset -> the feature reports "not configured" everywhere and the app
     # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful
