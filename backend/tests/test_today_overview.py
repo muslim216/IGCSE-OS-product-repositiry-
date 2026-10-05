@@ -455,6 +455,95 @@ async def test_open_remark_requests_are_listed_with_the_students_reason(
     ]
 
 
+# ------------------------------------------------------- the good-news figure
+
+
+async def _settled(work_id, student_id, when, *, auto=(), tutor=0, status=None):
+    """A submission settled at `when`: one auto-finalized mark per entry in
+    `auto`, plus `tutor` marks a tutor ruled on."""
+    async with async_session() as s:
+        sub = Submission(
+            work_id=work_id,
+            student_id=student_id,
+            status=status or SubmissionStatus.auto_finalized,
+            finalized_at=when,
+        )
+        s.add(sub)
+        await s.flush()
+        for _ in auto:
+            s.add(QuestionMark(submission_id=sub.id, final_marks=1, auto_finalized=True))
+        for _ in range(tutor):
+            s.add(QuestionMark(submission_id=sub.id, final_marks=1, auto_finalized=False))
+        await s.commit()
+
+
+async def _work_id(assignment):
+    async with async_session() as s:
+        return await s.scalar(select(Assignment.work_id).where(Assignment.id == assignment["id"]))
+
+
+async def test_nothing_auto_marked_is_a_null_estimate_not_zero_minutes(client, tutor, group):
+    week = (await _overview(tutor)).week
+    assert week.auto_marked_questions == 0
+    assert week.auto_marked_estimate_minutes is None
+
+
+async def _learners(client, tutor, group, count):
+    """One submission per (work, student), so each settled piece needs its own
+    learner."""
+    return [
+        (await _add_student(client, tutor, group, f"L{i}", f"learner{i}"))["id"]
+        for i in range(count)
+    ]
+
+
+async def test_auto_marked_counts_questions_the_tutor_never_touched_this_week(
+    client, tutor, group, published_assignment
+):
+    work_id = await _work_id(published_assignment)
+    a, b = await _learners(client, tutor, group, 2)
+    # The UNIQUE(submission_id, question_id) pair treats NULLs as distinct, so
+    # several question-less marks on one submission are legal in this fixture.
+    await _settled(work_id, a, NOW - timedelta(hours=1), auto=range(3))
+    # A tutor signed this one off after ruling on two questions: its other two
+    # were still marked for them, and their own two are not counted.
+    await _settled(
+        work_id, b, NOW - timedelta(days=1), auto=range(2), tutor=2,
+        status=SubmissionStatus.finalized,
+    )  # fmt: skip
+    week = (await _overview(tutor)).week
+    assert week.auto_marked_questions == 5
+    assert week.auto_marked_minutes_per_question == 4
+    assert week.auto_marked_estimate_minutes == 20
+
+
+async def test_auto_marked_leaves_out_other_weeks_and_unsettled_work(
+    client, tutor, group, published_assignment
+):
+    work_id = await _work_id(published_assignment)
+    a, b, c, d = await _learners(client, tutor, group, 4)
+    # Sunday night before this week's Monday, and next Monday at midnight.
+    await _settled(work_id, a, datetime(2026, 10, 4, 23, 59, tzinfo=timezone.utc), auto=range(4))
+    await _settled(work_id, b, datetime(2026, 10, 12, 0, 0, tzinfo=timezone.utc), auto=range(4))
+    # Still in the queue: a confident mark on a piece that has not settled.
+    await _settled(work_id, c, None, auto=range(4), tutor=1, status=SubmissionStatus.needs_review)
+    assert (await _overview(tutor)).week.auto_marked_questions == 0
+    # The first instant of the week is in it.
+    await _settled(work_id, d, datetime(2026, 10, 5, 0, 0, tzinfo=timezone.utc), auto=range(1))
+    assert (await _overview(tutor)).week.auto_marked_questions == 1
+
+
+async def test_auto_marked_never_counts_another_organizations_marking(
+    client, tutor, group, student, published_assignment
+):
+    await _settled(await _work_id(published_assignment), student["user"]["id"], NOW, auto=range(6))
+    assert (await _overview(tutor)).week.auto_marked_questions == 6
+    _headers, other = await _other_tutor(client, "elsewhere@example.com")
+    week = (await _overview({"user": other})).week
+    assert week.auto_marked_questions == 0
+    assert week.auto_marked_estimate_minutes is None
+
+
 # --------------------------------------------------------------------- agenda
 
 

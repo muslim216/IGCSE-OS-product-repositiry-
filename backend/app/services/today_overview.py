@@ -57,13 +57,18 @@ from app.services.attendance import counts_for_attendance, in_zone
 from app.services.class_readiness import LearnerSnapshot, latest_learner_snapshots
 from app.services.plan_progress import Progress, class_progress
 from app.services.plan_start_times import timetable_start_times
-from app.services.plan_timing import slot_end_utc, slot_start_utc, split_topics
+from app.services.plan_timing import local_instant, slot_end_utc, slot_start_utc, split_topics
 from app.services.readiness_config import resolve_readiness_config
 from app.services.readiness_shared import trend_direction
 from app.services.readiness_summary_v2 import weak_topic_rows
 from app.services.teaching_plan import STARTED_PROVENANCE, effective_start_time
 from app.services.timezones import effective_timezone
-from app.services.today import pending_review_count, tutor_groups
+from app.services.today import (
+    MARKING_MINUTES_PER_QUESTION,
+    auto_marked_count,
+    pending_review_count,
+    tutor_groups,
+)
 
 #: A student counts as "dropped" when their latest readiness score is at least
 #: this many points below their latest score from a week or more ago. Chosen as
@@ -216,6 +221,15 @@ async def build_overview(
     ]
     group_ids = [g.id for g in groups]
     marking_waiting = await pending_review_count(db, user.organization_id)
+    # The strip's own week, midnight to midnight on the tutor's clock.
+    auto_marked = await auto_marked_count(
+        db,
+        user.organization_id,
+        local_instant(week_start, time(0, 0), zone).astimezone(timezone.utc),
+        local_instant(week_end + timedelta(days=1), time(0, 0), zone).astimezone(timezone.utc),
+    )
+    # Null, not 0 minutes, when nothing was marked for them (PROD-2).
+    auto_marked_minutes = auto_marked * MARKING_MINUTES_PER_QUESTION if auto_marked else None
     if not group_ids:
         return TodayOverview(
             week=WeekGlance(
@@ -224,6 +238,9 @@ async def build_overview(
                 lessons_planned=0,
                 lessons_taught=0,
                 marking_waiting=marking_waiting,
+                auto_marked_questions=auto_marked,
+                auto_marked_estimate_minutes=auto_marked_minutes,
+                auto_marked_minutes_per_question=MARKING_MINUTES_PER_QUESTION,
                 attendance_present=0,
                 attendance_absent=0,
                 attendance_not_taken=0,
@@ -579,6 +596,9 @@ async def build_overview(
             lessons_planned=lessons_planned,
             lessons_taught=lessons_taught,
             marking_waiting=marking_waiting,
+            auto_marked_questions=auto_marked,
+            auto_marked_estimate_minutes=auto_marked_minutes,
+            auto_marked_minutes_per_question=MARKING_MINUTES_PER_QUESTION,
             attendance_present=week_present,
             attendance_absent=week_absent,
             attendance_not_taken=week_not_taken,

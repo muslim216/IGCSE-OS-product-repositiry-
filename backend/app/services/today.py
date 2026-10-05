@@ -10,7 +10,7 @@ class, each of which looped `db.get(User)` plus a readiness select per learner
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,10 +21,12 @@ from app.models import (
     Group,
     GroupMember,
     Organization,
+    QuestionMark,
     ScheduleSlot,
     Submission,
     User,
 )
+from app.models.homework import SETTLED_STATUSES
 from app.schemas.groups import UpcomingScheduleSlot
 from app.schemas.readiness import SubjectVerdict
 from app.schemas.today import (
@@ -93,6 +95,47 @@ async def pending_review_count(db: AsyncSession, organization_id: int) -> int:
             select(func.count(Submission.id))
             .join(AssessableWork, AssessableWork.id == Submission.work_id)
             .where(*review_queue_predicate(organization_id))
+        )
+    ) or 0
+
+
+#: Minutes of a tutor's marking that one auto-marked question is taken to stand
+#: for (AV-101). The owner's figure (5 Oct 2026), not a measurement: nothing in
+#: Avora times a tutor marking. It is sent with the count so the surface can
+#: say what the estimate was built from, and every surface prints the result
+#: with "roughly" (`PROD-1`).
+MARKING_MINUTES_PER_QUESTION = 4
+
+
+async def auto_marked_count(
+    db: AsyncSession, organization_id: int, start: datetime, end: datetime
+) -> int:
+    """Questions whose AI mark stood without a tutor touching it, on work that
+    settled in `start <= t < end` (AV-101).
+
+    Counted per question from `QuestionMark.auto_finalized`, not per submission
+    from its status: a piece the tutor signed off after ruling on two flagged
+    questions still had its other eight marked for them, and a tutor ruling on
+    a mark clears that mark's flag (api/submissions.py), so nothing they did
+    themselves is counted here. Only settled work counts (`PROD-5`); a draft
+    waiting in the queue has saved nobody anything yet.
+
+    Scoped by the parent row's organization like the review queue's own count
+    beside it, so past papers and mocks are in it (`API-20`, `SEC-7`). The
+    moment is `finalized_at`, which both settle paths stamp (marking.py).
+    """
+    return (
+        await db.scalar(
+            select(func.count(QuestionMark.id))
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
+            .where(
+                AssessableWork.organization_id == organization_id,
+                QuestionMark.auto_finalized.is_(True),
+                Submission.status.in_(SETTLED_STATUSES),
+                Submission.finalized_at >= start,
+                Submission.finalized_at < end,
+            )
         )
     ) or 0
 

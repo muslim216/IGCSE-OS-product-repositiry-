@@ -7420,6 +7420,12 @@ export interface components {
             lessons_taught: number;
             /** Marking Waiting */
             marking_waiting: number;
+            /** Auto Marked Questions */
+            auto_marked_questions: number;
+            /** Auto Marked Estimate Minutes */
+            auto_marked_estimate_minutes?: number | null;
+            /** Auto Marked Minutes Per Question */
+            auto_marked_minutes_per_question: number;
             /** Attendance Present */
             attendance_present: number;
             /** Attendance Absent */
