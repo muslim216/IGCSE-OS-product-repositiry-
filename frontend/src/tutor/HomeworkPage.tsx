@@ -1,20 +1,21 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
-import { HOMEWORK_LIST_LIMIT, listMyHomework, type TutorHomework } from "../api/homework";
+import { myOrganization } from "../api/auth";
+import { listMyHomework, type TutorHomework } from "../api/homework";
+import { useMyTimezone } from "../auth/AuthContext";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard } from "../components/ui";
 import { assignmentStatus } from "../lib/assignmentStatus";
+import { formatDayMonth } from "../lib/timezones";
 
 const linkClass = "font-medium text-brand-600 hover:text-brand-700";
 
-function dueLabel(dueAt: string | null): string {
+/** In the same zone a student sees the due date in, so both name the same day:
+ *  the tutor's own, else the organization's (the order the Overview uses). */
+function dueLabel(dueAt: string | null, timeZone: string | null): string {
   if (!dueAt) return "No due date";
-  return `Due ${new Date(dueAt).toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })}`;
+  return `Due ${formatDayMonth(new Date(dueAt), timeZone)}`;
 }
 
 /** Hand-ins only mean something once students could have submitted: a draft is
@@ -26,7 +27,7 @@ function progressLabel(row: TutorHomework): string | null {
   return `${row.submitted_count} of ${row.enrolled_count} handed in · ${row.marked_count} marked`;
 }
 
-function HomeworkRow({ row }: { row: TutorHomework }) {
+function HomeworkRow({ row, timeZone }: { row: TutorHomework; timeZone: string | null }) {
   const status = assignmentStatus(row.status);
   const progress = progressLabel(row);
   return (
@@ -37,8 +38,8 @@ function HomeworkRow({ row }: { row: TutorHomework }) {
       >
         <span className="min-w-0">
           <span className="block truncate font-medium text-ink-900">{row.title}</span>
-          <span className="block text-sm text-ink-500">
-            {row.group_name} · {dueLabel(row.due_at)}
+          <span className="block break-words text-sm text-ink-500">
+            {row.group_name} · {dueLabel(row.due_at, timeZone)}
           </span>
           {progress && <span className="block text-sm text-ink-700">{progress}</span>}
         </span>
@@ -55,6 +56,13 @@ function HomeworkRow({ row }: { row: TutorHomework }) {
 
 export default function HomeworkPage() {
   const homework = useQuery({ queryKey: ["homework", "mine"], queryFn: listMyHomework });
+  const myZone = useMyTimezone();
+  const org = useQuery({
+    queryKey: ["my-organization"],
+    queryFn: myOrganization,
+    enabled: !myZone,
+  });
+  const timeZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
   return (
     <div>
@@ -71,16 +79,16 @@ export default function HomeworkPage() {
           error={homework.error}
           onRetry={() => homework.refetch()}
         />
-      ) : homework.data && homework.data.length > 0 ? (
+      ) : homework.data && homework.data.items.length > 0 ? (
         <>
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
-            {homework.data.map((row) => (
-              <HomeworkRow key={row.id} row={row} />
+            {homework.data.items.map((row) => (
+              <HomeworkRow key={row.id} row={row} timeZone={timeZone} />
             ))}
           </ul>
-          {homework.data.length === HOMEWORK_LIST_LIMIT && (
+          {homework.data.truncated && (
             <p className="mt-3 text-xs text-ink-500">
-              Showing the {HOMEWORK_LIST_LIMIT} most recent. Older homework is in each class&apos;s
+              Showing the {homework.data.limit} most recent. Older homework is in each class&apos;s
               Homework tab.
             </p>
           )}

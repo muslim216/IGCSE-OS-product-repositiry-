@@ -30,3 +30,18 @@ class TutorStudentRow(BaseModel):
     id: int
     name: str
     classes: list[TutorStudentClass]
+
+
+class TutorHomeworkList(BaseModel):
+    """`truncated` is true only when the server left rows out; `limit` is the cap
+    it applied, so the page can name it without mirroring the number."""
+
+    items: list[TutorHomeworkRow]
+    truncated: bool
+    limit: int
+
+
+class TutorStudentList(BaseModel):
+    items: list[TutorStudentRow]
+    truncated: bool
+    limit: int

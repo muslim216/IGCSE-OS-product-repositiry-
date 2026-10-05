@@ -37,8 +37,8 @@ export const myMistakes = () => api<MyMistakePattern[]>("/api/v1/me/mistakes");
  *  caller's classes they sit in. Nothing derived. */
 export type TutorStudent = components["schemas"]["TutorStudentRow"];
 
-/** Mirrors `STUDENT_LIST_LIMIT` in backend/app/services/tutor_lists.py: the most
- *  students `GET /students` returns, so a list this long may have been cut short. */
-export const STUDENT_LIST_LIMIT = 500;
+/** The list with the server's own word on whether it was cut short, and the cap
+ *  it applied, so no number is mirrored here. */
+export type TutorStudentList = components["schemas"]["TutorStudentList"];
 
-export const listMyStudents = () => api<TutorStudent[]>("/api/v1/students");
+export const listMyStudents = () => api<TutorStudentList>("/api/v1/students");

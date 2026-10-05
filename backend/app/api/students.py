@@ -36,7 +36,7 @@ from app.schemas.crm import (
 from app.schemas.custom_criteria import CustomCriterionScoreIn, StudentCriterionScoreOut
 from app.schemas.groups import InviteOut
 from app.schemas.mistake_rollup import StudentMistakeRollup
-from app.schemas.tutor_lists import TutorStudentRow
+from app.schemas.tutor_lists import TutorStudentList
 from app.services.attendance import student_attendance
 from app.services.custom_criteria import (
     CriterionConflict,
@@ -138,8 +138,8 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     return student
 
 
-@router.get("", response_model=list[TutorStudentRow])
-async def list_my_students(db: DbSession, user: TutorUser) -> list[TutorStudentRow]:
+@router.get("", response_model=TutorStudentList)
+async def list_my_students(db: DbSession, user: TutorUser) -> TutorStudentList:
     """Every student in the caller's classes, once each, by name, capped at 500
     (`STUDENT_LIST_LIMIT`). Nothing derived: who they are and which classes."""
     return await tutor_students(db, user)

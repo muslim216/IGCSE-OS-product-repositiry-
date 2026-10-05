@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
@@ -14,14 +14,14 @@ export interface NavItem {
   /** "bottom" items sit apart from the main workflow nav. */
   slot?: "main" | "bottom";
   /** Extra path prefixes that count as being "in" this destination, so a page
-      one level below it (a past paper under Papers & mocks) keeps it lit. */
+      one level below it (an assignment under Homework) keeps it lit. */
   also?: string[];
 }
 
 /** Active on its own path or under any `also` prefix. Computed here rather than
     by NavLink because NavLink only knows the exact match, and both the styling
-    and aria-current must agree about a nested page (a past paper is "in"
-    Papers & mocks). Exact, not prefix, for the item itself: the tutor home must
+    and aria-current must agree about a nested page (an assignment is "in"
+    Homework). Exact, not prefix, for the item itself: the tutor home must
     not light for every tutor page. */
 function isCurrent(item: NavItem, pathname: string): boolean {
   const here = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -87,10 +87,27 @@ function BottomTab({ item, onNavigate }: { item: NavItem; onNavigate?: () => voi
 function MoreTab({ items }: { items: NavItem[] }) {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
-  const inside = items.some((item) => isCurrent(item, pathname));
+  const current = items.find((item) => isCurrent(item, pathname));
+  const inside = current !== undefined;
+  const button = useRef<HTMLButtonElement>(null);
+
+  // Escape closes the sheet and hands focus back to the control that opened it,
+  // so a keyboard reader is not left on an element that just disappeared.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      button.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
     <div className="relative flex flex-1">
       <button
+        ref={button}
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -100,7 +117,13 @@ function MoreTab({ items }: { items: NavItem[] }) {
         }`}
       >
         <MoreHorizontal aria-hidden className="h-5 w-5 shrink-0" />
-        <span>More</span>
+        {/* The button is lit while the page is inside it, which a screen reader
+            cannot see; the sr-only suffix names the page. It sits inside the
+            label's own span so the name reads "More, current page: Classes". */}
+        <span>
+          More
+          {current && <span className="sr-only">, current page: {current.label}</span>}
+        </span>
       </button>
       {open && (
         <>
@@ -114,7 +137,7 @@ function MoreTab({ items }: { items: NavItem[] }) {
           />
           <div
             role="menu"
-            className="absolute bottom-full right-2 z-40 mb-2 min-w-44 rounded-lg border border-line bg-surface py-1 shadow-lg"
+            className="absolute bottom-full right-2 z-40 mb-2 max-h-[calc(100dvh-8rem)] min-w-44 overflow-y-auto rounded-lg border border-line bg-surface py-1 shadow-lg"
           >
             {items.map((item) => {
               const current = isCurrent(item, pathname);
@@ -193,11 +216,11 @@ export default function AppShell({
             <SidebarLink key={item.to} item={item} />
           ))}
 
-          {/* An "AI Guidance" link pointed at /tutor — the Today page whose
+          {/* An "AI Guidance" link pointed at /tutor — the Overview page, then called Today, whose
               sidebar it sat in. A navigation item that goes nowhere teaches the
               reader that the nav lies, and it was advertising a destination the
               product does not have. Removed rather than repointed: the guidance
-              belongs on Today itself, which is where PRs 13-15 put it. */}
+              belongs on that page itself, which is where PRs 13-15 put it. */}
 
           <div className="mt-2 flex items-center gap-1 px-1">
             <NavLink

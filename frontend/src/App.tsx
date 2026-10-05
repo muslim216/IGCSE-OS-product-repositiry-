@@ -51,7 +51,6 @@ import ClassReportPage from "./tutor/ClassReportPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
-import PapersHubPage from "./tutor/PapersHubPage";
 import MocksPage from "./tutor/MocksPage";
 import SubjectSetupPage from "./tutor/SubjectSetupPage";
 import SettingsPage from "./tutor/SettingsPage";
@@ -111,11 +110,13 @@ const STUDENT_NAV: NavItem[] = [
 // `also` keeps a nested page's parent lit; Subject setup claims the old setup
 // URLs so it stays lit if one is ever rendered without redirecting, Students
 // claims its own prefix because the exact match alone would drop it on a
-// student's page (`/tutor/students/:id`), and Past
-// papers claims the retired Papers & mocks hub and Booklets, which sit with it.
+// student's page (`/tutor/students/:id`), Review claims a submission's page
+// (`/tutor/submissions/:id`), which is opened from the queue, and Past papers
+// claims Booklets, which sits with it. The retired Papers & mocks hub is only a
+// redirect to Past papers now.
 const TUTOR_NAV: NavItem[] = [
   { to: "/tutor", label: "Overview", icon: LayoutDashboard },
-  { to: "/tutor/review", label: "Review", icon: ClipboardCheck },
+  { to: "/tutor/review", label: "Review", icon: ClipboardCheck, also: ["/tutor/submissions"] },
   { to: "/tutor/homework", label: "Homework", icon: ClipboardList, also: ["/tutor/assignments"] },
   { to: "/tutor/classes", label: "Classes", icon: Users, also: ["/tutor/groups"] },
   { to: "/tutor/students", label: "Students", icon: UserRound, also: ["/tutor/students"] },
@@ -124,7 +125,7 @@ const TUTOR_NAV: NavItem[] = [
     to: "/tutor/past-papers",
     label: "Past papers",
     icon: FileText,
-    also: ["/tutor/papers", "/tutor/booklets"],
+    also: ["/tutor/booklets"],
   },
   { to: "/tutor/readiness", label: "Readiness", icon: Gauge },
   { to: "/tutor/reports", label: "Reports", icon: FileBarChart },
@@ -161,7 +162,7 @@ export default function App() {
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
           <Route path="/tutor/library" element={<LibraryPage />} />
-          <Route path="/tutor/papers" element={<PapersHubPage />} />
+          <Route path="/tutor/papers" element={<Navigate to="/tutor/past-papers" replace />} />
           {/* Setup pages became sections of Subject setup (first of Settings); the old URLs land on theirs. */}
           <Route path="/tutor/subject-setup" element={<SubjectSetupPage />} />
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />

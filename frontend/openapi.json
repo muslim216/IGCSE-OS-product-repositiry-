@@ -810,7 +810,7 @@
           "assignments"
         ],
         "summary": "List My Homework",
-        "description": "Every piece of homework across the caller's classes, newest first, capped\nat the most recent 200 (`HOMEWORK_LIST_LIMIT`). A tutor sees their own\nclasses; an admin, every class in their organization.",
+        "description": "Every piece of homework across the caller's classes, newest first, capped\nat the most recent 200 (`HOMEWORK_LIST_LIMIT`), with `truncated` saying so. A tutor sees their own\nclasses; an admin, every class in their organization.",
         "operationId": "list_my_homework_api_v1_assignments_get",
         "responses": {
           "200": {
@@ -818,11 +818,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TutorHomeworkRow"
-                  },
-                  "type": "array",
-                  "title": "Response List My Homework Api V1 Assignments Get"
+                  "$ref": "#/components/schemas/TutorHomeworkList"
                 }
               }
             }
@@ -7097,11 +7093,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TutorStudentRow"
-                  },
-                  "type": "array",
-                  "title": "Response List My Students Api V1 Students Get"
+                  "$ref": "#/components/schemas/TutorStudentList"
                 }
               }
             }
@@ -21662,6 +21654,33 @@
         ],
         "title": "TutorFacts"
       },
+      "TutorHomeworkList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TutorHomeworkRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "truncated",
+          "limit"
+        ],
+        "title": "TutorHomeworkList",
+        "description": "`truncated` is true only when the server left rows out; `limit` is the cap\nit applied, so the page can name it without mirroring the number."
+      },
       "TutorHomeworkRow": {
         "properties": {
           "id": {
@@ -21845,6 +21864,32 @@
           "subject_name"
         ],
         "title": "TutorStudentClass"
+      },
+      "TutorStudentList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TutorStudentRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "truncated",
+          "limit"
+        ],
+        "title": "TutorStudentList"
       },
       "TutorStudentRow": {
         "properties": {

@@ -412,7 +412,7 @@ export interface paths {
         /**
          * List My Homework
          * @description Every piece of homework across the caller's classes, newest first, capped
-         *     at the most recent 200 (`HOMEWORK_LIST_LIMIT`). A tutor sees their own
+         *     at the most recent 200 (`HOMEWORK_LIST_LIMIT`), with `truncated` saying so. A tutor sees their own
          *     classes; an admin, every class in their organization.
          */
         get: operations["list_my_homework_api_v1_assignments_get"];
@@ -7448,6 +7448,19 @@ export interface components {
             marked: components["schemas"]["MarkedFacts"] | null;
         };
         /**
+         * TutorHomeworkList
+         * @description `truncated` is true only when the server left rows out; `limit` is the cap
+         *     it applied, so the page can name it without mirroring the number.
+         */
+        TutorHomeworkList: {
+            /** Items */
+            items: components["schemas"]["TutorHomeworkRow"][];
+            /** Truncated */
+            truncated: boolean;
+            /** Limit */
+            limit: number;
+        };
+        /**
          * TutorHomeworkRow
          * @description One piece of homework in the cross-class Homework list. The three counts
          *     are plain tallies of rows, nothing derived: no score, no readiness.
@@ -7522,6 +7535,15 @@ export interface components {
             group_name: string;
             /** Subject Name */
             subject_name: string;
+        };
+        /** TutorStudentList */
+        TutorStudentList: {
+            /** Items */
+            items: components["schemas"]["TutorStudentRow"][];
+            /** Truncated */
+            truncated: boolean;
+            /** Limit */
+            limit: number;
         };
         /** TutorStudentRow */
         TutorStudentRow: {
@@ -8398,7 +8420,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TutorHomeworkRow"][];
+                    "application/json": components["schemas"]["TutorHomeworkList"];
                 };
             };
         };
@@ -12298,7 +12320,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TutorStudentRow"][];
+                    "application/json": components["schemas"]["TutorStudentList"];
                 };
             };
         };

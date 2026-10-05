@@ -38,7 +38,7 @@ from app.schemas.homework import (
     QuestionIn,
     QuestionOut,
 )
-from app.schemas.tutor_lists import TutorHomeworkRow
+from app.schemas.tutor_lists import TutorHomeworkList
 from app.services.assignments import create_from_upload
 from app.services.notifications.triggers import announce_homework_set
 from app.services.tutor_lists import tutor_homework
@@ -229,10 +229,10 @@ async def create_assignment_with_paper(
     return _detail_stub(assignment)
 
 
-@router.get("", response_model=list[TutorHomeworkRow])
-async def list_my_homework(db: DbSession, user: TutorUser) -> list[TutorHomeworkRow]:
+@router.get("", response_model=TutorHomeworkList)
+async def list_my_homework(db: DbSession, user: TutorUser) -> TutorHomeworkList:
     """Every piece of homework across the caller's classes, newest first, capped
-    at the most recent 200 (`HOMEWORK_LIST_LIMIT`). A tutor sees their own
+    at the most recent 200 (`HOMEWORK_LIST_LIMIT`), with `truncated` saying so. A tutor sees their own
     classes; an admin, every class in their organization."""
     return await tutor_homework(db, user)
 

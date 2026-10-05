@@ -110,6 +110,9 @@ export default function StudentsTab() {
     mutationFn: () => createStudentAccount(groupId, studentForm),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      // The cross-class Students and Homework lists count this class's members.
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
       setStudentForm({ name: "", username: "", password: "" });
     },
     onMutate: () => setActionError(null),
@@ -120,6 +123,9 @@ export default function StudentsTab() {
     mutationFn: (studentId: number) => removeMember(groupId, studentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["group", groupId] });
+      // The cross-class Students and Homework lists count this class's members.
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
       setRemoving(null);
     },
     onMutate: () => setActionError(null),

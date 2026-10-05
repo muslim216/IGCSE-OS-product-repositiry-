@@ -4,6 +4,8 @@ classes."""
 
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
 from app.db import async_session
 from app.models import (
     Group,
@@ -14,7 +16,13 @@ from app.models import (
 )
 from app.security import create_access_token
 from app.services import tutor_lists
-from tests.factories import make_user, publish_assignment, register_other_tutor, submit_work
+from tests.factories import (
+    make_user,
+    publish_assignment,
+    register_other_tutor,
+    settled_submission,
+    submit_work,
+)
 
 HOMEWORK = "/api/v1/assignments"
 STUDENTS = "/api/v1/students"
@@ -109,7 +117,7 @@ async def test_homework_lists_newest_first_with_real_counts(client, tutor, subje
 
     resp = await client.get(HOMEWORK, headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert [r["title"] for r in rows] == ["Newer", "Older"]
     assert rows[0]["id"] == new.id
     assert rows[0]["group_name"] == "Chem B" and rows[0]["subject_name"] == "Chemistry"
@@ -130,7 +138,7 @@ async def test_homework_lists_newest_first_with_real_counts(client, tutor, subje
 async def test_homework_is_empty_for_a_tutor_without_classes(client, tutor):
     resp = await client.get(HOMEWORK, headers=tutor["headers"])
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json() == {"items": [], "truncated": False, "limit": 200}
 
 
 async def test_homework_query_count_does_not_grow_with_rows(client, tutor, subject):
@@ -172,8 +180,9 @@ async def test_homework_is_capped_at_the_most_recent(client, tutor, subject, mon
     g = await _group(client, tutor, subject, "Chem A")
     for day in (1, 2, 3):
         await _homework(g, subject, org, f"HW {day}", day)
-    rows = (await client.get(HOMEWORK, headers=tutor["headers"])).json()
-    assert [r["title"] for r in rows] == ["HW 3", "HW 2"]
+    body = (await client.get(HOMEWORK, headers=tutor["headers"])).json()
+    assert [r["title"] for r in body["items"]] == ["HW 3", "HW 2"]
+    assert body["truncated"] is True and body["limit"] == 2
 
 
 async def test_homework_limit_matches_what_the_page_assumes():
@@ -188,7 +197,7 @@ async def test_homework_hides_another_organizations_rows(client, tutor, subject)
     other = await register_other_tutor(client)
     resp = await client.get(HOMEWORK, headers=other["headers"])
     assert resp.status_code == 200
-    assert resp.json() == []
+    assert resp.json()["items"] == []
 
 
 async def test_homework_hides_a_colleagues_classes_but_an_admin_sees_them(client, tutor, subject):
@@ -201,8 +210,8 @@ async def test_homework_hides_a_colleagues_classes_but_an_admin_sees_them(client
     admin = await _headers_for(
         organization_id=org, role=UserRole.admin, name="Adm", email="adm@example.com"
     )
-    assert (await client.get(HOMEWORK, headers=colleague)).json() == []
-    rows = (await client.get(HOMEWORK, headers=admin)).json()
+    assert (await client.get(HOMEWORK, headers=colleague)).json()["items"] == []
+    rows = (await client.get(HOMEWORK, headers=admin)).json()["items"]
     assert [r["title"] for r in rows] == ["Mine"]
 
 
@@ -231,7 +240,7 @@ async def test_students_lists_each_once_by_name_with_their_classes(client, tutor
 
     resp = await client.get(STUDENTS, headers=tutor["headers"])
     assert resp.status_code == 200, resp.text
-    rows = resp.json()
+    rows = resp.json()["items"]
     assert [r["name"] for r in rows] == ["Ann", "zed"]
     assert rows[0]["id"] == ann and rows[1]["id"] == zed
     assert [(c["group_name"], c["subject_name"]) for c in rows[0]["classes"]] == [
@@ -243,9 +252,10 @@ async def test_students_lists_each_once_by_name_with_their_classes(client, tutor
 
 
 async def test_students_is_empty_without_classes_or_members(client, tutor, subject):
-    assert (await client.get(STUDENTS, headers=tutor["headers"])).json() == []
+    empty = {"items": [], "truncated": False, "limit": 500}
+    assert (await client.get(STUDENTS, headers=tutor["headers"])).json() == empty
     await _group(client, tutor, subject, "Empty")
-    assert (await client.get(STUDENTS, headers=tutor["headers"])).json() == []
+    assert (await client.get(STUDENTS, headers=tutor["headers"])).json() == empty
 
 
 async def test_students_cap_counts_students_not_memberships(client, tutor, subject, monkeypatch):
@@ -257,16 +267,17 @@ async def test_students_cap_counts_students_not_memberships(client, tutor, subje
     await _join(b["id"], ann)
     await _enrol(a["id"], org, "Ben", "ben@example.com")
     await _enrol(a["id"], org, "Cy", "cy@example.com")
-    rows = (await client.get(STUDENTS, headers=tutor["headers"])).json()
+    body = (await client.get(STUDENTS, headers=tutor["headers"])).json()
+    rows = body["items"]
     assert [r["name"] for r in rows] == ["Ann", "Ben"]
     assert len(rows[0]["classes"]) == 2
+    assert body["truncated"] is True and body["limit"] == 2
 
 
 async def test_students_only_shows_the_callers_classes_of_a_shared_student(client, tutor, subject):
     org = await _org_id(tutor)
     mine = await _group(client, tutor, subject, "Mine")
     ann = await _enrol(mine["id"], org, "Ann", "ann@example.com")
-    colleague_id = None
     async with async_session() as s:
         col = await make_user(
             s, organization_id=org, role=UserRole.tutor, name="Col", email="col@example.com"
@@ -278,10 +289,11 @@ async def test_students_only_shows_the_callers_classes_of_a_shared_student(clien
         await s.flush()
         s.add(GroupMember(group_id=theirs.id, student_id=ann))
         await s.commit()
-        colleague_id = col.id
-    rows = (await client.get(STUDENTS, headers=tutor["headers"])).json()
+    resp = await client.get(STUDENTS, headers=tutor["headers"])
+    rows = resp.json()["items"]
     assert [c["group_name"] for c in rows[0]["classes"]] == ["Mine"]
-    assert colleague_id is not None
+    # Nowhere in the payload, not just on the first row.
+    assert "Theirs" not in resp.text
 
 
 async def test_students_hides_other_tenants_and_colleagues_but_admin_sees_the_org(
@@ -297,9 +309,11 @@ async def test_students_hides_other_tenants_and_colleagues_but_admin_sees_the_or
     admin = await _headers_for(
         organization_id=org, role=UserRole.admin, name="Adm", email="adm@example.com"
     )
-    assert (await client.get(STUDENTS, headers=other["headers"])).json() == []
-    assert (await client.get(STUDENTS, headers=colleague)).json() == []
-    assert [r["name"] for r in (await client.get(STUDENTS, headers=admin)).json()] == ["Ann"]
+    assert (await client.get(STUDENTS, headers=other["headers"])).json()["items"] == []
+    assert (await client.get(STUDENTS, headers=colleague)).json()["items"] == []
+    assert [r["name"] for r in (await client.get(STUDENTS, headers=admin)).json()["items"]] == [
+        "Ann"
+    ]
 
 
 async def test_students_refuses_a_student_and_the_anonymous(client, student):
@@ -318,3 +332,140 @@ async def test_students_refuses_a_parent(client, tutor, student):
 async def test_students_route_does_not_swallow_the_id_routes(client, tutor, student):
     resp = await client.get(f"{STUDENTS}/{student['user']['id']}/crm", headers=tutor["headers"])
     assert resp.status_code == 200
+
+
+# --- Review fixes ------------------------------------------------------------
+
+
+async def test_counts_only_cover_students_still_in_the_class(client, tutor, subject):
+    org = await _org_id(tutor)
+    g = await _group(client, tutor, subject, "Chem A")
+    stayer = await _enrol(g["id"], org, "Ann", "ann@example.com")
+    leaver = await _enrol(g["id"], org, "Ben", "ben@example.com")
+    hw = await _homework(g, subject, org, "HW", 1)
+    await _submit(hw, stayer, SubmissionStatus.finalized)
+    await _submit(hw, leaver, SubmissionStatus.finalized)
+
+    row = (await client.get(HOMEWORK, headers=tutor["headers"])).json()["items"][0]
+    assert (row["enrolled_count"], row["submitted_count"], row["marked_count"]) == (2, 2, 2)
+
+    async with async_session() as s:
+        member = await s.scalar(
+            select(GroupMember).where(
+                GroupMember.group_id == g["id"], GroupMember.student_id == leaver
+            )
+        )
+        await s.delete(member)
+        await s.commit()
+
+    row = (await client.get(HOMEWORK, headers=tutor["headers"])).json()["items"][0]
+    assert (row["enrolled_count"], row["submitted_count"], row["marked_count"]) == (1, 1, 1)
+    assert row["submitted_count"] <= row["enrolled_count"]
+
+
+async def test_membership_is_per_assignments_own_class(client, tutor, subject):
+    org = await _org_id(tutor)
+    a = await _group(client, tutor, subject, "Chem A")
+    b = await _group(client, tutor, subject, "Chem B")
+    ann = await _enrol(a["id"], org, "Ann", "ann@example.com")
+    hw_a = await _homework(a, subject, org, "For A", 1)
+    hw_b = await _homework(b, subject, org, "For B", 2)
+    await _submit(hw_a, ann, SubmissionStatus.finalized)
+    # Ann is not in B: a submission against B's work does not count there.
+    await _submit(hw_b, ann, SubmissionStatus.finalized)
+    items = (await client.get(HOMEWORK, headers=tutor["headers"])).json()["items"]
+    rows = {r["title"]: r for r in items}
+    assert rows["For A"]["submitted_count"] == 1
+    assert rows["For B"]["submitted_count"] == 0 and rows["For B"]["enrolled_count"] == 0
+
+
+async def test_a_past_paper_submission_changes_no_homework_count(client, tutor, subject):
+    org = await _org_id(tutor)
+    g = await _group(client, tutor, subject, "Chem A")
+    ann = await _enrol(g["id"], org, "Ann", "ann@example.com")
+    await _homework(g, subject, org, "HW", 1)
+    async with async_session() as s:
+        await settled_submission(
+            s,
+            subject_id=subject["id"],
+            organization_id=org,
+            student_id=ann,
+            analysed=False,
+            marks=1,
+        )
+        await s.commit()
+    row = (await client.get(HOMEWORK, headers=tutor["headers"])).json()["items"][0]
+    assert (row["submitted_count"], row["marked_count"]) == (0, 0)
+
+
+async def test_truncated_is_false_at_the_limit_and_true_one_past_it(
+    client, tutor, subject, monkeypatch
+):
+    monkeypatch.setattr(tutor_lists, "HOMEWORK_LIST_LIMIT", 2)
+    monkeypatch.setattr(tutor_lists, "STUDENT_LIST_LIMIT", 2)
+    org = await _org_id(tutor)
+    g = await _group(client, tutor, subject, "Chem A")
+    for day in (1, 2):
+        await _homework(g, subject, org, f"HW {day}", day)
+    await _enrol(g["id"], org, "Ann", "ann@example.com")
+    await _enrol(g["id"], org, "Ben", "ben@example.com")
+    for url in (HOMEWORK, STUDENTS):
+        body = (await client.get(url, headers=tutor["headers"])).json()
+        assert len(body["items"]) == 2 and body["truncated"] is False, url
+
+    await _homework(g, subject, org, "HW 3", 3)
+    await _enrol(g["id"], org, "Cy", "cy@example.com")
+    for url in (HOMEWORK, STUDENTS):
+        body = (await client.get(url, headers=tutor["headers"])).json()
+        assert len(body["items"]) == 2 and body["truncated"] is True, url
+
+
+async def test_another_tenant_with_their_own_data_sees_only_their_own(client, tutor, subject):
+    org = await _org_id(tutor)
+    mine = await _group(client, tutor, subject, "Mine")
+    await _enrol(mine["id"], org, "Ann", "ann@example.com")
+    await _homework(mine, subject, org, "My homework", 1)
+
+    other = await register_other_tutor(client)
+    other_org = await _org_id(other)
+    # Inserted directly: the API only lets a tutor pick their own organization's
+    # subjects, and the subject fixture belongs to the first tutor's.
+    async with async_session() as s:
+        group = Group(
+            organization_id=other_org,
+            tutor_id=other["user"]["id"],
+            subject_id=subject["id"],
+            name="Theirs",
+        )
+        s.add(group)
+        await s.commit()
+        theirs = {"id": group.id}
+    await _enrol(theirs["id"], other_org, "Zoe", "zoe@example.com")
+    await _homework(theirs, subject, other_org, "Their homework", 2)
+
+    mine_hw = (await client.get(HOMEWORK, headers=tutor["headers"])).json()["items"]
+    their_hw = (await client.get(HOMEWORK, headers=other["headers"])).json()["items"]
+    assert [r["title"] for r in mine_hw] == ["My homework"]
+    assert [r["title"] for r in their_hw] == ["Their homework"]
+    mine_st = (await client.get(STUDENTS, headers=tutor["headers"])).json()["items"]
+    their_st = (await client.get(STUDENTS, headers=other["headers"])).json()["items"]
+    assert [r["name"] for r in mine_st] == ["Ann"]
+    assert [r["name"] for r in their_st] == ["Zoe"]
+
+
+async def test_homework_ties_on_created_at_break_by_id_descending(client, tutor, subject):
+    org = await _org_id(tutor)
+    g = await _group(client, tutor, subject, "Chem A")
+    first = await _homework(g, subject, org, "First", 1)
+    second = await _homework(g, subject, org, "Second", 1)
+    rows = (await client.get(HOMEWORK, headers=tutor["headers"])).json()["items"]
+    assert [r["id"] for r in rows] == [second.id, first.id]
+
+
+async def test_students_with_the_same_name_are_separate_rows_ordered_by_id(client, tutor, subject):
+    org = await _org_id(tutor)
+    g = await _group(client, tutor, subject, "Chem A")
+    one = await _enrol(g["id"], org, "Sam", "sam1@example.com")
+    two = await _enrol(g["id"], org, "Sam", "sam2@example.com")
+    rows = (await client.get(STUDENTS, headers=tutor["headers"])).json()["items"]
+    assert [r["id"] for r in rows] == [one, two]

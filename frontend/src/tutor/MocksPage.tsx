@@ -20,7 +20,6 @@ export default function MocksPage() {
       <PageHeader
         title="Mocks and tests"
         description="Enter a class's marks from a mock or class test, or look back at ones you've recorded."
-        back={{ to: "/tutor/papers", label: "Papers & mocks" }}
       />
 
       <div className="space-y-8">

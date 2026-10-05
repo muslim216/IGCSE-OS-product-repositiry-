@@ -409,8 +409,8 @@ export const classifiedMarkSchemePath = (classifiedId: number) =>
  *  students and hand-ins, nothing derived (`FE-4`). */
 export type TutorHomework = components["schemas"]["TutorHomeworkRow"];
 
-/** Mirrors `HOMEWORK_LIST_LIMIT` in backend/app/services/tutor_lists.py: the most
- *  rows `GET /assignments` returns, so a list this long may have been cut short. */
-export const HOMEWORK_LIST_LIMIT = 200;
+/** The list with the server's own word on whether it was cut short, and the cap
+ *  it applied, so no number is mirrored here. */
+export type TutorHomeworkList = components["schemas"]["TutorHomeworkList"];
 
-export const listMyHomework = () => api<TutorHomework[]>("/api/v1/assignments");
+export const listMyHomework = () => api<TutorHomeworkList>("/api/v1/assignments");

@@ -3,11 +3,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Assignment, Group, GroupMember, Subject, Submission, User, UserRole
 from app.models.homework import SETTLED_STATUSES
-from app.schemas.tutor_lists import TutorHomeworkRow, TutorStudentClass, TutorStudentRow
+from app.schemas.tutor_lists import (
+    TutorHomeworkList,
+    TutorHomeworkRow,
+    TutorStudentClass,
+    TutorStudentList,
+    TutorStudentRow,
+)
 
 #: Hard caps standing in for cursor pagination (API-13), so each list stays
-#: bounded (API-12). The clients mirror both numbers: a list exactly this long
-#: may have been cut short, which is how the Library tells its reader the same.
+#: bounded (API-12). Each query fetches one row more than the cap, so the
+#: response can say `truncated` only when something really was left out, and
+#: carries the cap itself so a client never has to mirror it.
 HOMEWORK_LIST_LIMIT = 200
 STUDENT_LIST_LIMIT = 500
 
@@ -21,7 +28,7 @@ def _visible_groups(user: User) -> Select:
     return query
 
 
-async def tutor_homework(db: AsyncSession, user: User) -> list[TutorHomeworkRow]:
+async def tutor_homework(db: AsyncSession, user: User) -> TutorHomeworkList:
     """Homework across the caller's classes, newest first, at most
     `HOMEWORK_LIST_LIMIT`. Three queries however many rows come back: the page
     of homework, then the class sizes and the submission tallies for exactly
@@ -33,11 +40,13 @@ async def tutor_homework(db: AsyncSession, user: User) -> list[TutorHomeworkRow]
             .join(Subject, Subject.id == Group.subject_id)
             .where(Assignment.group_id.in_(_visible_groups(user)))
             .order_by(Assignment.created_at.desc(), Assignment.id.desc())
-            .limit(HOMEWORK_LIST_LIMIT)
+            .limit(HOMEWORK_LIST_LIMIT + 1)
         )
     ).all()
+    truncated = len(rows) > HOMEWORK_LIST_LIMIT
+    rows = rows[:HOMEWORK_LIST_LIMIT]
     if not rows:
-        return []
+        return TutorHomeworkList(items=[], truncated=False, limit=HOMEWORK_LIST_LIMIT)
 
     group_ids = {a.group_id for a, _, _ in rows}
     enrolled = {
@@ -52,7 +61,10 @@ async def tutor_homework(db: AsyncSession, user: User) -> list[TutorHomeworkRow]
     }
     # Joined through `work_id`, never `assignment_id`: a submission is
     # polymorphic (`API-20`). One attempt per student per work, so a count of
-    # rows is a count of students.
+    # rows is a count of students. Only students who are in the class now are
+    # tallied, the same set `enrolled_count` counts, so "5 of 3 handed in" cannot
+    # happen after someone leaves; the membership join goes through each
+    # assignment's own class, since two pieces of work have different members.
     tallies = {
         work_id: (submitted, int(marked))
         for work_id, submitted, marked in (
@@ -64,12 +76,18 @@ async def tutor_homework(db: AsyncSession, user: User) -> list[TutorHomeworkRow]
                         func.sum(case((Submission.status.in_(SETTLED_STATUSES), 1), else_=0)), 0
                     ),
                 )
+                .join(Assignment, Assignment.work_id == Submission.work_id)
+                .join(
+                    GroupMember,
+                    (GroupMember.group_id == Assignment.group_id)
+                    & (GroupMember.student_id == Submission.student_id),
+                )
                 .where(Submission.work_id.in_({a.work_id for a, _, _ in rows}))
                 .group_by(Submission.work_id)
             )
         ).all()
     }
-    return [
+    items = [
         TutorHomeworkRow(
             id=a.id,
             title=a.title,
@@ -85,9 +103,10 @@ async def tutor_homework(db: AsyncSession, user: User) -> list[TutorHomeworkRow]
         )
         for a, group_name, subject_name in rows
     ]
+    return TutorHomeworkList(items=items, truncated=truncated, limit=HOMEWORK_LIST_LIMIT)
 
 
-async def tutor_students(db: AsyncSession, user: User) -> list[TutorStudentRow]:
+async def tutor_students(db: AsyncSession, user: User) -> TutorStudentList:
     """Every student in the caller's classes, once each, by name, at most
     `STUDENT_LIST_LIMIT`, each with the visible classes they sit in. The cap
     applies to students, not memberships, so a student in two classes is one row
@@ -100,11 +119,13 @@ async def tutor_students(db: AsyncSession, user: User) -> list[TutorStudentRow]:
             .where(GroupMember.group_id.in_(visible), User.role == UserRole.student)
             .group_by(User.id, User.name)
             .order_by(func.lower(User.name), User.id)
-            .limit(STUDENT_LIST_LIMIT)
+            .limit(STUDENT_LIST_LIMIT + 1)
         )
     ).all()
+    truncated = len(students) > STUDENT_LIST_LIMIT
+    students = students[:STUDENT_LIST_LIMIT]
     if not students:
-        return []
+        return TutorStudentList(items=[], truncated=False, limit=STUDENT_LIST_LIMIT)
 
     classes: dict[int, list[TutorStudentClass]] = {}
     memberships = (
@@ -123,4 +144,5 @@ async def tutor_students(db: AsyncSession, user: User) -> list[TutorStudentRow]:
         classes.setdefault(student_id, []).append(
             TutorStudentClass(group_id=group_id, group_name=group_name, subject_name=subject_name)
         )
-    return [TutorStudentRow(id=s.id, name=s.name, classes=classes.get(s.id, [])) for s in students]
+    items = [TutorStudentRow(id=s.id, name=s.name, classes=classes.get(s.id, [])) for s in students]
+    return TutorStudentList(items=items, truncated=truncated, limit=STUDENT_LIST_LIMIT)

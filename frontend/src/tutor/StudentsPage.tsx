@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
-import { STUDENT_LIST_LIMIT, listMyStudents, type TutorStudent } from "../api/students";
+import { listMyStudents, type TutorStudent } from "../api/students";
 import { Field, Input } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard } from "../components/ui";
@@ -22,7 +22,7 @@ function StudentRow({ student }: { student: TutorStudent }) {
       >
         <span className="min-w-0">
           <span className="block truncate font-medium text-ink-900">{student.name}</span>
-          <span className="block text-sm text-ink-500">
+          <span className="block break-words text-sm text-ink-500">
             {student.classes.map((c) => c.group_name).join(", ")}
           </span>
         </span>
@@ -39,10 +39,11 @@ export default function StudentsPage() {
   // Derived from the query, never copied out of it (FE-6).
   const needle = search.trim().toLowerCase();
   const shown = useMemo(
-    () => (students.data ?? []).filter((s) => !needle || s.name.toLowerCase().includes(needle)),
+    () =>
+      (students.data?.items ?? []).filter((s) => !needle || s.name.toLowerCase().includes(needle)),
     [students.data, needle],
   );
-  const total = students.data?.length ?? 0;
+  const total = students.data?.items.length ?? 0;
 
   return (
     <div>
@@ -97,9 +98,9 @@ export default function StudentsPage() {
               ))}
             </ul>
           )}
-          {total === STUDENT_LIST_LIMIT && (
+          {students.data?.truncated && (
             <p className="mt-3 text-xs text-ink-500">
-              Showing the first {STUDENT_LIST_LIMIT} students by name. Others are in their
+              Showing the first {students.data.limit} students by name. Others are in their
               class&apos;s Students tab.
             </p>
           )}

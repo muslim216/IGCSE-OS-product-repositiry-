@@ -135,19 +135,39 @@ test("Readiness in the nav is the class readiness page", async () => {
   );
 });
 
-test("the Papers & mocks hub links to past papers, booklets and mocks", async () => {
+test("the retired Papers & mocks hub URL lands on Past papers", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/papers");
-  for (const [label, href] of [
-    ["Past papers", "/tutor/past-papers"],
-    ["Booklets", "/tutor/booklets"],
-    ["Mocks", "/tutor/mocks"],
-  ]) {
-    const card = (await screen.findAllByRole("link", { name: new RegExp(label) })).find(
-      (link) => link.getAttribute("href") === href,
-    );
-    expect(card).toBeDefined();
-  }
+  expect(await screen.findByRole("heading", { level: 1, name: "Past papers" })).toBeInTheDocument();
+  const main = screen.getByRole("main");
+  expect(within(main).queryByText("Papers & mocks")).not.toBeInTheDocument();
+});
+
+test("Booklets and Mocks are top-level pages: no back link to the retired hub", async () => {
+  mockAuthedFetch("tutor");
+  const view = renderApp("/tutor/booklets");
+  await screen.findByRole("heading", { level: 1 });
+  const main = screen.getByRole("main");
+  expect(within(main).getByRole("link", { name: /Past papers/ })).toHaveAttribute(
+    "href",
+    "/tutor/past-papers",
+  );
+  view.unmount();
+
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/mocks");
+  await screen.findByRole("heading", { level: 1 });
+  expect(within(screen.getByRole("main")).queryByText("Papers & mocks")).not.toBeInTheDocument();
+});
+
+test("a submission page keeps Review lit", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/submissions/3");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  expect(within(sidebar).getByRole("link", { name: "Review" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 });
 
 test("the Library lists only teaching material, not setup, readiness or papers", async () => {
@@ -399,4 +419,48 @@ test("the section index moves focus to the section it names", async () => {
   const index = await screen.findByRole("navigation", { name: "Settings sections" });
   fireEvent.click(within(index).getByRole("link", { name: "Account and integrations" }));
   await waitFor(() => expect(document.activeElement?.id).toBe("account"));
+});
+
+test("Escape closes the More sheet and returns focus to its button", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor");
+  const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
+  const more = within(tabBar).getByRole("button", { name: /More/ });
+  fireEvent.click(more);
+  await screen.findByRole("menu");
+  fireEvent.keyDown(document, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+  expect(more).toHaveFocus();
+  expect(more).toHaveAttribute("aria-expanded", "false");
+});
+
+test("choosing an item closes the More sheet", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor");
+  const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
+  fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
+  fireEvent.click(
+    within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Library" }),
+  );
+  await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+});
+
+test("the More button names the current page for a screen reader, and the sheet scrolls", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/classes");
+  const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
+  const more = within(tabBar).getByRole("button", { name: /^More\s*,\s*current page: Classes$/ });
+  // The visible label is unchanged.
+  expect(more.textContent).toContain("More");
+  fireEvent.click(more);
+  const menu = await screen.findByRole("menu");
+  expect(menu.className).toContain("overflow-y-auto");
+  expect(menu.className).toContain("max-h-");
+});
+
+test("More says nothing extra when the page is not inside it", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor");
+  const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
+  expect(within(tabBar).getByRole("button", { name: "More" })).toBeInTheDocument();
 });
