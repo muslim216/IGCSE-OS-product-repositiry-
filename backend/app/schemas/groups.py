@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -35,6 +36,20 @@ class ChapterOut(BaseModel):
     #: `code` — a tutor may teach chapter 4 before chapter 3. Sent so a picker
     #: can present chapters in the order they are taught.
     position: int
+
+
+class TaughtBeforeUpdate(BaseModel):
+    #: Bounded like a lesson's topic list (schemas/lessons.py), but wide enough
+    #: for a whole syllabus: this one can legitimately name every topic.
+    topic_ids: list[Annotated[int, Field(ge=1)]] = Field(max_length=2000)
+
+
+class TaughtBeforeOut(BaseModel):
+    #: False until the tutor answers; an empty `topic_ids` with `answered` true
+    #: means "starting fresh".
+    answered: bool
+    answered_at: datetime | None
+    topic_ids: list[int]
 
 
 class GroupCreate(BaseModel):

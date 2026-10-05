@@ -25,6 +25,11 @@ class Group(TimestampMixin, Base):
     tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Set when the tutor answered "where are you up to?", even with zero topics:
+    # it is what tells "starting fresh" apart from "never asked" (task 9.1b).
+    taught_before_answered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     tutor: Mapped[User] = relationship()
     subject: Mapped[Subject] = relationship()
@@ -33,6 +38,42 @@ class Group(TimestampMixin, Base):
     )
     schedule_slots: Mapped[list["ScheduleSlot"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"
+    )
+
+
+class TaughtBeforeTopic(TimestampMixin, Base):
+    """A topic this class was taught before it joined Avora (task 9.1b).
+
+    Deliberately a marker and not a fake lesson: no date, no attendance, no lesson
+    count. It is a second source of syllabus coverage beside `lesson_topics`
+    (the owner amended `PROD-14` for it), so every coverage reader unions the two.
+    """
+
+    __tablename__ = "taught_before_topics"
+    __table_args__ = (
+        # Also the index for every read here: they are all by class.
+        UniqueConstraint("group_id", "topic_id", name="uq_taught_before_topics_group_topic"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "organizations.id", name="fk_taught_before_topics_organization_id_organizations"
+        ),
+        nullable=False,
+    )
+    # Deleting a class removes these through ON DELETE CASCADE, as for its plans
+    # (models/teaching_plan.py): `delete_group` does a bare `db.delete(group)`.
+    # Postgres only; the SQLite suite runs with foreign keys off.
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("groups.id", name="fk_taught_before_topics_group_id_groups", ondelete="CASCADE"),
+        nullable=False,
+    )
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", name="fk_taught_before_topics_topic_id_topics"), nullable=False
+    )
+    created_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_taught_before_topics_created_by_id_users"), nullable=True
     )
 
 

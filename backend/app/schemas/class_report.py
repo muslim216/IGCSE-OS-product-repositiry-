@@ -63,7 +63,8 @@ class TopicReport(BaseModel):
     topic_id: int
     code: str
     title: str
-    #: From `lesson_topics` (PROD-14): a lesson was recorded covering it.
+    #: From `lesson_topics` (PROD-14): a lesson was recorded covering it, or the
+    #: tutor marked it as taught before Avora (task 9.1b).
     taught: bool
     #: The class mean of confident Topic Mastery rows; None = no measurement.
     avg_score: float | None = None

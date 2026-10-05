@@ -37,6 +37,8 @@ from app.models import (
     AiFeature,
     Chapter,
     Group,
+    Lesson,
+    LessonTopic,
     Organization,
     PlanBreak,
     PlanSlot,
@@ -67,6 +69,7 @@ from app.services.plan_scheduler import (
 from app.services.plan_start_times import timetable_start_times
 from app.services.plan_timing import timetable_default
 from app.services.prompts import CHAPTER_LIST_MARKERS
+from app.services.taught_before import taught_before_topic_ids
 from app.services.timezones import now_in
 from app.workers.jobs import enqueue
 
@@ -380,6 +383,25 @@ async def draft_plan_slots(session: AsyncSession, plan_id: int) -> DraftResult:
     return result
 
 
+async def _covered_topic_ids(session: AsyncSession, group: Group) -> set[int]:
+    """Topics already covered for this class: the taught-before marker plus the
+    topics on the class's recorded lessons (the two coverage sources, `PROD-14`)."""
+    from_lessons = set(
+        await session.scalars(
+            select(LessonTopic.topic_id)
+            .join(Lesson, Lesson.id == LessonTopic.lesson_id)
+            .where(Lesson.group_id == group.id, Lesson.organization_id == group.organization_id)
+        )
+    )
+    return from_lessons | await taught_before_topic_ids(session, [group.id])
+
+
+def _fully_covered(chapter: Chapter, covered: set[int]) -> bool:
+    """A chapter with no topics is never covered: there is nothing to have taught.
+    A partly covered one stays in whole; no proportional weighting."""
+    return bool(chapter.topics) and all(t.id in covered for t in chapter.topics)
+
+
 async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     group = await session.get(Group, plan.group_id)
     if group is None:
@@ -403,6 +425,18 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     )
     if not chapters:
         raise PlanDraftError("This subject has no chapters yet, so there is nothing to plan.")
+    # The draft starts from what is taught (task 9.1b): a chapter whose every topic
+    # is already covered is left out, so a class that joined mid-year is not
+    # planned from chapter 1. A re-plan goes through here too; its taught lessons
+    # survive as kept slots, which this filter never touches.
+    covered = await _covered_topic_ids(session, group)
+    chapters = [c for c in chapters if not _fully_covered(c, covered)]
+    if not chapters:
+        raise PlanDraftError(
+            "Every chapter of this subject is already marked as taught for this class, so "
+            "there is nothing left to plan. Change what is marked as taught, or leave the plan.",
+            code="all_taught",
+        )
 
     weekdays = await _weekdays(session, group, plan)
     # The tutor's own day, not the server's: at 01:00 in Cairo UTC still says

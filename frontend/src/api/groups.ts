@@ -1,4 +1,9 @@
 import { api, type AuthResponse, type User } from "./client";
+import type { components } from "./schema";
+
+/** Where the class was up to before Avora (task 9.1b). Empty `topic_ids` with
+ * `answered` true means "starting fresh". */
+export type TaughtBefore = components["schemas"]["TaughtBeforeOut"];
 
 export interface Subject {
   id: number;
@@ -91,6 +96,14 @@ export const getGroup = (id: number) => api<GroupDetail>(`/api/v1/groups/${id}`)
 export const createGroup = (name: string, subject_id: number) =>
   api<Group>("/api/v1/groups", { method: "POST", body: JSON.stringify({ name, subject_id }) });
 export const deleteGroup = (id: number) => api<void>(`/api/v1/groups/${id}`, { method: "DELETE" });
+
+export const getTaughtBefore = (groupId: number) =>
+  api<TaughtBefore>(`/api/v1/groups/${groupId}/taught-before`);
+export const setTaughtBefore = (groupId: number, topic_ids: number[]) =>
+  api<TaughtBefore>(`/api/v1/groups/${groupId}/taught-before`, {
+    method: "PUT",
+    body: JSON.stringify({ topic_ids }),
+  });
 
 export const createInvite = (groupId: number) =>
   api<Invite>(`/api/v1/groups/${groupId}/invites`, { method: "POST" });
