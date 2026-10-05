@@ -4905,6 +4905,78 @@
         ]
       }
     },
+    "/api/v1/onboarding": {
+      "get": {
+        "tags": [
+          "onboarding"
+        ],
+        "summary": "Get Onboarding",
+        "operationId": "get_onboarding_api_v1_onboarding_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingState"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/onboarding/acknowledgements": {
+      "post": {
+        "tags": [
+          "onboarding"
+        ],
+        "summary": "Post Acknowledgement",
+        "operationId": "post_acknowledgement_api_v1_onboarding_acknowledgements_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcknowledgementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/webhooks/whatsapp": {
       "get": {
         "tags": [
@@ -9770,6 +9842,31 @@
         "title": "AccessToken",
         "description": "What a client actually receives in a response body. The refresh token\ntravels only in the httpOnly, SameSite=Lax cookie scoped to\n/api/v1/auth \u2014 putting it in JSON as well would let a same-origin XSS\nread it, which defeats the point of the cookie (SEC-2)."
       },
+      "AcknowledgementIn": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/SetupItem"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2147483647.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item"
+        ],
+        "title": "AcknowledgementIn"
+      },
       "ActivityItem": {
         "properties": {
           "kind": {
@@ -12435,6 +12532,37 @@
         ],
         "title": "ClassReport"
       },
+      "ClassStatus": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepDone"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "steps",
+          "complete"
+        ],
+        "title": "ClassStatus"
+      },
       "ClassStripRow": {
         "properties": {
           "group_id": {
@@ -13652,6 +13780,39 @@
         ],
         "title": "InvitePreview",
         "description": "What a visitor sees before accepting an invite."
+      },
+      "ItemStatus": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "defaulted",
+              "optional"
+            ],
+            "title": "Kind"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "default",
+              "reviewed",
+              "set_by_you",
+              "not_set"
+            ],
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "state"
+        ],
+        "title": "ItemStatus"
       },
       "JoinRequest": {
         "properties": {
@@ -15738,6 +15899,43 @@
         ],
         "title": "NextLessonTopicOut"
       },
+      "NextStep": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "subject_id",
+          "group_id"
+        ],
+        "title": "NextStep"
+      },
       "NotificationChannel": {
         "type": "string",
         "enum": [
@@ -15867,6 +16065,42 @@
           "created_at"
         ],
         "title": "ObservationOut"
+      },
+      "OnboardingState": {
+        "properties": {
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          },
+          "account": {
+            "$ref": "#/components/schemas/ItemStatus"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectStatus"
+            },
+            "type": "array",
+            "title": "Subjects"
+          },
+          "next_step": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextStep"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "complete",
+          "account",
+          "subjects",
+          "next_step"
+        ],
+        "title": "OnboardingState"
       },
       "OrganizationOut": {
         "properties": {
@@ -18497,6 +18731,36 @@
         ],
         "title": "SelfContactSet"
       },
+      "SetupItem": {
+        "type": "string",
+        "enum": [
+          "account_basics",
+          "boundaries",
+          "marking_rules",
+          "mistake_categories",
+          "weak_threshold"
+        ],
+        "title": "SetupItem",
+        "description": "The Defaulted setup items \u2014 the only ones that can be acknowledged.\n\nRequired steps are never here (they are done or not, there is nothing to\nacknowledge) and neither is the Optional teaching guidance. Stored as a\nnon-native enum (`DB-5`), so a new member needs no migration."
+      },
+      "StepDone": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "done"
+        ],
+        "title": "StepDone"
+      },
       "StudentAssignment": {
         "properties": {
           "id": {
@@ -19787,6 +20051,58 @@
           "weak_topics"
         ],
         "title": "SubjectReadiness"
+      },
+      "SubjectStatus": {
+        "properties": {
+          "subject_id": {
+            "type": "integer",
+            "title": "Subject Id"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "required": {
+            "items": {
+              "$ref": "#/components/schemas/StepDone"
+            },
+            "type": "array",
+            "title": "Required"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemStatus"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "reviewed_count": {
+            "type": "integer",
+            "title": "Reviewed Count"
+          },
+          "review_total": {
+            "type": "integer",
+            "title": "Review Total"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/ClassStatus"
+            },
+            "type": "array",
+            "title": "Classes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject_id",
+          "subject_name",
+          "required",
+          "items",
+          "reviewed_count",
+          "review_total",
+          "classes"
+        ],
+        "title": "SubjectStatus"
       },
       "SubjectTrend": {
         "properties": {

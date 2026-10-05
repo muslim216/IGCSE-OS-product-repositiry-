@@ -66,6 +66,7 @@ from app.models.notifications import (
     SuppressionReason,
     WhatsAppOptOut,
 )
+from app.models.onboarding import ACCOUNT_ITEMS, SetupAcknowledgement, SetupItem
 from app.models.orgs import Organization
 from app.models.readiness import (
     Assessment,
@@ -226,6 +227,9 @@ __all__ = [
     "TutorObservation",
     "User",
     "UserRole",
+    "SetupAcknowledgement",
+    "SetupItem",
+    "ACCOUNT_ITEMS",
     "WeeklySend",
     "WeeklySendAudience",
     "WhatsAppOptOut",

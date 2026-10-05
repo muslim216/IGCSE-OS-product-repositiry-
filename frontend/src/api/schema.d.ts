@@ -1751,6 +1751,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/onboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Onboarding */
+        get: operations["get_onboarding_api_v1_onboarding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/acknowledgements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Acknowledgement */
+        post: operations["post_acknowledgement_api_v1_onboarding_acknowledgements_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/whatsapp": {
         parameters: {
             query?: never;
@@ -3375,6 +3409,12 @@ export interface components {
              */
             token_type: string;
         };
+        /** AcknowledgementIn */
+        AcknowledgementIn: {
+            item: components["schemas"]["SetupItem"];
+            /** Subject Id */
+            subject_id?: number | null;
+        };
         /** ActivityItem */
         ActivityItem: {
             /** Kind */
@@ -4296,6 +4336,17 @@ export interface components {
             mistakes: components["schemas"]["MistakePatterns"];
             attendance: components["schemas"]["AttendanceReport"];
         };
+        /** ClassStatus */
+        ClassStatus: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Steps */
+            steps: components["schemas"]["StepDone"][];
+            /** Complete */
+            complete: boolean;
+        };
         /**
          * ClassStripRow
          * @description One class on the tutor's home strip.
@@ -4726,6 +4777,21 @@ export interface components {
             tutor_name?: string | null;
             /** Student Name */
             student_name?: string | null;
+        };
+        /** ItemStatus */
+        ItemStatus: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "defaulted" | "optional";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "default" | "reviewed" | "set_by_you" | "not_set";
         };
         /** JoinRequest */
         JoinRequest: {
@@ -5455,6 +5521,15 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** NextStep */
+        NextStep: {
+            /** Key */
+            key: string;
+            /** Subject Id */
+            subject_id: number | null;
+            /** Group Id */
+            group_id: number | null;
+        };
         /**
          * NotificationChannel
          * @enum {string}
@@ -5498,6 +5573,15 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** OnboardingState */
+        OnboardingState: {
+            /** Complete */
+            complete: boolean;
+            account: components["schemas"]["ItemStatus"];
+            /** Subjects */
+            subjects: components["schemas"]["SubjectStatus"][];
+            next_step: components["schemas"]["NextStep"] | null;
         };
         /** OrganizationOut */
         OrganizationOut: {
@@ -6369,6 +6453,23 @@ export interface components {
             /** Address */
             address: string;
         };
+        /**
+         * SetupItem
+         * @description The Defaulted setup items — the only ones that can be acknowledged.
+         *
+         *     Required steps are never here (they are done or not, there is nothing to
+         *     acknowledge) and neither is the Optional teaching guidance. Stored as a
+         *     non-native enum (`DB-5`), so a new member needs no migration.
+         * @enum {string}
+         */
+        SetupItem: "account_basics" | "boundaries" | "marking_rules" | "mistake_categories" | "weak_threshold";
+        /** StepDone */
+        StepDone: {
+            /** Key */
+            key: string;
+            /** Done */
+            done: boolean;
+        };
         /** StudentAssignment */
         StudentAssignment: {
             /** Id */
@@ -6748,6 +6849,23 @@ export interface components {
             rationale?: string | null;
             /** Recommended Revision */
             recommended_revision?: string | null;
+        };
+        /** SubjectStatus */
+        SubjectStatus: {
+            /** Subject Id */
+            subject_id: number;
+            /** Subject Name */
+            subject_name: string;
+            /** Required */
+            required: components["schemas"]["StepDone"][];
+            /** Items */
+            items: components["schemas"]["ItemStatus"][];
+            /** Reviewed Count */
+            reviewed_count: number;
+            /** Review Total */
+            review_total: number;
+            /** Classes */
+            classes: components["schemas"]["ClassStatus"][];
         };
         /** SubjectTrend */
         SubjectTrend: {
@@ -10712,6 +10830,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndeliveredOut"][];
+                };
+            };
+        };
+    };
+    get_onboarding_api_v1_onboarding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+        };
+    };
+    post_acknowledgement_api_v1_onboarding_acknowledgements_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcknowledgementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
