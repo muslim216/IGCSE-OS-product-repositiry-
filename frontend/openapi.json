@@ -805,6 +805,31 @@
       }
     },
     "/api/v1/assignments": {
+      "get": {
+        "tags": [
+          "assignments"
+        ],
+        "summary": "List My Homework",
+        "description": "Every piece of homework across the caller's classes, newest first, capped\nat the most recent 200 (`HOMEWORK_LIST_LIMIT`), with `truncated` saying so. A tutor sees their own\nclasses; an admin, every class in their organization.",
+        "operationId": "list_my_homework_api_v1_assignments_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorHomeworkList"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "assignments"
@@ -7052,6 +7077,33 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/students": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "List My Students",
+        "description": "Every student in the caller's classes, once each, by name, capped at 500\n(`STUDENT_LIST_LIMIT`). Nothing derived: who they are and which classes.",
+        "operationId": "list_my_students_api_v1_students_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorStudentList"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/students/{student_id}/parent-code": {
@@ -21602,6 +21654,106 @@
         ],
         "title": "TutorFacts"
       },
+      "TutorHomeworkList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TutorHomeworkRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "truncated",
+          "limit"
+        ],
+        "title": "TutorHomeworkList",
+        "description": "`truncated` is true only when the server left rows out; `limit` is the cap\nit applied, so the page can name it without mirroring the number."
+      },
+      "TutorHomeworkRow": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "enrolled_count": {
+            "type": "integer",
+            "title": "Enrolled Count"
+          },
+          "submitted_count": {
+            "type": "integer",
+            "title": "Submitted Count"
+          },
+          "marked_count": {
+            "type": "integer",
+            "title": "Marked Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "due_at",
+          "created_at",
+          "group_id",
+          "group_name",
+          "subject_name",
+          "enrolled_count",
+          "submitted_count",
+          "marked_count"
+        ],
+        "title": "TutorHomeworkRow",
+        "description": "One piece of homework in the cross-class Homework list. The three counts\nare plain tallies of rows, nothing derived: no score, no readiness."
+      },
       "TutorNoteCreate": {
         "properties": {
           "body": {
@@ -21689,6 +21841,81 @@
           "password"
         ],
         "title": "TutorSignupRequest"
+      },
+      "TutorStudentClass": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "group_name": {
+            "type": "string",
+            "title": "Group Name"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "group_name",
+          "subject_name"
+        ],
+        "title": "TutorStudentClass"
+      },
+      "TutorStudentList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TutorStudentRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "truncated",
+          "limit"
+        ],
+        "title": "TutorStudentList"
+      },
+      "TutorStudentRow": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/TutorStudentClass"
+            },
+            "type": "array",
+            "title": "Classes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "classes"
+        ],
+        "title": "TutorStudentRow"
       },
       "TypedAnswerOut": {
         "properties": {

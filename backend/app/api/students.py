@@ -36,6 +36,7 @@ from app.schemas.crm import (
 from app.schemas.custom_criteria import CustomCriterionScoreIn, StudentCriterionScoreOut
 from app.schemas.groups import InviteOut
 from app.schemas.mistake_rollup import StudentMistakeRollup
+from app.schemas.tutor_lists import TutorStudentList
 from app.services.attendance import student_attendance
 from app.services.custom_criteria import (
     CriterionConflict,
@@ -48,6 +49,7 @@ from app.services.custom_criteria import (
 from app.services.invites import build_invite
 from app.services.mistake_rollup import roll_up_mistakes
 from app.services.student_crm import get_student_crm
+from app.services.tutor_lists import tutor_students
 
 router = APIRouter(prefix="/students", tags=["students"])
 log = logging.getLogger("api")
@@ -134,6 +136,13 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     if shares_group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     return student
+
+
+@router.get("", response_model=TutorStudentList)
+async def list_my_students(db: DbSession, user: TutorUser) -> TutorStudentList:
+    """Every student in the caller's classes, once each, by name, capped at 500
+    (`STUDENT_LIST_LIMIT`). Nothing derived: who they are and which classes."""
+    return await tutor_students(db, user)
 
 
 @router.post(

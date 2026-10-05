@@ -67,13 +67,13 @@ export default function TodayDashboard() {
   });
   const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
-  if (today.isLoading) return <PageSkeleton rows={3} label="Loading today" />;
+  if (today.isLoading) return <PageSkeleton rows={3} label="Loading overview" />;
 
   if (today.isError || !today.data) {
     return (
       <>
         <ErrorState
-          title="Today couldn't be loaded"
+          title="Overview couldn't be loaded"
           error={today.error}
           onRetry={() => today.refetch()}
         />
@@ -119,7 +119,7 @@ export default function TodayDashboard() {
       <PageHeader
         eyebrow={dayZone ? todayLabel(dayZone) : undefined}
         title={line1}
-        documentTitle="Today"
+        documentTitle="Overview"
         description={line2 ?? undefined}
         actions={
           <>
@@ -250,7 +250,7 @@ function Welcome({ headline }: { headline: string }) {
       <PageHeader
         eyebrow="Welcome to avora"
         title="Let's set up your first class."
-        documentTitle="Today"
+        documentTitle="Overview"
         description={
           <>
             <span>{headline}</span> Three steps get you from an empty account to marked homework and

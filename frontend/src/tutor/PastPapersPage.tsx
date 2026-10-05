@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getPastPaper,
@@ -254,8 +254,17 @@ export default function PastPapersPage() {
       <PageHeader
         title="Past papers"
         description="Upload a full paper once and every student taking that subject can sit it. Their answers are marked question by question, feeding both topic mastery and their past-paper score."
-        back={{ to: "/tutor/papers", label: "Papers & mocks" }}
       />
+
+      {/* Booklets has no sidebar item of its own; this is where a tutor looking
+          for them finds the door. */}
+      <p className="mb-6 text-sm text-ink-500">
+        Have one PDF holding several papers?{" "}
+        <Link to="/tutor/booklets" className="font-medium text-brand-600 hover:text-brand-700">
+          Split it with Booklets
+        </Link>
+        .
+      </p>
 
       <div className="space-y-6">
         <SectionCard>

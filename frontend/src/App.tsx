@@ -8,10 +8,12 @@ import {
   FileBarChart,
   Gauge,
   GraduationCap,
+  LayoutDashboard,
+  PenLine,
   Settings as SettingsIcon,
   SlidersHorizontal,
   Home as HomeIcon,
-  Sunrise,
+  UserRound,
   Users,
   Video,
 } from "lucide-react";
@@ -30,6 +32,8 @@ import WeeklySendPage, { WeeklySendRedirect } from "./components/WeeklySendPage"
 import { BrandedLoading } from "./components/brand";
 import GroupsPage from "./tutor/GroupsPage";
 import GroupLayout from "./tutor/GroupLayout";
+import TutorHomeworkPage from "./tutor/HomeworkPage";
+import TutorStudentsPage from "./tutor/StudentsPage";
 import HomeworkTab from "./tutor/tabs/HomeworkTab";
 import StudentsTab from "./tutor/tabs/StudentsTab";
 import ScheduleTab from "./tutor/tabs/ScheduleTab";
@@ -47,7 +51,6 @@ import ClassReportPage from "./tutor/ClassReportPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
-import PapersHubPage from "./tutor/PapersHubPage";
 import MocksPage from "./tutor/MocksPage";
 import SubjectSetupPage from "./tutor/SubjectSetupPage";
 import SettingsPage from "./tutor/SettingsPage";
@@ -92,31 +95,41 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/recordings", label: "Recordings", icon: Video },
 ];
 
-// Nine destinations. The owner set eight on 2026-10-05: "don't change the full
-// structure ... only the skeletons". Classes was right; the trouble was that
-// readiness, exam papers and every setup page had been dropped onto the Library
-// shelf. Each now has a name where the tutor looks for it: Readiness and
-// Papers & mocks are the work, Library is source material. The same day the
-// owner moved everything that belongs to a subject (syllabus, grade boundaries,
-// guidance, marking rules, mistake categories, preferences) out of Settings
-// into Subject setup, leaving Settings for the account (9.3a). The daily loop
-// stays first.
+// Twelve destinations, in the order the owner set on 2026-10-06 (9.3c). The
+// earlier nine came from "don't change the full structure ... only the
+// skeletons" (2026-10-05): readiness, exam papers and every setup page had been
+// dropped onto the Library shelf and each now has a name where the tutor looks
+// for it. 9.3c adds the two cross-class lists the tutor reaches for daily,
+// Homework and Students, splits "Papers & mocks" back into Mocks and Past
+// papers, and renames Today to Overview (the label only: the route, component
+// and files keep their names, and "today" still means the calendar day in copy).
+// Settings holds the account; everything that belongs to a subject sits in
+// Subject setup (9.3a).
 // Old URLs still land (setup pages redirect into Subject setup, and Settings
 // forwards its moved section hashes there), so no bookmark 404s (edge case 20).
 // `also` keeps a nested page's parent lit; Subject setup claims the old setup
-// URLs so it stays lit if one is ever rendered without redirecting.
+// URLs so it stays lit if one is ever rendered without redirecting, Students
+// claims its own prefix because the exact match alone would drop it on a
+// student's page (`/tutor/students/:id`), Review claims a submission's page
+// (`/tutor/submissions/:id`), which is opened from the queue, and Past papers
+// claims Booklets, which sits with it. The retired Papers & mocks hub is only a
+// redirect to Past papers now.
 const TUTOR_NAV: NavItem[] = [
-  { to: "/tutor", label: "Today", icon: Sunrise },
+  { to: "/tutor", label: "Overview", icon: LayoutDashboard },
+  { to: "/tutor/review", label: "Review", icon: ClipboardCheck, also: ["/tutor/submissions"] },
+  { to: "/tutor/homework", label: "Homework", icon: ClipboardList, also: ["/tutor/assignments"] },
   { to: "/tutor/classes", label: "Classes", icon: Users, also: ["/tutor/groups"] },
-  { to: "/tutor/review", label: "Review", icon: ClipboardCheck },
+  { to: "/tutor/students", label: "Students", icon: UserRound, also: ["/tutor/students"] },
+  { to: "/tutor/mocks", label: "Mocks", icon: PenLine },
+  {
+    to: "/tutor/past-papers",
+    label: "Past papers",
+    icon: FileText,
+    also: ["/tutor/booklets"],
+  },
   { to: "/tutor/readiness", label: "Readiness", icon: Gauge },
   { to: "/tutor/reports", label: "Reports", icon: FileBarChart },
-  {
-    to: "/tutor/papers",
-    label: "Papers & mocks",
-    icon: FileText,
-    also: ["/tutor/past-papers", "/tutor/booklets", "/tutor/mocks"],
-  },
+  { to: "/tutor/library", label: "Library", icon: BookOpen },
   {
     to: "/tutor/subject-setup",
     label: "Subject setup",
@@ -130,7 +143,6 @@ const TUTOR_NAV: NavItem[] = [
       "/tutor/preferences",
     ],
   },
-  { to: "/tutor/library", label: "Library", icon: BookOpen },
   { to: "/tutor/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -150,7 +162,7 @@ export default function App() {
           <Route path="/tutor/classes" element={<GroupsPage />} />
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
           <Route path="/tutor/library" element={<LibraryPage />} />
-          <Route path="/tutor/papers" element={<PapersHubPage />} />
+          <Route path="/tutor/papers" element={<Navigate to="/tutor/past-papers" replace />} />
           {/* Setup pages became sections of Subject setup (first of Settings); the old URLs land on theirs. */}
           <Route path="/tutor/subject-setup" element={<SubjectSetupPage />} />
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
@@ -182,8 +194,8 @@ export default function App() {
           />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />
-          {/* Homework overview folded into Review; the old bookmark still lands. */}
-          <Route path="/tutor/homework" element={<Navigate to="/tutor/review" replace />} />
+          <Route path="/tutor/homework" element={<TutorHomeworkPage />} />
+          <Route path="/tutor/students" element={<TutorStudentsPage />} />
           {/* Everything belonging to a class renders inside its tabbed layout. */}
           <Route path="/tutor/groups/:groupId" element={<GroupLayout />}>
             <Route index element={<Navigate to="homework" replace />} />
