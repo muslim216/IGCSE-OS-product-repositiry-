@@ -30,6 +30,7 @@ from app.models import (
     Group,
     GroupMember,
     Lesson,
+    LessonAttendance,
     LessonTopic,
     Organization,
     PlanSlot,
@@ -47,7 +48,7 @@ from app.schemas.class_report import (
     UpNext,
 )
 from app.schemas.today import ClassWeakTopic
-from app.services.attendance import in_zone, student_attendance
+from app.services.attendance import counts_for_attendance, in_zone, student_attendance
 from app.services.class_readiness import (
     ClassReadiness,
     TopicMean,
@@ -66,6 +67,10 @@ from app.services.today import build_class_overview
 DEFAULT_WINDOW = timedelta(weeks=4)
 
 
+class FutureSince(ValueError):
+    """A mistake window that opens after the class's today has nothing to read."""
+
+
 # ---------------------------------------------------------------- pure assembly
 
 
@@ -79,22 +84,23 @@ class PlanCounts:
 
 def count_plan(slots: list[SlotFact], today: date) -> PlanCounts:
     """Lesson totals over the plan's non-cancelled slots (`BE-4`). `ahead_by` is
-    lessons already taught that were planned for today or later."""
+    lessons already taught that were planned for a later day."""
     live = [s for s in slots if not s.cancelled]
     taught = [s for s in live if is_taught(s)]
     return PlanCounts(
         planned=len(live),
         taught=len(taught),
         left=len(live) - len(taught),
-        ahead_by=sum(1 for s in taught if s.scheduled_date >= today),
+        # Strictly after today: a lesson planned for today and taught today is on time.
+        ahead_by=sum(1 for s in taught if s.scheduled_date > today),
     )
 
 
-def plan_position(progress: Progress, ahead_by: int) -> str | None:
+def plan_position(progress: Progress, ahead_by: int, taught: int = 0) -> str | None:
     """Behind wins over ahead: a class with a gap is behind whatever else it has
     pulled forward. None before the plan has reached its first lesson, since
     "on track" about nothing is a claim without a basis (`PROD-2`)."""
-    if progress.planned_to_date == 0 and progress.missed == 0:
+    if progress.planned_to_date == 0 and progress.missed == 0 and taught == 0:
         return None
     if progress.missed > 0:
         return "behind"
@@ -163,7 +169,8 @@ async def _plan_report(
         per_chapter[f.chapter_id][1] += int(is_taught(f))
 
     nxt = await next_unstarted_slot(session, group.id)
-    started = progress.planned_to_date > 0 or progress.missed > 0
+    position = plan_position(progress, counts.ahead_by, counts.taught)
+    started = position is not None
     return (
         PlanReport(
             has_plan=True,
@@ -176,7 +183,7 @@ async def _plan_report(
             lessons_due=progress.planned_to_date if started else None,
             behind_by=progress.missed if started else None,
             ahead_by=counts.ahead_by,
-            position=plan_position(progress, counts.ahead_by),  # type: ignore[arg-type]
+            position=position,  # type: ignore[arg-type]
             up_next=(
                 UpNext(
                     scheduled_date=nxt.slot.scheduled_date,
@@ -189,6 +196,22 @@ async def _plan_report(
             ),
         ),
         {cid: (c[0], c[1]) for cid, c in per_chapter.items()},
+    )
+
+
+def _topic_report(
+    t: Topic, taught_ids: set[int], means: dict[int, TopicMean], weak_ids: set[int]
+) -> TopicReport:
+    m = means.get(t.id)
+    return TopicReport(
+        topic_id=t.id,
+        code=t.code,
+        title=t.title,
+        taught=t.id in taught_ids,
+        avg_score=m.avg_score if m else None,
+        student_count=m.student_count if m else None,
+        weak=t.id in weak_ids,
+        includes_tutor_estimate=m.includes_tutor_estimate if m else False,
     )
 
 
@@ -228,21 +251,7 @@ async def _chapter_reports(
 
     out: list[ChapterReport] = []
     for ch in chapters:
-        rows = [
-            TopicReport(
-                topic_id=t.id,
-                code=t.code,
-                title=t.title,
-                taught=t.id in taught_ids,
-                avg_score=means[t.id].avg_score if t.id in means else None,
-                student_count=means[t.id].student_count if t.id in means else None,
-                weak=t.id in weak_ids,
-                includes_tutor_estimate=means[t.id].includes_tutor_estimate
-                if t.id in means
-                else False,
-            )
-            for t in by_chapter.get(ch.id, [])
-        ]
+        rows = [_topic_report(t, taught_ids, means, weak_ids) for t in by_chapter.get(ch.id, [])]
         taught_n = sum(1 for r in rows if r.taught)
         planned = lesson_counts.get(ch.id)
         out.append(
@@ -258,11 +267,45 @@ async def _chapter_reports(
                 topics=rows,
             )
         )
+    loose = by_chapter.get(None, [])
+    if loose:
+        rows = [_topic_report(t, taught_ids, means, weak_ids) for t in loose]
+        taught_n = sum(1 for r in rows if r.taught)
+        out.append(
+            ChapterReport(
+                chapter_id=None,
+                code="",
+                title="Not in a chapter",
+                topics_total=len(rows),
+                topics_taught=taught_n,
+                state=chapter_state(len(rows), taught_n),  # type: ignore[arg-type]
+                topics=rows,
+            )
+        )
     return out
 
 
+async def _lessons_not_taken(
+    session: AsyncSession, group: Group, today: date, now_local: datetime
+) -> int:
+    """Distinct lessons nobody was marked at, by the one counting rule
+    (`counts_for_attendance`): one unmarked lesson is one, not one per learner."""
+    marked = select(LessonAttendance.lesson_id).where(
+        LessonAttendance.organization_id == group.organization_id
+    )
+    lessons = await session.scalars(
+        select(Lesson).where(
+            Lesson.group_id == group.id,
+            Lesson.organization_id == group.organization_id,
+            Lesson.date <= today,
+            Lesson.id.not_in(marked),
+        )
+    )
+    return sum(1 for ls in lessons if counts_for_attendance(ls, None, None, today, now_local))
+
+
 async def _attendance_report(
-    session: AsyncSession, group: Group, now: datetime
+    session: AsyncSession, group: Group, now: datetime, today: date, now_local: datetime
 ) -> AttendanceReport:
     roster = (
         await session.execute(
@@ -297,7 +340,8 @@ async def _attendance_report(
     return AttendanceReport(
         present=present,
         absent=absent,
-        not_taken=sum(r.not_taken for r in learners),
+        # Lessons, not learner-lessons: the per-learner column keeps its own count.
+        not_taken=await _lessons_not_taken(session, group, today, now_local),
         rate=attendance_rate(present, absent),
         learners=order_learners(learners),
     )
@@ -324,6 +368,8 @@ async def build_class_report(
     zone = resolve_zone(tutor.time_zone, org.timezone if org else None, group.id)
     today = in_zone(now, zone).date()
     since = since or (today - DEFAULT_WINDOW)
+    if since > today:
+        raise FutureSince(since)
 
     overview = await build_class_overview(session, tutor, group)
     snapshots = await latest_learner_snapshots(session, [group.id])
@@ -359,7 +405,7 @@ async def build_class_report(
         ],
         weak_threshold=config.weak_threshold,
         mistakes=await class_mistake_patterns(
-            session, group_id=group.id, subject_id=group.subject_id, since=since
+            session, group_id=group.id, subject_id=group.subject_id, since=since, zone=zone
         ),
-        attendance=await _attendance_report(session, group, now),
+        attendance=await _attendance_report(session, group, now, today, in_zone(now, zone)),
     )

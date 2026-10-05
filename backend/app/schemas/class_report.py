@@ -74,7 +74,8 @@ class TopicReport(BaseModel):
 
 
 class ChapterReport(BaseModel):
-    chapter_id: int
+    #: None for the synthetic "Not in a chapter" group (topics with no chapter).
+    chapter_id: int | None = None
     code: str
     title: str
     topics_total: int

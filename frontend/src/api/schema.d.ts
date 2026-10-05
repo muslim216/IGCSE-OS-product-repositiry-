@@ -3800,7 +3800,7 @@ export interface components {
         /** ChapterReport */
         ChapterReport: {
             /** Chapter Id */
-            chapter_id: number;
+            chapter_id?: number | null;
             /** Code */
             code: string;
             /** Title */

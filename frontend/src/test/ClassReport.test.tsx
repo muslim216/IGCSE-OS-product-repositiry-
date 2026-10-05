@@ -237,6 +237,16 @@ test("with no plan and no evidence, every section says what is missing instead o
   expect(screen.queryByText("0%")).not.toBeInTheDocument();
 });
 
+test("a plan with no live lessons says so instead of 0 of 0", async () => {
+  stub({
+    ...FULL,
+    plan: { ...FULL.plan, lessons_planned: 0, lessons_taught: 0, lessons_left: 0, up_next: null },
+  });
+  renderAt("/tutor/reports/5");
+  expect(await screen.findByText("No lessons planned")).toBeInTheDocument();
+  expect(screen.queryByText(/0 of 0/)).not.toBeInTheDocument();
+});
+
 test("a class that is not the tutor's is a not-found page", async () => {
   stub(404);
   renderAt("/tutor/reports/5");

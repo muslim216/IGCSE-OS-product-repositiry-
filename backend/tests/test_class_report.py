@@ -23,6 +23,7 @@ from app.models import (
 )
 from app.schemas.class_report import ClassReport
 from app.services.class_report import (
+    FutureSince,
     attendance_rate,
     build_class_report,
     chapter_state,
@@ -117,7 +118,7 @@ async def test_a_class_with_no_accepted_plan_says_so_and_still_lists_the_syllabu
     assert report.plan.has_plan is False
     assert report.plan.days_to_exam is None and report.plan.behind_by is None
     assert report.plan.position is None and report.plan.up_next is None
-    assert [c.state for c in report.chapters] == ["not_started", "not_started"]
+    assert [c.state for c in report.chapters if c.chapter_id] == ["not_started", "not_started"]
     assert report.chapters[0].lessons_planned is None
 
 
@@ -207,7 +208,7 @@ async def test_taught_topics_come_from_recorded_lessons_and_chapters_carry_plan_
         s.add_all([LessonTopic(lesson_id=lesson, topic_id=t) for t in ch["t1"][:2]])
         await s.commit()
 
-    c1, c2 = (await _report(group["id"])).chapters
+    c1, c2 = [c for c in (await _report(group["id"])).chapters if c.chapter_id]
     assert (c1.topics_total, c1.topics_taught, c1.state) == (3, 2, "in_progress")
     assert [t.taught for t in c1.topics] == [True, True, False]
     assert (c1.lessons_planned, c1.lessons_taught) == (2, 1)
@@ -407,3 +408,66 @@ async def test_a_student_cannot_read_the_tutor_report(client, tutor, group, stud
 async def test_a_missing_class_is_404(client, tutor):
     resp = await client.get("/api/v1/groups/9999/report", headers=tutor["headers"])
     assert resp.status_code == 404
+
+
+async def test_a_lesson_planned_and_taught_today_is_on_track_not_ahead(
+    client, tutor, group, subject
+):
+    ch = await make_chapters(subject)
+    _plan, slots = await make_plan(group, tutor, [(ch["c1"], WED, time(9, 0))], exam=EXAM)
+    await _link(slots[0], await _lesson(group["id"], WED))
+    plan = (await _report(group["id"])).plan
+    assert (plan.ahead_by, plan.behind_by, plan.position) == (0, 0, "on_track")
+
+
+async def test_class_not_taken_counts_lessons_not_learner_lessons(client, tutor, group, student):
+    await _joined_long_ago()
+    org = await _org(group)
+    async with async_session() as s:
+        from app.models import GroupMember, User, UserRole
+
+        for i in range(2):
+            u = User(
+                organization_id=org,
+                name=f"Extra{i}",
+                email=f"x{i}@example.com",
+                role=UserRole.student,
+                password_hash="x",
+            )
+            s.add(u)
+            await s.flush()
+            s.add(GroupMember(group_id=group["id"], student_id=u.id))
+        await s.commit()
+    await _joined_long_ago()
+    await _lesson(group["id"], MON)  # one unmarked lesson, three learners
+    att = (await _report(group["id"])).attendance
+    assert att.not_taken == 1
+    assert all(r.not_taken == 1 for r in att.learners) and len(att.learners) == 3
+
+
+async def test_topics_without_a_chapter_are_reported_under_their_own_group(
+    client, tutor, group, subject
+):
+    from app.models import Topic
+
+    await make_chapters(subject, topics_in_c1=1)
+    async with async_session() as s:
+        loose = Topic(subject_id=subject["id"], code="L.1", title="Loose", chapter_id=None)
+        s.add(loose)
+        await s.commit()
+    chapters = (await _report(group["id"])).chapters
+    last = chapters[-1]
+    assert last.chapter_id is None and last.title == "Not in a chapter"
+    assert "Loose" in [t.title for t in last.topics]
+    assert last.topics_total == len(last.topics)
+
+
+async def test_a_future_since_is_refused_and_the_window_opens_at_local_midnight(
+    client, tutor, group
+):
+    with pytest.raises(FutureSince):
+        await _report(group["id"], since=date(2026, 10, 8))
+    resp = await client.get(
+        f"/api/v1/groups/{group['id']}/report?since=2999-01-01", headers=tutor["headers"]
+    )
+    assert resp.status_code == 422

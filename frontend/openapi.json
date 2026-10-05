@@ -10986,7 +10986,14 @@
       "ChapterReport": {
         "properties": {
           "chapter_id": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Chapter Id"
           },
           "code": {
@@ -11046,7 +11053,6 @@
         },
         "type": "object",
         "required": [
-          "chapter_id",
           "code",
           "title",
           "topics_total",

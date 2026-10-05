@@ -15,7 +15,7 @@ condition, the other gains it in the same change.
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, time
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,7 @@ from app.schemas.mistake_rollup import (
     StudentMistakeRollup,
     TopicMistakes,
 )
+from app.services.plan_timing import local_instant
 
 
 @dataclass
@@ -234,7 +235,7 @@ def rank_class_categories(
 
 
 async def class_mistake_patterns(
-    session: AsyncSession, *, group_id: int, subject_id: int, since: date
+    session: AsyncSession, *, group_id: int, subject_id: int, since: date, zone: str | None = None
 ) -> MistakePatterns:
     """The class's mistakes by category, over work whose mistake analysis ran on
     or after `since` (task 8.6). Enrolled learners only; the caller has proved
@@ -244,7 +245,8 @@ async def class_mistake_patterns(
     third mirror of that gate and must gain any condition the others gain:
     settled submissions, analysed, in the class's subject, `Mistake.source` not
     filtered. Zero analysed questions is `total_mistakes=None` (`PROD-2`)."""
-    start = datetime.combine(since, time.min, tzinfo=timezone.utc)
+    # The window opens at the class's own local midnight, not UTC's.
+    start = local_instant(since, time(0, 0), zone)
     enrolled = select(GroupMember.student_id).where(GroupMember.group_id == group_id)
     settled = (
         Submission.status.in_(SETTLED_STATUSES),

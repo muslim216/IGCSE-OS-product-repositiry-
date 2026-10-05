@@ -111,8 +111,16 @@ function PlanSection({ plan, groupId }: { plan: PlanReport; groupId: number }) {
           )}
         </Fact>
         <Fact label="Lessons taught">
-          {plan.lessons_taught} of {plan.lessons_planned}
-          <span className="block text-xs text-ink-500">{plan.lessons_left} left in the plan</span>
+          {plan.lessons_planned ? (
+            <>
+              {plan.lessons_taught} of {plan.lessons_planned}
+              <span className="block text-xs text-ink-500">
+                {plan.lessons_left} left in the plan
+              </span>
+            </>
+          ) : (
+            <span className="text-ink-500">No lessons planned</span>
+          )}
         </Fact>
         <Fact label="Up next">
           {plan.up_next ? (
@@ -143,7 +151,8 @@ function ChapterCard({ chapter }: { chapter: ChapterReport }) {
     <div className="rounded-lg border border-line p-4 print:break-inside-avoid">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h4 className="font-display text-base text-ink-900">
-          {chapter.code} {chapter.title}
+          {chapter.code ? `${chapter.code} ` : ""}
+          {chapter.title}
         </h4>
         <p className="text-xs text-ink-500">
           {STATE_LABEL[chapter.state]} · {chapter.topics_taught} of{" "}
@@ -219,7 +228,7 @@ function ChaptersSection({ report }: { report: ClassReport }) {
       ) : (
         <div className="space-y-3">
           {report.chapters.map((c) => (
-            <ChapterCard key={c.chapter_id} chapter={c} />
+            <ChapterCard key={c.chapter_id ?? "none"} chapter={c} />
           ))}
         </div>
       )}
@@ -231,7 +240,7 @@ function MistakesSection({ mistakes }: { mistakes: MistakePatterns }) {
   return (
     <Section
       title="Mistake patterns"
-      description={`Tagged mistakes in marked work analysed since ${shortDay(mistakes.since)}.`}
+      description={`Tagged mistakes in marked work analysed since ${shortDay(mistakes.since)}, across this subject for these learners.`}
     >
       {mistakes.total_mistakes == null ? (
         <p className="text-sm">
