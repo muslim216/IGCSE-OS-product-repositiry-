@@ -265,6 +265,9 @@ export default function TaughtBeforeEditor({
       void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       void queryClient.invalidateQueries({ queryKey: ["analytics", groupId] });
       void queryClient.invalidateQueries({ queryKey: ["class-overview", groupId] });
+      // A changed answer makes the class's plan draft stale on the server; the
+      // plan view must not keep offering the old draft for acceptance.
+      void queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
     },
     onSettled: () => setConfirmingClear(false),
   });
