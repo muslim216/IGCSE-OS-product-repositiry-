@@ -7311,6 +7311,8 @@ export interface components {
             title: string;
             /** Parent Id */
             parent_id: number | null;
+            /** Chapter Id */
+            chapter_id?: number | null;
             /** Weight */
             weight: number;
         };

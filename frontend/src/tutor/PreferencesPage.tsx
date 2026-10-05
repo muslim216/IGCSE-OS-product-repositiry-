@@ -11,6 +11,7 @@ import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import SetupState from "./SetupState";
 import { useSubjectSetup } from "./SubjectSetupContext";
 
 type WeightKey = Extract<keyof ReadinessWeights, `weight_${string}`>;
@@ -185,6 +186,7 @@ export default function PreferencesPage() {
       // Saving the account row changes what every subject without an override
       // shows, so every scope is refetched, not only this one.
       void queryClient.invalidateQueries({ queryKey: ["readiness-weights"] });
+      void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       queryClient.setQueryData(["readiness-weights", scope], data);
       setSaved(rescores(payload, before) ? "rescoring" : "threshold");
       setTimeout(() => setSaved(null), 2000);
@@ -199,6 +201,7 @@ export default function PreferencesPage() {
       // override that was just deleted, and the refetch then arrives for a
       // scope already marked seeded.
       await queryClient.invalidateQueries({ queryKey: ["readiness-weights", id] });
+      void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       // Only re-seed if the tutor is still looking at that subject.
       setHydratedFor((current) => (current === id ? undefined : current));
     },
@@ -221,6 +224,7 @@ export default function PreferencesPage() {
     <div className="max-w-2xl">
       <PageHeader
         title="Preferences"
+        meta={<SetupState item="weak_threshold" prefix="Weak-topic threshold" />}
         description="How much each of the six readiness factors counts towards your students' scores, for all subjects or just one. Saving a change to the factors recalculates everyone you teach."
         back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
       />

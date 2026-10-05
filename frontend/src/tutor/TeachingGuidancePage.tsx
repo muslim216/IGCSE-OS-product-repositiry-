@@ -13,6 +13,7 @@ import { Button, Field, FileInput, Select } from "../components/controls";
 import { ConfirmDialog, ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import SetupState from "./SetupState";
 import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
@@ -50,6 +51,7 @@ export default function TeachingGuidancePage() {
     onMutate: () => setError(null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["teaching-guidance", selected] });
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       setFile(null);
       showToast("Teaching guidance saved.");
     },
@@ -62,6 +64,7 @@ export default function TeachingGuidancePage() {
     onSuccess: () => {
       setConfirmingRemove(false);
       queryClient.invalidateQueries({ queryKey: ["teaching-guidance", selected] });
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       // The input is remounted by its key, but the file behind it would survive
       // — an empty-looking form that uploads on the next click (cubic).
       setFile(null);
@@ -83,6 +86,7 @@ export default function TeachingGuidancePage() {
   const header = (
     <PageHeader
       title="Teaching guidance"
+      meta={<SetupState item="teaching_guidance" />}
       description="Your scheme of work for a subject — the order you teach it in and how long each chapter takes. It's kept beside the syllabus, ready for the teaching plan to use when that arrives; nothing reads it yet. One document per subject: uploading again replaces it."
       back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />

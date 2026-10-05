@@ -12,6 +12,7 @@ import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import SetupState from "./SetupState";
 import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
@@ -80,6 +81,8 @@ export default function GradeBoundariesPage() {
       // Every predicted grade in the product is mapped at read time, so the
       // change is live everywhere on the next load — nothing to recompute.
       queryClient.invalidateQueries({ queryKey: ["today"] });
+      // Saved boundaries move the item to "set by you", or out of "not set".
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
       showToast("Grade boundaries saved.");
     },
   });
@@ -98,6 +101,7 @@ export default function GradeBoundariesPage() {
   const header = (
     <PageHeader
       title="Grade boundaries"
+      meta={<SetupState item="boundaries" />}
       description="The percentage that earns each grade. Every predicted grade in avora is read through these, so a change here shows everywhere the next time a page loads."
       back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />
