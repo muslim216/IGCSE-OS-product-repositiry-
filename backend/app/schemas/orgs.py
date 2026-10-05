@@ -8,6 +8,11 @@ class OrganizationOut(BaseModel):
     # The UI states that rather than showing a silent default, so a tutor whose
     # "today" is wrong can see why.
     timezone: str | None
+    # The weekly send moment (Mon=0..Sun=6, hour in the organization's zone) and
+    # the language the AI writes in (task 8.1).
+    weekly_send_weekday: int
+    weekly_send_hour: int
+    ai_language: str
 
 
 class OrganizationTimezoneUpdate(BaseModel):

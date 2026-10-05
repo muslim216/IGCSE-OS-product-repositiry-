@@ -27,6 +27,7 @@ from app.api import (
     mistake_categories,
     mocks,
     narrative,
+    notifications,
     past_papers,
     readiness,
     readiness_v2,
@@ -40,6 +41,7 @@ from app.api import (
     teaching_guidance,
     teaching_plans,
     today,
+    webhooks,
 )
 from app.config import get_settings
 from app.db import async_session
@@ -335,6 +337,8 @@ def create_app() -> FastAPI:
         mistake_categories.router,
         mocks.router,
         narrative.router,
+        notifications.router,
+        webhooks.router,
         booklets.router,
         past_papers.router,
         readiness.router,

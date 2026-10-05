@@ -17,6 +17,7 @@ from app.schemas.attendance import StudentAttendanceOut
 from app.schemas.auth import UserOut, UserTimezoneUpdate
 from app.schemas.groups import GroupOut, SubjectOut, UpcomingScheduleSlot
 from app.schemas.mistake_rollup import MyCategoryCount, MyMistakePattern
+from app.schemas.notifications import OrganizationSettingsUpdate
 from app.schemas.orgs import OrganizationOut, OrganizationTimezoneUpdate
 from app.services import activity
 from app.services.attendance import student_attendance
@@ -26,6 +27,17 @@ from app.services.timezones import normalize_timezone
 from app.services.today import today_lessons
 
 router = APIRouter(prefix="/me", tags=["me"])
+
+
+def _org_out(org: Organization) -> OrganizationOut:
+    return OrganizationOut(
+        id=org.id,
+        name=org.name,
+        timezone=org.timezone,
+        weekly_send_weekday=org.weekly_send_weekday,
+        weekly_send_hour=org.weekly_send_hour,
+        ai_language=org.ai_language,
+    )
 
 
 @router.get("/groups", response_model=list[GroupOut])
@@ -113,7 +125,7 @@ async def my_organization(db: DbSession, user: TutorUser) -> OrganizationOut:
     org = await db.get(Organization, user.organization_id)
     if org is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
-    return OrganizationOut(id=org.id, name=org.name, timezone=org.timezone)
+    return _org_out(org)
 
 
 @router.put("/organization/timezone", response_model=OrganizationOut)
@@ -139,7 +151,24 @@ async def set_my_organization_timezone(
     org.timezone = tz
     await db.commit()
     await db.refresh(org)
-    return OrganizationOut(id=org.id, name=org.name, timezone=org.timezone)
+    return _org_out(org)
+
+
+@router.put("/organization", response_model=OrganizationOut)
+async def update_my_organization_settings(
+    body: OrganizationSettingsUpdate, db: DbSession, user: TutorUser
+) -> OrganizationOut:
+    """Change the weekly send moment and the AI language (task 8.1). Only the
+    fields sent change; ranges and the language list are validated by the
+    schema. Tutor-gated in the signature: it changes what a whole roster gets."""
+    org = await db.get(Organization, user.organization_id)
+    if org is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(org, field, value)
+    await db.commit()
+    await db.refresh(org)
+    return _org_out(org)
 
 
 @router.get("/timezone", response_model=UserOut)

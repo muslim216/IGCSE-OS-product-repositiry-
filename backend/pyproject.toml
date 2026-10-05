@@ -27,6 +27,8 @@ dependencies = [
     "anthropic>=0.125",
     "google-genai>=1.0",
     "httpx>=0.27",
+    # Email fallback channel (task 8.1); provider-agnostic SMTP.
+    "aiosmtplib>=3.0",
     "cryptography>=42",
     "pillow>=10.3",
     "pillow-heif>=0.16",

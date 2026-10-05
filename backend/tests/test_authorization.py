@@ -39,6 +39,12 @@ PUBLIC_ROUTES = {
     ("POST", "/auth/register/parent"),
     ("POST", "/auth/register/student"),
     ("POST", "/auth/register/tutor"),
+    # Meta's WhatsApp webhooks cannot carry a bearer token. The control is the
+    # shared secret instead: the GET handshake checks the verify token and the
+    # POST checks an HMAC-SHA256 of the raw body under the app secret (an unset
+    # secret rejects everything). See api/webhooks.py and test_webhooks.py.
+    ("GET", "/webhooks/whatsapp"),
+    ("POST", "/webhooks/whatsapp"),
 }
 
 

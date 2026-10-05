@@ -48,6 +48,15 @@ from app.models.lessons import (
 )
 from app.models.mocks import Mock, MockOpening, MockQuestion, MockQuestionTopic, MockStatus
 from app.models.narrative import Narrative, NarrativeAudience
+from app.models.notifications import (
+    ContactPoint,
+    Notification,
+    NotificationChannel,
+    NotificationKind,
+    NotificationPreference,
+    NotificationStatus,
+    SuppressionReason,
+)
 from app.models.orgs import Organization
 from app.models.readiness import (
     Assessment,
@@ -111,6 +120,7 @@ __all__ = [
     "Booklet",
     "BookletStatus",
     "Chapter",
+    "ContactPoint",
     "Classified",
     "ClassroomCourseLink",
     "ClassroomWorkLink",
@@ -127,6 +137,12 @@ __all__ = [
     "GroupMember",
     "GroupResource",
     "Invite",
+    "Notification",
+    "NotificationChannel",
+    "NotificationKind",
+    "NotificationPreference",
+    "NotificationStatus",
+    "SuppressionReason",
     "InviteKind",
     "Job",
     "JobStatus",

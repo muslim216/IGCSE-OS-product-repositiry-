@@ -3378,6 +3378,51 @@
             "HTTPBearer": []
           }
         ]
+      },
+      "put": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Update My Organization Settings",
+        "description": "Change the weekly send moment and the AI language (task 8.1). Only the\nfields sent change; ranges and the language list are validated by the\nschema. Tutor-gated in the signature: it changes what a whole roster gets.",
+        "operationId": "update_my_organization_settings_api_v1_me_organization_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/me/organization/timezone": {
@@ -4264,6 +4309,497 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/contacts": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "List Student Contacts",
+        "operationId": "list_student_contacts_api_v1_students__student_id__contacts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PersonContactsOut"
+                  },
+                  "title": "Response List Student Contacts Api V1 Students  Student Id  Contacts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Put Student Contact",
+        "operationId": "put_student_contact_api_v1_students__student_id__contacts_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactSet"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/students/{student_id}/contacts/{contact_id}/confirm": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Confirm Student Contact",
+        "operationId": "confirm_student_contact_api_v1_students__student_id__contacts__contact_id__confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          },
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Contact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/contacts": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "List My Contacts",
+        "operationId": "list_my_contacts_api_v1_me_contacts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContactOut"
+                  },
+                  "type": "array",
+                  "title": "Response List My Contacts Api V1 Me Contacts Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Put My Contact",
+        "operationId": "put_my_contact_api_v1_me_contacts_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelfContactSet"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/contacts/{contact_id}/confirm": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Confirm My Contact",
+        "description": "A tutor confirms their own address: they are the one person who can\ncheck it, and the call is theirs alone (a student's or parent's is\nconfirmed by a tutor, never by themselves).",
+        "operationId": "confirm_my_contact_api_v1_me_contacts__contact_id__confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Contact Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/notification-preferences": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Get Preferences",
+        "operationId": "get_preferences_api_v1_me_notification_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PreferenceItem"
+                  },
+                  "type": "array",
+                  "title": "Response Get Preferences Api V1 Me Notification Preferences Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Put Preferences",
+        "operationId": "put_preferences_api_v1_me_notification_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PreferenceItem"
+                  },
+                  "type": "array",
+                  "title": "Response Put Preferences Api V1 Me Notification Preferences Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/status": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Channel Status",
+        "description": "Whether each channel is configured on the server \u2014 booleans only.",
+        "operationId": "channel_status_api_v1_notifications_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelStatusOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/webhooks/whatsapp": {
+      "get": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Verify Whatsapp",
+        "operationId": "verify_whatsapp_api_v1_webhooks_whatsapp_get",
+        "parameters": [
+          {
+            "name": "hub.mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Mode"
+            }
+          },
+          {
+            "name": "hub.verify_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Verify Token"
+            }
+          },
+          {
+            "name": "hub.challenge",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hub.Challenge"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "webhooks"
+        ],
+        "summary": "Receive Whatsapp",
+        "operationId": "receive_whatsapp_api_v1_webhooks_whatsapp_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Receive Whatsapp Api V1 Webhooks Whatsapp Post"
                 }
               }
             }
@@ -10668,6 +11204,24 @@
         "title": "CategoryTally",
         "description": "How often one of the tutor's own categories came up in a bucket.\n\nNamed by id *and* name: the id is what a client filters or links on, the\nname is what the tutor reads and may rename tomorrow. Nothing branches on\nthe name (see `models.readiness_v2.MistakeCategory`)."
       },
+      "ChannelStatusOut": {
+        "properties": {
+          "whatsapp_configured": {
+            "type": "boolean",
+            "title": "Whatsapp Configured"
+          },
+          "email_configured": {
+            "type": "boolean",
+            "title": "Email Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "whatsapp_configured",
+          "email_configured"
+        ],
+        "title": "ChannelStatusOut"
+      },
       "ChapterMistakes": {
         "properties": {
           "chapter_id": {
@@ -11485,6 +12039,107 @@
         ],
         "title": "ClassifiedUpdate",
         "description": "A full replacement of the pair the chapter-notes editor owns.\n\nNot a partial patch: the form holds both fields, so sending both is honest\nabout what is being written and needs no unset-versus-null machinery.\n\n**Both fields are required**, with no defaults. A default would materialize\nfor an omitted field and the handler would write it, so `{\"notes\": \"...\"}`\nwould silently clear the chapter \u2014 a full replacement that reads like a\npartial one is the worst of both (cubic). Omitting either is a 422."
+      },
+      "ContactOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/NotificationChannel"
+          },
+          "address": {
+            "type": "string",
+            "title": "Address"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "confirmed_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed By Id"
+          },
+          "suppressed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suppressed At"
+          },
+          "suppressed_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SuppressionReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "channel",
+          "address",
+          "confirmed_at",
+          "confirmed_by_id",
+          "suppressed_at",
+          "suppressed_reason"
+        ],
+        "title": "ContactOut"
+      },
+      "ContactSet": {
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/NotificationChannel"
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "channel",
+          "address"
+        ],
+        "title": "ContactSet"
       },
       "CrmHomeworkItem": {
         "properties": {
@@ -14300,6 +14955,28 @@
         ],
         "title": "NextLessonTopicOut"
       },
+      "NotificationChannel": {
+        "type": "string",
+        "enum": [
+          "whatsapp",
+          "email"
+        ],
+        "title": "NotificationChannel"
+      },
+      "NotificationKind": {
+        "type": "string",
+        "enum": [
+          "weekly_send",
+          "homework_set",
+          "homework_due",
+          "marked_work_ready",
+          "lesson_reminder",
+          "review_queue",
+          "invite",
+          "contact_confirm"
+        ],
+        "title": "NotificationKind"
+      },
       "ObservationCreate": {
         "properties": {
           "student_id": {
@@ -14416,15 +15093,78 @@
               }
             ],
             "title": "Timezone"
+          },
+          "weekly_send_weekday": {
+            "type": "integer",
+            "title": "Weekly Send Weekday"
+          },
+          "weekly_send_hour": {
+            "type": "integer",
+            "title": "Weekly Send Hour"
+          },
+          "ai_language": {
+            "type": "string",
+            "title": "Ai Language"
           }
         },
         "type": "object",
         "required": [
           "id",
           "name",
-          "timezone"
+          "timezone",
+          "weekly_send_weekday",
+          "weekly_send_hour",
+          "ai_language"
         ],
         "title": "OrganizationOut"
+      },
+      "OrganizationSettingsUpdate": {
+        "properties": {
+          "weekly_send_weekday": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 6.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Send Weekday"
+          },
+          "weekly_send_hour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 23.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Send Hour"
+          },
+          "ai_language": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "en",
+                  "ar"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Language"
+          }
+        },
+        "type": "object",
+        "title": "OrganizationSettingsUpdate",
+        "description": "Only the fields sent are changed."
       },
       "OrganizationTimezoneUpdate": {
         "properties": {
@@ -14947,6 +15687,37 @@
         ],
         "title": "PastPaperQuestionOut"
       },
+      "PersonContactsOut": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "contacts": {
+            "items": {
+              "$ref": "#/components/schemas/ContactOut"
+            },
+            "type": "array",
+            "title": "Contacts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "name",
+          "role",
+          "contacts"
+        ],
+        "title": "PersonContactsOut"
+      },
       "PlanBreakCreate": {
         "properties": {
           "start_date": {
@@ -15351,6 +16122,44 @@
         "type": "object",
         "title": "PlanSlotPatch",
         "description": "Any one field alone is an edit; none is not."
+      },
+      "PreferenceItem": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/NotificationKind"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/NotificationChannel"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "channel",
+          "enabled"
+        ],
+        "title": "PreferenceItem"
+      },
+      "PreferencesUpdate": {
+        "properties": {
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/PreferenceItem"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Preferences"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preferences"
+        ],
+        "title": "PreferencesUpdate"
       },
       "QuestionIn": {
         "properties": {
@@ -16411,6 +17220,25 @@
           "score_pct"
         ],
         "title": "SeedTopicScore"
+      },
+      "SelfContactSet": {
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/NotificationChannel"
+          },
+          "address": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "channel",
+          "address"
+        ],
+        "title": "SelfContactSet"
       },
       "StudentAssignment": {
         "properties": {
@@ -17810,6 +18638,16 @@
           "total_max"
         ],
         "title": "SubmissionSummary"
+      },
+      "SuppressionReason": {
+        "type": "string",
+        "enum": [
+          "opted_out",
+          "bounced",
+          "complaint",
+          "provider_rejected"
+        ],
+        "title": "SuppressionReason"
       },
       "SyllabusChapterIn-Input": {
         "properties": {

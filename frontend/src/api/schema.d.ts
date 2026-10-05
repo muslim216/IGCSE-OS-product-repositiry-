@@ -1220,7 +1220,13 @@ export interface paths {
          *     organization_id, never a path or body parameter (SEC-7).
          */
         get: operations["my_organization_api_v1_me_organization_get"];
-        put?: never;
+        /**
+         * Update My Organization Settings
+         * @description Change the weekly send moment and the AI language (task 8.1). Only the
+         *     fields sent change; ranges and the language list are validated by the
+         *     schema. Tutor-gated in the signature: it changes what a whole roster gets.
+         */
+        put: operations["update_my_organization_settings_api_v1_me_organization_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1552,6 +1558,137 @@ export interface paths {
         get: operations["student_narrative_api_v1_students__student_id__narrative_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Student Contacts */
+        get: operations["list_student_contacts_api_v1_students__student_id__contacts_get"];
+        /** Put Student Contact */
+        put: operations["put_student_contact_api_v1_students__student_id__contacts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/contacts/{contact_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm Student Contact */
+        post: operations["confirm_student_contact_api_v1_students__student_id__contacts__contact_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List My Contacts */
+        get: operations["list_my_contacts_api_v1_me_contacts_get"];
+        /** Put My Contact */
+        put: operations["put_my_contact_api_v1_me_contacts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/contacts/{contact_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm My Contact
+         * @description A tutor confirms their own address: they are the one person who can
+         *     check it, and the call is theirs alone (a student's or parent's is
+         *     confirmed by a tutor, never by themselves).
+         */
+        post: operations["confirm_my_contact_api_v1_me_contacts__contact_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Preferences */
+        get: operations["get_preferences_api_v1_me_notification_preferences_get"];
+        /** Put Preferences */
+        put: operations["put_preferences_api_v1_me_notification_preferences_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Channel Status
+         * @description Whether each channel is configured on the server — booleans only.
+         */
+        get: operations["channel_status_api_v1_notifications_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Verify Whatsapp */
+        get: operations["verify_whatsapp_api_v1_webhooks_whatsapp_get"];
+        put?: never;
+        /** Receive Whatsapp */
+        post: operations["receive_whatsapp_api_v1_webhooks_whatsapp_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3671,6 +3808,13 @@ export interface components {
             /** Severity Total */
             severity_total: number;
         };
+        /** ChannelStatusOut */
+        ChannelStatusOut: {
+            /** Whatsapp Configured */
+            whatsapp_configured: boolean;
+            /** Email Configured */
+            email_configured: boolean;
+        };
         /**
          * ChapterMistakes
          * @description Mistakes touching any topic of this chapter, counted once per chapter.
@@ -4022,6 +4166,29 @@ export interface components {
             chapter_id: number | null;
             /** Notes */
             notes: string;
+        };
+        /** ContactOut */
+        ContactOut: {
+            /** Id */
+            id: number;
+            channel: components["schemas"]["NotificationChannel"];
+            /** Address */
+            address: string;
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /** Confirmed By Id */
+            confirmed_by_id: number | null;
+            /** Suppressed At */
+            suppressed_at: string | null;
+            suppressed_reason: components["schemas"]["SuppressionReason"] | null;
+        };
+        /** ContactSet */
+        ContactSet: {
+            /** User Id */
+            user_id?: number | null;
+            channel: components["schemas"]["NotificationChannel"];
+            /** Address */
+            address: string;
         };
         /** CrmHomeworkItem */
         CrmHomeworkItem: {
@@ -4989,6 +5156,16 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * NotificationChannel
+         * @enum {string}
+         */
+        NotificationChannel: "whatsapp" | "email";
+        /**
+         * NotificationKind
+         * @enum {string}
+         */
+        NotificationKind: "weekly_send" | "homework_set" | "homework_due" | "marked_work_ready" | "lesson_reminder" | "review_queue" | "invite" | "contact_confirm";
         /** ObservationCreate */
         ObservationCreate: {
             /** Student Id */
@@ -5026,6 +5203,24 @@ export interface components {
             name: string;
             /** Timezone */
             timezone: string | null;
+            /** Weekly Send Weekday */
+            weekly_send_weekday: number;
+            /** Weekly Send Hour */
+            weekly_send_hour: number;
+            /** Ai Language */
+            ai_language: string;
+        };
+        /**
+         * OrganizationSettingsUpdate
+         * @description Only the fields sent are changed.
+         */
+        OrganizationSettingsUpdate: {
+            /** Weekly Send Weekday */
+            weekly_send_weekday?: number | null;
+            /** Weekly Send Hour */
+            weekly_send_hour?: number | null;
+            /** Ai Language */
+            ai_language?: ("en" | "ar") | null;
         };
         /** OrganizationTimezoneUpdate */
         OrganizationTimezoneUpdate: {
@@ -5184,6 +5379,17 @@ export interface components {
             /** Topics */
             topics: components["schemas"]["TopicOut"][];
         };
+        /** PersonContactsOut */
+        PersonContactsOut: {
+            /** User Id */
+            user_id: number;
+            /** Name */
+            name: string;
+            /** Role */
+            role: string;
+            /** Contacts */
+            contacts: components["schemas"]["ContactOut"][];
+        };
         /** PlanBreakCreate */
         PlanBreakCreate: {
             /**
@@ -5335,6 +5541,18 @@ export interface components {
             chapter_id?: number | null;
             /** Start Time */
             start_time?: string | null;
+        };
+        /** PreferenceItem */
+        PreferenceItem: {
+            kind: components["schemas"]["NotificationKind"];
+            channel: components["schemas"]["NotificationChannel"];
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** PreferencesUpdate */
+        PreferencesUpdate: {
+            /** Preferences */
+            preferences: components["schemas"]["PreferenceItem"][];
         };
         /** QuestionIn */
         QuestionIn: {
@@ -5705,6 +5923,12 @@ export interface components {
             topic_id: number;
             /** Score Pct */
             score_pct: number;
+        };
+        /** SelfContactSet */
+        SelfContactSet: {
+            channel: components["schemas"]["NotificationChannel"];
+            /** Address */
+            address: string;
         };
         /** StudentAssignment */
         StudentAssignment: {
@@ -6144,6 +6368,11 @@ export interface components {
             /** Total Max */
             total_max: number;
         };
+        /**
+         * SuppressionReason
+         * @enum {string}
+         */
+        SuppressionReason: "opted_out" | "bounced" | "complaint" | "provider_rejected";
         /** SyllabusChapterIn */
         "SyllabusChapterIn-Input": {
             /** Code */
@@ -8841,6 +9070,39 @@ export interface operations {
             };
         };
     };
+    update_my_organization_settings_api_v1_me_organization_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     set_my_organization_timezone_api_v1_me_organization_timezone_put: {
         parameters: {
             query?: never;
@@ -9388,6 +9650,316 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_student_contacts_api_v1_students__student_id__contacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonContactsOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_student_contact_api_v1_students__student_id__contacts_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_student_contact_api_v1_students__student_id__contacts__contact_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+                contact_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_contacts_api_v1_me_contacts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactOut"][];
+                };
+            };
+        };
+    };
+    put_my_contact_api_v1_me_contacts_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelfContactSet"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_my_contact_api_v1_me_contacts__contact_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contact_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_preferences_api_v1_me_notification_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceItem"][];
+                };
+            };
+        };
+    };
+    put_preferences_api_v1_me_notification_preferences_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferenceItem"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    channel_status_api_v1_notifications_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelStatusOut"];
+                };
+            };
+        };
+    };
+    verify_whatsapp_api_v1_webhooks_whatsapp_get: {
+        parameters: {
+            query?: {
+                "hub.mode"?: string | null;
+                "hub.verify_token"?: string | null;
+                "hub.challenge"?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    receive_whatsapp_api_v1_webhooks_whatsapp_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
                 };
             };
         };
