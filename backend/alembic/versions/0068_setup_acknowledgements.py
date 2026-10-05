@@ -70,10 +70,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("subject_id IS NULL"),
         sqlite_where=sa.text("subject_id IS NULL"),
     )
-    op.create_index("ix_setup_acknowledgements_org", "setup_acknowledgements", ["organization_id"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_setup_acknowledgements_org", table_name="setup_acknowledgements")
     op.drop_index("uq_setup_acknowledgements_account_item", table_name="setup_acknowledgements")
     op.drop_table("setup_acknowledgements")

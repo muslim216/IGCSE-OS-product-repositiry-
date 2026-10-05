@@ -6,7 +6,7 @@ is next) and a client reading an unknown key should still render it.
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models import SetupItem
 
@@ -60,4 +60,5 @@ class OnboardingState(BaseModel):
 
 class AcknowledgementIn(BaseModel):
     item: SetupItem
-    subject_id: int | None = None
+    #: Bounded to a Postgres integer: an id past int32 fails in the driver, not as a 404.
+    subject_id: int | None = Field(default=None, ge=1, le=2**31 - 1)

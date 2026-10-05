@@ -55,6 +55,7 @@ from app.schemas.onboarding import (
     SubjectStatus,
 )
 from app.services.mistake_categories import DEFAULT_CATEGORIES
+from app.services.readiness_config import DEFAULT_WEAK_THRESHOLD
 
 # The columns' own defaults (models/orgs.py): an org whose values still equal
 # these has changed nothing, an org whose values differ certainly has.
@@ -92,7 +93,7 @@ class SubjectFacts:
     has_marking_rules: bool
     has_guidance: bool
     categories_differ: bool
-    has_weights_row: bool
+    threshold_differs: bool
     acknowledged: frozenset[SetupItem] = frozenset()
 
 
@@ -115,6 +116,11 @@ def categories_differ(rows: Iterable[tuple[str, str | None, bool]]) -> bool:
     No rows is *not* different: nothing has been written, so the defaults are
     what would be used. Any archived row, rename, edit, addition or removal is a
     decision `ensure_categories` never makes.
+
+    This compares stored rows with `DEFAULT_CATEGORIES` as it is *now*. Editing
+    that list in a later release makes every subject seeded under the old text
+    read as `set_by_you` though its tutor changed nothing: change the defaults
+    and this comparison together.
     """
     rows = list(rows)
     if not rows:
@@ -147,7 +153,7 @@ def _subject_items(s: SubjectFacts) -> list[ItemStatus]:
         SetupItem.boundaries: s.has_boundaries,
         SetupItem.marking_rules: s.has_marking_rules,
         SetupItem.mistake_categories: s.categories_differ,
-        SetupItem.weak_threshold: s.has_weights_row,
+        SetupItem.weak_threshold: s.threshold_differs,
     }
     items = [
         ItemStatus(
@@ -305,13 +311,22 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
             .distinct()
         )
     )
-    # Includes None when an account row exists.
-    weight_subjects = set(
-        await db.scalars(
-            select(ReadinessWeights.subject_id).where(ReadinessWeights.organization_id == org_id)
+    # The subject's own row wins over the account row (key None), as in
+    # `resolve_readiness_config`. The row is written whole by the weights editor,
+    # so its existence says only that *something* was saved there: a tutor who
+    # changed one factor weight has not chosen a threshold. Only a value other
+    # than the default shows that they did.
+    thresholds: dict[int | None, float] = dict(
+        (
+            await db.execute(
+                select(ReadinessWeights.subject_id, ReadinessWeights.weak_threshold).where(
+                    ReadinessWeights.organization_id == org_id
+                )
+            )
         )
+        .tuples()
+        .all()
     )
-    account_weights = None in weight_subjects
     category_rows: dict[int, list[tuple[str, str | None, bool]]] = defaultdict(list)
     for cat_subject_id, name, description, archived_at in (
         await db.execute(
@@ -357,7 +372,8 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
             has_marking_rules=bool(s.marking_rules),
             has_guidance=s.guidance_path is not None,
             categories_differ=categories_differ(category_rows.get(s.id, [])),
-            has_weights_row=s.id in weight_subjects or account_weights,
+            threshold_differs=thresholds.get(s.id, thresholds.get(None, DEFAULT_WEAK_THRESHOLD))
+            != DEFAULT_WEAK_THRESHOLD,
             acknowledged=frozenset(acked[s.id]),
         )
         for s in subjects

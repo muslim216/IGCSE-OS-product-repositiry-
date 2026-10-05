@@ -9850,7 +9850,9 @@
           "subject_id": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "maximum": 2147483647.0,
+                "minimum": 1.0
               },
               {
                 "type": "null"

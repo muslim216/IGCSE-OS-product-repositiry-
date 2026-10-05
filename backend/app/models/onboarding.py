@@ -62,7 +62,6 @@ class SetupAcknowledgement(Base):
             postgresql_where=text("subject_id IS NULL"),
             sqlite_where=text("subject_id IS NULL"),
         ),
-        Index("ix_setup_acknowledgements_org", "organization_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

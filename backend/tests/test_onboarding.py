@@ -19,12 +19,14 @@ from app.models import (
     TeachingPlan,
     TeachingPlanStatus,
     User,
+    UserRole,
 )
 from app.models.base import utcnow
+from app.security import create_access_token
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 from app.services.mistake_categories import ensure_categories
 from app.services.onboarding import acknowledge
-from tests.factories import make_subject, register_other_tutor, register_parent
+from tests.factories import make_subject, make_user, register_other_tutor, register_parent
 
 API = "/api/v1/onboarding"
 ACK = f"{API}/acknowledgements"
@@ -303,14 +305,21 @@ async def test_weak_threshold_states(client, tutor):
     assert _item((await _get(client, tutor))["subjects"][0], "weak_threshold")["state"] == "default"
     user = await _user()
     async with async_session() as session:
-        session.add(
-            ReadinessWeights(
-                organization_id=user.organization_id,
-                subject_id=sid,
-                tutor_id=user.id,
-                weak_threshold=55.0,
-            )
+        # The editor writes the whole row: saving a factor weight stores the
+        # threshold it inherited, which is not the tutor choosing one.
+        row = ReadinessWeights(
+            organization_id=user.organization_id,
+            subject_id=sid,
+            tutor_id=user.id,
+            weak_threshold=60.0,
         )
+        session.add(row)
+        await session.commit()
+        assert (
+            _item((await _get(client, tutor))["subjects"][0], "weak_threshold")["state"]
+            == "default"
+        )
+        row.weak_threshold = 55.0
         await session.commit()
     assert _item((await _get(client, tutor))["subjects"][0], "weak_threshold")["state"] == (
         "set_by_you"
@@ -471,9 +480,29 @@ async def test_other_organization_sees_and_touches_nothing(client, tutor):
 
 
 async def test_classes_are_the_callers_own(client, tutor):
-    """A second tutor sharing nothing sees no classes even under a shared subject id."""
+    """A colleague in the same organization shares its subjects and their
+    acknowledgements, and sees none of this tutor's classes."""
     sid = await _subject(tutor, chapters=1)
     await _group(tutor, sid)
+    await _ack(client, tutor, "weak_threshold", sid)
+    async with async_session() as session:
+        org_id = (await _user()).organization_id
+        colleague = await make_user(
+            session, organization_id=org_id, role=UserRole.tutor, name="C", email="c@example.com"
+        )
+        await session.commit()
+        token = create_access_token(colleague.id, colleague.token_version)
+    theirs = await _get(client, {"headers": {"Authorization": f"Bearer {token}"}})
+    assert [s["subject_id"] for s in theirs["subjects"]] == [sid]
+    assert theirs["subjects"][0]["classes"] == []
+    # Settings are the organization's, so a colleague's review of one counts.
+    assert _item(theirs["subjects"][0], "weak_threshold")["state"] == "reviewed"
+    assert len((await _get(client, tutor))["subjects"][0]["classes"]) == 1
+
     other = await register_other_tutor(client)
     assert (await _get(client, other))["subjects"] == []
-    assert len((await _get(client, tutor))["subjects"][0]["classes"]) == 1
+
+
+async def test_a_subject_id_past_int32_is_refused_before_the_database(client, tutor):
+    assert (await _ack(client, tutor, "boundaries", 10**20)).status_code == 422
+    assert (await _ack(client, tutor, "boundaries", 0)).status_code == 422
