@@ -51,6 +51,8 @@ class ClassifiedOut(BaseModel):
     #: Chapter-specific marking notes (`AV-21`). Empty string rather than null:
     #: an editor binds a textarea to it and "no notes" is a finished state.
     notes: str = ""
+    #: When it was added, for the Library's record of the tutor's material.
+    created_at: datetime
 
     @field_validator("notes", mode="before")
     @classmethod

@@ -139,6 +139,9 @@ export default function AssignmentCreatePage() {
     },
     onSuccess: (assignment) => {
       queryClient.invalidateQueries({ queryKey: ["assignments", gid] });
+      // An uploaded or re-filed classified also changes the Library's record. By
+      // prefix: every key under it is a plain classifieds list, safe to refetch.
+      queryClient.invalidateQueries({ queryKey: ["classifieds"] });
       navigate(`/tutor/assignments/${assignment.id}`);
     },
     onError: (err) => setError(friendlyError(err, "Couldn't set the homework. Try again.")),

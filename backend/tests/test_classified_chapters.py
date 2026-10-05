@@ -468,3 +468,20 @@ def test_the_marking_prompt_moved_when_it_started_reading_them():
     from app.services import prompts
 
     assert prompts.PROMPTS["marking"].version == "v5"
+
+
+async def test_created_at_is_on_upload_list_and_patch_responses(client, tutor, subject):
+    """The Library shows when a classified was added."""
+    created = await client.post(
+        "/api/v1/classifieds", **_upload(subject["id"]), headers=tutor["headers"]
+    )
+    assert created.json()["created_at"]
+    listed = await client.get("/api/v1/classifieds", headers=tutor["headers"])
+    assert listed.json()[0]["created_at"]
+    patched = await client.patch(
+        f"/api/v1/classifieds/{created.json()['id']}",
+        json={"chapter_id": None, "notes": "x"},
+        headers=tutor["headers"],
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["created_at"]

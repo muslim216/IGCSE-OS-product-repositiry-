@@ -31,7 +31,18 @@ export function AuthImage({ path, alt }: { path: string; alt: string }) {
   return <img src={url} alt={alt} className="w-full rounded-md border border-line" />;
 }
 
-export function AuthFileLink({ path, label }: { path: string; label: string }) {
+export function AuthFileLink({
+  path,
+  label,
+  ariaLabel,
+}: {
+  path: string;
+  label: string;
+  /** Names the item for assistive tech where the visible label repeats down a
+   *  list ("Open" ×20). The busy and failed states keep the name, since an
+   *  aria-label would otherwise hide the change the visible text announces. */
+  ariaLabel?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   return (
@@ -40,6 +51,15 @@ export function AuthFileLink({ path, label }: { path: string; label: string }) {
       // a bare <button> defaults to type="submit".
       type="button"
       disabled={busy}
+      aria-label={
+        ariaLabel
+          ? busy
+            ? `Opening ${ariaLabel}`
+            : failed
+              ? `Couldn't open, try again: ${ariaLabel}`
+              : ariaLabel
+          : undefined
+      }
       aria-busy={busy || undefined}
       onClick={async () => {
         setBusy(true);

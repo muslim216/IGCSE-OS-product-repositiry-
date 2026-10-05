@@ -147,10 +147,16 @@ test("the Papers & mocks hub links to past papers, booklets and mocks", async ()
   }
 });
 
-test("the Library lists only source material, not setup, readiness or papers", async () => {
+test("the Library lists only teaching material, not setup, readiness or papers", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/library");
-  expect(await screen.findByRole("link", { name: /Syllabuses/ })).toBeInTheDocument();
+  // Its three sections, and a pointer to where syllabuses went — not a card.
+  expect(await screen.findByRole("heading", { level: 2, name: "Classifieds" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Files" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 2, name: "Recordings" })).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("main")).getByRole("link", { name: "Subject setup" }),
+  ).toHaveAttribute("href", "/tutor/subject-setup#syllabus");
   const main = screen.getByRole("main");
   for (const label of [
     "Past papers",

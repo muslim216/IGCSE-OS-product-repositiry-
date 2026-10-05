@@ -2346,6 +2346,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Resources
+         * @description Everything the caller has shared, across their own classes (the Library).
+         *
+         *     Own classes only, an admin included — as `list_groups` does — so a colleague's
+         *     material never appears here; an admin reaches it through that class.
+         *
+         *     Sorted newest first (`created_at`, then `id`, descending) and capped at the
+         *     most recent 200 rows; older material is in each class's Resources tab.
+         */
+        get: operations["list_my_resources_api_v1_resources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/resources/{resource_id}/file": {
         parameters: {
             query?: never;
@@ -4436,6 +4462,11 @@ export interface components {
              * @default
              */
             notes: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * ClassifiedUpdate
@@ -4987,6 +5018,32 @@ export interface components {
             start_time?: string | null;
             /** Meeting Link */
             meeting_link?: string | null;
+        };
+        /**
+         * LibraryResourceOut
+         * @description A shared file or recording with the class it was shared with, for the
+         *     tutor's Library, which lists material across every class at once.
+         */
+        LibraryResourceOut: {
+            /** Id */
+            id: number;
+            /** Group Id */
+            group_id: number;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
+            /** File Name */
+            file_name: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Group Name */
+            group_name: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -12019,6 +12076,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_resources_api_v1_resources_get: {
+        parameters: {
+            query?: {
+                kind?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryResourceOut"][];
                 };
             };
             /** @description Validation Error */
