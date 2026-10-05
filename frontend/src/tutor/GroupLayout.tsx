@@ -164,6 +164,7 @@ const ALL_CLASSES = { to: "/tutor/classes", label: "All classes" };
  */
 export default function GroupLayout() {
   const { groupId } = useParams();
+  const { pathname } = useLocation();
   const id = Number(groupId);
   // A class URL whose id is not a whole number names no class at all. Asked
   // anyway, it came back a 422 and read as "This class didn't load" with a
@@ -203,6 +204,9 @@ export default function GroupLayout() {
 
   const g = group.data;
   const base = `/tutor/groups/${id}`;
+  // The class's bare URL redirects to Homework (App.tsx), so Homework is the
+  // landing tab. Matched on the path, ignoring a trailing slash.
+  const onLandingTab = pathname.replace(/\/+$/, "") === `${base}/homework`;
 
   return (
     <div>
@@ -229,10 +233,13 @@ export default function GroupLayout() {
           }
         />
 
-        {/* The class's headline — verdict, WHY, NEEDS YOU — above the tabs, so the
-          first thing read answers "how is this class?" rather than "which tab?".
-          A class nobody has joined renders the empty room instead. */}
-        <ClassOverviewPanel groupId={id} />
+        {/* The class's headline — verdict, WHY, NEEDS YOU — sits above the tabs so
+          the first thing read answers "how is this class?" rather than "which
+          tab?". It shows on the landing tab only: repeated above every tab it
+          pushed the chosen tab's own content below the fold, so every other
+          tab opens with just the class name line and the tabs. A class nobody
+          has joined renders the empty room instead. */}
+        {onLandingTab && <ClassOverviewPanel groupId={id} />}
       </div>
 
       <TabBar groupId={id}>

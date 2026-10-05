@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import type { ClassAttention, ClassCard, ClassStripRow } from "../../api/today";
-import { StatusBadge } from "../../components/ui";
-import { ABSENT } from "../../lib/labels";
+import ReadinessFigure from "../../components/ReadinessFigure";
 
 function planLine(card: ClassCard): string {
   switch (card.plan_state) {
@@ -16,17 +15,20 @@ function planLine(card: ClassCard): string {
   }
 }
 
-function readinessLine(row: ClassStripRow, card: ClassCard | undefined): string {
-  if (row.score === null) return "No readiness yet";
-  const direction =
-    card?.readiness_direction === "up"
-      ? " · up since last week"
-      : card?.readiness_direction === "down"
-        ? " · down since last week"
-        : card?.readiness_direction === "flat"
-          ? " · steady since last week"
-          : "";
-  return `Average readiness ${Math.round(row.score)}${direction}`;
+/** Which way readiness moved; the figure itself sits in the card's header,
+    written the one way readiness is written everywhere (coherence C.6). */
+function readinessDirectionLine(row: ClassStripRow, card: ClassCard | undefined): string | null {
+  if (row.score === null) return null;
+  switch (card?.readiness_direction) {
+    case "up":
+      return "Readiness up since last week";
+    case "down":
+      return "Readiness down since last week";
+    case "flat":
+      return "Readiness steady since last week";
+    default:
+      return null;
+  }
 }
 
 function lastLessonLine(card: ClassCard): string {
@@ -59,6 +61,7 @@ export function attentionLink(groupId: number, a: ClassAttention): { to: string;
 function Card({ row, card }: { row: ClassStripRow; card: ClassCard | undefined }) {
   const attention = card?.attention ?? null;
   const fix = attention ? attentionLink(row.group_id, attention) : null;
+  const direction = readinessDirectionLine(row, card);
   return (
     <li className="relative rounded-xl border border-line bg-surface p-4 hover:border-brand-600">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -71,29 +74,15 @@ function Card({ row, card }: { row: ClassStripRow; card: ClassCard | undefined }
           {row.name}
         </Link>
         <span className="text-sm text-ink-500">{row.subject_name}</span>
-        {row.status ? (
-          <>
-            <span className="text-sm text-ink-700">
-              Predicted grade{" "}
-              <span className="font-display text-[15px] tabular-nums text-ink-900">
-                {row.predicted_grade}
-              </span>
-            </span>
-            <StatusBadge status={row.status} />
-          </>
-        ) : (
-          row.boundaries_missing && (
-            <span className="relative z-10 text-sm text-ink-500">
-              {ABSENT.noBoundaries}{" "}
-              <Link
-                to="/tutor/boundaries"
-                className="font-medium text-brand-600 hover:text-brand-700"
-              >
-                {ABSENT.noBoundariesAction}
-              </Link>
-            </span>
-          )
-        )}
+        {/* Raised above the stretched link so the "set them" hint stays clickable. */}
+        <span className="relative z-10">
+          <ReadinessFigure
+            score={row.score}
+            grade={row.predicted_grade}
+            status={row.status}
+            boundariesMissing={row.boundaries_missing}
+          />
+        </span>
       </div>
       <ul className="mt-2 space-y-0.5 text-sm text-ink-700">
         {card && (
@@ -112,7 +101,7 @@ function Card({ row, card }: { row: ClassStripRow; card: ClassCard | undefined }
             )}
           </li>
         )}
-        <li>{readinessLine(row, card)}</li>
+        {direction && <li>{direction}</li>}
         {card && (
           <>
             <li>{lastLessonLine(card)}</li>

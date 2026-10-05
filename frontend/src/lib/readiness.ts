@@ -23,6 +23,8 @@ export interface LearnerRow {
   subject_name: string;
   score: number;
   status: ReadinessStatus;
+  /** Absent on the legacy analytics-derived rows, which carry only a score. */
+  predicted_grade?: string | null;
   group_id: number;
   group_name: string;
 }

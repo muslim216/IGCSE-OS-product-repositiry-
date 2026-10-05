@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { classOverview, type ClassLearnerRow } from "../api/today";
 import { createInvite, generateClassBrief } from "../api/groups";
 import { groupNarrative } from "../api/narrative";
-import { DirectionMark, SectionCard, StatusBadge } from "../components/ui";
+import { DirectionMark, SectionCard } from "../components/ui";
 import { Button } from "../components/controls";
 import { VerdictLine } from "../components/VerdictLine";
 import { SectionSkeleton } from "../components/page";
+import ReadinessFigure from "../components/ReadinessFigure";
 import { ABSENT } from "../lib/labels";
 import { friendlyError } from "../lib/errors";
 
@@ -212,29 +213,13 @@ export default function ClassOverviewPanel({ groupId }: { groupId: number }) {
   return (
     <SectionCard className="space-y-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {c.status ? (
-          <>
-            <span className="flex items-baseline gap-2">
-              <span className="text-sm text-ink-500">Predicted grade</span>
-              <span className="font-display text-2xl font-semibold text-ink-900">
-                {c.predicted_grade}
-              </span>
-            </span>
-            <StatusBadge status={c.status} />
-          </>
-        ) : c.boundaries_missing ? (
-          <span className="text-sm text-ink-500">
-            {ABSENT.noBoundaries}{" "}
-            <Link
-              to="/tutor/boundaries"
-              className="font-medium text-brand-600 hover:text-brand-700"
-            >
-              {ABSENT.noBoundariesAction}
-            </Link>
-          </span>
-        ) : (
-          <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
-        )}
+        <ReadinessFigure
+          score={c.score}
+          grade={c.predicted_grade}
+          status={c.status}
+          boundariesMissing={c.boundaries_missing}
+          size="lg"
+        />
         {/* Coverage, so a status drawn from part of the class never reads as
             one drawn from all of it. member_count is non-zero here: the empty
             room returned above. */}

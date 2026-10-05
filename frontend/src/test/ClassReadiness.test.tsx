@@ -93,6 +93,16 @@ test("colours learners by the backend's band, not a percentage threshold", async
   expect(within(omarRow).getByText("On track")).toBeInTheDocument();
 });
 
+test("each learner reads grade, status and percentage in one cell (coherence C.6)", async () => {
+  stubFetch();
+  renderPage();
+
+  const ayaRow = (await screen.findByText("Aya Hassan")).closest("tr")!;
+  expect(ayaRow.textContent).toContain("Grade 3");
+  expect(ayaRow.textContent).toContain("At risk");
+  expect(ayaRow.textContent).toContain("43%");
+});
+
 test("a subject with no boundaries says so instead of colouring against a threshold", async () => {
   stubFetch({
     ...OVERVIEW,

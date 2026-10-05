@@ -233,7 +233,7 @@ test("a class without evidence says so in words, never a zero or an empty bar", 
   renderDashboard();
 
   expect(await screen.findByText("Nothing marked yet.")).toBeInTheDocument();
-  expect(await screen.findByText("No readiness yet")).toBeInTheDocument();
+  expect(await screen.findByText("Not enough data yet")).toBeInTheDocument();
   expect(screen.queryByText("0%")).not.toBeInTheDocument();
 });
 
@@ -629,7 +629,8 @@ test("a class card carries plan position, readiness, attendance, homework and th
   renderDashboard();
 
   expect(await screen.findByRole("link", { name: "2 lessons behind →" })).toBeInTheDocument();
-  expect(screen.getByText("Average readiness 82 · down since last week")).toBeInTheDocument();
+  expect(screen.getByText("Readiness down since last week")).toBeInTheDocument();
+  expect(screen.getByText("82%")).toBeInTheDocument();
   expect(screen.getByText("Last lesson: 7 of 9 present · 1 not taken")).toBeInTheDocument();
   expect(screen.getByText("2 homework out · 6 hand-ins missing")).toBeInTheDocument();
   // The reason names the students and the topic, and links to the fix.
@@ -658,7 +659,7 @@ test("a card with no data says so in words", async () => {
   );
   renderDashboard();
 
-  expect(await screen.findByText("No readiness yet")).toBeInTheDocument();
+  expect(await screen.findByText("Not enough data yet")).toBeInTheDocument();
   expect(screen.getByText("No teaching plan yet")).toBeInTheDocument();
   expect(screen.getByText("No lessons held yet")).toBeInTheDocument();
   expect(screen.getByText("No homework out")).toBeInTheDocument();

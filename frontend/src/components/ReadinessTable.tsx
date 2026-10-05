@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import type { LearnerRow } from "../lib/readiness";
 import { ABSENT } from "../lib/labels";
 import { Skeleton } from "./page";
-import { EmptyState, InitialsAvatar, ReadinessBar, StatusBadge } from "./ui";
+import { EmptyState, InitialsAvatar } from "./ui";
+import ReadinessFigure from "./ReadinessFigure";
 
 export type ReadinessFilter = "all" | "needs_attention" | "on_track";
 
@@ -23,7 +24,7 @@ function SkeletonRows() {
     <>
       {[0, 1, 2].map((i) => (
         <tr key={i} className="border-t border-line">
-          <td colSpan={5} className="px-2 py-3">
+          <td colSpan={4} className="px-2 py-3">
             <Skeleton className="h-4 w-full" />
           </td>
         </tr>
@@ -144,9 +145,6 @@ export default function ReadinessTable({
                 <th scope="col" className="py-2 pr-3 font-medium">
                   Readiness
                 </th>
-                <th scope="col" className="py-2 pr-3 font-medium">
-                  Status
-                </th>
                 <th scope="col" className="py-2 font-medium">
                   Next step
                 </th>
@@ -163,15 +161,11 @@ export default function ReadinessTable({
                   </th>
                   <td className="py-3 pr-3 text-ink-500">{row.subject_name}</td>
                   <td className="py-3 pr-3">
-                    <span className="flex items-center gap-2">
-                      <span className="w-9 shrink-0 font-display text-[15px] tabular-nums text-ink-900">
-                        {Math.round(row.score)}%
-                      </span>
-                      <ReadinessBar score={row.score} status={row.status} />
-                    </span>
-                  </td>
-                  <td className="py-3 pr-3">
-                    <StatusBadge status={row.status} />
+                    <ReadinessFigure
+                      score={row.score}
+                      grade={row.predicted_grade ?? null}
+                      status={row.status}
+                    />
                   </td>
                   <td className="py-3">
                     <Link
@@ -185,7 +179,7 @@ export default function ReadinessTable({
               ))}
               {visible.length === 0 && (
                 <tr className="border-t border-line">
-                  <td colSpan={5} className="py-6 text-center text-sm text-ink-500">
+                  <td colSpan={4} className="py-6 text-center text-sm text-ink-500">
                     No learners match this view.
                   </td>
                 </tr>

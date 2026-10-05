@@ -1,6 +1,10 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { groupAnalytics } from "../api/readiness";
+import { classOverview } from "../api/today";
+import { Button } from "../components/controls";
+import ReadinessFigure from "../components/ReadinessFigure";
+import { ABSENT } from "../lib/labels";
 import { SectionCard } from "../components/ui";
 import { ErrorState, SectionSkeleton } from "../components/page";
 
@@ -14,10 +18,12 @@ function CardTitle({ title, description }: { title: string; description: string 
 }
 
 /*
- * Scores here are shown in plain ink rather than coloured green/amber/red.
- * This feed carries a bare percentage and no band, and colouring it by a
- * literal 70/50 cut would claim a threshold the subject never set (UX-28) —
- * the class overview above carries the real, boundary-derived status.
+ * Topic scores here are shown in plain ink rather than coloured green/amber/red.
+ * That feed carries a bare percentage and no band, and colouring it by a
+ * literal 70/50 cut would claim a threshold the subject never set (UX-28).
+ * "Readiness by student" is read from the class overview instead, which bands
+ * each learner from the subject's own boundaries, so it can say grade, status
+ * and percentage like every other readiness figure (coherence C.6).
  */
 export default function GroupAnalyticsPage() {
   const { groupId } = useParams();
@@ -26,6 +32,17 @@ export default function GroupAnalyticsPage() {
     queryKey: ["analytics", id],
     queryFn: () => groupAnalytics(id),
   });
+
+  // Same key as the class header's query, so on the landing tab this is a cache
+  // hit rather than a second request.
+  const overview = useQuery({
+    queryKey: ["class-overview", id],
+    queryFn: () => classOverview(id),
+  });
+  // Lowest first, as the card promises; a learner with no score is absent.
+  const scored = (overview.data?.learners ?? [])
+    .filter((l) => l.score !== null)
+    .sort((x, y) => (x.score as number) - (y.score as number));
 
   if (analytics.isLoading) return <SectionSkeleton rows={5} label="Loading analytics" />;
   if (analytics.isError || !analytics.data) {
@@ -38,7 +55,10 @@ export default function GroupAnalyticsPage() {
     );
   }
   const a = analytics.data;
-  const hasReadiness = a.weak_students.length > 0;
+  // Either source saying a learner is scored is enough: the student card reads
+  // the class overview, the topic card's wording reads the analytics feed, and
+  // neither should claim "no scores" while the other has some.
+  const hasReadiness = a.weak_students.length > 0 || scored.length > 0;
 
   // Rendered as a tab inside GroupLayout, which already shows the class header.
   return (
@@ -71,19 +91,36 @@ export default function GroupAnalyticsPage() {
             title="Readiness by student"
             description="Lowest first, for students with a readiness score."
           />
-          {hasReadiness ? (
+          {overview.isPending ? (
+            <SectionSkeleton rows={3} label="Loading readiness by student" />
+          ) : overview.isError ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p role="alert" className="text-sm text-ink-500">
+                {ABSENT.loadFailedRetry}
+              </p>
+              <Button variant="secondary" size="sm" onClick={() => overview.refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : scored.length > 0 ? (
             <ul className="mt-3 divide-y divide-line text-sm">
-              {a.weak_students.map((s) => (
-                <li key={s.student_id} className="flex items-center justify-between gap-3 py-2">
+              {scored.map((s) => (
+                <li
+                  key={s.student_id}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2"
+                >
                   <Link
                     to={`/tutor/students/${s.student_id}?group=${id}`}
                     className="font-medium text-ink-900 hover:text-brand-600"
                   >
                     {s.student_name}
                   </Link>
-                  <span className="tabular-nums text-ink-700">
-                    {Math.round(s.score)}%<span className="sr-only"> readiness</span>
-                  </span>
+                  <ReadinessFigure
+                    score={s.score}
+                    grade={s.predicted_grade}
+                    status={s.verdict.status === "not_enough_data" ? null : s.verdict.status}
+                    boundariesMissing={overview.data?.boundaries_missing ?? false}
+                  />
                 </li>
               ))}
             </ul>
