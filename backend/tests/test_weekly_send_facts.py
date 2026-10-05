@@ -11,10 +11,11 @@ import typing
 from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
 
-from app.db import async_session
+from app.db import async_session, engine
 from app.models import (
+    Assignment,
     AssignmentQuestion,
     AttendanceSource,
     AttendanceState,
@@ -24,6 +25,7 @@ from app.models import (
     Lesson,
     LessonAttendance,
     LessonObservation,
+    Organization,
     PlanSlot,
     QuestionMark,
     SubmissionStatus,
@@ -655,3 +657,244 @@ async def test_f9_nothing_a_student_wrote_reaches_any_variant(
         assert "ZQXJ" not in blob and SENTINEL not in blob
     # The facts are not empty: the scan above is not passing on a blank page.
     assert all(len(blob) > 200 for blob in blobs)
+
+
+# ------------------------------------------------------------ review fixes
+
+
+def test_consecutive_windows_tile_across_the_spring_clock_change():
+    sundays = [datetime(2026, 3, d, 20, 0, tzinfo=UTC) for d in (15, 22, 29)] + [
+        datetime(2026, 4, 5, 20, 0, tzinfo=UTC)
+    ]
+    windows = [week_window(n, "Europe/London", 6, 18) for n in sundays]
+    for (_s1, end), (start, _e2) in zip(windows, windows[1:], strict=False):
+        assert end == start  # no gap, no overlap
+
+
+async def test_lessons_behind_is_unknown_when_the_class_has_no_dated_lessons_yet(
+    client, tutor, group, student, subject
+):
+    ch = await make_chapters(subject)
+    await make_plan(group, tutor, [(ch["c1"], date(2026, 10, 20), time(9, 0))])
+    plan = (await _tutor_facts(tutor)).classes[0].plan
+    assert plan is not None and plan.lessons_behind is None  # not 0 behind
+    assert plan.lessons_planned_this_week == 0
+
+
+async def test_a_slot_after_the_send_hour_today_belongs_to_next_week(
+    client, tutor, group, student, subject
+):
+    ch = await make_chapters(subject)
+    await make_plan(
+        group,
+        tutor,
+        [
+            (ch["c1"], date(2026, 10, 11), time(10, 0)),  # before the send: this week
+            (ch["c2"], date(2026, 10, 11), time(20, 0)),  # after it: next week's
+        ],
+    )
+    plan = (await _tutor_facts(tutor)).classes[0].plan
+    assert plan is not None
+    assert plan.this_week_chapter == facts.ChapterRef("C1", "Atoms")
+    assert plan.next_chapter == facts.ChapterRef("C2", "Bonding")
+    assert plan.lessons_planned_this_week == 1
+
+
+async def test_a_lesson_still_to_finish_at_the_send_is_not_held(
+    client, tutor, group, student, subject
+):
+    await _world(client, tutor, group, student, subject)
+    async with async_session() as s:
+        s.add(
+            Lesson(
+                organization_id=await org_id(s),
+                group_id=group["id"],
+                date=date(2026, 10, 11),
+                start_time=time(17, 30),
+                duration_min=60,
+            )
+        )
+        await s.commit()
+    att = (await _tutor_facts(tutor)).classes[0].attendance
+    assert att is not None and att.lessons_held == 3 and att.not_taken == 1
+
+
+async def test_what_arrives_after_the_window_is_not_in_it(client, tutor, group, student, subject):
+    world = await _world(client, tutor, group, student, subject)
+    async with async_session() as s:
+        e = await s.scalar(select(Assignment).where(Assignment.title == "E"))
+        await submit_work(
+            s,
+            assignment=e,
+            student_id=student["user"]["id"],
+            status=SubmissionStatus.submitted,
+            submitted_at=at(12),
+        )
+        await publish_assignment(
+            s,
+            group_id=group["id"],
+            subject_id=subject["id"],
+            organization_id=world["org"],
+            created_at=at(12),
+        )
+        await s.commit()
+    cls = (await _tutor_facts(tutor)).classes[0]
+    # E is still missing at the close, and the later hand-in and assignment are
+    # next week's facts.
+    assert cls.homework == facts.HomeworkFacts(set_count=2, handed_in_count=2, missing_count=1)
+    assert (await _student_facts(student)).classes[0].homework == cls.homework
+
+
+async def test_marked_counts_when_marks_settled_and_only_the_tutors_classes(
+    client, tutor, group, student, subject
+):
+    world = await _world(client, tutor, group, student, subject)
+    async with async_session() as s:
+        # Settled after the window closed: next week's.
+        late = await publish_assignment(
+            s, group_id=group["id"], subject_id=subject["id"], organization_id=world["org"]
+        )
+        await submit_work(
+            s,
+            assignment=late,
+            student_id=student["user"]["id"],
+            status=SubmissionStatus.auto_finalized,
+            submitted_at=at(10),
+            finalized_at=at(12),
+        )
+        # Homework set in a colleague's class, same organization.
+        colleague = await make_user(
+            s, organization_id=world["org"], role=UserRole.tutor, name="Col", email="c@x.io"
+        )
+        theirs = Group(
+            organization_id=world["org"],
+            tutor_id=colleague.id,
+            subject_id=subject["id"],
+            name="Theirs",
+        )
+        s.add(theirs)
+        await s.flush()
+        elsewhere = await publish_assignment(
+            s, group_id=theirs.id, subject_id=subject["id"], organization_id=world["org"]
+        )
+        await submit_work(
+            s,
+            assignment=elsewhere,
+            student_id=student["user"]["id"],
+            status=SubmissionStatus.finalized,
+            submitted_at=at(9),
+            finalized_at=at(9),
+        )
+        await s.commit()
+    assert (await _tutor_facts(tutor)).marked == facts.MarkedFacts(marked=2, auto_finalized=1)
+    # The learner's own count is theirs whichever class set it.
+    assert (await _student_facts(student)).marked == facts.MarkedFacts(3, 1)
+
+
+async def test_a_class_without_a_verdict_is_skipped_not_fatal(
+    client, tutor, group, student, subject, monkeypatch, caplog
+):
+    async def nobody(session, group, snapshots=None):
+        return {}
+
+    monkeypatch.setattr(facts, "class_verdicts", nobody)
+    with caplog.at_level("WARNING"):
+        out = await _student_facts(student)
+    assert out.classes == () and "has no verdict" in caplog.text
+
+
+async def test_no_boundaries_means_no_grade_even_with_a_snapshot(
+    client, tutor, group, student, subject
+):
+    await set_boundaries(subject["id"], [])
+    async with async_session() as s:
+        await write_v2_snapshot(
+            s,
+            student_id=student["user"]["id"],
+            subject_id=subject["id"],
+            score=55.0,
+            predicted_grade="5",
+            created_at=at(10),
+        )
+        await s.commit()
+    cls = (await _student_facts(student)).classes[0]
+    assert cls.verdict == "not_enough_data"
+    assert cls.predicted_grade is None and cls.readiness_score is None
+
+
+async def test_an_unloadable_zone_is_logged_and_read_as_utc(client, tutor, caplog):
+    async with async_session() as s:
+        org = await org_id(s)
+        (await s.get(Organization, org)).timezone = "Not/AZone"
+        await s.commit()
+        with caplog.at_level("WARNING"):
+            window = await facts.organization_week_window(s, org, SEND_NOW, 6, 18)
+            clock = await facts._clock(s, org, window)
+    assert window == WINDOW and clock.zone is None
+    assert f"organization {org} time zone 'Not/AZone'" in caplog.text
+    async with async_session() as s:
+        with pytest.raises(ValueError):
+            await facts._clock(s, 9999, WINDOW)
+
+
+async def test_a_link_that_does_not_resolve_is_counted_and_logged(
+    client, tutor, group, student, subject, caplog
+):
+    parent_id = await _parent(student)
+    async with async_session() as s:
+        rival = (await other_org_subject(s, code="9RIV")).organization_id
+        kid = await make_user(
+            s, organization_id=rival, role=UserRole.student, name="K", email="k@x.io"
+        )
+        await link_parent(s, parent_id, kid.id)
+        await s.commit()
+    with caplog.at_level("WARNING"):
+        out = await _parent_facts(parent_id)
+    assert out.dropped_links == 1 and len(out.children) == 1
+    assert "did not resolve" in caplog.text
+    assert (await _parent_facts(await _parent(student, "dad@example.com"))).dropped_links == 0
+
+
+async def test_the_tutor_path_is_flat_in_learners_and_bounded_per_class(
+    client, tutor, group, student, subject
+):
+    await _world(client, tutor, group, student, subject)
+
+    async def count() -> int:
+        queries: list[str] = []
+
+        def before(conn, cursor, statement, params, context, executemany):
+            queries.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", before)
+        try:
+            await _tutor_facts(tutor)
+        finally:
+            event.remove(engine.sync_engine, "before_cursor_execute", before)
+        return len(queries)
+
+    one_class = await count()
+    async with async_session() as s:
+        org = await org_id(s)
+        for i in range(5):  # five more learners in the same class
+            kid = await make_user(
+                s, organization_id=org, role=UserRole.student, name=f"L{i}", email=f"l{i}@x.io"
+            )
+            s.add(GroupMember(group_id=group["id"], student_id=kid.id))
+        await s.commit()
+    assert await count() == one_class  # no query per learner
+    async with async_session() as s:
+        org = await org_id(s)
+        for i in range(3):
+            g = Group(
+                organization_id=org,
+                tutor_id=tutor["user"]["id"],
+                subject_id=subject["id"],
+                name=f"More {i}",
+            )
+            s.add(g)
+            await s.flush()
+            s.add(GroupMember(group_id=g.id, student_id=student["user"]["id"]))
+            s.add(Lesson(organization_id=org, group_id=g.id, date=date(2026, 10, 6)))
+        await s.commit()
+    assert await count() - one_class <= 3 * 12  # a constant per class, not per row

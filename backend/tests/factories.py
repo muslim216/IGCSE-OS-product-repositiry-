@@ -383,6 +383,9 @@ async def set_boundaries(subject_id: int, bounds: list[dict] | None = None) -> N
         subject = await session.get(Subject, subject_id)
         assert subject is not None
         await set_org_boundaries(
-            session, subject.organization_id, subject_id, bounds or NINE_TO_ONE_BOUNDS
+            session,
+            subject.organization_id,
+            subject_id,
+            NINE_TO_ONE_BOUNDS if bounds is None else bounds,
         )
         await session.commit()

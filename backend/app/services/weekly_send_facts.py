@@ -32,18 +32,27 @@ that, so a future field that breaks it fails a test rather than a review.
 
 Missing is absent: every figure that can be missing is `None`, never `0`
 (`PROD-2`). Only finalized outcomes count (`PROD-5`, `SETTLED_STATUSES`).
-Everything is scoped by the authenticated user's organization (`SEC-7`), in a
-fixed number of grouped queries however many classes there are (`PERF-1`).
+Everything is scoped by the authenticated user's organization (`SEC-7`). Queries
+are grouped, never one per learner, lesson or assignment: the tutor path issues a
+fixed set for the whole account plus a small constant number *per class* (the
+shared verdict loader, `class_verdicts`, is per class). A query-count test pins
+both properties. The student and parent paths build the verdict for that learner
+alone, but the snapshot ranking still reads the class's members in SQL.
+
+Boundaries and the weak-topic threshold are read as of now, not as of the window's
+end: they are the tutor's current settings, and a send fires at the window's end.
+Snapshots are the exception and are read as of the window end.
 """
 
+import logging
 from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from typing import Literal, cast
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -69,6 +78,7 @@ from app.models import (
     Topic,
     User,
     UserRole,
+    WorkKind,
 )
 from app.schemas.readiness import VerdictStatus
 from app.services.attendance import counts_for_attendance, in_zone
@@ -80,6 +90,8 @@ from app.services.student_verdict import Verdict
 from app.services.timezones import is_valid_timezone
 from app.services.today import pending_review_count, tutor_groups
 from app.services.today_overview import SlotRow, _slot_rows, _slot_select, missing_handins
+
+logger = logging.getLogger(__name__)
 
 Direction = Literal["up", "flat", "down"]
 
@@ -117,27 +129,27 @@ def week_window(
         raise ValueError("weekday must be 0 (Monday) to 6 (Sunday)")
     if not 0 <= hour <= 23:
         raise ValueError("hour must be 0 to 23")
-    moment = now_utc if now_utc.tzinfo is not None else now_utc.replace(tzinfo=timezone.utc)
+    if tz_name and not is_valid_timezone(tz_name):
+        logger.warning("time zone %r cannot be loaded; the weekly window uses UTC", tz_name)
+    moment = _utc(now_utc)
     zone = ZoneInfo(tz_name) if tz_name and is_valid_timezone(tz_name) else timezone.utc
     local_now = moment.astimezone(zone)
-    days_back = (local_now.weekday() - weekday) % 7
-    # Wall-clock arithmetic on a zone-aware value, then a round trip through UTC
-    # so a send hour that does not exist on a spring-forward day lands on the
-    # real instant instead of an invalid local time.
-    candidate = _normalise(
-        (local_now - timedelta(days=days_back)).replace(
-            hour=hour, minute=0, second=0, microsecond=0
-        ),
-        zone,
-    )
-    if candidate > local_now:
-        candidate = _normalise(candidate - WEEK, zone)
-    start = _normalise(candidate - WEEK, zone)
-    return start.astimezone(timezone.utc), candidate.astimezone(timezone.utc)
+    # Both ends come from the same wall-clock formula, so one window's end is
+    # exactly the next one's start and consecutive weeks tile with no gap or
+    # overlap across a clock change. A send hour that does not exist on a
+    # spring-forward day resolves to the real instant the zone gives it. The
+    # comparison with "now" is in UTC.
+    end_date = local_now.date() - timedelta(days=(local_now.weekday() - weekday) % 7)
+    end = _send_moment(end_date, hour, zone)
+    if end > moment:
+        end_date -= WEEK
+        end = _send_moment(end_date, hour, zone)
+    return _send_moment(end_date - WEEK, hour, zone), end
 
 
-def _normalise(moment: datetime, zone) -> datetime:
-    return moment.astimezone(timezone.utc).astimezone(zone)
+def _send_moment(day: date, hour: int, zone: tzinfo) -> datetime:
+    """The UTC instant of `hour`:00 on `day` in `zone`."""
+    return datetime.combine(day, time(hour)).replace(tzinfo=zone).astimezone(timezone.utc)
 
 
 Window = tuple[datetime, datetime]
@@ -168,6 +180,14 @@ class _Clock:
         placed = datetime.combine(day, start_time)
         return self.start_local.replace(tzinfo=None) <= placed < self.end_local.replace(tzinfo=None)
 
+    def is_after(self, day: date, start_time: time | None) -> bool:
+        """The mirror of `contains` for "later than this window": the same
+        placement rule, so a slot dated today but timed after the send hour is in
+        the *next* week, not in neither."""
+        if start_time is None:
+            return day > self.end_local.date()
+        return datetime.combine(day, start_time) >= self.end_local.replace(tzinfo=None)
+
     def holds(self, moment: datetime) -> bool:
         return self.start <= _utc(moment) < self.end
 
@@ -178,9 +198,35 @@ def _utc(moment: datetime) -> datetime:
 
 async def _clock(session: AsyncSession, organization_id: int, window: Window) -> _Clock:
     org = await session.get(Organization, organization_id)
-    zone = org.timezone if org else None
+    if org is None:
+        raise ValueError(f"organization {organization_id} not found")
+    zone = _org_zone(org)
     start, end = _utc(window[0]), _utc(window[1])
     return _Clock(start, end, zone, in_zone(start, zone), in_zone(end, zone))
+
+
+def _org_zone(org: Organization) -> str | None:
+    """The organization's zone, or None (UTC) when unset or unloadable. The one
+    place a zone is read for both the window and the clock, so they cannot
+    disagree; an unloadable non-empty value is logged, not silent."""
+    name = (org.timezone or "").strip()
+    if not name:
+        return None
+    if not is_valid_timezone(name):
+        logger.warning("organization %s time zone %r cannot be loaded; using UTC", org.id, name)
+        return None
+    return name
+
+
+async def organization_week_window(
+    session: AsyncSession, organization_id: int, now_utc: datetime, weekday: int, hour: int
+) -> Window:
+    """`week_window` on the organization's own clock (AV-90), read through the
+    same zone resolution the facts use."""
+    org = await session.get(Organization, organization_id)
+    if org is None:
+        raise ValueError(f"organization {organization_id} not found")
+    return week_window(now_utc, _org_zone(org), weekday, hour)
 
 
 # ------------------------------------------------------------------ fact types
@@ -207,7 +253,9 @@ class AttendanceFacts:
 
 @dataclass(frozen=True)
 class HomeworkFacts:
-    #: Assignments published for the class in the window.
+    #: Assignments *created* in the window (and published now). There is no
+    #: published-at column yet, so creation stands in for "set"; an approximation
+    #: until one exists.
     set_count: int
     #: Hand-ins that arrived in the window.
     handed_in_count: int
@@ -254,8 +302,10 @@ class PlanFacts:
     lessons_planned_this_week: int
     lessons_taught_this_week: int
     #: Planned lessons dated before the window's end with none recorded
-    #: (`plan_progress`), and lessons already taught ahead of their date.
-    lessons_behind: int
+    #: (`plan_progress`). None when that read has no entry for the class (it has
+    #: not reached its first planned lesson): not knowing is not "0 behind".
+    lessons_behind: int | None
+    #: Lessons already taught ahead of their date.
     lessons_ahead: int
     weeks_to_exam: int | None
 
@@ -264,7 +314,7 @@ class PlanFacts:
 class TutorClassFacts:
     group_id: int
     group_name: str
-    subject_name: str
+    subject_name: str | None
     plan: PlanFacts | None
     verdicts: tuple[VerdictCount, ...]
     readiness_direction: Direction | None
@@ -288,7 +338,7 @@ class TutorFacts:
 class StudentClassFacts:
     group_id: int
     group_name: str
-    subject_name: str
+    subject_name: str | None
     verdict: VerdictStatus
     readiness_score: float | None
     predicted_grade: str | None
@@ -316,7 +366,7 @@ class ParentClassFacts:
     attendance and homework (AV-64). The chapter is a name, not a breakdown."""
 
     group_name: str
-    subject_name: str
+    subject_name: str | None
     verdict: VerdictStatus
     readiness_score: float | None
     predicted_grade: str | None
@@ -337,6 +387,9 @@ class ParentFacts:
     window_start: datetime
     window_end: datetime
     children: tuple[ParentChildFacts, ...]
+    #: Parent links that did not become a block (the child is in another
+    #: organization or no longer a student). Logged too; a send never fails on one.
+    dropped_links: int
 
 
 # ------------------------------------------------------------------- shared reads
@@ -368,7 +421,7 @@ async def _attendance(
 ) -> dict[int, AttendanceFacts]:
     """Per class, over the lessons in the window, by the one shared definition
     (`counts_for_attendance`) read at the window's end. A class with no lesson
-    held in the window is absent from the result."""
+    that counted is absent from the result; `lessons_held` is the filtered count."""
     lessons = [
         lesson
         for lesson in (
@@ -399,7 +452,7 @@ async def _attendance(
     tally: Counter[tuple[str, int]] = Counter()
     held: Counter[int] = Counter()
     for lesson in lessons:
-        held[lesson.group_id] += 1
+        counted = False
         roster = joined.get(lesson.group_id, {})
         # Everyone enrolled plus anyone with a mark who has since left.
         for sid in set(roster) | set(marks[lesson.id]):
@@ -407,7 +460,13 @@ async def _attendance(
             joined_on = in_zone(roster[sid], clock.zone).date() if sid in roster else None
             if not counts_for_attendance(lesson, state, joined_on, clock.today, clock.end_local):
                 continue
+            counted = True
             tally["not_taken" if state is None else state.value, lesson.group_id] += 1
+        # A lesson is "held" for this reader only if something about it counted:
+        # one later today that has not ended, or held before the learner joined,
+        # is not yet a lesson to report (the same filter as the figures).
+        if counted:
+            held[lesson.group_id] += 1
     out: dict[int, AttendanceFacts] = {}
     for gid, lessons_held in held.items():
         present = tally["present", gid]
@@ -456,6 +515,10 @@ async def _homework(
     handed: dict[int, set[int]] = defaultdict(set)
     arrivals: dict[int, list[datetime]] = defaultdict(list)
     for work_id, sid, at in (await session.execute(sub_query)).all():
+        # As at the window's end: a hand-in after it is next week's fact, and the
+        # student was still missing it when this one was written.
+        if _utc(at) >= clock.end:
+            continue
         handed[work_id].add(sid)
         arrivals[work_id].append(_utc(at))
 
@@ -465,6 +528,8 @@ async def _homework(
     on_time: Counter[int] = Counter()
     late: Counter[int] = Counter()
     for gid, work_id, due_at, created_at in published:
+        if _utc(created_at) >= clock.end:
+            continue  # set after this window closed
         if clock.holds(created_at):
             set_n[gid] += 1
         missing[gid] += missing_handins(joined.get(gid, {}), handed[work_id], due_at, clock.end)
@@ -474,7 +539,7 @@ async def _homework(
             in_n[gid] += 1
             if due_at is not None:
                 (late if at > _utc(due_at) else on_time)[gid] += 1
-    gids = {g for g, *_ in published}
+    gids = {g for g, _w, _d, created in published if _utc(created) < clock.end}
     return (
         {g: HomeworkFacts(set_n[g], in_n[g], missing[g]) for g in gids},
         {g: Punctuality(on_time[g], late[g]) for g in gids if on_time[g] + late[g]},
@@ -482,29 +547,42 @@ async def _homework(
 
 
 async def _marked(
-    session: AsyncSession, organization_id: int, student_ids: Sequence[int], clock: _Clock
+    session: AsyncSession,
+    organization_id: int,
+    student_ids: Sequence[int],
+    clock: _Clock,
+    group_ids: Sequence[int] | None = None,
 ) -> MarkedFacts | None:
     """Pieces whose marks settled in the window (`SETTLED_STATUSES`, `PROD-5`).
-    No settled-at column exists: a tutor sign-off has `finalized_at`; an
-    auto-finalized piece settles within the marking job that follows the hand-in,
-    so its `submitted_at` stands in. None when nothing settled."""
+    Both a tutor sign-off and the auto-finalize job stamp `finalized_at`
+    (`marking.py`), so that is the settle moment; `submitted_at` is only the
+    fallback for older rows that never had one. None when nothing settled.
+
+    `group_ids` scopes the tutor's count: homework set in the tutor's own classes,
+    plus past papers and mocks by students on their rosters. Those two kinds have
+    no class, and the rest of the app (review queue, activity) attributes them by
+    the student's organization, so attributing them by roster is the narrowest
+    honest reading. A student's own count passes no groups."""
     if not student_ids:
         return None
     settled_at = func.coalesce(Submission.finalized_at, Submission.submitted_at)
-    rows = (
-        await session.execute(
-            select(Submission.status, func.count(Submission.id))
-            .join(AssessableWork, AssessableWork.id == Submission.work_id)
-            .where(
-                AssessableWork.organization_id == organization_id,
-                Submission.student_id.in_(list(student_ids)),
-                Submission.status.in_(SETTLED_STATUSES),
-                settled_at >= clock.start,
-                settled_at < clock.end,
-            )
-            .group_by(Submission.status)
+    query = (
+        select(Submission.status, func.count(Submission.id))
+        .join(AssessableWork, AssessableWork.id == Submission.work_id)
+        .where(
+            AssessableWork.organization_id == organization_id,
+            Submission.student_id.in_(list(student_ids)),
+            Submission.status.in_(SETTLED_STATUSES),
+            settled_at >= clock.start,
+            settled_at < clock.end,
         )
-    ).all()
+        .group_by(Submission.status)
+    )
+    if group_ids is not None:
+        query = query.outerjoin(Assignment, Assignment.work_id == Submission.work_id).where(
+            or_(Assignment.group_id.in_(list(group_ids)), AssessableWork.kind != WorkKind.homework)
+        )
+    rows = (await session.execute(query)).all()
     total = sum(n for _s, n in rows)
     if not total:
         return None
@@ -570,7 +648,7 @@ def _chapters(slots: list[SlotRow], clock: _Clock) -> _Chapters:
     """This week's chapter is the one of the first lesson planned in the window;
     the next is the first chapter *after* the window that differs from it."""
     in_week = [s for s in slots if clock.contains(s.scheduled_date, s.start_time)]
-    after = [s for s in slots if s.scheduled_date > clock.today]
+    after = [s for s in slots if clock.is_after(s.scheduled_date, s.start_time)]
 
     def ref(slot: SlotRow) -> ChapterRef:
         return ChapterRef(slot.chapter_code, slot.chapter_title)
@@ -588,7 +666,7 @@ def _chapters(slots: list[SlotRow], clock: _Clock) -> _Chapters:
 
 
 async def _homework_chapters(
-    session: AsyncSession, group_ids: Sequence[int]
+    session: AsyncSession, organization_id: int, group_ids: Sequence[int]
 ) -> set[tuple[int, int]]:
     """(group, chapter id) pairs that published homework has a question on."""
     rows = await session.execute(
@@ -597,6 +675,8 @@ async def _homework_chapters(
         .join(QuestionTopic, QuestionTopic.question_id == AssignmentQuestion.id)
         .join(Topic, Topic.id == QuestionTopic.topic_id)
         .where(
+            Group.id == Assignment.group_id,
+            Group.organization_id == organization_id,
             Assignment.group_id.in_(list(group_ids)),
             Assignment.status == AssignmentStatus.published,
             Topic.chapter_id.is_not(None),
@@ -614,7 +694,10 @@ class _Readiness:
 
 
 async def _readiness(
-    session: AsyncSession, groups: Sequence[Group], clock: _Clock
+    session: AsyncSession,
+    groups: Sequence[Group],
+    clock: _Clock,
+    only_student: int | None = None,
 ) -> dict[int, _Readiness]:
     """Each class's learners as at the window's end, and a week before it. Both
     ends use `latest_learner_snapshots`, and the verdict is the shared
@@ -625,6 +708,13 @@ async def _readiness(
     then = await latest_learner_snapshots(
         session, group_ids, before=clock.end - timedelta(days=COMPARISON_DAYS)
     )
+    if only_student is not None:
+        # One learner's verdict needs only their own run's factor rows: narrowing
+        # the snapshots first keeps the loader from reading the whole class's.
+        now = {gid: {s: v for s, v in per.items() if s == only_student} for gid, per in now.items()}
+        then = {
+            gid: {s: v for s, v in per.items() if s == only_student} for gid, per in then.items()
+        }
     return {
         g.id: _Readiness(
             verdicts=await class_verdicts(session, g, now[g.id]),
@@ -678,7 +768,7 @@ async def build_tutor_facts(session: AsyncSession, tutor: User, window: Window) 
     homework, punctuality = await _homework(session, oid, group_ids, joined, clock)
     readiness = await _readiness(session, groups, clock)
     slots, exams = await _plan_slots(session, oid, group_ids)
-    with_homework = await _homework_chapters(session, list(exams))
+    with_homework = await _homework_chapters(session, oid, list(exams))
     progress = await class_progress(session, tutor, clock.today, now=clock.end)
 
     classes: list[TutorClassFacts] = []
@@ -696,7 +786,7 @@ async def build_tutor_facts(session: AsyncSession, tutor: User, window: Window) 
                 ),
                 lessons_planned_this_week=ch.planned,
                 lessons_taught_this_week=ch.taught,
-                lessons_behind=prog[1].missed if prog else 0,
+                lessons_behind=prog[1].missed if prog else None,
                 lessons_ahead=ch.ahead,
                 weeks_to_exam=-(-days_left // 7) if days_left >= 0 else None,
             )
@@ -707,7 +797,7 @@ async def build_tutor_facts(session: AsyncSession, tutor: User, window: Window) 
             TutorClassFacts(
                 group_id=g.id,
                 group_name=g.name,
-                subject_name=g.subject.name if g.subject else "",
+                subject_name=g.subject.name if g.subject else None,
                 plan=plan,
                 verdicts=tuple(
                     VerdictCount(status, n)
@@ -728,7 +818,11 @@ async def build_tutor_facts(session: AsyncSession, tutor: User, window: Window) 
         )
     roster = sorted({sid for per in joined.values() for sid in per})
     return TutorFacts(
-        clock.start, clock.end, tuple(classes), queue, await _marked(session, oid, roster, clock)
+        clock.start,
+        clock.end,
+        tuple(classes),
+        queue,
+        await _marked(session, oid, roster, clock, group_ids),
     )
 
 
@@ -738,7 +832,7 @@ async def build_tutor_facts(session: AsyncSession, tutor: User, window: Window) 
 @dataclass(frozen=True)
 class _ClassWeek:
     group: Group
-    subject_name: str
+    subject_name: str | None
     verdict: Verdict
     score: float | None
     grade: str | None
@@ -772,19 +866,30 @@ async def _student_weeks(session: AsyncSession, student: User, clock: _Clock) ->
     joined = await _joined(session, group_ids, only_student=student.id)
     attendance = await _attendance(session, oid, group_ids, joined, clock, student.id)
     homework, _punctuality = await _homework(session, oid, group_ids, joined, clock, student.id)
-    readiness = await _readiness(session, groups, clock)
+    readiness = await _readiness(session, groups, clock, only_student=student.id)
     slots, _exams = await _plan_slots(session, oid, group_ids)
     out = []
     for g in groups:
         r = readiness[g.id]
         verdict = r.verdicts.get(student.id)
         snap = r.now.get(student.id)
-        assert verdict is not None  # enrolled, so class_verdicts returned them
+        if verdict is None:
+            # Enrolment changed between reading the classes and the verdicts. One
+            # learner's class must never stop the account's send.
+            logger.warning(
+                "student %s has no verdict in class %s; leaving it out of the week",
+                student.id,
+                g.id,
+            )
+            continue
+        # The grade is shown only where the shared verdict gives a status: that
+        # needs the org's boundaries, so with none set the grade is absent here
+        # exactly as `class_verdicts` withholds it.
         has_grade = verdict.status != "not_enough_data" and snap is not None
         out.append(
             _ClassWeek(
                 group=g,
-                subject_name=g.subject.name,
+                subject_name=g.subject.name if g.subject else None,
                 verdict=verdict,
                 score=snap.score if has_grade and snap else None,
                 grade=snap.predicted_grade if has_grade and snap else None,
@@ -846,6 +951,22 @@ async def build_parent_facts(session: AsyncSession, parent: User, window: Window
             .order_by(User.name, User.id)
         )
     ).all()
+    linked = set(
+        (
+            await session.scalars(
+                select(ParentLink.student_id).where(ParentLink.parent_id == parent.id)
+            )
+        ).all()
+    )
+    dropped = linked - {c.id for c in children}
+    if dropped:
+        logger.warning(
+            "parent %s has %d link(s) that did not resolve to a child in organization %s: %s",
+            parent.id,
+            len(dropped),
+            parent.organization_id,
+            sorted(dropped),
+        )
     blocks = []
     for child in children:
         weeks = await _student_weeks(session, child, clock)
@@ -868,4 +989,4 @@ async def build_parent_facts(session: AsyncSession, parent: User, window: Window
                 ),
             )
         )
-    return ParentFacts(clock.start, clock.end, tuple(blocks))
+    return ParentFacts(clock.start, clock.end, tuple(blocks), len(dropped))
