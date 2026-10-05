@@ -1,7 +1,7 @@
 """setup_acknowledgements: "the tutor reviewed this default" (task 9.1a)
 
 Revision ID: 0068
-Revises: 0066
+Revises: 0067
 """
 
 import sqlalchemy as sa
@@ -9,9 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0068"
-# Chained to 0066 because 0067 is built in parallel and does not exist on this
-# branch; re-chain to 0067 when both land.
-down_revision = "0066"
+down_revision = "0067"
 branch_labels = None
 depends_on = None
 

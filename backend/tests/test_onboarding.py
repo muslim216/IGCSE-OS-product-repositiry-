@@ -106,6 +106,12 @@ async def _ack(client, tutor, item, subject_id=None):
     )
 
 
+async def _answer_taught_before(group_id):
+    async with async_session() as session:
+        (await session.get(Group, group_id)).taught_before_answered_at = utcnow()
+        await session.commit()
+
+
 def _item(subject_state, key):
     return next(i for i in subject_state["items"] if i["key"] == key)
 
@@ -143,12 +149,18 @@ async def test_required_steps_flip_in_order_and_complete(client, tutor):
     body = await _get(client, tutor)
     assert _steps(body["subjects"][0]["classes"][0]) == {
         "timetable": False,
+        "taught_before": False,
         "plan_inputs": False,
         "plan_accepted": False,
     }
     assert body["next_step"] == {"key": "timetable", "subject_id": sid, "group_id": gid}
 
     await _slot(gid)
+    body = await _get(client, tutor)
+    assert body["next_step"] == {"key": "taught_before", "subject_id": sid, "group_id": gid}
+
+    # "Starting fresh" is an answer: no topics, but the question is closed.
+    await _answer_taught_before(gid)
     body = await _get(client, tutor)
     assert body["next_step"] == {"key": "plan_inputs", "subject_id": sid, "group_id": gid}
 
@@ -175,6 +187,7 @@ async def test_complete_needs_the_syllabus_of_that_class_subject(client, tutor):
     sid = await _subject(tutor)
     gid = await _group(tutor, sid)
     await _slot(gid)
+    await _answer_taught_before(gid)
     await _plan(gid, TeachingPlanStatus.accepted, tutor["user"]["id"])
     body = await _get(client, tutor)
     assert body["subjects"][0]["classes"][0]["complete"] is True
@@ -188,8 +201,19 @@ async def test_next_step_points_at_the_class_closest_to_done(client, tutor):
     ahead = await _group(tutor, sid, "Ahead")
     await _slot(ahead)
     body = await _get(client, tutor)
-    assert body["next_step"] == {"key": "plan_inputs", "subject_id": sid, "group_id": ahead}
+    assert body["next_step"] == {"key": "taught_before", "subject_id": sid, "group_id": ahead}
     assert behind != ahead
+
+
+async def test_an_accepted_plan_without_the_taught_before_answer_is_not_complete(client, tutor):
+    """A class set up before the question existed still owes its answer."""
+    sid = await _subject(tutor, chapters=1)
+    gid = await _group(tutor, sid)
+    await _slot(gid)
+    await _plan(gid, TeachingPlanStatus.accepted, tutor["user"]["id"])
+    body = await _get(client, tutor)
+    assert body["complete"] is False
+    assert body["next_step"] == {"key": "taught_before", "subject_id": sid, "group_id": gid}
 
 
 # --- Defaulted items ---------------------------------------------------------
@@ -218,9 +242,12 @@ async def test_account_basics_unacknowledged_change_is_set_by_you(client, tutor)
 async def test_boundaries_states(client, tutor):
     sid = await _subject(tutor)
     subject = (await _get(client, tutor))["subjects"][0]
-    assert _item(subject, "boundaries")["state"] == "default"
+    # No rows is no predicted grade, not a default in force, and acknowledging
+    # nothing does not make it something (PROD-2).
+    assert _item(subject, "boundaries")["state"] == "not_set"
     body = (await _ack(client, tutor, "boundaries", sid)).json()
-    assert _item(body["subjects"][0], "boundaries")["state"] == "reviewed"
+    assert _item(body["subjects"][0], "boundaries")["state"] == "not_set"
+    assert body["subjects"][0]["reviewed_count"] == 0
 
     sid2 = await _subject(tutor, code="4MA1", name="Maths")
     async with async_session() as session:
@@ -311,7 +338,7 @@ async def test_teaching_guidance_is_optional_and_never_counts(client, tutor):
 
 async def test_reviewed_count_counts_reviewed_and_set_by_you(client, tutor):
     sid = await _subject(tutor)
-    await _ack(client, tutor, "boundaries", sid)
+    await _ack(client, tutor, "weak_threshold", sid)
     await client.put(
         f"/api/v1/subjects/{sid}/marking-rules", json={"rules": "x"}, headers=tutor["headers"]
     )

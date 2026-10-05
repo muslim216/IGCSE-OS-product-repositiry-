@@ -72,12 +72,9 @@ SUBJECT_ITEM_ORDER = (
 TEACHING_GUIDANCE = "teaching_guidance"
 
 #: Class Required steps in flow order. `taught_before` ("where are you up to",
-#: task 9.1b) goes between `timetable` and `plan_inputs`: add its key here, an
-#: entry in `_class_steps`, and a `has_taught_before` on `ClassFacts` loaded from
-#: `answered_group_ids(db, group_ids)` in `load_state`. It sits there because the
-#: plan drafter reads what has already been taught, so the answer has to exist
-#: before the inputs and the draft.
-CLASS_STEP_ORDER = ("timetable", "plan_inputs", "plan_accepted")
+#: task 9.1b) sits before the plan steps because the drafter reads what has
+#: already been taught, so the answer has to exist before the inputs and the draft.
+CLASS_STEP_ORDER = ("timetable", "taught_before", "plan_inputs", "plan_accepted")
 
 
 @dataclass(frozen=True)
@@ -105,6 +102,8 @@ class ClassFacts:
     name: str
     subject_id: int
     has_slots: bool
+    #: The tutor answered at all; "starting fresh" (no topics) is an answer.
+    taught_before_answered: bool
     has_plan_inputs: bool
     plan_accepted: bool
 
@@ -136,6 +135,7 @@ def defaulted_state(set_by_you: bool, acknowledged: bool) -> ItemState:
 def _class_steps(c: ClassFacts) -> list[StepDone]:
     done = {
         "timetable": c.has_slots,
+        "taught_before": c.taught_before_answered,
         "plan_inputs": c.has_plan_inputs,
         "plan_accepted": c.plan_accepted,
     }
@@ -157,6 +157,13 @@ def _subject_items(s: SubjectFacts) -> list[ItemStatus]:
         )
         for item in SUBJECT_ITEM_ORDER
     ]
+    # Boundaries have no default in force: the published list is offered in the
+    # editor and never written, and a subject with no rows has no predicted
+    # grade anywhere (services/grade_boundaries.py, `PROD-2`). So without rows
+    # this is "not_set" whatever was acknowledged — "default" would claim grades
+    # are being mapped through something. It is not counted as reviewed.
+    if not s.has_boundaries:
+        items[0] = ItemStatus(key=SetupItem.boundaries.value, kind="defaulted", state="not_set")
     # Optional: never counts against completion, and never "default" — an absent
     # document is absent, not a default in force.
     items.append(
@@ -213,7 +220,7 @@ def build_state(
                 subject_name=s.name,
                 required=[StepDone(key="syllabus", done=syllabus_done)],
                 items=items,
-                reviewed_count=sum(i.state != "default" for i in defaulted),
+                reviewed_count=sum(i.state in ("reviewed", "set_by_you") for i in defaulted),
                 review_total=len(defaulted),
                 classes=class_out,
             )
@@ -361,6 +368,9 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
             name=g.name,
             subject_id=g.subject_id,
             has_slots=g.id in slot_groups,
+            # Read off the rows already loaded; `taught_before.answered_group_ids`
+            # is the same test for a caller that has only ids.
+            taught_before_answered=g.taught_before_answered_at is not None,
             # A plan row of either status means inputs were saved: a draft only
             # exists once they are (`request_draft` refuses without one), and an
             # accepted plan was a draft.

@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from app.models import SetupItem
 
 StepKind = Literal["defaulted", "optional"]
-#: "not_set" belongs to the Optional item only; the Defaulted ones are never "not_set".
+#: "not_set" is the Optional item with nothing stored, and grade boundaries with
+#: no rows: neither has a default in force, so neither may read as "default".
 ItemState = Literal["default", "reviewed", "set_by_you", "not_set"]
 
 
