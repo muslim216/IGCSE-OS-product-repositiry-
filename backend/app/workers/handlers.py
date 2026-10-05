@@ -33,6 +33,8 @@ from app.services.narrative import (
     sweep_parent_narratives,
 )
 from app.services.notifications.service import SEND_JOB, send_notification
+from app.services.notifications.triggers import SWEEP_JOB as MESSAGE_TRIGGER_SWEEP_JOB
+from app.services.notifications.triggers import sweep_message_triggers
 from app.services.past_paper_phase import SWEEP_JOB as PAST_PAPER_PHASE_SWEEP_JOB
 from app.services.past_paper_phase import sweep_past_paper_phase
 from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
@@ -119,3 +121,6 @@ def register_all() -> None:
     # closed and queues one build each. Both are safe to re-run (`BE-6`).
     register_handler(WEEKLY_SEND_SWEEP_JOB, sweep_weekly_sends)
     register_handler(WEEKLY_SEND_BUILD_JOB, build_weekly_sends)
+    # Reminders that fire at a moment, not on an event (task 8.5). Every send
+    # is keyed, so a sweep that sees the same lesson twice messages once.
+    register_handler(MESSAGE_TRIGGER_SWEEP_JOB, sweep_message_triggers)

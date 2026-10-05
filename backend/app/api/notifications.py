@@ -200,17 +200,23 @@ async def channel_status(user: TutorUser) -> ChannelStatusOut:
     )
 
 
-#: How far back the undelivered list looks, and how many rows it returns.
+#: How far back the undelivered list looks, how many rows it reads, and how
+#: many it returns.
 UNDELIVERED_WINDOW = timedelta(days=30)
+UNDELIVERED_SCAN = 1000
 UNDELIVERED_LIMIT = 100
 
 
 @router.get("/notifications/undelivered", response_model=list[UndeliveredOut])
 async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
-    """Messages from the last 30 days that reached nobody, newest first.
+    """Who is not being reached, and why — the newest undelivered message per
+    person and reason from the last 30 days.
 
     Without this a parent who never gets their weekly message is invisible: the
     row ends `failed`, `suppressed` or `no_channel` and only the table knows.
+    One row per person and reason, not one per message: a learner with no
+    confirmed number misses every reminder for every lesson, and thirty copies
+    of "no confirmed number" would bury the one that says a parent opted out.
     A row still `queued` is in flight, not a problem, and is left out.
     """
     rows = (
@@ -223,19 +229,28 @@ async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
                 Notification.created_at >= utcnow() - UNDELIVERED_WINDOW,
             )
             .order_by(Notification.created_at.desc(), Notification.id.desc())
-            .limit(UNDELIVERED_LIMIT)
+            .limit(UNDELIVERED_SCAN)
         )
     ).all()
-    return [
-        UndeliveredOut(
-            id=note.id,
-            recipient_user_id=person.id,
-            recipient_name=person.name,
-            recipient_role=person.role.value,
-            kind=note.kind,
-            status=note.status,
-            reason=note.error,
-            created_at=note.created_at,
+    seen: set[tuple[int, NotificationStatus]] = set()
+    out: list[UndeliveredOut] = []
+    for note, person in rows:
+        key = (person.id, note.status)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            UndeliveredOut(
+                id=note.id,
+                recipient_user_id=person.id,
+                recipient_name=person.name,
+                recipient_role=person.role.value,
+                kind=note.kind,
+                status=note.status,
+                reason=note.error,
+                created_at=note.created_at,
+            )
         )
-        for note, person in rows
-    ]
+        if len(out) >= UNDELIVERED_LIMIT:
+            break
+    return out

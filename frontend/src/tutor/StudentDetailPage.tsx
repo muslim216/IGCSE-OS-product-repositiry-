@@ -16,6 +16,7 @@ import { SubjectReadinessCard } from "../components/ReadinessView";
 import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import AttendancePanel from "../components/AttendancePanel";
+import StudentContacts from "./StudentContacts";
 import { ABSENT, sourceLabel } from "../lib/labels";
 import { ApiError } from "../api/client";
 import { EmptyState, SectionCard } from "../components/ui";
@@ -262,6 +263,10 @@ export default function StudentDetailPage() {
         ))}
 
         <ReportsPanel studentId={sid} audiences={["student", "tutor", "parent"]} />
+
+        {/* Where this learner and their parents are reached; each address is
+            confirmed here before anything is sent to it (threat review F5). */}
+        <StudentContacts studentId={sid} />
 
         {/* Seeding (spec §7.3). Optional, and deliberately late: students attach
             themselves by invite code, so a tutor finishing setup has no students

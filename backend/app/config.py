@@ -182,6 +182,14 @@ class Settings(BaseSettings):
     # How long the build waits after the sweep asks the narrative writer to
     # refresh, so the paragraphs it copies are this week's.
     weekly_send_narrative_lead_minutes: int = Field(default=10, ge=0)
+    # Messages sent at a moment rather than on an event — homework due tomorrow,
+    # a lesson about to start, work waiting for review
+    # (services/notifications/triggers.py, task 8.5). A kill switch: off, the
+    # sweep keeps re-arming itself and sends nothing.
+    message_triggers_enabled: bool = True
+    # Five minutes, because the lesson reminder has a fifteen-minute window and
+    # must be seen at least twice inside it. ge=1: zero would spin the worker.
+    message_trigger_sweep_interval_minutes: int = Field(default=5, ge=1)
     # Google Classroom integration (see services/google_classroom.py). Both
     # unset -> the feature reports "not configured" everywhere and the app
     # runs fine without it, mirroring ANTHROPIC_API_KEY's graceful

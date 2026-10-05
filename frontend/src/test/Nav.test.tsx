@@ -174,6 +174,7 @@ test("Settings renders every section under its heading, in order", async () => {
     "Grade boundaries",
     "Mistake categories",
     "Preferences",
+    "Messages",
     "Account and integrations",
   ];
   expect(wanted.map((w) => headings.indexOf(w))).toEqual(

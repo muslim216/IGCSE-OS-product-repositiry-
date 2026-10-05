@@ -49,6 +49,7 @@ from app.db import async_session
 from app.models import Job, JobStatus
 from app.services.lesson_autorecord import ensure_lesson_autorecord_scheduled
 from app.services.narrative import ensure_narrative_sweep_scheduled
+from app.services.notifications.triggers import ensure_message_trigger_sweep_scheduled
 from app.services.past_paper_phase import ensure_past_paper_phase_sweep_scheduled
 from app.services.rate_limit import close_all_limiters, rate_limit_health
 from app.services.weekly_send import ensure_weekly_send_sweep_scheduled
@@ -104,6 +105,14 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:  # noqa: BLE001 — startup must survive a cold database
         log.exception("could not schedule the weekly send sweep at startup")
+    # And under the message reminders (task 8.5): a lost sweep row would stop
+    # every lesson reminder and homework nudge with nothing to show for it.
+    try:
+        async with async_session() as session:
+            await ensure_message_trigger_sweep_scheduled(session)
+            await session.commit()
+    except Exception:  # noqa: BLE001 — startup must survive a cold database
+        log.exception("could not schedule the message trigger sweep at startup")
 
     # Runs inside the API by default, which is the deployment today. Setting
     # RUN_WORKER_IN_API=false is half of the cutover to a separate worker
