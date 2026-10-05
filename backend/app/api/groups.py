@@ -1,3 +1,5 @@
+from datetime import date, datetime, timezone
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -14,6 +16,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.auth import UserOut
+from app.schemas.class_report import ClassReport
 from app.schemas.groups import (
     ClassBrief,
     GroupCreate,
@@ -29,6 +32,7 @@ from app.schemas.groups import (
 )
 from app.security import hash_password
 from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.class_report import FutureSince, build_class_report
 from app.services.groups import summaries as group_summaries
 from app.services.invites import build_invite
 from app.services.narrative import enqueue_narratives_for_group
@@ -48,6 +52,21 @@ async def _owned_group(db, user: User, group_id: int) -> Group:
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     return group
+
+
+@router.get("/{group_id}/report", response_model=ClassReport)
+async def class_report(
+    group_id: int, db: DbSession, user: TutorUser, since: date | None = None
+) -> ClassReport:
+    """The tutor's class report (task 8.6). `since` opens the mistake-pattern
+    window only; the default is the last four weeks."""
+    group = await _owned_group(db, user, group_id)
+    try:
+        return await build_class_report(db, group, now=datetime.now(timezone.utc), since=since)
+    except FutureSince:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "since cannot be in the future"
+        ) from None
 
 
 @router.post("", response_model=GroupOut, status_code=status.HTTP_201_CREATED)

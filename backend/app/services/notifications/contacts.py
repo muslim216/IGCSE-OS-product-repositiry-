@@ -19,7 +19,18 @@ from app.models import (
 log = logging.getLogger("notifications")
 
 _E164 = re.compile(r"^\+[1-9]\d{7,14}$")
-_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _looks_like_email(value: str) -> bool:
+    """One `@`, something before it, a dotted domain after it, no whitespace.
+    Plain string checks, not a regex: the obvious pattern backtracks
+    polynomially on input a caller controls (CodeQL py/polynomial-redos)."""
+    if len(value) > 254 or any(ch.isspace() for ch in value):
+        return False
+    local, at, domain = value.partition("@")
+    if not local or not at or "@" in domain:
+        return False
+    return all(domain.split(".")) and "." in domain
 
 
 def normalize_address(channel: NotificationChannel, address: str) -> str:
@@ -36,7 +47,7 @@ def normalize_address(channel: NotificationChannel, address: str) -> str:
             raise ValueError("Enter the number in international format, e.g. +201001234567")
         return cleaned
     lowered = raw.lower()
-    if len(lowered) > 254 or not _EMAIL.match(lowered):
+    if not _looks_like_email(lowered):
         raise ValueError("Enter a valid email address")
     return lowered
 

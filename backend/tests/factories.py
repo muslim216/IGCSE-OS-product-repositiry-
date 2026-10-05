@@ -17,9 +17,13 @@ from app.models import (
     AssignmentStatus,
     FactorConfidence,
     FactorEvaluation,
+    Mistake,
     MistakeCategory,
+    MistakeTopic,
     Organization,
     ParentLink,
+    PastPaperQuestion,
+    QuestionMark,
     QuestionTopic,
     ReadinessFactor,
     ReadinessSnapshot,
@@ -32,6 +36,7 @@ from app.models import (
     UserRole,
     WorkKind,
 )
+from app.models.base import utcnow
 from app.security import hash_password
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
 from app.services.work import create_work
@@ -383,6 +388,60 @@ async def add_contact(
     session.add(contact)
     await session.flush()
     return contact
+
+
+async def add_mistake(session, *, student_id, mark_id, category_id, severity, topic_ids, source):
+    mistake = Mistake(
+        student_id=student_id,
+        question_mark_id=mark_id,
+        category_id=category_id,
+        severity=severity,
+        source=source,
+    )
+    session.add(mistake)
+    await session.flush()
+    for topic_id in topic_ids:
+        session.add(MistakeTopic(mistake_id=mistake.id, topic_id=topic_id))
+    return mistake
+
+
+async def settled_submission(
+    session, *, subject_id, organization_id, student_id, analysed, marks, analysed_at=None
+):
+    """A finalized past-paper submission with `marks` question marks on it.
+
+    A past paper because it is the plainest work a tutor owns at organization
+    level, and because the rollup must not care which kind of work a mistake
+    was made on — the query joins `AssessableWork`, not `Assignment` (`API-20`).
+    """
+    paper = await make_past_paper(session, subject_id=subject_id, organization_id=organization_id)
+    submission = Submission(
+        work_id=paper.work_id,
+        student_id=student_id,
+        status=SubmissionStatus.finalized,
+        mistakes_analysed_at=(analysed_at or utcnow()) if analysed else None,
+    )
+    session.add(submission)
+    await session.flush()
+    mark_ids = []
+    for position in range(marks):
+        question = PastPaperQuestion(
+            past_paper_id=paper.id,
+            position=position,
+            number=str(position + 1),
+            text_summary="Question",
+            max_marks=4,
+            has_mark_scheme=True,
+        )
+        session.add(question)
+        await session.flush()
+        mark = QuestionMark(
+            submission_id=submission.id, past_paper_question_id=question.id, final_marks=1
+        )
+        session.add(mark)
+        await session.flush()
+        mark_ids.append(mark.id)
+    return mark_ids
 
 
 async def make_user(

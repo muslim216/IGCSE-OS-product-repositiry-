@@ -102,7 +102,7 @@ test("the old Readiness URL still lands, on Progress", async () => {
   expect(await screen.findByText("No progress to show yet.")).toBeInTheDocument();
 });
 
-test("the tutor nav has seven destinations in the owner's order", async () => {
+test("the tutor nav has eight destinations in the owner's order", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
@@ -114,6 +114,7 @@ test("the tutor nav has seven destinations in the owner's order", async () => {
     "Classes",
     "Review",
     "Readiness",
+    "Reports",
     "Papers & mocks",
     "Library",
     "Settings",

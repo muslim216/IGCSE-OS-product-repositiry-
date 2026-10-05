@@ -666,6 +666,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Class Report
+         * @description The tutor's class report (task 8.6). `since` opens the mistake-pattern
+         *     window only; the default is the last four weeks.
+         */
+        get: operations["class_report_api_v1_groups__group_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -3530,6 +3551,19 @@ export interface components {
             student_id: number;
             state: components["schemas"]["AttendanceState"] | null;
         };
+        /** AttendanceReport */
+        AttendanceReport: {
+            /** Present */
+            present: number;
+            /** Absent */
+            absent: number;
+            /** Not Taken */
+            not_taken: number;
+            /** Rate */
+            rate?: number | null;
+            /** Learners */
+            learners: components["schemas"]["LearnerAttendance"][];
+        };
         /** AttendanceRowOut */
         AttendanceRowOut: {
             /** Student Id */
@@ -3931,6 +3965,30 @@ export interface components {
             /** Reason */
             reason: string | null;
         };
+        /** ChapterReport */
+        ChapterReport: {
+            /** Chapter Id */
+            chapter_id?: number | null;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /** Topics Total */
+            topics_total: number;
+            /** Topics Taught */
+            topics_taught: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "not_started" | "in_progress" | "taught";
+            /** Lessons Planned */
+            lessons_planned?: number | null;
+            /** Lessons Taught */
+            lessons_taught?: number | null;
+            /** Topics */
+            topics: components["schemas"]["TopicReport"][];
+        };
         /** ClassAttendanceOut */
         ClassAttendanceOut: {
             /** Group Id */
@@ -4082,6 +4140,30 @@ export interface components {
             learners: components["schemas"]["ClassLearnerRow"][];
             /** Weak Topics */
             weak_topics: components["schemas"]["ClassWeakTopic"][];
+        };
+        /** ClassReport */
+        ClassReport: {
+            /** Group Id */
+            group_id: number;
+            /** Name */
+            name: string;
+            /** Subject Name */
+            subject_name: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            readiness: components["schemas"]["ReportReadiness"];
+            plan: components["schemas"]["PlanReport"];
+            /** Chapters */
+            chapters: components["schemas"]["ChapterReport"][];
+            /** Weak Topics */
+            weak_topics: components["schemas"]["ClassWeakTopic"][];
+            /** Weak Threshold */
+            weak_threshold: number;
+            mistakes: components["schemas"]["MistakePatterns"];
+            attendance: components["schemas"]["AttendanceReport"];
         };
         /**
          * ClassStripRow
@@ -4526,6 +4608,21 @@ export interface components {
             /** Not Taken */
             not_taken: number;
         };
+        /** LearnerAttendance */
+        LearnerAttendance: {
+            /** Student Id */
+            student_id: number;
+            /** Student Name */
+            student_name: string;
+            /** Present */
+            present: number;
+            /** Absent */
+            absent: number;
+            /** Not Taken */
+            not_taken: number;
+            /** Rate */
+            rate?: number | null;
+        };
         /** LessonCreate */
         LessonCreate: {
             /** Group Id */
@@ -4847,6 +4944,37 @@ export interface components {
             name: string;
             /** Description */
             description?: string | null;
+        };
+        /** MistakeCategoryReport */
+        MistakeCategoryReport: {
+            /** Category Id */
+            category_id: number;
+            /** Category Name */
+            category_name: string;
+            /** Mistakes */
+            mistakes: number;
+            /** Share */
+            share: number;
+            /** Students Affected */
+            students_affected: number;
+            /** Severity Total */
+            severity_total: number;
+        };
+        /** MistakePatterns */
+        MistakePatterns: {
+            /**
+             * Since
+             * Format: date
+             */
+            since: string;
+            /** Analysed Questions */
+            analysed_questions: number;
+            /** Total Mistakes */
+            total_mistakes?: number | null;
+            /** Students Affected */
+            students_affected?: number | null;
+            /** Categories */
+            categories: components["schemas"]["MistakeCategoryReport"][];
         };
         /**
          * MistakeRevisionIn
@@ -5528,6 +5656,35 @@ export interface components {
             earliest_missed_date: string | null;
             earliest_missed_chapter: components["schemas"]["NextLessonChapterOut"] | null;
         };
+        /**
+         * PlanReport
+         * @description Where the class is in its *accepted* teaching plan. A draft is never read.
+         */
+        PlanReport: {
+            /** Has Plan */
+            has_plan: boolean;
+            /** Accepted At */
+            accepted_at?: string | null;
+            /** Exam Date */
+            exam_date?: string | null;
+            /** Days To Exam */
+            days_to_exam?: number | null;
+            /** Lessons Planned */
+            lessons_planned?: number | null;
+            /** Lessons Taught */
+            lessons_taught?: number | null;
+            /** Lessons Left */
+            lessons_left?: number | null;
+            /** Lessons Due */
+            lessons_due?: number | null;
+            /** Behind By */
+            behind_by?: number | null;
+            /** Ahead By */
+            ahead_by?: number | null;
+            /** Position */
+            position?: ("behind" | "on_track" | "ahead") | null;
+            up_next?: components["schemas"]["UpNext"] | null;
+        };
         /** PlanSlotOut */
         PlanSlotOut: {
             /** Id */
@@ -5856,6 +6013,33 @@ export interface components {
             created_at: string;
             /** Generated At */
             generated_at: string | null;
+        };
+        /**
+         * ReportReadiness
+         * @description The class headline, exactly as the class page prints it.
+         */
+        ReportReadiness: {
+            /** Score */
+            score?: number | null;
+            /** Predicted Grade */
+            predicted_grade?: string | null;
+            /** Status */
+            status?: string | null;
+            /**
+             * Boundaries Missing
+             * @default false
+             */
+            boundaries_missing: boolean;
+            /**
+             * Member Count
+             * @default 0
+             */
+            member_count: number;
+            /**
+             * Students With Evidence
+             * @default 0
+             */
+            students_with_evidence: number;
         };
         /** ResourceOut */
         ResourceOut: {
@@ -6684,6 +6868,31 @@ export interface components {
              */
             tutor_estimate: boolean;
         };
+        /** TopicReport */
+        TopicReport: {
+            /** Topic Id */
+            topic_id: number;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /** Taught */
+            taught: boolean;
+            /** Avg Score */
+            avg_score?: number | null;
+            /** Student Count */
+            student_count?: number | null;
+            /**
+             * Weak
+             * @default false
+             */
+            weak: boolean;
+            /**
+             * Includes Tutor Estimate
+             * @default false
+             */
+            includes_tutor_estimate: boolean;
+        };
         /** TrendPoint */
         TrendPoint: {
             /**
@@ -6771,6 +6980,23 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /**
+         * UpNext
+         * @description The first lesson of the accepted plan that nothing has started.
+         */
+        UpNext: {
+            /**
+             * Scheduled Date
+             * Format: date
+             */
+            scheduled_date: string;
+            /** Chapter Code */
+            chapter_code: string;
+            /** Chapter Title */
+            chapter_title: string;
+            /** Topics */
+            topics: string[];
         };
         /** UpcomingScheduleSlot */
         UpcomingScheduleSlot: {
@@ -7960,6 +8186,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GradeBoundariesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    class_report_api_v1_groups__group_id__report_get: {
+        parameters: {
+            query?: {
+                since?: string | null;
+            };
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassReport"];
                 };
             };
             /** @description Validation Error */
