@@ -108,6 +108,7 @@ export default function ClassReadinessPage() {
             loading={groups.isLoading || overview.isLoading}
             error={overview.isError}
             boundariesMissing={overview.data?.boundaries_missing ?? false}
+            subjectId={groups.data?.find((g) => g.id === activeId)?.subject.id}
           />
         </div>
       )}

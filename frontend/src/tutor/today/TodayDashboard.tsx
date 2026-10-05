@@ -207,14 +207,14 @@ const SETUP_STEPS = [
     icon: BookOpen,
     title: "Add your subject's syllabus",
     body: "Upload the exam board's syllabus PDF. avora drafts its chapters and topics for you to check — homework and readiness are tracked against them.",
-    to: "/tutor/syllabuses",
+    to: "/tutor/subject-setup#syllabus",
     cta: "Upload a syllabus",
   },
   {
     icon: Ruler,
     title: "Set your grade boundaries",
     body: "The percentage each grade starts at. Predicted grades are read through these — never invented by the AI.",
-    to: "/tutor/settings#boundaries",
+    to: "/tutor/subject-setup#boundaries",
     cta: "Set boundaries",
   },
   {

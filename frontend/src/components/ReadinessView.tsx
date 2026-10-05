@@ -71,6 +71,7 @@ export function SubjectReadinessCard({
               grade={subject.predicted_grade}
               status={null}
               boundariesMissing={subject.predicted_grade === null}
+              subjectId={subject.subject_id}
               size="lg"
             />
           </div>

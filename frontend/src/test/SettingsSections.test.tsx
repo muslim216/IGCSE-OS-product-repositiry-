@@ -4,12 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import SettingsPage from "../tutor/SettingsPage";
 
-// Marking rules stands in for any section that crashes while rendering.
+// Messages stands in for any section that crashes while rendering. The same
+// boundary around Subject setup's sections is pinned in SubjectSetup.test.tsx.
 const state = vi.hoisted(() => ({ broken: true }));
-vi.mock("../tutor/MarkingRulesPage", () => ({
+vi.mock("../tutor/MessagesSetting", () => ({
   default: () => {
     if (state.broken) throw new Error("boom");
-    return <h2>Marking rules recovered</h2>;
+    return <p>Messages recovered</p>;
   },
 }));
 
@@ -36,21 +37,15 @@ test("one section throwing leaves the rest of Settings usable, and retries alone
     </QueryClientProvider>,
   );
 
-  const broken = await screen.findByRole("region", { name: "Marking rules" });
+  const broken = await screen.findByRole("region", { name: "Messages" });
   expect(within(broken).getByText("This section didn't load")).toBeInTheDocument();
 
-  for (const heading of [
-    "Teaching guidance",
-    "Grade boundaries",
-    "Mistake categories",
-    "Preferences",
-    "Account and integrations",
-  ]) {
-    expect(screen.getByRole("heading", { level: 2, name: heading })).toBeInTheDocument();
-  }
+  expect(
+    screen.getByRole("heading", { level: 2, name: "Account and integrations" }),
+  ).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
 
   state.broken = false;
   fireEvent.click(within(broken).getByRole("button", { name: /Try again/ }));
-  expect(await screen.findByText("Marking rules recovered")).toBeInTheDocument();
+  expect(await screen.findByText("Messages recovered")).toBeInTheDocument();
 });

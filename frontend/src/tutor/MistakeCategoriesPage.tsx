@@ -13,6 +13,7 @@ import { Button, buttonClasses, Field, Input, Select, Textarea } from "../compon
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
  * The mistake-category editor — a per-(organization, subject) list the tutor
@@ -65,8 +66,11 @@ export default function MistakeCategoriesPage() {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
+  // Inside Subject setup the page-level picker owns the subject (see
+  // SubjectSetupContext); standing alone the page keeps its own.
+  const setup = useSubjectSetup();
   const [subjectId, setSubjectId] = useState<number | null>(null);
-  const selected = subjectId ?? subjects.data?.[0]?.id ?? null;
+  const selected = setup ? setup.subjectId : (subjectId ?? subjects.data?.[0]?.id ?? null);
 
   const categories = useQuery({
     queryKey: ["mistake-categories", selected],
@@ -173,7 +177,7 @@ export default function MistakeCategoriesPage() {
     <PageHeader
       title="Mistake categories"
       description="The words used to sort what went wrong on a marked answer. These are your organisation's own — nothing forces every tutor of every subject to sort mistakes the same way."
-      back={{ to: "/tutor/settings", label: "Settings" }}
+      back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />
   );
 
@@ -226,15 +230,17 @@ export default function MistakeCategoriesPage() {
       {header}
 
       <div className="space-y-6">
-        <Field label="Subject" className="max-w-sm">
-          <Select value={selected ?? ""} onChange={(e) => setSubjectId(Number(e.target.value))}>
-            {subjects.data.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.exam_board} {s.code})
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {!setup && (
+          <Field label="Subject" className="max-w-sm">
+            <Select value={selected ?? ""} onChange={(e) => setSubjectId(Number(e.target.value))}>
+              {subjects.data.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.exam_board} {s.code})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {/* The editor appears only once the *draft* belongs to the selected
             subject — not merely once the query's answer does. Switching to a

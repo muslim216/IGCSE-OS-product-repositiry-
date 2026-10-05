@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { followTarget, SETTLE_MS } from "../tutor/SettingsPage";
+import { followTarget, SETTLE_MS } from "../tutor/SectionedPage";
 
 // A section that grows as the ones above it load: its top edge moves between
 // ticks. jsdom has no layout, so the position is faked.

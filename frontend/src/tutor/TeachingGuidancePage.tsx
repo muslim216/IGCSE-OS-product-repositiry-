@@ -13,6 +13,7 @@ import { Button, Field, FileInput, Select } from "../components/controls";
 import { ConfirmDialog, ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
  * Teaching guidance — the scheme of work, the second document a subject is set
@@ -28,8 +29,11 @@ export default function TeachingGuidancePage() {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
+  // Inside Subject setup the page-level picker owns the subject (see
+  // SubjectSetupContext); standing alone the page keeps its own.
+  const setup = useSubjectSetup();
   const [subjectId, setSubjectId] = useState<number | null>(null);
-  const selected = subjectId ?? subjects.data?.[0]?.id ?? null;
+  const selected = setup ? setup.subjectId : (subjectId ?? subjects.data?.[0]?.id ?? null);
 
   const guidance = useQuery({
     queryKey: ["teaching-guidance", selected],
@@ -80,7 +84,7 @@ export default function TeachingGuidancePage() {
     <PageHeader
       title="Teaching guidance"
       description="Your scheme of work for a subject — the order you teach it in and how long each chapter takes. It's kept beside the syllabus, ready for the teaching plan to use when that arrives; nothing reads it yet. One document per subject: uploading again replaces it."
-      back={{ to: "/tutor/settings", label: "Settings" }}
+      back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />
   );
 
@@ -121,29 +125,31 @@ export default function TeachingGuidancePage() {
       {header}
 
       <div className="space-y-6">
-        <Field label="Subject" className="max-w-sm">
-          <Select
-            // Locked while a write is in flight: the mutation captured the subject
-            // it started on, so switching underneath it refreshes the wrong one and
-            // clears a selection the tutor has just made (cubic).
-            disabled={busy}
-            value={selected ?? ""}
-            onChange={(e) => {
-              // A file chosen for Chemistry must not be uploaded to Biology: the
-              // form posts `selected`, which has just changed (cubic, CodeRabbit).
-              // The input itself is remounted by the key below.
-              setFile(null);
-              setError(null);
-              setSubjectId(Number(e.target.value));
-            }}
-          >
-            {subjects.data.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.exam_board} {s.code})
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {!setup && (
+          <Field label="Subject" className="max-w-sm">
+            <Select
+              // Locked while a write is in flight: the mutation captured the subject
+              // it started on, so switching underneath it refreshes the wrong one and
+              // clears a selection the tutor has just made (cubic).
+              disabled={busy}
+              value={selected ?? ""}
+              onChange={(e) => {
+                // A file chosen for Chemistry must not be uploaded to Biology: the
+                // form posts `selected`, which has just changed (cubic, CodeRabbit).
+                // The input itself is remounted by the key below.
+                setFile(null);
+                setError(null);
+                setSubjectId(Number(e.target.value));
+              }}
+            >
+              {subjects.data.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.exam_board} {s.code})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {guidance.isLoading ? (
           <SectionCard>

@@ -11,6 +11,7 @@ import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { useSubjectSetup } from "./SubjectSetupContext";
 
 type WeightKey = Extract<keyof ReadinessWeights, `weight_${string}`>;
 type EnabledKey = Extract<keyof ReadinessWeights, `enabled_${string}`>;
@@ -134,10 +135,20 @@ export default function PreferencesPage() {
   const queryClient = useQueryClient();
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
   // null is the account row ("All subjects").
-  const [subjectId, setSubjectId] = useState<number | null>(null);
+  const setup = useSubjectSetup();
+  const [ownSubjectId, setSubjectId] = useState<number | null>(null);
+  // Inside Subject setup the page-level picker has no "All subjects" entry, and
+  // the account-wide default is still a thing a tutor edits here, so it is
+  // reached by a switch beside the section instead of a second picker.
+  const [accountScope, setAccountScope] = useState(false);
+  const subjectId = setup ? (accountScope ? null : setup.subjectId) : ownSubjectId;
+  // In the page, no subject yet means the list has not loaded: asking for the
+  // account row then would show it under a subject that is about to be chosen.
+  const awaitingSubject = setup !== null && !accountScope && setup.subjectId === null;
   const prefs = useQuery({
     queryKey: ["readiness-weights", subjectId],
     queryFn: () => getReadinessWeights(subjectId),
+    enabled: !awaitingSubject,
   });
 
   // The draft the tutor is editing, seeded once per scope rather than on every
@@ -211,29 +222,53 @@ export default function PreferencesPage() {
       <PageHeader
         title="Preferences"
         description="How much each of the six readiness factors counts towards your students' scores, for all subjects or just one. Saving a change to the factors recalculates everyone you teach."
-        back={{ to: "/tutor/settings", label: "Settings" }}
+        back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
       />
 
       <div className="space-y-6">
-        <Field label="Settings for" className="max-w-sm">
-          <Select
-            value={subjectId ?? ""}
-            onChange={(e) => {
-              // A message about the last scope's save must not read as this one's.
-              save.reset();
-              remove.reset();
-              setSaved(null);
-              setSubjectId(e.target.value === "" ? null : Number(e.target.value));
-            }}
-          >
-            <option value="">All subjects</option>
-            {subjects.data?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.exam_board} {s.code})
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {setup ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-ink-700">
+              Settings for{" "}
+              <span className="font-medium text-ink-900">
+                {accountScope ? "All subjects" : "this subject"}
+              </span>
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                // A message about the last scope's save must not read as this one's.
+                save.reset();
+                remove.reset();
+                setSaved(null);
+                setAccountScope(!accountScope);
+              }}
+            >
+              {accountScope ? "Back to this subject" : "Edit the settings for all subjects"}
+            </Button>
+          </div>
+        ) : (
+          <Field label="Settings for" className="max-w-sm">
+            <Select
+              value={subjectId ?? ""}
+              onChange={(e) => {
+                // A message about the last scope's save must not read as this one's.
+                save.reset();
+                remove.reset();
+                setSaved(null);
+                setSubjectId(e.target.value === "" ? null : Number(e.target.value));
+              }}
+            >
+              <option value="">All subjects</option>
+              {subjects.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.exam_board} {s.code})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {prefs.isError ? (
           <ErrorState error={prefs.error} onRetry={() => prefs.refetch()} />

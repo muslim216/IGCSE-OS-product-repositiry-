@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { LearnerRow } from "../lib/readiness";
 import { ABSENT } from "../lib/labels";
+import { subjectSetupPath } from "../lib/subjectSetup";
 import { Skeleton } from "./page";
 import { EmptyState, InitialsAvatar } from "./ui";
 import ReadinessFigure from "./ReadinessFigure";
@@ -49,6 +50,7 @@ export default function ReadinessTable({
   error = false,
   capped = false,
   boundariesMissing = false,
+  subjectId,
 }: {
   rows: LearnerRow[];
   filter: ReadinessFilter;
@@ -60,6 +62,8 @@ export default function ReadinessTable({
   capped?: boolean;
   /** The subject has no grade boundaries, which is why some rows carry a score but no status. */
   boundariesMissing?: boolean;
+  /** Which subject the rows are for, so the boundaries link opens it. */
+  subjectId?: number | null;
 }) {
   const flagged = rows.filter((r) => matchesFilter(r, "needs_attention")).length;
   const onTrack = rows.filter((r) => r.status === "on_track").length;
@@ -102,7 +106,7 @@ export default function ReadinessTable({
           This subject has no grade boundaries yet. Scores are shown, but no grade or status can be
           worked out until they are set.{" "}
           <Link
-            to="/tutor/settings#boundaries"
+            to={subjectSetupPath("boundaries", subjectId)}
             className="font-medium text-brand-600 hover:text-brand-700"
           >
             {ABSENT.noBoundariesAction}
