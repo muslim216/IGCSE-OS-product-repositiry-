@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { ClassAttention, ClassCard, ClassStripRow } from "../../api/today";
 import ReadinessFigure from "../../components/ReadinessFigure";
+import { bandOf } from "../../lib/readiness";
 
 function planLine(card: ClassCard): string {
   switch (card.plan_state) {
@@ -79,7 +80,7 @@ function Card({ row, card }: { row: ClassStripRow; card: ClassCard | undefined }
           <ReadinessFigure
             score={row.score}
             grade={row.predicted_grade}
-            status={row.status}
+            status={bandOf(row.status)}
             boundariesMissing={row.boundaries_missing}
           />
         </span>

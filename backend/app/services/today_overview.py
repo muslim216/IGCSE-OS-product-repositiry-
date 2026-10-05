@@ -58,7 +58,9 @@ from app.services.class_readiness import LearnerSnapshot, latest_learner_snapsho
 from app.services.plan_progress import Progress, class_progress
 from app.services.plan_start_times import timetable_start_times
 from app.services.plan_timing import slot_end_utc, slot_start_utc, split_topics
-from app.services.readiness_shared import CONFIDENT, trend_direction
+from app.services.readiness_config import resolve_readiness_config
+from app.services.readiness_shared import trend_direction
+from app.services.readiness_summary_v2 import weak_topic_rows
 from app.services.teaching_plan import STARTED_PROVENANCE, effective_start_time
 from app.services.timezones import effective_timezone
 from app.services.today import pending_review_count, tutor_groups
@@ -70,8 +72,6 @@ from app.services.today import pending_review_count, tutor_groups
 READINESS_DROP_THRESHOLD = 5.0
 #: How old the comparison snapshot must be, in days ("since last week").
 READINESS_COMPARISON_DAYS = 7
-#: A topic score under this is "below 50%" — the figure the card quotes.
-WEAK_TOPIC_BELOW = 50.0
 #: Names listed in a card's reason before "and N more".
 NAMES_SHOWN = 3
 
@@ -277,6 +277,7 @@ async def build_overview(
         lesson.id: lesson for lesson in [*week_lessons, *earlier] if lesson.date <= today
     }
     members: dict[int, dict[int, date]] = defaultdict(dict)
+    join_at: dict[int, dict[int, datetime]] = defaultdict(dict)
     for gid, sid, joined in (
         await db.execute(
             select(GroupMember.group_id, GroupMember.student_id, GroupMember.created_at).where(
@@ -285,6 +286,7 @@ async def build_overview(
         )
     ).all():
         members[gid][sid] = in_zone(joined, zone).date()
+        join_at[gid][sid] = _as_utc(joined)
     marks: dict[int, dict[int, AttendanceState]] = defaultdict(dict)
     if pool:
         for lid, sid, state in (
@@ -412,30 +414,42 @@ async def build_overview(
         gid: p for gid, (_name, p) in (await class_progress(db, user, today, now=now_utc)).items()
     }
 
-    hw_members = {gid: len(m) for gid, m in members.items()}
-    submitted = (
-        select(
-            Assignment.group_id.label("g"),
-            Assignment.id.label("a"),
-            func.count(func.distinct(GroupMember.student_id)).label("n"),
+    # Hand-ins. A student is "missing" only once the assignment is past its
+    # due date (the injected `now`, not the wall clock), and never for one that
+    # fell due before they joined the class. No due date means it can never be
+    # late, so it is never missing. There is no published-at column, so "joined
+    # after the deadline" is the honest proxy for "not their homework".
+    published = (
+        await db.execute(
+            select(Assignment.group_id, Assignment.work_id, Assignment.due_at).where(
+                Assignment.group_id.in_(group_ids),
+                Assignment.status == AssignmentStatus.published,
+            )
         )
-        .select_from(Assignment)
-        .outerjoin(Submission, Submission.work_id == Assignment.work_id)
-        .outerjoin(
-            GroupMember,
-            (GroupMember.group_id == Assignment.group_id)
-            & (GroupMember.student_id == Submission.student_id),
-        )
-        .where(Assignment.group_id.in_(group_ids), Assignment.status == AssignmentStatus.published)
-        .group_by(Assignment.group_id, Assignment.id)
-    )
+    ).all()
+    handed_in: dict[int, set[int]] = defaultdict(set)
+    if published:
+        for work_id, sid in (
+            await db.execute(
+                select(Submission.work_id, Submission.student_id).where(
+                    Submission.work_id.in_([w for _g, w, _d in published])
+                )
+            )
+        ).all():
+            handed_in[work_id].add(sid)
     hw_out: dict[int, int] = defaultdict(int)
     hw_missing: dict[int, int] = defaultdict(int)
-    for gid, _aid, n in (await db.execute(submitted)).all():
-        missing = hw_members.get(gid, 0) - n
-        if missing > 0:
-            hw_out[gid] += 1
-            hw_missing[gid] += missing
+    for gid, work_id, due_at in published:
+        roster = join_at.get(gid, {})
+        waiting = [sid for sid in roster if sid not in handed_in[work_id]]
+        if not waiting:
+            continue
+        # "Out" means someone has yet to hand it in, due or not; "missing" is the
+        # overdue subset below.
+        hw_out[gid] += 1
+        if due_at is None or _as_utc(due_at) > now_utc:
+            continue
+        hw_missing[gid] += sum(1 for sid in waiting if roster[sid] <= _as_utc(due_at))
 
     marking_by_group: dict[int, int] = {}
     for gid, n in (
@@ -458,28 +472,42 @@ async def build_overview(
         for snap in learners.values():
             run_owners[snap.evaluation_run_id].append((gid, snap))
     weak: dict[int, dict[int, tuple[str, str, list[LearnerSnapshot]]]] = defaultdict(dict)
+    # The tutor's own threshold, resolved once per subject — a handful of
+    # queries however many learners — so "weak" here is exactly "named in the
+    # shared verdict" (`class_verdicts`): same threshold, same `weak_topic_rows`
+    # selection, no second definition of weak.
+    thresholds: dict[int, float] = {}
+    for g in groups:
+        if g.subject_id not in thresholds:
+            thresholds[g.subject_id] = (
+                await resolve_readiness_config(db, g.organization_id, g.subject_id)
+            ).weak_threshold
+    threshold_of = {g.id: thresholds[g.subject_id] for g in groups}
     if run_owners:
-        for run_id, topic_id, code, title in (
+        evals_by_run: dict[str, list[FactorEvaluation]] = defaultdict(list)
+        topic_labels: dict[int, tuple[str, str]] = {}
+        for ev, code, title in (
             await db.execute(
-                select(
-                    FactorEvaluation.evaluation_run_id,
-                    FactorEvaluation.topic_id,
-                    Topic.code,
-                    Topic.title,
-                )
+                select(FactorEvaluation, Topic.code, Topic.title)
                 .join(Topic, Topic.id == FactorEvaluation.topic_id)
                 .where(
                     FactorEvaluation.evaluation_run_id.in_(list(run_owners)),
                     FactorEvaluation.factor == ReadinessFactor.topic_mastery,
-                    FactorEvaluation.score.is_not(None),
-                    FactorEvaluation.score < WEAK_TOPIC_BELOW,
-                    FactorEvaluation.confidence.in_(CONFIDENT),
                 )
             )
         ).all():
-            for gid, snap in run_owners[run_id]:
-                entry = weak[gid].setdefault(topic_id, (code, title, []))
-                entry[2].append(snap)
+            evals_by_run[ev.evaluation_run_id].append(ev)
+            topic_labels[ev.topic_id] = (code, title)
+        # A run shared by several classes is filtered with each class's own
+        # threshold, so the filter runs per (class, learner), not per run.
+        for run_id, owners in run_owners.items():
+            for gid, snap in owners:
+                for row in weak_topic_rows(evals_by_run.get(run_id, []), threshold_of[gid]):
+                    topic_id = row.topic_id
+                    assert topic_id is not None  # weak_topic_rows filters these out
+                    code, title = topic_labels[topic_id]
+                    entry = weak[gid].setdefault(topic_id, (code, title, []))
+                    entry[2].append(snap)
 
     # ---- the cards ---------------------------------------------------------
     cards: list[ClassCard] = []
@@ -524,6 +552,7 @@ async def build_overview(
                     dropped.get(gid, []),
                     prog if missed else None,
                     marking_by_group.get(gid, 0),
+                    threshold_of[gid],
                 ),
             )
         )
@@ -557,6 +586,7 @@ def _attention(
     dropped: list[LearnerSnapshot],
     behind: Progress | None,
     marking: int,
+    weak_threshold: float,
 ) -> ClassAttention | None:
     """The class's single most important item, most specific first: students
     below the bar on a named topic, then students whose readiness fell, then
@@ -570,7 +600,7 @@ def _attention(
         snaps = sorted(snaps, key=lambda s: (s.student_name.lower(), s.student_id))
         return ClassAttention(
             kind="weak_topic",
-            message=f"{_names([s.student_name for s in snaps])} below {WEAK_TOPIC_BELOW:.0f}% on {code} {title}",
+            message=f"{_names([s.student_name for s in snaps])} at or below {weak_threshold:g}% on {code} {title}",
             topic_id=topic_id,
             student_ids=[s.student_id for s in snaps],
             student_names=[s.student_name for s in snaps],

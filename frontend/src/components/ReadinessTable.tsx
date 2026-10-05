@@ -16,7 +16,9 @@ const TABS: { id: ReadinessFilter; label: string }[] = [
 export function matchesFilter(row: LearnerRow, filter: ReadinessFilter): boolean {
   if (filter === "all") return true;
   if (filter === "on_track") return row.status === "on_track";
-  return row.status !== "on_track";
+  // A learner with no band is in neither group: she is not "on track", and
+  // calling her "needs attention" would be a band nobody derived (PROD-2).
+  return row.status !== null && row.status !== "on_track";
 }
 
 function SkeletonRows() {
@@ -46,6 +48,7 @@ export default function ReadinessTable({
   loading = false,
   error = false,
   capped = false,
+  boundariesMissing = false,
 }: {
   rows: LearnerRow[];
   filter: ReadinessFilter;
@@ -55,8 +58,11 @@ export default function ReadinessTable({
   error?: boolean;
   /** A class hit the server's per-class limit, so the list is the lowest-scoring subset. */
   capped?: boolean;
+  /** The subject has no grade boundaries, which is why some rows carry a score but no status. */
+  boundariesMissing?: boolean;
 }) {
-  const flagged = rows.filter((r) => r.status !== "on_track").length;
+  const flagged = rows.filter((r) => matchesFilter(r, "needs_attention")).length;
+  const onTrack = rows.filter((r) => r.status === "on_track").length;
   const query = searchQuery.trim().toLowerCase();
   const visible = rows.filter(
     (r) => matchesFilter(r, filter) && (!query || r.student_name.toLowerCase().includes(query)),
@@ -65,7 +71,7 @@ export default function ReadinessTable({
   const counts: Record<ReadinessFilter, number> = {
     all: rows.length,
     needs_attention: flagged,
-    on_track: rows.length - flagged,
+    on_track: onTrack,
   };
 
   return (
@@ -77,11 +83,30 @@ export default function ReadinessTable({
               <span className="font-semibold text-warn-700">
                 {flagged} learner{flagged === 1 ? "" : "s"}
               </span>{" "}
-              may need support before their next assessment.
+              need attention.
             </>
-          ) : (
+          ) : onTrack === rows.length ? (
             <>Everyone with readiness evidence is currently on track.</>
-          )}
+          ) : null}
+        </p>
+      )}
+
+      {!boundariesMissing && rows.some((r) => r.status === null) && (
+        <p className="mt-2 text-sm text-ink-500">
+          Some learners have a score but not enough data to give a status yet.
+        </p>
+      )}
+
+      {boundariesMissing && rows.length > 0 && (
+        <p className="mt-2 text-sm text-ink-500">
+          This subject has no grade boundaries yet. Scores are shown, but no grade or status can be
+          worked out until they are set.{" "}
+          <Link
+            to="/tutor/settings#boundaries"
+            className="font-medium text-brand-600 hover:text-brand-700"
+          >
+            {ABSENT.noBoundariesAction}
+          </Link>
         </p>
       )}
 

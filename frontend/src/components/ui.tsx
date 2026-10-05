@@ -78,27 +78,6 @@ export function StatusBadge({ status }: { status: ReadinessStatus }) {
   );
 }
 
-const BAR_FILLS: Record<ReadinessStatus, string> = {
-  on_track: "bg-ok-700",
-  needs_attention: "bg-warn-700",
-  at_risk: "bg-risk-600",
-};
-
-/** Slim evidence bar. Decorative — the numeric score is always shown beside it. */
-export function ReadinessBar({ score, status }: { score: number; status: ReadinessStatus }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-block h-1 w-24 overflow-hidden rounded-full bg-canvas align-middle"
-    >
-      <span
-        className={`block h-full rounded-full ${BAR_FILLS[status]}`}
-        style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-      />
-    </span>
-  );
-}
-
 /**
  * Direction of travel, or nothing at all.
  *
@@ -108,8 +87,10 @@ export function ReadinessBar({ score, status }: { score: number; status: Readine
  * student's home and the parent screen — and a fourth copy of this rule is a
  * fourth chance for one of them to default `null` to "flat".
  */
-export function DirectionMark({ direction }: { direction: "up" | "flat" | "down" | null }) {
-  if (direction === null) return null;
+export function DirectionMark({ direction }: { direction?: string | null }) {
+  // The wire types direction as a string; anything but the three known values
+  // renders nothing rather than defaulting to "flat" (PROD-2).
+  if (direction !== "up" && direction !== "flat" && direction !== "down") return null;
   const glyph = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
   const tone =
     direction === "up" ? "text-ok-700" : direction === "down" ? "text-risk-600" : "text-ink-500";

@@ -18,15 +18,15 @@ import { StatusBadge, type ReadinessStatus } from "./ui";
  * never computes one from the score.
  */
 export default function ReadinessFigure({
-  score,
-  grade,
-  status,
+  score = null,
+  grade = null,
+  status = null,
   boundariesMissing = false,
   size = "md",
 }: {
-  score: number | null;
-  grade: string | null;
-  status: ReadinessStatus | null;
+  score?: number | null;
+  grade?: string | null;
+  status?: ReadinessStatus | null;
   /** The subject has no grade boundaries, which is why `grade` is absent. */
   boundariesMissing?: boolean;
   size?: "md" | "lg";
@@ -77,7 +77,10 @@ export default function ReadinessFigure({
         <span className="text-ink-500">
           {hasAnything && <span aria-hidden>· </span>}
           <span>{ABSENT.noBoundaries}</span>{" "}
-          <Link to="/tutor/boundaries" className="font-medium text-brand-600 hover:text-brand-700">
+          <Link
+            to="/tutor/settings#boundaries"
+            className="font-medium text-brand-600 hover:text-brand-700"
+          >
             {ABSENT.noBoundariesAction}
           </Link>
         </span>
