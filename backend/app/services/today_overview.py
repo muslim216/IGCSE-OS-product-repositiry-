@@ -144,6 +144,20 @@ def _as_utc(moment: datetime) -> datetime:
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
 
 
+def missing_handins(
+    roster: dict[int, datetime], handed_in: set[int], due_at: datetime | None, now: datetime
+) -> int:
+    """How many enrolled students owe an assignment that is past due: not handed
+    in, the deadline already behind `now`, and enrolled before it fell. No due
+    date means it can never be late, so it is never missing. Shared with the
+    weekly send so the two cannot count "missing" differently."""
+    if due_at is None or _as_utc(due_at) > now:
+        return 0
+    return sum(
+        1 for sid, joined in roster.items() if sid not in handed_in and joined <= _as_utc(due_at)
+    )
+
+
 async def _topic_shares(db: AsyncSession, slots: list[SlotRow]) -> dict[int, list[ClassTopicRef]]:
     """{slot_id: that lesson's topics}, for many slots in two queries. The same
     split as `teaching_plan.topic_share` (one definition: `split_topics`), done
@@ -447,9 +461,7 @@ async def build_overview(
         # "Out" means someone has yet to hand it in, due or not; "missing" is the
         # overdue subset below.
         hw_out[gid] += 1
-        if due_at is None or _as_utc(due_at) > now_utc:
-            continue
-        hw_missing[gid] += sum(1 for sid in waiting if roster[sid] <= _as_utc(due_at))
+        hw_missing[gid] += missing_handins(roster, handed_in[work_id], due_at, now_utc)
 
     marking_by_group: dict[int, int] = {}
     for gid, n in (

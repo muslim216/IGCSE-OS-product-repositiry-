@@ -12,17 +12,29 @@ from sqlalchemy import select
 
 from app.models import (
     AiSynthesisStatus,
+    Assignment,
+    AssignmentQuestion,
+    AssignmentStatus,
     FactorConfidence,
     FactorEvaluation,
     MistakeCategory,
     Organization,
+    ParentLink,
+    QuestionTopic,
     ReadinessFactor,
     ReadinessSnapshot,
     Subject,
     SubjectLevel,
+    Submission,
+    SubmissionStatus,
     Topic,
+    User,
+    UserRole,
+    WorkKind,
 )
+from app.security import hash_password
 from app.services.grade_boundaries import defaults_for_scale, set_org_boundaries
+from app.services.work import create_work
 
 
 async def org_id(session) -> int:
@@ -269,3 +281,111 @@ async def write_v2_snapshot(
     )
     await session.flush()
     return run_id
+
+
+async def make_user(
+    session, *, organization_id: int, role: UserRole, name: str, email: str, **kwargs
+) -> User:
+    """A user of any role without going through registration, for tests that need
+    a second tenant's tutor or a parent."""
+    user = User(
+        organization_id=organization_id,
+        role=role,
+        name=name,
+        email=email,
+        password_hash=hash_password("password123"),
+        **kwargs,
+    )
+    session.add(user)
+    await session.flush()
+    return user
+
+
+async def link_parent(session, parent_id: int, student_id: int) -> None:
+    session.add(ParentLink(parent_id=parent_id, student_id=student_id))
+    await session.flush()
+
+
+async def publish_assignment(
+    session,
+    *,
+    group_id: int,
+    subject_id: int,
+    organization_id: int,
+    title: str = "HW",
+    due_at: datetime | None = None,
+    created_at: datetime | None = None,
+    topic_ids: tuple[int, ...] = (),
+) -> Assignment:
+    """A published assignment (with its work row) carrying one question per given
+    topic, so a test can say which chapter it covers."""
+    work = await create_work(
+        session,
+        kind=WorkKind.homework,
+        organization_id=organization_id,
+        subject_id=subject_id,
+        title=title,
+    )
+    assignment = Assignment(
+        group_id=group_id,
+        work_id=work.id,
+        title=title,
+        due_at=due_at,
+        status=AssignmentStatus.published,
+        **({"created_at": created_at} if created_at else {}),
+    )
+    session.add(assignment)
+    await session.flush()
+    for position, topic_id in enumerate(topic_ids):
+        question = AssignmentQuestion(
+            assignment_id=assignment.id,
+            position=position,
+            number=str(position + 1),
+            text_summary="q",
+            max_marks=2,
+        )
+        session.add(question)
+        await session.flush()
+        session.add(QuestionTopic(question_id=question.id, topic_id=topic_id))
+    await session.flush()
+    return assignment
+
+
+async def submit_work(
+    session,
+    *,
+    assignment: Assignment,
+    student_id: int,
+    status: SubmissionStatus,
+    submitted_at: datetime,
+    finalized_at: datetime | None = None,
+    **kwargs,
+) -> Submission:
+    submission = Submission(
+        work_id=assignment.work_id,
+        student_id=student_id,
+        status=status,
+        submitted_at=submitted_at,
+        finalized_at=finalized_at,
+        **kwargs,
+    )
+    session.add(submission)
+    await session.flush()
+    return submission
+
+
+async def set_boundaries(subject_id: int, bounds: list[dict] | None = None) -> None:
+    """Round-number 9-1 boundaries for a subject a fixture built without any, in
+    its own session (for tests that hold a subject id, not a session)."""
+    from app.db import async_session
+
+    async with async_session() as session:
+        subject = await session.get(Subject, subject_id)
+        assert subject is not None
+        await set_org_boundaries(
+            session,
+            subject.organization_id,
+            subject_id,
+            NINE_TO_ONE_BOUNDS if bounds is None else bounds,
+        )
+        await session.commit()
