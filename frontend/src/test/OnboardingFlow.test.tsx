@@ -632,7 +632,7 @@ test("the standard-boundaries sentence is tied to the button", async () => {
   expect(button).toHaveAccessibleDescription(/Nothing is saved until you choose to use them/);
 });
 
-test("the dashboard's own queries are not requested in the flow, and are when out of it", async () => {
+test("the dashboard's own reads start with the page and are not repeated once the flow is known", async () => {
   const paths = () =>
     (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
       (c) => new URL(String(c[0]), "http://localhost").pathname,
@@ -640,8 +640,13 @@ test("the dashboard's own queries are not requested in the flow, and are when ou
   const own = ["/api/v1/today", "/api/v1/today/overview", "/api/v1/groups"];
   renderApp();
   await stepButton("syllabus");
-  expect(own.filter((p) => paths().includes(p))).toEqual([]);
-  expect(paths()).not.toContain("/api/v1/assignments/attention");
+  // Asked for once, alongside the onboarding read, so the dashboard is never
+  // held behind it; then left alone, because nothing in the flow shows them.
+  await screen.findByRole("heading", { level: 1 });
+  await new Promise((r) => setTimeout(r, 50));
+  for (const path of own) {
+    expect(paths().filter((p) => p === path).length).toBeLessThanOrEqual(1);
+  }
   cleanup();
 
   classCount = 1;

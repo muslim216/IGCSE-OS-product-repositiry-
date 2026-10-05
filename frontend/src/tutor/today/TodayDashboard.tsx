@@ -62,11 +62,12 @@ export default function TodayDashboard() {
   useEffect(() => {
     if (!onboarding.isLoading) setOnboardingSettled(true);
   }, [onboarding.isLoading]);
-  // The dashboard's own reads wait for the onboarding answer and are not made
-  // while the flow is on screen: nothing in the flow uses them. Once the answer
-  // is in (data or failure) they run exactly as before, so a failed onboarding
-  // read still lands on a dashboard that loads.
-  const dashboardEnabled = (onboardingSettled || !onboarding.isLoading) && !inFlow;
+  // The dashboard's own reads stop once the server says this tutor is in the
+  // flow, where nothing shows them. They are NOT held back while that answer is
+  // still loading: this is the most-viewed page, and waiting would put an extra
+  // round trip in front of it for every tutor on every visit, to save a new
+  // tutor one set of requests once.
+  const dashboardEnabled = !inFlow;
 
   const today = useQuery({ queryKey: ["today"], queryFn: todayView, enabled: dashboardEnabled });
   // The overview feeds the week strip, the agenda and the cards. Polled so
