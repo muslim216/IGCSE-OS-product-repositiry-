@@ -40,6 +40,7 @@ function subject(over: Record<string, unknown> = {}) {
 function state(over: Record<string, unknown> = {}) {
   return {
     complete: false,
+    in_flow: false,
     account: item("account_basics", "set_by_you"),
     subjects: [subject()],
     next_step: null,
@@ -333,7 +334,7 @@ test("a failed load says so once and offers a retry", async () => {
   expect(await screen.findByRole("region", { name: "Setup" })).toBeInTheDocument();
 });
 
-/* On the real page: the card is on the dashboard, not on the first-class welcome. */
+/* On the real page: the card is on the dashboard, not in the setup flow. */
 function renderApp() {
   localStorage.setItem("avora-tokens", JSON.stringify({ access_token: "t", token_type: "bearer" }));
   return render(
@@ -360,7 +361,16 @@ function stubApp(classCount: number, onboarding: "fail" | "bad" | "default") {
       if (url.includes("/api/v1/onboarding")) {
         if (onboarding === "fail") return new Response("{}", { status: 500 });
         if (onboarding === "bad") return json([]);
-        return json(state({ account: item("account_basics", "default") }));
+        // An account with no class is in the setup flow; the server says so.
+        return json(
+          classCount === 0
+            ? state({
+                in_flow: true,
+                subjects: [],
+                next_step: { key: "syllabus", subject_id: null, group_id: null },
+              })
+            : state({ account: item("account_basics", "default") }),
+        );
       }
       if (url.includes("/api/v1/today/overview")) return new Response("{}", { status: 500 });
       if (url.includes("/api/v1/today"))
@@ -377,7 +387,7 @@ function stubApp(classCount: number, onboarding: "fail" | "bad" | "default") {
   );
 }
 
-test("the dashboard shows the card, and the no-class welcome does not", async () => {
+test("the dashboard shows the card, and the setup flow does not", async () => {
   stubApp(1, "default");
   const { unmount } = renderApp();
   expect(await screen.findByRole("region", { name: "Setup" })).toBeInTheDocument();
@@ -385,7 +395,9 @@ test("the dashboard shows the card, and the no-class welcome does not", async ()
 
   stubApp(0, "default");
   renderApp();
-  expect(await screen.findByText("Let's set up your first class.")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Set up your first class" }),
+  ).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Setup" })).not.toBeInTheDocument();
 });
 

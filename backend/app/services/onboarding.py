@@ -247,6 +247,8 @@ def build_state(
 
     return OnboardingState(
         complete=complete,
+        # The finish line is an accepted plan on any of the caller's classes.
+        in_flow=not any(c.plan_accepted for c in classes),
         account=ItemStatus(
             key=SetupItem.account_basics.value,
             kind="defaulted",

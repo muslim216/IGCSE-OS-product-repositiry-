@@ -41,7 +41,14 @@ function sourceNote(data: GradeBoundaries): string {
   return "Nothing set yet, so this subject has no predicted grades. These are the published standard boundaries — save them to use them.";
 }
 
-export default function GradeBoundariesPage() {
+export default function GradeBoundariesPage({
+  acceptDefaultsLabel,
+}: {
+  /** The onboarding flow's one-tap wording: while nothing is saved and the list
+   *  is still the untouched published default, the save button reads this. Any
+   *  edit, or boundaries already saved, brings back "Save boundaries". */
+  acceptDefaultsLabel?: string;
+} = {}) {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
@@ -266,7 +273,12 @@ export default function GradeBoundariesPage() {
                 disabled={outOfOrder || duplicateLabels || draft.length < 2}
                 loading={save.isPending}
               >
-                Save boundaries
+                {acceptDefaultsLabel &&
+                boundaries.data.source !== "organization" &&
+                draft.length > 0 &&
+                JSON.stringify(draft) === JSON.stringify(boundaries.data.boundaries)
+                  ? acceptDefaultsLabel
+                  : "Save boundaries"}
               </Button>
             </div>
             {save.isError && (

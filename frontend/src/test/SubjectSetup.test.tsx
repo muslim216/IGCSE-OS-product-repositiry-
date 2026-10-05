@@ -358,6 +358,7 @@ function subjectStatus(id: number, name: string, items: ReturnType<typeof item>[
 
 const ONBOARDING = {
   complete: false,
+  in_flow: false,
   account: item("account_basics", "set_by_you"),
   subjects: [
     subjectStatus(7, "Chemistry", [

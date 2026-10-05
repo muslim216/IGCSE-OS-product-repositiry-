@@ -16201,6 +16201,10 @@
             "type": "boolean",
             "title": "Complete"
           },
+          "in_flow": {
+            "type": "boolean",
+            "title": "In Flow"
+          },
           "account": {
             "$ref": "#/components/schemas/ItemStatus"
           },
@@ -16225,6 +16229,7 @@
         "type": "object",
         "required": [
           "complete",
+          "in_flow",
           "account",
           "subjects",
           "next_step"

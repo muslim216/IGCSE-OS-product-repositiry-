@@ -213,6 +213,8 @@ function UploadDetail({ id, onBack }: { id: number; onBack: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["syllabus-upload", id] });
       queryClient.invalidateQueries({ queryKey: ["syllabus-uploads"] });
       queryClient.invalidateQueries({ queryKey: ["subjects"] });
+      // A subject with chapters is what makes the syllabus step done.
+      queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     },
     onError: (err) => setError(friendlyError(err, "That didn't apply. Try again.")),
   });

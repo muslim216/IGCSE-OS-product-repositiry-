@@ -57,7 +57,11 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
   const [breakForm, setBreakForm] = useState<BreakForm>(EMPTY_BREAK);
   const [error, setError] = useState<string | null>(null);
 
-  const onSettled = () => queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
+  const onSettled = () => {
+    // Saved inputs are what makes the plan-details onboarding step done.
+    void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
+    return queryClient.invalidateQueries({ queryKey: ["plan", groupId] });
+  };
   const save = useMutation({
     mutationFn: (v: Draft) =>
       savePlanInputs(groupId, {

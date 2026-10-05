@@ -82,6 +82,7 @@ function stubFetch(
       if (url.includes("/api/v1/onboarding")) {
         return json({
           complete: true,
+          in_flow: false,
           account: { key: "account_basics", kind: "defaulted", state: "set_by_you" },
           subjects: [],
           next_step: null,
@@ -299,8 +300,13 @@ test("no narrative yet states the absence rather than rendering an empty panel",
 test("with no classes the surface offers the one useful action", async () => {
   stubFetch(EMPTY_VIEW);
   renderDashboard();
-  expect(await screen.findByText("You haven't set up a class yet.")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Create a class/ })).toBeInTheDocument();
+  // Reached only when the onboarding read says the tutor is out of the flow yet
+  // there is no class (or the read failed): a plain statement and one link.
+  expect(await screen.findByText("No classes yet.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Open Subject setup" })).toHaveAttribute(
+    "href",
+    "/tutor/subject-setup",
+  );
 });
 
 test("the page is dated in the organization's day, the one its lessons were chosen in", async () => {

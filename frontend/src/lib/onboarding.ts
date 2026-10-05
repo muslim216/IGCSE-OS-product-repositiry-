@@ -19,6 +19,7 @@ function isOnboardingState(data: unknown): data is OnboardingState {
   return (
     !!d &&
     typeof d === "object" &&
+    typeof d.in_flow === "boolean" &&
     !!d.account &&
     Array.isArray(d.subjects) &&
     d.subjects.every(

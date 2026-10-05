@@ -5635,6 +5635,8 @@ export interface components {
         OnboardingState: {
             /** Complete */
             complete: boolean;
+            /** In Flow */
+            in_flow: boolean;
             account: components["schemas"]["ItemStatus"];
             /** Subjects */
             subjects: components["schemas"]["SubjectStatus"][];
