@@ -25,6 +25,7 @@ import AppShell from "./components/AppShell";
 import LandingPage from "./marketing/LandingPage";
 import PrivacyPolicyPage from "./legal/PrivacyPolicyPage";
 import { NotFoundPage } from "./components/page";
+import WeeklySendPage, { WeeklySendRedirect } from "./components/WeeklySendPage";
 import { BrandedLoading } from "./components/brand";
 import GroupsPage from "./tutor/GroupsPage";
 import GroupLayout from "./tutor/GroupLayout";
@@ -176,6 +177,7 @@ export default function App() {
           <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
           <Route path="/tutor/students/:studentId" element={<StudentDetailPage />} />
           <Route path="/tutor/settings" element={<SettingsPage />} />
+          <Route path="/tutor/weekly/:sendId" element={<WeeklySendPage />} />
           <Route
             path="/tutor/settings/integrations/:provider/callback"
             element={<IntegrationCallbackPage />}
@@ -211,6 +213,7 @@ export default function App() {
           <Route path="/student/mocks" element={<StudentMocksPage />} />
           <Route path="/student/mocks/:mockId" element={<SitMockPage />} />
           <Route path="/student/exams" element={<ExamsPage />} />
+          <Route path="/student/weekly/:sendId" element={<WeeklySendPage />} />
           <Route path="/student/account" element={<AccountPage />} />
         </Route>
       </Route>
@@ -218,8 +221,15 @@ export default function App() {
       <Route element={<ProtectedRoute roles={["parent"]} />}>
         <Route element={<AppShell title="Parent" accountPath="/parent/account" />}>
           <Route path="/parent" element={<ParentDashboard />} />
+          <Route path="/parent/weekly/:sendId" element={<WeeklySendPage />} />
           <Route path="/parent/account" element={<AccountPage />} />
         </Route>
+      </Route>
+
+      {/* The address a WhatsApp or email message carries: it cannot know the
+          reader's role, so it forwards to the same send inside their own shell. */}
+      <Route element={<ProtectedRoute roles={["tutor", "admin", "student", "parent"]} />}>
+        <Route path="/weekly/:sendId" element={<WeeklySendRedirect />} />
       </Route>
 
       {/* A real 404, not a silent bounce to "/": a mistyped link should say so. */}

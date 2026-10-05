@@ -7,6 +7,7 @@ import { myReadiness } from "../api/readiness";
 import { myAssignments } from "../api/homework";
 import { DirectionMark, SectionCard } from "../components/ui";
 import { ErrorState, PageHeader, PageSkeleton } from "../components/page";
+import WeeklySendLink from "../components/WeeklySendLink";
 import { ABSENT } from "../lib/labels";
 import { VerdictLine } from "../components/VerdictLine";
 import { greetingFor } from "../lib/readiness";
@@ -186,6 +187,8 @@ export default function StudentHomePage() {
         title={dueVerdict(due.length)}
         documentTitle="Home"
       />
+
+      <WeeklySendLink home="/student" />
 
       {/* Homework due and the verdict are different facts, and both are shown:
           "nothing due" must never read as "all is well" when the tutor's
