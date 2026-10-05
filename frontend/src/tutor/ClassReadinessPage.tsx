@@ -42,7 +42,7 @@ export default function ClassReadinessPage() {
     return data.learners.flatMap((l) =>
       // A learner with no score or no band is absent rather than fabricated:
       // the table colours by band, and there is no honest colour without one.
-      l.score === null || l.status === null
+      l.score === null || l.verdict.status === "not_enough_data"
         ? []
         : [
             {
@@ -50,7 +50,7 @@ export default function ClassReadinessPage() {
               student_name: l.student_name,
               subject_name: data.subject_name,
               score: l.score,
-              status: l.status,
+              status: l.verdict.status,
               group_id: data.group_id,
               group_name: data.name,
             },

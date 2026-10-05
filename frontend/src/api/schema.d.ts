@@ -3852,7 +3852,7 @@ export interface components {
          * ClassLearnerRow
          * @description One learner on the class page.
          *
-         *     `direction` is what NEEDS YOU selects on, not `status`: a learner sliding
+         *     `direction` is what NEEDS YOU selects on, not the verdict: a learner sliding
          *     from a grade 8 to a 6 is the one the tutor can still help, while a learner
          *     who has been a stable grade 4 all year is why the class carries its status
          *     but is not news. null means too little history to say — rendered as no
@@ -3867,8 +3867,7 @@ export interface components {
             score?: number | null;
             /** Predicted Grade */
             predicted_grade?: string | null;
-            /** Status */
-            status?: string | null;
+            verdict: components["schemas"]["SubjectVerdict"];
             /** Direction */
             direction?: string | null;
             /** Homework Assignment Count */

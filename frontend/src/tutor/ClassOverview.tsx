@@ -6,6 +6,7 @@ import { createInvite, generateClassBrief } from "../api/groups";
 import { groupNarrative } from "../api/narrative";
 import { DirectionMark, SectionCard, StatusBadge } from "../components/ui";
 import { Button } from "../components/controls";
+import { VerdictLine } from "../components/VerdictLine";
 import { SectionSkeleton } from "../components/page";
 import { ABSENT } from "../lib/labels";
 import { friendlyError } from "../lib/errors";
@@ -48,11 +49,10 @@ function LearnerRow({ row }: { row: ClassLearnerRow }) {
           </span>
         )}
         <DirectionMark direction={row.direction} />
-        {row.status ? (
-          <StatusBadge status={row.status} />
-        ) : (
-          <span className="text-sm text-ink-500">{ABSENT.noEvidence}</span>
-        )}
+        {/* The shared verdict in the tutor's wording — "Needs attention: Moles".
+            The next step is left to the learner's profile; a roster row has no
+            room for a sentence per learner. */}
+        <VerdictLine role="tutor" verdict={row.verdict} showNextStep={false} />
       </span>
     </li>
   );

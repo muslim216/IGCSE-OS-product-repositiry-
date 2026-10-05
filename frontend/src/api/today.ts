@@ -1,6 +1,7 @@
 import type { ReadinessStatus } from "../components/ui";
 import type { UpcomingLesson } from "./groups";
 import type { components } from "./schema";
+import type { StudentVerdict } from "../lib/studentVerdict";
 import { api } from "./client";
 
 /**
@@ -76,7 +77,9 @@ export interface ClassLearnerRow {
   student_name: string;
   score: number | null;
   predicted_grade: string | null;
-  status: ReadinessStatus | null;
+  /** The shared verdict — what the learner's profile and parent see too.
+      "not_enough_data" when there is nothing to base a status on (PROD-2). */
+  verdict: StudentVerdict;
   direction: "up" | "flat" | "down" | null;
   /** Handed-in count over how many assignments exist — a fact shown beside
       readiness, never blended into the score (AV-32). Both null when the

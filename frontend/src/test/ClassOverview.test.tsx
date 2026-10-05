@@ -12,7 +12,7 @@ function learner(over: Partial<ClassOverview["learners"][number]> = {}) {
     student_name: "Sara",
     score: 62,
     predicted_grade: "6",
-    status: "needs_attention" as const,
+    verdict: { status: "needs_attention" as const, reason_topics: ["Moles"], next_step: "x" },
     direction: "down" as const,
     homework_assignment_count: null,
     homework_submitted_count: null,
@@ -80,7 +80,7 @@ test("a stable low learner is absent from NEEDS YOU but present under Learners",
     student_name: "Steady",
     direction: "flat",
     predicted_grade: "4",
-    status: "at_risk",
+    verdict: { status: "at_risk" as const, reason_topics: [], next_step: "x" },
   });
   stubFetch({ ...BASE, needs_you: [], learners: [steady] });
   renderPanel();
@@ -154,7 +154,14 @@ test("a class with no evidence is not offered a summary that cannot be written",
       predicted_grade: null,
       status: null,
       students_with_evidence: 0,
-      learners: [learner({ score: null, predicted_grade: null, status: null, direction: null })],
+      learners: [
+        learner({
+          score: null,
+          predicted_grade: null,
+          verdict: { status: "not_enough_data", reason_topics: [], next_step: "x" },
+          direction: null,
+        }),
+      ],
     },
     null,
   );

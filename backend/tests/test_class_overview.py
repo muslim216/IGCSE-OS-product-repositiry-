@@ -138,7 +138,7 @@ async def test_a_learner_without_evidence_appears_unscored_not_absent(client, tu
     row = body["learners"][0]
     assert row["score"] is None
     assert row["predicted_grade"] is None
-    assert row["status"] is None
+    assert row["verdict"]["status"] == "not_enough_data"
     assert row["direction"] is None
     assert body["member_count"] == 1
     assert body["students_with_evidence"] == 0
@@ -215,7 +215,7 @@ async def test_class_page_lists_every_learner_scored_then_unscored_by_name(
     zed = by_name["Zed"]
     assert zed["score"] is None
     assert zed["predicted_grade"] is None
-    assert zed["status"] is None
+    assert zed["verdict"]["status"] == "not_enough_data"
     assert (zed["homework_assignment_count"], zed["homework_submitted_count"]) == (2, 1)
 
     milo = by_name["Milo"]

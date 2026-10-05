@@ -3,6 +3,7 @@ from datetime import date, datetime, time
 from pydantic import BaseModel
 
 from app.schemas.groups import UpcomingScheduleSlot
+from app.schemas.readiness import SubjectVerdict
 
 
 class ClassStripRow(BaseModel):
@@ -92,7 +93,7 @@ class TodayView(BaseModel):
 class ClassLearnerRow(BaseModel):
     """One learner on the class page.
 
-    `direction` is what NEEDS YOU selects on, not `status`: a learner sliding
+    `direction` is what NEEDS YOU selects on, not the verdict: a learner sliding
     from a grade 8 to a 6 is the one the tutor can still help, while a learner
     who has been a stable grade 4 all year is why the class carries its status
     but is not news. null means too little history to say — rendered as no
@@ -103,7 +104,11 @@ class ClassLearnerRow(BaseModel):
     student_name: str
     score: float | None = None
     predicted_grade: str | None = None
-    status: str | None = None
+    # The shared verdict (services/student_verdict.py) — the same decision the
+    # learner's profile, their own readiness and their parent's page show. It
+    # replaces the row's old `status`: a learner with no score is
+    # "not_enough_data" here, never a defaulted colour (PROD-2).
+    verdict: SubjectVerdict
     direction: str | None = None
     # Completion is a fact, not part of the score (AV-32): "4 of 5 handed in"
     # carries its own denominator (PROD-1) and is never blended into a number.

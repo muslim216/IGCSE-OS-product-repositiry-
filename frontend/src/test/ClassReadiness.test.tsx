@@ -24,7 +24,7 @@ const OVERVIEW: ClassOverview = {
       student_name: "Aya Hassan",
       score: 42.5,
       predicted_grade: "3",
-      status: "at_risk",
+      verdict: { status: "at_risk", reason_topics: [], next_step: "x" },
       direction: "down",
       homework_assignment_count: null,
       homework_submitted_count: null,
@@ -34,7 +34,7 @@ const OVERVIEW: ClassOverview = {
       student_name: "Omar Ali",
       score: 81,
       predicted_grade: "8",
-      status: "on_track",
+      verdict: { status: "on_track", reason_topics: [], next_step: "x" },
       direction: "up",
       homework_assignment_count: null,
       homework_submitted_count: null,
@@ -99,7 +99,11 @@ test("a subject with no boundaries says so instead of colouring against a thresh
     boundaries_missing: true,
     status: null,
     predicted_grade: null,
-    learners: OVERVIEW.learners.map((l) => ({ ...l, status: null, predicted_grade: null })),
+    learners: OVERVIEW.learners.map((l) => ({
+      ...l,
+      verdict: { status: "not_enough_data" as const, reason_topics: [], next_step: "x" },
+      predicted_grade: null,
+    })),
   });
   renderPage();
 

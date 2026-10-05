@@ -4,22 +4,29 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import FactorEvaluation, Group, GroupMember, ReadinessFactor, Topic
-from app.services.class_readiness import latest_learner_snapshots
+from app.services.class_readiness import LearnerSnapshot, latest_learner_snapshots
 from app.services.grade_boundaries import resolve_grade_boundaries
 from app.services.readiness_config import resolve_readiness_config
 from app.services.readiness_summary_v2 import weak_topic_rows
 from app.services.student_verdict import Verdict, student_verdict
 
 
-async def class_verdicts(db: AsyncSession, group: Group) -> dict[int, Verdict]:
+async def class_verdicts(
+    db: AsyncSession,
+    group: Group,
+    snapshots: dict[int, LearnerSnapshot] | None = None,
+) -> dict[int, Verdict]:
     """{student_id: Verdict} for every enrolled learner of one class, in a
     fixed number of queries whatever the roster (PERF-1). A learner with no
     ready snapshot gets "not_enough_data". Same inputs as the profile's
     summary — latest ready snapshot, the organization's boundaries, the
-    resolved threshold — so the two cannot disagree. The tutor class rows in
-    services/today.py switch to this after the Overview PR merges (tracked). SEC-7: the caller passes a
-    group it has already scoped to the authenticated tutor."""
-    snapshots = (await latest_learner_snapshots(db, [group.id]))[group.id]
+    resolved threshold — so the two cannot disagree. Called by the tutor's
+    class page rows (services/today.py build_class_overview). SEC-7: the caller passes a
+    group it has already scoped to the authenticated tutor. A caller that has
+    already read the class's latest snapshots passes them, so the verdict and
+    the row's score come from one read and cannot straddle a new run."""
+    if snapshots is None:
+        snapshots = (await latest_learner_snapshots(db, [group.id]))[group.id]
     roster = (
         await db.scalars(select(GroupMember.student_id).where(GroupMember.group_id == group.id))
     ).all()
