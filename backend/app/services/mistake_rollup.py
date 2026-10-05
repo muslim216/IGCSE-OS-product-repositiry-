@@ -15,6 +15,7 @@ condition, the other gains it in the same change.
 """
 
 from dataclasses import dataclass, field
+from datetime import date, datetime, time, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,7 @@ from app.models import (
     SETTLED_STATUSES,
     AssessableWork,
     Chapter,
+    GroupMember,
     Mistake,
     MistakeCategory,
     MistakeTopic,
@@ -30,6 +32,7 @@ from app.models import (
     Submission,
     Topic,
 )
+from app.schemas.class_report import MistakeCategoryReport, MistakePatterns
 from app.schemas.mistake_rollup import (
     CategoryTally,
     ChapterMistakes,
@@ -194,4 +197,93 @@ async def roll_up_mistakes(
             key=lambda c: (-c.tally.mistakes, c.chapter_id),
         ),
         chapterless=no_chapter.out(),
+    )
+
+
+def rank_class_categories(
+    rows: list[tuple[int, int, int, str, int]],
+) -> tuple[int, int, list[MistakeCategoryReport]]:
+    """(total mistakes, learners affected, categories ranked) from
+    (mistake_id, severity, category_id, category_name, student_id) rows. Pure
+    (`BE-4`). A mistake id counts once however many rows the query fanned it
+    into. Most mistakes first; name breaks a tie, so the order is stable."""
+    seen: dict[int, tuple[int, int, str, int]] = {}
+    for mistake_id, severity, category_id, name, student_id in rows:
+        seen.setdefault(mistake_id, (severity, category_id, name, student_id))
+    total = len(seen)
+    by_cat: dict[int, tuple[str, int, int, set[int]]] = {}
+    for severity, category_id, name, student_id in seen.values():
+        _, count, heft, students = by_cat.setdefault(category_id, (name, 0, 0, set()))
+        students.add(student_id)
+        by_cat[category_id] = (name, count + 1, heft + severity, students)
+    ranked = sorted(
+        (
+            MistakeCategoryReport(
+                category_id=cid,
+                category_name=name,
+                mistakes=count,
+                share=count / total,
+                students_affected=len(students),
+                severity_total=heft,
+            )
+            for cid, (name, count, heft, students) in by_cat.items()
+        ),
+        key=lambda c: (-c.mistakes, c.category_name),
+    )
+    return total, len({s[3] for s in seen.values()}), ranked
+
+
+async def class_mistake_patterns(
+    session: AsyncSession, *, group_id: int, subject_id: int, since: date
+) -> MistakePatterns:
+    """The class's mistakes by category, over work whose mistake analysis ran on
+    or after `since` (task 8.6). Enrolled learners only; the caller has proved
+    the tutor may see this class.
+
+    Same scoping as `roll_up_mistakes` and as the readiness factor, so it is a
+    third mirror of that gate and must gain any condition the others gain:
+    settled submissions, analysed, in the class's subject, `Mistake.source` not
+    filtered. Zero analysed questions is `total_mistakes=None` (`PROD-2`)."""
+    start = datetime.combine(since, time.min, tzinfo=timezone.utc)
+    enrolled = select(GroupMember.student_id).where(GroupMember.group_id == group_id)
+    settled = (
+        Submission.status.in_(SETTLED_STATUSES),
+        Submission.mistakes_analysed_at.is_not(None),
+        Submission.mistakes_analysed_at >= start,
+        Submission.student_id.in_(enrolled),
+        AssessableWork.subject_id == subject_id,
+    )
+    analysed = (
+        await session.scalar(
+            select(func.count(QuestionMark.id))
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
+            .where(*settled)
+        )
+    ) or 0
+    if analysed == 0:
+        return MistakePatterns(since=since, analysed_questions=0, categories=[])
+    rows = (
+        await session.execute(
+            select(
+                Mistake.id,
+                Mistake.severity,
+                MistakeCategory.id,
+                MistakeCategory.name,
+                Mistake.student_id,
+            )
+            .join(QuestionMark, QuestionMark.id == Mistake.question_mark_id)
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .join(AssessableWork, AssessableWork.id == Submission.work_id)
+            .join(MistakeCategory, MistakeCategory.id == Mistake.category_id)
+            .where(*settled)
+        )
+    ).all()
+    total, students, ranked = rank_class_categories([tuple(r) for r in rows])  # type: ignore[misc]
+    return MistakePatterns(
+        since=since,
+        analysed_questions=analysed,
+        total_mistakes=total,
+        students_affected=students,
+        categories=ranked,
     )

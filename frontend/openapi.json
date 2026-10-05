@@ -1590,6 +1590,71 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/report": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Class Report",
+        "description": "The tutor's class report (task 8.6). `since` opens the mistake-pattern\nwindow only; the default is the last four weeks.",
+        "operationId": "class_report_api_v1_groups__group_id__report_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups": {
       "get": {
         "tags": [
@@ -9707,6 +9772,48 @@
         ],
         "title": "AttendanceEntryIn"
       },
+      "AttendanceReport": {
+        "properties": {
+          "present": {
+            "type": "integer",
+            "title": "Present"
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent"
+          },
+          "not_taken": {
+            "type": "integer",
+            "title": "Not Taken"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "learners": {
+            "items": {
+              "$ref": "#/components/schemas/LearnerAttendance"
+            },
+            "type": "array",
+            "title": "Learners"
+          }
+        },
+        "type": "object",
+        "required": [
+          "present",
+          "absent",
+          "not_taken",
+          "learners"
+        ],
+        "title": "AttendanceReport"
+      },
       "AttendanceRowOut": {
         "properties": {
           "student_id": {
@@ -10876,6 +10983,79 @@
         ],
         "title": "ChapterReasonOut"
       },
+      "ChapterReport": {
+        "properties": {
+          "chapter_id": {
+            "type": "integer",
+            "title": "Chapter Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "topics_total": {
+            "type": "integer",
+            "title": "Topics Total"
+          },
+          "topics_taught": {
+            "type": "integer",
+            "title": "Topics Taught"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "in_progress",
+              "taught"
+            ],
+            "title": "State"
+          },
+          "lessons_planned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Planned"
+          },
+          "lessons_taught": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Taught"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicReport"
+            },
+            "type": "array",
+            "title": "Topics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapter_id",
+          "code",
+          "title",
+          "topics_total",
+          "topics_taught",
+          "state",
+          "topics"
+        ],
+        "title": "ChapterReport"
+      },
       "ClassAttendanceOut": {
         "properties": {
           "group_id": {
@@ -11269,6 +11449,72 @@
         ],
         "title": "ClassOverview",
         "description": "The class page's headline: the same verdict inputs as the home's strip,\nplus the per-learner rows and the topic weaknesses behind them."
+      },
+      "ClassReport": {
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "title": "Group Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "subject_name": {
+            "type": "string",
+            "title": "Subject Name"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/ReportReadiness"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanReport"
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterReport"
+            },
+            "type": "array",
+            "title": "Chapters"
+          },
+          "weak_topics": {
+            "items": {
+              "$ref": "#/components/schemas/ClassWeakTopic"
+            },
+            "type": "array",
+            "title": "Weak Topics"
+          },
+          "weak_threshold": {
+            "type": "number",
+            "title": "Weak Threshold"
+          },
+          "mistakes": {
+            "$ref": "#/components/schemas/MistakePatterns"
+          },
+          "attendance": {
+            "$ref": "#/components/schemas/AttendanceReport"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "name",
+          "subject_name",
+          "generated_at",
+          "readiness",
+          "plan",
+          "chapters",
+          "weak_topics",
+          "weak_threshold",
+          "mistakes",
+          "attendance"
+        ],
+        "title": "ClassReport"
       },
       "ClassStripRow": {
         "properties": {
@@ -12411,6 +12657,50 @@
         ],
         "title": "LastLessonAttendance"
       },
+      "LearnerAttendance": {
+        "properties": {
+          "student_id": {
+            "type": "integer",
+            "title": "Student Id"
+          },
+          "student_name": {
+            "type": "string",
+            "title": "Student Name"
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present"
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent"
+          },
+          "not_taken": {
+            "type": "integer",
+            "title": "Not Taken"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "student_id",
+          "student_name",
+          "present",
+          "absent",
+          "not_taken"
+        ],
+        "title": "LearnerAttendance"
+      },
       "LessonCreate": {
         "properties": {
           "group_id": {
@@ -13464,6 +13754,93 @@
           "name"
         ],
         "title": "MistakeCategoryItem"
+      },
+      "MistakeCategoryReport": {
+        "properties": {
+          "category_id": {
+            "type": "integer",
+            "title": "Category Id"
+          },
+          "category_name": {
+            "type": "string",
+            "title": "Category Name"
+          },
+          "mistakes": {
+            "type": "integer",
+            "title": "Mistakes"
+          },
+          "share": {
+            "type": "number",
+            "title": "Share"
+          },
+          "students_affected": {
+            "type": "integer",
+            "title": "Students Affected"
+          },
+          "severity_total": {
+            "type": "integer",
+            "title": "Severity Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category_id",
+          "category_name",
+          "mistakes",
+          "share",
+          "students_affected",
+          "severity_total"
+        ],
+        "title": "MistakeCategoryReport"
+      },
+      "MistakePatterns": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date",
+            "title": "Since"
+          },
+          "analysed_questions": {
+            "type": "integer",
+            "title": "Analysed Questions"
+          },
+          "total_mistakes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Mistakes"
+          },
+          "students_affected": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Students Affected"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeCategoryReport"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "since",
+          "analysed_questions",
+          "categories"
+        ],
+        "title": "MistakePatterns"
       },
       "MistakeRevisionIn": {
         "properties": {
@@ -15227,6 +15604,147 @@
         "title": "PlanProgressOut",
         "description": "How the accepted plan compares with the lessons recorded (task 6.6, AV-18).\n\n\"Not recorded\", never \"missed\": a lesson may have been taught and not logged."
       },
+      "PlanReport": {
+        "properties": {
+          "has_plan": {
+            "type": "boolean",
+            "title": "Has Plan"
+          },
+          "accepted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "exam_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exam Date"
+          },
+          "days_to_exam": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days To Exam"
+          },
+          "lessons_planned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Planned"
+          },
+          "lessons_taught": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Taught"
+          },
+          "lessons_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Left"
+          },
+          "lessons_due": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lessons Due"
+          },
+          "behind_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Behind By"
+          },
+          "ahead_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ahead By"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "behind",
+                  "on_track",
+                  "ahead"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "up_next": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpNext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "has_plan"
+        ],
+        "title": "PlanReport",
+        "description": "Where the class is in its *accepted* teaching plan. A draft is never read."
+      },
       "PlanSlotOut": {
         "properties": {
           "id": {
@@ -16150,6 +16668,61 @@
           "generated_at"
         ],
         "title": "ReportOut"
+      },
+      "ReportReadiness": {
+        "properties": {
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "predicted_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Grade"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "boundaries_missing": {
+            "type": "boolean",
+            "title": "Boundaries Missing",
+            "default": false
+          },
+          "member_count": {
+            "type": "integer",
+            "title": "Member Count",
+            "default": 0
+          },
+          "students_with_evidence": {
+            "type": "integer",
+            "title": "Students With Evidence",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "ReportReadiness",
+        "description": "The class headline, exactly as the class page prints it."
       },
       "ResourceOut": {
         "properties": {
@@ -18535,6 +19108,66 @@
         ],
         "title": "TopicReadinessOut"
       },
+      "TopicReport": {
+        "properties": {
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "taught": {
+            "type": "boolean",
+            "title": "Taught"
+          },
+          "avg_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Score"
+          },
+          "student_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Student Count"
+          },
+          "weak": {
+            "type": "boolean",
+            "title": "Weak",
+            "default": false
+          },
+          "includes_tutor_estimate": {
+            "type": "boolean",
+            "title": "Includes Tutor Estimate",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic_id",
+          "code",
+          "title",
+          "taught"
+        ],
+        "title": "TopicReport"
+      },
       "TrendPoint": {
         "properties": {
           "recorded_at": {
@@ -18700,6 +19333,39 @@
         ],
         "title": "TypedAnswerOut",
         "description": "A student's typed answer as the tutor sees it (`AV-73`, task 3.3)."
+      },
+      "UpNext": {
+        "properties": {
+          "scheduled_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Scheduled Date"
+          },
+          "chapter_code": {
+            "type": "string",
+            "title": "Chapter Code"
+          },
+          "chapter_title": {
+            "type": "string",
+            "title": "Chapter Title"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Topics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scheduled_date",
+          "chapter_code",
+          "chapter_title",
+          "topics"
+        ],
+        "title": "UpNext",
+        "description": "The first lesson of the accepted plan that nothing has started."
       },
       "UpcomingScheduleSlot": {
         "properties": {

@@ -168,7 +168,7 @@ export default function AppShell({
     <div className="min-h-screen md:flex">
       <AvoraGrain />
       {/* Desktop: fixed left sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between overflow-y-auto border-r border-line bg-canvas px-4 py-6 md:flex print:hidden">
         <div className="flex flex-col gap-8">
           <Brand />
           {/* A role heading over an empty list read as a broken sidebar (the
@@ -225,7 +225,7 @@ export default function AppShell({
 
       {/* Mobile: a compact top bar for identity + account, and a fixed bottom
           tab bar for navigation (the reachable-with-a-thumb position). */}
-      <header className="sticky top-0 z-10 border-b border-line bg-canvas md:hidden">
+      <header className="sticky top-0 z-10 border-b border-line bg-canvas md:hidden print:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <Brand />
           <div className="flex items-center gap-2 text-sm">
@@ -244,7 +244,7 @@ export default function AppShell({
         </div>
       </header>
 
-      <main className="min-w-0 flex-1 px-4 py-6 pb-tabbar md:px-10 md:py-8">
+      <main className="min-w-0 flex-1 px-4 py-6 pb-tabbar md:px-10 md:py-8 print:p-0">
         <div className="mx-auto max-w-6xl">
           {/* Keyed by route, so each page mounts fresh, and reset by every
               navigation, so leaving a crash clears it even when only the query
@@ -261,7 +261,7 @@ export default function AppShell({
       {nav.length > 0 && (
         <nav
           aria-label={`${title} tabs`}
-          className="pb-safe pl-safe pr-safe fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-canvas md:hidden"
+          className="pb-safe pl-safe pr-safe fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-canvas md:hidden print:hidden"
         >
           {tabItems.map((item) => (
             <BottomTab key={item.to} item={item} />

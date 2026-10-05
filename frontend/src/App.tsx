@@ -5,6 +5,7 @@ import {
   ClipboardList,
   FileText,
   FolderOpen,
+  FileBarChart,
   Gauge,
   GraduationCap,
   Settings as SettingsIcon,
@@ -39,6 +40,8 @@ import StudentDetailPage from "./tutor/StudentDetailPage";
 import GroupAnalyticsPage from "./tutor/GroupAnalyticsPage";
 import MockEntryPage from "./tutor/MockEntryPage";
 import ClassReadinessPage from "./tutor/ClassReadinessPage";
+import ReportsPage from "./tutor/ReportsPage";
+import ClassReportPage from "./tutor/ClassReportPage";
 import TodayDashboard from "./tutor/today/TodayDashboard";
 import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
@@ -87,7 +90,7 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/recordings", label: "Recordings", icon: Video },
 ];
 
-// Seven destinations, set by the owner (2026-10-05): "don't change the full
+// Eight destinations, set by the owner (2026-10-05): "don't change the full
 // structure ... only the skeletons". Classes was right; the trouble was that
 // readiness, exam papers and every setup page had been dropped onto the Library
 // shelf. Each now has a name where the tutor looks for it: Readiness and
@@ -100,6 +103,7 @@ const TUTOR_NAV: NavItem[] = [
   { to: "/tutor/classes", label: "Classes", icon: Users, also: ["/tutor/groups"] },
   { to: "/tutor/review", label: "Review", icon: ClipboardCheck },
   { to: "/tutor/readiness", label: "Readiness", icon: Gauge },
+  { to: "/tutor/reports", label: "Reports", icon: FileBarChart },
   {
     to: "/tutor/papers",
     label: "Papers & mocks",
@@ -129,6 +133,8 @@ export default function App() {
           <Route path="/tutor/papers" element={<PapersHubPage />} />
           {/* Setup pages became sections of Settings; the old URLs land on theirs. */}
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
+          <Route path="/tutor/reports" element={<ReportsPage />} />
+          <Route path="/tutor/reports/:groupId" element={<ClassReportPage />} />
           <Route
             path="/tutor/boundaries"
             element={<Navigate to="/tutor/settings#boundaries" replace />}
