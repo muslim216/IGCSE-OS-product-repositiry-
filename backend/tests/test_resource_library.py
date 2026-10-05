@@ -2,13 +2,14 @@
 classes, for the Library. A record: files and recordings in one list, newest first,
 each with its class."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import event
 
 from app.db import async_session, engine
 from app.models import Group, GroupResource, ResourceKind, User, UserRole
 from app.security import create_access_token
+from app.services.resource_library import LIBRARY_RESOURCE_LIMIT
 from tests.factories import make_user, register_other_tutor
 
 URL = "/api/v1/resources"
@@ -172,3 +173,74 @@ async def test_query_count_is_flat_in_the_number_of_classes(client, tutor, subje
         g = await _group(client, tutor, subject, f"More{i}")
         await _share(g["id"], uid, "recording", f"r{i}", 2 + i)
     assert await count() == baseline
+
+
+async def _own_group(org_id: int, tutor_id: int, subject_id: int, name: str) -> int:
+    async with async_session() as s:
+        g = Group(organization_id=org_id, tutor_id=tutor_id, subject_id=subject_id, name=name)
+        s.add(g)
+        await s.commit()
+        return g.id
+
+
+async def _user(org_id, role, email) -> tuple[int, dict]:
+    async with async_session() as s:
+        u = await make_user(s, organization_id=org_id, role=role, name=email, email=email)
+        await s.commit()
+        token = create_access_token(u.id, u.token_version)
+        return u.id, {"Authorization": f"Bearer {token}"}
+
+
+async def test_a_colleague_with_their_own_class_is_listed_without_the_callers_rows(
+    client, tutor, subject
+):
+    a = await _group(client, tutor, subject, "Chem A")
+    await _share(a["id"], tutor["user"]["id"], "file", "Mine", 1)
+    org_id = await _org_id(tutor)
+    cid, c_headers = await _user(org_id, UserRole.tutor, "c@example.com")
+    cg = await _own_group(org_id, cid, subject["id"], "Colleague class")
+    await _share(cg, cid, "file", "Theirs", 2)
+    mine = (await client.get(URL, headers=tutor["headers"])).json()
+    theirs = (await client.get(URL, headers=c_headers)).json()
+    assert [r["title"] for r in mine] == ["Mine"]
+    assert [r["title"] for r in theirs] == ["Theirs"]
+
+
+async def test_an_admin_who_owns_a_class_sees_its_material(client, tutor, subject):
+    org_id = await _org_id(tutor)
+    aid, a_headers = await _user(org_id, UserRole.admin, "a@example.com")
+    ag = await _own_group(org_id, aid, subject["id"], "Admin class")
+    await _share(ag, aid, "recording", "Admin lesson", 1)
+    rows = (await client.get(URL, headers=a_headers)).json()
+    assert [(r["title"], r["group_name"]) for r in rows] == [("Admin lesson", "Admin class")]
+
+
+async def test_storage_paths_are_never_returned(client, tutor, subject):
+    a = await _group(client, tutor, subject, "Chem A")
+    await _share(a["id"], tutor["user"]["id"], "file", "Worksheet", 1)
+    row = (await client.get(URL, headers=tutor["headers"])).json()[0]
+    assert "file_path" not in row and "file_mime" not in row
+
+
+async def test_the_list_is_capped_at_the_most_recent_rows(client, tutor, subject):
+    a = await _group(client, tutor, subject, "Chem A")
+    uid = tutor["user"]["id"]
+    extra = 5
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    async with async_session() as s:
+        for i in range(LIBRARY_RESOURCE_LIMIT + extra):
+            s.add(
+                GroupResource(
+                    group_id=a["id"],
+                    tutor_id=uid,
+                    kind=ResourceKind.recording,
+                    title=f"r{i}",
+                    url="https://example.com/r",
+                    created_at=base + timedelta(minutes=i),
+                )
+            )
+        await s.commit()
+    rows = (await client.get(URL, headers=tutor["headers"])).json()
+    assert len(rows) == LIBRARY_RESOURCE_LIMIT
+    assert rows[0]["title"] == f"r{LIBRARY_RESOURCE_LIMIT + extra - 1}"
+    assert rows[-1]["title"] == f"r{extra}"

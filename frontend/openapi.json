@@ -6889,7 +6889,7 @@
           "resources"
         ],
         "summary": "List My Resources",
-        "description": "Everything the caller has shared, across their own classes (the Library).\n\nOwn classes only, an admin included \u2014 as `list_groups` does \u2014 so a colleague's\nmaterial never appears here; an admin reaches it through that class.",
+        "description": "Everything the caller has shared, across their own classes (the Library).\n\nOwn classes only, an admin included \u2014 as `list_groups` does \u2014 so a colleague's\nmaterial never appears here; an admin reaches it through that class.\n\nSorted newest first (`created_at`, then `id`, descending) and capped at the\nmost recent 200 rows; older material is in each class's Resources tab.",
         "operationId": "list_my_resources_api_v1_resources_get",
         "security": [
           {

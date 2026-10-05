@@ -18,6 +18,10 @@ export const listResources = (groupId: number, kind?: "file" | "recording") =>
  *  across every one of the tutor's classes. */
 export type LibraryResource = components["schemas"]["LibraryResourceOut"];
 
+/** Mirrors `LIBRARY_RESOURCE_LIMIT` in backend/app/services/resource_library.py:
+ *  the most rows `GET /resources` returns, so a list this long may be cut short. */
+export const LIBRARY_RESOURCE_LIMIT = 200;
+
 export const listMyResources = (kind?: "file" | "recording") =>
   api<LibraryResource[]>(`/api/v1/resources${kind ? `?kind=${kind}` : ""}`);
 

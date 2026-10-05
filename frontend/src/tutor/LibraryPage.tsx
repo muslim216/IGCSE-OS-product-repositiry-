@@ -5,6 +5,7 @@ import { classifiedFilePath, classifiedMarkSchemePath, listClassifieds } from ".
 import type { Classified } from "../api/homework";
 import { listSubjects } from "../api/groups";
 import {
+  LIBRARY_RESOURCE_LIMIT,
   isSafeHttpUrl,
   listMyResources,
   resourceFilePath,
@@ -90,7 +91,9 @@ const shortDate = (iso: string) => new Date(iso).toLocaleDateString();
 const linkClass = "font-medium text-brand-600 hover:text-brand-700";
 
 /** What a section shows while it loads, when it fails, and when it is empty —
- *  three different states, never one blank box. */
+ *  three different states, never one blank box. Rows already on screen win over
+ *  an error: a background refetch that fails must not replace a list the tutor
+ *  is reading, so the error state is for when there is nothing to show. */
 function SectionBody<T>({
   query,
   loadingLabel,
@@ -108,23 +111,31 @@ function SectionBody<T>({
   empty: React.ReactNode;
   children: (rows: T[]) => React.ReactNode;
 }) {
+  if (query.data && query.data.length > 0) return <>{children(query.data)}</>;
   if (query.isLoading) return <SectionSkeleton rows={3} label={loadingLabel} />;
   if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
-  if (!query.data || query.data.length === 0) return <>{empty}</>;
-  return <>{children(query.data)}</>;
+  return <>{empty}</>;
 }
 
 function ClassifiedRow({ c }: { c: Classified }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5">
       <span className="min-w-0">
-        <span className="block truncate text-ink-900">{c.title}</span>
+        <span className="block break-words text-ink-900">{c.title}</span>
         <span className="block text-xs text-ink-500">Added {shortDate(c.created_at)}</span>
       </span>
       <span className="flex items-center gap-4">
-        <AuthFileLink path={classifiedFilePath(c.id)} label="Open questions" />
+        <AuthFileLink
+          path={classifiedFilePath(c.id)}
+          label="Open questions"
+          ariaLabel={`Open questions for ${c.title}`}
+        />
         {c.mark_scheme_name && (
-          <AuthFileLink path={classifiedMarkSchemePath(c.id)} label="Open mark scheme" />
+          <AuthFileLink
+            path={classifiedMarkSchemePath(c.id)}
+            label="Open mark scheme"
+            ariaLabel={`Open mark scheme for ${c.title}`}
+          />
         )}
       </span>
     </li>
@@ -132,22 +143,26 @@ function ClassifiedRow({ c }: { c: Classified }) {
 }
 
 /** One subject's classifieds, filed by chapter in teaching order. The chapter
- *  names are one request for the subject, not one per row; if it fails or the
- *  subject has no extracted chapters the classifieds still list, unfiled,
- *  rather than inventing a chapter (PROD-2). */
+ *  names are one request for the subject, not one per row. While they load the
+ *  subject shows a skeleton rather than listing unfiled and regrouping; if they
+ *  fail, or the subject has none extracted, the classifieds still list unfiled
+ *  rather than inventing a chapter (PROD-2). `subjectId` is null for the
+ *  catch-all of classifieds whose subject is not in the tutor's list. */
 function SubjectClassifieds({
   subjectId,
   subjectName,
   rows,
 }: {
-  subjectId: number;
+  subjectId: number | null;
   subjectName: string;
   rows: Classified[];
 }) {
   const chapters = useQuery({
     queryKey: ["chapters", subjectId],
-    queryFn: () => listChapters(subjectId),
+    queryFn: () => listChapters(subjectId as number),
+    enabled: subjectId !== null,
   });
+  const loading = subjectId !== null && chapters.isLoading;
   const known = chapters.data ?? [];
   const groups = known
     .map((ch) => ({
@@ -169,16 +184,29 @@ function SubjectClassifieds({
   return (
     <div>
       <h3 className="font-medium text-ink-900">{subjectName}</h3>
-      {groups.map((g) => (
-        <div key={g.key} className="mt-2">
-          {g.label && <p className="text-xs font-medium text-ink-500">{g.label}</p>}
-          <ul className="divide-y divide-line text-sm">
-            {g.rows.map((c) => (
-              <ClassifiedRow key={c.id} c={c} />
-            ))}
-          </ul>
+      {loading ? (
+        <div className="mt-2">
+          <SectionSkeleton rows={2} label={`Loading ${subjectName} chapters`} />
         </div>
-      ))}
+      ) : (
+        <>
+          {chapters.isError && (
+            <p className="mt-1 text-xs text-ink-500">
+              Chapters couldn&apos;t be loaded, so these aren&apos;t filed by chapter.
+            </p>
+          )}
+          {groups.map((g) => (
+            <div key={g.key} className="mt-2">
+              {g.label && <p className="text-xs font-medium text-ink-500">{g.label}</p>}
+              <ul className="divide-y divide-line text-sm">
+                {g.rows.map((c) => (
+                  <ClassifiedRow key={c.id} c={c} />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -190,6 +218,18 @@ function ClassifiedsSection() {
   });
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
 
+  const empty = (
+    <EmptyState
+      title="No classifieds yet."
+      hint="A classified is added when you set homework from a class, by uploading its questions."
+      action={
+        <Link to="/tutor/classes" className={linkClass}>
+          Choose a class to set homework
+        </Link>
+      }
+    />
+  );
+
   return (
     <SectionCard>
       <SectionHeader
@@ -198,39 +238,46 @@ function ClassifiedsSection() {
         description="The chapter question sets your homework is built from."
       />
       <div className="mt-3">
-        <SectionBody
-          query={classifieds}
-          loadingLabel="Loading classifieds"
-          empty={
-            <EmptyState
-              title="No classifieds yet."
-              hint="A classified is added when you set homework from a class, by uploading its questions."
-              action={
-                <Link to="/tutor/classes" className={linkClass}>
-                  Choose a class to set homework
-                </Link>
+        {/* Subject names are part of the record, so nothing is grouped until they
+            are known: a classified under a literal "Subject" heading says nothing. */}
+        {classifieds.data && classifieds.data.length > 0 && !subjects.data ? (
+          subjects.isError ? (
+            <ErrorState error={subjects.error} onRetry={() => subjects.refetch()} />
+          ) : (
+            <SectionSkeleton rows={3} label="Loading classifieds" />
+          )
+        ) : (
+          <SectionBody query={classifieds} loadingLabel="Loading classifieds" empty={empty}>
+            {(rows) => {
+              const known = new Set((subjects.data ?? []).map((s) => s.id));
+              const bySubject = new Map<number, Classified[]>();
+              const other: Classified[] = [];
+              for (const c of rows) {
+                if (!known.has(c.subject_id)) other.push(c);
+                else bySubject.set(c.subject_id, [...(bySubject.get(c.subject_id) ?? []), c]);
               }
-            />
-          }
-        >
-          {(rows) => {
-            const bySubject = new Map<number, Classified[]>();
-            for (const c of rows)
-              bySubject.set(c.subject_id, [...(bySubject.get(c.subject_id) ?? []), c]);
-            return (
-              <div className="space-y-5">
-                {[...bySubject.entries()].map(([subjectId, list]) => (
-                  <SubjectClassifieds
-                    key={subjectId}
-                    subjectId={subjectId}
-                    subjectName={subjects.data?.find((s) => s.id === subjectId)?.name ?? "Subject"}
-                    rows={list}
-                  />
-                ))}
-              </div>
-            );
-          }}
-        </SectionBody>
+              return (
+                <div className="space-y-5">
+                  {[...bySubject.entries()].map(([subjectId, list]) => (
+                    <SubjectClassifieds
+                      key={subjectId}
+                      subjectId={subjectId}
+                      subjectName={subjects.data?.find((s) => s.id === subjectId)?.name ?? ""}
+                      rows={list}
+                    />
+                  ))}
+                  {other.length > 0 && (
+                    <SubjectClassifieds
+                      subjectId={null}
+                      subjectName="Other subjects"
+                      rows={other}
+                    />
+                  )}
+                </div>
+              );
+            }}
+          </SectionBody>
+        )}
       </div>
     </SectionCard>
   );
@@ -240,17 +287,23 @@ function ResourceRow({ r }: { r: LibraryResource }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5">
       <span className="min-w-0">
-        <span className="block truncate text-ink-900">{r.title}</span>
+        <span className="block break-words text-ink-900">{r.title}</span>
         <span className="block text-xs text-ink-500">Shared {shortDate(r.created_at)}</span>
       </span>
       {r.kind === "file" ? (
-        <AuthFileLink path={resourceFilePath(r.id)} label="Open" />
+        <AuthFileLink path={resourceFilePath(r.id)} label="Open" ariaLabel={`Open ${r.title}`} />
+      ) : isSafeHttpUrl(r.url) ? (
+        <a
+          href={r.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label={`Watch ${r.title}`}
+          className={linkClass}
+        >
+          Watch
+        </a>
       ) : (
-        isSafeHttpUrl(r.url) && (
-          <a href={r.url} target="_blank" rel="noreferrer noopener" className={linkClass}>
-            Watch
-          </a>
-        )
+        <span className="text-ink-500">Link not available</span>
       )}
     </li>
   );
@@ -323,6 +376,12 @@ function ResourcesSection({
         >
           {(rows) => <ByClass rows={rows} />}
         </SectionBody>
+        {resources.data?.length === LIBRARY_RESOURCE_LIMIT && (
+          <p className="mt-3 text-xs text-ink-500">
+            Showing the {LIBRARY_RESOURCE_LIMIT} most recent. Older ones are in each class&apos;s
+            Resources tab.
+          </p>
+        )}
       </div>
     </SectionCard>
   );

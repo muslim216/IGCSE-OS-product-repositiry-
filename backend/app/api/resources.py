@@ -115,6 +115,9 @@ async def list_my_resources(
 
     Own classes only, an admin included — as `list_groups` does — so a colleague's
     material never appears here; an admin reaches it through that class.
+
+    Sorted newest first (`created_at`, then `id`, descending) and capped at the
+    most recent 200 rows; older material is in each class's Resources tab.
     """
     rows = await tutor_shared_resources(
         db,

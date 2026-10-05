@@ -54,6 +54,8 @@ function ResourcesPanel({ groupId }: { groupId: number }) {
         : createFileResource(groupId, title, file as File),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["resources", groupId] });
+      // The Library lists the same rows across classes.
+      queryClient.invalidateQueries({ queryKey: ["resources", "library"] });
       setTitle("");
       setUrl("");
       setFile(null);
@@ -66,6 +68,8 @@ function ResourcesPanel({ groupId }: { groupId: number }) {
     onSuccess: () => {
       setRemoving(null);
       queryClient.invalidateQueries({ queryKey: ["resources", groupId] });
+      // The Library lists the same rows across classes.
+      queryClient.invalidateQueries({ queryKey: ["resources", "library"] });
     },
   });
 
