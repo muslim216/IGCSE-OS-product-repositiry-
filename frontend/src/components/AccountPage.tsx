@@ -5,6 +5,7 @@ import { Button } from "./controls";
 import { PageHeader } from "./page";
 import { InitialsAvatar, SectionCard, SectionHeader } from "./ui";
 import MyTimezoneSetting from "./MyTimezoneSetting";
+import NotificationPreferences from "./NotificationPreferences";
 
 const ROLE_LABEL = {
   student: "Student",
@@ -44,6 +45,8 @@ export default function AccountPage() {
       </SectionCard>
 
       <MyTimezoneSetting />
+
+      <NotificationPreferences />
 
       <SectionCard>
         <SectionHeader title="Your data" />

@@ -8,6 +8,8 @@ import MarkingRulesPage from "./MarkingRulesPage";
 import GradeBoundariesPage from "./GradeBoundariesPage";
 import MistakeCategoriesPage from "./MistakeCategoriesPage";
 import PreferencesPage from "./PreferencesPage";
+import WeeklySendSetting from "./WeeklySendSetting";
+import MessagesSetting from "./MessagesSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { EmbeddedPageContext, ErrorState, PageHeader } from "../components/page";
 
@@ -29,6 +31,7 @@ export const SETTINGS_SECTIONS = [
   { id: "boundaries", label: "Grade boundaries" },
   { id: "mistake-categories", label: "Mistake categories" },
   { id: "preferences", label: "Preferences" },
+  { id: "messages", label: "Messages" },
   { id: "account", label: "Account and integrations" },
 ] as const;
 
@@ -144,7 +147,7 @@ export default function SettingsPage() {
     <div className="max-w-3xl">
       <PageHeader
         title="Settings"
-        description="How marking, grades and readiness work for you, and the time zones, criteria and integrations behind your account."
+        description="How marking, grades and readiness work for you, the messages Avora sends, and the time zones, criteria and integrations behind your account."
       />
       <nav aria-label="Settings sections" className="mb-8">
         <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
@@ -173,6 +176,22 @@ export default function SettingsPage() {
         <Section id="preferences" label="Preferences">
           <PreferencesPage />
         </Section>
+        <section
+          id="messages"
+          tabIndex={-1}
+          aria-labelledby="messages-heading"
+          className="scroll-mt-6 border-t border-line pt-8 focus:outline-none"
+        >
+          <h2 id="messages-heading" className="mb-6 text-xl leading-tight text-ink-900">
+            Messages
+          </h2>
+          <SectionBoundary label="Messages">
+            <div className="space-y-6">
+              <WeeklySendSetting />
+              <MessagesSetting />
+            </div>
+          </SectionBoundary>
+        </section>
         <section
           id="account"
           tabIndex={-1}
