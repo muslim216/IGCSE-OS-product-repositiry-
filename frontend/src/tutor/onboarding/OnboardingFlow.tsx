@@ -151,7 +151,16 @@ function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjec
   );
 }
 
-export default function OnboardingFlow({ data }: { data: OnboardingState }) {
+export default function OnboardingFlow({
+  data,
+  overDashboard = false,
+}: {
+  data: OnboardingState;
+  /** The tutor already runs a class, so the dashboard stays in use underneath
+      (owner, 2026-10-06): the copy must not call this their first class or
+      promise a page that is already there. */
+  overDashboard?: boolean;
+}) {
   const next = data.next_step;
   const subject = data.subjects.find((s) => s.subject_id === next?.subject_id);
   const klass = subject?.classes.find((c) => c.group_id === next?.group_id);
@@ -361,9 +370,13 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
         {announcement}
       </p>
       <PageHeader
-        title="Set up your first class"
+        title={overDashboard ? "Finish setting up" : "Set up your first class"}
         documentTitle="Overview"
-        description="Steps marked Required come first, in order. Steps marked Can wait or Optional are not needed to start; they stay on your setup list on Today. When you accept the teaching plan, this page becomes your Today dashboard."
+        description={
+          overDashboard
+            ? "Steps marked Required come first, in order. Steps marked Can wait or Optional are not needed to start. Your overview is below and keeps working while you finish. This guide closes when you accept a teaching plan."
+            : "Steps marked Required come first, in order. Steps marked Can wait or Optional are not needed to start; they stay on your setup list on Overview. When you accept the teaching plan, this page becomes your Overview."
+        }
       />
       <ol className="space-y-3">
         {STEPS.map((step, index) => {

@@ -170,7 +170,11 @@ const STEP_NUMBER = {
 
 /** A step's h2, found by id: its visible number is hidden from the accessible name. */
 async function stepHeading(id: keyof typeof STEP_NUMBER) {
-  await screen.findByRole("heading", { level: 1, name: "Set up your first class" });
+  // Either title: "Finish setting up" is the same guide for a tutor with a class.
+  await screen.findByRole("heading", {
+    level: 1,
+    name: /^(Set up your first class|Finish setting up)$/,
+  });
   return document.getElementById(`onboarding-step-${id}`)!;
 }
 
@@ -197,6 +201,30 @@ test("in_flow renders the flow and not the dashboard or the checklist card", asy
   expect(screen.queryByRole("region", { name: "Setup" })).not.toBeInTheDocument();
   expect(screen.getByRole("list", { name: "" })).toBeInTheDocument();
   expect(screen.getAllByRole("heading", { level: 2 }).length).toBeGreaterThanOrEqual(9);
+});
+
+test("a tutor in the flow who already has a class keeps the dashboard under the guide", async () => {
+  classCount = 1;
+  onboarding = state({ subjects: [withClass([])], next_step: next("timetable", 7, 11) });
+  renderApp();
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Finish setting up" }),
+  ).toBeInTheDocument();
+  // The dashboard is there and usable: its way to schedule a lesson, and its
+  // verdict as a section heading so the page still has one h1.
+  expect(await screen.findByRole("button", { name: /Schedule a lesson/ })).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  expect(document.getElementById("overview-verdict")?.tagName).toBe("H2");
+  // The guide is the setup path here; the checklist card would say it twice.
+  expect(screen.queryByRole("region", { name: "Setup" })).not.toBeInTheDocument();
+  expect(screen.getByText(/Your overview is below and keeps working/)).toBeInTheDocument();
+});
+
+test("a tutor in the flow with no class gets the guide alone", async () => {
+  renderApp();
+  await screen.findByRole("heading", { level: 1, name: "Set up your first class" });
+  expect(screen.queryByRole("button", { name: /Schedule a lesson/ })).not.toBeInTheDocument();
+  expect(calls).toEqual([]);
 });
 
 test("a tutor out of the flow gets the dashboard and the checklist card", async () => {

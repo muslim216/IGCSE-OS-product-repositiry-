@@ -9,7 +9,7 @@ import { useMyTimezone } from "../../auth/AuthContext";
 import { assignmentsNeedingAttention } from "../../api/homework";
 import { useToast } from "../../components/ui";
 import { Button, buttonClasses } from "../../components/controls";
-import { ErrorState, PageHeader, PageSkeleton } from "../../components/page";
+import { EmbeddedPageContext, ErrorState, PageHeader, PageSkeleton } from "../../components/page";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { useOnboarding } from "../../lib/onboarding";
 import OnboardingFlow from "../onboarding/OnboardingFlow";
@@ -62,12 +62,20 @@ export default function TodayDashboard() {
   useEffect(() => {
     if (!onboarding.isLoading) setOnboardingSettled(true);
   }, [onboarding.isLoading]);
+  // A tutor in the flow who already runs a class keeps the dashboard underneath
+  // it (owner, 2026-10-06): every tutor without an accepted plan is in the flow,
+  // and replacing the page for one with lessons today would take away the agenda,
+  // the reminders and the way to schedule a lesson, none of which live anywhere
+  // else. It would also strand a class that cannot get a plan (everything already
+  // taught, or the exam too close) on a page with nothing else on it.
+  const hasClass = onboarding.data?.subjects.some((s) => s.classes.length > 0) ?? false;
+  const flowAlone = inFlow && !hasClass;
   // The dashboard's own reads stop once the server says this tutor is in the
-  // flow, where nothing shows them. They are NOT held back while that answer is
-  // still loading: this is the most-viewed page, and waiting would put an extra
-  // round trip in front of it for every tutor on every visit, to save a new
-  // tutor one set of requests once.
-  const dashboardEnabled = !inFlow;
+  // flow with no class, where nothing shows them. They are NOT held back while
+  // that answer is still loading: this is the most-viewed page, and waiting would
+  // put an extra round trip in front of it for every tutor on every visit, to
+  // save a new tutor one set of requests once.
+  const dashboardEnabled = !flowAlone;
 
   const today = useQuery({ queryKey: ["today"], queryFn: todayView, enabled: dashboardEnabled });
   // The overview feeds the week strip, the agenda and the cards. Polled so
@@ -103,13 +111,25 @@ export default function TodayDashboard() {
   // A failed or malformed onboarding read falls through to the dashboard as it
   // was before the flow existed: a read that failed must not trap a tutor on a
   // home they cannot use. The Setup card says on its own that it did not load.
-  if (inFlow && onboarding.data) return <OnboardingFlow data={onboarding.data} />;
+  if (flowAlone && onboarding.data) return <OnboardingFlow data={onboarding.data} />;
+  // Above every state of the dashboard, a failed one included: the guide reads
+  // its own data and must not disappear because the home aggregate did not load.
+  const flow =
+    inFlow && onboarding.data ? <OnboardingFlow data={onboarding.data} overDashboard /> : null;
 
-  if (today.isLoading) return <PageSkeleton rows={3} label="Loading overview" />;
+  if (today.isLoading) {
+    return (
+      <>
+        {flow}
+        <PageSkeleton rows={3} label="Loading overview" />
+      </>
+    );
+  }
 
   if (today.isError || !today.data) {
     return (
       <>
+        {flow}
         <ErrorState
           title="Overview couldn't be loaded"
           error={today.error}
@@ -151,17 +171,20 @@ export default function TodayDashboard() {
   // so say so plainly and point at where a class begins.
   if (view.class_count === 0) {
     return (
-      <SectionCard>
-        <EmptyState
-          title="No classes yet."
-          hint="A class starts from a subject's syllabus."
-          action={
-            <Link to="/tutor/subject-setup" className={buttonClasses("primary")}>
-              Open Subject setup
-            </Link>
-          }
-        />
-      </SectionCard>
+      <>
+        {flow}
+        <SectionCard>
+          <EmptyState
+            title="No classes yet."
+            hint="A class starts from a subject's syllabus."
+            action={
+              <Link to="/tutor/subject-setup" className={buttonClasses("primary")}>
+                Open Subject setup
+              </Link>
+            }
+          />
+        </SectionCard>
+      </>
     );
   }
 
@@ -190,29 +213,33 @@ export default function TodayDashboard() {
           </Link>
         </p>
       )}
-      {/* The verdict is the first thing read and the primary target. */}
-      <PageHeader
-        eyebrow={dayZone ? todayLabel(dayZone) : undefined}
-        title={line1}
-        documentTitle="Overview"
-        description={line2 ?? undefined}
-        actions={
-          <>
-            <Button variant="secondary" onClick={() => setCreateOpen(true)}>
-              <CalendarPlus aria-hidden className="h-4 w-4" />
-              Schedule a lesson
-            </Button>
-            {view.review_count > 0 && (
-              <Link to="/tutor/review" className={buttonClasses("primary")}>
-                Review marking
-              </Link>
-            )}
-          </>
-        }
-      />
+      {flow}
+      {/* The verdict is the first thing read and the primary target. Under the
+          guide it is a section heading: the guide holds the page's one h1. */}
+      <EmbeddedPageContext.Provider value={flow ? "overview-verdict" : false}>
+        <PageHeader
+          eyebrow={dayZone ? todayLabel(dayZone) : undefined}
+          title={line1}
+          documentTitle="Overview"
+          description={line2 ?? undefined}
+          actions={
+            <>
+              <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+                <CalendarPlus aria-hidden className="h-4 w-4" />
+                Schedule a lesson
+              </Button>
+              {view.review_count > 0 && (
+                <Link to="/tutor/review" className={buttonClasses("primary")}>
+                  Review marking
+                </Link>
+              )}
+            </>
+          }
+        />
+      </EmbeddedPageContext.Provider>
 
       {/* Not in the flow: while a tutor is in it, the flow is the setup path. */}
-      <SetupChecklist onAcknowledged={() => setSetupSaves((n) => n + 1)} />
+      {!flow && <SetupChecklist onAcknowledged={() => setSetupSaves((n) => n + 1)} />}
 
       {overview.data ? (
         <WeekGlance week={overview.data.week} />
