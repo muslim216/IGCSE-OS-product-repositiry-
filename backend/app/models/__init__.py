@@ -103,6 +103,7 @@ from app.models.teaching_plan import (
     TeachingPlanStatus,
 )
 from app.models.users import User, UserRole
+from app.models.weekly_send import WeeklySend, WeeklySendAudience
 from app.models.work import AssessableWork, WorkKind
 from app.models.workers import WorkerHeartbeat
 
@@ -216,6 +217,8 @@ __all__ = [
     "TutorObservation",
     "User",
     "UserRole",
+    "WeeklySend",
+    "WeeklySendAudience",
     "WhatsAppOptOut",
     "WorkerHeartbeat",
     "WorkKind",

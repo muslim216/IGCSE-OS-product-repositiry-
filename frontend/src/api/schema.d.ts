@@ -3252,6 +3252,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/weekly-sends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Weekly Sends
+         * @description The caller's own sends, newest first — "earlier reports".
+         */
+        get: operations["my_weekly_sends_api_v1_weekly_sends_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/weekly-sends/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Latest Weekly Send
+         * @description The caller's most recent send, or null when none has gone out yet — a
+         *     stated absence the home page renders as nothing, not as an empty report.
+         */
+        get: operations["my_latest_weekly_send_api_v1_weekly_sends_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/weekly-sends/{send_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Weekly Send */
+        get: operations["weekly_send_api_v1_weekly_sends__send_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students/{student_id}/weekly-sends": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student Weekly Sends
+         * @description What went to one learner and to their parents, newest first.
+         */
+        get: operations["student_weekly_sends_api_v1_students__student_id__weekly_sends_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3554,6 +3632,23 @@ export interface components {
             /** Student Id */
             student_id: number;
             state: components["schemas"]["AttendanceState"] | null;
+        };
+        /**
+         * AttendanceFacts
+         * @description Lessons in the window and the register's two states. `not_taken` is a
+         *     lesson nobody marked, never an absence (`PROD-2`).
+         */
+        AttendanceFacts: {
+            /** Lessons Held */
+            lessons_held: number;
+            /** Present */
+            present: number;
+            /** Absent */
+            absent: number;
+            /** Not Taken */
+            not_taken: number;
+            /** Rate */
+            rate: number | null;
         };
         /** AttendanceReport */
         AttendanceReport: {
@@ -3968,6 +4063,13 @@ export interface components {
             weight: number;
             /** Reason */
             reason: string | null;
+        };
+        /** ChapterRef */
+        ChapterRef: {
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
         };
         /** ChapterReport */
         ChapterReport: {
@@ -4545,6 +4647,15 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HomeworkFacts */
+        HomeworkFacts: {
+            /** Set Count */
+            set_count: number;
+            /** Handed In Count */
+            handed_in_count: number;
+            /** Missing Count */
+            missing_count: number;
+        };
         /** IntegrationAuthUrlOut */
         IntegrationAuthUrlOut: {
             /** Url */
@@ -4865,6 +4976,13 @@ export interface components {
             final_marks?: number | null;
             /** Final Feedback */
             final_feedback?: string | null;
+        };
+        /** MarkedFacts */
+        MarkedFacts: {
+            /** Marked */
+            marked: number;
+            /** Auto Finalized */
+            auto_finalized: number;
         };
         /** MarkingRulesIn */
         MarkingRulesIn: {
@@ -5388,6 +5506,38 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
         };
+        /** ParentChildFacts */
+        ParentChildFacts: {
+            /** Child Name */
+            child_name: string;
+            /** Classes */
+            classes: components["schemas"]["ParentClassFacts"][];
+        };
+        /**
+         * ParentClassFacts
+         * @description No topic list and no mistakes: the parent report is readiness, grade,
+         *     attendance and homework (AV-64). The chapter is a name, not a breakdown.
+         */
+        ParentClassFacts: {
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "on_track" | "needs_attention" | "at_risk" | "not_enough_data";
+            /** Readiness Score */
+            readiness_score: number | null;
+            /** Predicted Grade */
+            predicted_grade: string | null;
+            /** Readiness Direction */
+            readiness_direction: ("up" | "flat" | "down") | null;
+            chapter: components["schemas"]["ChapterRef"] | null;
+            attendance: components["schemas"]["AttendanceFacts"] | null;
+            homework: components["schemas"]["HomeworkFacts"] | null;
+        };
         /** ParentCommunicationCreate */
         ParentCommunicationCreate: {
             /** Body */
@@ -5408,6 +5558,23 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** ParentFacts */
+        ParentFacts: {
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Children */
+            children: components["schemas"]["ParentChildFacts"][];
+            /** Dropped Links */
+            dropped_links: number;
         };
         /** ParentRegisterRequest */
         ParentRegisterRequest: {
@@ -5583,6 +5750,26 @@ export interface components {
             /** Label */
             label: string;
         };
+        /**
+         * PlanFacts
+         * @description Where a class stands on its accepted plan. Absent when it has none.
+         */
+        PlanFacts: {
+            this_week_chapter: components["schemas"]["ChapterRef"] | null;
+            next_chapter: components["schemas"]["ChapterRef"] | null;
+            /** Next Chapter Homework Set */
+            next_chapter_homework_set: boolean | null;
+            /** Lessons Planned This Week */
+            lessons_planned_this_week: number;
+            /** Lessons Taught This Week */
+            lessons_taught_this_week: number;
+            /** Lessons Behind */
+            lessons_behind: number | null;
+            /** Lessons Ahead */
+            lessons_ahead: number;
+            /** Weeks To Exam */
+            weeks_to_exam: number | null;
+        };
         /** PlanInputsIn */
         PlanInputsIn: {
             /**
@@ -5743,6 +5930,16 @@ export interface components {
         PreferencesUpdate: {
             /** Preferences */
             preferences: components["schemas"]["PreferenceItem"][];
+        };
+        /**
+         * Punctuality
+         * @description Tutor variant only. Hand-ins in the window against their own deadline.
+         */
+        Punctuality: {
+            /** On Time */
+            on_time: number;
+            /** Late */
+            late: number;
         };
         /** QuestionIn */
         QuestionIn: {
@@ -6197,6 +6394,32 @@ export interface components {
             /** Classes */
             classes: components["schemas"]["ClassAttendanceOut"][];
         };
+        /** StudentClassFacts */
+        StudentClassFacts: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "on_track" | "needs_attention" | "at_risk" | "not_enough_data";
+            /** Readiness Score */
+            readiness_score: number | null;
+            /** Predicted Grade */
+            predicted_grade: string | null;
+            /** Readiness Direction */
+            readiness_direction: ("up" | "flat" | "down") | null;
+            /** Weak Topics */
+            weak_topics: string[];
+            this_week_chapter: components["schemas"]["ChapterRef"] | null;
+            next_chapter: components["schemas"]["ChapterRef"] | null;
+            attendance: components["schemas"]["AttendanceFacts"] | null;
+            homework: components["schemas"]["HomeworkFacts"] | null;
+        };
         /**
          * StudentCreate
          * @description Tutor-created account for a student without an email address.
@@ -6255,6 +6478,24 @@ export interface components {
             notes: components["schemas"]["TutorNoteOut"][];
             /** Communications */
             communications: components["schemas"]["ParentCommunicationOut"][];
+        };
+        /** StudentFacts */
+        StudentFacts: {
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Student Name */
+            student_name: string;
+            /** Classes */
+            classes: components["schemas"]["StudentClassFacts"][];
+            marked: components["schemas"]["MarkedFacts"] | null;
         };
         /** StudentMarkRow */
         StudentMarkRow: {
@@ -6785,6 +7026,13 @@ export interface components {
              */
             behind_classes: components["schemas"]["BehindClass"][];
         };
+        /** TopicCount */
+        TopicCount: {
+            /** Title */
+            title: string;
+            /** Learners */
+            learners: number;
+        };
         /** TopicEvidence */
         TopicEvidence: {
             /** Topic Id */
@@ -6916,6 +7164,45 @@ export interface components {
             /** Topic Mean Count */
             topic_mean_count: number;
             agreement: components["schemas"]["AgreementStats"];
+        };
+        /** TutorClassFacts */
+        TutorClassFacts: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string | null;
+            plan: components["schemas"]["PlanFacts"] | null;
+            /** Verdicts */
+            verdicts: components["schemas"]["VerdictCount"][];
+            /** Readiness Direction */
+            readiness_direction: ("up" | "flat" | "down") | null;
+            /** Readiness Compared Count */
+            readiness_compared_count: number;
+            /** Weak Topics */
+            weak_topics: components["schemas"]["TopicCount"][];
+            attendance: components["schemas"]["AttendanceFacts"] | null;
+            homework: components["schemas"]["HomeworkFacts"] | null;
+            punctuality: components["schemas"]["Punctuality"] | null;
+        };
+        /** TutorFacts */
+        TutorFacts: {
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Classes */
+            classes: components["schemas"]["TutorClassFacts"][];
+            /** Review Queue */
+            review_queue: number;
+            marked: components["schemas"]["MarkedFacts"] | null;
         };
         /** TutorNoteCreate */
         TutorNoteCreate: {
@@ -7061,6 +7348,16 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /** VerdictCount */
+        VerdictCount: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "on_track" | "needs_attention" | "at_risk" | "not_enough_data";
+            /** Learners */
+            learners: number;
+        };
         /** WeakStudent */
         WeakStudent: {
             /** Student Id */
@@ -7137,6 +7434,70 @@ export interface components {
             readiness_compared_count: number;
             /** Readiness Drop Threshold */
             readiness_drop_threshold: number;
+        };
+        /**
+         * WeeklySendAudience
+         * @enum {string}
+         */
+        WeeklySendAudience: "tutor" | "student" | "parent";
+        /** WeeklySendListItem */
+        WeeklySendListItem: {
+            /** Id */
+            id: number;
+            audience: components["schemas"]["WeeklySendAudience"];
+            /** Recipient User Id */
+            recipient_user_id: number;
+            /** Recipient Name */
+            recipient_name: string;
+            /**
+             * Week Start
+             * Format: date-time
+             */
+            week_start: string;
+            /**
+             * Week End
+             * Format: date-time
+             */
+            week_end: string;
+        };
+        /**
+         * WeeklySendOut
+         * @description One reader's week. Exactly one of `tutor`, `student`, `parent` is set —
+         *     the one `audience` names — so a client reads a typed fact set rather than
+         *     guessing the shape of a blob (`FE-4`).
+         */
+        WeeklySendOut: {
+            /** Id */
+            id: number;
+            audience: components["schemas"]["WeeklySendAudience"];
+            /** Recipient User Id */
+            recipient_user_id: number;
+            /**
+             * Week Start
+             * Format: date-time
+             */
+            week_start: string;
+            /**
+             * Week End
+             * Format: date-time
+             */
+            week_end: string;
+            tutor?: components["schemas"]["TutorFacts"] | null;
+            student?: components["schemas"]["StudentFacts"] | null;
+            parent?: components["schemas"]["ParentFacts"] | null;
+            /** Paragraphs */
+            paragraphs: components["schemas"]["WeeklySendParagraph"][];
+        };
+        /**
+         * WeeklySendParagraph
+         * @description A stored narrative as it stood at the send: who or what it is about, and
+         *     the text. The same row the class page or parent screen was showing.
+         */
+        WeeklySendParagraph: {
+            /** About */
+            about: string;
+            /** Text */
+            text: string;
         };
     };
     responses: never;
@@ -13054,6 +13415,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClassOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_weekly_sends_api_v1_weekly_sends_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklySendListItem"][];
+                };
+            };
+        };
+    };
+    my_latest_weekly_send_api_v1_weekly_sends_latest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklySendOut"] | null;
+                };
+            };
+        };
+    };
+    weekly_send_api_v1_weekly_sends__send_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                send_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklySendOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    student_weekly_sends_api_v1_students__student_id__weekly_sends_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklySendListItem"][];
                 };
             };
             /** @description Validation Error */

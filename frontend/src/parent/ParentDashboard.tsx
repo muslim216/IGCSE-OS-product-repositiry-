@@ -13,6 +13,7 @@ import {
   Skeleton,
 } from "../components/page";
 import { ReportsPanel } from "../components/ReportsPanel";
+import WeeklySendLink from "../components/WeeklySendLink";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import AttendancePanel from "../components/AttendancePanel";
 import { ABSENT } from "../lib/labels";
@@ -204,6 +205,10 @@ export default function ParentDashboard() {
             documentTitle={name}
             actions={switcher}
           />
+
+          {/* The parent's report is their weekly send (AV-63): one link into the
+              stored send rather than a second copy of it here. */}
+          <WeeklySendLink home="/parent" />
 
           {subjects.length > 0 && (
             <Section title="Subjects">

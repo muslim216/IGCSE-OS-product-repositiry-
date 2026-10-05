@@ -14,6 +14,7 @@ import { isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import LessonReminders from "./LessonReminders";
 import ChapterPrompts from "./ChapterPrompts";
 import ClassCards from "./ClassCards";
+import WeeklySendLink from "../../components/WeeklySendLink";
 import ClassNarrative from "./ClassNarrative";
 import CreateLessonModal from "./CreateLessonModal";
 import NeedsYou from "./NeedsYou";
@@ -152,6 +153,9 @@ export default function TodayDashboard() {
           surface waiting on a model call (spec §8). Suppressed on a clear day,
           where the terminal sentence below is the whole message. */}
       {!clear && <ClassNarrative classes={view.classes} />}
+
+      {/* A link into the stored weekly send, not a copy of it (AV-51). */}
+      <WeeklySendLink home="/tutor" />
 
       {/* Gated on the rows it renders, not on review_count: the count comes from
           the aggregate and the rows from separate queries, so while those load
