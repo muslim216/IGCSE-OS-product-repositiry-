@@ -314,6 +314,17 @@ async def test_the_tutor_sees_what_reached_nobody_and_why(client, tutor, student
     assert "address" not in rows[0]
 
 
+async def test_undelivered_is_one_row_per_person_and_reason_not_one_per_message(
+    client, tutor, student
+):
+    sid = student["user"]["id"]
+    for i in range(5):  # five reminders missed for the same reason
+        await _note(sid, f"n{i}", NotificationStatus.no_channel, age_days=i)
+    await _note(sid, "f1", NotificationStatus.failed)
+    rows = (await client.get(UNDELIVERED, headers=tutor["headers"])).json()
+    assert sorted(r["status"] for r in rows) == ["failed", "no_channel"]
+
+
 async def test_undelivered_is_tutor_only_and_never_crosses_organizations(client, tutor, student):
     await _note(student["user"]["id"], "u1", NotificationStatus.failed)
     other = await register_other_tutor(client)

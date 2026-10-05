@@ -46,6 +46,7 @@ from app.services.evidence import build_homework_evidence
 from app.services.knowledge import build_tutor_context
 from app.services.marking_context import MarkingContextSources, build_marking_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
+from app.services.notifications.triggers import announce_marked_work
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.services.submission_kind import (
     HOMEWORK,
@@ -647,6 +648,9 @@ async def record_marks_as_evidence(
     # from a router: evidence landing is the event that makes the stored
     # paragraph stale. Deduped against pending jobs and gated on the kill switch.
     await enqueue_class_narratives_for_student_subject(session, submission.student_id, subject_id)
+    # Both settle paths meet here, so this is where "your work is marked" is
+    # said — once per submission, however many times it is re-finalized.
+    await announce_marked_work(session, submission, subject_id)
 
 
 async def _upsert_attempt_rollup(session: AsyncSession, submission: Submission) -> None:

@@ -4776,7 +4776,7 @@
           "notifications"
         ],
         "summary": "Undelivered",
-        "description": "Messages from the last 30 days that reached nobody, newest first.\n\nWithout this a parent who never gets their weekly message is invisible: the\nrow ends `failed`, `suppressed` or `no_channel` and only the table knows.\nA row still `queued` is in flight, not a problem, and is left out.",
+        "description": "Who is not being reached, and why \u2014 the newest undelivered message per\nperson and reason from the last 30 days.\n\nWithout this a parent who never gets their weekly message is invisible: the\nrow ends `failed`, `suppressed` or `no_channel` and only the table knows.\nOne row per person and reason, not one per message: a learner with no\nconfirmed number misses every reminder for every lesson, and thirty copies\nof \"no confirmed number\" would bury the one that says a parent opted out.\nA row still `queued` is in flight, not a problem, and is left out.",
         "operationId": "undelivered_api_v1_notifications_undelivered_get",
         "responses": {
           "200": {

@@ -37,6 +37,7 @@ from app.models import (
 from app.services import pdf, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.knowledge import build_tutor_context
+from app.services.notifications.triggers import announce_homework_set
 from app.workers.jobs import JOB_STALL_SECONDS, enqueue
 
 
@@ -136,6 +137,11 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
         assignment.extraction_error = str(exc) or exc.__class__.__name__
         await session.commit()
         raise
+    # Reached only when the assignment was published just above: this is the
+    # usual way homework goes out, so it is where the class is told. The key is
+    # the assignment, so a tutor publishing by hand afterwards does not repeat it.
+    await session.flush()
+    await announce_homework_set(session, assignment)
 
 
 async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None:

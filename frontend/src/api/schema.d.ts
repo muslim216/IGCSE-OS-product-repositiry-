@@ -1707,10 +1707,14 @@ export interface paths {
         };
         /**
          * Undelivered
-         * @description Messages from the last 30 days that reached nobody, newest first.
+         * @description Who is not being reached, and why — the newest undelivered message per
+         *     person and reason from the last 30 days.
          *
          *     Without this a parent who never gets their weekly message is invisible: the
          *     row ends `failed`, `suppressed` or `no_channel` and only the table knows.
+         *     One row per person and reason, not one per message: a learner with no
+         *     confirmed number misses every reminder for every lesson, and thirty copies
+         *     of "no confirmed number" would bury the one that says a parent opted out.
          *     A row still `queued` is in flight, not a problem, and is left out.
          */
         get: operations["undelivered_api_v1_notifications_undelivered_get"];

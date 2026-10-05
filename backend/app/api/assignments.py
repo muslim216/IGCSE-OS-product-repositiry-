@@ -39,6 +39,7 @@ from app.schemas.homework import (
     QuestionOut,
 )
 from app.services.assignments import create_from_upload
+from app.services.notifications.triggers import announce_homework_set
 from app.services.work import create_work
 from app.workers.jobs import enqueue
 
@@ -469,6 +470,10 @@ async def publish_assignment(
     if not count:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Add at least one question first")
     assignment.status = AssignmentStatus.published
+    await db.flush()
+    # In the same transaction as the publish, so nobody is told about homework
+    # that then failed to publish. It cannot fail the publish itself.
+    await announce_homework_set(db, assignment)
     await db.commit()
     return await assignment_detail(assignment_id, db, user)
 
