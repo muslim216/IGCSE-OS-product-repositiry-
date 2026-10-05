@@ -35,6 +35,19 @@ function Figure({
 }
 
 /**
+ * The estimate in words. "Roughly" is load-bearing (AV-101): the question count
+ * is real, the time is a per-question figure the owner chose, and nothing in
+ * Avora times a tutor marking. Never print these minutes without it.
+ */
+export function roughMarkingTime(minutes: number): string {
+  // 58 rounds to 60, which is an hour, not "60 minutes".
+  const toFive = Math.max(5, Math.round(minutes / 5) * 5);
+  if (toFive < 60) return `roughly ${toFive} minutes`;
+  const hours = Math.round(minutes / 30) / 2;
+  return `roughly ${hours} ${hours === 1 ? "hour" : "hours"}`;
+}
+
+/**
  * The week at a glance: lessons, marking, attendance, readiness. Each figure
  * is read from the same definition its own page uses (the server's overview),
  * and says what it was counted from.
@@ -99,6 +112,18 @@ export default function WeekGlance({ week }: { week: Week }) {
           }
         />
       </dl>
+      {/* The one piece of good news on this page (AV-101). Absent, not "0
+          questions", when nothing was marked for them (PROD-2). */}
+      {week.auto_marked_questions > 0 && week.auto_marked_estimate_minutes != null && (
+        <p className="mt-3 text-sm text-ink-700">
+          {week.auto_marked_questions} {week.auto_marked_questions === 1 ? "question" : "questions"}{" "}
+          marked for you this week — {roughMarkingTime(week.auto_marked_estimate_minutes)} of
+          marking.{" "}
+          <span className="text-ink-500">
+            An estimate, at {week.auto_marked_minutes_per_question} minutes a question.
+          </span>
+        </p>
+      )}
     </section>
   );
 }

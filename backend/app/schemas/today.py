@@ -166,6 +166,15 @@ class WeekGlance(BaseModel):
     lessons_taught: int
     #: The review queue's own count (same predicate as the Review page).
     marking_waiting: int
+    #: Questions the AI marked this week whose mark stood with no tutor step,
+    #: on settled work across the organization (AV-101). A real count.
+    auto_marked_questions: int
+    #: What that count is taken to have saved, in minutes: the count times
+    #: `auto_marked_minutes_per_question`. **An estimate, never a measurement**:
+    #: a surface must print it with "roughly". Null when nothing was marked.
+    auto_marked_estimate_minutes: int | None = None
+    #: The owner's per-question figure the estimate is built from.
+    auto_marked_minutes_per_question: int
     #: Attendance this week over the tutor's classes, by the one definition in
     #: services/attendance.py. `rate` is present / (present + absent), null when
     #: nothing was marked; not-taken pairs are excluded from it and counted apart.

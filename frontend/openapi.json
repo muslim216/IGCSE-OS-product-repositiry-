@@ -21513,6 +21513,25 @@
             "type": "integer",
             "title": "Marking Waiting"
           },
+          "auto_marked_questions": {
+            "type": "integer",
+            "title": "Auto Marked Questions"
+          },
+          "auto_marked_estimate_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Marked Estimate Minutes"
+          },
+          "auto_marked_minutes_per_question": {
+            "type": "integer",
+            "title": "Auto Marked Minutes Per Question"
+          },
           "attendance_present": {
             "type": "integer",
             "title": "Attendance Present"
@@ -21556,6 +21575,8 @@
           "lessons_planned",
           "lessons_taught",
           "marking_waiting",
+          "auto_marked_questions",
+          "auto_marked_minutes_per_question",
           "attendance_present",
           "attendance_absent",
           "attendance_not_taken",
