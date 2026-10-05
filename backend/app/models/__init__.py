@@ -8,7 +8,15 @@ from app.models.custom_criteria import (
     CustomCriterionScore,
     CustomCriterionScoreAudit,
 )
-from app.models.groups import Group, GroupMember, Invite, InviteKind, ParentLink, ScheduleSlot
+from app.models.groups import (
+    Group,
+    GroupMember,
+    Invite,
+    InviteKind,
+    ParentLink,
+    ScheduleSlot,
+    TaughtBeforeTopic,
+)
 from app.models.homework import (
     SETTLED_STATUSES,
     Assignment,
@@ -153,6 +161,7 @@ __all__ = [
     "Lesson",
     "LessonObservation",
     "LessonTopic",
+    "TaughtBeforeTopic",
     "MarkConfidence",
     "Mistake",
     "MistakeCategory",

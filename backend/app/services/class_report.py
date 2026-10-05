@@ -60,6 +60,7 @@ from app.services.mistake_rollup import class_mistake_patterns
 from app.services.plan_progress import NO_PROGRESS, Progress, SlotFact, class_progress, is_taught
 from app.services.plan_start_times import resolve_zone
 from app.services.readiness_config import resolve_readiness_config
+from app.services.taught_before import taught_before_topic_ids
 from app.services.teaching_plan import accepted_plan_for_group, next_unstarted_slot
 from app.services.today import build_class_overview
 
@@ -243,6 +244,8 @@ async def _chapter_reports(
             .where(Lesson.group_id == group.id, Lesson.organization_id == group.organization_id)
         )
     )
+    # Plus what the tutor marked as taught before Avora (task 9.1b).
+    taught_ids |= await taught_before_topic_ids(session, [group.id])
     means = {t.topic_id: t for t in detail.topic_means}
     weak_ids = {t.topic_id for t in weak}
     by_chapter: dict[int | None, list[Topic]] = defaultdict(list)

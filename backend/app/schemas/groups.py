@@ -37,6 +37,18 @@ class ChapterOut(BaseModel):
     position: int
 
 
+class TaughtBeforeUpdate(BaseModel):
+    topic_ids: list[int]
+
+
+class TaughtBeforeOut(BaseModel):
+    #: False until the tutor answers; an empty `topic_ids` with `answered` true
+    #: means "starting fresh".
+    answered: bool
+    answered_at: datetime | None
+    topic_ids: list[int]
+
+
 class GroupCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     subject_id: int

@@ -66,6 +66,7 @@ from app.services.readiness_factors import (
     topic_mastery,
 )
 from app.services.submission_kind import HOMEWORK, PAST_PAPER
+from app.services.taught_before import taught_before_topic_ids
 
 # A topic's Topic Mastery score at/above this is considered "mastered" for
 # the Syllabus Coverage factor. Not the tutor's weak threshold
@@ -330,6 +331,14 @@ async def _topic_coverage(
             )
         ).all()
     )
+    # A topic the tutor marked as taught before Avora counts exactly as a taught
+    # lesson topic (task 9.1b). One query over the student's classes, not per class.
+    member_group_ids = (
+        await session.scalars(
+            select(GroupMember.group_id).where(GroupMember.student_id == student_id)
+        )
+    ).all()
+    taught_ids |= await taught_before_topic_ids(session, member_group_ids, topic_ids=topic_ids)
     # Owner decision (2026-09-23): coverage counts marked work only. A tutor's
     # estimate is their opinion entered before any work exists, not practice —
     # excluded here so "practised" never reads a self-declared score as

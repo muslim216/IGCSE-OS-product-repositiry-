@@ -1655,6 +1655,110 @@
         }
       }
     },
+    "/api/v1/groups/{group_id}/taught-before": {
+      "get": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Get Taught Before",
+        "description": "Where the class was up to before Avora (task 9.1b).",
+        "operationId": "get_taught_before_api_v1_groups__group_id__taught_before_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaughtBeforeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "groups"
+        ],
+        "summary": "Set Taught Before",
+        "description": "Replace the class's taught-before topics. An empty list is an answer too:\n\"starting fresh\".",
+        "operationId": "set_taught_before_api_v1_groups__group_id__taught_before_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaughtBeforeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaughtBeforeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/groups": {
       "get": {
         "tags": [
@@ -20312,6 +20416,56 @@
           "created_at"
         ],
         "title": "SyllabusUploadOut"
+      },
+      "TaughtBeforeOut": {
+        "properties": {
+          "answered": {
+            "type": "boolean",
+            "title": "Answered"
+          },
+          "answered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At"
+          },
+          "topic_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Topic Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "answered",
+          "answered_at",
+          "topic_ids"
+        ],
+        "title": "TaughtBeforeOut"
+      },
+      "TaughtBeforeUpdate": {
+        "properties": {
+          "topic_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Topic Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "topic_ids"
+        ],
+        "title": "TaughtBeforeUpdate"
       },
       "TeachingGuidanceOut": {
         "properties": {

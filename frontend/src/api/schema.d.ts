@@ -687,6 +687,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/groups/{group_id}/taught-before": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Taught Before
+         * @description Where the class was up to before Avora (task 9.1b).
+         */
+        get: operations["get_taught_before_api_v1_groups__group_id__taught_before_get"];
+        /**
+         * Set Taught Before
+         * @description Replace the class's taught-before topics. An empty list is an answer too:
+         *     "starting fresh".
+         */
+        put: operations["set_taught_before_api_v1_groups__group_id__taught_before_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -6958,6 +6983,20 @@ export interface components {
              */
             created_at: string;
         };
+        /** TaughtBeforeOut */
+        TaughtBeforeOut: {
+            /** Answered */
+            answered: boolean;
+            /** Answered At */
+            answered_at: string | null;
+            /** Topic Ids */
+            topic_ids: number[];
+        };
+        /** TaughtBeforeUpdate */
+        TaughtBeforeUpdate: {
+            /** Topic Ids */
+            topic_ids: number[];
+        };
         /**
          * TeachingGuidanceOut
          * @description What is on file for a subject — or that nothing is.
@@ -8584,6 +8623,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClassReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_taught_before_api_v1_groups__group_id__taught_before_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaughtBeforeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_taught_before_api_v1_groups__group_id__taught_before_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaughtBeforeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaughtBeforeOut"];
                 };
             };
             /** @description Validation Error */

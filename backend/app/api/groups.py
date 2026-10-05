@@ -29,13 +29,17 @@ from app.schemas.groups import (
     StudentCreate,
     StudentPasswordReset,
     SubjectOut,
+    TaughtBeforeOut,
+    TaughtBeforeUpdate,
 )
 from app.security import hash_password
+from app.services import taught_before
 from app.services.ai import AIUnavailableError, record_usage, text_complete
 from app.services.class_report import FutureSince, build_class_report
 from app.services.groups import summaries as group_summaries
 from app.services.invites import build_invite
 from app.services.narrative import enqueue_narratives_for_group
+from app.services.teaching_plan import PlanInputError
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -67,6 +71,34 @@ async def class_report(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "since cannot be in the future"
         ) from None
+
+
+@router.get("/{group_id}/taught-before", response_model=TaughtBeforeOut)
+async def get_taught_before(group_id: int, db: DbSession, user: TutorUser) -> TaughtBeforeOut:
+    """Where the class was up to before Avora (task 9.1b)."""
+    group = await _owned_group(db, user, group_id)
+    result = await taught_before.get_taught_before(db, group)
+    return TaughtBeforeOut(
+        answered=result.answered, answered_at=result.answered_at, topic_ids=result.topic_ids
+    )
+
+
+@router.put("/{group_id}/taught-before", response_model=TaughtBeforeOut)
+async def set_taught_before(
+    group_id: int, body: TaughtBeforeUpdate, db: DbSession, user: TutorUser
+) -> TaughtBeforeOut:
+    """Replace the class's taught-before topics. An empty list is an answer too:
+    "starting fresh"."""
+    group = await _owned_group(db, user, group_id)
+    try:
+        result = await taught_before.replace_taught_before(
+            db, group=group, user=user, topic_ids=body.topic_ids
+        )
+    except PlanInputError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return TaughtBeforeOut(
+        answered=result.answered, answered_at=result.answered_at, topic_ids=result.topic_ids
+    )
 
 
 @router.post("", response_model=GroupOut, status_code=status.HTTP_201_CREATED)
