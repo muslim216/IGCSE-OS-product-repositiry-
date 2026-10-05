@@ -32,6 +32,7 @@ from app.services.narrative import (
     generate_narrative,
     sweep_parent_narratives,
 )
+from app.services.notifications.service import SEND_JOB, send_notification
 from app.services.past_paper_phase import SWEEP_JOB as PAST_PAPER_PHASE_SWEEP_JOB
 from app.services.past_paper_phase import sweep_past_paper_phase
 from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
@@ -108,3 +109,6 @@ def register_all() -> None:
     # 7.3, AV-118). Safe to re-run (`BE-6`): provider rows are replaced except
     # those a tutor resolved, and a tutor's own mark is never overwritten.
     register_handler(IMPORT_JOB, import_meeting_attendance)
+    # Delivers one outbox row (task 8.1). Safe to re-run (`BE-6`): only a
+    # `queued` notification is acted on.
+    register_handler(SEND_JOB, send_notification)

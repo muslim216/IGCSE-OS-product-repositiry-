@@ -288,6 +288,108 @@ async def write_v2_snapshot(
     return run_id
 
 
+# --- Notifications (task 8.1) -------------------------------------------------
+
+
+async def register_parent(client, tutor, student, email="parent@example.com") -> dict:
+    """A parent linked to `student` through the real invite flow."""
+    code = await client.post(
+        f"/api/v1/students/{student['user']['id']}/parent-code", headers=tutor["headers"]
+    )
+    reg = await client.post(
+        "/api/v1/auth/register/parent",
+        json={
+            "link_code": code.json()["code"],
+            "name": "Parent",
+            "email": email,
+            "password": "password123",
+        },
+    )
+    assert reg.status_code == 201, reg.text
+    return {
+        "user": reg.json()["user"],
+        "headers": {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"},
+    }
+
+
+async def register_other_tutor(client, email="other@example.com") -> dict:
+    """A tutor in a different organization, for cross-tenant negative tests."""
+    reg = await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Other", "email": email, "password": "password123"},
+    )
+    assert reg.status_code == 201, reg.text
+    return {
+        "user": reg.json()["user"],
+        "headers": {"Authorization": f"Bearer {reg.json()['tokens']['access_token']}"},
+    }
+
+
+class FakeChannel:
+    """A delivery adapter that records sends and replays scripted outcomes.
+
+    `outcomes` is consumed one per send: a string is the provider message id, an
+    exception is raised. When it runs out every send succeeds.
+    """
+
+    def __init__(self, name: str, *, available: bool = True, outcomes=None) -> None:
+        self.name = name
+        self._available = available
+        self.outcomes = list(outcomes or [])
+        self.sent: list[dict] = []
+
+    def available(self) -> bool:
+        return self._available
+
+    async def send(self, address, template, params, link_url, *, language="en") -> str:
+        self.sent.append(
+            {
+                "address": address,
+                "template": template,
+                "params": params,
+                "link_url": link_url,
+                "language": language,
+            }
+        )
+        outcome = self.outcomes.pop(0) if self.outcomes else f"{self.name}-msg-{len(self.sent)}"
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def patch_channels(monkeypatch, *, whatsapp=None, email=None) -> dict:
+    """Substitute the delivery adapters; returns them keyed by channel."""
+    from app.models import NotificationChannel
+    from app.services.notifications import service
+
+    fakes = {
+        NotificationChannel.whatsapp: whatsapp or FakeChannel("whatsapp"),
+        NotificationChannel.email: email or FakeChannel("email"),
+    }
+    monkeypatch.setattr(service, "channel_registry", lambda: fakes)
+    return fakes
+
+
+async def add_contact(
+    session, user_id: int, *, channel, address: str, confirmed: bool = True, organization_id=None
+):
+    """A ContactPoint row, confirmed by default."""
+    from app.models import ContactPoint, User
+    from app.models.base import utcnow
+
+    user = await session.get(User, user_id)
+    contact = ContactPoint(
+        organization_id=organization_id or user.organization_id,
+        user_id=user_id,
+        channel=channel,
+        address=address,
+        confirmed_at=utcnow() if confirmed else None,
+    )
+    session.add(contact)
+    await session.flush()
+    return contact
+
+
 async def add_mistake(session, *, student_id, mark_id, category_id, severity, topic_ids, source):
     mistake = Mistake(
         student_id=student_id,

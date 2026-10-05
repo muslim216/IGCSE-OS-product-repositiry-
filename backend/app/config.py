@@ -249,6 +249,25 @@ class Settings(BaseSettings):
     # is twice this — and only until the breaker opens.
     redis_timeout_seconds: float = 0.25
     cors_origins: str = "http://localhost:5173"
+
+    # --- Notifications (task 8.1) ------------------------------------------
+    # Every one of these is optional and the app boots without them (`INF-9`):
+    # an unset channel reports "unconfigured" and notifications record that
+    # status instead of failing. WhatsApp is the main channel, SMTP the fallback.
+    app_base_url: str = "http://localhost:5173"
+    whatsapp_access_token: str | None = None
+    whatsapp_phone_number_id: str | None = None
+    whatsapp_app_secret: str | None = None
+    whatsapp_verify_token: str | None = None
+    whatsapp_graph_version: str = "v21.0"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_starttls: bool = True
+    # Implicit TLS from the first byte (port 465). Takes precedence over STARTTLS.
+    smtp_use_tls: bool = False
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
 

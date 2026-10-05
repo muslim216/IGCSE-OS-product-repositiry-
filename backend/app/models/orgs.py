@@ -1,4 +1,4 @@
-from sqlalchemy import String
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -24,3 +24,16 @@ class Organization(TimestampMixin, Base):
     # implicitly. 64 chars is generous — the longest IANA name is in the
     # mid-thirties — without inviting junk.
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # When the weekly parent/student send goes out (AV-88/89): Python weekday
+    # (Mon=0..Sun=6, default Sunday) and the hour in the organization's own zone.
+    weekly_send_weekday: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=6, server_default="6"
+    )
+    weekly_send_hour: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=17, server_default="17"
+    )
+    # The language the AI writes in and the WhatsApp template language (AV-66).
+    ai_language: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="en", server_default="en"
+    )
