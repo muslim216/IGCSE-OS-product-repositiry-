@@ -37,6 +37,8 @@ import WeekGlance from "./WeekGlance";
  */
 export default function TodayDashboard() {
   const [createOpen, setCreateOpen] = useState(false);
+  // Counts acknowledgements from the setup card; see the status region below.
+  const [setupSaves, setSetupSaves] = useState(0);
   const { toast, showToast } = useToast();
 
   const today = useQuery({ queryKey: ["today"], queryFn: todayView });
@@ -108,6 +110,11 @@ export default function TodayDashboard() {
 
   return (
     <div className="space-y-8">
+      {/* Always mounted so the change is announced. A second save alternates a
+          trailing space so the same sentence is read again. */}
+      <p role="status" className="sr-only">
+        {setupSaves > 0 ? `Saved. Setup updated.${setupSaves % 2 ? "" : "\u00a0"}` : ""}
+      </p>
       {/* The verdict is the first thing read and the primary target. */}
       <PageHeader
         eyebrow={dayZone ? todayLabel(dayZone) : undefined}
@@ -130,7 +137,7 @@ export default function TodayDashboard() {
       />
 
       {/* Not in Welcome: before any class exists that surface is the setup path. */}
-      <SetupChecklist />
+      <SetupChecklist onAcknowledged={() => setSetupSaves((n) => n + 1)} />
 
       {overview.data ? (
         <WeekGlance week={overview.data.week} />

@@ -68,18 +68,21 @@ function renderEditor() {
   );
 }
 
+const buttons = (name: string) => screen.getAllByRole("button", { name });
 const box = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement;
 
 test("says it is not answered yet, and that the answer is the tutor's own", async () => {
   renderEditor();
   expect(await screen.findByText("Not answered yet.")).toBeInTheDocument();
-  expect(screen.getByText(/your own account of where the class is/)).toBeInTheDocument();
+  expect(screen.getByText(/declaring this yourself/)).toBeInTheDocument();
 });
 
 test("ticking a chapter ticks its topics, and a partial one shows as mixed", async () => {
   renderEditor();
   const forces = await screen.findByRole("group", { name: /Forces/ });
-  const all = within(forces).getByRole("checkbox", { name: /All of 1 Forces/ }) as HTMLInputElement;
+  const all = within(forces).getByRole("checkbox", {
+    name: /All topics in 1 Forces/,
+  }) as HTMLInputElement;
   expect(all.checked).toBe(false);
   expect(all.indeterminate).toBe(false);
 
@@ -104,19 +107,19 @@ test("Save sends the ticked ids and the summary shows the answer", async () => {
   await screen.findByText("Not answered yet.");
   fireEvent.click(box("1.1 Speed"));
   fireEvent.click(box("2.1 Sound"));
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(buttons("Save")[1]);
   await waitFor(() => expect(puts).toEqual([{ topic_ids: [2, 5] }]));
   expect(await screen.findByText(/2 topics ticked/)).toBeInTheDocument();
-  expect(screen.getByText(/^Answered/)).toBeInTheDocument();
+  expect(screen.getByText(/^You answered/)).toBeInTheDocument();
 });
 
 test("Starting fresh saves an empty list", async () => {
   renderEditor();
   await screen.findByText("Not answered yet.");
   fireEvent.click(box("1.1 Speed"));
-  fireEvent.click(screen.getByRole("button", { name: "Starting fresh" }));
+  fireEvent.click(buttons("Starting fresh")[1]);
   await waitFor(() => expect(puts).toEqual([{ topic_ids: [] }]));
-  expect(await screen.findByText(/starting fresh\./)).toBeInTheDocument();
+  expect(await screen.findByText(/nothing taught before Avora/)).toBeInTheDocument();
   expect(box("1.1 Speed").checked).toBe(false);
 });
 
@@ -133,11 +136,11 @@ test("a failed save keeps the ticks and shows the error", async () => {
   renderEditor();
   await screen.findByText("Not answered yet.");
   fireEvent.click(box("1.2 Momentum"));
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent(/went wrong/i);
+  fireEvent.click(buttons("Save")[1]);
+  expect(await screen.findByText(/went wrong/i)).toBeInTheDocument();
   expect(box("1.2 Momentum").checked).toBe(true);
-  expect(screen.getByText("Not answered yet.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  expect(screen.getByText("Not saved yet: 1 topic ticked.")).toBeInTheDocument();
+  expect(buttons("Save")[1]).toBeEnabled();
 });
 
 test("a subject with no topics points to its syllabus and offers no checkboxes", async () => {
@@ -178,4 +181,122 @@ test("a subject with no chapters is one plain group, and a chapter with no topic
   expect(buildGroups([{ ...topic, chapter_id: 10 }], CHAPTERS).map((g) => g.title)).toEqual([
     "Forces",
   ]);
+});
+
+test("unsaved ticks are called unsaved, and Discard puts the saved list back", async () => {
+  answer = { answered: true, answered_at: "2026-10-01T10:00:00Z", topic_ids: [2] };
+  renderEditor();
+  await screen.findByText(/1 topic ticked/);
+  expect(screen.queryByRole("button", { name: "Discard changes" })).not.toBeInTheDocument();
+  fireEvent.click(box("2.1 Sound"));
+  expect(screen.getByText("Not saved yet: 2 topics ticked.")).toBeInTheDocument();
+  fireEvent.click(buttons("Discard changes")[0]);
+  expect(box("2.1 Sound").checked).toBe(false);
+  expect(screen.getByText(/1 topic ticked/)).toBeInTheDocument();
+});
+
+test("leaving with unsaved ticks asks the browser to confirm, and not otherwise", async () => {
+  renderEditor();
+  await screen.findByText("Not answered yet.");
+  const leave = () => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(leave()).toBe(false);
+  fireEvent.click(box("1.1 Speed"));
+  expect(leave()).toBe(true);
+  fireEvent.click(buttons("Discard changes")[0]);
+  expect(leave()).toBe(false);
+});
+
+test("Starting fresh on a saved list asks first, and saves only on confirm", async () => {
+  answer = { answered: true, answered_at: "2026-10-01T10:00:00Z", topic_ids: [2, 3] };
+  renderEditor();
+  await screen.findByText(/2 topics ticked/);
+  fireEvent.click(buttons("Starting fresh")[1]);
+  const dialog = await screen.findByRole("dialog", { name: "Clear 2 saved topics?" });
+  expect(
+    within(dialog).getByText("This saves that nothing was taught before Avora."),
+  ).toBeVisible();
+  expect(puts).toEqual([]);
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(puts).toEqual([]);
+
+  fireEvent.click(buttons("Starting fresh")[1]);
+  fireEvent.click(await screen.findByRole("button", { name: "Clear and save" }));
+  await waitFor(() => expect(puts).toEqual([{ topic_ids: [] }]));
+});
+
+test("the action row above the list saves the same ticks", async () => {
+  renderEditor();
+  await screen.findByText("Not answered yet.");
+  expect(screen.getByText("0 of 5 ticked")).toBeInTheDocument();
+  fireEvent.click(box("2.1 Sound"));
+  expect(screen.getByText("1 of 5 ticked")).toBeInTheDocument();
+  fireEvent.click(buttons("Save")[0]);
+  await waitFor(() => expect(puts).toEqual([{ topic_ids: [5] }]));
+});
+
+test("a parent with only its children ticked shows the chapter as mixed", async () => {
+  renderEditor();
+  await screen.findByText("Not answered yet.");
+  const all = screen.getByRole("checkbox", { name: "All topics in 1 Forces" }) as HTMLInputElement;
+  fireEvent.click(box("1.1 Speed"));
+  fireEvent.click(box("1.2 Momentum"));
+  expect(box("1 Forces").checked).toBe(false);
+  expect(all.indeterminate).toBe(true);
+  fireEvent.click(buttons("Save")[1]);
+  await waitFor(() => expect(puts).toEqual([{ topic_ids: [2, 3] }]));
+});
+
+test("children are nested inside their parent's list item", async () => {
+  renderEditor();
+  await screen.findByText("Not answered yet.");
+  const parent = box("1 Forces").closest("li")!;
+  expect(within(parent).getByRole("checkbox", { name: "1.1 Speed" })).toBeInTheDocument();
+  expect(within(parent).getAllByRole("list")).toHaveLength(1);
+});
+
+test("a chapters failure still shows the topics, as one flat group, with a note", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+      if (path === "/api/v1/subjects/7/topics") return json(TOPICS);
+      if (path === "/api/v1/subjects/7/chapters") return new Response("{}", { status: 500 });
+      return json(answer);
+    }),
+  );
+  renderEditor();
+  expect(
+    await screen.findByText("Chapters couldn't be loaded, so topics aren't grouped by chapter."),
+  ).toBeInTheDocument();
+  expect(screen.getAllByRole("group")).toHaveLength(1);
+  expect(box("2.1 Sound")).toBeInTheDocument();
+});
+
+test("an id no longer in the topic list is not sent", async () => {
+  answer = { answered: true, answered_at: "2026-10-01T10:00:00Z", topic_ids: [2, 999] };
+  renderEditor();
+  await screen.findByText(/2 topics ticked/);
+  fireEvent.click(box("2.1 Sound"));
+  fireEvent.click(buttons("Save")[1]);
+  await waitFor(() => expect(puts).toEqual([{ topic_ids: [2, 5] }]));
+});
+
+test("a refetch of the saved answer does not overwrite unsaved ticks", async () => {
+  renderEditor();
+  await screen.findByText("Not answered yet.");
+  fireEvent.click(box("1.1 Speed"));
+  const reads = () => requested.filter((p) => p === "/api/v1/groups/3/taught-before").length;
+  const before = reads();
+  answer = { answered: true, answered_at: "2026-10-01T10:00:00Z", topic_ids: [5] };
+  window.dispatchEvent(new Event("visibilitychange"));
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  expect(box("1.1 Speed").checked).toBe(true);
+  expect(box("2.1 Sound").checked).toBe(false);
 });

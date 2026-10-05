@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTaughtBefore, setTaughtBefore } from "../api/groups";
 import { listChapters, listTopics, type Chapter, type Topic } from "../api/syllabus";
 import { Button } from "../components/controls";
-import { ErrorState, SectionSkeleton } from "../components/page";
+import { ConfirmDialog, ErrorState, SectionSkeleton } from "../components/page";
 import { friendlyError } from "../lib/errors";
 import { subjectSetupPath } from "../lib/subjectSetup";
 
@@ -83,16 +83,40 @@ export function buildGroups(topics: Topic[], chapters: Chapter[]): Group[] {
   });
 }
 
+interface TopicNode {
+  topic: Topic;
+  children: TopicNode[];
+}
+
+/** A group's rows as a tree. A row whose parent is not in this group is the
+ *  group's top level: a chapter's topics can sit under a parent filed elsewhere. */
+function nest(rows: Row[]): TopicNode[] {
+  const nodes = new Map<number, TopicNode>(
+    rows.map((r) => [r.topic.id, { topic: r.topic, children: [] }]),
+  );
+  const top: TopicNode[] = [];
+  for (const row of rows) {
+    const node = nodes.get(row.topic.id)!;
+    const parent = row.topic.parent_id === null ? undefined : nodes.get(row.topic.parent_id);
+    if (parent) parent.children.push(node);
+    else top.push(node);
+  }
+  return top;
+}
+
 /** A checkbox that can show "some of these", which the platform only allows to
- *  be set from script. */
+ *  be set from script. The visible text is short because the legend already names
+ *  the chapter; the accessible name carries it, starting with the visible text. */
 function GroupCheckbox({
   label,
+  name,
   checked,
   mixed,
   disabled,
   onChange,
 }: {
   label: string;
+  name: string;
   checked: boolean;
   mixed: boolean;
   disabled: boolean;
@@ -103,6 +127,7 @@ function GroupCheckbox({
       <input
         type="checkbox"
         className="h-4 w-4 accent-brand-600"
+        aria-label={name}
         ref={(el) => {
           if (el) el.indeterminate = mixed;
         }}
@@ -115,6 +140,45 @@ function GroupCheckbox({
   );
 }
 
+function TopicList({
+  nodes,
+  ticked,
+  disabled,
+  toggle,
+}: {
+  nodes: TopicNode[];
+  ticked: Set<number>;
+  disabled: boolean;
+  toggle: (ids: number[], on: boolean) => void;
+}) {
+  return (
+    <ul>
+      {nodes.map(({ topic, children }) => (
+        <li key={topic.id}>
+          <label className="flex items-center gap-2 py-1 text-sm text-ink-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 accent-brand-600"
+              checked={ticked.has(topic.id)}
+              disabled={disabled}
+              onChange={(e) => toggle([topic.id], e.target.checked)}
+            />
+            <span className="shrink-0 font-mono text-xs text-ink-500">{topic.code}</span>
+            {topic.title}
+          </label>
+          {children.length > 0 && (
+            <div className="ml-4">
+              <TopicList nodes={children} ticked={ticked} disabled={disabled} toggle={toggle} />
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const plural = (n: number) => `${n} ${n === 1 ? "topic" : "topics"}`;
+
 /**
  * "Where is this class up to?" (9.1d): the answer to a class's Required
  * "taught before" step. Ticked topics count as already covered, so coverage
@@ -124,6 +188,7 @@ function GroupCheckbox({
  * copy says so (PROD-8). An empty list is a real answer ("starting fresh"), which
  * is why it is saved, not just left unticked: only a saved answer clears the
  * step. A failed save keeps what was ticked, so nothing has to be done twice.
+ * Unsaved ticks are shown as unsaved, and wiping a saved list asks first.
  */
 export default function TaughtBeforeEditor({
   groupId,
@@ -133,6 +198,7 @@ export default function TaughtBeforeEditor({
   subjectId: number;
 }) {
   const queryClient = useQueryClient();
+  const helpId = useId();
   // Same key as the Syllabus tab's own read: one request between them.
   const topics = useQuery({
     queryKey: ["topics", subjectId],
@@ -151,14 +217,42 @@ export default function TaughtBeforeEditor({
   // The tutor's unsaved ticks. Null means "what the server has", so a refetch
   // is never overwritten mid-edit and a save needs no copy back into state.
   const [draft, setDraft] = useState<Set<number> | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const ticked = useMemo(
     () => draft ?? new Set(answer.data?.topic_ids ?? []),
     [draft, answer.data],
   );
 
+  // A topic removed since the page loaded must not make every save fail, so only
+  // ids the loaded list still has are sent or counted.
+  const validIds = useMemo(() => new Set((topics.data ?? []).map((t) => t.id)), [topics.data]);
+  const tickedValid = useMemo(
+    () => [...ticked].filter((id) => validIds.has(id)),
+    [ticked, validIds],
+  );
+
+  const savedIds = answer.data?.topic_ids;
+  const dirty =
+    draft !== null &&
+    (savedIds === undefined ||
+      draft.size !== savedIds.length ||
+      savedIds.some((id) => !draft.has(id)));
+
+  // Leaving with unsaved ticks loses them. Only the browser's own leave prompt:
+  // no router blocker, which would hold up every navigation.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
   const groups = useMemo(
-    () => buildGroups(topics.data ?? [], chapters.data ?? []),
-    [topics.data, chapters.data],
+    () => buildGroups(topics.data ?? [], chapters.isError ? [] : (chapters.data ?? [])),
+    [topics.data, chapters.data, chapters.isError],
   );
 
   const save = useMutation({
@@ -172,6 +266,7 @@ export default function TaughtBeforeEditor({
       void queryClient.invalidateQueries({ queryKey: ["analytics", groupId] });
       void queryClient.invalidateQueries({ queryKey: ["class-overview", groupId] });
     },
+    onSettled: () => setConfirmingClear(false),
   });
 
   const toggle = (ids: number[], on: boolean) => {
@@ -186,11 +281,12 @@ export default function TaughtBeforeEditor({
   if (topics.isLoading || chapters.isLoading || answer.isLoading) {
     return <SectionSkeleton rows={3} label="Loading where this class is up to" />;
   }
-  if (topics.isError || chapters.isError || answer.isError || !answer.data) {
+  // Chapters are only the grouping: without them the topics still show, flat.
+  if (topics.isError || answer.isError || !answer.data) {
     return (
       <ErrorState
         title="Couldn't load where this class is up to"
-        error={topics.error ?? chapters.error ?? answer.error}
+        error={topics.error ?? answer.error}
         onRetry={() => {
           void topics.refetch();
           void chapters.refetch();
@@ -201,24 +297,67 @@ export default function TaughtBeforeEditor({
   }
 
   const saved = answer.data;
-  const summary = !saved.answered
+  const savedSummary = !saved.answered
     ? "Not answered yet."
-    : `Answered${saved.answered_at ? ` ${new Date(saved.answered_at).toLocaleDateString()}` : ""}: ${
+    : `You answered${saved.answered_at ? ` on ${new Date(saved.answered_at).toLocaleDateString()}` : ""}: ${
         saved.topic_ids.length === 0
-          ? "starting fresh."
-          : `${saved.topic_ids.length} ${saved.topic_ids.length === 1 ? "topic" : "topics"} ticked.`
+          ? "nothing taught before Avora."
+          : `${plural(saved.topic_ids.length)} ticked.`
       }`;
+  const summary = dirty ? `Not saved yet: ${plural(tickedValid.length)} ticked.` : savedSummary;
+
+  const startFresh = () => {
+    if (saved.topic_ids.length > 0) setConfirmingClear(true);
+    else save.mutate([]);
+  };
+
+  const actions = (withCount: boolean) => (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <Button type="button" disabled={save.isPending} onClick={() => save.mutate(tickedValid)}>
+        {save.isPending ? "Saving" : "Save"}
+      </Button>
+      {dirty && (
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={save.isPending}
+          onClick={() => setDraft(null)}
+        >
+          Discard changes
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={save.isPending}
+        aria-describedby={helpId}
+        onClick={startFresh}
+      >
+        Starting fresh
+      </Button>
+      {withCount && (
+        <span className="text-sm text-ink-500">
+          {tickedValid.length} of {validIds.size} ticked
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <div>
       <p className="max-w-2xl text-sm text-ink-500">
         Topics ticked here count as already taught, so coverage starts correct and the teaching plan
-        drafts from what is left. This is your own account of where the class is, not something
-        taught in Avora.
+        drafts from what is left. You are declaring this yourself: Avora has no lessons on record
+        for these topics.
       </p>
       <p role="status" className="mt-2 text-sm text-ink-700">
         {summary}
       </p>
+      {chapters.isError && (
+        <p className="mt-2 text-sm text-ink-500">
+          Chapters couldn&apos;t be loaded, so topics aren&apos;t grouped by chapter.
+        </p>
+      )}
 
       {groups.length === 0 ? (
         <p className="mt-4 text-sm text-ink-500">
@@ -233,6 +372,7 @@ export default function TaughtBeforeEditor({
         </p>
       ) : (
         <>
+          {actions(true)}
           <div className="mt-4 space-y-3">
             {groups.map(({ key, code, title, rows }) => {
               const ids = rows.map((r) => r.topic.id);
@@ -240,65 +380,54 @@ export default function TaughtBeforeEditor({
               return (
                 <fieldset key={key} className="rounded-xl border border-line bg-surface px-4 py-3">
                   <legend className="px-1 text-sm text-ink-700">
-                    {code && <span className="mr-2 font-mono text-xs text-ink-500">{code}</span>}
+                    {code && (
+                      <span className="mr-2 shrink-0 font-mono text-xs text-ink-500">{code}</span>
+                    )}
                     {title}
                   </legend>
                   <GroupCheckbox
-                    label={`All of ${code ? `${code} ` : ""}${title}`}
+                    label="All topics"
+                    name={`All topics in ${code ? `${code} ` : ""}${title}`}
                     checked={count === ids.length}
                     mixed={count > 0 && count < ids.length}
                     disabled={save.isPending}
                     onChange={(on) => toggle(ids, on)}
                   />
-                  <ul className="mt-1">
-                    {rows.map(({ topic, depth }) => (
-                      <li key={topic.id} style={{ paddingLeft: `${depth * 1}rem` }}>
-                        <label className="flex items-center gap-2 py-1 text-sm text-ink-700">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 accent-brand-600"
-                            checked={ticked.has(topic.id)}
-                            disabled={save.isPending}
-                            onChange={(e) => toggle([topic.id], e.target.checked)}
-                          />
-                          <span className="font-mono text-xs text-ink-500">{topic.code}</span>
-                          {topic.title}
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="mt-1">
+                    <TopicList
+                      nodes={nest(rows)}
+                      ticked={ticked}
+                      disabled={save.isPending}
+                      toggle={toggle}
+                    />
+                  </div>
                 </fieldset>
               );
             })}
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              disabled={save.isPending}
-              onClick={() => save.mutate([...ticked])}
-            >
-              {save.isPending ? "Saving" : "Save"}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={save.isPending}
-              onClick={() => save.mutate([])}
-            >
-              Starting fresh
-            </Button>
-            <span className="text-xs text-ink-500">
-              Starting fresh saves that nothing has been taught yet and clears any ticks.
-            </span>
-          </div>
-          {save.isError && (
-            <p role="alert" className="mt-2 text-sm text-risk-600">
-              {friendlyError(save.error, "That didn't save. Your ticks are still here. Try again.")}
-            </p>
-          )}
+          {actions(false)}
+          <p id={helpId} className="mt-2 text-xs text-ink-500">
+            Starting fresh saves that nothing has been taught yet and clears any ticks.
+          </p>
         </>
       )}
+      {/* Always mounted, so a result appearing in it is announced. */}
+      <p role="status" className="mt-2 min-h-5 text-sm text-risk-600">
+        {save.isError
+          ? friendlyError(save.error, "That didn't save. Your ticks are still here. Try again.")
+          : ""}
+      </p>
+
+      <ConfirmDialog
+        open={confirmingClear}
+        title={`Clear ${saved.topic_ids.length} saved ${saved.topic_ids.length === 1 ? "topic" : "topics"}?`}
+        body={<p>This saves that nothing was taught before Avora.</p>}
+        confirmLabel="Clear and save"
+        busy={save.isPending}
+        onConfirm={() => save.mutate([])}
+        onCancel={() => setConfirmingClear(false)}
+      />
     </div>
   );
 }

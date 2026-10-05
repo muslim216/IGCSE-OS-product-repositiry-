@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/controls";
 import { friendlyError } from "../../lib/errors";
@@ -10,10 +11,13 @@ import type {
   OnboardingSubject,
 } from "../../api/onboarding";
 
-const LINK = "text-sm text-brand-600 hover:underline";
+// inline-flex with a minimum height so the target size is not left to line height.
+const LINK = "inline-flex min-h-6 items-center text-sm text-brand-600 hover:underline";
+const ROW = "flex flex-wrap items-center gap-x-3 gap-y-1 py-2";
 
 /** Where each class step is done. The teaching plan lives on the class's
- *  Schedule tab, so both plan steps point there. */
+ *  Schedule tab, so both plan steps point there. A step this client does not
+ *  know is still outstanding, because the server counted it. */
 function classStep(group: OnboardingClass): { label: string; to: string } | null {
   const step = group.steps.find((s) => !s.done);
   if (!step) return null;
@@ -28,7 +32,7 @@ function classStep(group: OnboardingClass): { label: string; to: string } | null
     case "plan_accepted":
       return { label: "Accept the teaching plan", to: `${base}/schedule` };
     default:
-      return null;
+      return { label: "Finish setting up this class", to: base };
   }
 }
 
@@ -47,9 +51,19 @@ function subjectNeeds(subject: OnboardingSubject) {
   const classes = subject.classes
     .map((c) => ({ group: c, step: classStep(c) }))
     .filter((c) => c.step !== null);
+  // A subject with a syllabus and no class has nothing to teach yet.
+  const noClass = !syllabusMissing && subject.classes.length === 0;
   const outstanding =
-    syllabusMissing || defaults.length > 0 || boundariesNotSet || classes.length > 0;
-  return { syllabusMissing, defaults, boundariesNotSet, guidanceNotSet, classes, outstanding };
+    syllabusMissing || defaults.length > 0 || boundariesNotSet || classes.length > 0 || noClass;
+  return {
+    syllabusMissing,
+    defaults,
+    boundariesNotSet,
+    guidanceNotSet,
+    classes,
+    noClass,
+    outstanding,
+  };
 }
 
 function anyOutstanding(data: OnboardingState): boolean {
@@ -63,14 +77,31 @@ function anyOutstanding(data: OnboardingState): boolean {
  * words it, and never works out completion itself.
  *
  * Nothing here blocks anything. While the query loads it renders nothing, so the
- * most-viewed page does not flash a skeleton; a failed load says so in one line.
+ * most-viewed page does not flash a skeleton; a failed load says so in one line,
+ * but only when there is nothing to show: a failed background refetch keeps the
+ * card the tutor was reading.
  */
-export default function SetupChecklist() {
+export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: () => void }) {
   const onboarding = useOnboarding();
   const acknowledge = useAcknowledge();
 
-  if (onboarding.isLoading) return null;
-  if (onboarding.isError || !onboarding.data) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const goneRef = useRef<HTMLParagraphElement>(null);
+  // Focus moves once the acknowledged state has actually replaced the old one:
+  // moving it to the heading first would lose it again when the card goes.
+  const dataAtPress = useRef<unknown>(null);
+  const wantsFocus = useRef(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const data = onboarding.data;
+
+  useEffect(() => {
+    if (!wantsFocus.current || data === dataAtPress.current) return;
+    wantsFocus.current = false;
+    (headingRef.current ?? goneRef.current)?.focus();
+  }, [data, acknowledged]);
+
+  if (!data) {
+    if (onboarding.isLoading) return null;
     return (
       <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
         Setup checklist couldn&apos;t be loaded.
@@ -81,26 +112,46 @@ export default function SetupChecklist() {
     );
   }
 
-  const data = onboarding.data;
-  if (!anyOutstanding(data)) return null;
+  if (!anyOutstanding(data)) {
+    // Only after the tutor has just cleared the last thing: somewhere for focus
+    // to land that is not a button that no longer exists.
+    return acknowledged ? (
+      <p ref={goneRef} tabIndex={-1} className="sr-only focus:outline-none">
+        Nothing is left in the setup checklist.
+      </p>
+    ) : null;
+  }
 
+  const pressedItem = acknowledge.variables;
+  const matches = (item: AcknowledgeableItem, subjectId: number | null) =>
+    pressedItem?.item === item && pressedItem.subjectId === subjectId;
   const pending = (item: AcknowledgeableItem, subjectId: number | null) =>
-    acknowledge.isPending &&
-    acknowledge.variables?.item === item &&
-    acknowledge.variables.subjectId === subjectId;
-  const failed = (item: AcknowledgeableItem, subjectId: number | null) =>
-    acknowledge.isError &&
-    acknowledge.variables?.item === item &&
-    acknowledge.variables.subjectId === subjectId;
+    acknowledge.isPending && matches(item, subjectId);
 
   const keepButton = (item: AcknowledgeableItem, subjectId: number | null, what: string) => (
     <Button
       type="button"
       size="sm"
       variant="ghost"
-      disabled={acknowledge.isPending}
+      // aria-disabled, not disabled: a disabled button drops keyboard focus. One
+      // request at a time, so the whole card ignores presses while it is in flight.
+      aria-disabled={acknowledge.isPending || undefined}
+      className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       aria-label={`Keep the default${item === "account_basics" ? "s" : ""} for ${what}`}
-      onClick={() => acknowledge.mutate({ item, subjectId })}
+      onClick={() => {
+        if (acknowledge.isPending) return;
+        dataAtPress.current = data;
+        acknowledge.mutate(
+          { item, subjectId },
+          {
+            onSuccess: () => {
+              wantsFocus.current = true;
+              setAcknowledged(true);
+              onAcknowledged?.();
+            },
+          },
+        );
+      }}
     >
       {pending(item, subjectId)
         ? "Saving"
@@ -110,7 +161,8 @@ export default function SetupChecklist() {
     </Button>
   );
   const rowError = (item: AcknowledgeableItem, subjectId: number | null) =>
-    failed(item, subjectId) && (
+    acknowledge.isError &&
+    matches(item, subjectId) && (
       <p role="alert" className="w-full text-xs text-risk-600">
         {friendlyError(acknowledge.error)}
       </p>
@@ -121,7 +173,12 @@ export default function SetupChecklist() {
       aria-labelledby="setup-checklist-heading"
       className="rounded-xl border border-line bg-surface p-5"
     >
-      <h2 id="setup-checklist-heading" className="text-lg text-ink-900">
+      <h2
+        id="setup-checklist-heading"
+        ref={headingRef}
+        tabIndex={-1}
+        className="text-lg text-ink-900 focus:outline-none"
+      >
         Setup
       </h2>
       <p className="mt-1 max-w-2xl text-sm text-ink-500">
@@ -129,16 +186,18 @@ export default function SetupChecklist() {
       </p>
 
       {data.account.state === "default" && (
-        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3">
-          <p className="min-w-0 flex-1 text-sm text-ink-700">
-            Time zone, AI language and weekly send day are on Avora&apos;s defaults
-          </p>
-          <Link to="/tutor/settings" className={LINK} aria-label="Review account settings">
-            Review
-          </Link>
-          {keepButton("account_basics", null, "account settings")}
-          {rowError("account_basics", null)}
-        </div>
+        <ul className="mt-4 border-t border-line">
+          <li className={ROW}>
+            <p className="min-w-0 flex-1 text-sm text-ink-700">
+              Time zone, AI language and weekly send day are on Avora&apos;s defaults.
+            </p>
+            <Link to="/tutor/settings" className={LINK} aria-label="Review account settings">
+              Review
+            </Link>
+            {keepButton("account_basics", null, "account settings")}
+            {rowError("account_basics", null)}
+          </li>
+        </ul>
       )}
 
       {data.subjects.map((subject) => {
@@ -158,12 +217,12 @@ export default function SetupChecklist() {
                 {name}
               </h3>
               <p className="text-sm text-ink-500">
-                {subject.reviewed_count} of {subject.review_total} reviewed
+                {subject.reviewed_count} of {subject.review_total} settings reviewed
               </p>
             </div>
             <ul className="mt-1 divide-y divide-line">
               {needs.syllabusMissing && (
-                <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <li className={ROW}>
                   <span className="min-w-0 flex-1 text-sm text-ink-700">No syllabus yet</span>
                   <Link
                     to={subjectSetupPath("syllabus", subject.subject_id)}
@@ -175,7 +234,7 @@ export default function SetupChecklist() {
                 </li>
               )}
               {needs.boundariesNotSet && (
-                <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <li className={ROW}>
                   <span className="min-w-0 flex-1 text-sm text-ink-700">
                     No grade boundaries saved, so this subject has no predicted grades
                   </span>
@@ -191,10 +250,10 @@ export default function SetupChecklist() {
               {needs.defaults.map((item) => {
                 const label = ITEM_NAMES[item.key] ?? item.key;
                 return (
-                  <li key={item.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                  <li key={item.key} className={ROW}>
                     <span className="min-w-0 flex-1 text-sm text-ink-700">
                       {label}
-                      <span className="text-ink-500">: Avora&apos;s default</span>
+                      <span className="text-ink-500">: Avora&apos;s default, not reviewed yet</span>
                     </span>
                     <Link
                       to={subjectSetupPath(ITEM_SECTIONS[item.key] ?? "", subject.subject_id)}
@@ -213,7 +272,7 @@ export default function SetupChecklist() {
                 );
               })}
               {needs.guidanceNotSet && (
-                <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <li className={ROW}>
                   <span className="min-w-0 flex-1 text-sm text-ink-700">
                     Teaching guidance (optional)
                   </span>
@@ -226,11 +285,18 @@ export default function SetupChecklist() {
                   </Link>
                 </li>
               )}
+              {needs.noClass && (
+                <li className={ROW}>
+                  <span className="min-w-0 flex-1 text-sm text-ink-700">
+                    No class yet for this subject
+                  </span>
+                  <Link to="/tutor/classes" className={LINK} aria-label={`Add a class for ${name}`}>
+                    Add a class
+                  </Link>
+                </li>
+              )}
               {needs.classes.map(({ group, step }) => (
-                <li
-                  key={group.group_id}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
-                >
+                <li key={group.group_id} className={ROW}>
                   <span className="min-w-0 flex-1 text-sm text-ink-700">{group.group_name}</span>
                   <Link
                     to={step!.to}

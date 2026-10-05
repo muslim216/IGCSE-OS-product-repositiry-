@@ -40,6 +40,7 @@ let requested: string[] = [];
 // which the app must treat as "no label" rather than a crash.
 let onboarding: unknown;
 let bodies: { path: string; body: unknown }[] = [];
+let ackFails = false;
 
 function stub(subjects: unknown[] = SUBJECTS) {
   requested = [];
@@ -53,6 +54,7 @@ function stub(subjects: unknown[] = SUBJECTS) {
       if (path === "/api/v1/onboarding" && onboarding !== undefined) return json(onboarding);
       if (path === "/api/v1/onboarding/acknowledgements") {
         bodies.push({ path, body: JSON.parse(String(init?.body)) });
+        if (ackFails) return new Response("{}", { status: 500 });
         return json(onboarding);
       }
       if (path === "/api/v1/auth/me")
@@ -133,6 +135,7 @@ const subjectPicker = () => screen.getByRole("combobox", { name: "Subject" });
 beforeEach(() => {
   onboarding = undefined;
   bodies = [];
+  ackFails = false;
   state.broken = false;
   Element.prototype.scrollIntoView = vi.fn();
 });
@@ -384,11 +387,13 @@ test("each section says whether its value is the default, for the selected subje
     await within(boundaries).findByText("Not set: no predicted grades for this subject yet"),
   ).toBeInTheDocument();
   expect(
-    within(screen.getByRole("region", { name: "Marking rules" })).getByText("Avora's default"),
+    within(screen.getByRole("region", { name: "Marking rules" })).getByText(
+      "Avora's default, not reviewed yet",
+    ),
   ).toBeInTheDocument();
   expect(
     within(screen.getByRole("region", { name: "Mistake categories" })).getByText(
-      "Default, reviewed by you",
+      "Avora's default, kept by you",
     ),
   ).toBeInTheDocument();
   expect(
@@ -407,7 +412,9 @@ test("each section says whether its value is the default, for the selected subje
   const marking = screen.getByRole("region", { name: "Marking rules" });
   await waitFor(() => expect(within(marking).getByText("Set by you")).toBeInTheDocument());
   expect(
-    within(screen.getByRole("region", { name: "Mistake categories" })).getByText("Avora's default"),
+    within(screen.getByRole("region", { name: "Mistake categories" })).getByText(
+      "Avora's default, not reviewed yet",
+    ),
   ).toBeInTheDocument();
 });
 
@@ -416,7 +423,7 @@ test("no label shows when the onboarding read has not answered with a valid stat
   renderPage();
   const marking = await screen.findByRole("region", { name: "Marking rules" });
   await screen.findByLabelText(/Marking rules for Chemistry/);
-  expect(within(marking).queryByText("Avora's default")).not.toBeInTheDocument();
+  expect(within(marking).queryByText("Avora's default, not reviewed yet")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Keep the default/ })).not.toBeInTheDocument();
 });
 
@@ -446,7 +453,7 @@ test("saving marking rules refetches the onboarding state", async () => {
   renderPage();
   const marking = await screen.findByRole("region", { name: "Marking rules" });
   const box = await within(marking).findByLabelText(/Marking rules for Chemistry/);
-  await within(marking).findByText("Avora's default");
+  await within(marking).findByText("Avora's default, not reviewed yet");
   const reads = () => requested.filter((r) => r === "/api/v1/onboarding").length;
   // Let the labels' own mount-time reads settle, so only the save moves the count.
   await new Promise((r) => setTimeout(r, 50));
@@ -454,4 +461,24 @@ test("saving marking rules refetches the onboarding state", async () => {
   fireEvent.change(box, { target: { value: "Always show units" } });
   fireEvent.click(within(marking).getByRole("button", { name: /^Save/ }));
   await waitFor(() => expect(reads()).toBeGreaterThan(before));
+});
+
+test("a failed Keep the default shows its error on the pressed label only", async () => {
+  onboarding = ONBOARDING;
+  ackFails = true;
+  stub();
+  renderPage("/tutor/subject-setup?subject=8");
+  // Physics has two defaults: mistake categories and the weak-topic threshold.
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Keep the default for Mistake categories, Physics" }),
+  );
+  const mistakes = screen.getByRole("region", { name: "Mistake categories" });
+  expect(await within(mistakes).findByRole("alert")).toHaveTextContent(/went wrong/i);
+  expect(
+    within(screen.getByRole("region", { name: "Preferences" })).queryByRole("alert"),
+  ).not.toBeInTheDocument();
+  // The button stays in the tab order and usable for a retry.
+  expect(
+    screen.getByRole("button", { name: "Keep the default for Mistake categories, Physics" }),
+  ).not.toBeDisabled();
 });

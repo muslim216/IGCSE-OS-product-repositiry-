@@ -62,7 +62,11 @@ export default function SetupState({
 
   return (
     <>
-      <span className="rounded-full border border-line px-2 py-0.5 text-xs text-ink-700">
+      {/* Always mounted, so a change after a save is announced. */}
+      <span
+        aria-live="polite"
+        className="rounded-full border border-line px-2 py-0.5 text-xs text-ink-700"
+      >
         {prefix ? `${prefix}: ` : ""}
         {stateLabel(found)}
       </span>
@@ -71,9 +75,14 @@ export default function SetupState({
           type="button"
           size="sm"
           variant="ghost"
-          disabled={acknowledge.isPending}
+          // aria-disabled, not disabled: a disabled button drops keyboard focus.
+          aria-disabled={acknowledge.isPending || undefined}
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           aria-label={`${account ? "Keep the defaults for" : "Keep the default for"} ${name}`}
-          onClick={() => acknowledge.mutate({ item: key as AcknowledgeableItem, subjectId })}
+          onClick={() => {
+            if (acknowledge.isPending) return;
+            acknowledge.mutate({ item: key as AcknowledgeableItem, subjectId });
+          }}
         >
           {pressed ? "Saving" : account ? "Keep the defaults" : "Keep the default"}
         </Button>

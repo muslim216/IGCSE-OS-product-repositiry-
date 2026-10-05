@@ -31,7 +31,8 @@ function subject(over: Record<string, unknown> = {}) {
     ],
     reviewed_count: 4,
     review_total: 4,
-    classes: [],
+    // A subject with no class is itself outstanding, so a finished one has a class.
+    classes: [{ group_id: 1, group_name: "Chem A", steps: allDone, complete: true }],
     ...over,
   };
 }
@@ -50,6 +51,8 @@ let payload: unknown;
 let failLoad = false;
 let failAck = false;
 let acks: unknown[] = [];
+let ackResponse: unknown;
+let client: QueryClient;
 
 function stub() {
   vi.stubGlobal(
@@ -60,6 +63,7 @@ function stub() {
       if (path === "/api/v1/onboarding/acknowledgements") {
         acks.push(JSON.parse(String(init?.body)));
         if (failAck) return new Response(JSON.stringify({ detail: "Nope" }), { status: 500 });
+        if (ackResponse !== undefined) return json(ackResponse);
         return json(
           state({
             account: item("account_basics", "reviewed"),
@@ -88,10 +92,9 @@ function stub() {
 }
 
 function renderCard() {
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <SetupChecklist />
       </MemoryRouter>
@@ -104,6 +107,7 @@ beforeEach(() => {
   failLoad = false;
   failAck = false;
   acks = [];
+  ackResponse = undefined;
   stub();
 });
 
@@ -168,7 +172,7 @@ test("each kind of row shows with its link, and the counts are the server's", as
   );
 
   const chemistry = within(card).getByRole("group", { name: /Chemistry/ });
-  expect(within(chemistry).getByText("1 of 4 reviewed")).toBeInTheDocument();
+  expect(within(chemistry).getByText("1 of 4 settings reviewed")).toBeInTheDocument();
   expect(within(chemistry).getByText("No syllabus yet")).toBeInTheDocument();
   expect(within(chemistry).getByRole("link", { name: /Add a syllabus/ })).toHaveAttribute(
     "href",
@@ -394,4 +398,105 @@ test("a failed or malformed onboarding read does not take the dashboard down", a
   stubApp(1, "bad");
   renderApp();
   expect(await screen.findByText(/Setup checklist couldn't be loaded/)).toBeInTheDocument();
+});
+
+test("the dashboard's status region announces a save", async () => {
+  stubApp(1, "default");
+  renderApp();
+  fireEvent.click(await screen.findByRole("button", { name: /Keep the defaults for account/ }));
+  await waitFor(() => expect(screen.getByText(/^Saved\. Setup updated\./)).toBeInTheDocument());
+});
+
+test("a subject with a syllabus and no class keeps the card, with a row to add one", async () => {
+  payload = state({ subjects: [subject({ classes: [] })] });
+  renderCard();
+  const card = await screen.findByRole("region", { name: "Setup" });
+  expect(within(card).getByText("No class yet for this subject")).toBeInTheDocument();
+  expect(within(card).getByRole("link", { name: /Add a class for Chemistry/ })).toHaveAttribute(
+    "href",
+    "/tutor/classes",
+  );
+});
+
+test("a class step the client does not know is still outstanding", async () => {
+  payload = state({
+    subjects: [
+      subject({
+        classes: [
+          {
+            group_id: 21,
+            group_name: "Chem Z",
+            steps: [{ key: "something_new", done: false }],
+            complete: false,
+          },
+        ],
+      }),
+    ],
+  });
+  renderCard();
+  const link = await screen.findByRole("link", { name: /Finish setting up this class/ });
+  expect(link).toHaveAttribute("href", "/tutor/groups/21");
+});
+
+test("a failed background refetch keeps the card that is already there", async () => {
+  payload = state({ account: item("account_basics", "default") });
+  renderCard();
+  await screen.findByRole("region", { name: "Setup" });
+  failLoad = true;
+  await client.invalidateQueries({ queryKey: ["onboarding"] });
+  await waitFor(() => expect(client.getQueryState(["onboarding"])?.status).toBe("error"));
+  expect(screen.getByRole("region", { name: "Setup" })).toBeInTheDocument();
+  expect(screen.queryByText(/couldn't be loaded/)).not.toBeInTheDocument();
+});
+
+test("a payload with a subject's items missing is a failed load, not a crash", async () => {
+  payload = state({ subjects: [{ subject_id: 7, subject_name: "Chemistry" }] });
+  renderCard();
+  expect(await screen.findByText(/Setup checklist couldn't be loaded/)).toBeInTheDocument();
+});
+
+test("after an acknowledge that leaves the card standing, focus lands on its heading", async () => {
+  const withItems = (marking: string) =>
+    state({
+      subjects: [
+        subject({
+          items: [
+            item("boundaries", "set_by_you"),
+            item("marking_rules", marking),
+            item("mistake_categories", "default"),
+            item("weak_threshold", "set_by_you"),
+            item("teaching_guidance", "set_by_you", "optional"),
+          ],
+        }),
+      ],
+    });
+  payload = withItems("default");
+  ackResponse = withItems("reviewed");
+  renderCard();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Keep the default for Marking rules/ }),
+  );
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Setup" })).toHaveFocus());
+});
+
+test("when the last thing is cleared, focus moves to a note where the card was", async () => {
+  payload = state({
+    subjects: [
+      subject({
+        items: [
+          item("boundaries", "set_by_you"),
+          item("marking_rules", "default"),
+          item("mistake_categories", "set_by_you"),
+          item("weak_threshold", "set_by_you"),
+          item("teaching_guidance", "set_by_you", "optional"),
+        ],
+      }),
+    ],
+  });
+  renderCard();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Keep the default for Marking rules/ }),
+  );
+  const note = await screen.findByText("Nothing is left in the setup checklist.");
+  await waitFor(() => expect(note).toHaveFocus());
 });

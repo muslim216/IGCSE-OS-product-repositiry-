@@ -16,7 +16,15 @@ export const ONBOARDING_KEY = ["onboarding"] as const;
  *  the tutor opens every day. */
 function isOnboardingState(data: unknown): data is OnboardingState {
   const d = data as Partial<OnboardingState> | null | undefined;
-  return !!d && typeof d === "object" && !!d.account && Array.isArray(d.subjects);
+  return (
+    !!d &&
+    typeof d === "object" &&
+    !!d.account &&
+    Array.isArray(d.subjects) &&
+    d.subjects.every(
+      (s) => !!s && Array.isArray(s.required) && Array.isArray(s.items) && Array.isArray(s.classes),
+    )
+  );
 }
 
 export function useOnboarding() {
@@ -38,7 +46,12 @@ export function useAcknowledge() {
   return useMutation({
     mutationFn: ({ item, subjectId }: { item: AcknowledgeableItem; subjectId: number | null }) =>
       acknowledgeDefault(item, subjectId),
-    onSuccess: (data) => queryClient.setQueryData(ONBOARDING_KEY, data),
+    onSuccess: async (data) => {
+      // An older refetch still in flight would land after this and put the
+      // pre-acknowledgement state back.
+      await queryClient.cancelQueries({ queryKey: ONBOARDING_KEY });
+      queryClient.setQueryData(ONBOARDING_KEY, data);
+    },
   });
 }
 
@@ -65,9 +78,9 @@ export const ITEM_SECTIONS: Record<string, string> = {
 export function stateLabel(item: Pick<OnboardingItem, "key" | "state">): string {
   switch (item.state) {
     case "default":
-      return "Avora's default";
+      return "Avora's default, not reviewed yet";
     case "reviewed":
-      return "Default, reviewed by you";
+      return "Avora's default, kept by you";
     case "set_by_you":
       return "Set by you";
     case "not_set":
