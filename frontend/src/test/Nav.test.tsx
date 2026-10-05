@@ -102,7 +102,7 @@ test("the old Readiness URL still lands, on Progress", async () => {
   expect(await screen.findByText("No progress to show yet.")).toBeInTheDocument();
 });
 
-test("the tutor nav has nine destinations: the owner's eight with Subject setup before Library", async () => {
+test("the tutor nav has twelve destinations, in the owner's order", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
@@ -110,14 +110,17 @@ test("the tutor nav has nine destinations: the owner's eight with Subject setup 
     .getAllByRole("link")
     .map((link) => link.textContent);
   expect(labels).toEqual([
-    "Today",
-    "Classes",
+    "Overview",
     "Review",
+    "Homework",
+    "Classes",
+    "Students",
+    "Mocks",
+    "Past papers",
     "Readiness",
     "Reports",
-    "Papers & mocks",
-    "Subject setup",
     "Library",
+    "Subject setup",
     "Settings",
   ]);
 });
@@ -197,31 +200,107 @@ test("an old setup URL keeps Subject setup lit", async () => {
   expect(within(sidebar).getByRole("link", { name: "Library" }).className).not.toContain(
     "bg-brand-600",
   );
-  expect(within(sidebar).getByRole("link", { name: "Papers & mocks" }).className).not.toContain(
+  expect(within(sidebar).getByRole("link", { name: "Past papers" }).className).not.toContain(
     "bg-brand-600",
   );
 });
 
-test("a past paper page highlights Papers & mocks", async () => {
+test("a past paper page highlights Past papers", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/past-papers");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const link = within(sidebar).getByRole("link", { name: "Papers & mocks" });
+  const link = within(sidebar).getByRole("link", { name: "Past papers" });
   await waitFor(() => expect(link.className).toContain("bg-brand-600"));
   expect(within(sidebar).getByRole("link", { name: "Library" }).className).not.toContain(
     "bg-brand-600",
   );
 });
 
-test("a bookmarked retired route lands on its successor, never a 404", async () => {
-  // Homework overview folded into Review; the old URL redirects there.
+test("the retired Today URL still lands on Overview", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/today");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  const overview = within(sidebar).getByRole("link", { name: "Overview" });
+  await waitFor(() => expect(overview).toHaveAttribute("aria-current", "page"));
+});
+
+test("the old Papers & mocks hub and Booklets URLs keep Past papers lit", async () => {
+  for (const url of ["/tutor/papers", "/tutor/booklets"]) {
+    mockAuthedFetch("tutor");
+    const view = renderApp(url);
+    const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+    const link = within(sidebar).getByRole("link", { name: "Past papers" });
+    await waitFor(() => expect(link).toHaveAttribute("aria-current", "page"));
+    expect(within(sidebar).getByRole("link", { name: "Mocks" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    view.unmount();
+  }
+});
+
+test("Mocks lights on its own page and not Past papers", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/mocks");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  const mocks = within(sidebar).getByRole("link", { name: "Mocks" });
+  await waitFor(() => expect(mocks).toHaveAttribute("aria-current", "page"));
+  expect(within(sidebar).getByRole("link", { name: "Past papers" })).not.toHaveAttribute(
+    "aria-current",
+  );
+});
+
+test("Homework is its own page and stays lit on an assignment", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/homework");
-  // The Review page's own copy is unique, so seeing it proves the redirect
-  // resolved to that page rather than bouncing to a 404 or the landing screen.
-  expect(
-    await screen.findByText(/You review only the marks the AI wasn't sure about/),
-  ).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { level: 1, name: "Homework" })).toBeInTheDocument();
+  const sidebar = screen.getByRole("navigation", { name: "Tutor navigation" });
+  expect(within(sidebar).getByRole("link", { name: "Homework" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  expect(within(sidebar).getByRole("link", { name: "Review" })).not.toHaveAttribute("aria-current");
+});
+
+test("an assignment page lights Homework, and a student page lights Students only", async () => {
+  mockAuthedFetch("tutor");
+  const first = renderApp("/tutor/assignments/5");
+  let sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  expect(within(sidebar).getByRole("link", { name: "Homework" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  first.unmount();
+
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/students/9");
+  sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  expect(within(sidebar).getByRole("link", { name: "Students" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  expect(within(sidebar).getByRole("link", { name: "Classes" })).not.toHaveAttribute(
+    "aria-current",
+  );
+});
+
+test("a class's own Students tab lights Classes, not Students", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/groups/3/students");
+  const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
+  expect(within(sidebar).getByRole("link", { name: "Classes" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  expect(within(sidebar).getByRole("link", { name: "Students" })).not.toHaveAttribute(
+    "aria-current",
+  );
+});
+
+test("the Past papers page links to Booklets", async () => {
+  mockAuthedFetch("tutor");
+  renderApp("/tutor/past-papers");
+  const link = await screen.findByRole("link", { name: "Split it with Booklets" });
+  expect(link).toHaveAttribute("href", "/tutor/booklets");
 });
 
 test("the mobile tab bar carries the main workflow and overflows the rest", async () => {
@@ -258,7 +337,7 @@ test("the sidebar has no self-link", async () => {
   // destination it advertised never existed to begin with.
   mockAuthedFetch("tutor");
   renderApp("/tutor");
-  await screen.findAllByText("Today");
+  await screen.findAllByText("Overview");
   expect(screen.queryByText("AI Guidance")).not.toBeInTheDocument();
 });
 
@@ -268,21 +347,36 @@ test("the tutor More sheet holds the destinations that do not fit the bar", asyn
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
   const menu = await screen.findByRole("menu");
-  for (const label of ["Readiness", "Papers & mocks", "Subject setup", "Library", "Settings"]) {
+  // Twelve destinations: three tabs plus More, so nine fold into the sheet and
+  // none is lost on a phone.
+  for (const label of [
+    "Classes",
+    "Students",
+    "Mocks",
+    "Past papers",
+    "Readiness",
+    "Reports",
+    "Library",
+    "Subject setup",
+    "Settings",
+  ]) {
     expect(within(menu).getByText(label)).toBeInTheDocument();
   }
+  expect(within(tabBar).getByText("Overview")).toBeInTheDocument();
 });
 
 test("a nested route sets aria-current on its parent destination", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/past-papers");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const papers = within(sidebar).getByRole("link", { name: "Papers & mocks" });
+  const papers = within(sidebar).getByRole("link", { name: "Past papers" });
   await waitFor(() => expect(papers).toHaveAttribute("aria-current", "page"));
   expect(within(sidebar).getByRole("link", { name: "Library" })).not.toHaveAttribute(
     "aria-current",
   );
-  expect(within(sidebar).getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
+  expect(within(sidebar).getByRole("link", { name: "Overview" })).not.toHaveAttribute(
+    "aria-current",
+  );
 });
 
 test("the More button lights while the page is one of its destinations", async () => {

@@ -404,3 +404,13 @@ export const classifiedFilePath = (classifiedId: number) =>
   `/api/v1/classifieds/${classifiedId}/file`;
 export const classifiedMarkSchemePath = (classifiedId: number) =>
   `/api/v1/classifieds/${classifiedId}/mark-scheme`;
+
+/** One piece of homework in the tutor's cross-class list, with plain counts of
+ *  students and hand-ins, nothing derived (`FE-4`). */
+export type TutorHomework = components["schemas"]["TutorHomeworkRow"];
+
+/** Mirrors `HOMEWORK_LIST_LIMIT` in backend/app/services/tutor_lists.py: the most
+ *  rows `GET /assignments` returns, so a list this long may have been cut short. */
+export const HOMEWORK_LIST_LIMIT = 200;
+
+export const listMyHomework = () => api<TutorHomework[]>("/api/v1/assignments");

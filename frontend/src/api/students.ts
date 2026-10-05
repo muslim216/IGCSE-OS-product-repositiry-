@@ -32,3 +32,13 @@ export const studentMistakes = (studentId: number, subjectId: number) =>
 export type MyMistakePattern = components["schemas"]["MyMistakePattern"];
 
 export const myMistakes = () => api<MyMistakePattern[]>("/api/v1/me/mistakes");
+
+/** A student in the tutor's cross-class list: who they are and which of the
+ *  caller's classes they sit in. Nothing derived. */
+export type TutorStudent = components["schemas"]["TutorStudentRow"];
+
+/** Mirrors `STUDENT_LIST_LIMIT` in backend/app/services/tutor_lists.py: the most
+ *  students `GET /students` returns, so a list this long may have been cut short. */
+export const STUDENT_LIST_LIMIT = 500;
+
+export const listMyStudents = () => api<TutorStudent[]>("/api/v1/students");
