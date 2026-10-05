@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getTaughtBefore, setTaughtBefore } from "../api/groups";
-import { listTopics, type Topic } from "../api/syllabus";
+import { listChapters, listTopics, type Chapter, type Topic } from "../api/syllabus";
 import { Button } from "../components/controls";
 import { ErrorState, SectionSkeleton } from "../components/page";
 import { friendlyError } from "../lib/errors";
@@ -14,18 +14,14 @@ interface Row {
 }
 
 interface Group {
-  root: Topic;
-  /** The root first, then everything beneath it in tree order. */
+  key: string;
+  code: string;
+  title: string;
   rows: Row[];
 }
 
-/**
- * The topics, grouped by their top-level topic. The API gives topics a
- * `parent_id` but not the chapter they belong to, so a group here is a
- * top-level topic and what sits under it, not a chapter. The tree is the
- * structure the Syllabus tab already shows.
- */
-function buildGroups(topics: Topic[]): Group[] {
+/** Topics in tree order with their depth, whatever order the API sent them in. */
+function treeRows(topics: Topic[]): Row[] {
   const children = new Map<number, Topic[]>();
   const known = new Set(topics.map((t) => t.id));
   const roots: Topic[] = [];
@@ -38,14 +34,52 @@ function buildGroups(topics: Topic[]): Group[] {
       roots.push(topic);
     }
   }
-  const walk = (topic: Topic, depth: number, into: Row[]) => {
-    into.push({ topic, depth });
-    for (const child of children.get(topic.id) ?? []) walk(child, depth + 1, into);
+  const rows: Row[] = [];
+  const walk = (topic: Topic, depth: number) => {
+    rows.push({ topic, depth });
+    for (const child of children.get(topic.id) ?? []) walk(child, depth + 1);
   };
-  return roots.map((root) => {
-    const rows: Row[] = [];
-    walk(root, 0, rows);
-    return { root, rows };
+  for (const root of roots) walk(root, 0);
+  return rows;
+}
+
+/**
+ * The topics grouped by chapter, in teaching order. Chapters are the unit a
+ * teaching plan is drafted in, and the drafter leaves out a chapter only when
+ * every one of its topics is covered, so "all of this chapter" has to mean the
+ * same set of topics here as it does there.
+ *
+ * Topics filed under no chapter come last, under their own heading: ticking
+ * them still counts as coverage, but they can never take a chapter out of a
+ * plan. A subject with no chapters at all is one group.
+ */
+export function buildGroups(topics: Topic[], chapters: Chapter[]): Group[] {
+  const rows = treeRows(topics);
+  const chapterIds = new Set(chapters.map((c) => c.id));
+  const groups: Group[] = chapters
+    .map((c) => ({
+      key: `chapter-${c.id}`,
+      code: c.code,
+      title: c.title,
+      rows: rows.filter((r) => r.topic.chapter_id === c.id),
+    }))
+    .filter((g) => g.rows.length > 0);
+  const unfiled = rows.filter(
+    (r) => r.topic.chapter_id == null || !chapterIds.has(r.topic.chapter_id),
+  );
+  if (unfiled.length > 0) {
+    groups.push({
+      key: "unfiled",
+      code: "",
+      title: groups.length > 0 ? "Topics not filed under a chapter" : "Topics",
+      rows: unfiled,
+    });
+  }
+  // Depth is relative to the shallowest row in the group, so a chapter whose
+  // topics all sit under one parent filed elsewhere does not start indented.
+  return groups.map((g) => {
+    const base = Math.min(...g.rows.map((r) => r.depth));
+    return { ...g, rows: g.rows.map((r) => ({ ...r, depth: r.depth - base })) };
   });
 }
 
@@ -104,6 +138,11 @@ export default function TaughtBeforeEditor({
     queryKey: ["topics", subjectId],
     queryFn: () => listTopics(subjectId),
   });
+  // Same key and fetcher as the plan and homework screens use.
+  const chapters = useQuery({
+    queryKey: ["chapters", subjectId],
+    queryFn: () => listChapters(subjectId),
+  });
   const answer = useQuery({
     queryKey: ["taught-before", groupId],
     queryFn: () => getTaughtBefore(groupId),
@@ -117,7 +156,10 @@ export default function TaughtBeforeEditor({
     [draft, answer.data],
   );
 
-  const groups = useMemo(() => buildGroups(topics.data ?? []), [topics.data]);
+  const groups = useMemo(
+    () => buildGroups(topics.data ?? [], chapters.data ?? []),
+    [topics.data, chapters.data],
+  );
 
   const save = useMutation({
     mutationFn: (topicIds: number[]) => setTaughtBefore(groupId, topicIds),
@@ -141,16 +183,17 @@ export default function TaughtBeforeEditor({
     setDraft(next);
   };
 
-  if (topics.isLoading || answer.isLoading) {
+  if (topics.isLoading || chapters.isLoading || answer.isLoading) {
     return <SectionSkeleton rows={3} label="Loading where this class is up to" />;
   }
-  if (topics.isError || answer.isError || !answer.data) {
+  if (topics.isError || chapters.isError || answer.isError || !answer.data) {
     return (
       <ErrorState
         title="Couldn't load where this class is up to"
-        error={topics.error ?? answer.error}
+        error={topics.error ?? chapters.error ?? answer.error}
         onRetry={() => {
           void topics.refetch();
+          void chapters.refetch();
           void answer.refetch();
         }}
       />
@@ -191,20 +234,17 @@ export default function TaughtBeforeEditor({
       ) : (
         <>
           <div className="mt-4 space-y-3">
-            {groups.map(({ root, rows }) => {
+            {groups.map(({ key, code, title, rows }) => {
               const ids = rows.map((r) => r.topic.id);
               const count = ids.filter((id) => ticked.has(id)).length;
               return (
-                <fieldset
-                  key={root.id}
-                  className="rounded-xl border border-line bg-surface px-4 py-3"
-                >
+                <fieldset key={key} className="rounded-xl border border-line bg-surface px-4 py-3">
                   <legend className="px-1 text-sm text-ink-700">
-                    <span className="mr-2 font-mono text-xs text-ink-500">{root.code}</span>
-                    {root.title}
+                    {code && <span className="mr-2 font-mono text-xs text-ink-500">{code}</span>}
+                    {title}
                   </legend>
                   <GroupCheckbox
-                    label={`All of ${root.code} ${root.title}`}
+                    label={`All of ${code ? `${code} ` : ""}${title}`}
                     checked={count === ids.length}
                     mixed={count > 0 && count < ids.length}
                     disabled={save.isPending}

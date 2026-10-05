@@ -334,3 +334,14 @@ async def test_nothing_marked_drafts_every_chapter_as_before(
     )
     assert (await run_job(world)).status is JobStatus.done
     assert {r.chapter_id for r in await slots(world)} == set(world["chapter_ids"])
+
+
+async def test_the_topic_list_says_which_chapter_each_topic_is_filed_under(client, tutor, subject):
+    """The "where are you up to" editor groups by chapter, the unit the plan
+    drafter leaves out, so the two must agree on which topics a chapter holds."""
+    resp = await client.get(f"/api/v1/subjects/{subject['id']}/topics", headers=tutor["headers"])
+    assert resp.status_code == 200
+    async with async_session() as s:
+        filed = dict((await s.execute(select(Topic.id, Topic.chapter_id))).tuples().all())
+    assert resp.json()
+    assert {t["id"]: t["chapter_id"] for t in resp.json()} == filed

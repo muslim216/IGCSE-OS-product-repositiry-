@@ -21136,6 +21136,17 @@
             ],
             "title": "Parent Id"
           },
+          "chapter_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter Id"
+          },
           "weight": {
             "type": "number",
             "title": "Weight"

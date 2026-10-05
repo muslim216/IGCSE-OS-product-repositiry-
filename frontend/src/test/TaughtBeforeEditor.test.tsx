@@ -2,21 +2,25 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import TaughtBeforeEditor from "../tutor/TaughtBeforeEditor";
+import TaughtBeforeEditor, { buildGroups } from "../tutor/TaughtBeforeEditor";
 
 /* "Where is this class up to?" (9.1d). */
 
 const TOPICS = [
-  { id: 1, code: "1", title: "Forces", parent_id: null, weight: 1 },
-  { id: 2, code: "1.1", title: "Speed", parent_id: 1, weight: 1 },
-  { id: 3, code: "1.2", title: "Momentum", parent_id: 1, weight: 1 },
-  { id: 4, code: "2", title: "Waves", parent_id: null, weight: 1 },
-  { id: 5, code: "2.1", title: "Sound", parent_id: 4, weight: 1 },
+  { id: 1, chapter_id: 10, code: "1", title: "Forces", parent_id: null, weight: 1 },
+  { id: 2, chapter_id: 10, code: "1.1", title: "Speed", parent_id: 1, weight: 1 },
+  { id: 3, chapter_id: 10, code: "1.2", title: "Momentum", parent_id: 1, weight: 1 },
+  { id: 4, chapter_id: 11, code: "2", title: "Waves", parent_id: null, weight: 1 },
+  { id: 5, chapter_id: 11, code: "2.1", title: "Sound", parent_id: 4, weight: 1 },
 ];
 
 let answer: { answered: boolean; answered_at: string | null; topic_ids: number[] };
 let topics: unknown[];
 let puts: unknown[];
+const CHAPTERS = [
+  { id: 10, code: "1", title: "Forces", position: 0 },
+  { id: 11, code: "2", title: "Waves", position: 1 },
+];
 let failPut: boolean;
 let requested: string[];
 
@@ -33,6 +37,7 @@ beforeEach(() => {
       requested.push(path);
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
       if (path === "/api/v1/subjects/7/topics") return json(topics);
+      if (path === "/api/v1/subjects/7/chapters") return json(CHAPTERS);
       if (path === "/api/v1/groups/3/taught-before") {
         if (init?.method === "PUT") {
           puts.push(JSON.parse(String(init.body)));
@@ -142,4 +147,35 @@ test("a subject with no topics points to its syllabus and offers no checkboxes",
   expect(link).toHaveAttribute("href", "/tutor/subject-setup?subject=7#syllabus");
   expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
   expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+});
+
+test("groups are chapters in teaching order, with unfiled topics last under their own heading", () => {
+  const groups = buildGroups(
+    [
+      { id: 5, chapter_id: 11, code: "2.1", title: "Sound", parent_id: null, weight: 1 },
+      { id: 2, chapter_id: 10, code: "1.1", title: "Speed", parent_id: null, weight: 1 },
+      { id: 9, chapter_id: null, code: "X", title: "Practical skills", parent_id: null, weight: 1 },
+    ],
+    CHAPTERS,
+  );
+  expect(groups.map((g) => [g.title, g.rows.map((r) => r.topic.id)])).toEqual([
+    ["Forces", [2]],
+    ["Waves", [5]],
+    ["Topics not filed under a chapter", [9]],
+  ]);
+});
+
+test("a subject with no chapters is one plain group, and a chapter with no topics is left out", () => {
+  const topic = {
+    id: 2,
+    chapter_id: null,
+    code: "1.1",
+    title: "Speed",
+    parent_id: null,
+    weight: 1,
+  };
+  expect(buildGroups([topic], []).map((g) => g.title)).toEqual(["Topics"]);
+  expect(buildGroups([{ ...topic, chapter_id: 10 }], CHAPTERS).map((g) => g.title)).toEqual([
+    "Forces",
+  ]);
 });

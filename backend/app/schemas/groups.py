@@ -23,6 +23,10 @@ class TopicOut(BaseModel):
     code: str
     title: str
     parent_id: int | None
+    #: The chapter this topic is filed under, null for one filed under none.
+    #: Chapters are what a teaching plan is drafted in, so a surface that asks
+    #: "which chapters are done" needs it to group by (task 9.1d).
+    chapter_id: int | None = None
     weight: float
 
 
