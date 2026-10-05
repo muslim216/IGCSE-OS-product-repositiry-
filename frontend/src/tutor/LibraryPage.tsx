@@ -1,6 +1,5 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, type LucideIcon } from "lucide-react";
 import { classifiedFilePath, classifiedMarkSchemePath, listClassifieds } from "../api/homework";
 import type { Classified } from "../api/homework";
 import { listSubjects } from "../api/groups";
@@ -22,7 +21,7 @@ import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
  * classes. It held eleven entries (papers, mocks, readiness, five setup pages,
  * settings) until the coherence pass: the owner liked how Classes is set up but
  * not that major parts of the app were "just thrown into Library". Those have
- * their own homes (Papers & mocks, Readiness, Settings).
+ * their own homes (Mocks, Past papers, Readiness, Settings).
  *
  * Syllabuses moved to Subject setup (9.3a), leaving the shelf with one card that
  * only pointed there. The owner then decided (5 Oct 2026, 9.3b) that Library is
@@ -33,59 +32,9 @@ import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
  * at where syllabuses went so nobody who remembers them here is stranded.
  *
  * Each section is its own query, so one failing shows its own error with a retry
- * and leaves the others on screen. `Shelf` and `ShelfSection` stay exported for
- * Papers & mocks, which is still a shelf of doors.
+ * and leaves the others on screen. (The shelf-of-cards components went with the
+ * Papers & mocks hub, their one other user.)
  */
-export interface Shelf {
-  to: string;
-  label: string;
-  hint: string;
-  icon: LucideIcon;
-}
-
-/** One shelf entry. Every card shares the same hover (a raised row) and the
- *  same keyboard focus ring, so the grid reads as one set of doors. */
-function ShelfCard({ item }: { item: Shelf }) {
-  return (
-    <Link
-      to={item.to}
-      className="group flex h-full items-start gap-3 rounded-xl border border-line bg-surface p-4 transition-colors hover:bg-surface-muted"
-    >
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
-        <item.icon aria-hidden className="h-[18px] w-[18px]" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-medium text-ink-900 transition-colors group-hover:text-brand-600">
-          {item.label}
-        </span>
-        <span className="mt-0.5 block text-sm leading-relaxed text-ink-500">{item.hint}</span>
-      </span>
-      <ChevronRight aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-500" />
-    </Link>
-  );
-}
-
-export function ShelfSection({
-  title,
-  description,
-  items,
-}: {
-  title: string;
-  description: string;
-  items: Shelf[];
-}) {
-  return (
-    <section className="space-y-3">
-      <SectionHeader title={title} description={description} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        {items.map((item) => (
-          <ShelfCard key={item.to} item={item} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString();
 
 const linkClass = "font-medium text-brand-600 hover:text-brand-700";

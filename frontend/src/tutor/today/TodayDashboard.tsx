@@ -98,20 +98,20 @@ export default function TodayDashboard() {
   const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
   if (onboarding.isLoading && !onboardingSettled) {
-    return <PageSkeleton rows={3} label="Loading today" />;
+    return <PageSkeleton rows={3} label="Loading overview" />;
   }
   // A failed or malformed onboarding read falls through to the dashboard as it
   // was before the flow existed: a read that failed must not trap a tutor on a
   // home they cannot use. The Setup card says on its own that it did not load.
   if (inFlow && onboarding.data) return <OnboardingFlow data={onboarding.data} />;
 
-  if (today.isLoading) return <PageSkeleton rows={3} label="Loading today" />;
+  if (today.isLoading) return <PageSkeleton rows={3} label="Loading overview" />;
 
   if (today.isError || !today.data) {
     return (
       <>
         <ErrorState
-          title="Today couldn't be loaded"
+          title="Overview couldn't be loaded"
           error={today.error}
           onRetry={() => {
             void today.refetch();
@@ -194,7 +194,7 @@ export default function TodayDashboard() {
       <PageHeader
         eyebrow={dayZone ? todayLabel(dayZone) : undefined}
         title={line1}
-        documentTitle="Today"
+        documentTitle="Overview"
         description={line2 ?? undefined}
         actions={
           <>

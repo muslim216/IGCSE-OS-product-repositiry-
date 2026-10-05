@@ -32,3 +32,13 @@ export const studentMistakes = (studentId: number, subjectId: number) =>
 export type MyMistakePattern = components["schemas"]["MyMistakePattern"];
 
 export const myMistakes = () => api<MyMistakePattern[]>("/api/v1/me/mistakes");
+
+/** A student in the tutor's cross-class list: who they are and which of the
+ *  caller's classes they sit in. Nothing derived. */
+export type TutorStudent = components["schemas"]["TutorStudentRow"];
+
+/** The list with the server's own word on whether it was cut short, and the cap
+ *  it applied, so no number is mirrored here. */
+export type TutorStudentList = components["schemas"]["TutorStudentList"];
+
+export const listMyStudents = () => api<TutorStudentList>("/api/v1/students");

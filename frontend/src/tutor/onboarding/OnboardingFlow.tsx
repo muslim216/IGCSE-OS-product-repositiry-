@@ -362,7 +362,7 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
       </p>
       <PageHeader
         title="Set up your first class"
-        documentTitle="Today"
+        documentTitle="Overview"
         description="Steps marked Required come first, in order. Steps marked Can wait or Optional are not needed to start; they stay on your setup list on Today. When you accept the teaching plan, this page becomes your Today dashboard."
       />
       <ol className="space-y-3">

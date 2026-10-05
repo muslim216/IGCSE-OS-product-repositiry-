@@ -103,6 +103,7 @@ export default function AssignmentDetailPage() {
     onSuccess: () => {
       setDirty(false);
       queryClient.invalidateQueries({ queryKey: ["assignment", id] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
     },
     onError: (err) => setError(friendlyError(err)),
   });
@@ -118,12 +119,16 @@ export default function AssignmentDetailPage() {
     onSuccess: () => {
       setDirty(false);
       queryClient.invalidateQueries({ queryKey: ["assignment", id] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
     },
     onError: (err) => setError(friendlyError(err)),
   });
   const retry = useMutation({
     mutationFn: () => retryExtraction(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assignment", id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assignment", id] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
+    },
   });
 
   const topicById = useMemo(

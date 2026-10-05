@@ -404,3 +404,13 @@ export const classifiedFilePath = (classifiedId: number) =>
   `/api/v1/classifieds/${classifiedId}/file`;
 export const classifiedMarkSchemePath = (classifiedId: number) =>
   `/api/v1/classifieds/${classifiedId}/mark-scheme`;
+
+/** One piece of homework in the tutor's cross-class list, with plain counts of
+ *  students and hand-ins, nothing derived (`FE-4`). */
+export type TutorHomework = components["schemas"]["TutorHomeworkRow"];
+
+/** The list with the server's own word on whether it was cut short, and the cap
+ *  it applied, so no number is mirrored here. */
+export type TutorHomeworkList = components["schemas"]["TutorHomeworkList"];
+
+export const listMyHomework = () => api<TutorHomeworkList>("/api/v1/assignments");

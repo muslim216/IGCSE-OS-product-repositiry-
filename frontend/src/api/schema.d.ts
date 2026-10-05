@@ -409,7 +409,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List My Homework
+         * @description Every piece of homework across the caller's classes, newest first, capped
+         *     at the most recent 200 (`HOMEWORK_LIST_LIMIT`), with `truncated` saying so. A tutor sees their own
+         *     classes; an admin, every class in their organization.
+         */
+        get: operations["list_my_homework_api_v1_assignments_get"];
         put?: never;
         /** Create Assignment */
         post: operations["create_assignment_api_v1_assignments_post"];
@@ -2401,6 +2407,27 @@ export interface paths {
         post?: never;
         /** Delete Resource */
         delete: operations["delete_resource_api_v1_resources__resource_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/students": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Students
+         * @description Every student in the caller's classes, once each, by name, capped at 500
+         *     (`STUDENT_LIST_LIMIT`). Nothing derived: who they are and which classes.
+         */
+        get: operations["list_my_students_api_v1_students_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -7422,6 +7449,51 @@ export interface components {
             review_queue: number;
             marked: components["schemas"]["MarkedFacts"] | null;
         };
+        /**
+         * TutorHomeworkList
+         * @description `truncated` is true only when the server left rows out; `limit` is the cap
+         *     it applied, so the page can name it without mirroring the number.
+         */
+        TutorHomeworkList: {
+            /** Items */
+            items: components["schemas"]["TutorHomeworkRow"][];
+            /** Truncated */
+            truncated: boolean;
+            /** Limit */
+            limit: number;
+        };
+        /**
+         * TutorHomeworkRow
+         * @description One piece of homework in the cross-class Homework list. The three counts
+         *     are plain tallies of rows, nothing derived: no score, no readiness.
+         */
+        TutorHomeworkRow: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Status */
+            status: string;
+            /** Due At */
+            due_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string;
+            /** Enrolled Count */
+            enrolled_count: number;
+            /** Submitted Count */
+            submitted_count: number;
+            /** Marked Count */
+            marked_count: number;
+        };
         /** TutorNoteCreate */
         TutorNoteCreate: {
             /** Body */
@@ -7456,6 +7528,33 @@ export interface components {
             password: string;
             /** Timezone */
             timezone?: string | null;
+        };
+        /** TutorStudentClass */
+        TutorStudentClass: {
+            /** Group Id */
+            group_id: number;
+            /** Group Name */
+            group_name: string;
+            /** Subject Name */
+            subject_name: string;
+        };
+        /** TutorStudentList */
+        TutorStudentList: {
+            /** Items */
+            items: components["schemas"]["TutorStudentRow"][];
+            /** Truncated */
+            truncated: boolean;
+            /** Limit */
+            limit: number;
+        };
+        /** TutorStudentRow */
+        TutorStudentRow: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Classes */
+            classes: components["schemas"]["TutorStudentClass"][];
         };
         /**
          * TypedAnswerOut
@@ -8304,6 +8403,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_homework_api_v1_assignments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorHomeworkList"];
                 };
             };
         };
@@ -12184,6 +12303,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_students_api_v1_students_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TutorStudentList"];
                 };
             };
         };

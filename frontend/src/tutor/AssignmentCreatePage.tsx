@@ -139,6 +139,7 @@ export default function AssignmentCreatePage() {
     },
     onSuccess: (assignment) => {
       queryClient.invalidateQueries({ queryKey: ["assignments", gid] });
+      queryClient.invalidateQueries({ queryKey: ["homework"] });
       // An uploaded or re-filed classified also changes the Library's record. By
       // prefix: every key under it is a plain classifieds list, safe to refetch.
       queryClient.invalidateQueries({ queryKey: ["classifieds"] });
