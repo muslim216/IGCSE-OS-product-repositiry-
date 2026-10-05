@@ -345,3 +345,38 @@ async def test_the_topic_list_says_which_chapter_each_topic_is_filed_under(clien
         filed = dict((await s.execute(select(Topic.id, Topic.chapter_id))).tuples().all())
     assert resp.json()
     assert {t["id"]: t["chapter_id"] for t in resp.json()} == filed
+
+
+async def test_changing_the_answer_makes_the_draft_stale_and_repeating_it_does_not(
+    world,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The draft skipped chapters according to the old list; accepting it after
+    the list changed would promote a plan built on an answer that no longer holds."""
+    from app.models import User
+    from app.services.taught_before import replace_taught_before
+
+    by_ch = await _give_topics(world, (2, 2))
+    c1, c2, _ = world["chapter_ids"]
+    monkeypatch.setattr(
+        "app.services.plan_drafting.structured_complete", fake_ai(advice(world, [1.0, 1.0, 1.0]))
+    )
+
+    async def save(topic_ids):
+        async with async_session() as s:
+            group = await s.get(Group, world["group_id"])
+            user = await s.get(User, world["tutor_id"])
+            await replace_taught_before(s, group=group, user=user, topic_ids=topic_ids)
+
+    async def status():
+        async with async_session() as s:
+            return (await s.get(TeachingPlan, world["plan_id"])).draft_result["status"]
+
+    await save(by_ch[c1])
+    assert (await run_job(world)).status is JobStatus.done
+    assert await status() == "drafted"
+    await save(by_ch[c1])  # the same answer again
+    assert await status() == "drafted"
+    await save(by_ch[c1] + by_ch[c2])
+    assert await status() == "stale"
