@@ -54,11 +54,22 @@ export function followTarget(id: string): () => void {
 }
 
 /** Follow the URL's hash to its section for as long as the page is on it. */
+/** The section a hash names, or "" for none. A malformed escape (`#%E0%A4%A`)
+ *  names nothing rather than throwing: a mistyped link must not blank the page. */
+export function hashTarget(hash: string): string {
+  try {
+    return decodeURIComponent(hash.slice(1));
+  } catch {
+    return "";
+  }
+}
+
 export function useFollowHash() {
   const { hash } = useLocation();
   useEffect(() => {
-    if (!hash) return;
-    return followTarget(decodeURIComponent(hash.slice(1)));
+    const target = hashTarget(hash);
+    if (!target) return;
+    return followTarget(target);
   }, [hash]);
 }
 
@@ -71,7 +82,7 @@ export function SectionIndex({
   label: string;
   sections: readonly { id: string; label: string }[];
 }) {
-  const { search } = useLocation();
+  const { search, hash } = useLocation();
   return (
     <nav aria-label={label} className="mb-8">
       <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
@@ -80,6 +91,12 @@ export function SectionIndex({
             <Link
               to={{ search, hash: `#${section.id}` }}
               className="text-ink-700 hover:text-brand-600"
+              // A link to the hash the page is already on changes nothing, so
+              // useFollowHash does not run and the router suppresses the native
+              // jump: without this the second press of a link does nothing.
+              onClick={() => {
+                if (hash === `#${section.id}`) followTarget(section.id);
+              }}
             >
               {section.label}
             </Link>

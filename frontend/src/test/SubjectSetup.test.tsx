@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import { AuthProvider } from "../auth/AuthContext";
+import { hashTarget } from "../tutor/SectionedPage";
 import SubjectSetupPage from "../tutor/SubjectSetupPage";
 
 /* Subject setup (9.3a): everything that belongs to a subject, with the subject
@@ -226,6 +227,38 @@ test("?subject=<id> selects that subject, and an unknown id falls back to the fi
   await screen.findByLabelText("Minimum percentage for grade 9");
   expect((subjectPicker() as HTMLSelectElement).value).toBe("7");
   expect(requested).not.toContain("/api/v1/subjects/999/grade-boundaries");
+  // The resolved subject is written back, so the URL never names one that is
+  // not showing.
+  await waitFor(() =>
+    expect(screen.getByTestId("where")).toHaveTextContent("/tutor/subject-setup?subject=7"),
+  );
+});
+
+test("with no ?subject= the first subject is pinned in the URL, keeping the hash", async () => {
+  // Left implicit, "the first" moves when a new syllabus sorts ahead of it.
+  stub();
+  renderPage("/tutor/subject-setup#marking-rules");
+  await waitFor(() =>
+    expect(screen.getByTestId("where")).toHaveTextContent(
+      "/tutor/subject-setup?subject=7#marking-rules",
+    ),
+  );
+});
+
+test("the page says which subject its sections show", async () => {
+  stub();
+  renderPage("/tutor/subject-setup?subject=8");
+  await screen.findByLabelText("Minimum percentage for grade 9");
+  expect(screen.getByText("Showing Physics (Edexcel IGCSE 4PH1)")).toHaveAttribute(
+    "role",
+    "status",
+  );
+});
+
+test("a malformed hash names no section instead of blanking the page", () => {
+  expect(hashTarget("#%E0%A4%A")).toBe("");
+  expect(hashTarget("#marking-rules")).toBe("marking-rules");
+  expect(hashTarget("")).toBe("");
 });
 
 test("the account-wide readiness settings stay reachable without a second picker", async () => {

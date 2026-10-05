@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useIsMutating, useQuery } from "@tanstack/react-query";
 import { listSubjects } from "../api/groups";
 import { Field, Select } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
@@ -55,6 +55,22 @@ export default function SubjectSetupPage() {
   const subjectId =
     list && list.length > 0 ? (list.find((s) => s.id === requested) ?? list[0]).id : null;
 
+  // Pin the resolved subject in the URL. Left implicit, "the first subject"
+  // moves when a newly applied syllabus sorts ahead of it, and the page would
+  // switch subject under the tutor and drop every section's unsaved draft.
+  useEffect(() => {
+    if (subjectId !== null && subjectId !== requested) {
+      navigate({ search: `?subject=${subjectId}`, hash }, { replace: true });
+    }
+  }, [subjectId, requested, navigate, hash]);
+
+  // A section's save in flight belongs to the subject it was started for.
+  // Changing subject remounts the section, so its confirmation or error would
+  // land nowhere. The pages locked their own picker for this; the lock moves up.
+  const saving = useIsMutating() > 0;
+
+  const shown = list?.find((s) => s.id === subjectId);
+
   const context = useMemo(
     () => ({
       subjectId,
@@ -96,11 +112,12 @@ export default function SubjectSetupPage() {
       ) : (
         <Field
           label="Subject"
-          hint="Applies to every section except Syllabus."
+          hint="Applies to every section except Syllabus. Preferences can also be set for all subjects."
           className="mb-6 max-w-sm"
         >
           <Select
             value={subjectId ?? ""}
+            disabled={saving}
             onChange={(e) => context.setSubjectId(Number(e.target.value))}
           >
             {list?.map((s) => (
@@ -111,6 +128,12 @@ export default function SubjectSetupPage() {
           </Select>
         </Field>
       )}
+
+      {/* The sections below remount without naming the subject; this says which
+          one they now show to someone who cannot see the picker (WCAG 4.1.3). */}
+      <p role="status" className="sr-only">
+        {shown ? `Showing ${shown.name} (${shown.exam_board} ${shown.code})` : ""}
+      </p>
 
       {sections.length > 1 && <SectionIndex label="Subject setup sections" sections={sections} />}
 

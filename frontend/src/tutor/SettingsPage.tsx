@@ -6,7 +6,7 @@ import WeeklySendSetting from "./WeeklySendSetting";
 import MessagesSetting from "./MessagesSetting";
 import MyTimezoneSetting from "../components/MyTimezoneSetting";
 import { PageHeader } from "../components/page";
-import { PlainSection, SectionIndex, useFollowHash } from "./SectionedPage";
+import { hashTarget, PlainSection, SectionIndex, useFollowHash } from "./SectionedPage";
 import { SUBJECT_SETUP_SECTIONS } from "./SubjectSetupPage";
 
 /**
@@ -37,7 +37,7 @@ export default function SettingsPage() {
   const { hash, search } = useLocation();
   useFollowHash();
 
-  const moved = decodeURIComponent(hash.slice(1));
+  const moved = hashTarget(hash);
   if (MOVED_TO_SUBJECT_SETUP.has(moved)) {
     return <Navigate to={{ pathname: "/tutor/subject-setup", search, hash }} replace />;
   }
