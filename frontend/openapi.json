@@ -4705,6 +4705,37 @@
         ]
       }
     },
+    "/api/v1/notifications/undelivered": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Undelivered",
+        "description": "Messages from the last 30 days that reached nobody, newest first.\n\nWithout this a parent who never gets their weekly message is invisible: the\nrow ends `failed`, `suppressed` or `no_channel` and only the table knows.\nA row still `queued` is in flight, not a problem, and is left out.",
+        "operationId": "undelivered_api_v1_notifications_undelivered_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UndeliveredOut"
+                  },
+                  "type": "array",
+                  "title": "Response Undelivered Api V1 Notifications Undelivered Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/webhooks/whatsapp": {
       "get": {
         "tags": [
@@ -14977,6 +15008,18 @@
         ],
         "title": "NotificationKind"
       },
+      "NotificationStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "sent",
+          "failed",
+          "suppressed",
+          "no_channel",
+          "channel_unconfigured"
+        ],
+        "title": "NotificationStatus"
+      },
       "ObservationCreate": {
         "properties": {
           "student_id": {
@@ -19538,6 +19581,61 @@
         ],
         "title": "TypedAnswerOut",
         "description": "A student's typed answer as the tutor sees it (`AV-73`, task 3.3)."
+      },
+      "UndeliveredOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "recipient_user_id": {
+            "type": "integer",
+            "title": "Recipient User Id"
+          },
+          "recipient_name": {
+            "type": "string",
+            "title": "Recipient Name"
+          },
+          "recipient_role": {
+            "type": "string",
+            "title": "Recipient Role"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NotificationKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NotificationStatus"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "recipient_user_id",
+          "recipient_name",
+          "recipient_role",
+          "kind",
+          "status",
+          "reason",
+          "created_at"
+        ],
+        "title": "UndeliveredOut",
+        "description": "One message that did not reach anyone, and why \u2014 never its address."
       },
       "UpcomingScheduleSlot": {
         "properties": {

@@ -56,6 +56,7 @@ from app.models.notifications import (
     NotificationPreference,
     NotificationStatus,
     SuppressionReason,
+    WhatsAppOptOut,
 )
 from app.models.orgs import Organization
 from app.models.readiness import (
@@ -215,6 +216,7 @@ __all__ = [
     "TutorObservation",
     "User",
     "UserRole",
+    "WhatsAppOptOut",
     "WorkerHeartbeat",
     "WorkKind",
 ]

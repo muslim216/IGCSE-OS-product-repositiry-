@@ -130,3 +130,64 @@ async def test_email_refusal_is_permanent_and_suppresses(monkeypatch):
     with pytest.raises(ChannelError) as err:
         await EmailChannel().send("a@b.co", "avora_homework_set", PARAMS, "https://x")
     assert (err.value.permanent, err.value.suppress) == (True, True)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_refused_credentials_are_an_alarm_not_a_bad_number(configured, status, caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"error": {"code": 190, "message": "token expired"}})
+
+    with caplog.at_level("ERROR", logger="notifications"), pytest.raises(ChannelError) as err:
+        await _channel(handler).send("+201001234567", "avora_homework_set", PARAMS, "https://x")
+    assert (err.value.permanent, err.value.suppress) == (True, False)
+    assert "credentials" in caplog.text
+    assert "Bearer" not in caplog.text and "201001234567" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, text="<html>gateway</html>"),
+        httpx.Response(200, json=["not", "an", "object"]),
+        httpx.Response(200, json={"messages": ["wamid.1"]}),
+        httpx.Response(400, json={"error": "a string, not an object"}),
+        httpx.Response(400, json=["nope"]),
+    ],
+)
+async def test_an_unexpected_reply_shape_is_a_channel_error_not_a_crash(configured, response):
+    with pytest.raises(ChannelError):
+        await _channel(lambda request: response).send(
+            "+201001234567", "avora_homework_set", PARAMS, "https://x"
+        )
+
+
+async def test_smtp_credentials_are_never_sent_without_tls(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(s, "smtp_from", "avora@example.com")
+    monkeypatch.setattr(s, "smtp_username", "user")
+    monkeypatch.setattr(s, "smtp_password", "secret")
+    monkeypatch.setattr(s, "smtp_starttls", False)
+
+    async def must_not_send(msg, **kwargs):
+        raise AssertionError("sent credentials in clear text")
+
+    monkeypatch.setattr(email_module.aiosmtplib, "send", must_not_send)
+    with pytest.raises(ChannelError) as err:
+        await EmailChannel().send("a@b.co", "avora_homework_set", PARAMS, "https://x")
+    assert err.value.permanent
+
+
+async def test_implicit_tls_replaces_starttls(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(s, "smtp_from", "avora@example.com")
+    monkeypatch.setattr(s, "smtp_use_tls", True)
+    seen = {}
+
+    async def fake_send(msg, **kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr(email_module.aiosmtplib, "send", fake_send)
+    await EmailChannel().send("a@b.co", "avora_homework_set", PARAMS, "https://x")
+    assert (seen["use_tls"], seen["start_tls"]) == (True, False)

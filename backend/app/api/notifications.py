@@ -6,6 +6,8 @@ addresses and confirms them after seeing each shown back (threat review F5);
 nothing is ever sent to an unconfirmed address.
 """
 
+from datetime import timedelta
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,12 +16,15 @@ from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.api.students import _tutor_student
 from app.models import (
     ContactPoint,
+    Notification,
     NotificationChannel,
     NotificationKind,
     NotificationPreference,
+    NotificationStatus,
     ParentLink,
     User,
 )
+from app.models.base import utcnow
 from app.schemas.notifications import (
     ChannelStatusOut,
     ContactOut,
@@ -28,6 +33,7 @@ from app.schemas.notifications import (
     PreferenceItem,
     PreferencesUpdate,
     SelfContactSet,
+    UndeliveredOut,
 )
 from app.services.notifications.contacts import confirm_contact, contacts_for, set_contact
 from app.services.notifications.service import channel_registry
@@ -169,16 +175,17 @@ async def put_preferences(
             select(NotificationPreference).where(NotificationPreference.user_id == user.id)
         )
     }
-    for item in body.preferences:
-        row = existing.get((item.kind, item.channel))
+    # Collapsed first, last one wins: the same (kind, channel) twice in one body
+    # would otherwise insert two rows and fail the unique constraint as a 500.
+    wanted = {(item.kind, item.channel): item.enabled for item in body.preferences}
+    for (kind, channel), enabled in wanted.items():
+        row = existing.get((kind, channel))
         if row is None:
             db.add(
-                NotificationPreference(
-                    user_id=user.id, kind=item.kind, channel=item.channel, enabled=item.enabled
-                )
+                NotificationPreference(user_id=user.id, kind=kind, channel=channel, enabled=enabled)
             )
         else:
-            row.enabled = item.enabled
+            row.enabled = enabled
     await db.commit()
     return await _preferences(db, user)
 
@@ -191,3 +198,44 @@ async def channel_status(user: TutorUser) -> ChannelStatusOut:
         whatsapp_configured=registry[NotificationChannel.whatsapp].available(),
         email_configured=registry[NotificationChannel.email].available(),
     )
+
+
+#: How far back the undelivered list looks, and how many rows it returns.
+UNDELIVERED_WINDOW = timedelta(days=30)
+UNDELIVERED_LIMIT = 100
+
+
+@router.get("/notifications/undelivered", response_model=list[UndeliveredOut])
+async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
+    """Messages from the last 30 days that reached nobody, newest first.
+
+    Without this a parent who never gets their weekly message is invisible: the
+    row ends `failed`, `suppressed` or `no_channel` and only the table knows.
+    A row still `queued` is in flight, not a problem, and is left out.
+    """
+    rows = (
+        await db.execute(
+            select(Notification, User)
+            .join(User, User.id == Notification.recipient_user_id)
+            .where(
+                Notification.organization_id == user.organization_id,
+                Notification.status.not_in([NotificationStatus.sent, NotificationStatus.queued]),
+                Notification.created_at >= utcnow() - UNDELIVERED_WINDOW,
+            )
+            .order_by(Notification.created_at.desc(), Notification.id.desc())
+            .limit(UNDELIVERED_LIMIT)
+        )
+    ).all()
+    return [
+        UndeliveredOut(
+            id=note.id,
+            recipient_user_id=person.id,
+            recipient_name=person.name,
+            recipient_role=person.role.value,
+            kind=note.kind,
+            status=note.status,
+            reason=note.error,
+            created_at=note.created_at,
+        )
+        for note, person in rows
+    ]

@@ -266,6 +266,8 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_from: str | None = None
     smtp_starttls: bool = True
+    # Implicit TLS from the first byte (port 465). Takes precedence over STARTTLS.
+    smtp_use_tls: bool = False
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
 

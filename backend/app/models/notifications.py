@@ -86,6 +86,21 @@ class ContactPoint(TimestampMixin, Base):
     )
 
 
+class WhatsAppOptOut(TimestampMixin, Base):
+    """A number that texted STOP. Keyed by the number itself, not by a contact
+    row: the opt-out is the person's, so it must survive a tutor re-entering the
+    number, hold for a number we have no contact for yet, and apply in every
+    organization that number appears in. Only the person's own START removes it.
+    """
+
+    __tablename__ = "whatsapp_opt_outs"
+    __table_args__ = (UniqueConstraint("address", name="uq_whatsapp_opt_outs_address"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # E.164 with the leading `+`, the same form ContactPoint.address stores.
+    address: Mapped[str] = mapped_column(String(32), nullable=False)
+
+
 class NotificationPreference(TimestampMixin, Base):
     """A per-channel opt-out. Absence of a row means enabled."""
 
@@ -113,6 +128,7 @@ class Notification(TimestampMixin, Base):
 
     __tablename__ = "notifications"
     __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_notifications_idempotency_key"),
         Index("ix_notifications_recipient_created", "recipient_user_id", "created_at"),
     )
 
@@ -128,7 +144,7 @@ class Notification(TimestampMixin, Base):
     template: Mapped[str] = mapped_column(String(64), nullable=False)
     params: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     link_path: Mapped[str] = mapped_column(String(255), nullable=False, default="/")
-    idempotency_key: Mapped[str] = mapped_column(String(190), nullable=False, unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(190), nullable=False)
     status: Mapped[NotificationStatus] = mapped_column(
         Enum(NotificationStatus, native_enum=False, length=24),
         nullable=False,

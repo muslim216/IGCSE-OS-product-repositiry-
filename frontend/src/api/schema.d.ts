@@ -1677,6 +1677,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/undelivered": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Undelivered
+         * @description Messages from the last 30 days that reached nobody, newest first.
+         *
+         *     Without this a parent who never gets their weekly message is invisible: the
+         *     row ends `failed`, `suppressed` or `no_channel` and only the table knows.
+         *     A row still `queued` is in flight, not a problem, and is left out.
+         */
+        get: operations["undelivered_api_v1_notifications_undelivered_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/webhooks/whatsapp": {
         parameters: {
             query?: never;
@@ -5166,6 +5190,11 @@ export interface components {
          * @enum {string}
          */
         NotificationKind: "weekly_send" | "homework_set" | "homework_due" | "marked_work_ready" | "lesson_reminder" | "review_queue" | "invite" | "contact_confirm";
+        /**
+         * NotificationStatus
+         * @enum {string}
+         */
+        NotificationStatus: "queued" | "sent" | "failed" | "suppressed" | "no_channel" | "channel_unconfigured";
         /** ObservationCreate */
         ObservationCreate: {
             /** Student Id */
@@ -6719,6 +6748,29 @@ export interface components {
             text: string;
             /** Flag Reason */
             flag_reason: string | null;
+        };
+        /**
+         * UndeliveredOut
+         * @description One message that did not reach anyone, and why — never its address.
+         */
+        UndeliveredOut: {
+            /** Id */
+            id: number;
+            /** Recipient User Id */
+            recipient_user_id: number;
+            /** Recipient Name */
+            recipient_name: string;
+            /** Recipient Role */
+            recipient_role: string;
+            kind: components["schemas"]["NotificationKind"];
+            status: components["schemas"]["NotificationStatus"];
+            /** Reason */
+            reason: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** UpcomingScheduleSlot */
         UpcomingScheduleSlot: {
@@ -9905,6 +9957,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChannelStatusOut"];
+                };
+            };
+        };
+    };
+    undelivered_api_v1_notifications_undelivered_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndeliveredOut"][];
                 };
             };
         };

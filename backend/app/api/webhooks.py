@@ -59,11 +59,23 @@ async def receive_whatsapp(request: Request, db: DbSession) -> dict[str, str]:
     except ValueError:
         # Signed but malformed: acknowledge, or Meta retries it forever.
         return {"status": "ignored"}
-    if isinstance(payload, dict):
-        try:
-            await inbound.process_webhook(db, payload)
-            await db.commit()
-        except Exception:  # noqa: BLE001 — a 5xx would make Meta redeliver
-            log.exception("could not process a WhatsApp webhook")
-            await db.rollback()
+    if not isinstance(payload, dict):
+        return {"status": "ignored"}
+    try:
+        replies = await inbound.process_webhook(db, payload)
+        await db.commit()
+    except Exception:
+        # A 5xx on purpose. Meta redelivers a webhook it did not get a 2xx for,
+        # and that redelivery is the only thing that saves a STOP lost to a
+        # database blip — acknowledging it would drop the opt-out for good and
+        # keep a child's record going to someone who asked us to stop.
+        # Processing is safe to repeat (`process_webhook`).
+        log.exception("could not process a WhatsApp webhook; asking Meta to redeliver")
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not process the webhook"
+        ) from None
+    # Only now: nobody is told their opt-out worked before it is saved.
+    for address, text in replies:
+        await inbound.send_reply(address, text)
     return {"status": "ok"}

@@ -3,7 +3,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.models import NotificationChannel, NotificationKind, SuppressionReason
+from app.models import (
+    NotificationChannel,
+    NotificationKind,
+    NotificationStatus,
+    SuppressionReason,
+)
 
 
 class ContactOut(BaseModel):
@@ -49,6 +54,19 @@ class ChannelStatusOut(BaseModel):
     # Booleans only — never a secret or any part of one.
     whatsapp_configured: bool
     email_configured: bool
+
+
+class UndeliveredOut(BaseModel):
+    """One message that did not reach anyone, and why — never its address."""
+
+    id: int
+    recipient_user_id: int
+    recipient_name: str
+    recipient_role: str
+    kind: NotificationKind
+    status: NotificationStatus
+    reason: str | None
+    created_at: datetime
 
 
 AiLanguage = Literal["en", "ar"]

@@ -1,8 +1,13 @@
 """Contact, preference, org-setting and status endpoints (8.1)."""
 
+from datetime import timedelta
+
 import pytest
 
 from app.config import get_settings
+from app.db import async_session
+from app.models import Notification, NotificationKind, NotificationStatus, User
+from app.models.base import utcnow
 from tests.factories import register_other_tutor, register_parent
 
 NUMBER = "+201001234567"
@@ -188,6 +193,17 @@ async def test_preferences_are_per_user_and_per_channel(client, tutor, student):
     assert all(p["enabled"] for p in mine)
 
 
+async def test_the_same_preference_twice_in_one_body_is_last_one_wins(client, student):
+    item = {"kind": "homework_set", "channel": "whatsapp"}
+    put = await client.put(
+        "/api/v1/me/notification-preferences",
+        json={"preferences": [{**item, "enabled": True}, {**item, "enabled": False}]},
+        headers=student["headers"],
+    )
+    assert put.status_code == 200
+    assert [p for p in put.json() if not p["enabled"]] == [{**item, "enabled": False}]
+
+
 async def test_unknown_preference_kinds_are_422(client, student):
     resp = await client.put(
         "/api/v1/me/notification-preferences",
@@ -257,3 +273,50 @@ async def test_status_reflects_configuration_without_leaking_it(client, tutor, m
     resp = await client.get("/api/v1/notifications/status", headers=tutor["headers"])
     assert resp.json() == {"whatsapp_configured": True, "email_configured": True}
     assert "secret-token" not in resp.text
+
+
+# --- undelivered ----------------------------------------------------------------
+
+UNDELIVERED = "/api/v1/notifications/undelivered"
+
+
+async def _note(user_id: int, key: str, status: NotificationStatus, *, age_days: int = 0) -> None:
+    async with async_session() as session:
+        user = await session.get(User, user_id)
+        session.add(
+            Notification(
+                organization_id=user.organization_id,
+                recipient_user_id=user.id,
+                kind=NotificationKind.weekly_send,
+                template="avora_weekly_send",
+                params={},
+                link_path="/",
+                idempotency_key=key,
+                status=status,
+                error="No confirmed contact for this person",
+                created_at=utcnow() - timedelta(days=age_days),
+            )
+        )
+        await session.commit()
+
+
+async def test_the_tutor_sees_what_reached_nobody_and_why(client, tutor, student):
+    sid = student["user"]["id"]
+    await _note(sid, "u1", NotificationStatus.no_channel)
+    await _note(sid, "u2", NotificationStatus.failed)
+    await _note(sid, "u3", NotificationStatus.sent)  # delivered: not a problem
+    await _note(sid, "u4", NotificationStatus.queued)  # in flight: not a problem
+    await _note(sid, "u5", NotificationStatus.suppressed, age_days=45)  # too old
+    rows = (await client.get(UNDELIVERED, headers=tutor["headers"])).json()
+    assert {r["status"] for r in rows} == {"no_channel", "failed"}
+    assert rows[0]["recipient_name"] == student["user"]["name"]
+    assert rows[0]["reason"] == "No confirmed contact for this person"
+    assert "address" not in rows[0]
+
+
+async def test_undelivered_is_tutor_only_and_never_crosses_organizations(client, tutor, student):
+    await _note(student["user"]["id"], "u1", NotificationStatus.failed)
+    other = await register_other_tutor(client)
+    assert (await client.get(UNDELIVERED, headers=other["headers"])).json() == []
+    assert (await client.get(UNDELIVERED, headers=student["headers"])).status_code == 403
+    assert (await client.get(UNDELIVERED)).status_code == 401

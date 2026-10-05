@@ -4,6 +4,8 @@ Dormant until the owner registers with Meta: with any of the token or phone
 number id unset, `available()` is False and nothing here is called.
 """
 
+import logging
+
 import httpx
 
 from app.config import get_settings
@@ -13,6 +15,8 @@ from app.services.notifications.templates import (
     ordered_values,
     template_by_name,
 )
+
+log = logging.getLogger("notifications")
 
 _TIMEOUT = httpx.Timeout(10.0)
 
@@ -59,20 +63,33 @@ class WhatsAppChannel:
             message = f"WhatsApp rejected the message ({resp.status_code})"
             try:
                 err = resp.json().get("error", {})
+            except (ValueError, AttributeError):
+                err = {}
+            if isinstance(err, dict):
                 code = err.get("code")
                 message = f"{message}: {err.get('message', '')}"[:300]
-            except ValueError:
-                pass
+            if resp.status_code in (401, 403):
+                # Not this number's fault: the access token expired or was
+                # revoked, or the app lost permission. Every send will fail the
+                # same way until someone fixes the settings, so this is an
+                # alarm, and the address is not suppressed for it.
+                log.error("WhatsApp refused our credentials (%s) — check the access token", code)
+                raise ChannelError(message, permanent=True)
             # 4xx other than throttling is the request or number being wrong;
             # 5xx and 429 are the provider's to recover from.
             permanent = is_permanent_code(code) or (
                 resp.status_code < 500 and resp.status_code not in (408, 429)
             )
             raise ChannelError(message, permanent=permanent, suppress=is_permanent_code(code))
-        messages = resp.json().get("messages") or []
-        if not messages or not messages[0].get("id"):
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise ChannelError("WhatsApp returned an unreadable reply", permanent=False) from exc
+        messages = (data.get("messages") if isinstance(data, dict) else None) or []
+        first = messages[0] if messages and isinstance(messages[0], dict) else {}
+        if not first.get("id"):
             raise ChannelError("WhatsApp accepted the request but returned no id", permanent=False)
-        return str(messages[0]["id"])
+        return str(first["id"])
 
     async def send(
         self, address: str, template: str, params: dict, link_url: str, *, language: str = "en"

@@ -27,7 +27,13 @@ class Organization(TimestampMixin, Base):
 
     # When the weekly parent/student send goes out (AV-88/89): Python weekday
     # (Mon=0..Sun=6, default Sunday) and the hour in the organization's own zone.
-    weekly_send_weekday: Mapped[int] = mapped_column(Integer, nullable=False, default=6)
-    weekly_send_hour: Mapped[int] = mapped_column(Integer, nullable=False, default=17)
+    weekly_send_weekday: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=6, server_default="6"
+    )
+    weekly_send_hour: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=17, server_default="17"
+    )
     # The language the AI writes in and the WhatsApp template language (AV-66).
-    ai_language: Mapped[str] = mapped_column(String(8), nullable=False, default="en")
+    ai_language: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="en", server_default="en"
+    )

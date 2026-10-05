@@ -125,8 +125,12 @@ async def _status_with(
             contact = await add_contact(
                 session, user.id, channel=channel, address=address, confirmed=state != "unconfirmed"
             )
-            if state == "suppressed":
-                contact.suppressed_reason = SuppressionReason.opted_out
+            if state in ("suppressed", "bounced"):
+                contact.suppressed_reason = (
+                    SuppressionReason.opted_out
+                    if state == "suppressed"
+                    else SuppressionReason.provider_rejected
+                )
                 contact.suppressed_at = contact.confirmed_at
         if pref_off:
             session.add(
@@ -152,8 +156,10 @@ async def _status_with(
         ({"wa": "suppressed"}, NotificationStatus.suppressed),
         ({"wa": "ok", "pref_off": WA}, NotificationStatus.suppressed),
         ({"wa": "ok", "wa_ok": False}, NotificationStatus.channel_unconfigured),
-        # WhatsApp is blocked but email is a usable fallback.
-        ({"wa": "suppressed", "em": "ok"}, NotificationStatus.queued),
+        # An opt-out is the person's wish and covers every channel (owner
+        # decision); a dead number is only that, and email is a usable fallback.
+        ({"wa": "suppressed", "em": "ok"}, NotificationStatus.suppressed),
+        ({"wa": "bounced", "em": "ok"}, NotificationStatus.queued),
         ({"wa": "ok", "pref_off": WA, "em": "ok"}, NotificationStatus.queued),
         # WhatsApp unconfigured but email works.
         ({"wa": "ok", "wa_ok": False, "em": "ok"}, NotificationStatus.queued),
@@ -242,7 +248,7 @@ async def test_permanent_error_with_nothing_left_is_failed(monkeypatch, tutor):
         note = await _queued(session, user)
         await send_notification(session, {"notification_id": note.id})
         assert note.status == NotificationStatus.failed
-        assert note.error == "bad"
+        assert note.error == "whatsapp: bad"
         # Not a bounce: the contact stays usable.
         assert (await session.scalar(select(ContactPoint))).suppressed_at is None
 
@@ -270,6 +276,81 @@ async def test_transient_error_is_retried_then_recorded_failed(monkeypatch, tuto
         # Second attempt is the worker's last: recorded, not raised.
         assert note.status == NotificationStatus.failed
         assert note.attempts == 2
+
+
+async def test_a_whatsapp_outage_still_reaches_the_email_fallback(monkeypatch, tutor):
+    """Transient on both attempts: the last one falls through instead of ending
+    the row, and the row keeps why WhatsApp did not take it."""
+    fakes = patch_channels(
+        monkeypatch,
+        whatsapp=FakeChannel("whatsapp", outcomes=[ChannelError("503", permanent=False)] * 2),
+    )
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        note_id = (await _queued(session, user, em=True)).id
+    async with async_session() as session:
+        with pytest.raises(ChannelError):
+            await send_notification(session, {"notification_id": note_id})
+    assert fakes[EM].sent == []  # the first attempt waits for the retry
+    async with async_session() as session:
+        await send_notification(session, {"notification_id": note_id})
+        note = await session.get(Notification, note_id)
+        assert (note.status, note.channel) == (NotificationStatus.sent, EM)
+        assert note.error == "whatsapp: 503"
+    assert len(fakes[EM].sent) == 1
+
+
+async def test_an_unexpected_error_is_retried_then_ends_the_row(monkeypatch, tutor):
+    """Not a ChannelError — a bug or a database error. The row must not be left
+    `queued` with no job behind it."""
+    patch_channels(
+        monkeypatch,
+        whatsapp=FakeChannel("whatsapp", outcomes=[KeyError("student_name")] * 2),
+    )
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        note_id = (await _queued(session, user)).id
+        await session.commit()
+    async with async_session() as session:
+        with pytest.raises(KeyError):
+            await send_notification(session, {"notification_id": note_id})
+    async with async_session() as session:
+        note = await session.get(Notification, note_id)
+        note.attempts = 1  # what the worker's first failed run amounts to
+        await session.commit()
+        await send_notification(session, {"notification_id": note_id})
+        await session.commit()
+    async with async_session() as session:
+        note = await session.get(Notification, note_id)
+        assert note.status == NotificationStatus.failed
+        assert "KeyError" in note.error
+
+
+async def test_an_opt_out_on_one_channel_blocks_every_channel(monkeypatch, tutor):
+    fakes = patch_channels(monkeypatch)
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        note = await _queued(session, user, em=True)
+        contact = await session.scalar(select(ContactPoint).where(ContactPoint.channel == WA))
+        contact.suppressed_reason = SuppressionReason.opted_out
+        contact.suppressed_at = note.created_at
+        await send_notification(session, {"notification_id": note.id})
+        assert note.status == NotificationStatus.suppressed
+    assert fakes[EM].sent == []
+
+
+async def test_a_bounce_on_one_channel_still_allows_the_other(monkeypatch, tutor):
+    """Only an opt-out is the person's wish; a dead number is just a dead number."""
+    fakes = patch_channels(monkeypatch)
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        note = await _queued(session, user, em=True)
+        contact = await session.scalar(select(ContactPoint).where(ContactPoint.channel == WA))
+        contact.suppressed_reason = SuppressionReason.provider_rejected
+        contact.suppressed_at = note.created_at
+        await send_notification(session, {"notification_id": note.id})
+        assert (note.status, note.channel) == (NotificationStatus.sent, EM)
+    assert len(fakes[EM].sent) == 1
 
 
 async def test_a_contact_suppressed_after_queueing_is_honoured(monkeypatch, tutor):

@@ -3,6 +3,18 @@
 Nothing is sent from a request. `notify()` writes the outbox row and enqueues a
 job carrying only its id (`BE-9`); the handler re-reads current state, so a
 contact suppressed or a preference switched off between the two is honoured.
+
+Three things this module deliberately does not do:
+
+- **It does not resend what was skipped.** A row that ends `channel_unconfigured`
+  (the server has no WhatsApp or SMTP settings yet), `no_channel` or `suppressed`
+  is terminal. Configuring a channel later does not replay it: the messages are
+  weekly summaries and reminders, and a stale one is worse than none.
+- **It is at-least-once, not exactly-once.** A send the provider accepted but
+  whose reply we never saw (a read timeout, a crash before the commit) is
+  retried and can arrive twice. Neither WhatsApp nor SMTP offers an idempotency
+  key to close that window; a duplicate reminder is the cheaper failure.
+- **It never logs an address.** Ids, kinds and statuses only.
 """
 
 import logging
@@ -86,6 +98,13 @@ async def select_channels(
             )
         )
     }
+    # STOP means everything (owner decision, 2026-10-05). A person who opts out
+    # on one channel has said they do not want Avora messages; falling back to
+    # their email would send a child's record somewhere they asked us not to
+    # reach them, with nothing telling them why it kept coming.
+    if any(c.suppressed_reason == SuppressionReason.opted_out for c in contacts.values()):
+        return Selection([], NotificationStatus.suppressed, "This person opted out of messages")
+
     allowed = await _enabled(session, recipient.id, kind)
     registry = channel_registry()
 
@@ -111,9 +130,25 @@ async def select_channels(
         )
     if blocked:
         return Selection(
-            [], NotificationStatus.suppressed, "Contact opted out, suppressed, or preference is off"
+            [], NotificationStatus.suppressed, "Contact suppressed, or preference is off"
         )
     return Selection([], NotificationStatus.no_channel, "No confirmed contact for this person")
+
+
+def _end(note: Notification, status: NotificationStatus, reason: str | None) -> None:
+    """Put a notification in a terminal state and say so in the log: a row that
+    ends anywhere but `sent` is otherwise visible only to someone reading the
+    table."""
+    note.status = status
+    note.error = reason
+    log.log(
+        logging.INFO if status == NotificationStatus.sent else logging.WARNING,
+        "notification %s (%s) ended %s: %s",
+        note.id,
+        note.kind.value,
+        status.value,
+        reason or "ok",
+    )
 
 
 async def notify(
@@ -160,8 +195,7 @@ async def notify(
 
     selection = await select_channels(session, recipient, kind)
     if selection.status is not None:
-        note.status = selection.status
-        note.error = selection.reason
+        _end(note, selection.status, selection.reason)
         await session.flush()
         return note
     await enqueue(session, SEND_JOB, {"notification_id": note.id})
@@ -173,63 +207,89 @@ async def _language(session: AsyncSession, organization_id: int) -> str:
     return org.ai_language if org is not None else "en"
 
 
+def _suppress_for(channel: Channel, contact: ContactPoint) -> None:
+    suppress_contact(
+        contact,
+        SuppressionReason.bounced
+        if channel.name == NotificationChannel.email.value
+        else SuppressionReason.provider_rejected,
+    )
+
+
 async def send_notification(session: AsyncSession, payload: dict) -> None:
     """Job handler. Safe to re-run (`BE-6`): only a `queued` row is acted on.
 
-    A permanent failure ends the attempt on that channel and falls through to
-    the next one; a transient one is raised for the worker to retry, after the
-    attempt is committed. On the last attempt a transient failure is recorded
-    as `failed` rather than raised, so the outbox never keeps a row `queued`
-    forever.
+    Each channel is tried in order. A permanent failure ends the attempt on that
+    channel and falls through to the next. A transient failure is raised for the
+    worker to retry, after the attempt is committed — except on the last
+    attempt, where it too falls through, so a WhatsApp outage still reaches the
+    email fallback instead of ending the row. Whatever happens, the row leaves
+    this function `queued` only if the job is going to run again: an unexpected
+    exception on the last attempt is recorded as `failed` rather than left for a
+    worker that will not come back.
     """
     note = await session.get(Notification, payload["notification_id"])
     if note is None or note.status != NotificationStatus.queued:
         return
     recipient = await session.get(User, note.recipient_user_id)
     if recipient is None:
-        note.status = NotificationStatus.failed
-        note.error = "Recipient no longer exists"
+        _end(note, NotificationStatus.failed, "Recipient no longer exists")
         return
 
     note.attempts += 1
+    last_attempt = note.attempts >= MAX_ATTEMPTS
     selection = await select_channels(session, recipient, note.kind)
     if selection.status is not None:
-        note.status = selection.status
-        note.error = selection.reason
+        _end(note, selection.status, selection.reason)
         return
 
     link_url = get_settings().app_base_url.rstrip("/") + note.link_path
     language = await _language(session, note.organization_id)
-    last_error = "No channel accepted the message"
+    # Every channel's failure, in the order tried: the WhatsApp reason must not
+    # be lost because the email fallback then failed differently.
+    errors: list[str] = []
     for channel, contact in selection.candidates:
         try:
             message_id = await channel.send(
                 contact.address, note.template, note.params, link_url, language=language
             )
         except ChannelError as exc:
-            last_error = str(exc)
+            errors.append(f"{channel.name}: {exc}")
+            log.warning(
+                "notification %s: %s failed (%s): %s",
+                note.id,
+                channel.name,
+                "permanent" if exc.permanent else "transient",
+                exc,
+            )
             if exc.permanent:
                 if exc.suppress:
-                    reason = (
-                        SuppressionReason.bounced
-                        if channel.name == NotificationChannel.email.value
-                        else SuppressionReason.provider_rejected
-                    )
-                    suppress_contact(contact, reason)
+                    _suppress_for(channel, contact)
                 continue
-            note.error = last_error
-            if note.attempts >= MAX_ATTEMPTS:
-                note.status = NotificationStatus.failed
-                return
+            if last_attempt:
+                continue
+            note.error = "; ".join(errors)[:1000]
             # The worker rolls the session back when a handler raises, so the
             # attempt count and error are committed first.
             await session.commit()
             raise
-        note.status = NotificationStatus.sent
+        except Exception as exc:
+            # Not a delivery failure but a bug or a database error. Retry while
+            # the worker still will; after that, end the row rather than leave
+            # it `queued` with no job behind it.
+            log.exception("notification %s: unexpected error on %s", note.id, channel.name)
+            if last_attempt:
+                await session.rollback()
+                note = await session.get(Notification, payload["notification_id"])
+                if note is not None:
+                    note.attempts = MAX_ATTEMPTS
+                    _end(note, NotificationStatus.failed, f"Unexpected error: {type(exc).__name__}")
+                return
+            raise
         note.channel = NotificationChannel(channel.name)
         note.provider_message_id = message_id
-        note.error = None
         note.sent_at = utcnow()
+        # A fallback that worked is still worth seeing: keep why WhatsApp did not.
+        _end(note, NotificationStatus.sent, "; ".join(errors)[:1000] or None)
         return
-    note.status = NotificationStatus.failed
-    note.error = last_error
+    _end(note, NotificationStatus.failed, "; ".join(errors)[:1000] or "No channel accepted it")

@@ -11,14 +11,20 @@ from app.config import get_settings
 from app.db import async_session
 from app.models import (
     ContactPoint,
+    Job,
     Notification,
     NotificationChannel,
     NotificationKind,
     NotificationStatus,
     SuppressionReason,
+    User,
+    WhatsAppOptOut,
 )
+from app.models.base import utcnow
 from app.services.notifications import inbound
-from tests.factories import add_contact
+from app.services.notifications.contacts import set_contact
+from app.services.notifications.service import select_channels
+from tests.factories import add_contact, patch_channels
 
 URL = "/api/v1/webhooks/whatsapp"
 SECRET = "app-secret"
@@ -29,6 +35,11 @@ NUMBER = "+201001234567"
 def _wa_settings(monkeypatch):
     monkeypatch.setattr(get_settings(), "whatsapp_app_secret", SECRET)
     monkeypatch.setattr(get_settings(), "whatsapp_verify_token", "verify-me")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_auto_reply_throttle():
+    inbound._last_auto_reply.clear()
 
 
 @pytest.fixture
@@ -155,7 +166,9 @@ async def test_signed_garbage_is_acknowledged_not_retried(client):
 # --- inbound messages -------------------------------------------------------
 
 
-@pytest.mark.parametrize("word", ["STOP", "  stop ", "Unsubscribe", "إيقاف"])
+@pytest.mark.parametrize(
+    "word", ["STOP", "  stop ", "Unsubscribe", "إيقاف", "Stop.", "STOP please", "stop!"]
+)
 async def test_stop_opts_the_number_out_and_confirms(client, replies, contact, word):
     assert (await _post(client, _inbound(word))).status_code == 200
     row = await _contact(contact)
@@ -192,6 +205,98 @@ async def test_an_unknown_sender_still_gets_the_auto_reply(client, replies):
     assert replies == [("447700900123", inbound.AUTO_REPLY)]
 
 
+async def test_a_word_that_only_contains_stop_is_not_an_opt_out(client, replies, contact):
+    await _post(client, _inbound("unstoppable homework"))
+    assert (await _contact(contact)).suppressed_at is None
+    assert replies == [("201001234567", inbound.AUTO_REPLY)]
+
+
+async def test_the_auto_reply_is_sent_once_an_hour_per_number(client, replies):
+    for _ in range(3):
+        await _post(client, _inbound("hello?", sender="447700900123"))
+    await _post(client, _inbound("hello?", sender="447700900124"))
+    assert [r[0] for r in replies] == ["447700900123", "447700900124"]
+
+
+async def test_stop_is_never_throttled(client, replies, contact):
+    await _post(client, _inbound("hi"))
+    await _post(client, _inbound("STOP"))
+    await _post(client, _inbound("STOP"))
+    assert [r[1] for r in replies] == [
+        inbound.AUTO_REPLY,
+        inbound.STOPPED_REPLY,
+        inbound.STOPPED_REPLY,
+    ]
+
+
+async def test_stop_from_a_number_we_hold_no_contact_for_is_remembered(client, replies, tutor):
+    """The opt-out is the number's: it must be waiting when a tutor enters it."""
+    await _post(client, _inbound("STOP", sender="447700900123"))
+    async with async_session() as session:
+        assert await session.scalar(select(WhatsAppOptOut.address)) == "+447700900123"
+        user = await session.get(User, tutor["user"]["id"])
+        row = await set_contact(
+            session, user=user, channel=NotificationChannel.whatsapp, address="+44 7700 900123"
+        )
+        assert row.suppressed_reason == SuppressionReason.opted_out
+
+
+async def test_re_entering_an_opted_out_number_does_not_resurrect_it(
+    client, replies, contact, tutor
+):
+    await _post(client, _inbound("STOP"))
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        for address in ("+447700900999", NUMBER):
+            row = await set_contact(
+                session, user=user, channel=NotificationChannel.whatsapp, address=address
+            )
+        assert row.address == NUMBER
+        assert row.suppressed_reason == SuppressionReason.opted_out
+
+
+async def test_start_lifts_the_number_level_opt_out(client, replies, contact):
+    await _post(client, _inbound("STOP"))
+    await _post(client, _inbound("START"))
+    async with async_session() as session:
+        assert await session.scalar(select(WhatsAppOptOut.id)) is None
+
+
+async def test_stop_on_whatsapp_stops_email_too(client, replies, contact, tutor, monkeypatch):
+    """Owner decision: STOP means every channel, not just the one it came in on."""
+    patch_channels(monkeypatch)
+    async with async_session() as session:
+        await add_contact(
+            session, tutor["user"]["id"], channel=NotificationChannel.email, address="t@example.com"
+        )
+        await session.commit()
+    await _post(client, _inbound("STOP"))
+    async with async_session() as session:
+        user = await session.get(User, tutor["user"]["id"])
+        selection = await select_channels(session, user, NotificationKind.weekly_send)
+    assert selection.candidates == []
+    assert selection.status == NotificationStatus.suppressed
+
+
+async def test_a_processing_failure_asks_meta_to_redeliver(client, replies, contact, monkeypatch):
+    """A 5xx, not a 200: an acknowledged STOP that failed to save is lost."""
+
+    async def boom(session, payload):
+        raise RuntimeError("database went away")
+
+    monkeypatch.setattr(inbound, "process_webhook", boom)
+    assert (await _post(client, _inbound("STOP"))).status_code == 500
+    assert replies == []
+    assert (await _contact(contact)).suppressed_at is None
+
+
+async def test_a_redelivered_stop_is_harmless(client, replies, contact):
+    for _ in range(2):
+        assert (await _post(client, _inbound("STOP"))).status_code == 200
+    async with async_session() as session:
+        assert len((await session.scalars(select(WhatsAppOptOut))).all()) == 1
+
+
 # --- status callbacks -------------------------------------------------------
 
 
@@ -217,6 +322,7 @@ async def sent_note(tutor, contact):
             status=NotificationStatus.sent,
             channel=NotificationChannel.whatsapp,
             provider_message_id="wamid.1",
+            sent_at=utcnow(),
         )
         session.add(note)
         await session.commit()
@@ -249,3 +355,40 @@ async def test_delivered_and_unknown_ids_change_nothing(client, sent_note):
     async with async_session() as session:
         assert (await session.get(Notification, sent_note)).status == NotificationStatus.sent
         assert await session.scalar(select(ContactPoint.suppressed_at)) is None
+
+
+async def test_a_permanent_failure_falls_back_to_email_when_there_is_one(
+    client, sent_note, contact, tutor, monkeypatch
+):
+    """WhatsApp reports most dead numbers after accepting the send, so the
+    fallback has to run from the status callback too."""
+    patch_channels(monkeypatch)
+    async with async_session() as session:
+        await add_contact(
+            session, tutor["user"]["id"], channel=NotificationChannel.email, address="t@example.com"
+        )
+        await session.commit()
+    await _post(client, _status("wamid.1", "failed", code=131026))
+    async with async_session() as session:
+        note = await session.get(Notification, sent_note)
+        assert note.status == NotificationStatus.queued
+        assert note.provider_message_id is None
+        jobs = (await session.scalars(select(Job).where(Job.type == "send_notification"))).all()
+        assert [j.payload for j in jobs] == [{"notification_id": sent_note}]
+    # Meta redelivers the same status: the row is no longer a WhatsApp send.
+    await _post(client, _status("wamid.1", "failed", code=131026))
+    async with async_session() as session:
+        jobs = (await session.scalars(select(Job).where(Job.type == "send_notification"))).all()
+        assert len(jobs) == 1
+
+
+async def test_a_failure_for_a_number_changed_since_does_not_suppress_the_new_one(
+    client, sent_note, contact
+):
+    async with async_session() as session:
+        row = await session.get(ContactPoint, contact)
+        row.address = "+447700900999"
+        row.confirmed_at = utcnow()  # re-confirmed after the failed message went out
+        await session.commit()
+    await _post(client, _status("wamid.1", "failed", code=131026))
+    assert (await _contact(contact)).suppressed_at is None

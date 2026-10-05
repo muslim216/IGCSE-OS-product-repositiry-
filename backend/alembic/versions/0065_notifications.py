@@ -107,6 +107,14 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "whatsapp_opt_outs",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("address", sa.String(length=32), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.UniqueConstraint("address", name="uq_whatsapp_opt_outs_address"),
+    )
+
+    op.create_table(
         "notification_preferences",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column(
@@ -184,6 +192,7 @@ def downgrade() -> None:
     op.drop_index("ix_notifications_recipient_created", table_name="notifications")
     op.drop_table("notifications")
     op.drop_table("notification_preferences")
+    op.drop_table("whatsapp_opt_outs")
     op.drop_table("contact_points")
     with op.batch_alter_table("organizations", naming_convention=NAMING) as batch:
         batch.drop_column("ai_language")

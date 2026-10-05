@@ -27,6 +27,9 @@ class EmailChannel:
         s = get_settings()
         if not self.available():
             raise ChannelError("Email is not configured", permanent=True)
+        if s.smtp_username and not (s.smtp_starttls or s.smtp_use_tls):
+            # Refuse rather than send the password in clear text.
+            raise ChannelError("SMTP credentials need TLS (STARTTLS or implicit)", permanent=True)
         tpl = template_by_name(template)
         if tpl is None:
             raise ChannelError(f"Unknown template {template}", permanent=True)
@@ -44,7 +47,9 @@ class EmailChannel:
                 port=s.smtp_port,
                 username=s.smtp_username or None,
                 password=s.smtp_password or None,
-                start_tls=s.smtp_starttls,
+                # Implicit TLS (port 465) and STARTTLS (587) are alternatives.
+                use_tls=s.smtp_use_tls,
+                start_tls=s.smtp_starttls and not s.smtp_use_tls,
                 timeout=_TIMEOUT_SECONDS,
             )
         except aiosmtplib.SMTPRecipientsRefused as exc:
