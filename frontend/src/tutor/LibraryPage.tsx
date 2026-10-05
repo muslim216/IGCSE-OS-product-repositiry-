@@ -10,6 +10,10 @@ import { SectionHeader } from "../components/ui";
  * parts of the app were "just thrown into Library". Those now have their own
  * homes (Papers & mocks, Readiness, Settings); this shelf is what remains.
  * It stays a shelf so new material kinds slot in as cards.
+ *
+ * Syllabuses are now managed in Subject setup (9.3a), so the one card is a door
+ * to that section rather than a page of its own. What Library holds next is an
+ * open owner decision, so the page and its nav item are left as they are.
  */
 export interface Shelf {
   to: string;
@@ -20,7 +24,7 @@ export interface Shelf {
 
 const MATERIAL: Shelf[] = [
   {
-    to: "/tutor/syllabuses",
+    to: "/tutor/subject-setup#syllabus",
     label: "Syllabuses",
     hint: "Upload a syllabus to build its topic tree.",
     icon: BookOpen,

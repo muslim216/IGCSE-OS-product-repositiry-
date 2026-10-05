@@ -33,7 +33,7 @@ test("a score with no boundaries has no grade and keeps the set-them hint", () =
   expect(screen.getByText(/no grade boundaries set/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /Set them/ })).toHaveAttribute(
     "href",
-    "/tutor/settings#boundaries",
+    "/tutor/subject-setup#boundaries",
   );
 });
 

@@ -575,9 +575,9 @@ export default function SyllabusUploadPage() {
   return (
     <div>
       <PageHeader
-        title="Syllabuses"
+        title="Syllabus"
         description="Upload an exam board's syllabus and the AI drafts its chapters and topics. You check them before they shape teaching plans, readiness and homework."
-        back={{ to: "/tutor/library", label: "Library" }}
+        back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
       />
 
       <div className="space-y-6">

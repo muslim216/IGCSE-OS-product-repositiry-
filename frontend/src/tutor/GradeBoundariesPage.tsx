@@ -12,6 +12,7 @@ import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton } from "../components/page";
 import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { useSubjectSetup } from "./SubjectSetupContext";
 
 /**
  * The grade-boundary editor — what "Set them →" points at.
@@ -43,8 +44,11 @@ export default function GradeBoundariesPage() {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
+  // Inside Subject setup the page-level picker owns the subject (see
+  // SubjectSetupContext); standing alone the page keeps its own.
+  const setup = useSubjectSetup();
   const [subjectId, setSubjectId] = useState<number | null>(null);
-  const selected = subjectId ?? subjects.data?.[0]?.id ?? null;
+  const selected = setup ? setup.subjectId : (subjectId ?? subjects.data?.[0]?.id ?? null);
 
   const boundaries = useQuery({
     queryKey: ["grade-boundaries", selected],
@@ -95,7 +99,7 @@ export default function GradeBoundariesPage() {
     <PageHeader
       title="Grade boundaries"
       description="The percentage that earns each grade. Every predicted grade in avora is read through these, so a change here shows everywhere the next time a page loads."
-      back={{ to: "/tutor/settings", label: "Settings" }}
+      back={{ to: "/tutor/subject-setup", label: "Subject setup" }}
     />
   );
 
@@ -136,15 +140,17 @@ export default function GradeBoundariesPage() {
       {header}
 
       <div className="space-y-6">
-        <Field label="Subject" className="max-w-sm">
-          <Select value={selected ?? ""} onChange={(e) => setSubjectId(Number(e.target.value))}>
-            {subjects.data.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.exam_board} {s.code})
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {!setup && (
+          <Field label="Subject" className="max-w-sm">
+            <Select value={selected ?? ""} onChange={(e) => setSubjectId(Number(e.target.value))}>
+              {subjects.data.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.exam_board} {s.code})
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
 
         {boundaries.isLoading || (boundaries.data && hydratedFor !== selected) ? (
           <SectionCard>

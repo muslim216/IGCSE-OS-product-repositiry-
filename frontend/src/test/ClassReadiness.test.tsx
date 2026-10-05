@@ -124,7 +124,7 @@ test("a subject with no boundaries keeps its scored learners, unbanded, and says
   expect(screen.getByText(/no grade boundaries yet/)).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Set them →" })).toHaveAttribute(
     "href",
-    "/tutor/settings#boundaries",
+    "/tutor/subject-setup?subject=1#boundaries",
   );
   // No learner is banded against a cutoff the subject does not have.
   const table = screen.getByRole("table");

@@ -9,6 +9,7 @@ import {
   Gauge,
   GraduationCap,
   Settings as SettingsIcon,
+  SlidersHorizontal,
   Home as HomeIcon,
   Sunrise,
   Users,
@@ -48,7 +49,7 @@ import ReviewQueuePage from "./tutor/ReviewQueuePage";
 import LibraryPage from "./tutor/LibraryPage";
 import PapersHubPage from "./tutor/PapersHubPage";
 import MocksPage from "./tutor/MocksPage";
-import SyllabusUploadPage from "./tutor/SyllabusUploadPage";
+import SubjectSetupPage from "./tutor/SubjectSetupPage";
 import SettingsPage from "./tutor/SettingsPage";
 import IntegrationCallbackPage from "./tutor/IntegrationCallbackPage";
 import TutorPastPapersPage from "./tutor/PastPapersPage";
@@ -91,14 +92,19 @@ const STUDENT_NAV: NavItem[] = [
   { to: "/student/recordings", label: "Recordings", icon: Video },
 ];
 
-// Eight destinations, set by the owner (2026-10-05): "don't change the full
+// Nine destinations. The owner set eight on 2026-10-05: "don't change the full
 // structure ... only the skeletons". Classes was right; the trouble was that
 // readiness, exam papers and every setup page had been dropped onto the Library
 // shelf. Each now has a name where the tutor looks for it: Readiness and
-// Papers & mocks are the work, Library is source material, Settings is where
-// marking, grades and the account are configured. The daily loop stays first.
-// Old URLs still land (setup pages redirect into Settings), so no bookmark
-// 404s (edge case 20). `also` keeps a nested page's parent lit.
+// Papers & mocks are the work, Library is source material. The same day the
+// owner moved everything that belongs to a subject (syllabus, grade boundaries,
+// guidance, marking rules, mistake categories, preferences) out of Settings
+// into Subject setup, leaving Settings for the account (9.3a). The daily loop
+// stays first.
+// Old URLs still land (setup pages redirect into Subject setup, and Settings
+// forwards its moved section hashes there), so no bookmark 404s (edge case 20).
+// `also` keeps a nested page's parent lit; Subject setup claims the old setup
+// URLs so it stays lit if one is ever rendered without redirecting.
 const TUTOR_NAV: NavItem[] = [
   { to: "/tutor", label: "Today", icon: Sunrise },
   { to: "/tutor/classes", label: "Classes", icon: Users, also: ["/tutor/groups"] },
@@ -111,7 +117,20 @@ const TUTOR_NAV: NavItem[] = [
     icon: FileText,
     also: ["/tutor/past-papers", "/tutor/booklets", "/tutor/mocks"],
   },
-  { to: "/tutor/library", label: "Library", icon: BookOpen, also: ["/tutor/syllabuses"] },
+  {
+    to: "/tutor/subject-setup",
+    label: "Subject setup",
+    icon: SlidersHorizontal,
+    also: [
+      "/tutor/syllabuses",
+      "/tutor/boundaries",
+      "/tutor/teaching-guidance",
+      "/tutor/marking-rules",
+      "/tutor/mistake-categories",
+      "/tutor/preferences",
+    ],
+  },
+  { to: "/tutor/library", label: "Library", icon: BookOpen },
   { to: "/tutor/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -132,30 +151,34 @@ export default function App() {
           <Route path="/tutor/review" element={<ReviewQueuePage />} />
           <Route path="/tutor/library" element={<LibraryPage />} />
           <Route path="/tutor/papers" element={<PapersHubPage />} />
-          {/* Setup pages became sections of Settings; the old URLs land on theirs. */}
+          {/* Setup pages became sections of Subject setup (first of Settings); the old URLs land on theirs. */}
+          <Route path="/tutor/subject-setup" element={<SubjectSetupPage />} />
           <Route path="/tutor/readiness" element={<ClassReadinessPage />} />
           <Route path="/tutor/reports" element={<ReportsPage />} />
           <Route path="/tutor/reports/:groupId" element={<ClassReportPage />} />
           <Route
             path="/tutor/boundaries"
-            element={<Navigate to="/tutor/settings#boundaries" replace />}
+            element={<Navigate to="/tutor/subject-setup#boundaries" replace />}
           />
           <Route
             path="/tutor/mistake-categories"
-            element={<Navigate to="/tutor/settings#mistake-categories" replace />}
+            element={<Navigate to="/tutor/subject-setup#mistake-categories" replace />}
           />
-          <Route path="/tutor/syllabuses" element={<SyllabusUploadPage />} />
+          <Route
+            path="/tutor/syllabuses"
+            element={<Navigate to="/tutor/subject-setup#syllabus" replace />}
+          />
           <Route
             path="/tutor/teaching-guidance"
-            element={<Navigate to="/tutor/settings#teaching-guidance" replace />}
+            element={<Navigate to="/tutor/subject-setup#teaching-guidance" replace />}
           />
           <Route
             path="/tutor/marking-rules"
-            element={<Navigate to="/tutor/settings#marking-rules" replace />}
+            element={<Navigate to="/tutor/subject-setup#marking-rules" replace />}
           />
           <Route
             path="/tutor/preferences"
-            element={<Navigate to="/tutor/settings#preferences" replace />}
+            element={<Navigate to="/tutor/subject-setup#preferences" replace />}
           />
           <Route path="/tutor/mocks" element={<MocksPage />} />
           <Route path="/tutor/today" element={<Navigate to="/tutor" replace />} />

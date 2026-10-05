@@ -102,7 +102,7 @@ test("the old Readiness URL still lands, on Progress", async () => {
   expect(await screen.findByText("No progress to show yet.")).toBeInTheDocument();
 });
 
-test("the tutor nav has eight destinations in the owner's order", async () => {
+test("the tutor nav has nine destinations: the owner's eight with Subject setup before Library", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
@@ -116,6 +116,7 @@ test("the tutor nav has eight destinations in the owner's order", async () => {
     "Readiness",
     "Reports",
     "Papers & mocks",
+    "Subject setup",
     "Library",
     "Settings",
   ]);
@@ -163,51 +164,33 @@ test("the Library lists only source material, not setup, readiness or papers", a
   }
 });
 
-test("Settings renders every section under its heading, in order", async () => {
+test("Settings keeps only the messages and the account", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/settings");
   await screen.findByRole("heading", { level: 1, name: "Settings" });
-  const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-  const wanted = [
-    "Teaching guidance",
-    "Marking rules",
-    "Grade boundaries",
-    "Mistake categories",
-    "Preferences",
-    "Messages",
-    "Account and integrations",
-  ];
-  expect(wanted.map((w) => headings.indexOf(w))).toEqual(
-    [...wanted.map((w) => headings.indexOf(w))].sort((a, b) => a - b),
-  );
-  for (const w of wanted) expect(headings).toContain(w);
+  expect(screen.getAllByRole("region").map((r) => r.id)).toEqual(["messages", "account"]);
   const index = screen.getByRole("navigation", { name: "Settings sections" });
-  expect(within(index).getAllByRole("link")).toHaveLength(wanted.length);
+  expect(within(index).getAllByRole("link")).toHaveLength(2);
 });
 
-test.each([
-  ["teaching-guidance", "Teaching guidance"],
-  ["marking-rules", "Marking rules"],
-  ["boundaries", "Grade boundaries"],
-  ["mistake-categories", "Mistake categories"],
-  ["preferences", "Preferences"],
-])("the old %s URL lands on Settings at that section", async (path, heading) => {
+test("the old Syllabuses URL lands on Subject setup at its Syllabus section", async () => {
   mockAuthedFetch("tutor");
-  const scroll = vi.fn();
-  Element.prototype.scrollIntoView = scroll;
-  renderApp(`/tutor/${path}`);
-  expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { level: 2, name: heading })).toBeInTheDocument();
-  await waitFor(() => expect(scroll).toHaveBeenCalled());
-  expect(scroll.mock.contexts[0]).toHaveProperty("id", path);
+  renderApp("/tutor/syllabuses");
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Subject setup" }),
+  ).toBeInTheDocument();
+  await waitFor(() => expect(document.activeElement?.id).toBe("syllabus"));
 });
 
-test("a nested page keeps its parent nav item active", async () => {
+test("an old setup URL keeps Subject setup lit", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/syllabuses");
   const sidebar = await screen.findByRole("navigation", { name: "Tutor navigation" });
-  const library = within(sidebar).getByRole("link", { name: "Library" });
-  await waitFor(() => expect(library.className).toContain("bg-brand-600"));
+  const setup = within(sidebar).getByRole("link", { name: "Subject setup" });
+  await waitFor(() => expect(setup.className).toContain("bg-brand-600"));
+  expect(within(sidebar).getByRole("link", { name: "Library" }).className).not.toContain(
+    "bg-brand-600",
+  );
   expect(within(sidebar).getByRole("link", { name: "Papers & mocks" }).className).not.toContain(
     "bg-brand-600",
   );
@@ -279,7 +262,7 @@ test("the tutor More sheet holds the destinations that do not fit the bar", asyn
   const tabBar = await screen.findByRole("navigation", { name: "Tutor tabs" });
   fireEvent.click(within(tabBar).getByRole("button", { name: /More/ }));
   const menu = await screen.findByRole("menu");
-  for (const label of ["Readiness", "Papers & mocks", "Library", "Settings"]) {
+  for (const label of ["Readiness", "Papers & mocks", "Subject setup", "Library", "Settings"]) {
     expect(within(menu).getByText(label)).toBeInTheDocument();
   }
 });
@@ -310,18 +293,10 @@ test("the More button lights while the page is one of its destinations", async (
   );
 });
 
-test("an old setup URL moves focus to its Settings section", async () => {
-  mockAuthedFetch("tutor");
-  renderApp("/tutor/boundaries");
-  await screen.findByRole("heading", { level: 1, name: "Settings" });
-  await waitFor(() => expect(document.activeElement?.id).toBe("boundaries"));
-  expect(document.activeElement).toHaveAccessibleName("Grade boundaries");
-});
-
 test("the section index moves focus to the section it names", async () => {
   mockAuthedFetch("tutor");
   renderApp("/tutor/settings");
   const index = await screen.findByRole("navigation", { name: "Settings sections" });
-  fireEvent.click(within(index).getByRole("link", { name: "Preferences" }));
-  await waitFor(() => expect(document.activeElement?.id).toBe("preferences"));
+  fireEvent.click(within(index).getByRole("link", { name: "Account and integrations" }));
+  await waitFor(() => expect(document.activeElement?.id).toBe("account"));
 });

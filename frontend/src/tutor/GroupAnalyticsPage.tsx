@@ -173,7 +173,7 @@ export default function GroupAnalyticsPage() {
                   <p className="mt-1">
                     You set the threshold in{" "}
                     <Link
-                      to="/tutor/settings#preferences"
+                      to="/tutor/subject-setup#preferences"
                       className="font-medium text-brand-600 hover:text-brand-700"
                     >
                       Preferences

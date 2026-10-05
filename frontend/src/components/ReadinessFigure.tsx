@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ABSENT } from "../lib/labels";
+import { subjectSetupPath } from "../lib/subjectSetup";
 import { StatusBadge, type ReadinessStatus } from "./ui";
 
 /**
@@ -22,6 +23,7 @@ export default function ReadinessFigure({
   grade = null,
   status = null,
   boundariesMissing = false,
+  subjectId,
   size = "md",
 }: {
   score?: number | null;
@@ -29,6 +31,8 @@ export default function ReadinessFigure({
   status?: ReadinessStatus | null;
   /** The subject has no grade boundaries, which is why `grade` is absent. */
   boundariesMissing?: boolean;
+  /** Which subject the missing boundaries belong to, so the link opens it. */
+  subjectId?: number | null;
   size?: "md" | "lg";
 }) {
   const hasAnything = score !== null || grade !== null || status !== null;
@@ -78,7 +82,7 @@ export default function ReadinessFigure({
           {hasAnything && <span aria-hidden>· </span>}
           <span>{ABSENT.noBoundaries}</span>{" "}
           <Link
-            to="/tutor/settings#boundaries"
+            to={subjectSetupPath("boundaries", subjectId)}
             className="font-medium text-brand-600 hover:text-brand-700"
           >
             {ABSENT.noBoundariesAction}
