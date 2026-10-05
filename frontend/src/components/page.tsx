@@ -41,6 +41,14 @@ export function useDocumentTitle(title: string | null | undefined) {
 export const EmbeddedPageContext = createContext<string | false>(false);
 
 /**
+ * For a page that already titles the embedded one itself (an onboarding step's
+ * own h2): the embedded PageHeader leaves out its title when it is exactly this
+ * text, and shows any other title (an upload's name) as an h3, one level below
+ * the step's heading. `null`, the default, changes nothing anywhere.
+ */
+export const EmbeddedTitleOmittedContext = createContext<string | null>(null);
+
+/**
  * The top of every page: an optional way back, the page's one <h1>, a sentence
  * saying what the page is for, and its primary actions. Also titles the tab.
  */
@@ -64,18 +72,23 @@ export function PageHeader({
   documentTitle?: string;
 }) {
   const embedded = useContext(EmbeddedPageContext);
+  const stepTitle = useContext(EmbeddedTitleOmittedContext);
   useDocumentTitle(embedded ? null : (documentTitle ?? (typeof title === "string" ? title : null)));
   if (embedded) {
+    const omitted = stepTitle !== null && title === stepTitle;
+    const Level = stepTitle !== null ? "h3" : "h2";
     return (
       <header className="mb-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
-            <h2
-              id={typeof embedded === "string" ? embedded : undefined}
-              className="text-xl leading-tight text-ink-900"
-            >
-              {title}
-            </h2>
+            {!omitted && (
+              <Level
+                id={typeof embedded === "string" ? embedded : undefined}
+                className="text-xl leading-tight text-ink-900"
+              >
+                {title}
+              </Level>
+            )}
             {meta && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">{meta}</div>}
             {description && (
               <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-500">

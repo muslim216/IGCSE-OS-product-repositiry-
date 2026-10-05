@@ -43,11 +43,14 @@ function sourceNote(data: GradeBoundaries): string {
 
 export default function GradeBoundariesPage({
   acceptDefaultsLabel,
+  saveDescribedBy,
 }: {
   /** The onboarding flow's one-tap wording: while nothing is saved and the list
    *  is still the untouched published default, the save button reads this. Any
    *  edit, or boundaries already saved, brings back "Save boundaries". */
   acceptDefaultsLabel?: string;
+  /** Id of a sentence that explains the save button (the flow's "nothing is saved until…"). */
+  saveDescribedBy?: string;
 } = {}) {
   const queryClient = useQueryClient();
   const { toast, showToast } = useToast();
@@ -187,67 +190,74 @@ export default function GradeBoundariesPage({
                 grade and its minimum below.
               </p>
             ) : (
-              <table className="w-full max-w-md text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-ink-500">
-                    <th className="pb-2 pr-3 font-medium">Grade</th>
-                    <th className="pb-2 pr-3 font-medium">Minimum</th>
-                    <th className="pb-2">
-                      <span className="sr-only">Remove</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {draft.map((band, i) => (
-                    <tr key={i} className="border-t border-line">
-                      <td className="w-24 py-2 pr-3">
-                        <Input
-                          aria-label={`Grade name, row ${i + 1}`}
-                          value={band.grade}
-                          onChange={(e) =>
-                            setDraft(
-                              draft.map((b, j) => (i === j ? { ...b, grade: e.target.value } : b)),
-                            )
-                          }
-                          className="font-medium"
-                        />
-                      </td>
-                      <td className="py-2 pr-3">
-                        <span className="flex items-center gap-2">
-                          <span className="w-24 shrink-0">
-                            <Input
-                              aria-label={`Minimum percentage for grade ${band.grade}`}
-                              type="number"
-                              min={0}
-                              max={100}
-                              value={band.min}
-                              onChange={(e) =>
-                                setDraft(
-                                  draft.map((b, j) =>
-                                    i === j ? { ...b, min: Number(e.target.value) } : b,
-                                  ),
-                                )
-                              }
-                              className="tabular-nums"
-                            />
-                          </span>
-                          <span className="whitespace-nowrap text-ink-500">% and above</span>
-                        </span>
-                      </td>
-                      <td className="py-2 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDraft(draft.filter((_, j) => j !== i))}
-                        >
-                          Remove
-                          <span className="sr-only"> grade {band.grade || `in row ${i + 1}`}</span>
-                        </Button>
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full max-w-md text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-ink-500">
+                      <th className="pb-2 pr-3 font-medium">Grade</th>
+                      <th className="pb-2 pr-3 font-medium">Minimum</th>
+                      <th className="pb-2">
+                        <span className="sr-only">Remove</span>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {draft.map((band, i) => (
+                      <tr key={i} className="border-t border-line">
+                        <td className="w-24 py-2 pr-3">
+                          <Input
+                            aria-label={`Grade name, row ${i + 1}`}
+                            value={band.grade}
+                            onChange={(e) =>
+                              setDraft(
+                                draft.map((b, j) =>
+                                  i === j ? { ...b, grade: e.target.value } : b,
+                                ),
+                              )
+                            }
+                            className="font-medium"
+                          />
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span className="flex items-center gap-2">
+                            <span className="w-24 shrink-0">
+                              <Input
+                                aria-label={`Minimum percentage for grade ${band.grade}`}
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={band.min}
+                                onChange={(e) =>
+                                  setDraft(
+                                    draft.map((b, j) =>
+                                      i === j ? { ...b, min: Number(e.target.value) } : b,
+                                    ),
+                                  )
+                                }
+                                className="tabular-nums"
+                              />
+                            </span>
+                            <span className="whitespace-nowrap text-ink-500">% and above</span>
+                          </span>
+                        </td>
+                        <td className="py-2 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDraft(draft.filter((_, j) => j !== i))}
+                          >
+                            Remove
+                            <span className="sr-only">
+                              {" "}
+                              grade {band.grade || `in row ${i + 1}`}
+                            </span>
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {outOfOrder && (
@@ -271,6 +281,7 @@ export default function GradeBoundariesPage({
               <Button
                 onClick={() => save.mutate()}
                 disabled={outOfOrder || duplicateLabels || draft.length < 2}
+                aria-describedby={saveDescribedBy}
                 loading={save.isPending}
               >
                 {acceptDefaultsLabel &&

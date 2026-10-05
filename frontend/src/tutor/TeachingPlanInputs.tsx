@@ -158,6 +158,9 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
         </p>
       )}
 
+      <p id={`plan-inputs-needed-${groupId}`} className="mt-3 text-sm text-ink-700">
+        Exam date, lessons a week and lesson length are needed to draft a plan.
+      </p>
       <form onSubmit={onSubmit} className="mt-4">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Exam date">
@@ -206,7 +209,12 @@ export default function TeachingPlanInputs({ groupId }: { groupId: number }) {
           </Field>
         </div>
         <div className="mt-4 flex justify-end">
-          <Button type="submit" disabled={!complete} loading={save.isPending}>
+          <Button
+            type="submit"
+            disabled={!complete}
+            loading={save.isPending}
+            aria-describedby={`plan-inputs-needed-${groupId}`}
+          >
             Save plan inputs
           </Button>
         </div>

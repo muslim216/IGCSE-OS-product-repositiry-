@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -111,6 +111,12 @@ function stub() {
         });
       }
       if (path === "/api/v1/groups" && method === "POST") return json({ id: 11 });
+      if (path === "/api/v1/groups/11/plan")
+        return json({
+          draft: null,
+          accepted: null,
+          timetable_defaults: { lessons_per_week: null, lesson_minutes: null },
+        });
       return json([]);
     }),
   );
@@ -162,12 +168,15 @@ const STEP_NUMBER = {
   plan_accepted: 9,
 } as const;
 
+/** A step's h2, found by id: its visible number is hidden from the accessible name. */
+async function stepHeading(id: keyof typeof STEP_NUMBER) {
+  await screen.findByRole("heading", { level: 1, name: "Set up your first class" });
+  return document.getElementById(`onboarding-step-${id}`)!;
+}
+
 /** The disclosure button inside a step's heading. */
 async function stepButton(id: keyof typeof STEP_NUMBER) {
-  const heading = await screen.findByRole("heading", {
-    level: 2,
-    name: new RegExp(`^${STEP_NUMBER[id]}\\.`),
-  });
+  const heading = await stepHeading(id);
   return within(heading).getByRole("button");
 }
 
@@ -242,7 +251,7 @@ test("a required step whose earlier step is undone is shown, says what it needs,
   expect(button).toHaveAttribute("aria-disabled", "true");
   expect(button).toHaveAccessibleDescription("Add the syllabus first");
   fireEvent.click(button);
-  expect(button).toHaveAttribute("aria-expanded", "false");
+  expect(button).not.toHaveAttribute("aria-expanded");
   expect(await openSteps()).toEqual(["syllabus"]);
   // Later class steps wait on the class, not on the syllabus.
   expect(await stepButton("plan_accepted")).toHaveAccessibleDescription(
@@ -252,13 +261,16 @@ test("a required step whose earlier step is undone is shown, says what it needs,
 
 test("every step carries its marker as text", async () => {
   renderApp();
-  const markers = ["Can wait", "Required", "Can wait", "Can wait", "Optional", "Required"];
-  for (const [i, marker] of markers.entries()) {
-    const heading = await screen.findByRole("heading", {
-      level: 2,
-      name: new RegExp(`^${i + 1}\\.`),
-    });
-    expect(within(heading).getByText(marker)).toBeInTheDocument();
+  const markers = [
+    ["account", "Can wait"],
+    ["syllabus", "Required"],
+    ["boundaries", "Can wait"],
+    ["defaults", "Can wait"],
+    ["guidance", "Optional"],
+    ["timetable", "Required"],
+  ] as const;
+  for (const [id, marker] of markers) {
+    expect(within(await stepHeading(id)).getByText(marker)).toBeInTheDocument();
   }
 });
 
@@ -309,23 +321,29 @@ test("account basics shows the server's state and keeps the defaults on request"
   );
 });
 
-test("the boundaries button reads Use these for now only while nothing is saved and the values are the published ones", async () => {
+test("the boundaries button reads Use the standard boundaries for now only while nothing is saved and the values are the published ones", async () => {
   onboarding = state({ subjects: [subject()], next_step: next("timetable") });
   renderApp();
   fireEvent.click(await stepButton("boundaries"));
   expect(
-    await screen.findByText(/Nothing is saved until you press the button below/),
+    await screen.findByText(/Nothing is saved until you choose to use them or enter your own/),
   ).toBeInTheDocument();
-  const useThese = await screen.findByRole("button", { name: "Use these for now" });
+  const useThese = await screen.findByRole("button", {
+    name: "Use the standard boundaries for now",
+  });
   // Editing a value is a choice of the tutor's own: the plain label returns.
   fireEvent.change(screen.getByLabelText("Minimum percentage for grade 9"), {
     target: { value: "85" },
   });
-  expect(screen.queryByRole("button", { name: "Use these for now" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Use the standard boundaries for now" }),
+  ).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Minimum percentage for grade 9"), {
     target: { value: "80" },
   });
-  fireEvent.click(await screen.findByRole("button", { name: "Use these for now" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Use the standard boundaries for now" }),
+  );
   expect(useThese).toBeDefined();
   await waitFor(() =>
     expect(calls).toContainEqual({
@@ -346,7 +364,7 @@ test("the boundaries button reads Use these for now only while nothing is saved 
 test("creating the class posts the name with the flow's subject", async () => {
   onboarding = state({ subjects: [subject()], next_step: next("timetable") });
   renderApp();
-  fireEvent.change(await screen.findByLabelText("Class name"), { target: { value: "Chem A" } });
+  fireEvent.change(await screen.findByLabelText(/Class name/), { target: { value: "Chem A" } });
   fireEvent.click(screen.getByRole("button", { name: "Create class" }));
   await waitFor(() =>
     expect(calls).toContainEqual({
@@ -433,4 +451,221 @@ test("moving to the next step announces it once and moves focus to its heading",
   );
   expect(document.activeElement).toBe(document.getElementById("onboarding-step-timetable"));
   expect(await openSteps()).toEqual(["timetable"]);
+});
+
+/* --- review fixes: keeping the tutor's work and place ------------------------ */
+
+const PLAN_FLOW = () =>
+  state({
+    subjects: [withClass(["timetable", "taught_before"])],
+    next_step: next("plan_inputs", 7, 11),
+  });
+
+test("a refetch with an unchanged next_step keeps what the tutor typed (boundaries draft)", async () => {
+  onboarding = state({ subjects: [subject()], next_step: next("timetable") });
+  renderApp();
+  fireEvent.click(await stepButton("boundaries"));
+  const field = await screen.findByLabelText("Minimum percentage for grade 9");
+  fireEvent.change(field, { target: { value: "85" } });
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["onboarding"] });
+  });
+  expect(await screen.findByLabelText("Minimum percentage for grade 9")).toHaveValue(85);
+});
+
+test("a refetch with an unchanged next_step keeps what the tutor typed (plan input)", async () => {
+  onboarding = PLAN_FLOW();
+  renderApp();
+  const exam = await screen.findByLabelText(/Exam date/);
+  fireEvent.change(exam, { target: { value: "2027-05-01" } });
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["onboarding"] });
+  });
+  expect(await screen.findByLabelText(/Exam date/)).toHaveValue("2027-05-01");
+  expect(screen.getByRole("button", { name: "Save plan inputs" })).toHaveAccessibleDescription(
+    "Exam date, lessons a week and lesson length are needed to draft a plan.",
+  );
+});
+
+test("a step opened by hand stays open with its input when the server moves on", async () => {
+  onboarding = state({ subjects: [subject()], next_step: next("timetable") });
+  renderApp();
+  fireEvent.click(await stepButton("boundaries"));
+  const field = await screen.findByLabelText("Minimum percentage for grade 9");
+  field.focus();
+  fireEvent.change(field, { target: { value: "85" } });
+  const status = screen.getAllByRole("status").find((el) => el.className.includes("sr-only"))!;
+
+  onboarding = state({
+    subjects: [withClass([])],
+    next_step: next("timetable", 7, 11),
+  });
+  // The class now exists but the next step is still the timetable: no move.
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["onboarding"] });
+  });
+  expect(status).toHaveTextContent("");
+
+  onboarding = state({
+    subjects: [withClass(["timetable"])],
+    next_step: next("taught_before", 7, 11),
+  });
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["onboarding"] });
+  });
+  await waitFor(() =>
+    expect(status).toHaveTextContent("Class and timetable done. Next: Where this class is up to."),
+  );
+  // The boundaries step and the typed value are still there, and focus stayed.
+  expect(await openSteps()).toEqual(["boundaries"]);
+  expect(screen.getByLabelText("Minimum percentage for grade 9")).toHaveValue(85);
+  expect(document.activeElement).toBe(screen.getByLabelText("Minimum percentage for grade 9"));
+});
+
+test("focus follows when it was inside the step that completed", async () => {
+  onboarding = state({ subjects: [subject()], next_step: next("timetable") });
+  renderApp();
+  const name = await screen.findByLabelText(/Class name/);
+  name.focus();
+  onboarding = state({
+    subjects: [withClass(["timetable"])],
+    next_step: next("taught_before", 7, 11),
+  });
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["onboarding"] });
+  });
+  await waitFor(() =>
+    expect(document.activeElement).toBe(document.getElementById("onboarding-step-taught_before")),
+  );
+});
+
+test("creating a class twice sends one request, and a blank name sends none", async () => {
+  onboarding = state({ subjects: [subject()], next_step: next("timetable") });
+  renderApp();
+  const create = await screen.findByRole("button", { name: "Create class" });
+  fireEvent.change(screen.getByLabelText(/Class name/), { target: { value: "   " } });
+  fireEvent.click(create);
+  expect(await screen.findByText("Give the class a name.")).toBeInTheDocument();
+  expect(calls.filter((c) => c.path === "/api/v1/groups")).toHaveLength(0);
+
+  fireEvent.change(screen.getByLabelText(/Class name/), { target: { value: "Chem A" } });
+  fireEvent.click(create);
+  fireEvent.click(create);
+  fireEvent.submit(create.closest("form")!);
+  await waitFor(() => expect(calls.filter((c) => c.path === "/api/v1/groups")).toHaveLength(1));
+  await waitFor(() => expect(screen.getByLabelText(/Class name/)).toHaveValue(""));
+  expect(screen.getByRole("button", { name: "Create class" })).toBeDisabled();
+});
+
+test("a failed refetch mid-flow keeps the flow on screen", async () => {
+  renderApp();
+  await stepButton("syllabus");
+  onboardingFails = true;
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ["onboarding"] });
+  });
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Set up your first class" }),
+  ).toBeInTheDocument();
+  expect(await openSteps()).toEqual(["syllabus"]);
+});
+
+test("two subjects mid-setup follow next_step and name the right subject and class", async () => {
+  onboarding = state({
+    subjects: [
+      subject({ subject_id: 3, subject_name: "Physics", classes: [] }),
+      {
+        ...subject(),
+        classes: [
+          { group_id: 11, group_name: "Chem A", steps: classSteps(["timetable"]), complete: false },
+        ],
+      },
+    ],
+    next_step: next("taught_before", 7, 11),
+  });
+  renderApp();
+  expect(await openSteps()).toEqual(["taught_before"]);
+  expect(within(await stepHeading("taught_before")).getByRole("button")).toHaveTextContent(
+    "Chem A",
+  );
+  expect(within(await stepHeading("timetable")).getByRole("button")).toHaveTextContent("Chemistry");
+  expect(within(await stepHeading("timetable")).getByRole("button")).not.toHaveTextContent(
+    "Physics",
+  );
+});
+
+test("with no subjects the syllabus step is the open one", async () => {
+  renderApp();
+  await stepButton("syllabus");
+  expect(await openSteps()).toEqual(["syllabus"]);
+});
+
+test("a locked step has no aria-expanded or aria-controls, and its number is hidden", async () => {
+  renderApp();
+  const button = await stepButton("timetable");
+  expect(button).toHaveAttribute("aria-disabled", "true");
+  expect(button).not.toHaveAttribute("aria-expanded");
+  expect(button).not.toHaveAttribute("aria-controls");
+  expect(button.querySelector("[aria-hidden]")).toHaveTextContent("6.");
+});
+
+test("an open embedded step has no second heading carrying the step's own name", async () => {
+  onboarding = state({ subjects: [subject()], next_step: next("timetable") });
+  renderApp();
+  fireEvent.click(await stepButton("boundaries"));
+  await screen.findByLabelText("Minimum percentage for grade 9");
+  const named = screen
+    .getAllByRole("heading")
+    .filter((h) => h.textContent?.includes("Grade boundaries"));
+  expect(named).toHaveLength(1);
+  expect(named[0].tagName).toBe("H2");
+  fireEvent.click(await stepButton("syllabus"));
+  const syllabus = screen.getAllByRole("heading").filter((h) => h.textContent === "Syllabus");
+  expect(syllabus).toEqual([]);
+});
+
+test("the standard-boundaries sentence is tied to the button", async () => {
+  onboarding = state({ subjects: [subject()], next_step: next("timetable") });
+  renderApp();
+  fireEvent.click(await stepButton("boundaries"));
+  const button = await screen.findByRole("button", { name: "Use the standard boundaries for now" });
+  expect(button).toHaveAccessibleDescription(/Nothing is saved until you choose to use them/);
+});
+
+test("the dashboard's own queries are not requested in the flow, and are when out of it", async () => {
+  const paths = () =>
+    (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map(
+      (c) => new URL(String(c[0]), "http://localhost").pathname,
+    );
+  const own = ["/api/v1/today", "/api/v1/today/overview", "/api/v1/groups"];
+  renderApp();
+  await stepButton("syllabus");
+  expect(own.filter((p) => paths().includes(p))).toEqual([]);
+  expect(paths()).not.toContain("/api/v1/assignments/attention");
+  cleanup();
+
+  classCount = 1;
+  onboarding = state({ in_flow: false });
+  stub();
+  renderApp();
+  await screen.findByRole("region", { name: "Setup" });
+  expect(paths()).toContain("/api/v1/today");
+  expect(paths()).toContain("/api/v1/today/overview");
+});
+
+test("a failed onboarding read still reaches the dashboard, whose Setup card retries it without a loop", async () => {
+  onboardingFails = true;
+  classCount = 1;
+  renderApp();
+  await screen.findByText(/Setup checklist couldn't be loaded/);
+  const onboardingCalls = () =>
+    (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.filter((c) =>
+      String(c[0]).endsWith("/api/v1/onboarding"),
+    ).length;
+  const settled = onboardingCalls();
+  await new Promise((r) => setTimeout(r, 300));
+  expect(onboardingCalls()).toBe(settled);
+  expect(
+    screen.queryByRole("heading", { name: "Set up your first class" }),
+  ).not.toBeInTheDocument();
 });

@@ -5,7 +5,11 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { createGroup } from "../../api/groups";
 import type { OnboardingState } from "../../api/onboarding";
 import { Button, Field, Input } from "../../components/controls";
-import { EmbeddedPageContext, PageHeader } from "../../components/page";
+import {
+  EmbeddedPageContext,
+  EmbeddedTitleOmittedContext,
+  PageHeader,
+} from "../../components/page";
 import { SectionCard } from "../../components/ui";
 import { friendlyError } from "../../lib/errors";
 import { ITEM_NAMES, ITEM_SECTIONS, stateLabel } from "../../lib/onboarding";
@@ -55,14 +59,10 @@ type StepId =
 type Marker = "Required" | "Optional" | "Can wait";
 
 const STEPS: { id: StepId; name: string; marker: Marker }[] = [
-  { id: "account", name: "Account basics", marker: "Can wait" },
+  { id: "account", name: "Time zone and weekly summary", marker: "Can wait" },
   { id: "syllabus", name: "Syllabus", marker: "Required" },
   { id: "boundaries", name: "Grade boundaries", marker: "Can wait" },
-  {
-    id: "defaults",
-    name: "Marking rules, mistake categories and weak-topic threshold",
-    marker: "Can wait",
-  },
+  { id: "defaults", name: "Avora's marking defaults", marker: "Can wait" },
   { id: "guidance", name: "Teaching guidance", marker: "Optional" },
   { id: "timetable", name: "Class and timetable", marker: "Required" },
   { id: "taught_before", name: "Where this class is up to", marker: "Required" },
@@ -89,14 +89,31 @@ function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjec
     // The same call and the same rule GroupsPage uses: a name, and a subject.
     mutationFn: () => createGroup(name, subjectId),
     onSuccess: () => {
+      setName("");
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
       void queryClient.invalidateQueries({ queryKey: ["today"] });
       void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     },
   });
+  const [missingName, setMissingName] = useState(false);
+  const sent = useRef(false);
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (name.trim() && !create.isPending) create.mutate();
+    // One class per press: after a success the form stays shut until the new
+    // class shows up in the onboarding data and this form is replaced by the
+    // timetable, so a second click or Enter cannot make a duplicate.
+    // The ref, because two presses in one tick both see the same render.
+    if (sent.current || create.isPending || create.isSuccess) return;
+    if (!name.trim()) {
+      setMissingName(true);
+      return;
+    }
+    sent.current = true;
+    create.mutate(undefined, {
+      onError: () => {
+        sent.current = false;
+      },
+    });
   }
   return (
     <SectionCard>
@@ -105,12 +122,17 @@ function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjec
           This class is for {subjectName}. Add its weekly lessons once it exists.
         </p>
         <div className="mt-4 max-w-sm">
-          <Field label="Class name">
+          <Field
+            label="Class name (required)"
+            error={missingName ? "Give the class a name." : null}
+          >
             <Input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setMissingName(false);
+              }}
               placeholder="e.g. Chemistry — Year 10"
-              required
             />
           </Field>
         </div>
@@ -120,7 +142,7 @@ function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjec
           </p>
         )}
         <div className="mt-5 flex justify-end">
-          <Button type="submit" loading={create.isPending}>
+          <Button type="submit" loading={create.isPending} disabled={create.isSuccess}>
             Create class
           </Button>
         </div>
@@ -163,16 +185,20 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
   const headings = useRef<Partial<Record<StepId, HTMLHeadingElement | null>>>({});
   const previousNext = useRef<StepId | null>(nextId);
 
-  // When the server moves on to a different step, follow it: drop any step the
-  // tutor opened by hand, say so once, and put focus on the new step's heading.
-  // A change inside one step (a class appearing under "Class and timetable")
-  // moves nothing.
+  // When the server moves on to a different step it is announced, always. Focus
+  // follows only when nothing else holds it (the page body, or the step that has
+  // just completed): a tutor typing in a step they opened by hand keeps their
+  // place, and that step stays open with its edits. Only a step that was open
+  // because it was the server's is replaced. A change inside one step (a class
+  // appearing under "Class and timetable") moves nothing.
   useEffect(() => {
     const before = previousNext.current;
     previousNext.current = nextId;
     if (before === nextId || nextId === null) return;
-    setManual(null);
-    setFocusId(nextId);
+    setManual((m) => (m === before ? null : m));
+    const active = document.activeElement;
+    const completed = before ? headings.current[before]?.closest("li") : null;
+    if (!active || active === document.body || completed?.contains(active)) setFocusId(nextId);
     setAnnouncement(
       before && isDone(before)
         ? `${stepName(before)} done. Next: ${stepName(nextId)}.`
@@ -236,25 +262,30 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
         );
       case "syllabus":
         return (
-          <EmbeddedPageContext.Provider value={embedded}>
-            <SyllabusUploadPage />
-          </EmbeddedPageContext.Provider>
+          <EmbeddedTitleOmittedContext.Provider value={stepName(id)}>
+            <EmbeddedPageContext.Provider value={embedded}>
+              <SyllabusUploadPage />
+            </EmbeddedPageContext.Provider>
+          </EmbeddedTitleOmittedContext.Provider>
         );
       case "boundaries":
         return (
           <SubjectSetupContext.Provider value={subjectContext}>
             {subject?.items.find((i) => i.key === "boundaries")?.state === "not_set" && (
-              <p className="mb-4 text-sm text-ink-700">
-                Nothing is saved until you press the button below. Without boundaries there are no
-                predicted grades for this subject.
+              <p id="onboarding-boundaries-note" className="mb-4 text-sm text-ink-700">
+                Nothing is saved until you choose to use them or enter your own. Without boundaries
+                this subject has no predicted grades.
               </p>
             )}
-            <EmbeddedPageContext.Provider value={embedded}>
-              <GradeBoundariesPage
-                key={subject?.subject_id}
-                acceptDefaultsLabel="Use these for now"
-              />
-            </EmbeddedPageContext.Provider>
+            <EmbeddedTitleOmittedContext.Provider value={stepName(id)}>
+              <EmbeddedPageContext.Provider value={embedded}>
+                <GradeBoundariesPage
+                  key={subject?.subject_id}
+                  acceptDefaultsLabel="Use the standard boundaries for now"
+                  saveDescribedBy="onboarding-boundaries-note"
+                />
+              </EmbeddedPageContext.Provider>
+            </EmbeddedTitleOmittedContext.Provider>
           </SubjectSetupContext.Provider>
         );
       case "defaults":
@@ -332,7 +363,7 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
       <PageHeader
         title="Set up your first class"
         documentTitle="Today"
-        description="Steps marked Required come first. The rest can wait, and stays on your setup list on Today until you do it."
+        description="Steps marked Required come first, in order. Steps marked Can wait or Optional are not needed to start; they stay on your setup list on Today. When you accept the teaching plan, this page becomes your Today dashboard."
       />
       <ol className="space-y-3">
         {STEPS.map((step, index) => {
@@ -351,12 +382,12 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
                   headings.current[step.id] = el;
                 }}
                 tabIndex={-1}
-                className="text-base focus:outline-none"
+                className="text-base"
               >
                 <button
                   type="button"
-                  aria-expanded={isOpen}
-                  aria-controls={panelId}
+                  aria-expanded={locked ? undefined : isOpen}
+                  aria-controls={locked ? undefined : panelId}
                   aria-disabled={locked ? true : undefined}
                   aria-describedby={locked ? reasonId : undefined}
                   onClick={() => {
@@ -367,7 +398,9 @@ export default function OnboardingFlow({ data }: { data: OnboardingState }) {
                   }}
                   className="flex min-h-11 w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-5 py-4 text-left aria-disabled:cursor-not-allowed aria-disabled:text-ink-500"
                 >
-                  <span className="font-display text-sm text-ink-500">{index + 1}.</span>
+                  <span aria-hidden className="font-display text-sm text-ink-500">
+                    {index + 1}.
+                  </span>
                   <span className="min-w-0 font-semibold text-ink-900">
                     {step.name}
                     {where && <span className="font-normal text-ink-500"> · {where}</span>}

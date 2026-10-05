@@ -44,32 +44,6 @@ export default function TodayDashboard() {
   const [setupSaves, setSetupSaves] = useState(0);
   const { toast, showToast } = useToast();
 
-  const today = useQuery({ queryKey: ["today"], queryFn: todayView });
-  // The overview feeds the week strip, the agenda and the cards. Polled so
-  // "in 10 min" and a lesson that has just ended are never long out of date.
-  const overview = useQuery({
-    queryKey: ["today-overview"],
-    queryFn: todayOverview,
-    refetchInterval: 60_000,
-  });
-  const attention = useQuery({
-    queryKey: ["assignments-attention"],
-    queryFn: assignmentsNeedingAttention,
-  });
-  // Only the lesson modal needs full Group objects; the surface itself renders
-  // from the aggregate, so this never gates what the tutor reads.
-  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
-  // The zone the API decided "today" in: the tutor's own override, else the
-  // organization's, else UTC (`effective_timezone`). The organization is only
-  // asked for when there is no override to win over it.
-  const myZone = useMyTimezone();
-  const org = useQuery({
-    queryKey: ["my-organization"],
-    queryFn: myOrganization,
-    enabled: !myZone,
-  });
-  const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
-
   // What decides whether this page is the setup flow (9.1c). The server says
   // (`in_flow`, SEC-10); this only reads it.
   const onboarding = useOnboarding();
@@ -88,6 +62,40 @@ export default function TodayDashboard() {
   useEffect(() => {
     if (!onboarding.isLoading) setOnboardingSettled(true);
   }, [onboarding.isLoading]);
+  // The dashboard's own reads wait for the onboarding answer and are not made
+  // while the flow is on screen: nothing in the flow uses them. Once the answer
+  // is in (data or failure) they run exactly as before, so a failed onboarding
+  // read still lands on a dashboard that loads.
+  const dashboardEnabled = (onboardingSettled || !onboarding.isLoading) && !inFlow;
+
+  const today = useQuery({ queryKey: ["today"], queryFn: todayView, enabled: dashboardEnabled });
+  // The overview feeds the week strip, the agenda and the cards. Polled so
+  // "in 10 min" and a lesson that has just ended are never long out of date.
+  const overview = useQuery({
+    queryKey: ["today-overview"],
+    queryFn: todayOverview,
+    refetchInterval: 60_000,
+    enabled: dashboardEnabled,
+  });
+  const attention = useQuery({
+    queryKey: ["assignments-attention"],
+    queryFn: assignmentsNeedingAttention,
+    enabled: dashboardEnabled,
+  });
+  // Only the lesson modal needs full Group objects; the surface itself renders
+  // from the aggregate, so this never gates what the tutor reads.
+  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups, enabled: dashboardEnabled });
+  // The zone the API decided "today" in: the tutor's own override, else the
+  // organization's, else UTC (`effective_timezone`). The organization is only
+  // asked for when there is no override to win over it.
+  const myZone = useMyTimezone();
+  const org = useQuery({
+    queryKey: ["my-organization"],
+    queryFn: myOrganization,
+    enabled: !myZone && dashboardEnabled,
+  });
+  const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
+
   if (onboarding.isLoading && !onboardingSettled) {
     return <PageSkeleton rows={3} label="Loading today" />;
   }
@@ -104,7 +112,11 @@ export default function TodayDashboard() {
         <ErrorState
           title="Today couldn't be loaded"
           error={today.error}
-          onRetry={() => today.refetch()}
+          onRetry={() => {
+            void today.refetch();
+            // The onboarding read may be what failed: the home also hangs on it.
+            void onboarding.refetch();
+          }}
         />
         {/* Fetches its own data: a lesson about to start must not hide behind a
             failed home aggregate. */}
