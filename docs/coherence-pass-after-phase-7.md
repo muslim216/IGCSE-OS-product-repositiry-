@@ -78,3 +78,23 @@ position vs. trend), and does the student see the same status word the parent do
 
 Phase 7 builds on the Schedule tab (attendance register, 7.1/7.2) and the parent screen (7.2).
 Build those to the current layout; **do not pre-empt C.5/C.6** — the pass moves them.
+
+## Status — CLOSED 2026-10-05
+
+Owner scope (2026-10-05): change the skeletons, not the full structure; keep Classes as they are;
+split Library; make the Overview informative; no mockup. C.1: the verdict is driven by readiness
+status, and the student sees the same verdict in kinder wording. C.6: the full class header shows on
+the landing tab only.
+
+| PR | Item | What shipped |
+|---|---|---|
+| #120 | C.8 | Demo seed exercises mistakes (labelled example data), reports, attendance |
+| #121 | A | Sidebar: Today · Classes · Review · Readiness · Papers & mocks · Library · Settings; old setup URLs redirect to `/tutor/settings#…` |
+| #122 | C.1 | One `student_verdict()` for tutor, student, parent (neutral next step, AV-42) |
+| #123 | B, C.2, C.3 | Overview: week at a glance, today's agenda, class cards, needs-you with reasons |
+| #124 | C.7 | "Set homework for this chapter"; mock entry lives under Papers & mocks; "Marking rules" vs "How often you agreed with the AI" |
+| #126 | C.1 | Class page learner rows show the shared verdict |
+| #125 | C.6 | One readiness figure (grade · status · %) everywhere; class header on the landing tab only |
+| #127 | sweep | Overview weak topics use the tutor's threshold + `weak_topic_rows`; hand-ins missing = overdue only; Readiness page keeps unbanded learners |
+
+Deferred to Phase 9: C.4 (plan starts from what has been taught) and C.5 (full navigation rebuild).
