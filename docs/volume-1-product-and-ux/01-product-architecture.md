@@ -550,11 +550,22 @@ already has one.
 *Rationale:* two engines already disagree in places (`RISK-5`); a third would make the
 discrepancy undiagnosable.
 
-**`PROD-14` — MUST · Important · Active**
-Syllabus coverage is derived from `lesson_topics`. Do not add a manual mechanism for a tutor
-to mark a topic covered.
+**`PROD-14` — MUST · Important · Active** *(amended by owner decision, 2026-10-05)*
+Syllabus coverage has exactly two sources: `lesson_topics`, and the per-class **taught before
+Avora** marker (`taught_before_topics`, task 9.1b). A topic is covered for a class when either
+holds it. Do not add a third, and do not add any other manual mechanism for a tutor to mark a
+topic covered.
 *Rationale:* two sources for the same fact will disagree, and the derived one is the one with
-a date and a lesson behind it.
+a date and a lesson behind it. The marker is the one exception because a tutor who joins
+mid-year has taught topics no lesson in Avora records; without it coverage understates and the
+teaching plan re-drafts chapters already taught. The owner chose a separate marker over a
+"before Avora" lesson so that no invented lesson, date or attendance exists.
+*Bounds on the exception:* the marker is answered once per class from the class's Syllabus tab
+(`GET`/`PUT /groups/{id}/taught-before`) and is a whole-list replace; every coverage reader
+unions it through `services/taught_before.py` rather than querying the table itself
+(`readiness_v2._topic_coverage`, `class_report._chapter_reports`, `plan_drafting`).
+*Known gap:* it is tutor-declared, and outside the editor a covered topic is not labelled as
+declared rather than taught in a recorded lesson (`PROD-8`). `before scale`.
 
 **`PROD-15` — MUST · Important · Active** *(owner decision, 2026-09-26)*
 Readiness evidence is **marked work** — homework, past papers, mocks, entered assessments —

@@ -173,8 +173,9 @@ Keep these loaded. Each cites the document holding its full reasoning.
   to the student profile and never feed readiness.** A new input that should count is read by
   a v2 factor in the same change. (`PROD-15`, superseding `PROD-10`. Old observation
   evidence rows are kept and filtered by `services/evidence.COUNTS_FOR_READINESS`.)
-- **Syllabus coverage is derived from `lesson_topics`** — do not add a manual mechanism.
-  (`PROD-14`)
+- **Syllabus coverage has two sources and no third: `lesson_topics`, and the per-class
+  "taught before Avora" marker** (`taught_before_topics`, read through
+  `services/taught_before.py`). Do not add another manual mechanism. (`PROD-14`)
 
 ### Tenancy and authorization
 
