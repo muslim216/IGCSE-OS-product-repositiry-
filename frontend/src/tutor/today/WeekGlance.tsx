@@ -40,10 +40,9 @@ function Figure({
  * Avora times a tutor marking. Never print these minutes without it.
  */
 export function roughMarkingTime(minutes: number): string {
-  if (minutes < 60) {
-    const rounded = Math.max(5, Math.round(minutes / 5) * 5);
-    return `roughly ${rounded} minutes`;
-  }
+  // 58 rounds to 60, which is an hour, not "60 minutes".
+  const toFive = Math.max(5, Math.round(minutes / 5) * 5);
+  if (toFive < 60) return `roughly ${toFive} minutes`;
   const hours = Math.round(minutes / 30) / 2;
   return `roughly ${hours} ${hours === 1 ? "hour" : "hours"}`;
 }

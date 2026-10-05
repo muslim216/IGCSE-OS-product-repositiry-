@@ -113,12 +113,16 @@ async def auto_marked_count(
     """Questions whose AI mark stood without a tutor touching it, on work that
     settled in `start <= t < end` (AV-101).
 
-    Counted per question from `QuestionMark.auto_finalized`, not per submission
-    from its status: a piece the tutor signed off after ruling on two flagged
-    questions still had its other eight marked for them, and a tutor ruling on
-    a mark clears that mark's flag (api/submissions.py), so nothing they did
-    themselves is counted here. Only settled work counts (`PROD-5`); a draft
-    waiting in the queue has saved nobody anything yet.
+    Counted from `QuestionMark.auto_finalized` on settled work (`PROD-5`); a
+    draft waiting in the queue has saved nobody anything yet.
+
+    This undercounts, and knowingly. Saving a review clears the flag on every
+    mark it sends, changed or not (api/submissions.py: "whether they changed
+    the number or confirmed the AI's"), and the review page sends them all. So
+    a piece the tutor opened and saved contributes nothing, even where they
+    ruled on two questions and left eight as the AI wrote them. What is left is
+    the marking nobody had to open, which is the claim the figure makes; the
+    error is always toward claiming less.
 
     Scoped by the parent row's organization like the review queue's own count
     beside it, so past papers and mocks are in it (`API-20`, `SEC-7`). The

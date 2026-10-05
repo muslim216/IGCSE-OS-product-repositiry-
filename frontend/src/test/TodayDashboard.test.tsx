@@ -509,6 +509,21 @@ test("the good news is a real count and an estimate that says it is one", async 
   expect(line).toHaveTextContent("An estimate, at 4 minutes a question.");
 });
 
+test("one question marked is singular", async () => {
+  stubFetch(
+    ONE_CLASS,
+    null,
+    [],
+    overviewWith({
+      week: { ...EMPTY_OVERVIEW.week, auto_marked_questions: 1, auto_marked_estimate_minutes: 4 },
+    }),
+  );
+  renderDashboard();
+
+  const line = await screen.findByText(/1 question marked for you this week/);
+  expect(line).toHaveTextContent("roughly 5 minutes of marking");
+});
+
 test("with nothing marked for them there is no good-news line, not a zero", async () => {
   stubFetch(ONE_CLASS, null, []);
   renderDashboard();
@@ -520,6 +535,8 @@ test("with nothing marked for them there is no good-news line, not a zero", asyn
 test("the marking estimate always says roughly, in minutes or hours", () => {
   expect(roughMarkingTime(4)).toBe("roughly 5 minutes");
   expect(roughMarkingTime(48)).toBe("roughly 50 minutes");
+  expect(roughMarkingTime(56)).toBe("roughly 55 minutes");
+  expect(roughMarkingTime(58)).toBe("roughly 1 hour");
   expect(roughMarkingTime(60)).toBe("roughly 1 hour");
   expect(roughMarkingTime(92)).toBe("roughly 1.5 hours");
   expect(roughMarkingTime(188)).toBe("roughly 3 hours");

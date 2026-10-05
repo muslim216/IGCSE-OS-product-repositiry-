@@ -505,8 +505,7 @@ async def test_auto_marked_counts_questions_the_tutor_never_touched_this_week(
     # The UNIQUE(submission_id, question_id) pair treats NULLs as distinct, so
     # several question-less marks on one submission are legal in this fixture.
     await _settled(work_id, a, NOW - timedelta(hours=1), auto=range(3))
-    # A tutor signed this one off after ruling on two questions: its other two
-    # were still marked for them, and their own two are not counted.
+    # Marks a tutor ruled on are never counted, whatever the piece's status.
     await _settled(
         work_id, b, NOW - timedelta(days=1), auto=range(2), tutor=2,
         status=SubmissionStatus.finalized,
@@ -521,12 +520,16 @@ async def test_auto_marked_leaves_out_other_weeks_and_unsettled_work(
     client, tutor, group, published_assignment
 ):
     work_id = await _work_id(published_assignment)
-    a, b, c, d = await _learners(client, tutor, group, 4)
+    a, b, c, d, e = await _learners(client, tutor, group, 5)
     # Sunday night before this week's Monday, and next Monday at midnight.
     await _settled(work_id, a, datetime(2026, 10, 4, 23, 59, tzinfo=timezone.utc), auto=range(4))
     await _settled(work_id, b, datetime(2026, 10, 12, 0, 0, tzinfo=timezone.utc), auto=range(4))
     # Still in the queue: a confident mark on a piece that has not settled.
     await _settled(work_id, c, None, auto=range(4), tutor=1, status=SubmissionStatus.needs_review)
+    assert (await _overview(tutor)).week.auto_marked_questions == 0
+    # A remark reopened this one: it keeps its settle moment and its flags, but
+    # it is back in the queue, so it is not settled work.
+    await _settled(work_id, e, NOW, auto=range(4), status=SubmissionStatus.needs_review)
     assert (await _overview(tutor)).week.auto_marked_questions == 0
     # The first instant of the week is in it.
     await _settled(work_id, d, datetime(2026, 10, 5, 0, 0, tzinfo=timezone.utc), auto=range(1))
