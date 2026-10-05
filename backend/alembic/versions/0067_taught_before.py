@@ -36,7 +36,10 @@ def upgrade() -> None:
         sa.Column(
             "group_id",
             sa.Integer(),
-            sa.ForeignKey("groups.id", name="fk_taught_before_topics_group_id_groups"),
+            # CASCADE: delete_group does a bare db.delete(group), as for plans (0038).
+            sa.ForeignKey(
+                "groups.id", name="fk_taught_before_topics_group_id_groups", ondelete="CASCADE"
+            ),
             nullable=False,
         ),
         sa.Column(
@@ -54,7 +57,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("group_id", "topic_id", name="uq_taught_before_topics_group_topic"),
     )
-    op.create_index("ix_taught_before_topics_group_id", "taught_before_topics", ["group_id"])
     with op.batch_alter_table("groups", naming_convention=NAMING) as batch:
         batch.add_column(
             sa.Column("taught_before_answered_at", sa.DateTime(timezone=True), nullable=True)
@@ -64,5 +66,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     with op.batch_alter_table("groups", naming_convention=NAMING) as batch:
         batch.drop_column("taught_before_answered_at")
-    op.drop_index("ix_taught_before_topics_group_id", table_name="taught_before_topics")
     op.drop_table("taught_before_topics")

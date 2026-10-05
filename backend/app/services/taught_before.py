@@ -57,7 +57,15 @@ async def replace_taught_before(
     from app.services.plan_lessons import validated_topic_ids
 
     wanted = await validated_topic_ids(session, group, topic_ids)
-    await session.execute(delete(TaughtBeforeTopic).where(TaughtBeforeTopic.group_id == group.id))
+    # Serialises two saves for one class (a no-op on SQLite): without it both
+    # delete, both insert, and the second commit fails the unique constraint.
+    await session.scalar(select(Group.id).where(Group.id == group.id).with_for_update())
+    await session.execute(
+        delete(TaughtBeforeTopic).where(
+            TaughtBeforeTopic.group_id == group.id,
+            TaughtBeforeTopic.organization_id == group.organization_id,
+        )
+    )
     for topic_id in sorted(wanted):
         session.add(
             TaughtBeforeTopic(

@@ -114,6 +114,15 @@ async def test_a_student_is_rejected(client, tutor, group, student, subject):
     )
     assert resp.status_code == 403
     assert (await client.get(_url(group))).status_code == 401
+    assert (await client.put(_url(group), json={"topic_ids": []})).status_code == 401
+
+
+async def test_a_list_too_long_or_with_a_non_positive_id_is_refused(client, tutor, group):
+    for body in ({"topic_ids": [0]}, {"topic_ids": [-3]}, {"topic_ids": list(range(1, 2002))}):
+        resp = await client.put(_url(group), json=body, headers=tutor["headers"])
+        assert resp.status_code == 422, body
+    got = await client.get(_url(group), headers=tutor["headers"])
+    assert got.json()["answered"] is False
 
 
 async def test_a_tutor_in_another_organization_gets_404(client, tutor, group, subject):

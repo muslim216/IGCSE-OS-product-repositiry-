@@ -1,4 +1,5 @@
 from datetime import datetime, time
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -38,7 +39,9 @@ class ChapterOut(BaseModel):
 
 
 class TaughtBeforeUpdate(BaseModel):
-    topic_ids: list[int]
+    #: Bounded like a lesson's topic list (schemas/lessons.py), but wide enough
+    #: for a whole syllabus: this one can legitimately name every topic.
+    topic_ids: list[Annotated[int, Field(ge=1)]] = Field(max_length=2000)
 
 
 class TaughtBeforeOut(BaseModel):

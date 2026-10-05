@@ -5,7 +5,6 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
-    Index,
     Integer,
     String,
     Time,
@@ -52,8 +51,8 @@ class TaughtBeforeTopic(TimestampMixin, Base):
 
     __tablename__ = "taught_before_topics"
     __table_args__ = (
+        # Also the index for every read here: they are all by class.
         UniqueConstraint("group_id", "topic_id", name="uq_taught_before_topics_group_topic"),
-        Index("ix_taught_before_topics_group_id", "group_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -63,8 +62,12 @@ class TaughtBeforeTopic(TimestampMixin, Base):
         ),
         nullable=False,
     )
+    # Deleting a class removes these through ON DELETE CASCADE, as for its plans
+    # (models/teaching_plan.py): `delete_group` does a bare `db.delete(group)`.
+    # Postgres only; the SQLite suite runs with foreign keys off.
     group_id: Mapped[int] = mapped_column(
-        ForeignKey("groups.id", name="fk_taught_before_topics_group_id_groups"), nullable=False
+        ForeignKey("groups.id", name="fk_taught_before_topics_group_id_groups", ondelete="CASCADE"),
+        nullable=False,
     )
     topic_id: Mapped[int] = mapped_column(
         ForeignKey("topics.id", name="fk_taught_before_topics_topic_id_topics"), nullable=False

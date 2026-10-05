@@ -20455,9 +20455,11 @@
         "properties": {
           "topic_ids": {
             "items": {
-              "type": "integer"
+              "type": "integer",
+              "minimum": 1.0
             },
             "type": "array",
+            "maxItems": 2000,
             "title": "Topic Ids"
           }
         },
