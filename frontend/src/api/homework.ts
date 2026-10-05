@@ -402,3 +402,5 @@ export const submissionFilePath = (submissionId: number, fileId: number) =>
   `/api/v1/submissions/${submissionId}/files/${fileId}`;
 export const classifiedFilePath = (classifiedId: number) =>
   `/api/v1/classifieds/${classifiedId}/file`;
+export const classifiedMarkSchemePath = (classifiedId: number) =>
+  `/api/v1/classifieds/${classifiedId}/mark-scheme`;

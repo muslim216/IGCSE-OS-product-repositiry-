@@ -27,17 +27,20 @@ export function SectionHeader({
   title,
   description,
   action,
+  level: Heading = "h3",
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
+  /** The heading level, for a page whose sections sit directly under its h1. */
+  level?: "h2" | "h3";
 }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
       <div>
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-600">
+        <Heading className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-600">
           {title}
-        </h3>
+        </Heading>
         {description && <p className="mt-0.5 text-xs text-ink-500">{description}</p>}
       </div>
       {action && <div className="shrink-0 text-sm">{action}</div>}

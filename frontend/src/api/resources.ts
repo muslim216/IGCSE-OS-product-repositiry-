@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { components } from "./schema";
 
 export interface Resource {
   id: number;
@@ -12,6 +13,13 @@ export interface Resource {
 
 export const listResources = (groupId: number, kind?: "file" | "recording") =>
   api<Resource[]>(`/api/v1/groups/${groupId}/resources${kind ? `?kind=${kind}` : ""}`);
+
+/** A shared file or recording with the class it went to — what the Library lists
+ *  across every one of the tutor's classes. */
+export type LibraryResource = components["schemas"]["LibraryResourceOut"];
+
+export const listMyResources = (kind?: "file" | "recording") =>
+  api<LibraryResource[]>(`/api/v1/resources${kind ? `?kind=${kind}` : ""}`);
 
 export function createFileResource(groupId: number, title: string, file: File) {
   const form = new FormData();

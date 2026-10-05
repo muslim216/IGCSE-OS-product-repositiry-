@@ -7,8 +7,9 @@ from sqlalchemy import select
 from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.api.file_responses import FILE_RESPONSES, signed_or_proxied_file
 from app.models import Group, GroupMember, GroupResource, ResourceKind, User, UserRole
-from app.schemas.resources import ResourceOut
+from app.schemas.resources import LibraryResourceOut, ResourceOut
 from app.services import storage
+from app.services.resource_library import tutor_shared_resources
 
 router = APIRouter(tags=["resources"])
 
@@ -41,6 +42,18 @@ def _validated_url(url: str) -> str:
             status.HTTP_422_UNPROCESSABLE_ENTITY, "The recording link must be an http(s) URL"
         )
     return url
+
+
+def _parse_kind(kind: str | None) -> ResourceKind | None:
+    if kind is None:
+        return None
+    try:
+        return ResourceKind(kind)
+    except ValueError:
+        # `from None`: an unrecognised ?kind= is a client mistake, not an
+        # internal fault, so the ValueError behind it is noise in the
+        # traceback rather than context worth carrying.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind") from None
 
 
 def _out(r: GroupResource) -> ResourceOut:
@@ -94,20 +107,33 @@ async def create_resource(
     return _out(resource)
 
 
+@router.get("/resources", response_model=list[LibraryResourceOut])
+async def list_my_resources(
+    db: DbSession, user: TutorUser, kind: str | None = None
+) -> list[LibraryResourceOut]:
+    """Everything the caller has shared, across their own classes (the Library).
+
+    Own classes only, an admin included — as `list_groups` does — so a colleague's
+    material never appears here; an admin reaches it through that class.
+    """
+    rows = await tutor_shared_resources(
+        db,
+        tutor_id=user.id,
+        organization_id=user.organization_id,
+        kind=_parse_kind(kind),
+    )
+    return [LibraryResourceOut(**_out(r).model_dump(), group_name=name) for r, name in rows]
+
+
 @router.get("/groups/{group_id}/resources", response_model=list[ResourceOut])
 async def list_resources(
     group_id: int, db: DbSession, user: CurrentUser, kind: str | None = None
 ) -> list[ResourceOut]:
     await _can_view_group(db, user, group_id)
     query = select(GroupResource).where(GroupResource.group_id == group_id)
-    if kind is not None:
-        try:
-            query = query.where(GroupResource.kind == ResourceKind(kind))
-        except ValueError:
-            # `from None`: an unrecognised ?kind= is a client mistake, not an
-            # internal fault, so the ValueError behind it is noise in the
-            # traceback rather than context worth carrying.
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid kind") from None
+    parsed = _parse_kind(kind)
+    if parsed is not None:
+        query = query.where(GroupResource.kind == parsed)
     rows = (await db.scalars(query.order_by(GroupResource.created_at.desc()))).all()
     return [_out(r) for r in rows]
 
