@@ -102,8 +102,9 @@ TEMPLATES: dict[NotificationKind, Template] = {
             NotificationKind.review_queue,
             ("pending_count",),
             "Work waiting for your review",
-            "You have {pending_count} marks waiting for your review.",
-            "You have {{1}} marks waiting for your review: {{2}}",
+            # The count is submissions in the review queue, not individual marks.
+            "Pieces of work waiting for your review: {pending_count}.",
+            "Pieces of work waiting for your review: {{1}}. Open the queue: {{2}}",
         ),
         _t(
             NotificationKind.invite,
