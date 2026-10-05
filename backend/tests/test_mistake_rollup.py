@@ -13,76 +13,22 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import (
     Chapter,
-    Mistake,
     MistakeCategory,
     MistakeSource,
-    MistakeTopic,
-    PastPaperQuestion,
-    QuestionMark,
     Subject,
-    Submission,
-    SubmissionStatus,
     Topic,
 )
-from app.models.base import utcnow
+from tests.factories import (
+    add_mistake as _add_mistake,
+)
 from tests.factories import (
     make_mistake_category,
-    make_past_paper,
     make_subject,
     other_org_subject,
 )
-
-
-async def _add_mistake(session, *, student_id, mark_id, category_id, severity, topic_ids, source):
-    mistake = Mistake(
-        student_id=student_id,
-        question_mark_id=mark_id,
-        category_id=category_id,
-        severity=severity,
-        source=source,
-    )
-    session.add(mistake)
-    await session.flush()
-    for topic_id in topic_ids:
-        session.add(MistakeTopic(mistake_id=mistake.id, topic_id=topic_id))
-    return mistake
-
-
-async def _settled_submission(session, *, subject_id, organization_id, student_id, analysed, marks):
-    """A finalized past-paper submission with `marks` question marks on it.
-
-    A past paper because it is the plainest work a tutor owns at organization
-    level, and because the rollup must not care which kind of work a mistake
-    was made on — the query joins `AssessableWork`, not `Assignment` (`API-20`).
-    """
-    paper = await make_past_paper(session, subject_id=subject_id, organization_id=organization_id)
-    submission = Submission(
-        work_id=paper.work_id,
-        student_id=student_id,
-        status=SubmissionStatus.finalized,
-        mistakes_analysed_at=utcnow() if analysed else None,
-    )
-    session.add(submission)
-    await session.flush()
-    mark_ids = []
-    for position in range(marks):
-        question = PastPaperQuestion(
-            past_paper_id=paper.id,
-            position=position,
-            number=str(position + 1),
-            text_summary="Question",
-            max_marks=4,
-            has_mark_scheme=True,
-        )
-        session.add(question)
-        await session.flush()
-        mark = QuestionMark(
-            submission_id=submission.id, past_paper_question_id=question.id, final_marks=1
-        )
-        session.add(mark)
-        await session.flush()
-        mark_ids.append(mark.id)
-    return mark_ids
+from tests.factories import (
+    settled_submission as _settled_submission,
+)
 
 
 @pytest.fixture
