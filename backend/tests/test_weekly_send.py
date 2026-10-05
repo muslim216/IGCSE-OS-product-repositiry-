@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.db import async_session
 from app.models import (
     Job,
+    JobStatus,
     Narrative,
     NarrativeAudience,
     Notification,
@@ -214,6 +215,52 @@ async def test_the_sweep_queues_one_build_and_the_narrative_refresh(world, monke
     assert len(narratives) == 2  # the class and its one learner, once each
     # The schedule re-armed itself exactly once.
     assert len([j for j in jobs if j.type == SWEEP_JOB]) == 1
+
+
+async def test_a_build_that_stored_nothing_is_not_queued_again(client, tutor, monkeypatch):
+    """An account with no classes has no rows to show for its week. The finished
+    job is what says the week was handled."""
+
+    class Clock(weekly_send.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return SEND_NOW
+
+    monkeypatch.setattr(weekly_send, "datetime", Clock)
+    async with async_session() as s:
+        await s.execute(update(Organization).values(weekly_send_weekday=6, weekly_send_hour=18))
+        await s.commit()
+
+    async def sweep() -> list[Job]:
+        async with async_session() as s:
+            await sweep_weekly_sends(s, {})
+            await s.commit()
+        async with async_session() as s:
+            return list(await s.scalars(select(Job).where(Job.type == BUILD_JOB)))
+
+    (build,) = await sweep()
+    async with async_session() as s:
+        job = await s.get(Job, build.id)
+        job.status = JobStatus.done  # it ran and stored nothing
+        await s.commit()
+    assert len(await sweep()) == 1
+    # A build that failed is tried again by the next sweep.
+    async with async_session() as s:
+        job = await s.get(Job, build.id)
+        job.status = JobStatus.failed
+        await s.commit()
+    assert len(await sweep()) == 2
+
+
+async def test_a_send_survives_its_message_failing_to_queue(world, monkeypatch):
+    async def boom(*args, **kwargs):
+        raise RuntimeError("outbox is down")
+
+    monkeypatch.setattr(weekly_send, "notify", boom)
+    await _build(world["org"])
+    assert set(await _sends()) == set(WeeklySendAudience)
+    async with async_session() as s:
+        assert await s.scalar(select(func.count()).select_from(Notification)) == 0
 
 
 async def test_the_sweep_keeps_its_schedule_but_builds_nothing_when_switched_off(

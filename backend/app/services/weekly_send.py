@@ -52,6 +52,7 @@ from app.models import (
     WeeklySend,
     WeeklySendAudience,
 )
+from app.models.base import utcnow
 from app.services.narrative import CLASS_NARRATIVE_JOB
 from app.services.notifications import notify
 from app.services.weekly_send_facts import (
@@ -271,15 +272,25 @@ async def _build_one(
     )
     session.add(send)
     await session.flush()
-    await notify(
-        session,
-        recipient=person,
-        kind=NotificationKind.weekly_send,
-        params=message_params(audience, facts),
-        link_path=f"/weekly/{send.id}",
-        # The week's end, not the row id: a rebuilt week must not message twice.
-        idempotency_key=f"weekly_send:{person.id}:{facts.window_end.isoformat()}",
-    )
+    try:
+        # Its own savepoint: the stored send is the artifact, and the message
+        # only points at it. A failure to queue the message must not undo the
+        # send the reader's home page links to.
+        async with session.begin_nested():
+            await notify(
+                session,
+                recipient=person,
+                kind=NotificationKind.weekly_send,
+                params=message_params(audience, facts),
+                link_path=f"/weekly/{send.id}",
+                # The week's end, not the row id: a rebuilt week must not
+                # message twice.
+                idempotency_key=f"weekly_send:{person.id}:{facts.window_end.isoformat()}",
+            )
+    except Exception:  # noqa: BLE001 - see above
+        log.exception(
+            "stored the weekly send for user %s but could not queue its message", person.id
+        )
     return send
 
 
@@ -342,6 +353,25 @@ async def _pending(session: AsyncSession, job_type: str) -> list[dict]:
             )
         ).all()
     )
+
+
+async def _builds_handled(session: AsyncSession) -> set[tuple[int, str]]:
+    """(organization, week end) for every build that is waiting, running or has
+    finished. A finished build counts even though it may have stored nothing:
+    an account with no classes has no rows to show for its week, and without
+    this the sweep would queue it again every cycle until the grace ran out. A
+    *failed* build is left out on purpose, so the next sweep tries it again.
+    """
+    # Bounded by when the job row was written, on the same clock that wrote it:
+    # a build older than the grace can only be for a week no longer due.
+    payloads = await session.scalars(
+        select(Job.payload).where(
+            Job.type == BUILD_JOB,
+            Job.status != JobStatus.failed,
+            Job.created_at >= utcnow() - LATE_GRACE - timedelta(days=1),
+        )
+    )
+    return {(p.get("organization_id"), p.get("week_end")) for p in payloads}
 
 
 async def ensure_weekly_send_sweep_scheduled(session: AsyncSession) -> None:
@@ -443,9 +473,7 @@ async def sweep_weekly_sends(session: AsyncSession, payload: dict) -> None:
     if not settings.weekly_send_enabled:
         return
     now = datetime.now(timezone.utc)
-    queued = {
-        (p.get("organization_id"), p.get("week_end")) for p in await _pending(session, BUILD_JOB)
-    }
+    queued = await _builds_handled(session)
     for organization_id, week_end in await due_organizations(session, now):
         if (organization_id, week_end.isoformat()) in queued:
             continue
