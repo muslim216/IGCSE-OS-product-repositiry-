@@ -179,7 +179,8 @@ async def submit_work(
     submission, settled = await open_attempt(db, HOMEWORK, assignment_id, user.id)
     if settled:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "This homework has already been marked and finalized"
+            status.HTTP_409_CONFLICT,
+            "This homework has marks that are already final, so it can't be replaced",
         )
 
     # Replaced, never merged with what a previous attempt typed — the same rule

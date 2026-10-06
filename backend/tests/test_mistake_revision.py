@@ -387,17 +387,18 @@ async def test_severity_can_be_revised_on_an_archived_category(client, tutor, ta
         assert mistake.category_id == tagged["retired_id"]
 
 
-async def test_the_audit_outlives_the_mistake_it_explains(client, tutor, tagged):
-    """A student replacing their work hard-deletes that submission's mistakes
-    (`services/attempts.open_attempt`), so an audit row that referenced one
-    with a real ForeignKey would either block the resubmission or be cascaded
-    away with it. Neither is acceptable: the first stops a student handing
-    work in, the second destroys the record `PROD-7` requires.
+async def test_a_revised_mistake_cannot_be_wiped_by_replacing_the_work(client, tutor, tagged):
+    """A mistake is only ever tagged on a mark that is final, and an attempt
+    with a final mark cannot be replaced — so the tutor's revision, the mistake
+    it revised and the audit row all stay (`PROD-7`).
 
-    **This suite runs SQLite with foreign keys off, so it cannot fail on the
-    constraint itself** — that half rests on CI's Postgres job (`RISK-3`).
-    What it does pin down is the other half: nothing here deletes the audit
-    row alongside the mistake.
+    This used to read the other way. `open_attempt` locked on the submission's
+    status alone, and a remark request (or the decided half of an auto-marked
+    submission) leaves finalized marks under `needs_review`; a student could
+    replace the work there and hard-delete the mistakes with it, leaving the
+    audit row explaining something that no longer existed. The audit table
+    still has no ForeignKey to `mistakes`, deliberately: it must not be the
+    thing that blocks or cascades if a mistake row is ever removed.
     """
     from app.services.attempts import open_attempt
     from app.services.submission_kind import PAST_PAPER
@@ -410,10 +411,8 @@ async def test_the_audit_outlives_the_mistake_it_explains(client, tutor, tagged)
     assert len(await _audits(tagged["mistake_id"])) == 1
 
     async with async_session() as session:
-        # A settled submission cannot be replaced at all, so the reachable
-        # case is work the tutor has already tagged but not yet finalized —
-        # which `tag_mistakes` produces deliberately, tagging the decided half
-        # of an auto-finalized submission while the rest waits.
+        # Where a remark request, or a half-decided auto-marked submission,
+        # leaves it: marks that count, under a status that is not settled.
         submission = await session.get(Submission, tagged["submission_id"])
         submission.status = SubmissionStatus.needs_review
         await session.commit()
@@ -423,11 +422,16 @@ async def test_the_audit_outlives_the_mistake_it_explains(client, tutor, tagged)
         _, settled = await open_attempt(
             session, PAST_PAPER, tagged["past_paper_id"], submission.student_id
         )
-        assert settled is False
+        assert settled is True
         await session.commit()
 
     async with async_session() as session:
-        assert await session.get(Mistake, tagged["mistake_id"]) is None
+        mistake = await session.get(Mistake, tagged["mistake_id"])
+        assert mistake is not None
+        assert mistake.category_id == tagged["method_id"]
+        assert (await session.get(Submission, tagged["submission_id"])).status == (
+            SubmissionStatus.needs_review
+        )
     assert len(await _audits(tagged["mistake_id"])) == 1
 
 
