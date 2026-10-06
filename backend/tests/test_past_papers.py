@@ -843,6 +843,37 @@ async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
         assert (await session.scalars(select(MistakeTopic))).all() == []
 
 
+async def test_a_paper_with_a_final_mark_cannot_be_logged_again(client, student, past_paper):
+    """Where a remark request, or a half-decided auto-marked attempt, leaves a
+    paper: a mark that counts, under a status that is not settled. Logging the
+    paper again there used to delete the mark."""
+    assert (await _log_attempt(client, student, past_paper["id"])).status_code in (200, 201)
+
+    async with async_session() as session:
+        paper = await session.get(PastPaper, past_paper["id"])
+        submission = await session.scalar(
+            select(Submission).where(Submission.work_id == paper.work_id)
+        )
+        question = await session.scalar(
+            select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == paper.id)
+        )
+        mark = QuestionMark(
+            submission_id=submission.id, past_paper_question_id=question.id, final_marks=3
+        )
+        session.add(mark)
+        submission.status = SubmissionStatus.needs_review
+        await session.commit()
+        mark_id = mark.id
+
+    again = await _log_attempt(client, student, past_paper["id"])
+    assert again.status_code == 409, again.text
+
+    async with async_session() as session:
+        kept = await session.get(QuestionMark, mark_id)
+        assert kept is not None
+        assert kept.final_marks == 3
+
+
 async def test_an_attempt_joins_the_paper_it_answers_rather_than_making_a_second_one(
     client, student, past_paper
 ):
