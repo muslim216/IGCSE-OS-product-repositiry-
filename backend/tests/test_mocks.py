@@ -9,6 +9,7 @@ tests hold that line, and hold the tenancy boundary the new arm opens.
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.db import async_session
 from app.models import (
@@ -516,6 +517,49 @@ async def test_a_student_can_see_and_contest_a_marked_mock(
         headers=student["headers"],
     )
     assert contest.status_code in (200, 201), contest.text
+
+
+async def test_contesting_a_mock_mark_does_not_let_the_student_sit_it_again(
+    client, tutor, student, subject, group, monkeypatch, fake_ai
+):
+    """A remark request puts a finalized mock back in `needs_review`. Sitting it
+    again there used to be accepted, and it deleted every mark on the mock."""
+    mock_id, submission_id = await _sat_and_marked(
+        client, tutor, student, subject, group, monkeypatch, fake_ai
+    )
+    rows = await _mark_every_question_and_finalize(client, tutor, submission_id)
+    contest = await client.post(
+        f"/api/v1/submissions/{submission_id}/questions/{rows[0]['question_id']}/remark-request",
+        json={"reason": "I think question 1 deserves another look"},
+        headers=student["headers"],
+    )
+    assert contest.status_code in (200, 201), contest.text
+
+    async def marks_and_files():
+        async with async_session() as session:
+            submission = await session.scalar(
+                select(Submission)
+                .where(Submission.id == submission_id)
+                .options(selectinload(Submission.files), selectinload(Submission.marks))
+            )
+            return (
+                submission.status,
+                {m.id: m.final_marks for m in submission.marks},
+                {f.id for f in submission.files},
+            )
+
+    status_before, marks_before, files_before = await marks_and_files()
+    assert status_before == SubmissionStatus.needs_review
+    assert marks_before
+    assert all(marks is not None for marks in marks_before.values())
+
+    again = await client.post(
+        f"/api/v1/mocks/{mock_id}/submissions",
+        files={"files": ("page2.png", PNG_BYTES, "image/png")},
+        headers=student["headers"],
+    )
+    assert again.status_code == 409, again.text
+    assert await marks_and_files() == (status_before, marks_before, files_before)
 
 
 async def test_an_unpublished_mocks_paper_is_not_readable_by_a_student(

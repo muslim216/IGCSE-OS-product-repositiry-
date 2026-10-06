@@ -483,7 +483,10 @@ async def sit_mock(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
         if settled:
-            raise HTTPException(status.HTTP_409_CONFLICT, "This mock has already been marked")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This mock has marks that are already final, so it can't be handed in again",
+            )
     except HTTPException:
         await db.rollback()
         await _discard(saved)

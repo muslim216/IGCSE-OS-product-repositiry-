@@ -34,10 +34,11 @@ async def open_attempt(
 ) -> tuple[Submission, bool]:
     """Open a student's attempt, or re-open the one they already have.
 
-    Returns `(submission, already_settled)`. The caller raises its own `409`
-    when settled rather than this doing it, because the wording a student sees
-    differs per kind — "already been marked and finalized" for homework reads
-    wrong for a past paper they logged themselves.
+    Returns `(submission, already_settled)`. Settled means finalized, or
+    carrying at least one final mark whatever its status says. The caller
+    raises its own `409` when settled rather than this doing it, because the
+    wording a student sees differs per kind — homework's reads wrong for a
+    past paper they logged themselves.
 
     A replacement is the whole answer again, never a merge: the previous pages
     and every AI draft against them are deleted, which is what keeps
@@ -58,7 +59,15 @@ async def open_attempt(
         )
         .options(selectinload(Submission.files), selectinload(Submission.marks))
     )
-    if submission is not None and submission.status in SETTLED_STATUSES:
+    if submission is not None and (
+        submission.status in SETTLED_STATUSES
+        # The status alone is not the lock. A remark request moves a finalized
+        # submission back to `needs_review` so the tutor sees it, and a
+        # half-decided auto-marked one waits there too; replacing either would
+        # delete marks that already count, and the tutor's mistake revisions
+        # with them (`PROD-5`, `PROD-7`). One final mark settles the attempt.
+        or any(mark.final_marks is not None for mark in submission.marks)
+    ):
         return submission, True
 
     if submission is None:

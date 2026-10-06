@@ -652,3 +652,60 @@ async def test_resubmission_is_blocked_once_marks_have_counted(
         headers=student["headers"],
     )
     assert resp.status_code == 409
+
+
+async def test_a_remark_request_does_not_reopen_the_upload(
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """A remark moves the submission back to `needs_review` so the tutor sees
+    it. That status is not settled, and re-uploading used to be allowed there:
+    it deleted every mark, the ones that had already counted included. One
+    final mark is what locks the attempt, whatever the status says."""
+    monkeypatch.setattr("app.services.marking.structured_complete", fake_ai(_confident_result()))
+    await _submit(client, assignment_all_scheme, student)
+    async with async_session() as session:
+        sid = (await session.scalar(select(Submission))).id
+        before = {
+            m.id: m.final_marks
+            for m in await session.scalars(
+                select(QuestionMark).where(QuestionMark.submission_id == sid)
+            )
+        }
+        question_id = await session.scalar(
+            select(QuestionMark.question_id).where(QuestionMark.submission_id == sid)
+        )
+    assert before
+    assert all(marks is not None for marks in before.values())
+
+    asked = await client.post(
+        f"/api/v1/submissions/{sid}/questions/{question_id}/remark-request",
+        json={"reason": "please recheck"},
+        headers=student["headers"],
+    )
+    assert asked.status_code == 201, asked.text
+    async with async_session() as session:
+        assert (await session.get(Submission, sid)).status == SubmissionStatus.needs_review
+
+    again = await client.post(
+        f"/api/v1/assignments/{assignment_all_scheme}/submissions",
+        files=[("files", ("page2.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert again.status_code == 409, again.text
+
+    async with async_session() as session:
+        after = {
+            m.id: m.final_marks
+            for m in await session.scalars(
+                select(QuestionMark).where(QuestionMark.submission_id == sid)
+            )
+        }
+        assert after == before
+        # Still in front of the tutor, with the request open.
+        assert (await session.get(Submission, sid)).status == SubmissionStatus.needs_review
+        assert (await session.scalar(select(RemarkRequest))).status == RemarkRequestStatus.open
