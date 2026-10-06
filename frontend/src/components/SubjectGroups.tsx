@@ -5,6 +5,12 @@ import { Field, Select } from "./controls";
 
 const OTHER_LABEL = "Other subject";
 
+function describe(shown: SubjectGroup<unknown> | undefined, noun: [string, string]): string {
+  if (!shown) return "Showing all subjects";
+  const n = shown.items.length;
+  return `Showing ${n} ${n === 1 ? noun[0] : noun[1]} in ${shown.subject?.name ?? OTHER_LABEL}`;
+}
+
 /** "All subjects" plus one option per subject that has something in the list.
  *
  * A visually hidden status line says what is shown after the reader changes
@@ -16,7 +22,7 @@ export function SubjectPicker({
   onChange,
   label = "Show subject",
   noun,
-}: {
+}: Readonly<{
   groups: SubjectGroup<unknown>[];
   value: string;
   onChange: (id: string) => void;
@@ -24,14 +30,10 @@ export function SubjectPicker({
   label?: string;
   /** What the list holds, singular and plural: ["paper", "papers"]. */
   noun: [string, string];
-}) {
+}>) {
   const [changed, setChanged] = useState(false);
   const shown = groups.find((g) => g.id === value);
-  const status = !changed
-    ? ""
-    : shown
-      ? `Showing ${shown.items.length} ${shown.items.length === 1 ? noun[0] : noun[1]} in ${shown.subject?.name ?? OTHER_LABEL}`
-      : "Showing all subjects";
+  const status = changed ? describe(shown, noun) : "";
   return (
     <div>
       <Field label={label} className="max-w-xs">
@@ -50,9 +52,7 @@ export function SubjectPicker({
           ))}
         </Select>
       </Field>
-      <p role="status" className="sr-only">
-        {status}
-      </p>
+      <output className="sr-only">{status}</output>
     </div>
   );
 }
@@ -63,11 +63,11 @@ export function SubjectSection({
   subject,
   level: Heading = "h3",
   children,
-}: {
+}: Readonly<{
   subject: Subject | null;
   level?: "h2" | "h3";
   children: ReactNode;
-}) {
+}>) {
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap items-baseline gap-x-2">

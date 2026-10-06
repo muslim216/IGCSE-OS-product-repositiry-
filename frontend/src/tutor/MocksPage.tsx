@@ -13,13 +13,8 @@ import { formatDayMonth } from "../lib/timezones";
 /** What the API's lowercase `type` means, said the way a tutor would. */
 const TYPE_LABEL: Record<string, string> = { mock: "Mock", test: "Class test" };
 
-export default function MocksPage() {
-  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
-  const assessments = useQuery({ queryKey: ["assessments"], queryFn: () => listAssessments() });
-  const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
-  const filter = useSubjectFilter(assessments.data, subjects.isSuccess ? subjects.data : undefined);
-
-  const recorded = (items: Assessment[]) => (
+function RecordedList({ items }: Readonly<{ items: Assessment[] }>) {
+  return (
     <ul className="divide-y divide-line text-sm">
       {items.map((a) => (
         <li
@@ -38,6 +33,54 @@ export default function MocksPage() {
       ))}
     </ul>
   );
+}
+
+function RecordedSoFar() {
+  const assessments = useQuery({ queryKey: ["assessments"], queryFn: () => listAssessments() });
+  const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
+  const filter = useSubjectFilter(assessments.data, subjects.isSuccess ? subjects.data : undefined);
+
+  return (
+    <SectionCard>
+      <SectionHeader title="Recorded so far" level="h2" />
+      <div className="mt-3">
+        {assessments.isLoading ? (
+          <SectionSkeleton rows={3} label="Loading recorded mocks and tests" />
+        ) : assessments.isError ? (
+          <ErrorState error={assessments.error} onRetry={() => assessments.refetch()} />
+        ) : assessments.data?.length === 0 ? (
+          <EmptyState
+            title="No mocks or tests recorded yet."
+            hint="Once you enter a class's marks, they're listed here."
+          />
+        ) : (
+          <div className="space-y-5">
+            {filter.showPicker && (
+              <SubjectPicker
+                groups={filter.groups}
+                value={filter.picked}
+                onChange={filter.setPicked}
+                noun={["mock or test", "mocks and tests"]}
+              />
+            )}
+            {filter.ready ? (
+              filter.visible.map((g) => (
+                <SubjectSection key={g.id} subject={g.subject}>
+                  <RecordedList items={g.items} />
+                </SubjectSection>
+              ))
+            ) : (
+              <RecordedList items={assessments.data ?? []} />
+            )}
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+export default function MocksPage() {
+  const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
 
   return (
     <div>
@@ -98,39 +141,7 @@ export default function MocksPage() {
           )}
         </section>
 
-        <SectionCard>
-          <SectionHeader title="Recorded so far" level="h2" />
-          <div className="mt-3">
-            {assessments.isLoading ? (
-              <SectionSkeleton rows={3} label="Loading recorded mocks and tests" />
-            ) : assessments.isError ? (
-              <ErrorState error={assessments.error} onRetry={() => assessments.refetch()} />
-            ) : assessments.data?.length === 0 ? (
-              <EmptyState
-                title="No mocks or tests recorded yet."
-                hint="Once you enter a class's marks, they're listed here."
-              />
-            ) : (
-              <div className="space-y-5">
-                {filter.showPicker && (
-                  <SubjectPicker
-                    groups={filter.groups}
-                    value={filter.picked}
-                    onChange={filter.setPicked}
-                    noun={["mock or test", "mocks and tests"]}
-                  />
-                )}
-                {filter.ready
-                  ? filter.visible.map((g) => (
-                      <SubjectSection key={g.id} subject={g.subject}>
-                        {recorded(g.items)}
-                      </SubjectSection>
-                    ))
-                  : recorded(assessments.data ?? [])}
-              </div>
-            )}
-          </div>
-        </SectionCard>
+        <RecordedSoFar />
       </div>
     </div>
   );
