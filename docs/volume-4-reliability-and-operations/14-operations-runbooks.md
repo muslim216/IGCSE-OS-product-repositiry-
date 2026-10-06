@@ -119,7 +119,7 @@ GitHub, and the Google Cloud console for Classroom.
     "status": "ok",
     "database": {"ok": true},
     "worker": {"state": "running", "seconds_since_loop": 0.4, "job_running_seconds": null},
-    "queue": {"pending": 0, "running": 0, "failed": 0, "done": 812,
+    "queue": {"pending": 0, "running": 0, "failed": 0,
               "oldest_pending_age_seconds": null}
   }
   ```
@@ -271,6 +271,15 @@ without a database console:
 `queue.oldest_pending_age_seconds` tells you how long this has been going on, and
 `queue.failed` tells you whether jobs are dying rather than queueing.
 
+**Read the age with care.** It is measured from the oldest pending job's `created_at`, not
+from when that job was due, so it does not mean "overdue by this long". This deployment always
+holds a few pending jobs that are simply waiting for their turn: each recurring sweep queues
+its own next run with a future `run_after`. The parent-narrative sweep waits up to
+`NARRATIVE_SWEEP_INTERVAL_HOURS` (default 24), the past-paper phase sweep up to 6 hours, and
+the lesson, weekly-send and message-trigger sweeps for minutes. A healthy system therefore
+reports a pending count of a handful and an age of up to a day. It is a backlog only when the
+query below shows pending jobs whose `run_after` is in the past.
+
 Then query the `jobs` table for detail:
 
 ```sql
@@ -292,7 +301,7 @@ Interpret:
 | Many `pending`, none `running`, oldest is old | **The worker is not running.** Restart the service. |
 | One job `running` for a long time | A handler is stuck — a hung provider call, or an unbounded loop. Restart, then R6. |
 | Many `failed` with the same error | A dependency is down (R7) or a handler has a bug. |
-| `pending` jobs with a future `run_after` | Normal. Debounced readiness synthesis waits up to `READINESS_V2_COALESCE_SECONDS` (default 600). |
+| `pending` jobs with a future `run_after` | Normal. Debounced readiness synthesis waits up to `READINESS_V2_COALESCE_SECONDS` (default 600), and each recurring sweep keeps its next run queued — the parent-narrative sweep for up to 24 hours. |
 
 Also check Render logs for `job worker started`, `job worker stopped`,
 `job worker iteration crashed`, and — the one that matters most — **`job worker died;
