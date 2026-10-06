@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/controls";
 import NotNow from "../../components/NotNow";
-import type { Dismissals } from "../../lib/dismissals";
+import { useReportHidden, type Dismissals } from "../../lib/dismissals";
 import { friendlyError } from "../../lib/errors";
 import { ITEM_NAMES, ITEM_SECTIONS, useAcknowledge, useOnboarding } from "../../lib/onboarding";
 import { subjectSetupPath } from "../../lib/subjectSetup";
@@ -82,6 +82,27 @@ function subjectNeeds(subject: OnboardingSubject, hidden: (key: string) => boole
   };
 }
 
+/** The hidden keys whose line the server still asks for: what is raw-outstanding
+ *  (nothing hidden) and is hidden now. */
+function hiddenLines(data: OnboardingState, hidden: (key: string) => boolean): string[] {
+  const keys: string[] = [];
+  if (data.account.state === "default" && hidden(ACCOUNT_LINE)) keys.push(ACCOUNT_LINE);
+  for (const subject of data.subjects) {
+    const raw = subjectNeeds(subject, () => false);
+    const lines = [
+      ...(raw.syllabusMissing ? ["syllabus"] : []),
+      ...(raw.boundariesNotSet ? ["boundaries"] : []),
+      ...raw.defaults.map((i) => `default-${i.key}`),
+      // The guidance line is only ever offered inside a subject that needs something.
+      ...(raw.guidanceNotSet && raw.outstanding ? ["guidance"] : []),
+      ...(raw.noClass ? ["no_class"] : []),
+      ...raw.classes.map((c) => classLine(c.group)),
+    ];
+    for (const line of lines) if (hidden(lineKey(subject, line))) keys.push(lineKey(subject, line));
+  }
+  return keys;
+}
+
 function anyOutstanding(data: OnboardingState, hidden: (key: string) => boolean): boolean {
   return (
     (data.account.state === "default" && !hidden(ACCOUNT_LINE)) ||
@@ -128,6 +149,10 @@ export default function SetupChecklist({
     (headingRef.current ?? goneRef.current)?.focus();
   }, [data, acknowledged]);
 
+  // Which stored keys are hiding a line that would otherwise show: the footer
+  // counts these and not the keys of lines since finished.
+  useReportHidden(dismissals, "setup-checklist", data ? hiddenLines(data, hidden) : []);
+
   if (!data) {
     if (onboarding.isLoading) return null;
     return (
@@ -157,7 +182,7 @@ export default function SetupChecklist({
     acknowledge.isPending && matches(item, subjectId);
 
   const notNow = (key: string, what: string) =>
-    dismissals && <NotNow what={what} onHide={() => dismissals.hide(key)} />;
+    dismissals && <NotNow what={what} dismissals={dismissals} hideKey={key} />;
   const keepButton = (item: AcknowledgeableItem, subjectId: number | null, what: string) => (
     <Button
       type="button"

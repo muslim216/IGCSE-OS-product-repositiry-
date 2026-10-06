@@ -103,6 +103,12 @@ export function guideModel(data: OnboardingState, isHidden: (key: string) => boo
    *  step has no subject or class to belong to yet (it is locked then). */
   const keyOf = (id: StepId): string | null => {
     if (id === "account" || id === "syllabus") return `setup_step:${id}`;
+    // Before the class exists the timetable step is the form that creates it, so
+    // it is keyed by the subject; once there is a class it is that class's.
+    if (id === "timetable") {
+      if (klass) return `setup_step:timetable:${klass.group_id}`;
+      return subject ? `setup_step:timetable:subject-${subject.subject_id}` : null;
+    }
     if (SUBJECT_STEPS.includes(id))
       return subject ? `setup_step:${id}:${subject.subject_id}` : null;
     return klass ? `setup_step:${id}:${klass.group_id}` : null;
@@ -115,6 +121,7 @@ export function guideModel(data: OnboardingState, isHidden: (key: string) => boo
    *  not waiting on an earlier step. */
   const actionable = (id: StepId): boolean => !settled(id) && !skipped(id) && !needs(id);
 
+  const skippedKeys = STEPS.filter((s) => skipped(s.id)).flatMap((s) => keyOf(s.id) ?? []);
   const anySkipped = STEPS.some((s) => skipped(s.id));
   const anyActionable = STEPS.some((s) => actionable(s.id));
   /** Every remaining step has been put aside (or waits on one that has). */
@@ -140,6 +147,7 @@ export function guideModel(data: OnboardingState, isHidden: (key: string) => boo
     skipped,
     actionable,
     allSkipped,
+    skippedKeys,
   };
 }
 

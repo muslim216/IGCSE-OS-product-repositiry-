@@ -1,7 +1,9 @@
 import { Link } from "react-router-dom";
 import type { ChapterPrompt } from "../../api/today";
 import NotNow from "../../components/NotNow";
-import type { Dismissals } from "../../lib/dismissals";
+import { useReportHidden, type Dismissals } from "../../lib/dismissals";
+
+const promptKey = (p: ChapterPrompt) => `chapter_prompt:${p.group_id}:${p.chapter_id}`;
 
 /** "Mon 12 Oct". The plan's dates are calendar dates with no zone, so they are
     parsed as local noon-free parts rather than through `new Date(iso)`, which
@@ -32,8 +34,11 @@ export default function ChapterPrompts({
   prompts: ChapterPrompt[];
   dismissals?: Dismissals;
 }) {
-  const shown = prompts.filter(
-    (p) => !dismissals?.isHidden(`chapter_prompt:${p.group_id}:${p.chapter_id}`),
+  const shown = prompts.filter((p) => !dismissals?.isHidden(promptKey(p)));
+  useReportHidden(
+    dismissals,
+    "chapter-prompts",
+    prompts.filter((p) => dismissals?.isHidden(promptKey(p))).map(promptKey),
   );
   if (shown.length === 0) return null;
   return (
@@ -63,7 +68,8 @@ export default function ChapterPrompts({
               {dismissals && (
                 <NotNow
                   what={`${p.group_name}, Chapter ${p.chapter_code}`}
-                  onHide={() => dismissals.hide(`chapter_prompt:${p.group_id}:${p.chapter_id}`)}
+                  dismissals={dismissals}
+                  hideKey={promptKey(p)}
                 />
               )}
             </span>

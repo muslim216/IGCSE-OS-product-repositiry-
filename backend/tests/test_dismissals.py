@@ -55,6 +55,12 @@ async def test_round_trip(client, tutor):
     assert await _keys(client, h) == []
 
 
+async def test_the_timetable_step_of_a_subject_with_no_class_is_a_valid_key(client, tutor):
+    h = tutor["headers"]
+    assert (await client.put(f"{URL}/setup_step:timetable:subject-7", headers=h)).status_code == 204
+    assert await _keys(client, h) == ["setup_step:timetable:subject-7"]
+
+
 async def test_put_and_delete_are_idempotent(client, tutor):
     h = tutor["headers"]
     for _ in range(2):

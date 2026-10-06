@@ -31,14 +31,20 @@ function focusStatus() {
  *  goes, so it never falls to the top of the page. */
 export default function NotNow({
   what,
-  onHide,
+  dismissals,
+  hideKey,
   scope = false,
 }: {
   what: string;
-  onHide: () => void;
+  dismissals: Dismissals;
+  /** What is stored. Null means this thing has nothing to be stored under yet,
+      and then there is no button: one that announced "Hidden" and hid nothing
+      would be worse than none. */
+  hideKey: string | null;
   /** True for the whole guide, which has no neighbours to hand focus to. */
   scope?: boolean;
 }) {
+  if (hideKey === null) return null;
   return (
     <Button
       type="button"
@@ -57,7 +63,7 @@ export default function NotNow({
         }
         (target ?? undefined)?.focus();
         if (!target) focusStatus();
-        onHide();
+        dismissals.hide(hideKey, what);
       }}
     >
       Not now
@@ -69,7 +75,7 @@ export default function NotNow({
 export function HiddenFooter({ dismissals }: { dismissals: Dismissals }) {
   if (dismissals.hiddenCount <= 0) return null;
   return (
-    <p className="flex items-center gap-2 text-sm text-ink-500">
+    <p className="mt-8 flex items-center gap-2 text-sm text-ink-500">
       {dismissals.hiddenCount} hidden
       <Button
         type="button"

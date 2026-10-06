@@ -12,10 +12,10 @@ import { Button, buttonClasses } from "../../components/controls";
 import { EmbeddedPageContext, ErrorState, PageHeader, PageSkeleton } from "../../components/page";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { useOnboarding } from "../../lib/onboarding";
-import { useDismissals } from "../../lib/dismissals";
+import { useDismissals, useReportHidden } from "../../lib/dismissals";
 import { DismissalStatus, HiddenFooter } from "../../components/NotNow";
 import OnboardingFlow from "../onboarding/OnboardingFlow";
-import { guideIsGone } from "../onboarding/guideModel";
+import { GUIDE_KEY, guideIsGone, guideModel } from "../onboarding/guideModel";
 import { isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import LessonReminders from "./LessonReminders";
 import ChapterPrompts from "./ChapterPrompts";
@@ -56,9 +56,23 @@ export default function TodayDashboard() {
   // The server says the tutor is in the flow; the tutor may have put the whole
   // guide, or every step still left in it, aside (owner, 2026-10-06). Then this is
   // the ordinary Overview, which for a tutor with no class is its no-class state.
+  // In the flow, whether the guide is shown depends on the list: hold that
+  // decision until it has loaded or failed (failing shows everything).
+  const deciding = onboarding.data?.in_flow === true && !dismissals.settled;
   const guideGone = onboarding.data ? guideIsGone(onboarding.data, dismissals.isHidden) : false;
   const inFlow = onboarding.data?.in_flow === true && !guideGone;
   const status = <DismissalStatus dismissals={dismissals} />;
+  // What the guide has put aside: the whole guide, or steps still asked for.
+  useReportHidden(
+    dismissals,
+    "guide",
+    onboarding.data?.in_flow
+      ? [
+          ...(dismissals.isHidden(GUIDE_KEY) ? [GUIDE_KEY] : []),
+          ...guideModel(onboarding.data, dismissals.isHidden).skippedKeys,
+        ]
+      : [],
+  );
   const footer = <HiddenFooter dismissals={dismissals} />;
   // Per visit, in component state: the line below shows when this page has just
   // changed from the flow to the dashboard, and is gone on the next visit.
@@ -81,7 +95,7 @@ export default function TodayDashboard() {
   // else. It would also strand a class that cannot get a plan (everything already
   // taught, or the exam too close) on a page with nothing else on it.
   const hasClass = onboarding.data?.subjects.some((s) => s.classes.length > 0) ?? false;
-  const flowAlone = inFlow && !hasClass;
+  const flowAlone = inFlow && !hasClass && !deciding;
   // The dashboard's own reads stop once the server says this tutor is in the
   // flow with no class, where nothing shows them. They are NOT held back while
   // that answer is still loading: this is the most-viewed page, and waiting would
@@ -117,224 +131,229 @@ export default function TodayDashboard() {
   });
   const dayZone = myZone || (org.isSuccess ? org.data.timezone || "UTC" : null);
 
-  if (onboarding.isLoading && !onboardingSettled) {
-    return <PageSkeleton rows={3} label="Loading overview" />;
-  }
-  // A failed or malformed onboarding read falls through to the dashboard as it
-  // was before the flow existed: a read that failed must not trap a tutor on a
-  // home they cannot use. The Setup card says on its own that it did not load.
-  if (flowAlone && onboarding.data) {
-    return (
-      <>
-        <OnboardingFlow data={onboarding.data} dismissals={dismissals} />
-        {status}
-        {footer}
-      </>
-    );
-  }
-  // Above every state of the dashboard, a failed one included: the guide reads
-  // its own data and must not disappear because the home aggregate did not load.
-  const flow =
-    inFlow && onboarding.data ? (
-      <OnboardingFlow data={onboarding.data} overDashboard dismissals={dismissals} />
-    ) : null;
+  const body = (() => {
+    if (onboarding.isLoading && !onboardingSettled) {
+      return <PageSkeleton rows={3} label="Loading overview" />;
+    }
+    // A failed or malformed onboarding read falls through to the dashboard as it
+    // was before the flow existed: a read that failed must not trap a tutor on a
+    // home they cannot use. The Setup card says on its own that it did not load.
+    // A tutor in the flow waits here for the hidden list, so the guide is never
+    // shown and then taken away; the dashboard's reads are already running.
+    if (deciding) return <PageSkeleton rows={3} label="Loading overview" />;
+    if (flowAlone && onboarding.data) {
+      return (
+        <>
+          <OnboardingFlow data={onboarding.data} dismissals={dismissals} />
+        </>
+      );
+    }
+    // Above every state of the dashboard, a failed one included: the guide reads
+    // its own data and must not disappear because the home aggregate did not load.
+    const flow =
+      inFlow && onboarding.data ? (
+        <OnboardingFlow data={onboarding.data} overDashboard dismissals={dismissals} />
+      ) : null;
 
-  if (today.isLoading) {
-    return (
-      <>
-        {flow}
-        {status}
-        <PageSkeleton rows={3} label="Loading overview" />
-      </>
-    );
-  }
+    if (today.isLoading) {
+      return (
+        <>
+          {flow}
+          <PageSkeleton rows={3} label="Loading overview" />
+        </>
+      );
+    }
 
-  if (today.isError || !today.data) {
-    return (
-      <>
-        {flow}
-        <ErrorState
-          title="Overview couldn't be loaded"
-          error={today.error}
-          onRetry={() => {
-            void today.refetch();
-            // The onboarding read may be what failed: the home also hangs on it.
-            void onboarding.refetch();
-          }}
-        />
-        {/* Fetches its own data: a lesson about to start must not hide behind a
+    if (today.isError || !today.data) {
+      return (
+        <>
+          {flow}
+          <ErrorState
+            title="Overview couldn't be loaded"
+            error={today.error}
+            onRetry={() => {
+              void today.refetch();
+              // The onboarding read may be what failed: the home also hangs on it.
+              void onboarding.refetch();
+            }}
+          />
+          {/* Fetches its own data: a lesson about to start must not hide behind a
             failed home aggregate. */}
-        <LessonReminders dismissals={dismissals} />
-        {status}
-        {footer}
-      </>
-    );
-  }
+          <LessonReminders dismissals={dismissals} />
+        </>
+      );
+    }
 
-  const view = today.data;
-  const line1 = verdictLine1(view);
-  const line2 = verdictLine2(view);
-  const attentionItems = attention.data ?? [];
-  const remarks = overview.data?.remarks ?? [];
-  // The aggregate's review_count and the attention list are different measures
-  // from different endpoints — attention also carries extraction failures, which
-  // are not submissions awaiting review. So the day is only "clear" when neither
-  // has anything, or the surface could print "That's everything" directly above
-  // a NEEDS YOU section listing work.
-  //
-  // And only when both reads actually succeeded: a failed read is not an empty
-  // one, so the sign-off must not be printed over a Needs-you list we could not
-  // load (PROD-2).
-  const loaded = overview.isSuccess && attention.isSuccess;
-  const clear = loaded && isClearDay(view) && attentionItems.length === 0 && remarks.length === 0;
-  // Classes with lessons not recorded against their plan keep the sign-off from
-  // being printed, but do not change which sections open (task 6.6).
-  const showSignOff = clear && (view.behind_classes ?? []).length === 0;
+    const view = today.data;
+    const line1 = verdictLine1(view);
+    const line2 = verdictLine2(view);
+    const attentionItems = attention.data ?? [];
+    const remarks = overview.data?.remarks ?? [];
+    // The aggregate's review_count and the attention list are different measures
+    // from different endpoints — attention also carries extraction failures, which
+    // are not submissions awaiting review. So the day is only "clear" when neither
+    // has anything, or the surface could print "That's everything" directly above
+    // a NEEDS YOU section listing work.
+    //
+    // And only when both reads actually succeeded: a failed read is not an empty
+    // one, so the sign-off must not be printed over a Needs-you list we could not
+    // load (PROD-2).
+    const loaded = overview.isSuccess && attention.isSuccess;
+    const clear = loaded && isClearDay(view) && attentionItems.length === 0 && remarks.length === 0;
+    // Classes with lessons not recorded against their plan keep the sign-off from
+    // being printed, but do not change which sections open (task 6.6).
+    const showSignOff = clear && (view.behind_classes ?? []).length === 0;
 
-  // Only reached when the onboarding read failed, or the tutor put the setup guide
-  // aside with "Not now" (otherwise a tutor with no class is in the flow): every section below would be an honest but useless absence,
-  // so say so plainly and point at where a class begins.
-  if (view.class_count === 0) {
+    // Only reached when the onboarding read failed, or the tutor put the setup guide
+    // aside with "Not now" (otherwise a tutor with no class is in the flow): every section below would be an honest but useless absence,
+    // so say so plainly and point at where a class begins.
+    if (view.class_count === 0) {
+      return (
+        <>
+          {flow}
+          <SectionCard>
+            <EmptyState
+              title="No classes yet."
+              hint="A class starts from a subject's syllabus."
+              action={
+                <Link to="/tutor/subject-setup" className={buttonClasses("primary")}>
+                  Open Subject setup
+                </Link>
+              }
+            />
+          </SectionCard>
+        </>
+      );
+    }
+
+    // The class the accepted plan belongs to, read from the state that ended the flow.
+    const acceptedClass = sawFlow
+      ? onboarding.data?.subjects
+          .flatMap((s) => s.classes)
+          .find((c) => c.steps.some((st) => st.key === "plan_accepted" && st.done))
+      : undefined;
+
     return (
-      <>
+      <div className="space-y-8">
+        {/* Always mounted so the change is announced. A second save alternates a
+          trailing space so the same sentence is read again. */}
+        <p role="status" className="sr-only">
+          {setupSaves > 0 ? `Saved. Setup updated.${setupSaves % 2 ? "" : "\u00a0"}` : ""}
+        </p>
+        {acceptedClass && (
+          <p className="rounded-lg bg-surface-muted px-4 py-3 text-sm text-ink-700">
+            Your teaching plan is accepted. Students can be added from the class page.{" "}
+            <Link
+              to={`/tutor/groups/${acceptedClass.group_id}/students`}
+              className="text-brand-600 hover:underline"
+            >
+              Open the Students tab for {acceptedClass.group_name}
+            </Link>
+          </p>
+        )}
         {flow}
-        <SectionCard>
-          <EmptyState
-            title="No classes yet."
-            hint="A class starts from a subject's syllabus."
-            action={
-              <Link to="/tutor/subject-setup" className={buttonClasses("primary")}>
-                Open Subject setup
-              </Link>
+        {/* The verdict is the first thing read and the primary target. Under the
+          guide it is a section heading: the guide holds the page's one h1. */}
+        <EmbeddedPageContext.Provider value={flow ? "overview-verdict" : false}>
+          <PageHeader
+            eyebrow={dayZone ? todayLabel(dayZone) : undefined}
+            title={line1}
+            documentTitle="Overview"
+            description={line2 ?? undefined}
+            actions={
+              <>
+                <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+                  <CalendarPlus aria-hidden className="h-4 w-4" />
+                  Schedule a lesson
+                </Button>
+                {view.review_count > 0 && (
+                  <Link to="/tutor/review" className={buttonClasses("primary")}>
+                    Review marking
+                  </Link>
+                )}
+              </>
             }
           />
-        </SectionCard>
-        {status}
-        {footer}
-      </>
-    );
-  }
+        </EmbeddedPageContext.Provider>
 
-  // The class the accepted plan belongs to, read from the state that ended the flow.
-  const acceptedClass = sawFlow
-    ? onboarding.data?.subjects
-        .flatMap((s) => s.classes)
-        .find((c) => c.steps.some((st) => st.key === "plan_accepted" && st.done))
-    : undefined;
+        {/* Not in the flow: while a tutor is in it, the flow is the setup path. */}
+        {!flow && (
+          <SetupChecklist
+            onAcknowledged={() => setSetupSaves((n) => n + 1)}
+            dismissals={dismissals}
+          />
+        )}
 
-  return (
-    <div className="space-y-8">
-      {/* Always mounted so the change is announced. A second save alternates a
-          trailing space so the same sentence is read again. */}
-      <p role="status" className="sr-only">
-        {setupSaves > 0 ? `Saved. Setup updated.${setupSaves % 2 ? "" : "\u00a0"}` : ""}
-      </p>
-      {acceptedClass && (
-        <p className="rounded-lg bg-surface-muted px-4 py-3 text-sm text-ink-700">
-          Your teaching plan is accepted. Students can be added from the class page.{" "}
-          <Link
-            to={`/tutor/groups/${acceptedClass.group_id}/students`}
-            className="text-brand-600 hover:underline"
-          >
-            Open the Students tab for {acceptedClass.group_name}
-          </Link>
-        </p>
-      )}
-      {flow}
-      {/* The verdict is the first thing read and the primary target. Under the
-          guide it is a section heading: the guide holds the page's one h1. */}
-      <EmbeddedPageContext.Provider value={flow ? "overview-verdict" : false}>
-        <PageHeader
-          eyebrow={dayZone ? todayLabel(dayZone) : undefined}
-          title={line1}
-          documentTitle="Overview"
-          description={line2 ?? undefined}
-          actions={
-            <>
-              <Button variant="secondary" onClick={() => setCreateOpen(true)}>
-                <CalendarPlus aria-hidden className="h-4 w-4" />
-                Schedule a lesson
+        {overview.data ? (
+          <WeekGlance week={overview.data.week} />
+        ) : (
+          overview.isError && (
+            <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
+              Couldn&apos;t load this week and today&apos;s lessons.
+              <Button type="button" size="sm" variant="ghost" onClick={() => overview.refetch()}>
+                Retry
               </Button>
-              {view.review_count > 0 && (
-                <Link to="/tutor/review" className={buttonClasses("primary")}>
-                  Review marking
-                </Link>
-              )}
-            </>
-          }
-        />
-      </EmbeddedPageContext.Provider>
+            </p>
+          )
+        )}
 
-      {/* Not in the flow: while a tutor is in it, the flow is the setup path. */}
-      {!flow && (
-        <SetupChecklist
-          onAcknowledged={() => setSetupSaves((n) => n + 1)}
-          dismissals={dismissals}
-        />
-      )}
+        {overview.data && <TodayAgenda items={overview.data.agenda} />}
 
-      {overview.data ? (
-        <WeekGlance week={overview.data.week} />
-      ) : (
-        overview.isError && (
-          <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
-            Couldn&apos;t load this week and today&apos;s lessons.
-            <Button type="button" size="sm" variant="ghost" onClick={() => overview.refetch()}>
-              Retry
-            </Button>
-          </p>
-        )
-      )}
+        <ClassCards rows={view.classes} cards={overview.data?.classes} />
 
-      {overview.data && <TodayAgenda items={overview.data.agenda} />}
-
-      <ClassCards rows={view.classes} cards={overview.data?.classes} />
-
-      {/* Not suppressed on a clear day: it is about next week's preparation, not
+        {/* Not suppressed on a clear day: it is about next week's preparation, not
           today's backlog, and the lookahead is its whole point. */}
-      <ChapterPrompts prompts={view.chapter_prompts ?? []} dismissals={dismissals} />
+        <ChapterPrompts prompts={view.chapter_prompts ?? []} dismissals={dismissals} />
 
-      {/* WHAT CHANGED reads the stored narrative — present on open, never a
+        {/* WHAT CHANGED reads the stored narrative — present on open, never a
           surface waiting on a model call (spec §8). Suppressed on a clear day,
           where the terminal sentence below is the whole message. */}
-      {!clear && <ClassNarrative classes={view.classes} />}
+        {!clear && <ClassNarrative classes={view.classes} />}
 
-      {/* A link into the stored weekly send, not a copy of it (AV-51). */}
-      <WeeklySendLink home="/tutor" />
+        {/* A link into the stored weekly send, not a copy of it (AV-51). */}
+        <WeeklySendLink home="/tutor" />
 
-      {/* Gated on the rows it renders, not on review_count: the count comes from
+        {/* Gated on the rows it renders, not on review_count: the count comes from
           the aggregate and the rows from separate queries, so while those load
           (or resolve empty) a heading over an empty list is the empty panel
           UX-29 forbids. */}
-      {attention.isError && (
-        <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
-          Couldn&apos;t check what needs you.
-          <Button type="button" size="sm" variant="ghost" onClick={() => attention.refetch()}>
-            Retry
-          </Button>
-        </p>
-      )}
-      <NeedsYou items={attentionItems} remarks={remarks} />
+        {attention.isError && (
+          <p role="status" className="flex items-center gap-2 text-sm text-ink-500">
+            Couldn&apos;t check what needs you.
+            <Button type="button" size="sm" variant="ghost" onClick={() => attention.refetch()}>
+              Retry
+            </Button>
+          </p>
+        )}
+        <NeedsYou items={attentionItems} remarks={remarks} />
 
-      {showSignOff && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
+        {showSignOff && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
 
-      {/* The way back for everything hidden above: the setup guide and checklist,
-          the plan prompts and the lesson reminders. Not "Needs you", which has no
-          "Not now" at all: hiding it would let a student's work silently never be
-          marked. */}
+        <CreateLessonModal
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          groups={groups.data}
+          onCreated={() => {
+            showToast("Lesson scheduled.");
+          }}
+        />
+        {toast}
+      </div>
+    );
+  })();
+
+  // Rendered here, once, around every state the page can be in: the same DOM
+  // nodes survive a change of branch, so the live region is not remounted holding
+  // text (which is often not read) and focus placed on it is not lost. The footer
+  // is the way back for everything hidden above, in the setup guide and checklist,
+  // the plan prompts and the lesson reminders. Not "Needs you", which has no "Not
+  // now" at all: hiding it would let a student's work silently never be marked.
+  return (
+    <>
+      {body}
       {footer}
       {status}
-
-      <CreateLessonModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        groups={groups.data}
-        onCreated={() => {
-          showToast("Lesson scheduled.");
-        }}
-      />
-      {toast}
-    </div>
+    </>
   );
 }
 

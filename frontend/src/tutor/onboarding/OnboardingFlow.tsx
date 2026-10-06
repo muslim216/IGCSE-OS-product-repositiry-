@@ -349,7 +349,8 @@ export default function OnboardingFlow({
           <NotNow
             scope
             what={overDashboard ? "finishing setup" : "setting up your first class"}
-            onHide={() => dismissals.hide(GUIDE_KEY)}
+            dismissals={dismissals}
+            hideKey={GUIDE_KEY}
           />
         </div>
       )}
@@ -405,13 +406,7 @@ export default function OnboardingFlow({
               </h2>
               {dismissals && actionable(step.id) && (
                 <div className="px-5 pb-3 -mt-2">
-                  <NotNow
-                    what={step.name}
-                    onHide={() => {
-                      const key = keyOf(step.id);
-                      if (key) dismissals.hide(key);
-                    }}
-                  />
+                  <NotNow what={step.name} dismissals={dismissals} hideKey={keyOf(step.id)} />
                 </div>
               )}
               {locked && (

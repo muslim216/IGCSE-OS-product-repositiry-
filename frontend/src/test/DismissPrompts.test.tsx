@@ -62,6 +62,7 @@ let todayExtra: Record<string, unknown>;
 let attention: unknown[];
 let hidden: Set<string>;
 let failPut: boolean;
+let gate: Promise<void> | null;
 let calls: { method: string; path: string }[];
 
 function stub() {
@@ -76,7 +77,10 @@ function stub() {
         return json({ id: 1, email: "t@example.com", username: null, role: "tutor", name: "T" });
       if (path.startsWith("/api/v1/me/dismissals")) {
         if (method !== "GET") calls.push({ method, path });
-        if (method === "GET") return json({ keys: [...hidden] });
+        if (method === "GET") {
+          if (gate) await gate;
+          return json({ keys: [...hidden] });
+        }
         if (method === "PUT") {
           if (failPut) return new Response(JSON.stringify({ detail: "Nope" }), { status: 500 });
           hidden.add(path.split("/dismissals/")[1]);
@@ -126,6 +130,7 @@ beforeEach(() => {
   attention = [];
   hidden = new Set();
   failPut = false;
+  gate = null;
   calls = [];
   stub();
 });
@@ -150,7 +155,9 @@ test("hiding a checklist line removes it, saves it, and Show hidden brings it ba
   ]);
   // Said politely, and the way back is named.
   expect(
-    screen.getByText("Hidden. You can bring it back from the bottom of this page."),
+    screen.getByText(
+      "Hidden: Set boundaries for Chemistry. You can bring it back from the bottom of this page.",
+    ),
   ).toBeInTheDocument();
   expect(await screen.findByText("1 hidden")).toBeInTheDocument();
 
@@ -274,4 +281,110 @@ test("Not now on the whole guide shows the Overview, and Show hidden brings the 
   expect(
     await screen.findByRole("heading", { level: 1, name: "Set up your first class" }),
   ).toBeInTheDocument();
+});
+
+const prompt2 = { ...PROMPT, chapter_id: 10, chapter_code: "5" };
+
+test("Not now on the timetable step of a subject with no class hides it", async () => {
+  todayExtra = { class_count: 0 };
+  onboarding = state({
+    in_flow: true,
+    subjects: [subject({ classes: [] })],
+    next_step: { key: "timetable", subject_id: 7, group_id: null },
+  });
+  renderApp();
+  fireEvent.click(await screen.findByRole("button", { name: "Not now: Class and timetable" }));
+  await waitFor(() =>
+    expect(calls[0]).toEqual({
+      method: "PUT",
+      path: "/api/v1/me/dismissals/setup_step:timetable:subject-7",
+    }),
+  );
+  expect(await screen.findByText("Put aside")).toBeInTheDocument();
+});
+
+test("a tutor who hid the guide never sees it, only the loading state, on the way to the Overview", async () => {
+  todayExtra = { class_count: 0 };
+  onboarding = state({
+    in_flow: true,
+    account: item("account_basics", "default"),
+    subjects: [],
+    next_step: { key: "syllabus", subject_id: null, group_id: null },
+  });
+  hidden.add("setup_guide");
+  let release!: () => void;
+  gate = new Promise<void>((resolve) => (release = resolve));
+  renderApp();
+  await screen.findByLabelText("Loading overview");
+  expect(screen.queryByRole("heading", { level: 1, name: "Set up your first class" })).toBeNull();
+  release();
+  expect(await screen.findByText("No classes yet.")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 1, name: "Set up your first class" })).toBeNull();
+});
+
+test("a hide made while the list is still loading does not un-hide what was already hidden", async () => {
+  hidden.add("chapter_prompt:3:10");
+  todayExtra = { chapter_prompts: [PROMPT, prompt2] };
+  onboarding = state({
+    subjects: [subject({ items: subject().items.map((i) => ({ ...i, state: "set_by_you" })) })],
+  });
+  let release!: () => void;
+  gate = new Promise<void>((resolve) => (release = resolve));
+  renderApp();
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Not now: Year 11 Chemistry, Chapter 4" }),
+  );
+  release();
+  await waitFor(() => expect(screen.queryByText("Coming up in your plan")).toBeNull());
+  expect(await screen.findByText("2 hidden")).toBeInTheDocument();
+});
+
+test("each hide is announced afresh, and the live region is the same node throughout", async () => {
+  todayExtra = { chapter_prompts: [PROMPT, prompt2] };
+  onboarding = state({
+    subjects: [subject({ items: subject().items.map((i) => ({ ...i, state: "set_by_you" })) })],
+  });
+  renderApp();
+  const region = await waitFor(() => {
+    const el = document.querySelector("[data-dismissal-status]");
+    expect(el).not.toBeNull();
+    return el;
+  });
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Not now: Year 11 Chemistry, Chapter 4" }),
+  );
+  await waitFor(() => expect(region).toHaveTextContent("Chapter 4"));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Not now: Year 11 Chemistry, Chapter 5" }),
+  );
+  await waitFor(() => expect(region).toHaveTextContent("Chapter 5"));
+  expect(document.querySelector("[data-dismissal-status]")).toBe(region);
+});
+
+test("hiding the whole guide keeps the same live region node", async () => {
+  todayExtra = { class_count: 0 };
+  onboarding = state({
+    in_flow: true,
+    account: item("account_basics", "default"),
+    subjects: [],
+    next_step: { key: "syllabus", subject_id: null, group_id: null },
+  });
+  renderApp();
+  const button = await screen.findByRole("button", {
+    name: "Not now: setting up your first class",
+  });
+  const region = document.querySelector("[data-dismissal-status]");
+  expect(region).not.toBeNull();
+  fireEvent.click(button);
+  await screen.findByText("No classes yet.");
+  expect(document.querySelector("[data-dismissal-status]")).toBe(region);
+});
+
+test("the footer counts only keys that hide something the page would show", async () => {
+  hidden.add("lesson_reminder:99");
+  hidden.add("setup_checklist:7:syllabus");
+  hidden.add("setup_step:plan_inputs:1");
+  renderApp();
+  await screen.findByRole("button", { name: BOUNDARIES_LINE });
+  expect(screen.queryByRole("button", { name: "Show hidden" })).toBeNull();
 });

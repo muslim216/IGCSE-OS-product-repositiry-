@@ -6,7 +6,7 @@ import { cancelPlanSlot } from "../../api/teachingPlan";
 import { friendlyError } from "../../lib/errors";
 import { Button } from "../../components/controls";
 import NotNow from "../../components/NotNow";
-import type { Dismissals } from "../../lib/dismissals";
+import { useReportHidden, type Dismissals } from "../../lib/dismissals";
 
 const POLL_MS = 60_000;
 
@@ -82,7 +82,8 @@ function Reminder({
           {dismissals && (
             <NotNow
               what={`${r.group_name} lesson reminder`}
-              onHide={() => dismissals.hide(reminderKey(r))}
+              dismissals={dismissals}
+              hideKey={reminderKey(r)}
             />
           )}
         </span>
@@ -122,8 +123,14 @@ export default function LessonReminders({ dismissals }: { dismissals?: Dismissal
   const [notice, setNotice] = useState<string | null>(null);
   // An extra on the home page: anything but a list renders nothing rather than
   // taking the page down with it.
-  const rows = (Array.isArray(reminders.data) ? reminders.data : []).filter(
-    (r) => !dismissals?.isHidden(reminderKey(r)),
+  const all = Array.isArray(reminders.data) ? reminders.data : [];
+  const rows = all.filter((r) => !dismissals?.isHidden(reminderKey(r)));
+  // Only reminders still on offer are counted as hidden: one for a lesson that
+  // has passed no longer hides anything.
+  useReportHidden(
+    dismissals,
+    "lesson-reminders",
+    all.filter((r) => dismissals?.isHidden(reminderKey(r))).map(reminderKey),
   );
   // A failed check is not "nothing starting soon" (PROD-2): say so, quietly, even
   // when older rows are still cached (they may be stale).
