@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { PenLine } from "lucide-react";
 import { listGroups, listSubjects } from "../api/groups";
-import { listAssessments } from "../api/readiness";
+import { listAssessments, type Assessment } from "../api/readiness";
 import { buttonClasses } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton, Skeleton } from "../components/page";
 import { SubjectPicker, SubjectSection } from "../components/SubjectGroups";
@@ -17,7 +17,27 @@ export default function MocksPage() {
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
   const assessments = useQuery({ queryKey: ["assessments"], queryFn: () => listAssessments() });
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
-  const filter = useSubjectFilter(assessments.data, subjects.data);
+  const filter = useSubjectFilter(assessments.data, subjects.isSuccess ? subjects.data : undefined);
+
+  const recorded = (items: Assessment[]) => (
+    <ul className="divide-y divide-line text-sm">
+      {items.map((a) => (
+        <li
+          key={a.id}
+          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5"
+        >
+          <span className="font-medium text-ink-900">{a.title}</span>
+          <span className="text-ink-500">
+            {TYPE_LABEL[a.type] ?? "Assessment"} ·{" "}
+            {/* A calendar date with no time: read in UTC, or a reader
+                west of Greenwich sees the day before it was sat. */}
+            {formatDayMonth(new Date(a.date), "UTC")} · {a.score_count}{" "}
+            {a.score_count === 1 ? "score" : "scores"} entered
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div>
@@ -28,7 +48,11 @@ export default function MocksPage() {
 
       <div className="space-y-8">
         <section className="space-y-3">
-          <SectionHeader title="Enter marks" description="Choose the class that sat it." />
+          <SectionHeader
+            title="Enter marks"
+            description="Choose the class that sat it."
+            level="h2"
+          />
           {groups.isLoading ? (
             <div
               role="status"
@@ -93,29 +117,16 @@ export default function MocksPage() {
                     groups={filter.groups}
                     value={filter.picked}
                     onChange={filter.setPicked}
+                    noun={["mock or test", "mocks and tests"]}
                   />
                 )}
-                {filter.visible.map((g) => (
-                  <SubjectSection key={g.id} subject={g.subject}>
-                    <ul className="divide-y divide-line text-sm">
-                      {g.items.map((a) => (
-                        <li
-                          key={a.id}
-                          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5"
-                        >
-                          <span className="font-medium text-ink-900">{a.title}</span>
-                          <span className="text-ink-500">
-                            {TYPE_LABEL[a.type] ?? "Assessment"} ·{" "}
-                            {/* A calendar date with no time: read in UTC, or a reader
-                                west of Greenwich sees the day before it was sat. */}
-                            {formatDayMonth(new Date(a.date), "UTC")} · {a.score_count}{" "}
-                            {a.score_count === 1 ? "score" : "scores"} entered
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </SubjectSection>
-                ))}
+                {filter.ready
+                  ? filter.visible.map((g) => (
+                      <SubjectSection key={g.id} subject={g.subject}>
+                        {recorded(g.items)}
+                      </SubjectSection>
+                    ))
+                  : recorded(assessments.data ?? [])}
               </div>
             )}
           </div>

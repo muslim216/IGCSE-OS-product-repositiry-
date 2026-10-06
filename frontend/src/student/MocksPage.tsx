@@ -15,8 +15,10 @@ export default function MocksPage() {
   // than as "Subject 4" (`PROD-2`).
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
   const subjectName = new Map(subjects.data?.map((s) => [s.id, s.name]));
-  const groups = groupBySubject(mocks.data, subjects.data);
-  const grouped = groups.length > 1;
+  // Grouped only once the names have arrived: without them every item would
+  // sit under "Other subject", and if the request fails they never will.
+  const groups = groupBySubject(mocks.data, subjects.isSuccess ? subjects.data : undefined);
+  const grouped = subjects.isSuccess && groups.length > 1;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -90,7 +92,7 @@ export default function MocksPage() {
               </ul>
             );
             return grouped ? (
-              <SubjectSection key={g.id} subject={g.subject}>
+              <SubjectSection key={g.id} subject={g.subject} level="h2">
                 {list}
               </SubjectSection>
             ) : (

@@ -13,8 +13,10 @@ export default function PastPapersPage() {
   // The paper row carries only `subject_id`; names come from the subject list.
   // Headings appear only once the student has papers in more than one subject.
   const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
-  const groups = groupBySubject(papers.data, subjects.data);
-  const grouped = groups.length > 1;
+  // Grouped only once the names have arrived: without them every item would
+  // sit under "Other subject", and if the request fails they never will.
+  const groups = groupBySubject(papers.data, subjects.isSuccess ? subjects.data : undefined);
+  const grouped = subjects.isSuccess && groups.length > 1;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -67,7 +69,7 @@ export default function PastPapersPage() {
               </ul>
             );
             return grouped ? (
-              <SubjectSection key={g.id} subject={g.subject}>
+              <SubjectSection key={g.id} subject={g.subject} level="h2">
                 {list}
               </SubjectSection>
             ) : (
