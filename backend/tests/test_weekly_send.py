@@ -518,7 +518,8 @@ async def test_a_parent_loses_a_child_they_are_no_longer_linked_to(client, world
     ids = await _two_child_parent_send(world, subject)
     headers = world["parent"]["headers"]
     both = (await client.get(f"{URL}/{ids['send']}", headers=headers)).json()
-    assert _names(both) == ["Omar", "Sara"] and len(both["paragraphs"]) == 2
+    assert _names(both) == ["Omar", "Sara"]
+    assert len(both["paragraphs"]) == 2
     async with async_session() as s:
         await s.execute(delete(ParentLink).where(ParentLink.student_id == ids["omar"]))
         await s.commit()
@@ -549,10 +550,12 @@ async def test_a_tutor_reads_only_the_children_they_teach_in_a_parents_send(
     ids = await _two_child_parent_send(world, subject)
     url = f"{URL}/{ids['send']}"
     mine = (await client.get(url, headers=tutor["headers"])).json()
-    assert _names(mine) == ["Sara"] and "Omar" not in str(mine)
+    assert _names(mine) == ["Sara"]
+    assert "Omar" not in str(mine)
     assert [p["about"] for p in mine["paragraphs"]] == ["Sara"]
     theirs = (await client.get(url, headers=ids["other_headers"])).json()
-    assert _names(theirs) == ["Omar"] and "Sara" not in str(theirs)
+    assert _names(theirs) == ["Omar"]
+    assert "Sara" not in str(theirs)
     listed = await client.get(
         f"/api/v1/students/{student['user']['id']}/weekly-sends", headers=tutor["headers"]
     )
