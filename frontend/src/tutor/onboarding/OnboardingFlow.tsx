@@ -14,6 +14,18 @@ import { SectionCard } from "../../components/ui";
 import { friendlyError } from "../../lib/errors";
 import { ITEM_NAMES, ITEM_SECTIONS, stateLabel } from "../../lib/onboarding";
 import { subjectSetupPath } from "../../lib/subjectSetup";
+import NotNow from "../../components/NotNow";
+import type { Dismissals } from "../../lib/dismissals";
+import {
+  CLASS_STEPS,
+  DEFAULT_ROWS,
+  GUIDE_KEY,
+  STEPS,
+  SUBJECT_STEPS,
+  guideModel,
+  stepName,
+  type StepId,
+} from "./guideModel";
 import GradeBoundariesPage from "../GradeBoundariesPage";
 import SetupState from "../SetupState";
 import { SectionBoundary } from "../SectionedPage";
@@ -45,42 +57,9 @@ import WeeklySendSetting from "../WeeklySendSetting";
  * dashboard, by the query changing, never by a redirect here.
  */
 
-type StepId =
-  | "account"
-  | "syllabus"
-  | "boundaries"
-  | "defaults"
-  | "guidance"
-  | "timetable"
-  | "taught_before"
-  | "plan_inputs"
-  | "plan_accepted";
-
-type Marker = "Required" | "Optional" | "Can wait";
-
-const STEPS: { id: StepId; name: string; marker: Marker }[] = [
-  { id: "account", name: "Time zone and weekly summary", marker: "Can wait" },
-  { id: "syllabus", name: "Syllabus", marker: "Required" },
-  { id: "boundaries", name: "Grade boundaries", marker: "Can wait" },
-  { id: "defaults", name: "Avora's marking defaults", marker: "Can wait" },
-  { id: "guidance", name: "Teaching guidance", marker: "Optional" },
-  { id: "timetable", name: "Class and timetable", marker: "Required" },
-  { id: "taught_before", name: "Where this class is up to", marker: "Required" },
-  { id: "plan_inputs", name: "Plan details", marker: "Required" },
-  { id: "plan_accepted", name: "Accept the teaching plan", marker: "Required" },
-];
-
-const SUBJECT_STEPS: StepId[] = ["boundaries", "defaults", "guidance", "timetable"];
-const CLASS_STEPS: StepId[] = ["taught_before", "plan_inputs", "plan_accepted"];
-const DEFAULT_ROWS = ["marking_rules", "mistake_categories", "weak_threshold"] as const;
-
 const LINK = "inline-flex min-h-6 items-center text-sm text-brand-600 hover:underline";
 const ROW = "flex flex-wrap items-center gap-x-3 gap-y-1 py-2";
 const BADGE = "rounded-full border border-line px-2 py-0.5 text-xs text-ink-700";
-
-const stepName = (id: StepId) => STEPS.find((s) => s.id === id)!.name;
-const isStepId = (key: string | undefined): key is StepId =>
-  key === "syllabus" || CLASS_STEPS.includes(key as StepId) || key === "timetable";
 
 function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjectName: string }) {
   const queryClient = useQueryClient();
@@ -154,39 +133,23 @@ function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjec
 export default function OnboardingFlow({
   data,
   overDashboard = false,
+  dismissals,
 }: {
   data: OnboardingState;
+  /** What the tutor has put aside, and how to put more aside. Optional so the
+      guide can be shown without the means to skip (owner, 2026-10-06). */
+  dismissals?: Dismissals;
   /** The tutor already runs a class, so the dashboard stays in use underneath
       (owner, 2026-10-06): the copy must not call this their first class or
       promise a page that is already there. */
   overDashboard?: boolean;
 }) {
-  const next = data.next_step;
-  const subject = data.subjects.find((s) => s.subject_id === next?.subject_id);
-  const klass = subject?.classes.find((c) => c.group_id === next?.group_id);
-  const syllabusDone = data.subjects.some((s) =>
-    s.required.some((r) => r.key === "syllabus" && r.done),
+  // Without `dismissals` nothing can be put aside and nothing is: the guide as it was.
+  const { subject, klass, defaultOpen, isDone, needs, keyOf, skipped, actionable } = guideModel(
+    data,
+    dismissals?.isHidden ?? (() => false),
   );
-  const subjectReady = !!subject && subject.required.some((r) => r.key === "syllabus" && r.done);
-  const classDone = (key: string) => klass?.steps.find((s) => s.key === key)?.done ?? false;
-  const nextId: StepId | null = isStepId(next?.key) ? (next?.key as StepId) : null;
-
-  const isDone = (id: StepId): boolean => {
-    if (id === "syllabus") return syllabusDone;
-    if (id === "timetable" || CLASS_STEPS.includes(id)) return classDone(id);
-    return false;
-  };
-  /** What an undone earlier step costs: the line shown instead of opening. */
-  const needs = (id: StepId): string | null => {
-    if (SUBJECT_STEPS.includes(id) && !subjectReady) return "Add the syllabus first";
-    if (id === "taught_before" && !(klass && classDone("timetable")))
-      return "Add the class and its timetable first";
-    if (id === "plan_inputs" && !(klass && classDone("taught_before")))
-      return "Say where this class is up to first";
-    if (id === "plan_accepted" && !(klass && classDone("plan_inputs")))
-      return "Enter the plan details first";
-    return null;
-  };
+  const nextId = defaultOpen;
 
   const [manual, setManual] = useState<StepId | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -211,7 +174,9 @@ export default function OnboardingFlow({
     setAnnouncement(
       before && isDone(before)
         ? `${stepName(before)} done. Next: ${stepName(nextId)}.`
-        : `Next: ${stepName(nextId)}.`,
+        : before && skipped(before)
+          ? `${stepName(before)} put aside. Next: ${stepName(nextId)}.`
+          : `Next: ${stepName(nextId)}.`,
     );
     // isDone reads the same data this effect is keyed on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -231,6 +196,7 @@ export default function OnboardingFlow({
   );
 
   const stateText = (id: StepId): string | null => {
+    if (skipped(id)) return "Put aside";
     if (id === "account") return stateLabel(data.account);
     if (id === "boundaries" || id === "guidance") {
       const item = subject?.items.find(
@@ -378,7 +344,16 @@ export default function OnboardingFlow({
             : "Steps marked Required come first, in order. Steps marked Can wait or Optional are not needed to start; they stay on your setup list on Overview. When you accept the teaching plan, this page becomes your Overview."
         }
       />
-      <ol className="space-y-3">
+      {dismissals && (
+        <div className="-mt-2 mb-4">
+          <NotNow
+            scope
+            what={overDashboard ? "finishing setup" : "setting up your first class"}
+            onHide={() => dismissals.hide(GUIDE_KEY)}
+          />
+        </div>
+      )}
+      <ol className="space-y-3" data-not-now-scope>
         {STEPS.map((step, index) => {
           const locked = needs(step.id);
           const isOpen = open === step.id && !locked;
@@ -428,6 +403,17 @@ export default function OnboardingFlow({
                   )}
                 </button>
               </h2>
+              {dismissals && actionable(step.id) && (
+                <div className="px-5 pb-3 -mt-2">
+                  <NotNow
+                    what={step.name}
+                    onHide={() => {
+                      const key = keyOf(step.id);
+                      if (key) dismissals.hide(key);
+                    }}
+                  />
+                </div>
+              )}
               {locked && (
                 <p id={reasonId} className="px-5 pb-4 text-sm text-ink-500">
                   {locked}

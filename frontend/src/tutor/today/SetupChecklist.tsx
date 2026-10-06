@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "../../components/controls";
+import NotNow from "../../components/NotNow";
+import type { Dismissals } from "../../lib/dismissals";
 import { friendlyError } from "../../lib/errors";
 import { ITEM_NAMES, ITEM_SECTIONS, useAcknowledge, useOnboarding } from "../../lib/onboarding";
 import { subjectSetupPath } from "../../lib/subjectSetup";
@@ -43,16 +45,30 @@ function itemState(subject: OnboardingSubject, key: string) {
 /** What still needs something in a subject. The card's visibility follows from
  *  these; the optional teaching guidance is listed but never makes a subject
  *  outstanding by itself. */
-function subjectNeeds(subject: OnboardingSubject) {
-  const syllabusMissing = subject.required.some((r) => r.key === "syllabus" && !r.done);
-  const defaults = subject.items.filter((i) => i.kind === "defaulted" && i.state === "default");
-  const boundariesNotSet = itemState(subject, "boundaries") === "not_set";
-  const guidanceNotSet = itemState(subject, "teaching_guidance") === "not_set";
+/** The key a line is hidden under. It names the subject and the thing asked for
+ *  (and for a class, the step it is on), so a different thing asked of the same
+ *  subject, or the next step of a class, is a new line and shows. */
+const lineKey = (subject: OnboardingSubject, line: string) =>
+  `setup_checklist:${subject.subject_id}:${line}`;
+const classLine = (c: OnboardingClass) =>
+  `class-${c.group_id}-${c.steps.find((s) => !s.done)?.key ?? "open"}`;
+const ACCOUNT_LINE = "setup_checklist:account";
+
+function subjectNeeds(subject: OnboardingSubject, hidden: (key: string) => boolean) {
+  const shown = (line: string) => !hidden(lineKey(subject, line));
+  const noSyllabus = subject.required.some((r) => r.key === "syllabus" && !r.done);
+  const syllabusMissing = noSyllabus && shown("syllabus");
+  const defaults = subject.items.filter(
+    (i) => i.kind === "defaulted" && i.state === "default" && shown(`default-${i.key}`),
+  );
+  const boundariesNotSet = itemState(subject, "boundaries") === "not_set" && shown("boundaries");
+  const guidanceNotSet = itemState(subject, "teaching_guidance") === "not_set" && shown("guidance");
   const classes = subject.classes
     .map((c) => ({ group: c, step: classStep(c) }))
-    .filter((c) => c.step !== null);
-  // A subject with a syllabus and no class has nothing to teach yet.
-  const noClass = !syllabusMissing && subject.classes.length === 0;
+    .filter((c) => c.step !== null && shown(classLine(c.group)));
+  // A subject with a syllabus and no class has nothing to teach yet. Judged on
+  // the server's syllabus state, not on whether that line is still showing.
+  const noClass = !noSyllabus && subject.classes.length === 0 && shown("no_class");
   const outstanding =
     syllabusMissing || defaults.length > 0 || boundariesNotSet || classes.length > 0 || noClass;
   return {
@@ -66,8 +82,11 @@ function subjectNeeds(subject: OnboardingSubject) {
   };
 }
 
-function anyOutstanding(data: OnboardingState): boolean {
-  return data.account.state === "default" || data.subjects.some((s) => subjectNeeds(s).outstanding);
+function anyOutstanding(data: OnboardingState, hidden: (key: string) => boolean): boolean {
+  return (
+    (data.account.state === "default" && !hidden(ACCOUNT_LINE)) ||
+    data.subjects.some((s) => subjectNeeds(s, hidden).outstanding)
+  );
 }
 
 /**
@@ -81,7 +100,16 @@ function anyOutstanding(data: OnboardingState): boolean {
  * but only when there is nothing to show: a failed background refetch keeps the
  * card the tutor was reading.
  */
-export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: () => void }) {
+export default function SetupChecklist({
+  onAcknowledged,
+  dismissals,
+}: {
+  onAcknowledged?: () => void;
+  /** Each unfinished line has a "Not now" while this is given (owner,
+      2026-10-06); without it every line shows and none can be put aside. */
+  dismissals?: Dismissals;
+}) {
+  const hidden = dismissals?.isHidden ?? (() => false);
   const onboarding = useOnboarding();
   const acknowledge = useAcknowledge();
 
@@ -112,7 +140,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
     );
   }
 
-  if (!anyOutstanding(data)) {
+  if (!anyOutstanding(data, hidden)) {
     // Only after the tutor has just cleared the last thing: somewhere for focus
     // to land that is not a button that no longer exists.
     return acknowledged ? (
@@ -128,6 +156,8 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
   const pending = (item: AcknowledgeableItem, subjectId: number | null) =>
     acknowledge.isPending && matches(item, subjectId);
 
+  const notNow = (key: string, what: string) =>
+    dismissals && <NotNow what={what} onHide={() => dismissals.hide(key)} />;
   const keepButton = (item: AcknowledgeableItem, subjectId: number | null, what: string) => (
     <Button
       type="button"
@@ -185,7 +215,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
         None of this blocks anything. Anything left on Avora&apos;s default keeps working.
       </p>
 
-      {data.account.state === "default" && (
+      {data.account.state === "default" && !hidden(ACCOUNT_LINE) && (
         <ul className="mt-4 border-t border-line">
           <li className={ROW}>
             <p className="min-w-0 flex-1 text-sm text-ink-700">
@@ -195,13 +225,14 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
               Review
             </Link>
             {keepButton("account_basics", null, "account settings")}
+            {notNow(ACCOUNT_LINE, "account settings")}
             {rowError("account_basics", null)}
           </li>
         </ul>
       )}
 
       {data.subjects.map((subject) => {
-        const needs = subjectNeeds(subject);
+        const needs = subjectNeeds(subject, hidden);
         if (!needs.outstanding) return null;
         const headingId = `setup-subject-${subject.subject_id}`;
         const name = subject.subject_name;
@@ -231,6 +262,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
                   >
                     Add a syllabus
                   </Link>
+                  {notNow(lineKey(subject, "syllabus"), `Add a syllabus for ${name}`)}
                 </li>
               )}
               {needs.boundariesNotSet && (
@@ -245,6 +277,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
                   >
                     Set boundaries
                   </Link>
+                  {notNow(lineKey(subject, "boundaries"), `Set boundaries for ${name}`)}
                 </li>
               )}
               {needs.defaults.map((item) => {
@@ -267,6 +300,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
                       subject.subject_id,
                       `${label}, ${name}`,
                     )}
+                    {notNow(lineKey(subject, `default-${item.key}`), `${label}, ${name}`)}
                     {rowError(item.key as AcknowledgeableItem, subject.subject_id)}
                   </li>
                 );
@@ -283,6 +317,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
                   >
                     Add
                   </Link>
+                  {notNow(lineKey(subject, "guidance"), `Teaching guidance for ${name}`)}
                 </li>
               )}
               {needs.noClass && (
@@ -293,6 +328,7 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
                   <Link to="/tutor/classes" className={LINK} aria-label={`Add a class for ${name}`}>
                     Add a class
                   </Link>
+                  {notNow(lineKey(subject, "no_class"), `Add a class for ${name}`)}
                 </li>
               )}
               {needs.classes.map(({ group, step }) => (
@@ -305,6 +341,10 @@ export default function SetupChecklist({ onAcknowledged }: { onAcknowledged?: ()
                   >
                     {step!.label}
                   </Link>
+                  {notNow(
+                    lineKey(subject, classLine(group)),
+                    `${step!.label} for ${group.group_name}`,
+                  )}
                 </li>
               ))}
             </ul>

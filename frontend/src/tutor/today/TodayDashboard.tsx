@@ -12,7 +12,10 @@ import { Button, buttonClasses } from "../../components/controls";
 import { EmbeddedPageContext, ErrorState, PageHeader, PageSkeleton } from "../../components/page";
 import { EmptyState, SectionCard } from "../../components/ui";
 import { useOnboarding } from "../../lib/onboarding";
+import { useDismissals } from "../../lib/dismissals";
+import { DismissalStatus, HiddenFooter } from "../../components/NotNow";
 import OnboardingFlow from "../onboarding/OnboardingFlow";
+import { guideIsGone } from "../onboarding/guideModel";
 import { isClearDay, verdictLine1, verdictLine2 } from "../../lib/verdict";
 import LessonReminders from "./LessonReminders";
 import ChapterPrompts from "./ChapterPrompts";
@@ -47,7 +50,16 @@ export default function TodayDashboard() {
   // What decides whether this page is the setup flow (9.1c). The server says
   // (`in_flow`, SEC-10); this only reads it.
   const onboarding = useOnboarding();
-  const inFlow = onboarding.data?.in_flow === true;
+  // What the tutor has put aside with "Not now". While it loads, or if it fails,
+  // nothing is hidden: the page is what it was before this existed.
+  const dismissals = useDismissals();
+  // The server says the tutor is in the flow; the tutor may have put the whole
+  // guide, or every step still left in it, aside (owner, 2026-10-06). Then this is
+  // the ordinary Overview, which for a tutor with no class is its no-class state.
+  const guideGone = onboarding.data ? guideIsGone(onboarding.data, dismissals.isHidden) : false;
+  const inFlow = onboarding.data?.in_flow === true && !guideGone;
+  const status = <DismissalStatus dismissals={dismissals} />;
+  const footer = <HiddenFooter dismissals={dismissals} />;
   // Per visit, in component state: the line below shows when this page has just
   // changed from the flow to the dashboard, and is gone on the next visit.
   const [sawFlow, setSawFlow] = useState(false);
@@ -111,16 +123,27 @@ export default function TodayDashboard() {
   // A failed or malformed onboarding read falls through to the dashboard as it
   // was before the flow existed: a read that failed must not trap a tutor on a
   // home they cannot use. The Setup card says on its own that it did not load.
-  if (flowAlone && onboarding.data) return <OnboardingFlow data={onboarding.data} />;
+  if (flowAlone && onboarding.data) {
+    return (
+      <>
+        <OnboardingFlow data={onboarding.data} dismissals={dismissals} />
+        {status}
+        {footer}
+      </>
+    );
+  }
   // Above every state of the dashboard, a failed one included: the guide reads
   // its own data and must not disappear because the home aggregate did not load.
   const flow =
-    inFlow && onboarding.data ? <OnboardingFlow data={onboarding.data} overDashboard /> : null;
+    inFlow && onboarding.data ? (
+      <OnboardingFlow data={onboarding.data} overDashboard dismissals={dismissals} />
+    ) : null;
 
   if (today.isLoading) {
     return (
       <>
         {flow}
+        {status}
         <PageSkeleton rows={3} label="Loading overview" />
       </>
     );
@@ -141,7 +164,9 @@ export default function TodayDashboard() {
         />
         {/* Fetches its own data: a lesson about to start must not hide behind a
             failed home aggregate. */}
-        <LessonReminders />
+        <LessonReminders dismissals={dismissals} />
+        {status}
+        {footer}
       </>
     );
   }
@@ -166,8 +191,8 @@ export default function TodayDashboard() {
   // being printed, but do not change which sections open (task 6.6).
   const showSignOff = clear && (view.behind_classes ?? []).length === 0;
 
-  // Only reached when the onboarding read failed (otherwise a tutor with no class
-  // is in the flow): every section below would be an honest but useless absence,
+  // Only reached when the onboarding read failed, or the tutor put the setup guide
+  // aside with "Not now" (otherwise a tutor with no class is in the flow): every section below would be an honest but useless absence,
   // so say so plainly and point at where a class begins.
   if (view.class_count === 0) {
     return (
@@ -184,6 +209,8 @@ export default function TodayDashboard() {
             }
           />
         </SectionCard>
+        {status}
+        {footer}
       </>
     );
   }
@@ -239,7 +266,12 @@ export default function TodayDashboard() {
       </EmbeddedPageContext.Provider>
 
       {/* Not in the flow: while a tutor is in it, the flow is the setup path. */}
-      {!flow && <SetupChecklist onAcknowledged={() => setSetupSaves((n) => n + 1)} />}
+      {!flow && (
+        <SetupChecklist
+          onAcknowledged={() => setSetupSaves((n) => n + 1)}
+          dismissals={dismissals}
+        />
+      )}
 
       {overview.data ? (
         <WeekGlance week={overview.data.week} />
@@ -260,7 +292,7 @@ export default function TodayDashboard() {
 
       {/* Not suppressed on a clear day: it is about next week's preparation, not
           today's backlog, and the lookahead is its whole point. */}
-      <ChapterPrompts prompts={view.chapter_prompts ?? []} />
+      <ChapterPrompts prompts={view.chapter_prompts ?? []} dismissals={dismissals} />
 
       {/* WHAT CHANGED reads the stored narrative — present on open, never a
           surface waiting on a model call (spec §8). Suppressed on a clear day,
@@ -285,6 +317,13 @@ export default function TodayDashboard() {
       <NeedsYou items={attentionItems} remarks={remarks} />
 
       {showSignOff && <p className="text-sm text-ink-500">That's everything. Enjoy your day.</p>}
+
+      {/* The way back for everything hidden above: the setup guide and checklist,
+          the plan prompts and the lesson reminders. Not "Needs you", which has no
+          "Not now" at all: hiding it would let a student's work silently never be
+          marked. */}
+      {footer}
+      {status}
 
       <CreateLessonModal
         open={createOpen}

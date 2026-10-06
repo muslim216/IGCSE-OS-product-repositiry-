@@ -5,6 +5,8 @@ import { lessonReminders, type LessonReminder } from "../../api/today";
 import { cancelPlanSlot } from "../../api/teachingPlan";
 import { friendlyError } from "../../lib/errors";
 import { Button } from "../../components/controls";
+import NotNow from "../../components/NotNow";
+import type { Dismissals } from "../../lib/dismissals";
 
 const POLL_MS = 60_000;
 
@@ -16,14 +18,18 @@ function whenLabel(startsAt: string, now: number): string {
   return minutes === 1 ? "in 1 min" : `in ${minutes} min`;
 }
 
+const reminderKey = (r: LessonReminder) => `lesson_reminder:${r.slot_id}`;
+
 function Reminder({
   r,
   now,
   onNotice,
+  dismissals,
 }: {
   r: LessonReminder;
   now: number;
   onNotice: (message: string | null) => void;
+  dismissals?: Dismissals;
 }) {
   const queryClient = useQueryClient();
   const cancel = useMutation({
@@ -73,6 +79,12 @@ function Reminder({
           >
             Cancel
           </Button>
+          {dismissals && (
+            <NotNow
+              what={`${r.group_name} lesson reminder`}
+              onHide={() => dismissals.hide(reminderKey(r))}
+            />
+          )}
         </span>
       </div>
       {cancel.isError && (
@@ -87,12 +99,16 @@ function Reminder({
 /**
  * Planned lessons starting within 15 minutes, or under way (task 7.4, AV-120).
  * In-app only: computed server-side from the accepted plan at read time, so
- * there is nothing to dismiss or clear. Review opens the record form pre-filled
+ * there is nothing to clear on the server. This once said there was also nothing
+ * to dismiss; the owner decided otherwise on 2026-10-06 ("every single task needs
+ * a way to stop it bothering the user"), so each reminder has a "Not now". It
+ * hides that lesson's reminder only (the key is the slot), never the plan, the
+ * lesson or the next lesson's reminder. Review opens the record form pre-filled
  * with what the plan says; Cancel is one tap and shifts the plan. Renders
  * nothing when there is no reminder, or when it cannot be loaded — it is
  * information, never a gate (UX-29).
  */
-export default function LessonReminders() {
+export default function LessonReminders({ dismissals }: { dismissals?: Dismissals }) {
   const reminders = useQuery({
     queryKey: ["lesson-reminders"],
     queryFn: lessonReminders,
@@ -106,7 +122,9 @@ export default function LessonReminders() {
   const [notice, setNotice] = useState<string | null>(null);
   // An extra on the home page: anything but a list renders nothing rather than
   // taking the page down with it.
-  const rows = Array.isArray(reminders.data) ? reminders.data : [];
+  const rows = (Array.isArray(reminders.data) ? reminders.data : []).filter(
+    (r) => !dismissals?.isHidden(reminderKey(r)),
+  );
   // A failed check is not "nothing starting soon" (PROD-2): say so, quietly, even
   // when older rows are still cached (they may be stale).
   const failed = reminders.isError ? (
@@ -131,7 +149,7 @@ export default function LessonReminders() {
       {failed}
       <ul>
         {rows.map((r) => (
-          <Reminder key={r.slot_id} r={r} now={now} onNotice={setNotice} />
+          <Reminder key={r.slot_id} r={r} now={now} onNotice={setNotice} dismissals={dismissals} />
         ))}
       </ul>
     </section>
