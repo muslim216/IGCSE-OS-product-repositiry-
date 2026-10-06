@@ -82,25 +82,33 @@ function subjectNeeds(subject: OnboardingSubject, hidden: (key: string) => boole
   };
 }
 
+/** Every line the server still asks for in a subject, hidden or not. */
+function rawLines(subject: OnboardingSubject): string[] {
+  const raw = subjectNeeds(subject, () => false);
+  const flags: [boolean, string][] = [
+    [raw.syllabusMissing, "syllabus"],
+    [raw.boundariesNotSet, "boundaries"],
+    // The guidance line is only ever offered inside a subject that needs something.
+    [raw.guidanceNotSet && raw.outstanding, "guidance"],
+    [raw.noClass, "no_class"],
+  ];
+  return [
+    ...flags.filter(([on]) => on).map(([, line]) => line),
+    ...raw.defaults.map((i) => `default-${i.key}`),
+    ...raw.classes.map((c) => classLine(c.group)),
+  ];
+}
+
 /** The hidden keys whose line the server still asks for: what is raw-outstanding
  *  (nothing hidden) and is hidden now. */
 function hiddenLines(data: OnboardingState, hidden: (key: string) => boolean): string[] {
-  const keys: string[] = [];
-  if (data.account.state === "default" && hidden(ACCOUNT_LINE)) keys.push(ACCOUNT_LINE);
-  for (const subject of data.subjects) {
-    const raw = subjectNeeds(subject, () => false);
-    const lines = [
-      ...(raw.syllabusMissing ? ["syllabus"] : []),
-      ...(raw.boundariesNotSet ? ["boundaries"] : []),
-      ...raw.defaults.map((i) => `default-${i.key}`),
-      // The guidance line is only ever offered inside a subject that needs something.
-      ...(raw.guidanceNotSet && raw.outstanding ? ["guidance"] : []),
-      ...(raw.noClass ? ["no_class"] : []),
-      ...raw.classes.map((c) => classLine(c.group)),
-    ];
-    for (const line of lines) if (hidden(lineKey(subject, line))) keys.push(lineKey(subject, line));
-  }
-  return keys;
+  const account = data.account.state === "default" && hidden(ACCOUNT_LINE) ? [ACCOUNT_LINE] : [];
+  const subjects = data.subjects.flatMap((s) =>
+    rawLines(s)
+      .map((line) => lineKey(s, line))
+      .filter((key) => hidden(key)),
+  );
+  return [...account, ...subjects];
 }
 
 function anyOutstanding(data: OnboardingState, hidden: (key: string) => boolean): boolean {
@@ -124,12 +132,12 @@ function anyOutstanding(data: OnboardingState, hidden: (key: string) => boolean)
 export default function SetupChecklist({
   onAcknowledged,
   dismissals,
-}: {
+}: Readonly<{
   onAcknowledged?: () => void;
   /** Each unfinished line has a "Not now" while this is given (owner,
       2026-10-06); without it every line shows and none can be put aside. */
   dismissals?: Dismissals;
-}) {
+}>) {
   const hidden = dismissals?.isHidden ?? (() => false);
   const onboarding = useOnboarding();
   const acknowledge = useAcknowledge();

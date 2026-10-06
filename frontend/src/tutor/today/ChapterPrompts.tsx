@@ -30,10 +30,10 @@ function shortDate(iso: string): string {
 export default function ChapterPrompts({
   prompts,
   dismissals,
-}: {
+}: Readonly<{
   prompts: ChapterPrompt[];
   dismissals?: Dismissals;
-}) {
+}>) {
   const shown = prompts.filter((p) => !dismissals?.isHidden(promptKey(p)));
   useReportHidden(
     dismissals,

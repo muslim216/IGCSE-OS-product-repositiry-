@@ -128,12 +128,9 @@ export function guideModel(data: OnboardingState, isHidden: (key: string) => boo
   const allSkipped = anySkipped && !anyActionable;
 
   /** The server's step, unless the tutor skipped it, then the first thing left. */
-  const defaultOpen: StepId | null =
-    nextId === null
-      ? null
-      : !skipped(nextId)
-        ? nextId
-        : (STEPS.find((s) => actionable(s.id))?.id ?? null);
+  const firstActionable = STEPS.find((s) => actionable(s.id))?.id ?? null;
+  let defaultOpen: StepId | null = null;
+  if (nextId !== null) defaultOpen = skipped(nextId) ? firstActionable : nextId;
 
   return {
     subject,

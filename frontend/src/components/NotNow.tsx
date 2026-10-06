@@ -5,12 +5,12 @@ import type { Dismissals } from "../lib/dismissals";
  *  Always mounted by the page, never by the section it describes: a section whose
  *  last item was hidden renders nothing, and its announcement must outlive it.
  *  Focusable so focus has somewhere to land when the thing it was on is gone. */
-export function DismissalStatus({ dismissals }: { dismissals: Dismissals }) {
+export function DismissalStatus({ dismissals }: Readonly<{ dismissals: Dismissals }>) {
   return (
     <>
-      <p role="status" tabIndex={-1} data-dismissal-status className="sr-only focus:outline-none">
+      <output tabIndex={-1} data-dismissal-status className="sr-only focus:outline-none">
         {dismissals.notice}
-      </p>
+      </output>
       {dismissals.error && (
         <p role="alert" className="text-sm text-risk-600">
           {dismissals.error}
@@ -34,7 +34,7 @@ export default function NotNow({
   dismissals,
   hideKey,
   scope = false,
-}: {
+}: Readonly<{
   what: string;
   dismissals: Dismissals;
   /** What is stored. Null means this thing has nothing to be stored under yet,
@@ -43,7 +43,7 @@ export default function NotNow({
   hideKey: string | null;
   /** True for the whole guide, which has no neighbours to hand focus to. */
   scope?: boolean;
-}) {
+}>) {
   if (hideKey === null) return null;
   return (
     <Button
@@ -72,7 +72,7 @@ export default function NotNow({
 }
 
 /** The quiet line at the bottom of Overview. Nothing when nothing is hidden. */
-export function HiddenFooter({ dismissals }: { dismissals: Dismissals }) {
+export function HiddenFooter({ dismissals }: Readonly<{ dismissals: Dismissals }>) {
   if (dismissals.hiddenCount <= 0) return null;
   return (
     <p className="mt-8 flex items-center gap-2 text-sm text-ink-500">

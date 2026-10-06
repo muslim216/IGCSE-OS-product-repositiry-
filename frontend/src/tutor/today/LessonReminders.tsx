@@ -25,12 +25,12 @@ function Reminder({
   now,
   onNotice,
   dismissals,
-}: {
+}: Readonly<{
   r: LessonReminder;
   now: number;
   onNotice: (message: string | null) => void;
   dismissals?: Dismissals;
-}) {
+}>) {
   const queryClient = useQueryClient();
   const cancel = useMutation({
     mutationFn: () => cancelPlanSlot(r.group_id, r.slot_id),
@@ -109,7 +109,7 @@ function Reminder({
  * nothing when there is no reminder, or when it cannot be loaded — it is
  * information, never a gate (UX-29).
  */
-export default function LessonReminders({ dismissals }: { dismissals?: Dismissals }) {
+export default function LessonReminders({ dismissals }: Readonly<{ dismissals?: Dismissals }>) {
   const reminders = useQuery({
     queryKey: ["lesson-reminders"],
     queryFn: lessonReminders,

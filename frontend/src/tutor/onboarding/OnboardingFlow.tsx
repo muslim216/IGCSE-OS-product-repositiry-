@@ -61,7 +61,10 @@ const LINK = "inline-flex min-h-6 items-center text-sm text-brand-600 hover:unde
 const ROW = "flex flex-wrap items-center gap-x-3 gap-y-1 py-2";
 const BADGE = "rounded-full border border-line px-2 py-0.5 text-xs text-ink-700";
 
-function CreateClassForm({ subjectId, subjectName }: { subjectId: number; subjectName: string }) {
+function CreateClassForm({
+  subjectId,
+  subjectName,
+}: Readonly<{ subjectId: number; subjectName: string }>) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const create = useMutation({
@@ -134,7 +137,7 @@ export default function OnboardingFlow({
   data,
   overDashboard = false,
   dismissals,
-}: {
+}: Readonly<{
   data: OnboardingState;
   /** What the tutor has put aside, and how to put more aside. Optional so the
       guide can be shown without the means to skip (owner, 2026-10-06). */
@@ -143,7 +146,7 @@ export default function OnboardingFlow({
       (owner, 2026-10-06): the copy must not call this their first class or
       promise a page that is already there. */
   overDashboard?: boolean;
-}) {
+}>) {
   // Without `dismissals` nothing can be put aside and nothing is: the guide as it was.
   const { subject, klass, defaultOpen, isDone, needs, keyOf, skipped, actionable } = guideModel(
     data,
@@ -171,13 +174,10 @@ export default function OnboardingFlow({
     const active = document.activeElement;
     const completed = before ? headings.current[before]?.closest("li") : null;
     if (!active || active === document.body || completed?.contains(active)) setFocusId(nextId);
-    setAnnouncement(
-      before && isDone(before)
-        ? `${stepName(before)} done. Next: ${stepName(nextId)}.`
-        : before && skipped(before)
-          ? `${stepName(before)} put aside. Next: ${stepName(nextId)}.`
-          : `Next: ${stepName(nextId)}.`,
-    );
+    let lead = "";
+    if (before && isDone(before)) lead = `${stepName(before)} done. `;
+    else if (before && skipped(before)) lead = `${stepName(before)} put aside. `;
+    setAnnouncement(`${lead}Next: ${stepName(nextId)}.`);
     // isDone reads the same data this effect is keyed on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextId]);
