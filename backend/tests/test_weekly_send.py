@@ -658,7 +658,8 @@ async def test_a_new_child_with_an_old_childs_name_does_not_inherit_the_send(
         t2_id = tutor2.id
     url = f"{URL}/{send_id}"
     body = (await client.get(url, headers=world["parent"]["headers"])).json()
-    assert _names(body) == ["Sara"] and "Sam-A" not in str(body)
+    assert _names(body) == ["Sara"]
+    assert "Sam-A" not in str(body)
     t2 = {"Authorization": f"Bearer {create_access_token(t2_id, 0)}"}
     assert (await client.get(url, headers=t2)).status_code == 404
 
@@ -695,7 +696,8 @@ async def test_a_renamed_child_with_an_id_is_still_visible_to_their_parent(clien
         ],
     )
     body = (await client.get(f"{URL}/{send_id}", headers=world["parent"]["headers"])).json()
-    assert _names(body) == ["Old Name"] and len(body["paragraphs"]) == 1
+    assert _names(body) == ["Old Name"]
+    assert len(body["paragraphs"]) == 1
 
 
 async def test_a_tutor_does_not_learn_of_unresolved_links_through_the_filtered_send(
