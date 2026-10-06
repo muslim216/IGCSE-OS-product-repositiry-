@@ -185,6 +185,12 @@ test("a saved category keeps its id, so a second save edits rather than duplicat
   // First save: the offered defaults carry no id, so they are new.
   expect((saved[0] as { categories: { id?: number }[] }).categories.every((c) => !c.id)).toBe(true);
 
+  // The request body is recorded before the reply lands. Clicking again in that
+  // gap hits a button still disabled by the save in flight and is dropped, which
+  // on a slow runner left this waiting for a second save that was never sent.
+  await waitFor(() =>
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: /save/i }).disabled).toBe(false),
+  );
   fireEvent.click(screen.getByRole("button", { name: /save/i }));
   await waitFor(() => expect(saved).toHaveLength(2));
   // Second save: every row now carries the id the first reply gave it.

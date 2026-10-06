@@ -6643,6 +6643,127 @@
         }
       }
     },
+    "/api/v1/me/dismissals": {
+      "get": {
+        "tags": [
+          "dismissals"
+        ],
+        "summary": "List Dismissals",
+        "operationId": "list_dismissals_api_v1_me_dismissals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DismissalsOut"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "dismissals"
+        ],
+        "summary": "Clear Dismissals",
+        "operationId": "clear_dismissals_api_v1_me_dismissals_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/me/dismissals/{key}": {
+      "put": {
+        "tags": [
+          "dismissals"
+        ],
+        "summary": "Dismiss",
+        "operationId": "dismiss_api_v1_me_dismissals__key__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "dismissals"
+        ],
+        "summary": "Restore",
+        "operationId": "restore_api_v1_me_dismissals__key__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reports/generate": {
       "post": {
         "tags": [
@@ -13210,6 +13331,22 @@
         "additionalProperties": false,
         "type": "object",
         "title": "CustomCriterionUpdate"
+      },
+      "DismissalsOut": {
+        "properties": {
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keys"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keys"
+        ],
+        "title": "DismissalsOut"
       },
       "DraftOutcomeOut": {
         "properties": {

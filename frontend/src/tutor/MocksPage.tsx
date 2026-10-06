@@ -1,19 +1,86 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { PenLine } from "lucide-react";
-import { listGroups } from "../api/groups";
-import { listAssessments } from "../api/readiness";
+import { listGroups, listSubjects } from "../api/groups";
+import { listAssessments, type Assessment } from "../api/readiness";
 import { buttonClasses } from "../components/controls";
 import { ErrorState, PageHeader, SectionSkeleton, Skeleton } from "../components/page";
+import { SubjectPicker, SubjectSection } from "../components/SubjectGroups";
 import { EmptyState, SectionCard, SectionHeader } from "../components/ui";
+import { useSubjectFilter } from "../lib/subjectGroups";
 import { formatDayMonth } from "../lib/timezones";
 
 /** What the API's lowercase `type` means, said the way a tutor would. */
 const TYPE_LABEL: Record<string, string> = { mock: "Mock", test: "Class test" };
 
+function RecordedList({ items }: Readonly<{ items: Assessment[] }>) {
+  return (
+    <ul className="divide-y divide-line text-sm">
+      {items.map((a) => (
+        <li
+          key={a.id}
+          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5"
+        >
+          <span className="font-medium text-ink-900">{a.title}</span>
+          <span className="text-ink-500">
+            {TYPE_LABEL[a.type] ?? "Assessment"} ·{" "}
+            {/* A calendar date with no time: read in UTC, or a reader
+                west of Greenwich sees the day before it was sat. */}
+            {formatDayMonth(new Date(a.date), "UTC")} · {a.score_count}{" "}
+            {a.score_count === 1 ? "score" : "scores"} entered
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RecordedSoFar() {
+  const assessments = useQuery({ queryKey: ["assessments"], queryFn: () => listAssessments() });
+  const subjects = useQuery({ queryKey: ["subjects"], queryFn: listSubjects });
+  const filter = useSubjectFilter(assessments.data, subjects.isSuccess ? subjects.data : undefined);
+
+  return (
+    <SectionCard>
+      <SectionHeader title="Recorded so far" level="h2" />
+      <div className="mt-3">
+        {assessments.isLoading ? (
+          <SectionSkeleton rows={3} label="Loading recorded mocks and tests" />
+        ) : assessments.isError ? (
+          <ErrorState error={assessments.error} onRetry={() => assessments.refetch()} />
+        ) : assessments.data?.length === 0 ? (
+          <EmptyState
+            title="No mocks or tests recorded yet."
+            hint="Once you enter a class's marks, they're listed here."
+          />
+        ) : (
+          <div className="space-y-5">
+            {filter.showPicker && (
+              <SubjectPicker
+                groups={filter.groups}
+                value={filter.picked}
+                onChange={filter.setPicked}
+                noun={["mock or test", "mocks and tests"]}
+              />
+            )}
+            {filter.ready ? (
+              filter.visible.map((g) => (
+                <SubjectSection key={g.id} subject={g.subject}>
+                  <RecordedList items={g.items} />
+                </SubjectSection>
+              ))
+            ) : (
+              <RecordedList items={assessments.data ?? []} />
+            )}
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
 export default function MocksPage() {
   const groups = useQuery({ queryKey: ["groups"], queryFn: listGroups });
-  const assessments = useQuery({ queryKey: ["assessments"], queryFn: () => listAssessments() });
 
   return (
     <div>
@@ -24,7 +91,11 @@ export default function MocksPage() {
 
       <div className="space-y-8">
         <section className="space-y-3">
-          <SectionHeader title="Enter marks" description="Choose the class that sat it." />
+          <SectionHeader
+            title="Enter marks"
+            description="Choose the class that sat it."
+            level="h2"
+          />
           {groups.isLoading ? (
             <div
               role="status"
@@ -70,39 +141,7 @@ export default function MocksPage() {
           )}
         </section>
 
-        <SectionCard>
-          <SectionHeader title="Recorded so far" />
-          <div className="mt-3">
-            {assessments.isLoading ? (
-              <SectionSkeleton rows={3} label="Loading recorded mocks and tests" />
-            ) : assessments.isError ? (
-              <ErrorState error={assessments.error} onRetry={() => assessments.refetch()} />
-            ) : assessments.data?.length === 0 ? (
-              <EmptyState
-                title="No mocks or tests recorded yet."
-                hint="Once you enter a class's marks, they're listed here."
-              />
-            ) : (
-              <ul className="divide-y divide-line text-sm">
-                {assessments.data?.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5"
-                  >
-                    <span className="font-medium text-ink-900">{a.title}</span>
-                    <span className="text-ink-500">
-                      {TYPE_LABEL[a.type] ?? "Assessment"} ·{" "}
-                      {/* A calendar date with no time: read in UTC, or a reader
-                          west of Greenwich sees the day before it was sat. */}
-                      {formatDayMonth(new Date(a.date), "UTC")} · {a.score_count}{" "}
-                      {a.score_count === 1 ? "score" : "scores"} entered
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </SectionCard>
+        <RecordedSoFar />
       </div>
     </div>
   );

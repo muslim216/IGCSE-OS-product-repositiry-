@@ -2289,6 +2289,42 @@ export interface paths {
         patch: operations["edit_criterion_api_v1_custom_criteria__criterion_id__patch"];
         trace?: never;
     };
+    "/api/v1/me/dismissals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Dismissals */
+        get: operations["list_dismissals_api_v1_me_dismissals_get"];
+        put?: never;
+        post?: never;
+        /** Clear Dismissals */
+        delete: operations["clear_dismissals_api_v1_me_dismissals_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/dismissals/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Dismiss */
+        put: operations["dismiss_api_v1_me_dismissals__key__put"];
+        post?: never;
+        /** Restore */
+        delete: operations["restore_api_v1_me_dismissals__key__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/generate": {
         parameters: {
             query?: never;
@@ -4601,6 +4637,11 @@ export interface components {
             description?: string | null;
             /** Archived */
             archived?: boolean;
+        };
+        /** DismissalsOut */
+        DismissalsOut: {
+            /** Keys */
+            keys: string[];
         };
         /**
          * DraftOutcomeOut
@@ -12045,6 +12086,102 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CustomCriterionOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dismissals_api_v1_me_dismissals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DismissalsOut"];
+                };
+            };
+        };
+    };
+    clear_dismissals_api_v1_me_dismissals_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dismiss_api_v1_me_dismissals__key__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_api_v1_me_dismissals__key__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
