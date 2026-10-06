@@ -380,6 +380,9 @@ async def test_a_tutor_sees_failures_only_for_people_in_their_own_classes(
         ("sara-parent", parent["user"]["id"]),
         ("omar", omar_id),
         ("omar-parent", op_id),
+        # A tutor's own weekly send or review nudge can fail too, and only they
+        # (and an admin) are told.
+        ("t2-own", other_id),
     ):
         await _note(uid, key, NotificationStatus.failed)
 
@@ -390,6 +393,6 @@ async def test_a_tutor_sees_failures_only_for_people_in_their_own_classes(
         return {r["recipient_name"] for r in (await client.get(UNDELIVERED, headers=h)).json()}
 
     assert await names(tutor["headers"]) == {"Sara", "Parent"}
-    assert await names(headers(other_id)) == {"Omar", "OP"}
+    assert await names(headers(other_id)) == {"Omar", "OP", "T2"}
     # An admin keeps the organization-wide view.
-    assert await names(headers(admin_id)) == {"Sara", "Parent", "Omar", "OP"}
+    assert await names(headers(admin_id)) == {"Sara", "Parent", "Omar", "OP", "T2"}

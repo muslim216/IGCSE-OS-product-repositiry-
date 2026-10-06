@@ -235,8 +235,10 @@ async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
     )
     if user.role != UserRole.admin:
         # A tutor sees who is not being reached among *their* people: learners
-        # in their own classes and those learners' parents. Organization alone
-        # would show every other tutor's families (an admin keeps that view).
+        # in their own classes and those learners' parents — and themselves,
+        # since their own weekly send and review nudge can fail too.
+        # Organization alone would show every other tutor's families (an admin
+        # keeps that view).
         taught = (
             select(GroupMember.student_id)
             .join(Group, Group.id == GroupMember.group_id)
@@ -244,6 +246,7 @@ async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
         )
         query = query.where(
             or_(
+                Notification.recipient_user_id == user.id,
                 Notification.recipient_user_id.in_(taught),
                 Notification.recipient_user_id.in_(
                     select(ParentLink.parent_id).where(ParentLink.student_id.in_(taught))
