@@ -447,7 +447,8 @@ async def log_attempt(
     submission, settled = await open_attempt(db, PAST_PAPER, paper.id, user.id)
     if settled:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "You've already logged this paper and it's been marked"
+            status.HTTP_409_CONFLICT,
+            "This paper has marks that are already final, so it can't be logged again",
         )
 
     submission.timed = timed
