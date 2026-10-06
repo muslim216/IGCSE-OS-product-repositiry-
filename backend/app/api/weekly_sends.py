@@ -23,6 +23,7 @@ from app.models import (
     WeeklySendAudience,
 )
 from app.schemas.weekly_send import WeeklySendListItem, WeeklySendOut, WeeklySendParagraph
+from app.services.groups import live_classes_taught_by
 from app.services.weekly_send import (
     LinkedChild,
     SendView,
@@ -101,7 +102,7 @@ async def _tutor_may_read(db: AsyncSession, tutor: User, send: WeeklySend) -> bo
     taught = (
         select(GroupMember.student_id)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(Group.tutor_id == tutor.id, Group.organization_id == tutor.organization_id)
+        .where(*live_classes_taught_by(tutor.id), Group.organization_id == tutor.organization_id)
     )
     if send.audience == WeeklySendAudience.student:
         hit = await db.scalar(

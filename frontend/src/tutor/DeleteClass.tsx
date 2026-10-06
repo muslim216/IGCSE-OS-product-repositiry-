@@ -19,6 +19,8 @@ const CLASS_KEYS = [
   "analytics",
   "next-lesson",
   "narrative",
+  "assignments",
+  "class-report",
 ] as const;
 
 /** Queries that list across classes, so they could still show this one. */
@@ -35,6 +37,9 @@ const LIST_KEYS = [
   "lesson-reminders",
   "mocks",
   "student-attendance",
+  // One per piece of homework, so matched by their first key rather than by id.
+  "assignment",
+  "submissions",
 ] as const;
 
 /**
@@ -52,13 +57,17 @@ export function DeleteClass({ groupId, name }: { groupId: number; name: string }
     onSuccess: () => {
       // Leave first, so the class page is gone before its queries are.
       navigate("/tutor/classes", { state: { notice: `${name} was deleted.` } });
-      for (const key of CLASS_KEYS) {
-        queryClient.removeQueries({
-          predicate: (q) =>
-            q.queryKey[0] === key &&
-            (q.queryKey[1] === groupId || (key === "narrative" && q.queryKey[2] === groupId)),
-        });
-      }
+      // After the navigation has rendered: removing a query the still-mounted
+      // class page observes lets it refetch, get a 404 and flash "not found".
+      setTimeout(() => {
+        for (const key of CLASS_KEYS) {
+          queryClient.removeQueries({
+            predicate: (q) =>
+              q.queryKey[0] === key &&
+              (q.queryKey[1] === groupId || (key === "narrative" && q.queryKey[2] === groupId)),
+          });
+        }
+      }, 0);
       for (const key of LIST_KEYS) queryClient.invalidateQueries({ queryKey: [key] });
       queryClient.invalidateQueries({ queryKey: ["resources", "library"] });
     },
@@ -93,6 +102,9 @@ export function DeleteClass({ groupId, name }: { groupId: number; name: string }
             </p>
             <p className="mt-3">
               Marks and history are kept, and your students&rsquo; readiness does not change.
+            </p>
+            <p className="mt-3">
+              You will lose access to any student you only taught in this class.
             </p>
             <p className="mt-3">This can&rsquo;t be undone from the app.</p>
             {remove.isError && (

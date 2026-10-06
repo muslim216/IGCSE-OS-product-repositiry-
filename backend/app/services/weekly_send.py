@@ -55,6 +55,7 @@ from app.models import (
     WeeklySendAudience,
 )
 from app.models.base import utcnow
+from app.services.groups import live_classes_taught_by
 from app.services.narrative import CLASS_NARRATIVE_JOB
 from app.services.notifications import notify
 from app.services.weekly_send_facts import (
@@ -583,7 +584,7 @@ async def linked_children(
             User.id.in_(
                 select(GroupMember.student_id)
                 .join(Group, Group.id == GroupMember.group_id)
-                .where(Group.tutor_id == taught_by, Group.organization_id == organization_id)
+                .where(*live_classes_taught_by(taught_by), Group.organization_id == organization_id)
             )
         )
     return [LinkedChild(i, n, _aware(at)) for i, n, at in (await session.execute(query)).all()]

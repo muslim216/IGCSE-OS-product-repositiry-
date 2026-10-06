@@ -165,6 +165,7 @@ async def report_subjects(
             .where(
                 GroupMember.student_id == student_id,
                 Group.organization_id == generator.organization_id,
+                Group.deleted_at.is_(None),
                 *([Group.tutor_id == generator.id] if generator.role == UserRole.tutor else []),
             )
             .distinct()

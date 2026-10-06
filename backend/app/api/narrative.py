@@ -30,6 +30,7 @@ from app.models import (
     UserRole,
 )
 from app.schemas.narrative import NarrativeOut
+from app.services.groups import live_classes_taught_by
 from app.services.narrative import latest_narrative
 
 router = APIRouter(tags=["narrative"])
@@ -120,7 +121,7 @@ async def _readable_student(db: AsyncSession, user: User, student_id: int) -> Us
         teaches = await db.scalar(
             select(Group.id)
             .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
+            .where(GroupMember.student_id == student_id, *live_classes_taught_by(user.id))
             .limit(1)
         )
         if teaches is None:

@@ -81,13 +81,17 @@ async def _enrolled_scope(db, student_id: int) -> set[tuple[int, int]]:
         await db.execute(
             select(Group.organization_id, Group.subject_id)
             .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == student_id)
+            # A deleted class gives no access to the organization's papers; a
+            # student with another live class in the subject keeps them.
+            .where(GroupMember.student_id == student_id, Group.deleted_at.is_(None))
         )
     ).all()
     return {(org_id, subject_id) for org_id, subject_id in rows}
 
 
-async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
+async def _visible_paper(
+    db, user: User, past_paper_id: int, *, own_attempt_ok: bool = False
+) -> PastPaper:
     """A tutor sees their organization's papers; a student sees papers uploaded
     in an organization that teaches them, for a subject they're enrolled in."""
     paper = await db.get(PastPaper, past_paper_id)
@@ -107,6 +111,14 @@ async def _visible_paper(db, user: User, past_paper_id: int) -> PastPaper:
     # tutor's material.
     if user.role == UserRole.student:  # noqa: SIM102
         if (paper.organization_id, paper.subject_id) in await _enrolled_scope(db, user.id):
+            return paper
+        # History: a student whose class was deleted can still read their own
+        # attempt and its marks (`own_attempt_ok`), never open the paper again.
+        if own_attempt_ok and await db.scalar(
+            select(Submission.id).where(
+                Submission.work_id == paper.work_id, Submission.student_id == user.id
+            )
+        ):
             return paper
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Past paper not found")
 
@@ -470,7 +482,7 @@ async def log_attempt(
 async def my_attempt(
     past_paper_id: int, db: DbSession, user: StudentUser
 ) -> PastPaperAttemptOut | None:
-    paper = await _visible_paper(db, user, past_paper_id)
+    paper = await _visible_paper(db, user, past_paper_id, own_attempt_ok=True)
     submission = await db.scalar(
         select(Submission).where(
             Submission.work_id == paper.work_id, Submission.student_id == user.id

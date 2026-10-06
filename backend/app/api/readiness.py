@@ -22,6 +22,7 @@ from app.schemas.readiness import (
     TrendPoint,
 )
 from app.services.evidence import COUNTS_FOR_READINESS
+from app.services.groups import live_classes_taught_by
 from app.services.readiness_shared import v2_score_points
 from app.services.readiness_summary_v2 import (
     build_summary_v2,
@@ -52,6 +53,7 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
                 .where(
                     GroupMember.student_id == student_id,
                     Group.organization_id == viewer.organization_id,
+                    Group.deleted_at.is_(None),
                 )
             )
         ).all()
@@ -99,7 +101,7 @@ async def visible_subject_ids(db: AsyncSession, viewer: User, student_id: int) -
             await db.scalars(
                 select(Group.subject_id)
                 .join(GroupMember, GroupMember.group_id == Group.id)
-                .where(GroupMember.student_id == student_id, Group.tutor_id == viewer.id)
+                .where(GroupMember.student_id == student_id, *live_classes_taught_by(viewer.id))
             )
         ).all()
         taught_set = set(taught)

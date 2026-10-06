@@ -24,6 +24,7 @@ from app.schemas.readiness import (
     ObservationOut,
     SeedReadinessIn,
 )
+from app.services.groups import live_classes_taught_by
 from app.services.readiness_v2_ai import enqueue_v2_shadow
 
 router = APIRouter(tags=["assessments"])
@@ -35,7 +36,7 @@ async def _tutor_teaches(db, tutor_id: int, student_id: int, subject_id: int) ->
         .join(Group, Group.id == GroupMember.group_id)
         .where(
             GroupMember.student_id == student_id,
-            Group.tutor_id == tutor_id,
+            *live_classes_taught_by(tutor_id),
             Group.subject_id == subject_id,
         )
         .limit(1)
@@ -199,7 +200,7 @@ async def create_observation(
     shares = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == body.student_id, Group.tutor_id == user.id)
+        .where(GroupMember.student_id == body.student_id, *live_classes_taught_by(user.id))
         .limit(1)
     )
     if shares is None:
@@ -274,7 +275,7 @@ async def seed_readiness(
             await db.scalars(
                 select(Group.subject_id)
                 .join(GroupMember, GroupMember.group_id == Group.id)
-                .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
+                .where(GroupMember.student_id == student_id, *live_classes_taught_by(user.id))
             )
         ).all()
     )
@@ -337,7 +338,7 @@ async def list_observations(
     shares = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student_id, Group.tutor_id == user.id)
+        .where(GroupMember.student_id == student_id, *live_classes_taught_by(user.id))
         .limit(1)
     )
     if shares is None:

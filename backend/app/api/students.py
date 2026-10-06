@@ -46,6 +46,7 @@ from app.services.custom_criteria import (
     set_score,
     subject_names,
 )
+from app.services.groups import live_classes_taught_by
 from app.services.invites import build_invite
 from app.services.mistake_rollup import roll_up_mistakes
 from app.services.student_crm import get_student_crm
@@ -66,7 +67,11 @@ async def _in_organization(db: AsyncSession, student: User, organization_id: int
     membership = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student.id, Group.organization_id == organization_id)
+        .where(
+            GroupMember.student_id == student.id,
+            Group.organization_id == organization_id,
+            Group.deleted_at.is_(None),
+        )
         .limit(1)
     )
     return membership is not None
@@ -107,7 +112,7 @@ async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> 
         shares_group = await db.scalar(
             select(GroupMember.id)
             .join(Group, Group.id == GroupMember.group_id)
-            .where(GroupMember.student_id == student_id, Group.tutor_id == viewer.id)
+            .where(GroupMember.student_id == student_id, *live_classes_taught_by(viewer.id))
         )
         if shares_group is None:
             raise not_found
@@ -131,7 +136,7 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     shares_group = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student_id, Group.tutor_id == tutor.id)
+        .where(GroupMember.student_id == student_id, *live_classes_taught_by(tutor.id))
     )
     if shares_group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")

@@ -91,9 +91,11 @@ async def pairs_needing_phase_recompute(
                 & (TeachingPlan.status == TeachingPlanStatus.accepted),
             )
             .where(
-                # A deleted class's plan opens no phase: the sweep does not act on it.
-                # (Readiness itself still reads that plan, so deleting changes no score.)
-                Group.deleted_at.is_(None),
+                # Deliberately NOT filtered by `Group.deleted_at`: readiness still
+                # reads a deleted class's plan for the phase gate (a student's
+                # score must not change when a class is deleted), so this sweep
+                # must keep recomputing in step with it or the stored snapshot
+                # would freeze while a live compute moved.
                 TeachingPlan.past_paper_start_date.is_not(None),
                 TeachingPlan.past_paper_start_date <= today,
                 # Evidence the factor would actually score: a marked attempt on

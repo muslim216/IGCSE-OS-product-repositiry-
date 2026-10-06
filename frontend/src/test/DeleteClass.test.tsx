@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { DeleteClass } from "../tutor/DeleteClass";
+import GroupsPage from "../tutor/GroupsPage";
 
 function Landed() {
   const state = useLocation().state as { notice?: string } | null;
@@ -41,6 +42,7 @@ test("the dialog says what will and will not happen, and Cancel has focus", () =
   expect(dialog).toHaveTextContent("lessons, reminders and messages will stop");
   expect(dialog).toHaveTextContent("Marks and history are kept");
   expect(dialog).toHaveTextContent("readiness does not change");
+  expect(dialog).toHaveTextContent("lose access to any student you only taught in this class");
   expect(dialog).toHaveTextContent("can’t be undone from the app");
   expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
 });
@@ -83,4 +85,32 @@ test("a failure keeps the dialog open and says so", async () => {
 
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.getByRole("dialog")).toBeInTheDocument();
+});
+
+test("the deleted notice shows once and is cleared from history state", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })),
+  );
+  let seen: unknown = "unset";
+  function Spy() {
+    seen = useLocation().state;
+    return null;
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter
+        initialEntries={[{ pathname: "/tutor/classes", state: { notice: "Y10 was deleted." } }]}
+      >
+        <Spy />
+        <Routes>
+          <Route path="/tutor/classes" element={<GroupsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+  expect(await screen.findByText("Y10 was deleted.")).toBeInTheDocument();
+  await waitFor(() => expect(seen).toBeNull());
 });

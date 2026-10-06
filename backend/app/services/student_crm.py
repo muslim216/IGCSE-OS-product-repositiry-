@@ -6,7 +6,7 @@ surfaces can never drift apart."""
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -118,6 +118,13 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
             .where(
                 GroupMember.student_id == student.id,
                 Assignment.status.in_([AssignmentStatus.published, AssignmentStatus.closed]),
+                # Same rule as readiness: a deleted class's not-yet-due homework
+                # was never missed, the student just can no longer hand it in.
+                or_(
+                    Group.deleted_at.is_(None),
+                    Submission.id.is_not(None),
+                    Assignment.due_at <= Group.deleted_at,
+                ),
             )
             .order_by(Assignment.due_at.desc())
             .limit(20)

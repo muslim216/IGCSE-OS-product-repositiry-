@@ -115,6 +115,10 @@ async def extract_assignment(session: AsyncSession, payload: dict) -> None:
     assignment = await session.get(Assignment, assignment_id)
     if assignment is None:
         return
+    # The class was deleted after this was queued: nothing will ever show it, so
+    # no model call is made. Leaving the row untouched keeps a re-run harmless.
+    if await session.scalar(select(Group.deleted_at).where(Group.id == assignment.group_id)):
+        return
     if assignment.classified_id is None:
         assignment.status = AssignmentStatus.review
         return

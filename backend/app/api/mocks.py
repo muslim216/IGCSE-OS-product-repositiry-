@@ -67,7 +67,9 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/mocks", tags=["mocks"])
 
 
-async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = False) -> Mock:
+async def _visible_mock(
+    db, user: User, mock_id: int, *, for_update: bool = False, sitting: bool = False
+) -> Mock:
     """A tutor sees the mocks they set; a student sees a mock set to a group
     they are actually in.
 
@@ -124,13 +126,17 @@ async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = Fals
                     GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
                 )
             )
-            handed_in = group_deleted and (
-                await db.scalar(
-                    select(Submission.id).where(
-                        Submission.work_id == mock.work_id, Submission.student_id == user.id
+            handed_in = (
+                group_deleted
+                and not sitting
+                and (
+                    await db.scalar(
+                        select(Submission.id).where(
+                            Submission.work_id == mock.work_id, Submission.student_id == user.id
+                        )
                     )
+                    is not None
                 )
-                is not None
             )
             if member is not None and (not group_deleted or handed_in):
                 return mock
@@ -464,7 +470,7 @@ async def sit_mock(
     files: Annotated[list[UploadFile] | None, File()] = None,
     typed_answer: Annotated[str | None, Form()] = None,
 ) -> MockSubmissionOut:
-    mock = await _visible_mock(db, user, mock_id)
+    mock = await _visible_mock(db, user, mock_id, sitting=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     # Either channel, or both — the same rule homework follows since AV-73.
@@ -504,7 +510,7 @@ async def sit_mock(
     # here has written a row worth keeping — that is what makes discarding the
     # transaction outright the right move rather than a blunt one.
     try:
-        locked = await _visible_mock(db, user, mock_id, for_update=True)
+        locked = await _visible_mock(db, user, mock_id, for_update=True, sitting=True)
         if locked.status != MockStatus.published:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
@@ -569,7 +575,7 @@ async def open_mock(mock_id: int, db: DbSession, user: StudentUser) -> MockClock
     page polls this rather than trusting its own countdown — the browser's timer
     is a display, and a display can be reloaded, paused or lied to.
     """
-    mock = await _visible_mock(db, user, mock_id)
+    mock = await _visible_mock(db, user, mock_id, sitting=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     opening = await mock_clock.start(db, mock, user.id)

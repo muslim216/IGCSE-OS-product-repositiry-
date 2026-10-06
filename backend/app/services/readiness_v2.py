@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -246,6 +246,16 @@ async def _homework_assignment_rows(session: AsyncSession, student_id: int, subj
                 GroupMember.student_id == student_id,
                 Group.subject_id == subject_id,
                 Assignment.status.in_([AssignmentStatus.published, AssignmentStatus.closed]),
+                # Deleting a class must not turn homework into a miss. Once the
+                # class is gone the student cannot hand in what was still open,
+                # so work not yet due at deletion (or with no due date) drops
+                # out of the count; work already overdue then keeps counting
+                # exactly as before. Handed-in work always counts (PROD-5).
+                or_(
+                    Group.deleted_at.is_(None),
+                    Submission.id.is_not(None),
+                    Assignment.due_at <= Group.deleted_at,
+                ),
             )
         )
     ).all()

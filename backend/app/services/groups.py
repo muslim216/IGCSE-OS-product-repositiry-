@@ -11,6 +11,7 @@ from app.models import (
     AssessableWork,
     Assignment,
     AssignmentStatus,
+    Group,
     GroupMember,
     ScheduleSlot,
     Submission,
@@ -29,6 +30,19 @@ AWAITING_REVIEW = (
     SubmissionStatus.ai_failed,
     SubmissionStatus.needs_review,
 )
+
+
+def live_classes_taught_by(tutor_id: int) -> tuple:
+    """Conditions on `Group` for "a class this tutor teaches that still exists".
+
+    The one definition behind every "does this tutor teach this student?" check,
+    read or write: deleting a class ends the tutor-student relationship it gave,
+    exactly as removing the student from it would. Spread into a `.where(...)`
+    of a query that joins `Group`, so a new site cannot forget the deleted-class
+    half. The only history exception is `_tutor_owns` in api/submissions.py, so
+    work already handed in can still be marked.
+    """
+    return (Group.tutor_id == tutor_id, Group.deleted_at.is_(None))
 
 
 def review_queue_predicate(organization_id: int):
