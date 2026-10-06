@@ -193,7 +193,7 @@ async def _recipients(session: AsyncSession, organization_id: int) -> list[User]
     enrolled = (
         select(distinct(GroupMember.student_id))
         .join(Group, Group.id == GroupMember.group_id)
-        .where(Group.organization_id == organization_id)
+        .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
     )
     students = (
         await session.scalars(
@@ -446,13 +446,17 @@ async def _refresh_narratives(session: AsyncSession, organization_id: int) -> No
     groups_waiting = {p.get("group_id") for p in waiting}
     students_waiting = {p.get("student_id") for p in waiting}
     group_ids = (
-        await session.scalars(select(Group.id).where(Group.organization_id == organization_id))
+        await session.scalars(
+            select(Group.id).where(
+                Group.organization_id == organization_id, Group.deleted_at.is_(None)
+            )
+        )
     ).all()
     student_ids = (
         await session.scalars(
             select(distinct(GroupMember.student_id))
             .join(Group, Group.id == GroupMember.group_id)
-            .where(Group.organization_id == organization_id)
+            .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
         )
     ).all()
     # One flush for the batch, not one per row (`PERF-1`).

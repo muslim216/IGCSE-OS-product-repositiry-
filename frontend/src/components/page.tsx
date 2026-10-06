@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useRef,
   useEffect,
   type ErrorInfo,
   type ReactNode,
@@ -274,6 +275,7 @@ export function ConfirmDialog({
   confirmLabel,
   danger = false,
   busy = false,
+  focusCancel = false,
   onConfirm,
   onCancel,
 }: {
@@ -283,9 +285,18 @@ export function ConfirmDialog({
   confirmLabel: string;
   danger?: boolean;
   busy?: boolean;
+  /** Start with Cancel focused, so an Enter on opening cannot confirm. For
+   *  actions that cannot be undone from the app. */
+  focusCancel?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // After Modal's own effect, which puts focus on the panel: a parent's effect
+  // runs after its child's, so this one wins.
+  useEffect(() => {
+    if (open && focusCancel) cancelRef.current?.focus();
+  }, [open, focusCancel]);
   // Escape and the backdrop are ways to cancel too, so they are shut while the
   // action is in flight: closing then would read as "cancelled" while the
   // request carries on and the action happens regardless.
@@ -296,7 +307,7 @@ export function ConfirmDialog({
     <Modal open={open} onClose={dismiss} title={title}>
       <div className="text-sm leading-relaxed text-ink-700">{body}</div>
       <div className="mt-6 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button ref={cancelRef} variant="ghost" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
         <Button variant={danger ? "danger" : "primary"} loading={busy} onClick={onConfirm}>

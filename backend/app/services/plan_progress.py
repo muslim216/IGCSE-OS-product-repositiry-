@@ -179,6 +179,8 @@ async def class_progress(
         .join(Organization, Organization.id == TeachingPlan.organization_id)
         .where(
             TeachingPlan.organization_id == user.organization_id,
+            # A deleted class has no progress to report.
+            Group.deleted_at.is_(None),
             # Nothing reads a draft plan (task 6.4).
             TeachingPlan.status == TeachingPlanStatus.accepted,
             # Past lessons, and any cancelled one (whether its content was

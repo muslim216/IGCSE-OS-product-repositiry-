@@ -20,7 +20,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.api.deps import (
     CurrentUser,
@@ -89,15 +89,21 @@ async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = Fals
     mock = await db.get(Mock, mock_id, with_for_update=for_update)
     if mock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+    # A deleted class takes its mocks with it: the tutor no longer manages them and a
+    # student no longer sees one they have not handed in. Work already handed in is
+    # untouched and still marked through the submission routes (`PROD-5`).
+    group_deleted = mock.group_id is not None and (
+        await db.scalar(select(Group.deleted_at).where(Group.id == mock.group_id)) is not None
+    )
     if user.role == UserRole.admin:
         # Wider reach inside their organization, not across organizations (`SEC-7`).
-        if mock.organization_id != user.organization_id:
+        if mock.organization_id != user.organization_id or group_deleted:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
     if user.role == UserRole.tutor:
         # 404, not 403: integer keys are enumerable, and "exists but not yours"
         # is itself information (`API-7`, `SEC-9`).
-        if mock.tutor_id != user.id:
+        if mock.tutor_id != user.id or group_deleted:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
     if user.role == UserRole.student:
@@ -118,7 +124,15 @@ async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = Fals
                     GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
                 )
             )
-            if member is not None:
+            handed_in = group_deleted and (
+                await db.scalar(
+                    select(Submission.id).where(
+                        Submission.work_id == mock.work_id, Submission.student_id == user.id
+                    )
+                )
+                is not None
+            )
+            if member is not None and (not group_deleted or handed_in):
                 return mock
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
 
@@ -155,7 +169,7 @@ def _out(mock: Mock, question_count: int, *, for_tutor: bool) -> MockOut:
 
 async def _owned_group(db, group_id: int, user: User) -> Group:
     group = await db.get(Group, group_id)
-    if group is None or group.tutor_id != user.id:
+    if group is None or group.tutor_id != user.id or group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Class not found")
     return group
 
@@ -242,7 +256,11 @@ async def create_mock(
 async def list_mocks(
     db: DbSession, user: TutorUser, subject_id: int | None = None
 ) -> list[MockOut]:
-    query = select(Mock).where(Mock.tutor_id == user.id)
+    query = (
+        select(Mock)
+        .outerjoin(Group, Group.id == Mock.group_id)
+        .where(Mock.tutor_id == user.id, Group.deleted_at.is_(None))
+    )
     if subject_id is not None:
         query = query.where(Mock.subject_id == subject_id)
     mocks = (await db.scalars(query.order_by(Mock.id.desc()))).all()
@@ -257,9 +275,17 @@ async def my_mocks(db: DbSession, user: StudentUser) -> list[MockOut]:
         await db.scalars(
             select(Mock)
             .join(GroupMember, GroupMember.group_id == Mock.group_id)
+            .join(Group, Group.id == Mock.group_id)
             .where(
                 GroupMember.student_id == user.id,
                 Mock.status == MockStatus.published,
+                # A deleted class's mock stays only if this student already handed it in.
+                or_(
+                    Group.deleted_at.is_(None),
+                    select(Submission.id)
+                    .where(Submission.work_id == Mock.work_id, Submission.student_id == user.id)
+                    .exists(),
+                ),
             )
             .order_by(Mock.id.desc())
         )

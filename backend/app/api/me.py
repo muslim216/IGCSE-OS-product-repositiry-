@@ -46,7 +46,7 @@ async def my_groups(db: DbSession, user: CurrentUser) -> list[GroupOut]:
         await db.scalars(
             select(Group)
             .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == user.id)
+            .where(GroupMember.student_id == user.id, Group.deleted_at.is_(None))
             .options(selectinload(Group.subject))
             .order_by(Group.name)
         )
@@ -63,7 +63,7 @@ async def my_lessons(db: DbSession, user: CurrentUser) -> list[UpcomingScheduleS
             select(ScheduleSlot, Group)
             .join(Group, Group.id == ScheduleSlot.group_id)
             .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == user.id)
+            .where(GroupMember.student_id == user.id, Group.deleted_at.is_(None))
             .options(selectinload(Group.subject))
             .order_by(ScheduleSlot.weekday, ScheduleSlot.start_time)
         )

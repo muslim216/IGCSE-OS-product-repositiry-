@@ -7,6 +7,7 @@ import { ApiError } from "../api/client";
 import { formatSlot } from "../lib/schedule";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import ClassOverviewPanel from "./ClassOverview";
+import { DeleteClass } from "./DeleteClass";
 
 interface GroupContext {
   group: GroupDetail;
@@ -253,6 +254,7 @@ export default function GroupLayout() {
 
       <div className="py-6">
         <Outlet context={{ group: g, groupId: id } satisfies GroupContext} />
+        <DeleteClass groupId={id} name={g.name} />
       </div>
     </div>
   );

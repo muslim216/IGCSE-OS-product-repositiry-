@@ -48,7 +48,11 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
 
-async def _owned_assignment(db, user: User, assignment_id: int) -> Assignment:
+async def _owned_assignment(
+    db, user: User, assignment_id: int, *, include_deleted: bool = False
+) -> Assignment:
+    """`include_deleted` is for read-only history: a deleted class's homework is
+    not editable or publishable, but work already handed in is still marked."""
     assert_tutor(user)
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None:
@@ -56,8 +60,10 @@ async def _owned_assignment(db, user: User, assignment_id: int) -> Assignment:
     group = await db.get(Group, assignment.group_id)
     # The organization binds first and applies to admins too: an admin has wider
     # reach inside their organization, not across organizations (`SEC-7`).
-    if group.organization_id != user.organization_id or (
-        group.tutor_id != user.id and user.role != UserRole.admin
+    if (
+        group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+        or (group.deleted_at is not None and not include_deleted)
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     return assignment
@@ -113,7 +119,7 @@ async def create_assignment(
     body: AssignmentCreate, db: DbSession, user: TutorUser
 ) -> AssignmentDetail:
     group = await db.get(Group, body.group_id)
-    if group is None or group.tutor_id != user.id:
+    if group is None or group.tutor_id != user.id or group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
 
     lesson_id: int | None = None
@@ -205,6 +211,7 @@ async def create_assignment_with_paper(
     # The organization binds first, admins included (`SEC-7`).
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (group.tutor_id != user.id and user.role != UserRole.admin)
     ):
@@ -245,6 +252,7 @@ async def list_group_assignments(
     # The organization binds first, admins included (`SEC-7`).
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (group.tutor_id != user.id and user.role != UserRole.admin)
     ):
@@ -298,12 +306,15 @@ async def assignments_needing_attention(
     tutor_groups = select(Group.id).where(Group.organization_id == user.organization_id)
     if user.role != UserRole.admin:
         tutor_groups = tutor_groups.where(Group.tutor_id == user.id)
+    # Extraction problems are class setup, so a deleted class's drop out of this
+    # list; work already handed in still waits here to be marked (`PROD-5`).
+    live_groups = tutor_groups.where(Group.deleted_at.is_(None))
 
     out: list[AssignmentAttention] = []
     stuck_assignments = (
         await db.scalars(
             select(Assignment).where(
-                Assignment.group_id.in_(tutor_groups),
+                Assignment.group_id.in_(live_groups),
                 Assignment.status == AssignmentStatus.extraction_failed,
             )
         )
@@ -388,7 +399,7 @@ async def assignments_needing_attention(
 async def assignment_detail(
     assignment_id: int, db: DbSession, user: CurrentUser
 ) -> AssignmentDetail:
-    assignment = await _owned_assignment(db, user, assignment_id)
+    assignment = await _owned_assignment(db, user, assignment_id, include_deleted=True)
     return AssignmentDetail(
         id=assignment.id,
         group_id=assignment.group_id,

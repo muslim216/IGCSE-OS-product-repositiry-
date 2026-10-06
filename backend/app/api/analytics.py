@@ -29,6 +29,7 @@ async def group_analytics(group_id: int, db: DbSession, user: TutorUser) -> Tuto
     # wider reach inside their organization, not across organizations (`SEC-7`).
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (group.tutor_id != user.id and user.role != UserRole.admin)
     ):

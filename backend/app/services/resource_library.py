@@ -25,7 +25,11 @@ async def tutor_shared_resources(
     query = (
         select(GroupResource, Group.name)
         .join(Group, Group.id == GroupResource.group_id)
-        .where(Group.tutor_id == tutor_id, Group.organization_id == organization_id)
+        .where(
+            Group.tutor_id == tutor_id,
+            Group.organization_id == organization_id,
+            Group.deleted_at.is_(None),
+        )
         .order_by(GroupResource.created_at.desc(), GroupResource.id.desc())
         .limit(LIBRARY_RESOURCE_LIMIT)
     )

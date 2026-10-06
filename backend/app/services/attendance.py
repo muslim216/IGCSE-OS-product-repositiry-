@@ -338,7 +338,7 @@ async def student_attendance(
     zone_q = (
         select(Group.id, User.time_zone)
         .outerjoin(User, User.id == Group.tutor_id)
-        .where(Group.organization_id == organization_id)
+        .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
     )
     if group_id is not None:
         zone_q = zone_q.where(Group.id == group_id)
@@ -358,7 +358,12 @@ async def student_attendance(
     member_q = (
         select(GroupMember.group_id, GroupMember.created_at)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student_id, Group.organization_id == organization_id)
+        .where(
+            GroupMember.student_id == student_id,
+            Group.organization_id == organization_id,
+            # A deleted class is not reported on, its past lessons included.
+            Group.deleted_at.is_(None),
+        )
     )
     if group_id is not None:
         member_q = member_q.where(GroupMember.group_id == group_id)
@@ -381,6 +386,7 @@ async def student_attendance(
         )
         .where(
             Lesson.organization_id == organization_id,
+            Group.deleted_at.is_(None),
             Lesson.date <= latest_today,
             Lesson.group_id.in_(joined) | LessonAttendance.id.is_not(None),
         )

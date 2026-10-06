@@ -66,7 +66,7 @@ async def tutor_groups(db: AsyncSession, tutor_id: int) -> Sequence[Group]:
     return (
         await db.scalars(
             select(Group)
-            .where(Group.tutor_id == tutor_id)
+            .where(Group.tutor_id == tutor_id, Group.deleted_at.is_(None))
             .options(selectinload(Group.subject))
             .order_by(Group.created_at)
         )
@@ -178,7 +178,11 @@ async def today_lessons(
             select(ScheduleSlot, Group, func.count(GroupMember.id))
             .join(Group, Group.id == ScheduleSlot.group_id)
             .outerjoin(GroupMember, GroupMember.group_id == Group.id)
-            .where(Group.tutor_id == tutor_id, ScheduleSlot.weekday == weekday)
+            .where(
+                Group.tutor_id == tutor_id,
+                Group.deleted_at.is_(None),
+                ScheduleSlot.weekday == weekday,
+            )
             .options(selectinload(Group.subject))
             .group_by(ScheduleSlot.id, Group.id)
             .order_by(ScheduleSlot.start_time)

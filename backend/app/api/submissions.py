@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
@@ -122,6 +122,12 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
     return group is not None and group.tutor_id == user.id
 
 
+async def _class_deleted(db, group_id: int) -> bool:
+    """Whether the class was deleted. A deleted class's unsubmitted work vanishes
+    for students; what they already handed in stays (`PROD-5`)."""
+    return (await db.scalar(select(Group.deleted_at).where(Group.id == group_id))) is not None
+
+
 async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
     assert_tutor(user)
     submission = await db.get(Submission, submission_id, options=[selectinload(Submission.files)])
@@ -159,6 +165,9 @@ async def submit_work(
 ) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None or assignment.status != AssignmentStatus.published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
+    # Nothing new is handed in to a deleted class.
+    if await _class_deleted(db, assignment.group_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     member = await db.scalar(
         select(GroupMember).where(
@@ -277,6 +286,17 @@ async def my_assignments(db: DbSession, user: StudentUser) -> list[StudentAssign
             .where(
                 GroupMember.student_id == user.id,
                 Assignment.status.in_([AssignmentStatus.published, AssignmentStatus.closed]),
+                # A deleted class's homework stays only where this student already
+                # handed something in: their marks and remark rights are theirs.
+                or_(
+                    Group.deleted_at.is_(None),
+                    select(Submission.id)
+                    .where(
+                        Submission.work_id == Assignment.work_id,
+                        Submission.student_id == user.id,
+                    )
+                    .exists(),
+                ),
             )
             .options(selectinload(Group.subject))
             .order_by(Assignment.due_at.is_(None), Assignment.due_at)
@@ -447,6 +467,8 @@ async def my_submission(
             Submission.work_id == assignment.work_id, Submission.student_id == user.id
         )
     )
+    if submission is None and await _class_deleted(db, assignment.group_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     return await _student_view(db, assignment, submission)
 
 
@@ -458,9 +480,12 @@ async def list_submissions(
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     group = await db.get(Group, assignment.group_id)
-    # The organization binds first, admins included (`SEC-7`).
-    if group.organization_id != user.organization_id or (
-        group.tutor_id != user.id and user.role != UserRole.admin
+    # The organization binds first, admins included (`SEC-7`). The class's own
+    # submissions page goes with the class; marking continues from the review queue.
+    if (
+        group.organization_id != user.organization_id
+        or (group.tutor_id != user.id and user.role != UserRole.admin)
+        or group.deleted_at is not None
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     total_max = (

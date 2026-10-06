@@ -154,7 +154,8 @@ async def announce_homework_set(session: AsyncSession, assignment: Assignment) -
 
     async def send() -> None:
         group = await session.get(Group, assignment.group_id)
-        if group is None:
+        # A deleted class's homework is announced to no one.
+        if group is None or group.deleted_at is not None:
             return
         subject = await session.get(Subject, group.subject_id)
         org = await session.get(Organization, group.organization_id)
@@ -232,6 +233,7 @@ async def remind_homework_due(session: AsyncSession, now: datetime) -> int:
                 Assignment.due_at.is_not(None),
                 Assignment.due_at > now,
                 Assignment.due_at <= now + DUE_SOON,
+                Group.deleted_at.is_(None),
             )
         )
     ).all()
@@ -286,7 +288,10 @@ async def _tutors_with_plans(session: AsyncSession) -> list[User]:
                 User.id.in_(
                     select(Group.tutor_id)
                     .join(TeachingPlan, TeachingPlan.group_id == Group.id)
-                    .where(TeachingPlan.status == TeachingPlanStatus.accepted)
+                    .where(
+                        TeachingPlan.status == TeachingPlanStatus.accepted,
+                        Group.deleted_at.is_(None),
+                    )
                 ),
             )
             .order_by(User.id)

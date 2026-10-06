@@ -122,6 +122,8 @@ async def due_slot_ids(session: AsyncSession, now: datetime) -> list[int]:
             .join(User, User.id == Group.tutor_id)
             .where(
                 TeachingPlan.status == TeachingPlanStatus.accepted,
+                # A deleted class's lessons are never recorded.
+                Group.deleted_at.is_(None),
                 PlanSlot.lesson_id.is_(None),
                 PlanSlot.provenance.not_in(STARTED_PROVENANCE),
                 PlanSlot.cancelled_at.is_(None),
@@ -182,7 +184,7 @@ async def record_planned_lesson(session: AsyncSession, slot_id: int, *, now: dat
     if ids is None:
         return False
     group = await session.get(Group, ids[0], populate_existing=True)
-    if group is None:
+    if group is None or group.deleted_at is not None:
         return False
     try:
         slot = await plan_lessons._accepted_slot(session, group, slot_id)

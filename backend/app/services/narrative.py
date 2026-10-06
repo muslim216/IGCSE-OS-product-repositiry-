@@ -359,7 +359,7 @@ async def generate_narrative(session: AsyncSession, payload: dict) -> None:
 
     if audience is NarrativeAudience.tutor_class:
         group = await session.get(Group, payload["group_id"])
-        if group is None:
+        if group is None or group.deleted_at is not None:
             return
         latest_ev = await _latest_evidence_at_for_group(session, group)
         if latest_ev is None:
@@ -490,7 +490,11 @@ async def enqueue_class_narratives_for_student_subject(
         await session.scalars(
             select(Group.id)
             .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == student_id, Group.subject_id == subject_id)
+            .where(
+                GroupMember.student_id == student_id,
+                Group.subject_id == subject_id,
+                Group.deleted_at.is_(None),
+            )
         )
     ).all()
     pending = await _pending_payloads(session, CLASS_NARRATIVE_JOB)
@@ -625,8 +629,14 @@ async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
         await session.scalars(
             select(distinct(User.id))
             .join(GroupMember, GroupMember.student_id == User.id)
+            .join(Group, Group.id == GroupMember.group_id)
             .join(Evidence, Evidence.student_id == User.id)
-            .where(User.role == UserRole.student, COUNTS_FOR_READINESS)
+            .where(
+                User.role == UserRole.student,
+                COUNTS_FOR_READINESS,
+                # A student whose classes are all deleted is no longer written about.
+                Group.deleted_at.is_(None),
+            )
         )
     ).all()
 

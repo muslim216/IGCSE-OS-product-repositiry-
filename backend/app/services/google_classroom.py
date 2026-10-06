@@ -290,6 +290,8 @@ async def sync_classroom(session: AsyncSession, payload: dict) -> None:
 async def _sync_course(session: AsyncSession, access_token: str, link: ClassroomCourseLink) -> None:
     group = await session.get(Group, link.group_id)
     assert group is not None
+    if group.deleted_at is not None:
+        return  # a deleted class syncs nothing further
     for cw in await list_coursework(access_token, link.classroom_course_id):
         work_link = await session.scalar(
             select(ClassroomWorkLink).where(

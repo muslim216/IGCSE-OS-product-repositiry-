@@ -74,6 +74,7 @@ async def due_reminders(
                 TeachingPlan.organization_id == user.organization_id,
                 Group.organization_id == user.organization_id,
                 Group.tutor_id == user.id,
+                Group.deleted_at.is_(None),
                 TeachingPlan.status == TeachingPlanStatus.accepted,
                 PlanSlot.lesson_id.is_(None),
                 PlanSlot.provenance.not_in(STARTED_PROVENANCE),

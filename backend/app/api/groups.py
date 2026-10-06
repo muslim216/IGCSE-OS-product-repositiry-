@@ -51,6 +51,7 @@ async def _owned_group(db, user: User, group_id: int) -> Group:
     # wider reach inside their organization, not across organizations (`SEC-7`).
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (group.tutor_id != user.id and user.role != UserRole.admin)
     ):
@@ -120,7 +121,7 @@ async def list_groups(db: DbSession, user: TutorUser) -> list[GroupOut]:
     groups = (
         await db.scalars(
             select(Group)
-            .where(Group.tutor_id == user.id)
+            .where(Group.tutor_id == user.id, Group.deleted_at.is_(None))
             .options(selectinload(Group.subject))
             .order_by(Group.created_at)
         )
@@ -169,9 +170,15 @@ async def update_group(
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_group(group_id: int, db: DbSession, user: CurrentUser) -> None:
+async def delete_group(group_id: int, db: DbSession, user: TutorUser) -> None:
+    """Delete a class: it disappears and stops sending, the students' record stays.
+
+    Soft, never `db.delete(group)`: see the note on `models.groups.Group`. A second
+    call is a 404 because `_owned_group` no longer finds it.
+    """
     group = await _owned_group(db, user, group_id)
-    await db.delete(group)
+    group.deleted_at = datetime.now(timezone.utc)
+    group.deleted_by_id = user.id
     await db.commit()
 
 

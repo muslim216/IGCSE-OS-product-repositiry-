@@ -64,6 +64,7 @@ async def chapter_prompts(db: AsyncSession, user: User, today: date) -> list[Cha
             .where(
                 TeachingPlan.organization_id == user.organization_id,
                 Group.tutor_id == user.id,
+                Group.deleted_at.is_(None),
                 # Nothing reads a draft plan (task 6.4): only the accepted plan
                 # is what the tutor has committed to. 6.2's shared helper is the
                 # eventual home of this rule.

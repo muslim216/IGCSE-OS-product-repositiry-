@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     AttendanceSource,
     AttendanceState,
+    Group,
     GroupMember,
     Lesson,
     LessonAttendance,
@@ -375,6 +376,8 @@ async def import_meeting_attendance(session: AsyncSession, payload: dict) -> Non
     user = await session.get(User, payload["user_id"])
     if lesson is None or user is None or lesson.organization_id != user.organization_id:
         return  # the lesson went away, or this was never the requester's: nothing to say to anyone
+    if await session.scalar(select(Group.deleted_at).where(Group.id == lesson.group_id)):
+        return  # its class was deleted: nothing acts on it
     attempt = int(payload.get("attempt", 0))
     row = await session.scalar(
         select(LessonMeetingImport).where(LessonMeetingImport.lesson_id == lesson.id)

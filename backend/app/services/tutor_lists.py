@@ -21,8 +21,11 @@ STUDENT_LIST_LIMIT = 500
 
 def _visible_groups(user: User) -> Select:
     """Every class in the caller's own organization when an admin, otherwise
-    only their own (`SEC-7`) — the rule `assignments_needing_attention` applies."""
-    query = select(Group.id).where(Group.organization_id == user.organization_id)
+    only their own (`SEC-7`) — the rule `assignments_needing_attention` applies.
+    A deleted class is in neither list."""
+    query = select(Group.id).where(
+        Group.organization_id == user.organization_id, Group.deleted_at.is_(None)
+    )
     if user.role != UserRole.admin:
         query = query.where(Group.tutor_id == user.id)
     return query

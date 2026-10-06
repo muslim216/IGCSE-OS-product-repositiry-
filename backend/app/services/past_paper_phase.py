@@ -91,6 +91,9 @@ async def pairs_needing_phase_recompute(
                 & (TeachingPlan.status == TeachingPlanStatus.accepted),
             )
             .where(
+                # A deleted class's plan opens no phase: the sweep does not act on it.
+                # (Readiness itself still reads that plan, so deleting changes no score.)
+                Group.deleted_at.is_(None),
                 TeachingPlan.past_paper_start_date.is_not(None),
                 TeachingPlan.past_paper_start_date <= today,
                 # Evidence the factor would actually score: a marked attempt on

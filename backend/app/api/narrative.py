@@ -58,6 +58,7 @@ async def _owned_group(db: AsyncSession, user: User, group_id: int) -> Group:
     group = await db.get(Group, group_id)
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (group.tutor_id != user.id and user.role != UserRole.admin)
     ):

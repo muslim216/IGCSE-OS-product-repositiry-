@@ -113,7 +113,7 @@ async def list_links(db: DbSession, user: TutorUser) -> list[ClassroomLinkOut]:
         await db.execute(
             select(ClassroomCourseLink, Group)
             .join(Group, Group.id == ClassroomCourseLink.group_id)
-            .where(ClassroomCourseLink.google_account_id == account.id)
+            .where(ClassroomCourseLink.google_account_id == account.id, Group.deleted_at.is_(None))
         )
     ).all()
     return [
@@ -135,7 +135,7 @@ async def create_link(
 ) -> ClassroomLinkOut:
     account = await _own_account(db, user)
     group = await db.get(Group, body.group_id)
-    if group is None or group.tutor_id != user.id:
+    if group is None or group.tutor_id != user.id or group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
 
     link = await db.scalar(
