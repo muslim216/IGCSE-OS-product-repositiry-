@@ -82,10 +82,13 @@ LATE_GRACE = timedelta(hours=24)
 #: closed within this long before it. Idempotency is per (organization, week
 #: end), so a tutor moving the send hour or day just after a send would
 #: otherwise produce a second end inside the grace window with no row of its
-#: own, and everyone would be messaged twice for one week. Two days is under
-#: the shortest real gap between two weekly ends (a day moved from Sunday to
-#: Saturday leaves six) yet wider than any same-week move of the hour or day.
-OVERLAP = timedelta(days=2)
+#: own, and everyone would be messaged twice for one week. After a change of
+#: day, a candidate that would repeat more than half of the week already sent
+#: is skipped (the next one is a week later, leaving a gap of at most 3.5
+#: days); one that would repeat less than half is sent (an overlap of at most
+#: 3.5 days). Neither can be avoided when the day moves, and half a week bounds
+#: both.
+OVERLAP = timedelta(days=3, hours=12)
 
 _ADAPTERS: dict[WeeklySendAudience, TypeAdapter] = {
     WeeklySendAudience.tutor: TypeAdapter(TutorFacts),
@@ -168,8 +171,12 @@ async def _latest_narratives(
     return {n.target_id: n for n in rows if _aware(n.generated_at) >= since}
 
 
-def _paragraph(about: str, narrative: Narrative) -> dict:
-    return {"about": about, "text": narrative.text, "narrative_id": narrative.id}
+def _paragraph(about: str, narrative: Narrative, child_id: int | None = None) -> dict:
+    # `child_id` only on a parent send, where the paragraph is about one child.
+    out = {"about": about, "text": narrative.text, "narrative_id": narrative.id}
+    if child_id is not None:
+        out["child_id"] = child_id
+    return out
 
 
 # ---------------------------------------------------------------------- build
@@ -269,7 +276,7 @@ async def _build_one(
             [c.id for c in children],
             start,
         )
-        paragraphs = [_paragraph(c.name, written[c.id]) for c in children if c.id in written]
+        paragraphs = [_paragraph(c.name, written[c.id], c.id) for c in children if c.id in written]
         facts = parent_facts
 
     send = WeeklySend(
@@ -546,15 +553,20 @@ class SendView:
     paragraphs: list[dict]
 
 
-async def linked_child_names(
+@dataclass(frozen=True)
+class LinkedChild:
+    id: int
+    name: str
+    linked_at: datetime
+
+
+async def linked_children(
     session: AsyncSession, parent_id: int, organization_id: int, *, taught_by: int | None = None
-) -> Counter[str]:
-    """Names of the children this parent is linked to *now*, optionally only
-    those `taught_by` that tutor teaches. A stored parent send carries the
-    child's name and no id, so the name is the only key a stored send can be
-    matched on; a count rather than a set lets a duplicate name be recognised."""
+) -> list[LinkedChild]:
+    """The children this parent is linked to *now*, optionally only those
+    `taught_by` that tutor teaches."""
     query = (
-        select(User.name)
+        select(User.id, User.name, ParentLink.created_at)
         .join(ParentLink, ParentLink.student_id == User.id)
         .where(
             ParentLink.parent_id == parent_id,
@@ -570,38 +582,70 @@ async def linked_child_names(
                 .where(Group.tutor_id == taught_by, Group.organization_id == organization_id)
             )
         )
-    return Counter((await session.scalars(query)).all())
+    return [LinkedChild(i, n, _aware(at)) for i, n, at in (await session.execute(query)).all()]
 
 
-def restrict_to_children(send: WeeklySend, allowed: Counter[str]) -> SendView | None:
+def restrict_to_children(
+    send: WeeklySend, allowed: Sequence[LinkedChild], *, hide_dropped: bool = False
+) -> SendView | None:
     """The send as a reader who may see only `allowed` children sees it, or None
     when nothing is left.
 
-    A child is kept only if the reader may see at least as many children of that
-    name as the send holds: with two stored children of one name and one allowed,
-    the stored send cannot say which is which, so both go (fail closed). Each
-    paragraph's `about` is the child's name, so a paragraph survives exactly when
-    its child does.
+    A stored child with an id is kept only if that id is allowed: identity, so a
+    different child who shares a name (linked after the first was unlinked)
+    inherits nothing. A child stored before ids existed has only a name, so it
+    falls back to name matching, with two guards: only links made before the
+    send was stored count (a later link cannot inherit it), and a name stored
+    more often than it is allowed drops all its copies (fail closed). Each
+    paragraph is attributed by its `child_id`, or by `about` when it predates one.
+
+    `hide_dropped` zeroes `dropped_links`, a count of the parent's links that did
+    not resolve to a child when the send was built: it says nothing a tutor needs
+    about a family's other links.
     """
     facts = load_facts(send.audience, send.facts)
     if not isinstance(facts, ParentFacts):
         return SendView(send, facts, list(send.paragraphs))
-    stored = Counter(child.child_name for child in facts.children)
-    kept = {name for name, n in stored.items() if allowed[name] >= n}
-    if not kept:
+    allowed_ids = {c.id for c in allowed}
+    stored_at = _aware(send.created_at)
+    legacy_allowed = Counter(c.name for c in allowed if c.linked_at <= stored_at)
+    legacy_stored = Counter(c.child_name for c in facts.children if c.child_id is None)
+    legacy_kept = {name for name, n in legacy_stored.items() if legacy_allowed[name] >= n}
+    children = tuple(
+        c
+        for c in facts.children
+        if (c.child_id in allowed_ids if c.child_id is not None else c.child_name in legacy_kept)
+    )
+    if not children:
         return None
-    if len(kept) == len(stored):
+    kept_ids = {c.child_id for c in children if c.child_id is not None}
+    if len(children) == len(facts.children) and not hide_dropped:
         return SendView(send, facts, list(send.paragraphs))
-    children = tuple(c for c in facts.children if c.child_name in kept)
     return SendView(
         send,
-        replace(facts, children=children),
-        [p for p in send.paragraphs if p["about"] in kept],
+        replace(
+            facts,
+            children=children,
+            dropped_links=0 if hide_dropped else facts.dropped_links,
+        ),
+        [
+            p
+            for p in send.paragraphs
+            if (
+                p["child_id"] in kept_ids
+                if p.get("child_id") is not None
+                else p["about"] in legacy_kept
+            )
+        ],
     )
 
 
 async def view_for_reader(
-    session: AsyncSession, reader: User, send: WeeklySend, *, allowed: Counter[str] | None = None
+    session: AsyncSession,
+    reader: User,
+    send: WeeklySend,
+    *,
+    allowed: Sequence[LinkedChild] | None = None,
 ) -> SendView | None:
     """What `reader` may see of a send they are already permitted to open.
 
@@ -612,11 +656,12 @@ async def view_for_reader(
     """
     if send.audience != WeeklySendAudience.parent or reader.role == UserRole.admin:
         return SendView(send, load_facts(send.audience, send.facts), list(send.paragraphs))
+    others = reader.id != send.recipient_user_id
     if allowed is None:
-        allowed = await linked_child_names(
+        allowed = await linked_children(
             session,
             send.recipient_user_id,
             send.organization_id,
-            taught_by=reader.id if reader.id != send.recipient_user_id else None,
+            taught_by=reader.id if others else None,
         )
-    return restrict_to_children(send, allowed)
+    return restrict_to_children(send, allowed, hide_dropped=others)

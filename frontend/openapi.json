@@ -16411,6 +16411,17 @@
             },
             "type": "array",
             "title": "Classes"
+          },
+          "child_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Id"
           }
         },
         "type": "object",

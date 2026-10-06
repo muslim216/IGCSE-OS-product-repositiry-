@@ -5707,6 +5707,8 @@ export interface components {
             child_name: string;
             /** Classes */
             classes: components["schemas"]["ParentClassFacts"][];
+            /** Child Id */
+            child_id?: number | null;
         };
         /**
          * ParentClassFacts

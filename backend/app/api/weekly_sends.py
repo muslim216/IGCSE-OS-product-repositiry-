@@ -7,8 +7,6 @@ do not gate or edit it). Anything else is 404, never 403, because the ids are
 enumerable (`API-7`).
 """
 
-from collections import Counter
-
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,8 +24,9 @@ from app.models import (
 )
 from app.schemas.weekly_send import WeeklySendListItem, WeeklySendOut, WeeklySendParagraph
 from app.services.weekly_send import (
+    LinkedChild,
     SendView,
-    linked_child_names,
+    linked_children,
     sends_for,
     view_for_reader,
 )
@@ -54,14 +53,14 @@ async def _visible(db: AsyncSession, reader: User, sends: list[WeeklySend]) -> l
     """The sends that still have something this reader may see. A parent's
     links and a tutor's classes change after a send is stored, so each list is
     narrowed at read time; one lookup per parent, not per send."""
-    allowed: dict[int, Counter[str]] = {}
+    allowed: dict[int, list[LinkedChild]] = {}
     kept: list[WeeklySend] = []
     for send in sends:
         pool = None
         if send.audience == WeeklySendAudience.parent and reader.role != UserRole.admin:
             pid = send.recipient_user_id
             if pid not in allowed:
-                allowed[pid] = await linked_child_names(
+                allowed[pid] = await linked_children(
                     db,
                     pid,
                     send.organization_id,
@@ -132,8 +131,15 @@ async def my_latest_weekly_send(db: DbSession, user: CurrentUser) -> WeeklySendO
     stated absence the home page renders as nothing, not as an empty report."""
     # Newest first, so the first send with anything left for this reader is the
     # latest one: a send whose every child has since been unlinked is skipped.
-    for send in await sends_for(db, user.organization_id, [user.id]):
-        view = await view_for_reader(db, user, send)
+    sends = await sends_for(db, user.organization_id, [user.id])
+    # One lookup for the loop, as `_visible` does, not one per send.
+    pool = (
+        await linked_children(db, user.id, user.organization_id)
+        if any(s.audience == WeeklySendAudience.parent for s in sends)
+        else None
+    )
+    for send in sends:
+        view = await view_for_reader(db, user, send, allowed=pool)
         if view is not None:
             return _out(view)
     return None
