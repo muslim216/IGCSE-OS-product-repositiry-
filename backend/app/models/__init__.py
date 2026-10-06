@@ -8,6 +8,7 @@ from app.models.custom_criteria import (
     CustomCriterionScore,
     CustomCriterionScoreAudit,
 )
+from app.models.dismissal import DismissedPrompt
 from app.models.groups import (
     Group,
     GroupMember,
@@ -230,6 +231,7 @@ __all__ = [
     "SetupAcknowledgement",
     "SetupItem",
     "ACCOUNT_ITEMS",
+    "DismissedPrompt",
     "WeeklySend",
     "WeeklySendAudience",
     "WhatsAppOptOut",

@@ -165,3 +165,34 @@ test("a cancelled lesson leaves the list at once, before any refetch answers", a
     ),
   );
 });
+
+test("Not now hides that lesson's reminder under its slot, and the section with it", async () => {
+  stub([REMINDER]);
+  const hidden = new Set<string>();
+  const hide = vi.fn((key: string, what: string) => hidden.add(key) && what);
+  const dismissals = {
+    isHidden: (key: string) => hidden.has(key),
+    hide,
+    restoreAll: vi.fn(),
+    hiddenCount: 0,
+    report: vi.fn(),
+    settled: true,
+    notice: "",
+    error: null,
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const tree = () => (
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <LessonReminders dismissals={dismissals} />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  const { rerender } = render(tree());
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Not now: Year 11 Chemistry lesson reminder" }),
+  );
+  expect(hide).toHaveBeenCalledWith("lesson_reminder:7", "Year 11 Chemistry lesson reminder");
+  rerender(tree());
+  expect(screen.queryByText("Starting soon")).toBeNull();
+});
