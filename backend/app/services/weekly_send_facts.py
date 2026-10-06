@@ -380,6 +380,10 @@ class ParentClassFacts:
 class ParentChildFacts:
     child_name: str
     classes: tuple[ParentClassFacts, ...]
+    #: Who the block is about. A name is not an identity: a different child
+    #: with the same name, linked later, must not inherit this block when it
+    #: is read back. None on sends stored before the field existed.
+    child_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -973,6 +977,7 @@ async def build_parent_facts(session: AsyncSession, parent: User, window: Window
         blocks.append(
             ParentChildFacts(
                 child_name=child.name,
+                child_id=child.id,
                 classes=tuple(
                     ParentClassFacts(
                         group_name=w.group.name,

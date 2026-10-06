@@ -9,12 +9,14 @@ from datetime import timedelta
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from app.api.weekly_sends import weekly_send as read_weekly_send
 from app.config import get_settings
 from app.db import async_session
 from app.models import (
+    Group,
+    GroupMember,
     Job,
     JobStatus,
     Narrative,
@@ -22,21 +24,32 @@ from app.models import (
     Notification,
     NotificationKind,
     Organization,
+    ParentLink,
     UserRole,
     WeeklySend,
     WeeklySendAudience,
 )
+from app.models.base import utcnow
+from app.security import create_access_token
 from app.services import weekly_send
 from app.services.weekly_send import (
     BUILD_JOB,
     SWEEP_JOB,
     build_weekly_sends,
     due_organizations,
+    dump_facts,
     load_facts,
     message_params,
     sweep_weekly_sends,
 )
-from tests.factories import make_user, org_id, register_other_tutor, register_parent
+from app.services.weekly_send_facts import ParentChildFacts, ParentFacts
+from tests.factories import (
+    link_parent,
+    make_user,
+    org_id,
+    register_other_tutor,
+    register_parent,
+)
 from tests.test_weekly_send_facts import SEND_NOW, WINDOW, _world
 
 WEEK_END = WINDOW[1]
@@ -189,6 +202,72 @@ async def test_an_organization_is_due_for_a_day_after_its_week_closes(world):
     await _build(world["org"])
     async with async_session() as s:
         assert await due_organizations(s, SEND_NOW) == []
+
+
+async def _set_send_moment(organization_id: int, weekday: int, hour: int) -> None:
+    async with async_session() as s:
+        await s.execute(
+            update(Organization)
+            .where(Organization.id == organization_id)
+            .values(weekly_send_weekday=weekday, weekly_send_hour=hour)
+        )
+        await s.commit()
+
+
+async def test_moving_the_hour_earlier_after_sending_does_not_send_again(world):
+    await _build(world["org"])  # Sunday 18:00 went out
+    await _set_send_moment(world["org"], 6, 12)
+    async with async_session() as s:
+        # Sunday 12:00 is inside the late grace and has no stored row of its own.
+        assert await due_organizations(s, SEND_NOW + timedelta(hours=2)) == []
+
+
+async def test_moving_the_hour_later_the_same_day_after_sending_does_not_send_again(world):
+    await _build(world["org"])
+    await _set_send_moment(world["org"], 6, 20)
+    async with async_session() as s:
+        # The new end is the Sunday 20:00 that has just passed; Sunday 18:00 already went.
+        assert await due_organizations(s, WEEK_END + timedelta(hours=2, minutes=30)) == []
+
+
+async def test_a_day_moved_to_saturday_still_sends_on_the_following_saturday(world):
+    # Six days after Sunday's end: further apart than half a week, so it sends.
+    await _build(world["org"])  # Sunday 11 Oct
+    await _set_send_moment(world["org"], 5, 18)
+    saturday = WEEK_END + timedelta(days=6, minutes=30)  # Saturday 17 Oct 18:30
+    async with async_session() as s:
+        assert await due_organizations(s, saturday) == [
+            (world["org"], WEEK_END + timedelta(days=6))
+        ]
+
+
+async def test_a_day_moved_to_wednesday_skips_that_wednesday_and_sends_the_next(world):
+    await _build(world["org"])  # Sunday 11 Oct
+    await _set_send_moment(world["org"], 2, 18)
+    wednesday = WEEK_END + timedelta(days=3, minutes=30)  # would repeat four days
+    async with async_session() as s:
+        assert await due_organizations(s, wednesday) == []
+        assert await due_organizations(s, wednesday + timedelta(days=7)) == [
+            (world["org"], WEEK_END + timedelta(days=10))
+        ]
+
+
+async def test_a_day_moved_to_thursday_sends_that_thursday(world):
+    await _build(world["org"])
+    await _set_send_moment(world["org"], 3, 18)
+    thursday = WEEK_END + timedelta(days=4, minutes=30)  # repeats three days: under half
+    async with async_session() as s:
+        assert await due_organizations(s, thursday) == [
+            (world["org"], WEEK_END + timedelta(days=4))
+        ]
+
+
+async def test_the_next_weeks_send_is_still_due_week_after_week(world):
+    await _build(world["org"])
+    async with async_session() as s:
+        assert await due_organizations(s, SEND_NOW + timedelta(days=7)) == [
+            (world["org"], WEEK_END + timedelta(days=7))
+        ]
 
 
 async def test_the_sweep_queues_one_build_and_the_narrative_refresh(world, monkeypatch, group):
@@ -379,3 +458,262 @@ async def test_a_parent_of_another_child_cannot_read_this_childs_send(world):
         with pytest.raises(HTTPException) as err:
             await read_weekly_send(sends[WeeklySendAudience.parent].id, s, stranger)
         assert err.value.status_code == 404
+
+
+# ------------------------------------------------- what a reader may still see
+
+
+async def _two_child_parent_send(world, subject):
+    """The parent's stored send covers Sara and a second child, Omar, who is
+    taught by a second tutor in the same organization."""
+    async with async_session() as s:
+        other = await make_user(
+            s, organization_id=world["org"], role=UserRole.tutor, name="T2", email="t2@example.com"
+        )
+        omar = await make_user(
+            s,
+            organization_id=world["org"],
+            role=UserRole.student,
+            name="Omar",
+            email="o@example.com",
+        )
+        g2 = Group(
+            organization_id=world["org"], tutor_id=other.id, subject_id=subject["id"], name="Other"
+        )
+        s.add(g2)
+        await s.flush()
+        s.add(GroupMember(group_id=g2.id, student_id=omar.id))
+        await link_parent(s, world["parent"]["user"]["id"], omar.id)
+        facts = ParentFacts(
+            WINDOW[0],
+            WINDOW[1],
+            (ParentChildFacts("Omar", ()), ParentChildFacts("Sara", ())),
+            0,
+        )
+        row = WeeklySend(
+            organization_id=world["org"],
+            recipient_user_id=world["parent"]["user"]["id"],
+            audience=WeeklySendAudience.parent,
+            week_start=WINDOW[0],
+            week_end=WINDOW[1],
+            facts=dump_facts(WeeklySendAudience.parent, facts),
+            paragraphs=[
+                {"about": "Omar", "text": "Omar paragraph", "narrative_id": 1},
+                {"about": "Sara", "text": "Sara paragraph", "narrative_id": 2},
+            ],
+        )
+        s.add(row)
+        await s.flush()
+        ids = {"send": row.id, "omar": omar.id, "other": other.id}
+        await s.commit()
+    ids["other_headers"] = {"Authorization": f"Bearer {create_access_token(ids['other'], 0)}"}
+    return ids
+
+
+def _names(body):
+    return [c["child_name"] for c in body["parent"]["children"]]
+
+
+async def test_a_parent_loses_a_child_they_are_no_longer_linked_to(client, world, subject):
+    ids = await _two_child_parent_send(world, subject)
+    headers = world["parent"]["headers"]
+    both = (await client.get(f"{URL}/{ids['send']}", headers=headers)).json()
+    assert _names(both) == ["Omar", "Sara"]
+    assert len(both["paragraphs"]) == 2
+    async with async_session() as s:
+        await s.execute(delete(ParentLink).where(ParentLink.student_id == ids["omar"]))
+        await s.commit()
+    for body in (
+        (await client.get(f"{URL}/{ids['send']}", headers=headers)).json(),
+        (await client.get(f"{URL}/latest", headers=headers)).json(),
+    ):
+        assert _names(body) == ["Sara"]
+        assert [p["about"] for p in body["paragraphs"]] == ["Sara"]
+        assert "Omar" not in str(body)
+    assert [r["id"] for r in (await client.get(URL, headers=headers)).json()] == [ids["send"]]
+
+
+async def test_a_send_with_no_linked_child_left_is_hidden_from_the_parent(client, world, subject):
+    ids = await _two_child_parent_send(world, subject)
+    headers = world["parent"]["headers"]
+    async with async_session() as s:
+        await s.execute(delete(ParentLink))
+        await s.commit()
+    assert (await client.get(f"{URL}/{ids['send']}", headers=headers)).status_code == 404
+    assert (await client.get(f"{URL}/latest", headers=headers)).json() is None
+    assert (await client.get(URL, headers=headers)).json() == []
+
+
+async def test_a_tutor_reads_only_the_children_they_teach_in_a_parents_send(
+    client, world, student, subject, tutor
+):
+    ids = await _two_child_parent_send(world, subject)
+    url = f"{URL}/{ids['send']}"
+    mine = (await client.get(url, headers=tutor["headers"])).json()
+    assert _names(mine) == ["Sara"]
+    assert "Omar" not in str(mine)
+    assert [p["about"] for p in mine["paragraphs"]] == ["Sara"]
+    theirs = (await client.get(url, headers=ids["other_headers"])).json()
+    assert _names(theirs) == ["Omar"]
+    assert "Sara" not in str(theirs)
+    listed = await client.get(
+        f"/api/v1/students/{student['user']['id']}/weekly-sends", headers=tutor["headers"]
+    )
+    assert ids["send"] in [row["id"] for row in listed.json()]
+
+
+async def test_a_duplicate_child_name_is_dropped_rather_than_guessed(client, world, subject):
+    """Two stored children called Sara, one now linked: the stored send holds no
+    id, so it cannot say which is which and both go."""
+    ids = await _two_child_parent_send(world, subject)
+    async with async_session() as s:
+        row = await s.get(WeeklySend, ids["send"])
+        facts = ParentFacts(
+            WINDOW[0],
+            WINDOW[1],
+            (ParentChildFacts("Sara", ()), ParentChildFacts("Sara", ())),
+            0,
+        )
+        row.facts = dump_facts(WeeklySendAudience.parent, facts)
+        await s.commit()
+    resp = await client.get(f"{URL}/{ids['send']}", headers=world["parent"]["headers"])
+    assert resp.status_code == 404
+
+
+async def test_an_admin_keeps_the_organization_wide_view(client, world, subject):
+    ids = await _two_child_parent_send(world, subject)
+    async with async_session() as s:
+        admin = await make_user(
+            s, organization_id=world["org"], role=UserRole.admin, name="A", email="a@example.com"
+        )
+        await s.commit()
+    headers = {"Authorization": f"Bearer {create_access_token(admin.id, 0)}"}
+    body = (await client.get(f"{URL}/{ids['send']}", headers=headers)).json()
+    assert _names(body) == ["Omar", "Sara"]
+
+
+async def _send_with_ids(world, children, paragraphs):
+    async with async_session() as s:
+        facts = ParentFacts(
+            WINDOW[0],
+            WINDOW[1],
+            tuple(ParentChildFacts(name, (), cid) for name, cid in children),
+            2,
+        )
+        row = WeeklySend(
+            organization_id=world["org"],
+            recipient_user_id=world["parent"]["user"]["id"],
+            audience=WeeklySendAudience.parent,
+            week_start=WINDOW[0],
+            week_end=WINDOW[1],
+            facts=dump_facts(WeeklySendAudience.parent, facts),
+            paragraphs=paragraphs,
+        )
+        s.add(row)
+        await s.flush()
+        send_id = row.id
+        await s.commit()
+    return send_id
+
+
+async def test_a_new_child_with_an_old_childs_name_does_not_inherit_the_send(
+    client, world, student, subject
+):
+    """Sam-A was unlinked; Sam-B, taught by Tutor2, was linked later. Same name,
+    different child: neither the parent nor Tutor2 reads Sam-A's facts."""
+    parent_id = world["parent"]["user"]["id"]
+    sam_a = 987654
+    send_id = await _send_with_ids(
+        world,
+        [("Sam", sam_a), ("Sara", student["user"]["id"])],
+        [
+            {"about": "Sam", "text": "Sam-A paragraph", "narrative_id": 1, "child_id": sam_a},
+            {
+                "about": "Sara",
+                "text": "Sara paragraph",
+                "narrative_id": 2,
+                "child_id": student["user"]["id"],
+            },
+        ],
+    )
+    async with async_session() as s:
+        tutor2 = await make_user(
+            s, organization_id=world["org"], role=UserRole.tutor, name="T2", email="t2@example.com"
+        )
+        sam_b = await make_user(
+            s,
+            organization_id=world["org"],
+            role=UserRole.student,
+            name="Sam",
+            email="sb@example.com",
+        )
+        g2 = Group(
+            organization_id=world["org"], tutor_id=tutor2.id, subject_id=subject["id"], name="G2"
+        )
+        s.add(g2)
+        await s.flush()
+        s.add(GroupMember(group_id=g2.id, student_id=sam_b.id))
+        await link_parent(s, parent_id, sam_b.id)
+        await s.commit()
+        t2_id = tutor2.id
+    url = f"{URL}/{send_id}"
+    body = (await client.get(url, headers=world["parent"]["headers"])).json()
+    assert _names(body) == ["Sara"]
+    assert "Sam-A" not in str(body)
+    t2 = {"Authorization": f"Bearer {create_access_token(t2_id, 0)}"}
+    assert (await client.get(url, headers=t2)).status_code == 404
+
+
+async def test_a_send_stored_before_ids_still_filters_by_name_but_not_a_later_link(
+    client, world, student, subject, tutor
+):
+    ids = await _two_child_parent_send(world, subject)
+    headers = world["parent"]["headers"]
+    url = f"{URL}/{ids['send']}"
+    assert _names((await client.get(url, headers=headers)).json()) == ["Omar", "Sara"]
+    async with async_session() as s:
+        # A link made after the send was stored cannot inherit a name-matched child.
+        await s.execute(
+            update(ParentLink)
+            .where(ParentLink.student_id == ids["omar"])
+            .values(created_at=utcnow() + timedelta(days=1))
+        )
+        await s.commit()
+    assert _names((await client.get(url, headers=headers)).json()) == ["Sara"]
+
+
+async def test_a_renamed_child_with_an_id_is_still_visible_to_their_parent(client, world, student):
+    send_id = await _send_with_ids(
+        world,
+        [("Old Name", student["user"]["id"])],
+        [
+            {
+                "about": "Old Name",
+                "text": "Para",
+                "narrative_id": 1,
+                "child_id": student["user"]["id"],
+            }
+        ],
+    )
+    body = (await client.get(f"{URL}/{send_id}", headers=world["parent"]["headers"])).json()
+    assert _names(body) == ["Old Name"]
+    assert len(body["paragraphs"]) == 1
+
+
+async def test_a_tutor_does_not_learn_of_unresolved_links_through_the_filtered_send(
+    client, world, student, tutor
+):
+    send_id = await _send_with_ids(world, [("Sara", student["user"]["id"])], [])
+    mine = (await client.get(f"{URL}/{send_id}", headers=tutor["headers"])).json()
+    assert mine["parent"]["dropped_links"] == 0
+    own = (await client.get(f"{URL}/{send_id}", headers=world["parent"]["headers"])).json()
+    assert own["parent"]["dropped_links"] == 2
+
+
+async def test_the_latest_send_skips_one_with_nothing_left(client, world, subject):
+    ids = await _two_child_parent_send(world, subject)
+    async with async_session() as s:
+        await s.execute(delete(ParentLink))
+        await s.commit()
+    assert (await client.get(f"{URL}/latest", headers=world["parent"]["headers"])).json() is None
+    assert ids

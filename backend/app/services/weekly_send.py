@@ -28,7 +28,9 @@ ends, not seven hours into the next one.
 """
 
 import logging
+from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from pydantic import TypeAdapter
@@ -75,6 +77,18 @@ BUILD_JOB = "build_weekly_sends"
 #: first deploy would mail every account a "weekly" report for a week that ended
 #: days ago, and an outage would be followed by a burst of stale ones.
 LATE_GRACE = timedelta(hours=24)
+
+#: A candidate week end is not due if the organization already sent a week that
+#: closed within this long before it. Idempotency is per (organization, week
+#: end), so a tutor moving the send hour or day just after a send would
+#: otherwise produce a second end inside the grace window with no row of its
+#: own, and everyone would be messaged twice for one week. After a change of
+#: day, a candidate that would repeat more than half of the week already sent
+#: is skipped (the next one is a week later, leaving a gap of at most 3.5
+#: days); one that would repeat less than half is sent (an overlap of at most
+#: 3.5 days). Neither can be avoided when the day moves, and half a week bounds
+#: both.
+OVERLAP = timedelta(days=3, hours=12)
 
 _ADAPTERS: dict[WeeklySendAudience, TypeAdapter] = {
     WeeklySendAudience.tutor: TypeAdapter(TutorFacts),
@@ -157,8 +171,12 @@ async def _latest_narratives(
     return {n.target_id: n for n in rows if _aware(n.generated_at) >= since}
 
 
-def _paragraph(about: str, narrative: Narrative) -> dict:
-    return {"about": about, "text": narrative.text, "narrative_id": narrative.id}
+def _paragraph(about: str, narrative: Narrative, child_id: int | None = None) -> dict:
+    # `child_id` only on a parent send, where the paragraph is about one child.
+    out = {"about": about, "text": narrative.text, "narrative_id": narrative.id}
+    if child_id is not None:
+        out["child_id"] = child_id
+    return out
 
 
 # ---------------------------------------------------------------------- build
@@ -258,7 +276,7 @@ async def _build_one(
             [c.id for c in children],
             start,
         )
-        paragraphs = [_paragraph(c.name, written[c.id]) for c in children if c.id in written]
+        paragraphs = [_paragraph(c.name, written[c.id], c.id) for c in children if c.id in written]
         facts = parent_facts
 
     send = WeeklySend(
@@ -299,6 +317,21 @@ async def _already_built(session: AsyncSession, organization_id: int, week_end: 
         await session.scalar(
             select(WeeklySend.id)
             .where(WeeklySend.organization_id == organization_id, WeeklySend.week_end == week_end)
+            .limit(1)
+        )
+    ) is not None
+
+
+async def _sent_recently(session: AsyncSession, organization_id: int, week_end: datetime) -> bool:
+    """True when a stored send closed later than `week_end - OVERLAP` — the same
+    week sent under a send moment the tutor has since changed."""
+    return (
+        await session.scalar(
+            select(WeeklySend.id)
+            .where(
+                WeeklySend.organization_id == organization_id,
+                WeeklySend.week_end > week_end - OVERLAP,
+            )
             .limit(1)
         )
     ) is not None
@@ -456,7 +489,7 @@ async def due_organizations(session: AsyncSession, now: datetime) -> list[tuple[
         except ValueError:
             log.exception("organization %s has an unusable weekly send setting", org.id)
             continue
-        if now - end > LATE_GRACE or await _already_built(session, org.id, end):
+        if now - end > LATE_GRACE or await _sent_recently(session, org.id, end):
             continue
         due.append((org.id, end))
     return due
@@ -489,18 +522,6 @@ async def sweep_weekly_sends(session: AsyncSession, payload: dict) -> None:
 # ----------------------------------------------------------------------- read
 
 
-async def latest_send(session: AsyncSession, user: User) -> WeeklySend | None:
-    return await session.scalar(
-        select(WeeklySend)
-        .where(
-            WeeklySend.recipient_user_id == user.id,
-            WeeklySend.organization_id == user.organization_id,
-        )
-        .order_by(WeeklySend.week_end.desc(), WeeklySend.id.desc())
-        .limit(1)
-    )
-
-
 async def sends_for(
     session: AsyncSession, organization_id: int, user_ids: Sequence[int], limit: int = 26
 ) -> list[WeeklySend]:
@@ -519,3 +540,128 @@ async def sends_for(
             .limit(limit)
         )
     )
+
+
+@dataclass(frozen=True)
+class SendView:
+    """A stored send as one particular reader may see it. The row itself is
+    never edited: what a reader may see is decided at read time, because the
+    parent's links and the tutor's classes change after a send is stored."""
+
+    send: WeeklySend
+    facts: TutorFacts | StudentFacts | ParentFacts
+    paragraphs: list[dict]
+
+
+@dataclass(frozen=True)
+class LinkedChild:
+    id: int
+    name: str
+    linked_at: datetime
+
+
+async def linked_children(
+    session: AsyncSession, parent_id: int, organization_id: int, *, taught_by: int | None = None
+) -> list[LinkedChild]:
+    """The children this parent is linked to *now*, optionally only those
+    `taught_by` that tutor teaches."""
+    query = (
+        select(User.id, User.name, ParentLink.created_at)
+        .join(ParentLink, ParentLink.student_id == User.id)
+        .where(
+            ParentLink.parent_id == parent_id,
+            User.organization_id == organization_id,
+            User.role == UserRole.student,
+        )
+    )
+    if taught_by is not None:
+        query = query.where(
+            User.id.in_(
+                select(GroupMember.student_id)
+                .join(Group, Group.id == GroupMember.group_id)
+                .where(Group.tutor_id == taught_by, Group.organization_id == organization_id)
+            )
+        )
+    return [LinkedChild(i, n, _aware(at)) for i, n, at in (await session.execute(query)).all()]
+
+
+def restrict_to_children(
+    send: WeeklySend, allowed: Sequence[LinkedChild], *, hide_dropped: bool = False
+) -> SendView | None:
+    """The send as a reader who may see only `allowed` children sees it, or None
+    when nothing is left.
+
+    A stored child with an id is kept only if that id is allowed: identity, so a
+    different child who shares a name (linked after the first was unlinked)
+    inherits nothing. A child stored before ids existed has only a name, so it
+    falls back to name matching, with two guards: only links made before the
+    send was stored count (a later link cannot inherit it), and a name stored
+    more often than it is allowed drops all its copies (fail closed). Each
+    paragraph is attributed by its `child_id`, or by `about` when it predates one.
+
+    `hide_dropped` zeroes `dropped_links`, a count of the parent's links that did
+    not resolve to a child when the send was built: it says nothing a tutor needs
+    about a family's other links.
+    """
+    facts = load_facts(send.audience, send.facts)
+    if not isinstance(facts, ParentFacts):
+        return SendView(send, facts, list(send.paragraphs))
+    allowed_ids = {c.id for c in allowed}
+    stored_at = _aware(send.created_at)
+    legacy_allowed = Counter(c.name for c in allowed if c.linked_at <= stored_at)
+    legacy_stored = Counter(c.child_name for c in facts.children if c.child_id is None)
+    legacy_kept = {name for name, n in legacy_stored.items() if legacy_allowed[name] >= n}
+    children = tuple(
+        c
+        for c in facts.children
+        if (c.child_id in allowed_ids if c.child_id is not None else c.child_name in legacy_kept)
+    )
+    if not children:
+        return None
+    kept_ids = {c.child_id for c in children if c.child_id is not None}
+    if len(children) == len(facts.children) and not hide_dropped:
+        return SendView(send, facts, list(send.paragraphs))
+    return SendView(
+        send,
+        replace(
+            facts,
+            children=children,
+            dropped_links=0 if hide_dropped else facts.dropped_links,
+        ),
+        [
+            p
+            for p in send.paragraphs
+            if (
+                p["child_id"] in kept_ids
+                if p.get("child_id") is not None
+                else p["about"] in legacy_kept
+            )
+        ],
+    )
+
+
+async def view_for_reader(
+    session: AsyncSession,
+    reader: User,
+    send: WeeklySend,
+    *,
+    allowed: Sequence[LinkedChild] | None = None,
+) -> SendView | None:
+    """What `reader` may see of a send they are already permitted to open.
+
+    A parent reading their own send sees only children still linked to them. A
+    tutor reading a parent's send sees only the children they teach (and who are
+    still linked). An admin keeps the organization-wide view the rest of this
+    feature gives them. `allowed` lets a list pass one lookup for many sends.
+    """
+    if send.audience != WeeklySendAudience.parent or reader.role == UserRole.admin:
+        return SendView(send, load_facts(send.audience, send.facts), list(send.paragraphs))
+    others = reader.id != send.recipient_user_id
+    if allowed is None:
+        allowed = await linked_children(
+            session,
+            send.recipient_user_id,
+            send.organization_id,
+            taught_by=reader.id if others else None,
+        )
+    return restrict_to_children(send, allowed, hide_dropped=others)

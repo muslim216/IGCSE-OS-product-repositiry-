@@ -6,15 +6,17 @@ Nothing here sends anything: each test reads the outbox rows `notify()` wrote.
 from datetime import datetime, time, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.db import async_session
 from app.models import (
+    Assignment,
     Job,
     Notification,
     NotificationKind,
     Organization,
+    PlanSlot,
     Submission,
     SubmissionStatus,
     User,
@@ -229,6 +231,67 @@ async def test_a_lesson_about_to_start_reminds_its_tutor_and_learners(
     assert {n.recipient_user_id for n in notes} == {tutor["user"]["id"], student["user"]["id"]}
     assert len(notes) == 2
     assert all(n.params == {"subject_name": "Chemistry", "start_time": "12:10"} for n in notes)
+
+
+async def test_a_lesson_reminder_names_the_start_in_the_zone_the_slot_was_judged_in(
+    client, tutor, group, student, subject
+):
+    """The tutor's own zone wins over the organization's (`due_reminders`), so
+    the time in the message must be read in that zone too."""
+    ch = await make_chapters(subject)
+    async with async_session() as s:
+        await s.execute(
+            update(User).where(User.id == tutor["user"]["id"]).values(time_zone="Africa/Cairo")
+        )
+        await s.execute(update(Organization).values(timezone="UTC"))
+        await s.commit()
+    # 15:10 in Cairo (UTC+3 in October 2026) is 12:10 UTC, ten minutes after NOON.
+    await make_plan(group, tutor, [(ch["c1"], NOON.date(), time(15, 10))])
+    async with async_session() as s:
+        assert await remind_lessons(s, NOON) == 2
+        await s.commit()
+    assert {n.params["start_time"] for n in await _notes(NotificationKind.lesson_reminder)} == {
+        "15:10"
+    }
+
+
+async def test_a_lesson_moved_after_its_reminder_is_reminded_again(
+    client, tutor, group, student, subject
+):
+    ch = await make_chapters(subject)
+    await make_plan(group, tutor, [(ch["c1"], NOON.date(), time(12, 10))])
+    async with async_session() as s:
+        assert await remind_lessons(s, NOON) == 2
+        await s.execute(update(PlanSlot).values(start_time=time(12, 14)))
+        await s.commit()
+    async with async_session() as s:
+        await remind_lessons(s, NOON)
+        await remind_lessons(s, NOON)  # the same moved lesson is still sent once
+        await s.commit()
+    notes = await _notes(NotificationKind.lesson_reminder)
+    assert sorted(n.params["start_time"] for n in notes) == ["12:10", "12:10", "12:14", "12:14"]
+    assert all(len(n.idempotency_key) <= 190 for n in notes)
+
+
+async def test_homework_whose_deadline_is_extended_is_reminded_again(
+    client, tutor, group, student, subject
+):
+    hw = await _homework(group, subject, title="Soon", due_at=NOON + timedelta(hours=6))
+    async with async_session() as s:
+        await remind_homework_due(s, NOON)
+        await s.execute(
+            update(Assignment)
+            .where(Assignment.id == hw.id)
+            .values(due_at=NOON + timedelta(hours=20))
+        )
+        await s.commit()
+    async with async_session() as s:
+        await remind_homework_due(s, NOON)
+        await remind_homework_due(s, NOON)
+        await s.commit()
+    notes = await _notes(NotificationKind.homework_due)
+    assert len(notes) == 2
+    assert all(len(n.idempotency_key) <= 190 for n in notes)
 
 
 @pytest.mark.parametrize("start", [time(11, 55), time(13, 0)])
