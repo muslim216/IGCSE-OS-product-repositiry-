@@ -67,3 +67,29 @@ leaves stored rows readable; the sweeps keep re-arming so switching back on need
 - **The `/weekly/:id` deep link is lost through the login redirect.**
 - **Reviews**: #131–#133 had no independent reviewers (subagent limit); they were self-reviewed.
 - **Constitution updates** (GOV-1) for the new endpoints, tables and rules above.
+
+## Independent review, 2026-10-06 (#144)
+
+#131–#133 were self-reviewed when they merged. Two independent reviewers read them afterwards
+and #144 fixed what they found:
+
+- Changing the weekly send day or hour just after a send no longer sends the week twice. A
+  candidate week end is not due when a stored send closed within half a week before it
+  (`OVERLAP`); after a change of day both the repeat and the gap are bounded at 3.5 days.
+- A stored parent send is narrowed when it is read: a parent sees only children still linked
+  to them, a tutor only the children they teach, an admin everything in the organization. New
+  sends store `child_id`; sends stored before #144 fall back to the child's name, counting only
+  links that existed when the send was stored.
+- Lesson reminders name the start in the zone the slot was judged in. A moved lesson and an
+  extended homework deadline are reminded again (the moment is part of the idempotency key).
+- The undelivered list shows a tutor only their own learners, those learners' parents, and
+  themselves.
+
+Known gaps left open by that review:
+
+- A per-reader exception in `build_weekly_sends` is logged and swallowed, and `_already_built`
+  is per organization, so that reader gets no send for the week and is never retried.
+- A tutor can edit and confirm the contact of a parent who also has a child taught by another
+  tutor, which moves that other child's messages too.
+- A tutor reading a shared child's parent send sees that child's classes with other tutors.
+- Provider error text is logged and stored as received.
