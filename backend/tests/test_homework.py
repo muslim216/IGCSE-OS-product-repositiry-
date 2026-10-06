@@ -10,6 +10,7 @@ from app.models import (
     QuestionMark,
     Submission,
     SubmissionFile,
+    SubmissionStatus,
 )
 from app.services.marking import _run_marking
 from app.services.work import parent_of
@@ -323,10 +324,9 @@ async def test_other_tutor_cannot_see_assignment(client, published_assignment):
     assert resp.status_code == 404
 
 
-async def test_resubmission_resets_marking(
-    client, tutor, student, published_assignment, monkeypatch
+async def test_resubmission_before_any_mark_is_final_replaces_the_attempt(
+    client, tutor, student, published_assignment
 ):
-    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
     aid = published_assignment["id"]
     first = await client.post(
         f"/api/v1/assignments/{aid}/submissions",
@@ -334,7 +334,6 @@ async def test_resubmission_resets_marking(
         headers=student["headers"],
     )
     assert first.status_code == 201
-    await process_one_job()
 
     second = await client.post(
         f"/api/v1/assignments/{aid}/submissions",
@@ -345,6 +344,46 @@ async def test_resubmission_resets_marking(
     subs = await client.get(f"/api/v1/assignments/{aid}/submissions", headers=tutor["headers"])
     assert len(subs.json()) == 1
     assert subs.json()[0]["status"] == "submitted"
+
+
+async def test_resubmission_is_refused_once_one_question_has_a_final_mark(
+    client, tutor, student, published_assignment, monkeypatch
+):
+    """`fake_marking` leaves the scheme-backed question auto-finalized and the
+    other waiting for the tutor, so the submission sits in `needs_review` with
+    a mark that already counts. Replacing it would delete that mark."""
+    monkeypatch.setattr("app.services.marking._run_marking", fake_marking)
+    aid = published_assignment["id"]
+    first = await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("page1.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert first.status_code == 201
+    await process_one_job()
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+        assert submission.status == SubmissionStatus.needs_review
+        finals = (
+            await session.scalars(
+                select(QuestionMark.final_marks).where(QuestionMark.submission_id == submission.id)
+            )
+        ).all()
+    assert any(marks is not None for marks in finals)
+
+    second = await client.post(
+        f"/api/v1/assignments/{aid}/submissions",
+        files=[("files", ("better.png", PNG_BYTES, "image/png"))],
+        headers=student["headers"],
+    )
+    assert second.status_code == 409, second.text
+    async with async_session() as session:
+        after = (
+            await session.scalars(
+                select(QuestionMark.final_marks).where(QuestionMark.submission_id == submission.id)
+            )
+        ).all()
+    assert sorted(after, key=str) == sorted(finals, key=str)
 
 
 async def test_a_tutor_rule_that_overrode_the_scheme_is_recorded_and_still_counts(

@@ -798,10 +798,13 @@ async def test_replacing_an_attempt_clears_its_mistakes_and_the_analysed_mark(
         question = await session.scalar(
             select(PastPaperQuestion).where(PastPaperQuestion.past_paper_id == paper.id)
         )
+        # A draft, not a final mark: an attempt with a final mark can no longer
+        # be replaced at all. The cleanup still has to hold for whatever is
+        # hanging off the drafts a replacement does delete.
         mark = QuestionMark(
             submission_id=submission.id,
             past_paper_question_id=question.id,
-            final_marks=3,
+            ai_marks=3,
         )
         session.add(mark)
         await session.flush()
