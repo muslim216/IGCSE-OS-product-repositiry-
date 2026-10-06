@@ -52,6 +52,7 @@ from app.models import (
 from app.services.lesson_reminders import due_reminders
 from app.services.notifications.service import notify
 from app.services.submission_kind import HOMEWORK, kind_of
+from app.services.timezones import effective_timezone
 from app.services.today import pending_review_count
 from app.services.work import parent_of
 from app.workers.jobs import enqueue
@@ -79,6 +80,11 @@ def _zone(name: str | None) -> ZoneInfo | timezone:
 def _aware(value: datetime) -> datetime:
     # SQLite (the test database) hands back naive datetimes; they are UTC.
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _moment(value: datetime) -> str:
+    """A UTC instant as a short stable key part, whatever the column handed back."""
+    return _aware(value).astimezone(timezone.utc).strftime("%Y%m%dT%H%MZ")
 
 
 def due_phrase(due_at: datetime | None, zone_name: str | None) -> str:
@@ -261,7 +267,11 @@ async def remind_homework_due(session: AsyncSession, now: datetime) -> int:
                     "due_date": due,
                 },
                 link_path=f"/student/homework/{assignment.id}",
-                idempotency_key=f"homework_due:{assignment.id}:{reader.id}",
+                # The due moment is part of the key: a deadline extended after
+                # its reminder went out is a new thing to remind about.
+                idempotency_key=(
+                    f"homework_due:{assignment.id}:{_moment(assignment.due_at)}:{reader.id}"
+                ),
             )
             sent += 1
     return sent
@@ -295,7 +305,10 @@ async def remind_lessons(session: AsyncSession, now: datetime) -> int:
     sent = 0
     for tutor in await _tutors_with_plans(session):
         org = await session.get(Organization, tutor.organization_id)
-        zone = _zone(org.timezone if org else None)
+        # The zone `due_reminders` judged the slot in, not the organization's:
+        # the tutor's own zone wins there, so it must here or the message names
+        # a different time from the one the lesson was found at.
+        zone = _zone(effective_timezone(tutor.time_zone, org.timezone if org else None))
         for reminder in await due_reminders(session, tutor, now):
             if now > reminder.starts_at:
                 continue
@@ -318,7 +331,12 @@ async def remind_lessons(session: AsyncSession, now: datetime) -> int:
                     kind=NotificationKind.lesson_reminder,
                     params=params,
                     link_path=link,
-                    idempotency_key=f"lesson_reminder:{reminder.slot_id}:{reader.id}",
+                    # The start is part of the key: a lesson moved after its
+                    # reminder went out needs a new one.
+                    idempotency_key=(
+                        f"lesson_reminder:{reminder.slot_id}:"
+                        f"{_moment(reminder.starts_at)}:{reader.id}"
+                    ),
                 )
                 sent += 1
     return sent

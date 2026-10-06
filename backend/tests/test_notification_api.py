@@ -6,9 +6,23 @@ import pytest
 
 from app.config import get_settings
 from app.db import async_session
-from app.models import Notification, NotificationKind, NotificationStatus, User
+from app.models import (
+    Group,
+    GroupMember,
+    Notification,
+    NotificationKind,
+    NotificationStatus,
+    User,
+    UserRole,
+)
 from app.models.base import utcnow
-from tests.factories import register_other_tutor, register_parent
+from app.security import create_access_token
+from tests.factories import (
+    link_parent,
+    make_user,
+    register_other_tutor,
+    register_parent,
+)
 
 NUMBER = "+201001234567"
 
@@ -331,3 +345,51 @@ async def test_undelivered_is_tutor_only_and_never_crosses_organizations(client,
     assert (await client.get(UNDELIVERED, headers=other["headers"])).json() == []
     assert (await client.get(UNDELIVERED, headers=student["headers"])).status_code == 403
     assert (await client.get(UNDELIVERED)).status_code == 401
+
+
+async def test_a_tutor_sees_failures_only_for_people_in_their_own_classes(
+    client, tutor, group, student, subject
+):
+    """A second tutor in the same organization teaches another learner and that
+    learner's parent; neither the failures about them nor the unlinked parent's
+    show up for the first tutor, and the second tutor does not see Sara's."""
+    parent = await register_parent(client, tutor, student)
+    async with async_session() as s:
+        org = (await s.get(User, tutor["user"]["id"])).organization_id
+        other = await make_user(
+            s, organization_id=org, role=UserRole.tutor, name="T2", email="t2@example.com"
+        )
+        omar = await make_user(
+            s, organization_id=org, role=UserRole.student, name="Omar", email="o@example.com"
+        )
+        omars_parent = await make_user(
+            s, organization_id=org, role=UserRole.parent, name="OP", email="op@example.com"
+        )
+        admin = await make_user(
+            s, organization_id=org, role=UserRole.admin, name="Ad", email="ad@example.com"
+        )
+        g2 = Group(organization_id=org, tutor_id=other.id, subject_id=subject["id"], name="G2")
+        s.add(g2)
+        await s.flush()
+        s.add(GroupMember(group_id=g2.id, student_id=omar.id))
+        await link_parent(s, omars_parent.id, omar.id)
+        await s.commit()
+        other_id, omar_id, op_id, admin_id = other.id, omar.id, omars_parent.id, admin.id
+    for key, uid in (
+        ("sara", student["user"]["id"]),
+        ("sara-parent", parent["user"]["id"]),
+        ("omar", omar_id),
+        ("omar-parent", op_id),
+    ):
+        await _note(uid, key, NotificationStatus.failed)
+
+    def headers(uid):
+        return {"Authorization": f"Bearer {create_access_token(uid, 0)}"}
+
+    async def names(h):
+        return {r["recipient_name"] for r in (await client.get(UNDELIVERED, headers=h)).json()}
+
+    assert await names(tutor["headers"]) == {"Sara", "Parent"}
+    assert await names(headers(other_id)) == {"Omar", "OP"}
+    # An admin keeps the organization-wide view.
+    assert await names(headers(admin_id)) == {"Sara", "Parent", "Omar", "OP"}

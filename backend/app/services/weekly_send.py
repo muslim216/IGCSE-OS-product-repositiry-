@@ -28,7 +28,9 @@ ends, not seven hours into the next one.
 """
 
 import logging
+from collections import Counter
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from pydantic import TypeAdapter
@@ -75,6 +77,15 @@ BUILD_JOB = "build_weekly_sends"
 #: first deploy would mail every account a "weekly" report for a week that ended
 #: days ago, and an outage would be followed by a burst of stale ones.
 LATE_GRACE = timedelta(hours=24)
+
+#: A candidate week end is not due if the organization already sent a week that
+#: closed within this long before it. Idempotency is per (organization, week
+#: end), so a tutor moving the send hour or day just after a send would
+#: otherwise produce a second end inside the grace window with no row of its
+#: own, and everyone would be messaged twice for one week. Two days is under
+#: the shortest real gap between two weekly ends (a day moved from Sunday to
+#: Saturday leaves six) yet wider than any same-week move of the hour or day.
+OVERLAP = timedelta(days=2)
 
 _ADAPTERS: dict[WeeklySendAudience, TypeAdapter] = {
     WeeklySendAudience.tutor: TypeAdapter(TutorFacts),
@@ -304,6 +315,21 @@ async def _already_built(session: AsyncSession, organization_id: int, week_end: 
     ) is not None
 
 
+async def _sent_recently(session: AsyncSession, organization_id: int, week_end: datetime) -> bool:
+    """True when a stored send closed later than `week_end - OVERLAP` — the same
+    week sent under a send moment the tutor has since changed."""
+    return (
+        await session.scalar(
+            select(WeeklySend.id)
+            .where(
+                WeeklySend.organization_id == organization_id,
+                WeeklySend.week_end > week_end - OVERLAP,
+            )
+            .limit(1)
+        )
+    ) is not None
+
+
 async def build_weekly_sends(session: AsyncSession, payload: dict) -> None:
     """Job handler: store and announce one organization's week.
 
@@ -456,7 +482,7 @@ async def due_organizations(session: AsyncSession, now: datetime) -> list[tuple[
         except ValueError:
             log.exception("organization %s has an unusable weekly send setting", org.id)
             continue
-        if now - end > LATE_GRACE or await _already_built(session, org.id, end):
+        if now - end > LATE_GRACE or await _sent_recently(session, org.id, end):
             continue
         due.append((org.id, end))
     return due
@@ -489,18 +515,6 @@ async def sweep_weekly_sends(session: AsyncSession, payload: dict) -> None:
 # ----------------------------------------------------------------------- read
 
 
-async def latest_send(session: AsyncSession, user: User) -> WeeklySend | None:
-    return await session.scalar(
-        select(WeeklySend)
-        .where(
-            WeeklySend.recipient_user_id == user.id,
-            WeeklySend.organization_id == user.organization_id,
-        )
-        .order_by(WeeklySend.week_end.desc(), WeeklySend.id.desc())
-        .limit(1)
-    )
-
-
 async def sends_for(
     session: AsyncSession, organization_id: int, user_ids: Sequence[int], limit: int = 26
 ) -> list[WeeklySend]:
@@ -519,3 +533,90 @@ async def sends_for(
             .limit(limit)
         )
     )
+
+
+@dataclass(frozen=True)
+class SendView:
+    """A stored send as one particular reader may see it. The row itself is
+    never edited: what a reader may see is decided at read time, because the
+    parent's links and the tutor's classes change after a send is stored."""
+
+    send: WeeklySend
+    facts: TutorFacts | StudentFacts | ParentFacts
+    paragraphs: list[dict]
+
+
+async def linked_child_names(
+    session: AsyncSession, parent_id: int, organization_id: int, *, taught_by: int | None = None
+) -> Counter[str]:
+    """Names of the children this parent is linked to *now*, optionally only
+    those `taught_by` that tutor teaches. A stored parent send carries the
+    child's name and no id, so the name is the only key a stored send can be
+    matched on; a count rather than a set lets a duplicate name be recognised."""
+    query = (
+        select(User.name)
+        .join(ParentLink, ParentLink.student_id == User.id)
+        .where(
+            ParentLink.parent_id == parent_id,
+            User.organization_id == organization_id,
+            User.role == UserRole.student,
+        )
+    )
+    if taught_by is not None:
+        query = query.where(
+            User.id.in_(
+                select(GroupMember.student_id)
+                .join(Group, Group.id == GroupMember.group_id)
+                .where(Group.tutor_id == taught_by, Group.organization_id == organization_id)
+            )
+        )
+    return Counter((await session.scalars(query)).all())
+
+
+def restrict_to_children(send: WeeklySend, allowed: Counter[str]) -> SendView | None:
+    """The send as a reader who may see only `allowed` children sees it, or None
+    when nothing is left.
+
+    A child is kept only if the reader may see at least as many children of that
+    name as the send holds: with two stored children of one name and one allowed,
+    the stored send cannot say which is which, so both go (fail closed). Each
+    paragraph's `about` is the child's name, so a paragraph survives exactly when
+    its child does.
+    """
+    facts = load_facts(send.audience, send.facts)
+    if not isinstance(facts, ParentFacts):
+        return SendView(send, facts, list(send.paragraphs))
+    stored = Counter(child.child_name for child in facts.children)
+    kept = {name for name, n in stored.items() if allowed[name] >= n}
+    if not kept:
+        return None
+    if len(kept) == len(stored):
+        return SendView(send, facts, list(send.paragraphs))
+    children = tuple(c for c in facts.children if c.child_name in kept)
+    return SendView(
+        send,
+        replace(facts, children=children),
+        [p for p in send.paragraphs if p["about"] in kept],
+    )
+
+
+async def view_for_reader(
+    session: AsyncSession, reader: User, send: WeeklySend, *, allowed: Counter[str] | None = None
+) -> SendView | None:
+    """What `reader` may see of a send they are already permitted to open.
+
+    A parent reading their own send sees only children still linked to them. A
+    tutor reading a parent's send sees only the children they teach (and who are
+    still linked). An admin keeps the organization-wide view the rest of this
+    feature gives them. `allowed` lets a list pass one lookup for many sends.
+    """
+    if send.audience != WeeklySendAudience.parent or reader.role == UserRole.admin:
+        return SendView(send, load_facts(send.audience, send.facts), list(send.paragraphs))
+    if allowed is None:
+        allowed = await linked_child_names(
+            session,
+            send.recipient_user_id,
+            send.organization_id,
+            taught_by=reader.id if reader.id != send.recipient_user_id else None,
+        )
+    return restrict_to_children(send, allowed)

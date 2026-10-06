@@ -9,13 +9,15 @@ nothing is ever sent to an unconfirmed address.
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, TutorUser
 from app.api.students import _tutor_student
 from app.models import (
     ContactPoint,
+    Group,
+    GroupMember,
     Notification,
     NotificationChannel,
     NotificationKind,
@@ -23,6 +25,7 @@ from app.models import (
     NotificationStatus,
     ParentLink,
     User,
+    UserRole,
 )
 from app.models.base import utcnow
 from app.schemas.notifications import (
@@ -219,19 +222,35 @@ async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
     of "no confirmed number" would bury the one that says a parent opted out.
     A row still `queued` is in flight, not a problem, and is left out.
     """
-    rows = (
-        await db.execute(
-            select(Notification, User)
-            .join(User, User.id == Notification.recipient_user_id)
-            .where(
-                Notification.organization_id == user.organization_id,
-                Notification.status.not_in([NotificationStatus.sent, NotificationStatus.queued]),
-                Notification.created_at >= utcnow() - UNDELIVERED_WINDOW,
-            )
-            .order_by(Notification.created_at.desc(), Notification.id.desc())
-            .limit(UNDELIVERED_SCAN)
+    query = (
+        select(Notification, User)
+        .join(User, User.id == Notification.recipient_user_id)
+        .where(
+            Notification.organization_id == user.organization_id,
+            Notification.status.not_in([NotificationStatus.sent, NotificationStatus.queued]),
+            Notification.created_at >= utcnow() - UNDELIVERED_WINDOW,
         )
-    ).all()
+        .order_by(Notification.created_at.desc(), Notification.id.desc())
+        .limit(UNDELIVERED_SCAN)
+    )
+    if user.role != UserRole.admin:
+        # A tutor sees who is not being reached among *their* people: learners
+        # in their own classes and those learners' parents. Organization alone
+        # would show every other tutor's families (an admin keeps that view).
+        taught = (
+            select(GroupMember.student_id)
+            .join(Group, Group.id == GroupMember.group_id)
+            .where(Group.tutor_id == user.id, Group.organization_id == user.organization_id)
+        )
+        query = query.where(
+            or_(
+                Notification.recipient_user_id.in_(taught),
+                Notification.recipient_user_id.in_(
+                    select(ParentLink.parent_id).where(ParentLink.student_id.in_(taught))
+                ),
+            )
+        )
+    rows = (await db.execute(query)).all()
     seen: set[tuple[int, NotificationStatus]] = set()
     out: list[UndeliveredOut] = []
     for note, person in rows:

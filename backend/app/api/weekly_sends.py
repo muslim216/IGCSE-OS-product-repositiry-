@@ -7,6 +7,8 @@ do not gate or edit it). Anything else is 404, never 403, because the ids are
 enumerable (`API-7`).
 """
 
+from collections import Counter
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,24 +25,52 @@ from app.models import (
     WeeklySendAudience,
 )
 from app.schemas.weekly_send import WeeklySendListItem, WeeklySendOut, WeeklySendParagraph
-from app.services.weekly_send import latest_send, load_facts, sends_for
+from app.services.weekly_send import (
+    SendView,
+    linked_child_names,
+    sends_for,
+    view_for_reader,
+)
 
 router = APIRouter(tags=["weekly-sends"])
 
 _NOT_FOUND = HTTPException(status.HTTP_404_NOT_FOUND, "Weekly send not found")
 
 
-def _out(send: WeeklySend) -> WeeklySendOut:
-    facts = load_facts(send.audience, send.facts)
+def _out(view: SendView) -> WeeklySendOut:
+    send, facts = view.send, view.facts
     return WeeklySendOut(
         id=send.id,
         audience=send.audience,
         recipient_user_id=send.recipient_user_id,
         week_start=send.week_start,
         week_end=send.week_end,
-        paragraphs=[WeeklySendParagraph(about=p["about"], text=p["text"]) for p in send.paragraphs],
+        paragraphs=[WeeklySendParagraph(about=p["about"], text=p["text"]) for p in view.paragraphs],
         **{send.audience.value: facts},
     )
+
+
+async def _visible(db: AsyncSession, reader: User, sends: list[WeeklySend]) -> list[WeeklySend]:
+    """The sends that still have something this reader may see. A parent's
+    links and a tutor's classes change after a send is stored, so each list is
+    narrowed at read time; one lookup per parent, not per send."""
+    allowed: dict[int, Counter[str]] = {}
+    kept: list[WeeklySend] = []
+    for send in sends:
+        pool = None
+        if send.audience == WeeklySendAudience.parent and reader.role != UserRole.admin:
+            pid = send.recipient_user_id
+            if pid not in allowed:
+                allowed[pid] = await linked_child_names(
+                    db,
+                    pid,
+                    send.organization_id,
+                    taught_by=reader.id if reader.id != pid else None,
+                )
+            pool = allowed[pid]
+        if await view_for_reader(db, reader, send, allowed=pool) is not None:
+            kept.append(send)
+    return kept
 
 
 async def _items(db: AsyncSession, sends: list[WeeklySend]) -> list[WeeklySendListItem]:
@@ -92,15 +122,21 @@ async def _tutor_may_read(db: AsyncSession, tutor: User, send: WeeklySend) -> bo
 @router.get("/weekly-sends", response_model=list[WeeklySendListItem])
 async def my_weekly_sends(db: DbSession, user: CurrentUser) -> list[WeeklySendListItem]:
     """The caller's own sends, newest first — "earlier reports"."""
-    return await _items(db, await sends_for(db, user.organization_id, [user.id]))
+    sends = await sends_for(db, user.organization_id, [user.id])
+    return await _items(db, await _visible(db, user, sends))
 
 
 @router.get("/weekly-sends/latest", response_model=WeeklySendOut | None)
 async def my_latest_weekly_send(db: DbSession, user: CurrentUser) -> WeeklySendOut | None:
     """The caller's most recent send, or null when none has gone out yet — a
     stated absence the home page renders as nothing, not as an empty report."""
-    send = await latest_send(db, user)
-    return _out(send) if send is not None else None
+    # Newest first, so the first send with anything left for this reader is the
+    # latest one: a send whose every child has since been unlinked is skipped.
+    for send in await sends_for(db, user.organization_id, [user.id]):
+        view = await view_for_reader(db, user, send)
+        if view is not None:
+            return _out(view)
+    return None
 
 
 @router.get("/weekly-sends/{send_id}", response_model=WeeklySendOut)
@@ -109,12 +145,14 @@ async def weekly_send(send_id: int, db: DbSession, user: CurrentUser) -> WeeklyS
     # The organization gate binds before any role branch (`SEC-7`).
     if send is None or send.organization_id != user.organization_id:
         raise _NOT_FOUND
-    if send.recipient_user_id == user.id:
-        return _out(send)
-    if user.role == UserRole.admin or (
-        user.role == UserRole.tutor and await _tutor_may_read(db, user, send)
+    if (
+        send.recipient_user_id == user.id
+        or user.role == UserRole.admin
+        or (user.role == UserRole.tutor and await _tutor_may_read(db, user, send))
     ):
-        return _out(send)
+        view = await view_for_reader(db, user, send)
+        if view is not None:
+            return _out(view)
     raise _NOT_FOUND
 
 
@@ -134,6 +172,5 @@ async def student_weekly_sends(
             )
         )
     ).all()
-    return await _items(
-        db, await sends_for(db, user.organization_id, [student.id, *parent_ids], limit=52)
-    )
+    sends = await sends_for(db, user.organization_id, [student.id, *parent_ids], limit=52)
+    return await _items(db, await _visible(db, user, sends))
