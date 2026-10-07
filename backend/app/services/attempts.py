@@ -29,6 +29,25 @@ from app.models import (
 from app.services.submission_kind import SubmissionKind
 
 
+def attempt_is_locked(submission: Submission) -> bool:
+    """Whether a student may no longer replace this attempt.
+
+    The one definition, shared by `open_attempt` (which refuses a replacement)
+    and `services/attempt_redo` (which only lets a tutor set a *locked* attempt
+    aside), so the two cannot drift: an attempt a student can replace is one a
+    tutor has no reason to redo. `submission.marks` must be loaded.
+    """
+    return (
+        submission.status in SETTLED_STATUSES
+        # The status alone is not the lock. A remark request moves a finalized
+        # submission back to `needs_review` so the tutor sees it, and a
+        # half-decided auto-marked one waits there too; replacing either would
+        # delete marks that already count, and the tutor's mistake revisions
+        # with them (`PROD-5`, `PROD-7`). One final mark settles the attempt.
+        or any(mark.final_marks is not None for mark in submission.marks)
+    )
+
+
 async def open_attempt(
     session: AsyncSession, kind: SubmissionKind, parent_id: int, student_id: int
 ) -> tuple[Submission, bool]:
@@ -59,15 +78,7 @@ async def open_attempt(
         )
         .options(selectinload(Submission.files), selectinload(Submission.marks))
     )
-    if submission is not None and (
-        submission.status in SETTLED_STATUSES
-        # The status alone is not the lock. A remark request moves a finalized
-        # submission back to `needs_review` so the tutor sees it, and a
-        # half-decided auto-marked one waits there too; replacing either would
-        # delete marks that already count, and the tutor's mistake revisions
-        # with them (`PROD-5`, `PROD-7`). One final mark settles the attempt.
-        or any(mark.final_marks is not None for mark in submission.marks)
-    ):
+    if submission is not None and attempt_is_locked(submission):
         return submission, True
 
     if submission is None:

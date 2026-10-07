@@ -17,6 +17,7 @@ import { ReportsPanel } from "../components/ReportsPanel";
 import CustomCriteriaPanel from "../components/CustomCriteriaPanel";
 import AttendancePanel from "../components/AttendancePanel";
 import StudentContacts from "./StudentContacts";
+import { EarlierAttempts } from "./EarlierAttempts";
 import { ABSENT, sourceLabel } from "../lib/labels";
 import { ApiError } from "../api/client";
 import { EmptyState, SectionCard } from "../components/ui";
@@ -153,6 +154,8 @@ export default function StudentDetailPage() {
             />
           </SectionCard>
         )}
+
+        <EarlierAttempts studentId={sid} />
 
         {/* Right under the readiness it explains, so a click on a topic opens
             its evidence where the tutor is looking. */}

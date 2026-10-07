@@ -1,5 +1,6 @@
 import { api, apiUrl, getStoredTokens } from "./client";
 import type { components } from "./schema";
+import type { AttemptRedo } from "./students";
 import type { Topic } from "./syllabus";
 
 /** A classified: past-paper questions compiled by topic, uploaded once and reused. Chapter-scoped
@@ -212,6 +213,10 @@ export interface SubmissionDetail {
       "no mistakes found" and "nobody has looked yet" render identically
       (`PROD-2`). */
   mistakes_analysed: boolean;
+  /** Whether the attempt is locked and not being marked, so "Let them redo
+      this" is on offer. Decided by the server with the same rule that stops a
+      student replacing it. */
+  can_redo: boolean;
 }
 
 export interface StudentMarkRow {
@@ -356,6 +361,11 @@ export const reviseMistake = (
 
 export const finalizeSubmission = (id: number) =>
   api<SubmissionDetail>(`/api/v1/submissions/${id}/finalize`, { method: "POST" });
+
+/** Set a locked attempt aside so the student can hand the work in again. The
+    old attempt stops counting toward readiness; a record of it is kept. */
+export const redoAttempt = (id: number) =>
+  api<AttemptRedo>(`/api/v1/submissions/${id}/redo`, { method: "POST" });
 
 /** Everything waiting on the tutor: AI-unsure marks and student remark requests. */
 export const reviewQueue = () => api<ReviewQueueItem[]>("/api/v1/submissions/review-queue");

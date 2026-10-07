@@ -19,6 +19,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.schemas.attempt_redo import AttemptRedoOut
 from app.schemas.attendance import StudentAttendanceOut
 from app.schemas.crm import (
     CrmHomeworkItem,
@@ -37,6 +38,7 @@ from app.schemas.custom_criteria import CustomCriterionScoreIn, StudentCriterion
 from app.schemas.groups import InviteOut
 from app.schemas.mistake_rollup import StudentMistakeRollup
 from app.schemas.tutor_lists import TutorStudentList
+from app.services.attempt_redo import redos_for_student
 from app.services.attendance import student_attendance
 from app.services.custom_criteria import (
     CriterionConflict,
@@ -399,6 +401,17 @@ async def student_attendance_view(
         tutor_id=user.id if user.role == UserRole.tutor else None,
     )
     return StudentAttendanceOut.model_validate(result)
+
+
+@router.get("/{student_id}/redos", response_model=list[AttemptRedoOut])
+async def student_redos(student_id: int, db: DbSession, user: TutorUser) -> list[AttemptRedoOut]:
+    """The attempts a tutor set aside so this student could hand work in again,
+    newest first. Tutor-only, and only for a student the tutor teaches
+    (`_tutor_student`, which answers 404 rather than 403 — `API-7`). The
+    organization is the tutor's own (`SEC-7`). The full record behind each row
+    is kept but deliberately not served."""
+    student = await _tutor_student(db, user, student_id)
+    return await redos_for_student(db, student_id=student.id, organization_id=user.organization_id)
 
 
 @router.get("/{student_id}/mistakes", response_model=StudentMistakeRollup)

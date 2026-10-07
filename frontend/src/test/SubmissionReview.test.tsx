@@ -58,6 +58,7 @@ function submissionBody(
     marks,
     bare_question_count: bareQuestionCount,
     mistakes_analysed: mistakesAnalysed,
+    can_redo: false,
   };
 }
 

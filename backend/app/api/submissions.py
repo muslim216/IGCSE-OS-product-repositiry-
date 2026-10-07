@@ -36,6 +36,7 @@ from app.models import (
     User,
     UserRole,
 )
+from app.schemas.attempt_redo import AttemptRedoOut
 from app.schemas.homework import (
     MAX_TYPED_ANSWER,
     MarkHistoryEntry,
@@ -55,7 +56,8 @@ from app.schemas.homework import (
     TypedAnswerOut,
 )
 from app.services import storage
-from app.services.attempts import open_attempt
+from app.services.attempt_redo import AttemptGone, RedoRefused, redo_attempt, redo_summary
+from app.services.attempts import attempt_is_locked, open_attempt
 from app.services.groups import review_queue_predicate
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
@@ -770,7 +772,17 @@ async def submission_detail(
         marks=await _mark_rows(db, submission, parent),
         bare_question_count=await _bare_question_count(db, kind, parent),
         mistakes_analysed=submission.mistakes_analysed_at is not None,
+        can_redo=await _can_redo(db, submission),
     )
+
+
+async def _can_redo(db, submission: Submission) -> bool:
+    """Whether the review page should offer "Let them redo this": the attempt is
+    locked (the one predicate `open_attempt` also uses) and not mid-marking.
+    The marks are re-read rather than trusted from the identity map, which can
+    be stale right after `save_marks` has written new ones."""
+    await db.refresh(submission, ["marks"])
+    return attempt_is_locked(submission) and submission.status != SubmissionStatus.marking
 
 
 @router.get(
@@ -1102,3 +1114,35 @@ async def request_remark(
         reason=request.reason,
         created_at=request.created_at,
     )
+
+
+@router.post(
+    "/submissions/{submission_id}/redo",
+    response_model=AttemptRedoOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def let_student_redo(submission_id: int, db: DbSession, user: TutorUser) -> AttemptRedoOut:
+    """Set a locked attempt aside so the student can hand the work in again.
+
+    Tutor-only, and ownership goes through `_tutor_owns` like every other
+    tutor route on a submission, so another tutor's or another organization's
+    attempt is a 404 (`API-7`, `API-20`). The old attempt stops counting
+    toward readiness at once; a record of it is kept and cannot be edited or
+    deleted through the API (`PROD-7`). See `services/attempt_redo.py`.
+
+    `409` when the attempt is not locked (the student can already replace it)
+    or is being marked right now. A second call finds the submission gone and
+    answers `404`, which is what makes a double-click harmless.
+    """
+    await _tutor_submission(db, user, submission_id)
+    try:
+        redo = await redo_attempt(db, submission_id, user)
+    except AttemptGone as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except RedoRefused as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    summary = await redo_summary(db, redo)
+    await db.commit()
+    return summary

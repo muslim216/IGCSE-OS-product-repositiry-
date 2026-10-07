@@ -42,3 +42,11 @@ export type TutorStudent = components["schemas"]["TutorStudentRow"];
 export type TutorStudentList = components["schemas"]["TutorStudentList"];
 
 export const listMyStudents = () => api<TutorStudentList>("/api/v1/students");
+
+/** One attempt a tutor set aside so the student could hand the work in again.
+ *  The marks are over the questions that had a final mark; both are `null` —
+ *  never 0 — when none did (`PROD-2`). */
+export type AttemptRedo = components["schemas"]["AttemptRedoOut"];
+
+export const studentRedos = (studentId: number) =>
+  api<AttemptRedo[]>(`/api/v1/students/${studentId}/redos`);

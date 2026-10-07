@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, FileText } from "lucide-react";
 import { mistakeSourceLabel } from "./mistakeSourceLabel";
+import { RedoAttempt } from "./RedoAttempt";
 import {
   fetchFileUrl,
   finalizeSubmission,
@@ -400,29 +401,41 @@ export default function SubmissionReviewPage() {
           </>
         }
         actions={
-          finalized ? (
-            inQueue && (
-              <Button variant="secondary" onClick={goNext}>
-                {next ? "Next →" : "Back to queue"}
-              </Button>
-            )
-          ) : (
-            <>
-              {inQueue && (
-                // Skip leaves the marks exactly as they are — it is "not now",
-                // never a decision, so it must not write anything.
-                <Button variant="ghost" onClick={goNext}>
-                  Skip
+          <>
+            {finalized ? (
+              inQueue && (
+                <Button variant="secondary" onClick={goNext}>
+                  {next ? "Next →" : "Back to queue"}
                 </Button>
-              )}
-              <Button variant="secondary" loading={save.isPending} onClick={() => save.mutate()}>
-                Save draft
-              </Button>
-              <Button loading={finalize.isPending} onClick={() => finalize.mutate(inQueue)}>
-                {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
-              </Button>
-            </>
-          )
+              )
+            ) : (
+              <>
+                {inQueue && (
+                  // Skip leaves the marks exactly as they are — it is "not now",
+                  // never a decision, so it must not write anything.
+                  <Button variant="ghost" onClick={goNext}>
+                    Skip
+                  </Button>
+                )}
+                <Button variant="secondary" loading={save.isPending} onClick={() => save.mutate()}>
+                  Save draft
+                </Button>
+                <Button loading={finalize.isPending} onClick={() => finalize.mutate(inQueue)}>
+                  {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
+                </Button>
+              </>
+            )}
+            {/* Offered only when the server says the attempt is locked. The
+                submission is gone afterwards, so the way out is back to where
+                the tutor came from, not on to the next in the queue. */}
+            {s.can_redo && (
+              <RedoAttempt
+                submissionId={s.id}
+                studentName={s.student_name}
+                onDone={() => navigate(back.to)}
+              />
+            )}
+          </>
         }
       />
 
