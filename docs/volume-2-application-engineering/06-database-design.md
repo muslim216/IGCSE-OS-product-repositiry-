@@ -26,7 +26,7 @@
 ## Purpose
 
 Answers *what is in the database, why is it shaped this way, and how do I change it safely*.
-Sixty-five tables (`len(Base.metadata.tables)`, measured after Phase 6; `chat.py`'s two
+Seventy-seven tables (`len(Base.metadata.tables)`, measured at migration `0070`; `chat.py`'s two
 tables were dropped by migration `0026`, task 0.3, AV-57 — `ADR-0007`'s "52 tables" is the
 count as of that Accepted, and therefore immutable, decision), with conventions that are unusually consistent in some
 dimensions and unusually thin in others.
@@ -46,7 +46,7 @@ performance tuning (§10); backup and restore procedures (§14).
 ### Non-goals
 
 Detailed with triggers in `governance/non-goals.md`. In brief: **no UUID primary keys**, **no
-soft deletes**, **no native database enums**, **no ORM-generated migrations**, **no read
+soft deletes** (one deliberate exception, `groups` — see Known Gaps), **no native database enums**, **no ORM-generated migrations**, **no read
 replicas or multi-region**, **no event sourcing**.
 
 ## Sources
@@ -63,7 +63,7 @@ Written from: all 15 modules in `backend/app/models/`; all 25 migrations in
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_snapshots` exist so a number can name its inputs (§01 P2).
 
-**P2 — Consistency across 65 tables beats local optimality.** Integer keys, `VARCHAR` enums,
+**P2 — Consistency across 77 tables beats local optimality.** Integer keys, `VARCHAR` enums,
 timezone-aware timestamps — each is arguable in isolation and correct as a rule.
 
 **P3 — The test database must resemble the production database.** Every schema decision is
@@ -78,16 +78,16 @@ tests stop being evidence.
 
 ### The schema by domain
 
-65 tables. Grouped by the module that defines them. The table below is complete for the
+77 tables. Grouped by the module that defines them. The table below is complete for the
 modules it names; the Phase 0–4 additions are listed under it, because this section was last
-written before they landed.
+written before they landed, and the Phase 7–9 tables are named, not described, after those.
 
 | Module | Tables |
 |---|---|
 | `orgs.py` | `organizations` |
 | `users.py` | `users` |
 | `syllabus.py` | `subjects`, `topics`, `syllabus_uploads` |
-| `groups.py` | `groups`, `group_members`, `invites`, `parent_links`, `schedule_slots` |
+| `groups.py` | `groups` (soft-deleted: see "Deleting a class" below), `group_members`, `invites`, `parent_links`, `schedule_slots` |
 | `lessons.py` | `lessons`, `lesson_topics`, `lesson_observations` |
 | `crm.py` | `student_profiles`, `student_subjects`, `tutor_notes`, `parent_communications` |
 | `homework.py` | `classifieds`, `assignments`, `assignment_questions`, `question_topics`, `submissions`, `submission_files`, `question_marks`, `mark_override_audit`, `remark_requests`, **`jobs`** |
@@ -106,6 +106,23 @@ Tables added by earlier phases that the rows above predate: `chapters` (`syllabu
 `booklets` (`booklets.py`), `mocks`, `mock_openings`, `mock_questions`,
 `mock_question_topics` (`mocks.py`), `mistake_categories`, `mistake_topics`,
 `mistake_revision_audit` (`readiness_v2.py`), `worker_heartbeats` (`workers.py`).
+
+Tables added by Phases 7–9, named here and **not yet described in this document**:
+`contact_points`, `lesson_attendance`, `lesson_meeting_imports`, `meeting_connections`,
+`meeting_participants`, `notification_preferences`, `notifications`, `setup_acknowledgements`,
+`taught_before_topics`, `weekly_sends`, `whatsapp_opt_outs`. The twelfth table added since
+Phase 6 is `dismissed_prompts`, described next.
+
+**`dismissed_prompts`** (`models/dismissal.py`, migration `0069`). A tutor's "Not now" on
+something their home page asked of them. Columns: `id`, `organization_id` (FK `organizations.id`,
+NOT NULL), `user_id` (FK `users.id`, NOT NULL), `key` (`String(120)`, NOT NULL), `created_at`
+(`TimestampMixin`; no `updated_at`). Unique on `(user_id, key)` as `uq_dismissed_prompts_user_id_key`,
+which is what makes hiding twice one row. `key` is an opaque label the frontend chose
+(`chapter_prompt:12:340`): it is never resolved to a row, so storing one grants nothing. The
+service (`services/dismissals.py`) accepts only the exact key `setup_guide` and the prefixes
+`setup_step:`, `setup_checklist:`, `chapter_prompt:` and `lesson_reminder:` followed by something,
+and refuses a new row once a user holds 500 (`MAX_DISMISSALS_PER_USER`). No index beyond the
+unique constraint's.
 
 `jobs` lives in `homework.py` rather than with the worker — historical, and worth knowing when
 searching.
@@ -140,7 +157,7 @@ erDiagram
   factor_evaluations }o--|| readiness_snapshots : "evaluation_run_id"
 ```
 
-The diagram shows the spine, not all 65 tables. Note `assessable_work` in the middle: a
+The diagram shows the spine, not all 77 tables. Note `assessable_work` in the middle: a
 homework assignment, a past paper and a mock are each one row in their own table plus one
 parent row, and a submission answers the **parent**. That is what makes "whose work is this"
 and "what kind of work is this" one column each instead of a three-way branch — see
@@ -149,7 +166,7 @@ and "what kind of work is this" one column each instead of a three-way branch �
 ### Conventions
 
 **Primary keys.** Uniformly `id: Mapped[int] = mapped_column(primary_key=True)` — integer
-autoincrement on all 65 tables. **No UUIDs anywhere.** The one UUID-shaped value,
+autoincrement on all 77 tables. **No UUIDs anywhere.** The one UUID-shaped value,
 `evaluation_run_id: Mapped[str] = mapped_column(String(36))` on `factor_evaluations` and
 `readiness_snapshots`, is a correlation key, not a primary key.
 
@@ -193,9 +210,20 @@ further and is a plain `String(16)`, so adding an AI provider never touches the 
 never read). `readiness_weights.weak_threshold` (`0059`, Float, NOT NULL, server default 60)
 is the tutor-set weak-topic line.
 
-**Soft deletes: none.** No `deleted_at`, `is_deleted`, or archive flag anywhere in
-`backend/app/` — verified by search. Deletion is `await db.delete(row)`, relying on ORM
-cascades.
+**Soft deletes: one table, `groups`.** Everywhere else deletion is `await db.delete(row)`,
+relying on ORM cascades, and no other model has a `deleted_at`, `is_deleted`, or archive flag.
+
+**Deleting a class** (`DELETE /groups/{id}`, migration `0070`) sets `groups.deleted_at` and
+`groups.deleted_by_id` (nullable FK `users.id`, named `fk_groups_deleted_by_id_users`) and
+removes nothing. A class owns homework, submissions and marks, and finalized marks have become
+`Evidence` that readiness is computed from; evidence is permanent (`PROD-5`), so a hard delete
+would cascade through students' records or fail on a foreign key. The migration adds no index:
+every read of `groups` is already narrowed by organization or tutor, and a tutor has a handful of
+classes. `Group` now has two foreign keys to `users`, so its `tutor` relationship names
+`foreign_keys=[tutor_id]`. A query that lists or gates on "a class this tutor teaches" spreads
+`live_classes_taught_by(tutor_id)` (`services/groups.py`) into its `.where(...)`, which is
+`Group.tutor_id == tutor_id` and `Group.deleted_at.is_(None)`; see §07 for what that gates.
+What a deleted class keeps and loses is listed under Known Gaps. There is no restore.
 
 **Nullability that carries meaning:**
 
@@ -337,11 +365,14 @@ described slots the redraft just replaced.
 **Nothing reads a draft plan.** Every reader goes through `accepted_plan_for_group` or filters
 `status == accepted`.
 
-**Cascade caveat.** Deleting a class removes its plans through the database's `ON DELETE
-CASCADE` (`api/groups.py:delete_group` is a bare `db.delete(group)` and `Group` has no
-relationship to plans). That holds only where foreign keys are enforced — Postgres. The SQLite
+**Cascade caveat.** `ON DELETE CASCADE` from `teaching_plans.group_id` only fires when a `groups`
+row is physically deleted, and `delete_group` no longer does that (it sets `groups.deleted_at`,
+migration `0070`), so a deleted class **keeps its plans**. The cascade now matters only to a
+hard delete made outside the API, and only where foreign keys are enforced — Postgres. The SQLite
 suite runs with them off, so no test may rely on the cascade. These are the first
-`ondelete=` declarations in the schema (see Known Gaps, which this narrows).
+`ondelete=` declarations in the schema (see Known Gaps, which this narrows). Whether readers of
+a deleted class's plan skip it is decided per reader; the past-paper phase sweep and readiness
+deliberately still read it (§07).
 
 ### Constraints
 
@@ -385,9 +416,10 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain from `0001` to `0062_plan_slot_lesson`, the current head (`0060_teaching_plans`,
-`0061_teaching_plan_draft_result`, `0062_plan_slot_lesson` are Phase 6; the listing below stops
-at `0028` and `0029`–`0059` are in `alembic/versions/`), with string revision ids
+A linear chain from `0001` to `0070_group_deleted_at`, the current head (`0060_teaching_plans`,
+`0061_teaching_plan_draft_result`, `0062_plan_slot_lesson` are Phase 6; `0069_dismissed_prompts`
+and `0070_group_deleted_at` are the most recent; the listing below stops at `0028` and
+`0029`–`0070` are in `alembic/versions/`), with string revision ids
 matching the filename prefix and `down_revision` chained. One number is deliberately absent:
 `0024` was reserved for task 0.3's `drop_chat` while it was being written on a parallel branch
 (see the note under the list), but it landed as `0026` instead once `0025` had already merged.
@@ -456,7 +488,7 @@ painfully in 0020 and must be reused rather than rediscovered.
 `Base.metadata.create_all` and forces in-memory SQLite, so `pytest` proves nothing about
 Alembic. **CI is what exercises them.** The `migrations` job in `.github/workflows/ci.yml`
 runs `upgrade head` → `downgrade base` → `upgrade head` against a real `postgres:16-alpine`
-service container on every pull request, so all 25 migrations and all 25 downgrades run before
+service container on every pull request, so all 69 migrations and all 69 downgrades run before
 a merge rather than for the first time in production.
 
 **What that check still cannot see.** The CI database is **empty**. It proves the schema
@@ -475,7 +507,7 @@ automatically, because hosting providers hand out the bare scheme.
 
 **`DB-1` — MUST · Important · Active**
 New tables use an integer autoincrement primary key named `id`.
-*Rationale:* consistency across 65 tables; see `governance/non-goals.md` for why not UUIDs,
+*Rationale:* consistency across 77 tables; see `governance/non-goals.md` for why not UUIDs,
 including the enumerability that `API-7` then has to handle.
 
 **`DB-2` — MUST · Critical · Active**
@@ -509,7 +541,8 @@ JSON columns use generic `sqlalchemy.JSON`, never `JSONB`.
 *Rationale:* SQLite parity — `P3`.
 
 **`DB-8` — SHOULD NOT · Important · Active**
-Do not add soft deletes. Where history matters, add an append-only table.
+Do not add soft deletes. Where history matters, add an append-only table. (`groups` is the one
+departure, recorded under Known Gaps.)
 *Rationale:* `governance/non-goals.md` — a soft-delete filter forgotten in one query is a data
 leak, and the schema already has the append-only idiom.
 
@@ -615,6 +648,7 @@ wrong reason.
 |---|---|---|
 | **Four of five indexes exist only in migrations, not in the models.** `evidence`, `factor_evaluations`, `readiness_snapshots`, and `mark_override_audit` indexes are invisible to `Base.metadata`. | The test database is not the production database, so no test exercises an indexed plan; and a reader of the models is misinformed. `DB-12` binds new work; converging the existing four is a one-migration-free change to `__table_args__`. | `blocking` |
 | **Most foreign key columns are not indexed** (a handful — see the Indexes section above — already are). | A join or parent-id filter on one of the remaining unindexed columns is a sequential scan. `DB-11` binds new work only. | `before scale` |
+| **`groups` is soft-deleted, against `DB-8`.** `groups.deleted_at IS NULL` is a filter every reader of `Group` must apply, and the code applies it by hand at each site; `live_classes_taught_by()` is the shared form for the "does this tutor teach this" checks only. Kept on purpose when a class is deleted: every `Submission`, `QuestionMark`, `Evidence` row and readiness snapshot, `group_members` and the subject enrolment, recorded attendance, and the class's teaching plan. Deliberately **not** filtered: the tutor review queue and `_tutor_owns` (work already handed in can be marked with no time limit), attendance already recorded, and the past-paper phase sweep (`past_paper_phase.py`, which must follow readiness). Homework not yet due when the class was deleted, or with no due date, is not counted as missed by readiness or the student CRM; homework already overdue still is. `DB-8` has not been superseded and no change-process record exists for the departure (the `Group` docstring gives the reason: a hard delete would cascade through students' records or fail on a foreign key). Whether `DB-8` and `governance/non-goals.md` should now say so is open. | A reader that forgets the filter shows or acts on a deleted class — the data-leak shape `DB-8` was written to prevent. No test covers parent views after deletion, the undelivered list or weekly-send content for a former student, the tutor's assessment list routes, student files and recordings, or a student with one live and one deleted class in the same subject; a security review read each and found them correct. | `before scale` |
 | **No ForeignKey declares `ondelete=`, except the Phase 6 plan tables.** Cascades elsewhere are ORM-level only. | Any delete outside a mapped relationship orphans rows, with no constraint to catch it. Uploaded files compound this — see `RISK-8`. | `before scale` |
 | **Two teaching-plan invariants are enforced only by application code.** (1) A plan's `organization_id` must be its class's; (2) a slot's `chapter_id` must belong to the class's subject. The schema holds neither (`models/teaching_plan.py` says so). `save_plan_inputs` and `replan` take the organization from the class, never the request; `edit_slot` validates the chapter against `group.subject_id`; the drafting and reflow jobs read chapters by the class's subject. | A writer that skips those helpers can store a plan under the wrong tenant or a slot for another subject's chapter, and no constraint objects. `DB-2` / `SEC-8` shape. | `before scale` |
 | **`plan_slots.sequence` is unique nowhere.** It is a single run 1..n per plan only because `renumber_slots` is called after every writer. | A writer that forgets leaves ties; ordering readers fall back to `(scheduled_date, sequence, id)`. Deliberate (see above), recorded so it is not mistaken for an oversight. | `nice to have` |

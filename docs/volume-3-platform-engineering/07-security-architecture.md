@@ -232,6 +232,62 @@ Two authorization traps are already known and both have bitten:
   tutor's uploads to every student. `_enrolled_scope` in `api/past_papers.py` scopes by
   (organization, subject) derived from the student's actual group memberships.
 
+**A deleted class ends the tutor's access to students taught only there.** Deleting a class is
+soft (`groups.deleted_at`, migration `0070`; §06), so the `GroupMember` rows that say "this
+tutor teaches this student" still exist after it. Without a filter, deleting a class would
+leave the tutor with read and write access to its students for good. `live_classes_taught_by(
+tutor_id)` in `services/groups.py` returns the two conditions, `Group.tutor_id == tutor_id` and
+`Group.deleted_at IS NULL`, and is the one definition of "a class this tutor teaches that still
+exists". It is spread into the `.where(...)` of every query that decides whether a tutor may
+see a student: the tutor-student checks in `api/students.py`, the readiness and narrative
+routes, the tutor's assessment routes, the weekly-send reader scope and the undelivered
+notifications list. Deleting a class therefore has the same effect as removing the student from
+it. `_owned_group` returns `404` for a deleted class, admins included.
+
+Three reads are **deliberately unfiltered**, and each says so at the site:
+
+- **The review queue and `_tutor_owns()`** (`api/submissions.py`). Work already handed in to a
+  deleted class can still be opened, marked and finalized by the tutor who taught it, with no
+  time limit, so a student's submitted work is never stranded unmarked (`PROD-5`).
+- **Recorded attendance** for a deleted class stays visible.
+- **The past-paper phase sweep** (`services/past_paper_phase.py`). Readiness still reads a deleted
+  class's accepted plan for the phase gate, so a student's score does not change when a class is
+  deleted, and the sweep must recompute in step with it.
+
+The rule `live_classes_taught_by` does not cover is the student's side. A student keeps their
+submissions, marks and remark rights in a deleted class, and loses what they had not handed in
+(`POST /assignments/{id}/submissions` is `404`). Homework in a deleted class that was not yet
+due when the class was deleted, or had no due date, is not counted as missed by readiness or
+the student CRM; homework already overdue is. Each of these is applied per query, by convention
+like the rest of organization scoping above, and the **Known Gaps** table records which have no
+test of their own.
+
+**A final mark settles an attempt, whatever the status says.** `open_attempt` in
+`services/attempts.py` is how a student's upload for homework, a past paper or a mock reaches a
+`Submission`. It treats an attempt as settled, and the caller answers `409`, when the status is
+in `SETTLED_STATUSES` **or any of its `QuestionMark` rows has `final_marks`**. The status alone
+was not enough: a remark request moves a finalized submission back to `needs_review`, and a
+half-decided auto-marked submission waits there too, and in that state a re-upload used to be
+accepted and delete every mark, mistake and tutor mistake revision, including marks that already
+counted (`PROD-5`, `PROD-7`). A student therefore cannot replace partly marked work. No route reopens a
+mock or past paper for the student once a mark is final; that is a known gap (a "let them redo
+this" action was offered to the owner and not answered).
+
+**A stored weekly send is narrowed to its reader at read time** (#144). A parent's send is stored
+whole, with one entry per linked child, and links and classes change afterwards, so
+`view_for_reader()` in `services/weekly_send.py` decides what a reader who may open the send
+sees of it. A parent sees only the children still linked to them. A tutor reading a parent's
+send sees only the children they teach in a live class (`live_classes_taught_by`) who are still
+linked, and the count of the family's links that did not resolve to a child is hidden from them.
+An admin keeps the organization-wide view. `restrict_to_children()` matches a stored child by
+`child_id` (`ParentChildFacts.child_id`), so a different child who shares a name inherits
+nothing; a child stored before ids existed falls back to the name, counting only links made
+before the send was stored and dropping every copy of a name stored more often than it is
+allowed. A send with no child left for the reader is `404`. The same pass narrows the list
+routes (`_visible` in `api/weekly_sends.py`). The undelivered-notification list
+(`GET /notifications/undelivered`) is scoped for a non-admin tutor to themselves, learners in
+their live classes and those learners' parents; an admin sees the organization.
+
 ### Invites
 
 `services/invites.py` bounds every invite: **all expire after 14 days**, and **parent-link
@@ -609,6 +665,8 @@ Application containers run as a non-root user.
 | ~~**Login throttling is per-process.**~~ **Closed** by task 1.4 (`AV-83`): `RateLimiter` shares counters through Redis. Capability only — `REDIS_URL` is unset in `render.yaml`, so the live deployment is still per-process, which is correct at its one instance. | `RISK-1`'s third link. Setting `REDIS_URL` is part of the scale-out cutover gated on 11.2. | `closed (capability)` |
 | **One account can be addressed by two identifiers.** The counter is keyed on what the caller typed, and `api/auth.py` matches an account by email *or* username — so knowing both yields two counters and twice the allowance against one account. Pre-dates the Redis work (the in-process limiter keyed the same way). | Weakens `SEC-14` by a factor of two for any account whose username is guessable. Resolving to a user id before counting would mean looking the account up *before* throttling, reintroducing the timing oracle `_dummy_hash()` exists to close — so the fix is a canonicalization step, not a reordering. | `before scale` |
 | **Only login is rate limited.** AI-triggering endpoints are unbounded per user. (Chat was the other one, until task 0.3 deleted the surface, AV-57.) | A single account can drive arbitrary AI spend (`RISK-12`). | `before scale` |
+| **Deleted-class access checks are applied by hand, and several have no test of their own.** `live_classes_taught_by` is shared, but each query must remember to spread it; no test covers parent views after deletion, the undelivered list or weekly-send content for a former student, the tutor's assessment list routes, student files and recordings, or a student with one live and one deleted class in the same subject (a security review read each and found them correct). A notification queued before a class is deleted still sends. | A new query that decides "does this tutor teach this student" without the helper fails open, the `SEC-7` convention-not-mechanism shape. | `before scale` |
+| **A race in `open_attempt`.** A re-upload that reads a submission's marks an instant before a tutor finalizes one can still delete it; the read takes no lock. It pre-dates the final-mark lock. | The lock closes the common case (a remark request, a half-decided submission), not a concurrent finalize. | `before scale` |
 | **No MFA for tutor accounts.** | A tutor account holds every student's C2 data; password-only is the whole control. Deliberate for students, arguable for tutors. | `nice to have` |
 | **`JWT_SECRET` defaults to `"change-me-in-production"`.** Safe only because `render.yaml` generates one. | Any deployment not using the blueprint inherits a known signing key. | `before scale` |
 

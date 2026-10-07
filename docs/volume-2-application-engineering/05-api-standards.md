@@ -48,7 +48,7 @@ token semantics and the threat model (§07); the frontend consuming it (§03).
 
 ## Sources
 
-Written from: the 31 routers in `backend/app/api/` (29 mounted); `backend/app/api/deps.py`;
+Written from: the 37 routers in `backend/app/api/` (35 mounted); `backend/app/api/deps.py`;
 `backend/app/main.py`; the 17 modules in `backend/app/schemas/`;
 `frontend/src/api/client.ts`.
 
@@ -74,7 +74,8 @@ more than a better convention followed in half the routers.
 
 ### Versioning and mounting
 
-One version. `main.py` mounts 29 routers with `app.include_router(router,
+One version. `main.py` mounts 36 router objects (35 router modules; `integrations.py`
+contributes two) with `app.include_router(router,
 prefix="/api/v1")` in a single loop, so **no router hardcodes the version**. Health is the
 exception: `GET /api/v1/health` is defined inline on the app, returning a static
 `{"status": "ok"}`.
@@ -138,6 +139,36 @@ Read-side additions elsewhere: `GET /api/v1/today` carries `chapter_prompts` (a 
 accepted plan has reached a chapter that has no classified yet; information, never a gate) and
 `behind_classes` (classes with planned lessons dated before the tutor's today that have no lesson
 recorded; the response says "not recorded", never "missed").
+
+### Hiding a prompt, and deleting a class (October 2026)
+
+**`/me/dismissals`** (`api/dismissals.py`, tag `dismissals`, owner decision 2026-10-06). A tutor's
+"Not now" on something the home page asked of them. **Every route is tutor-gated in the
+signature** (`user: TutorUser`, `BE-17`/`SEC-11`), so a student or parent gets `403` and an
+unauthenticated call `401`. Rows belong to the caller and their organization; no id in the path
+or body chooses whose they are (`SEC-7`). The `{key}` is an opaque label, never resolved to a
+row, so it grants no access to anything (§06).
+
+| Route | Purpose | Non-2xx |
+|---|---|---|
+| `GET ""` | `DismissalsOut`: `keys`, the caller's hidden keys in creation order | |
+| `PUT /{key}` | Hide one prompt. Idempotent: hiding what is hidden is a `204` and changes nothing, including when two tabs race. `204` | 422 key not of a known kind (the exact key `setup_guide`, or `setup_step:`, `setup_checklist:`, `chapter_prompt:` or `lesson_reminder:` followed by something; lowercase letters, digits, `_`, `:`, `-`, up to 120); 409 the caller already holds 500 |
+| `DELETE /{key}` | Show one again. Idempotent; a key that matches nothing is still `204` | |
+| `DELETE ""` | Show everything again ("Show hidden"). `204` | |
+
+The work-waiting list ("Needs you") has no prefix here on purpose: hiding a student's unmarked
+work would let it silently never be marked.
+
+**`DELETE /groups/{group_id}` is a soft delete** (`user: TutorUser`; migration `0070`). It sets
+`groups.deleted_at` and `groups.deleted_by_id` and returns `204`; nothing is removed (§06). A
+second call is a `404`, because `_owned_group` no longer finds the class. From that moment the
+class is a `404` on every route that goes through `_owned_group`, and absent from the tutor's
+`GET /groups`. A student's view of it shrinks to what they already handed in (the same rule is
+applied to mocks and past papers in `api/mocks.py` and `api/past_papers.py`): `GET /me/assignments` keeps a deleted class's homework only where
+that student already submitted, `POST /assignments/{id}/submissions` is a `404`, and
+`GET /assignments/{id}/my-submission` is a `404` unless a submission exists. A tutor's
+`GET /assignments/{id}/submissions` for a deleted class is a `404` too; marking continues from
+the review queue (§07). There is no restore route.
 
 ### Errors
 

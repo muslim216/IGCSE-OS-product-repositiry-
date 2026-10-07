@@ -50,7 +50,7 @@ testing (§12); TypeScript style (§13).
 ## Sources
 
 Written from: `frontend/src/main.tsx`, `App.tsx`, `api/client.ts`, `auth/AuthContext.tsx`,
-`auth/ProtectedRoute.tsx`, `components/AppShell.tsx`; the 13 modules in `frontend/src/api/`;
+`auth/ProtectedRoute.tsx`, `components/AppShell.tsx`; the 30 modules in `frontend/src/api/`;
 `frontend/vite.config.ts`; `frontend/tsconfig.json`; `frontend/package.json`;
 `frontend/vercel.json`.
 
@@ -84,16 +84,16 @@ frontend/src/
   main.tsx        StrictMode > QueryClientProvider > AuthProvider > BrowserRouter > App
   App.tsx         all routes and the two nav arrays
   index.css       the design system (§02)
-  api/            13 modules — client.ts plus one per domain
+  api/            30 modules — client.ts plus one per domain (and the generated schema.d.ts)
   auth/           AuthContext, ProtectedRoute, and the 4 unauthenticated pages
   components/     shared: ui.tsx, page.tsx, controls.tsx, AppShell, AccountPage, Markdown, …
-  lib/            pure helpers: readiness.ts, schedule.ts, errors.ts, site.ts
+  lib/            helpers: readiness.ts, schedule.ts, errors.ts, site.ts, subjectGroups.ts, dismissals.ts, …
   legal/          PrivacyPolicyPage (public, /privacy)
   marketing/      LandingPage and SiteChrome (public header, footer, PublicPage)
   tutor/          17 pages, plus tabs/ and today/ subfolders
   student/        10 pages
   parent/         ParentDashboard
-  test/           7 spec files and setup.ts
+  test/           91 spec files and setup.ts
 ```
 
 Roughly 9,800 lines including CSS. The largest pages are
@@ -226,6 +226,22 @@ Every routed page composes the same pieces rather than restating classes:
   `buttonClasses()` for links, `Input` / `Select` / `Textarea`, `Field` (ties the label to its
   control by id and wires hint and error to `aria-describedby`), and `FileInput` (a styled
   picker over a visually-hidden native input).
+- `components/SubjectGroups.tsx` with `lib/subjectGroups.ts` — a list grouped by subject, used by
+  the tutor and student mocks and past-paper pages. `groupBySubject()` orders subjects
+  alphabetically and collapses items whose subject is not in the subject list into one trailing
+  "Other subject" group rather than naming them (`PROD-2`). `useSubjectFilter()` keeps the
+  choice in the URL as `?subject=<id>`, so it survives a reload and Back; an id that matches no
+  group is treated as "All subjects", and the hash is kept when the filter changes. It reports
+  `ready: false` until the subject request has succeeded, and the page renders its plain list
+  until then. `SubjectPicker` is the select (with a visually hidden status line read out after a
+  change) and `SubjectSection` the per-subject heading.
+- `lib/dismissals.ts` — `useDismissals()`, the tutor's "Not now" state, backed by `/me/dismissals`
+  (§05). It hides nothing while the list loads or if it fails to load, so every prompt shows as
+  it did before the feature; a hide is applied at once and put back if the server refuses.
+  `components/NotNow.tsx` is the control, with `DismissalStatus` and `HiddenFooter` (the
+  "Show hidden" footer). It is used by the setup checklist, chapter prompts, lesson reminders,
+  the Overview dashboard and the onboarding flow under `tutor/`, and deliberately not by the
+  work-waiting list.
 
 ### Server state
 
