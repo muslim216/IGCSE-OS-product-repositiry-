@@ -47,7 +47,7 @@ const LIST_KEYS = [
  * page. It asks first, in words, because the app has no way back: the data is
  * kept, but nothing here brings the class back.
  */
-export function DeleteClass({ groupId, name }: { groupId: number; name: string }) {
+export function DeleteClass({ groupId, name }: Readonly<{ groupId: number; name: string }>) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);

@@ -94,9 +94,7 @@ async def _visible_mock(
     # A deleted class takes its mocks with it: the tutor no longer manages them and a
     # student no longer sees one they have not handed in. Work already handed in is
     # untouched and still marked through the submission routes (`PROD-5`).
-    group_deleted = mock.group_id is not None and (
-        await db.scalar(select(Group.deleted_at).where(Group.id == mock.group_id)) is not None
-    )
+    group_deleted = await _group_deleted(db, mock)
     if user.role == UserRole.admin:
         # Wider reach inside their organization, not across organizations (`SEC-7`).
         if mock.organization_id != user.organization_id or group_deleted:
@@ -108,39 +106,52 @@ async def _visible_mock(
         if mock.tutor_id != user.id or group_deleted:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
-    if user.role == UserRole.student:
-        # A student may see a mock only once it is published. While it is still
-        # extracting there is nothing to sit, and after a failed extraction
-        # there never will be — in both states the paper must not be readable.
-        # The gate lives here rather than on each route so the detail view and
-        # the paper download cannot drift apart.
-        #
-        # `closed` stays visible deliberately: a student keeps access to a paper
-        # they already sat. Nothing sets `closed` yet, and naming it here is
-        # what stops the day it does from silently hiding their own marked work.
-        if mock.status not in (MockStatus.published, MockStatus.closed):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
-        if mock.group_id is not None:
-            member = await db.scalar(
-                select(GroupMember.id).where(
-                    GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
-                )
-            )
-            handed_in = (
-                group_deleted
-                and not sitting
-                and (
-                    await db.scalar(
-                        select(Submission.id).where(
-                            Submission.work_id == mock.work_id, Submission.student_id == user.id
-                        )
-                    )
-                    is not None
-                )
-            )
-            if member is not None and (not group_deleted or handed_in):
-                return mock
+    if user.role == UserRole.student and await _student_may_see(
+        db, user, mock, group_deleted=group_deleted, sitting=sitting
+    ):
+        return mock
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+
+
+async def _group_deleted(db, mock: Mock) -> bool:
+    if mock.group_id is None:
+        return False
+    return await db.scalar(select(Group.deleted_at).where(Group.id == mock.group_id)) is not None
+
+
+async def _student_may_see(
+    db, user: User, mock: Mock, *, group_deleted: bool, sitting: bool
+) -> bool:
+    # A student may see a mock only once it is published. While it is still
+    # extracting there is nothing to sit, and after a failed extraction
+    # there never will be — in both states the paper must not be readable.
+    # The gate lives here rather than on each route so the detail view and
+    # the paper download cannot drift apart.
+    #
+    # `closed` stays visible deliberately: a student keeps access to a paper
+    # they already sat. Nothing sets `closed` yet, and naming it here is
+    # what stops the day it does from silently hiding their own marked work.
+    if mock.status not in (MockStatus.published, MockStatus.closed) or mock.group_id is None:
+        return False
+    member = await db.scalar(
+        select(GroupMember.id).where(
+            GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
+        )
+    )
+    if member is None:
+        return False
+    if not group_deleted:
+        return True
+    # A deleted class: work already handed in stays readable, but the mock can
+    # never be sat or opened again.
+    if sitting:
+        return False
+    handed_in = await db.scalar(
+        select(Submission.id).where(
+            Submission.work_id == mock.work_id, Submission.student_id == user.id
+        )
+    )
+    return handed_in is not None
 
 
 async def _question_counts(db, mock_ids: Sequence[int]) -> dict[int, int]:

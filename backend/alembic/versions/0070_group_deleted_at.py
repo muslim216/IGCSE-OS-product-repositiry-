@@ -1,7 +1,7 @@
 """groups.deleted_at / deleted_by_id: deleting a class hides it, it does not erase it
 
-Revision ID: 0069
-Revises: 0068
+Revision ID: 0070
+Revises: 0069
 """
 
 import sqlalchemy as sa
@@ -15,8 +15,8 @@ NAMING = {
     "uq": "uq_%(table_name)s_%(column_0_N_name)s",
 }
 
-revision = "0069"
-down_revision = "0068"
+revision = "0070"
+down_revision = "0069"
 branch_labels = None
 depends_on = None
 
