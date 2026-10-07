@@ -20,6 +20,11 @@ const LIST_KEYS = [
   "student-readiness",
   "student-mistakes",
   "student-redos",
+  "class-overview",
+  "analytics",
+  "topic-evidence",
+  "activity",
+  "students",
 ] as const;
 
 /**

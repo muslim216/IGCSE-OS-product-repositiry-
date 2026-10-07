@@ -48,7 +48,11 @@ from app.services.custom_criteria import (
     set_score,
     subject_names,
 )
-from app.services.groups import live_classes_taught_by
+from app.services.groups import (
+    live_classes_taught_by,
+    student_in_organization,
+    tutor_teaches_student,
+)
 from app.services.invites import build_invite
 from app.services.mistake_rollup import roll_up_mistakes
 from app.services.student_crm import get_student_crm
@@ -56,27 +60,6 @@ from app.services.tutor_lists import tutor_students
 
 router = APIRouter(prefix="/students", tags=["students"])
 log = logging.getLogger("api")
-
-
-async def _in_organization(db: AsyncSession, student: User, organization_id: int) -> bool:
-    """Homed in this organization, or a member of one of its classes — the rule
-    `api/readiness.visible_subject_ids` applies to an admin. A student can sit
-    in a second organization's class, so home organization alone gave an admin
-    less reach than a tutor beside them: the tutor opened the student, the
-    admin got a 404."""
-    if student.organization_id == organization_id:
-        return True
-    membership = await db.scalar(
-        select(GroupMember.id)
-        .join(Group, Group.id == GroupMember.group_id)
-        .where(
-            GroupMember.student_id == student.id,
-            Group.organization_id == organization_id,
-            Group.deleted_at.is_(None),
-        )
-        .limit(1)
-    )
-    return membership is not None
 
 
 async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> User:
@@ -94,7 +77,7 @@ async def _viewable_student(db: AsyncSession, viewer: User, student_id: int) -> 
         # An admin has wider reach inside their organization, not across
         # organizations (`SEC-7`). Without this the role alone was the whole
         # check, and an admin in one tenant read another's students.
-        if not await _in_organization(db, student, viewer.organization_id):
+        if not await student_in_organization(db, student, viewer.organization_id):
             raise not_found
         return student
     if viewer.role == UserRole.student:
@@ -129,12 +112,13 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     student = await db.get(User, student_id)
     if student is None or student.role != UserRole.student:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-    if tutor.role == UserRole.admin:
-        # Inside the admin's own organization only (`SEC-7`) — this helper
-        # guards parent-code, which hands over a named child's whole record.
-        if not await _in_organization(db, student, tutor.organization_id):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-        return student
+    # An admin only inside their own organization (`SEC-7`) — this helper guards
+    # parent-code, which hands over a named child's whole record — a tutor only
+    # for a student in a live class they teach. One rule, shared with a tutor's
+    # redo of an attempt (`services/groups.tutor_teaches_student`).
+    if not await tutor_teaches_student(db, tutor, student):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+    return student
     shares_group = await db.scalar(
         select(GroupMember.id)
         .join(Group, Group.id == GroupMember.group_id)

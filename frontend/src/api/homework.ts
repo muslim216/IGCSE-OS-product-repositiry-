@@ -90,53 +90,9 @@ export interface StudentAssignment {
     tutor sees it. Tutor-only, like `scheme_conflict`: `StudentMarkRow` has no
     such field, and what a student sees about their own mistake pattern is
     `AV-41`'s homework tab, not this screen. */
-export interface MistakeRow {
-  id: number;
-  category_id: number;
-  /** The tutor's own word for this kind of mistake. Rendered, never branched
-      on — a rename is a valid edit and nothing may read meaning into it. */
-  category_name: string;
-  severity: number;
-  /** Who decided this tag. A union, not `string`: the review page branches on
-      the exact word, so a third value added to `MistakeSource` has to fail the
-      build rather than silently render the AI's call as the tutor's. */
-  source: "ai" | "tutor";
-  /** What the tagging job flagged as reading like an instruction rather than
-      data (`SEC-20`). Null on every ordinary tag. */
-  note: string | null;
-}
+export type MistakeRow = components["schemas"]["MistakeRow"];
 
-export interface MarkRow {
-  question_id: number;
-  number: string;
-  text_summary: string;
-  max_marks: number;
-  has_mark_scheme: boolean;
-  ai_transcription: string | null;
-  ai_marks: number | null;
-  ai_feedback: string | null;
-  ai_confidence: string | null;
-  final_marks: number | null;
-  final_feedback: string | null;
-  overridden: boolean;
-  /** Where a tutor rule changed this mark away from what the official mark
-      scheme alone would give — what the scheme required, and which rule was
-      followed instead (task 3.2, `AV-76` as the owner revised it). Null is the
-      ordinary case. Tutor-only: `StudentMarkRow` deliberately has no such
-      field. */
-  scheme_conflict: string | null;
-  /** Why this row is (or isn't) waiting on the tutor. */
-  needs_review: boolean;
-  auto_finalized: boolean;
-  remark_requested: boolean;
-  remark_reason: string | null;
-  /** Every tag on this question, oldest first. Empty is the ordinary case for
-      a question that lost no marks, and also what a question nobody has
-      examined looks like — `SubmissionDetail.mistakes_analysed` is what tells
-      those two apart (`PROD-2`). More than one is ordinary too: the tagging
-      prompt asks for every category that applies, not just the first. */
-  mistakes: MistakeRow[];
-}
+export type MarkRow = components["schemas"]["MarkRow"];
 
 export interface ReviewQueueItem {
   submission_id: number;
@@ -183,41 +139,10 @@ export interface SubmissionFileInfo {
   position: number;
 }
 
-export interface SubmissionDetail {
-  id: number;
-  /** Exactly one is set: homework, a past paper or a mock. `mock_id` was
-      missing here while the backend schema carried it, so every reader that
-      branched on these fields silently treated a mock as a past paper. */
-  assignment_id: number | null;
-  past_paper_id: number | null;
-  mock_id: number | null;
-  assignment_title: string;
-  student_id: number;
-  student_name: string;
-  status: string;
-  ai_error: string | null;
-  submitted_at: string;
-  files: SubmissionFileInfo[];
-  /** Present only when the student typed rather than (or as well as)
-      photographing. Null otherwise. */
-  typed_answer: TypedAnswer | null;
-  /** The subject this work belongs to — what the review screen loads the
-      mistake categories for. */
-  subject_id: number;
-  marks: MarkRow[];
-  /** Questions on this piece of work with no linked syllabus topic — derived
-      at read time from the link rows, never stored (`PROD-14`). A bare
-      question is ordinary, not broken. */
-  bare_question_count: number;
-  /** Whether the tagging job has examined this submission at all. Without it,
-      "no mistakes found" and "nobody has looked yet" render identically
-      (`PROD-2`). */
-  mistakes_analysed: boolean;
-  /** Whether the attempt is locked and not being marked, so "Let them redo
-      this" is on offer. Decided by the server with the same rule that stops a
-      student replacing it. */
-  can_redo: boolean;
-}
+/** The tutor's view of one submission, aliased from the generated schema rather
+ *  than hand-mirrored (`FE-4`). `can_redo` is whether "Let them redo this" is on
+ *  offer: decided by the server with the same rule the redo endpoint raises from. */
+export type SubmissionDetail = components["schemas"]["SubmissionDetail"];
 
 export interface StudentMarkRow {
   question_id: number | null;

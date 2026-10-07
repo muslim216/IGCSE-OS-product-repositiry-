@@ -11,6 +11,8 @@ const base = {
   allowed_by_id: 1,
   allowed_by_name: "Test Tutor",
   work_kind: "homework",
+  previous_questions_marked: 3,
+  previous_question_count: 3,
 };
 
 function renderWith(respond: () => Response) {
@@ -62,6 +64,8 @@ test("says so, without a number, when the earlier attempt had no final marks", a
             work_title: "Mock 1",
             previous_final_marks: null,
             previous_max_marks: null,
+            previous_questions_marked: 0,
+            previous_question_count: 3,
           },
         ]),
         { status: 200 },
@@ -71,8 +75,34 @@ test("says so, without a number, when the earlier attempt had no final marks", a
   expect(
     await screen.findByText("Earlier attempt was not fully marked — no longer counts"),
   ).toBeInTheDocument();
-  expect(screen.queryByText(/of 0/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/ 0 /)).not.toBeInTheDocument();
+  // The whole rendered line, pinned: no "0 of 0", no "0%", nothing after the dash.
+  const line = screen.getByText(/^Earlier attempt/);
+  expect(line.textContent).toBe("Earlier attempt was not fully marked — no longer counts");
+});
+
+test("says how many questions the score covers when only some were marked", async () => {
+  renderWith(
+    () =>
+      new Response(
+        JSON.stringify([
+          {
+            ...base,
+            id: 4,
+            work_title: "Paper 2",
+            previous_final_marks: 2,
+            previous_max_marks: 2,
+            previous_questions_marked: 1,
+            previous_question_count: 3,
+          },
+        ]),
+        { status: 200 },
+      ),
+  );
+
+  const line = await screen.findByText(/^Earlier attempt/);
+  expect(line.textContent).toBe(
+    "Earlier attempt: 2 of 2 on the 1 of 3 questions marked — no longer counts",
+  );
 });
 
 test("shows nothing at all when there are none", async () => {

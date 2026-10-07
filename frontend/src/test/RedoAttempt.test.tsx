@@ -122,7 +122,17 @@ test("confirming sends the redo, refreshes what lists work, and goes back", asyn
   expect(url).toBe("/api/v1/submissions/1/redo");
   expect(init.method).toBe("POST");
   const refreshed = invalidate.mock.calls.map((c) => (c[0]?.queryKey as string[])[0]);
-  for (const key of ["review-queue", "submissions", "assignment", "student-readiness"]) {
+  for (const key of [
+    "review-queue",
+    "submissions",
+    "assignment",
+    "student-readiness",
+    "class-overview",
+    "analytics",
+    "topic-evidence",
+    "activity",
+    "students",
+  ]) {
     expect(refreshed).toContain(key);
   }
 });
@@ -151,4 +161,34 @@ test("a failed attempt does not leave the page", async () => {
 
   expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on our side");
   expect(onDone).not.toHaveBeenCalled();
+});
+
+test("while the request is in flight Cancel is off and the dialog cannot be dismissed", async () => {
+  let release: (r: Response) => void = () => {};
+  const held = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), "http://localhost").pathname;
+    if (path.endsWith("/redo") && init?.method === "POST") return held;
+    return json(submissionBody(true));
+  });
+  vi.stubGlobal("fetch", fetch);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <RedoAttempt submissionId={1} studentName="Sara Ahmed" onDone={() => {}} />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Let them redo this" }));
+  fireEvent.click(screen.getByRole("button", { name: "Let them redo it" }));
+
+  const cancel = await screen.findByRole("button", { name: "Cancel" });
+  await waitFor(() => expect(cancel).toBeDisabled());
+  fireEvent.click(cancel);
+  fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+  release(json(RECEIPT, 201));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 });

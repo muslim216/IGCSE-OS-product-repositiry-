@@ -3,6 +3,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
@@ -56,9 +57,18 @@ from app.schemas.homework import (
     TypedAnswerOut,
 )
 from app.services import storage
-from app.services.attempt_redo import AttemptGone, RedoRefused, redo_attempt, redo_summary
-from app.services.attempts import attempt_is_locked, open_attempt
+from app.services.attempt_redo import (
+    TRY_AGAIN,
+    AttemptGone,
+    RedoRefused,
+    redo_attempt,
+    redo_refusal,
+    redo_summary,
+)
+from app.services.attempts import open_attempt
 from app.services.groups import review_queue_predicate
+from app.services.hand_in_gate import class_deleted as _class_deleted
+from app.services.hand_in_gate import homework_open_to
 from app.services.injection_scan import scan_typed_answer
 from app.services.marking import record_marks_as_evidence
 from app.services.mistake_revision import RevisionRejected, revise_mistake
@@ -124,12 +134,6 @@ async def _tutor_owns(db, user: User, submission: Submission) -> bool:
     return group is not None and group.tutor_id == user.id
 
 
-async def _class_deleted(db, group_id: int) -> bool:
-    """Whether the class was deleted. A deleted class's unsubmitted work vanishes
-    for students; what they already handed in stays (`PROD-5`)."""
-    return (await db.scalar(select(Group.deleted_at).where(Group.id == group_id))) is not None
-
-
 async def _tutor_submission(db, user: User, submission_id: int) -> Submission:
     assert_tutor(user)
     submission = await db.get(Submission, submission_id, options=[selectinload(Submission.files)])
@@ -166,17 +170,10 @@ async def submit_work(
     ] = None,
 ) -> StudentSubmissionView:
     assignment = await db.get(Assignment, assignment_id)
-    if assignment is None or assignment.status != AssignmentStatus.published:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
-    # Nothing new is handed in to a deleted class.
-    if await _class_deleted(db, assignment.group_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
-    member = await db.scalar(
-        select(GroupMember).where(
-            GroupMember.group_id == assignment.group_id, GroupMember.student_id == user.id
-        )
-    )
-    if member is None:
+    # Published, the class not deleted, the student still in it — the gate a
+    # tutor's redo shares (`services/hand_in_gate`), so it cannot delete an
+    # attempt this route would then refuse to replace.
+    if assignment is None or not await homework_open_to(db, assignment, user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     # Either channel, or both: a student may type most of an answer and
     # photograph the working (AV-73). Neither is not a submission.
@@ -742,6 +739,7 @@ async def submission_detail(
         title = parent.title
     else:
         title = parent.title
+    mark_rows = await _mark_rows(db, submission, parent)
     return SubmissionDetail(
         id=submission.id,
         assignment_id=parent.id if kind is HOMEWORK else None,
@@ -769,20 +767,13 @@ async def submission_detail(
             else None
         ),
         subject_id=submission.work.subject_id,
-        marks=await _mark_rows(db, submission, parent),
+        marks=mark_rows,
         bare_question_count=await _bare_question_count(db, kind, parent),
         mistakes_analysed=submission.mistakes_analysed_at is not None,
-        can_redo=await _can_redo(db, submission),
+        # The same rule the redo endpoint raises from, over the mark rows just
+        # read — so the button cannot offer what the endpoint would refuse.
+        can_redo=await redo_refusal(db, submission, user, mark_rows, parent) is None,
     )
-
-
-async def _can_redo(db, submission: Submission) -> bool:
-    """Whether the review page should offer "Let them redo this": the attempt is
-    locked (the one predicate `open_attempt` also uses) and not mid-marking.
-    The marks are re-read rather than trusted from the identity map, which can
-    be stale right after `save_marks` has written new ones."""
-    await db.refresh(submission, ["marks"])
-    return attempt_is_locked(submission) and submission.status != SubmissionStatus.marking
 
 
 @router.get(
@@ -1130,19 +1121,29 @@ async def let_student_redo(submission_id: int, db: DbSession, user: TutorUser) -
     toward readiness at once; a record of it is kept and cannot be edited or
     deleted through the API (`PROD-7`). See `services/attempt_redo.py`.
 
-    `409` when the attempt is not locked (the student can already replace it)
-    or is being marked right now. A second call finds the submission gone and
-    answers `404`, which is what makes a double-click harmless.
+    Also `404` unless this tutor teaches the student (a past paper is
+    organization-wide for marking, which is not enough for a destructive
+    action). `409`, with a sentence for the tutor, when the attempt is not
+    locked (the student can already replace it), when marking or tagging is
+    queued or running for it, when the student could not hand the work in
+    again, or when something wrote to it mid-redo. A second call finds the
+    submission gone and answers `404`, which is what makes a double-click
+    harmless. The rule is `redo_refusal`, shared with `can_redo`.
     """
     await _tutor_submission(db, user, submission_id)
     try:
         redo = await redo_attempt(db, submission_id, user)
+        summary = await redo_summary(db, redo)
+        await db.commit()
     except AttemptGone as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except RedoRefused as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    summary = await redo_summary(db, redo)
-    await db.commit()
+    except IntegrityError as exc:
+        # A row written under us between the lock and the delete (Postgres
+        # enforces the keys SQLite does not). Nothing was deleted: ask for a retry.
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, TRY_AGAIN) from exc
     return summary

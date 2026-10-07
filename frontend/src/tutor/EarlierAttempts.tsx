@@ -4,13 +4,20 @@ import { SectionCard } from "../components/ui";
 import { ABSENT } from "../lib/labels";
 
 /** What an earlier attempt scored, in words. The marks are over the questions
- *  that had a final mark; when none did there is no number to show, and none is
- *  invented (`PROD-2`, `UX-19`). */
+ *  that had a final mark, so a partly marked attempt says how many that was: "2
+ *  of 2" on a three-question paper would otherwise read like a full score. When
+ *  none had one there is no number to show, and none is invented (`PROD-2`,
+ *  `UX-19`). */
 function earlierAttemptLine(redo: AttemptRedo): string {
-  if (redo.previous_final_marks === null || redo.previous_max_marks === null) {
+  const { previous_final_marks: got, previous_max_marks: max } = redo;
+  if (got === null || max === null) {
     return "Earlier attempt was not fully marked — no longer counts";
   }
-  return `Earlier attempt: ${redo.previous_final_marks} of ${redo.previous_max_marks} — no longer counts`;
+  const { previous_questions_marked: marked, previous_question_count: total } = redo;
+  if (marked < total) {
+    return `Earlier attempt: ${got} of ${max} on the ${marked} of ${total} questions marked — no longer counts`;
+  }
+  return `Earlier attempt: ${got} of ${max} — no longer counts`;
 }
 
 /**

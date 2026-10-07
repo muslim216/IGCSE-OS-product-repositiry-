@@ -393,7 +393,12 @@ class MarkOverrideAudit(Base):
     """Append-only record of a tutor changing a mark that had already been
     set — whether overriding an auto-finalized AI mark or revising their own
     earlier decision. There is no API to edit or delete these: a mark dispute
-    has to be answerable from the record months later."""
+    has to be answerable from the record months later.
+
+    The one exception: a tutor's redo of an attempt (`services/attempt_redo`)
+    carries every row verbatim into the append-only `attempt_redos.record` and
+    removes them with the marks they point at — this key has no cascade, so
+    they cannot outlive those marks. See `models/attempt_redo.py`."""
 
     __tablename__ = "mark_override_audit"
 

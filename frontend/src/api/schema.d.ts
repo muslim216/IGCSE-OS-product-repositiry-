@@ -3026,9 +3026,14 @@ export interface paths {
          *     toward readiness at once; a record of it is kept and cannot be edited or
          *     deleted through the API (`PROD-7`). See `services/attempt_redo.py`.
          *
-         *     `409` when the attempt is not locked (the student can already replace it)
-         *     or is being marked right now. A second call finds the submission gone and
-         *     answers `404`, which is what makes a double-click harmless.
+         *     Also `404` unless this tutor teaches the student (a past paper is
+         *     organization-wide for marking, which is not enough for a destructive
+         *     action). `409`, with a sentence for the tutor, when the attempt is not
+         *     locked (the student can already replace it), when marking or tagging is
+         *     queued or running for it, when the student could not hand the work in
+         *     again, or when something wrote to it mid-redo. A second call finds the
+         *     submission gone and answers `404`, which is what makes a double-click
+         *     harmless. The rule is `redo_refusal`, shared with `can_redo`.
          */
         post: operations["let_student_redo_api_v1_submissions__submission_id__redo_post"];
         delete?: never;
@@ -3869,6 +3874,10 @@ export interface components {
             previous_final_marks: number | null;
             /** Previous Max Marks */
             previous_max_marks: number | null;
+            /** Previous Questions Marked */
+            previous_questions_marked: number;
+            /** Previous Question Count */
+            previous_question_count: number;
         };
         /** AttendanceEntryIn */
         AttendanceEntryIn: {

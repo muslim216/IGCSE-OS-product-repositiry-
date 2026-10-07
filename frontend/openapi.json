@@ -8771,7 +8771,7 @@
           "submissions"
         ],
         "summary": "Let Student Redo",
-        "description": "Set a locked attempt aside so the student can hand the work in again.\n\nTutor-only, and ownership goes through `_tutor_owns` like every other\ntutor route on a submission, so another tutor's or another organization's\nattempt is a 404 (`API-7`, `API-20`). The old attempt stops counting\ntoward readiness at once; a record of it is kept and cannot be edited or\ndeleted through the API (`PROD-7`). See `services/attempt_redo.py`.\n\n`409` when the attempt is not locked (the student can already replace it)\nor is being marked right now. A second call finds the submission gone and\nanswers `404`, which is what makes a double-click harmless.",
+        "description": "Set a locked attempt aside so the student can hand the work in again.\n\nTutor-only, and ownership goes through `_tutor_owns` like every other\ntutor route on a submission, so another tutor's or another organization's\nattempt is a 404 (`API-7`, `API-20`). The old attempt stops counting\ntoward readiness at once; a record of it is kept and cannot be edited or\ndeleted through the API (`PROD-7`). See `services/attempt_redo.py`.\n\nAlso `404` unless this tutor teaches the student (a past paper is\norganization-wide for marking, which is not enough for a destructive\naction). `409`, with a sentence for the tutor, when the attempt is not\nlocked (the student can already replace it), when marking or tagging is\nqueued or running for it, when the student could not hand the work in\nagain, or when something wrote to it mid-redo. A second call finds the\nsubmission gone and answers `404`, which is what makes a double-click\nharmless. The rule is `redo_refusal`, shared with `can_redo`.",
         "operationId": "let_student_redo_api_v1_submissions__submission_id__redo_post",
         "security": [
           {
@@ -11066,6 +11066,14 @@
               }
             ],
             "title": "Previous Max Marks"
+          },
+          "previous_questions_marked": {
+            "type": "integer",
+            "title": "Previous Questions Marked"
+          },
+          "previous_question_count": {
+            "type": "integer",
+            "title": "Previous Question Count"
           }
         },
         "type": "object",
@@ -11077,7 +11085,9 @@
           "work_kind",
           "work_title",
           "previous_final_marks",
-          "previous_max_marks"
+          "previous_max_marks",
+          "previous_questions_marked",
+          "previous_question_count"
         ],
         "title": "AttemptRedoOut",
         "description": "What a tutor sees about an attempt they set aside. The snapshot itself is\nkept but not exposed here: this is the receipt, not the record."

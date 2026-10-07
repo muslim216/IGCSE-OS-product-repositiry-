@@ -183,7 +183,7 @@ function stubSubmission(
         revisions.push({ path, body: sent });
         current = current.map((m) => ({
           ...m,
-          mistakes: m.mistakes.map((x) =>
+          mistakes: (m.mistakes ?? []).map((x) =>
             String(x.id) === revised[2]
               ? {
                   ...x,

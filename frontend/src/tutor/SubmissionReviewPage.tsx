@@ -602,7 +602,7 @@ function MistakeTag({
        controls re-enabled over the old tag, and the next change re-sends the
        stale counterpart. */
     onSuccess: (data) => {
-      const revised = data.marks.flatMap((m) => m.mistakes).find((x) => x.id === mistake.id);
+      const revised = data.marks.flatMap((m) => m.mistakes ?? []).find((x) => x.id === mistake.id);
       if (!revised) return;
       queryClient.setQueryData(
         ["submission", submissionId],
@@ -611,7 +611,7 @@ function MistakeTag({
             ...prev,
             marks: prev.marks.map((m) => ({
               ...m,
-              mistakes: m.mistakes.map((x) => (x.id === revised.id ? revised : x)),
+              mistakes: (m.mistakes ?? []).map((x) => (x.id === revised.id ? revised : x)),
             })),
           },
       );
@@ -847,7 +847,7 @@ function QuestionCard({
           lost no marks has nothing to categorise, and an empty picker on every
           card would read as a demand to fill it in — which is exactly the
           prompt AV-38 says the tutor is never given. */}
-      {mark.mistakes.map((mistake) => (
+      {(mark.mistakes ?? []).map((mistake) => (
         <MistakeTag
           key={mistake.id}
           submissionId={submissionId}
@@ -860,7 +860,7 @@ function QuestionCard({
       {/* Absent is shown as absent (PROD-2): with no tag and nothing having
           looked, the honest statement is that nobody has looked — not silence,
           which reads as a clean question. */}
-      {mark.mistakes.length === 0 && !mistakesAnalysed && draft?.final_marks != null && (
+      {(mark.mistakes ?? []).length === 0 && !mistakesAnalysed && draft?.final_marks != null && (
         <p className="mt-3 text-xs text-ink-500">Not examined for mistakes yet.</p>
       )}
 

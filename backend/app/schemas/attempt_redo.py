@@ -18,3 +18,8 @@ class AttemptRedoOut(BaseModel):
     #: when none did (`PROD-2`).
     previous_final_marks: int | None
     previous_max_marks: int | None
+    #: How many of the attempt's questions had a final mark, out of how many it
+    #: had. Lets a screen say "2 of 2 on the 1 of 3 questions marked" instead of
+    #: a score over some questions that reads like a score over all of them.
+    previous_questions_marked: int
+    previous_question_count: int
