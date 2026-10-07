@@ -119,14 +119,6 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     if not await tutor_teaches_student(db, tutor, student):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     return student
-    shares_group = await db.scalar(
-        select(GroupMember.id)
-        .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student_id, *live_classes_taught_by(tutor.id))
-    )
-    if shares_group is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
-    return student
 
 
 @router.get("", response_model=TutorStudentList)
