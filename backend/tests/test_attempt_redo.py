@@ -444,7 +444,8 @@ async def test_a_settled_attempt_with_no_final_mark_records_no_marks_rather_than
     ).status_code == 201
     sid = await _only_submission_id()
     async with async_session() as session:
-        (await session.get(Submission, sid)).status = SubmissionStatus.finalized
+        row = await session.get(Submission, sid)
+        row.status = SubmissionStatus.finalized
         for job in await session.scalars(select(Job)):
             job.status = JobStatus.done
         await session.commit()

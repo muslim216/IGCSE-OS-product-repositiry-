@@ -25,11 +25,15 @@ it deleted destroys marks for nothing (`services/hand_in_gate`).
 (`FOR UPDATE`) before the snapshot is taken, so a tutor override committing in
 another tab cannot add an audit row between snapshot and delete. After the
 deletes each count is compared with what the snapshot holds, and any difference
-raises and rolls back. The residual race is an insert by a path that takes no
-such lock — `request_remark`, or a `tag_mistakes` run that started before the
-job check — landing between the snapshot and the delete; on Postgres that
-either changes a count or violates a foreign key, and both fail closed: nothing
-is deleted and the tutor is asked to try again.
+raises and rolls back. On Postgres a child insert (a mark, mistake, remark
+request or audit row) takes a key-share lock on the row it points at, and the
+redo holds that row `FOR UPDATE`, so the insert blocks until the redo ends and
+then fails on its foreign key: it cannot land between snapshot and delete. The
+one child with no key is evidence, and its writers are the in-flight-guarded
+jobs and the finalize path, which updates marks and so waits on the same lock.
+Whatever slips through changes a count or violates a key, and both fail closed:
+nothing is deleted and the tutor is asked to try again (a deadlock is the same
+answer, mapped in the router).
 
 Everything happens in the caller's transaction and is flushed, not committed, so
 a failure part-way leaves the old attempt exactly as it was.
@@ -59,11 +63,12 @@ from app.models import (
     Submission,
     SubmissionFile,
     User,
+    UserRole,
 )
 from app.schemas.attempt_redo import AttemptRedoOut
 from app.services.attempt_redo_record import Snapshot, SnapshotCounts, build_snapshot, evidence_ref
 from app.services.attempts import HasFinalMarks, attempt_is_locked
-from app.services.groups import tutor_teaches_student
+from app.services.groups import tutor_teaches_student, tutor_teaches_student_in
 from app.services.hand_in_gate import open_to
 from app.services.narrative import enqueue_class_narratives_for_student_subject
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
@@ -81,6 +86,9 @@ from app.services.work import parent_of
 MARKING_JOBS = ("mark_submission", "tag_mistakes")
 
 TRY_AGAIN = "This attempt is being marked right now. Try again in a moment."
+
+#: What a tutor is told for a submission that is gone or is not theirs to act on.
+NOT_FOUND = "Submission not found"
 
 
 class RedoRefused(Exception):
@@ -128,6 +136,25 @@ async def _marking_in_flight(session: AsyncSession, submission_id: int) -> bool:
     return any(p.get("submission_id") == submission_id for p in payloads)
 
 
+async def _teaches_this_work(
+    session: AsyncSession, kind: SubmissionKind, parent: Any, tutor: User, student_id: int
+) -> bool:
+    """A past paper belongs to the organization, so `_tutor_owns` lets any tutor in
+    it act on a submission to one, and "teaches the student" would be satisfied by
+    a class in another subject. For a destructive redo the tutor must teach this
+    student in a live class of the paper's own (organization, subject). Admins keep
+    their organization-wide reach; homework and mocks already belong to one tutor."""
+    if kind is not PAST_PAPER or tutor.role == UserRole.admin:
+        return True
+    return await tutor_teaches_student_in(
+        session,
+        tutor,
+        student_id,
+        organization_id=parent.organization_id,
+        subject_id=parent.subject_id,
+    )
+
+
 async def redo_refusal(
     session: AsyncSession,
     submission: Submission,
@@ -143,17 +170,19 @@ async def redo_refusal(
     """
     student = await session.get(User, submission.student_id)
     if student is None or not await tutor_teaches_student(session, tutor, student):
-        return AttemptGone("Submission not found")
+        return AttemptGone(NOT_FOUND)
+    kind = kind_of(submission)
+    parent = parent if parent is not None else await parent_of(session, submission)
+    if parent is None:
+        return AttemptGone(NOT_FOUND)
+    if not await _teaches_this_work(session, kind, parent, tutor, submission.student_id):
+        return AttemptGone(NOT_FOUND)
     if not attempt_is_locked(submission, marks):
         return AttemptNotLocked(
             "This attempt has no final mark yet, so the student can already replace it."
         )
     if await _marking_in_flight(session, submission.id):
         return AttemptBeingMarked(TRY_AGAIN)
-    kind = kind_of(submission)
-    parent = parent if parent is not None else await parent_of(session, submission)
-    if parent is None:
-        return AttemptGone("Submission not found")
     if not await open_to(session, kind, parent, submission.student_id):
         return AttemptNotOpen(
             f"This {kind.name} is no longer open to this student, so they could not "
@@ -268,7 +297,7 @@ async def _lock(session: AsyncSession, submission_id: int) -> tuple[Submission, 
         populate_existing=True,
     )
     if submission is None:
-        raise AttemptGone("Submission not found")
+        raise AttemptGone(NOT_FOUND)
     marks = list(
         await session.scalars(
             select(QuestionMark)
@@ -289,6 +318,12 @@ async def redo_attempt(session: AsyncSession, submission_id: int, tutor: User) -
     """
     submission, marks = await _lock(session, submission_id)
     parent = await parent_of(session, submission)
+    if parent is not None:
+        # The submission and its marks were re-read under the lock; the parent
+        # was not, and the gate reads its `status` (published / closed). A copy
+        # the router or an earlier read left in the identity map could say
+        # "published" for an assignment a tutor closed a moment ago.
+        await session.refresh(parent)
     refusal = await redo_refusal(session, submission, tutor, marks, parent)
     if refusal is not None:
         raise refusal

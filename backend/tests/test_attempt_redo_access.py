@@ -3,18 +3,24 @@ organization, a colleague who does not teach the student, an attempt that is not
 locked or is being marked, and a student who could not hand in again."""
 
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 
 from app.db import async_session
 from app.models import (
     AttemptRedo,
+    Group,
+    GroupMember,
     Job,
     JobStatus,
     MarkOverrideAudit,
+    Organization,
     Submission,
+    User,
+    UserRole,
 )
 from app.models.base import utcnow
-from tests.factories import register_other_tutor, register_parent
+from tests.factories import org_id, register_other_tutor, register_parent
 from tests.redo_world import (  # noqa: F401 — fixtures and helpers shared by the redo tests
     API,
     KINDS,
@@ -31,6 +37,7 @@ from tests.redo_world import (  # noqa: F401 — fixtures and helpers shared by 
     _extra_class,
     _factor_scores,
     _finalized,
+    _headers_for,
     _homework_hand_in,
     _mock_hand_in,
     _no_real_ai,
@@ -84,21 +91,24 @@ async def test_a_redo_of_something_that_never_existed_is_a_404(attempt):
 async def test_a_student_and_a_parent_cannot_redo_and_nothing_changes(attempt):
     parent = await register_parent(attempt.client, attempt.tutor, attempt.student)
 
-    assert (await _redo(attempt, headers=attempt.student["headers"])).status_code == 403
-    assert (await _redo(attempt, headers=parent["headers"])).status_code == 403
-    await _assert_untouched(attempt)
+    await _carry_rows(attempt)
+    async with _assert_untouched(attempt):
+        assert (await _redo(attempt, headers=attempt.student["headers"])).status_code == 403
+        assert (await _redo(attempt, headers=parent["headers"])).status_code == 403
 
 
 async def test_no_token_is_a_401(attempt):
-    response = await attempt.client.post(f"{API}/submissions/{attempt.submission_id}/redo")
+    await _carry_rows(attempt)
+    async with _assert_untouched(attempt):
+        response = await attempt.client.post(f"{API}/submissions/{attempt.submission_id}/redo")
     assert response.status_code == 401
-    await _assert_untouched(attempt)
 
 
 async def test_a_tutor_in_another_organization_gets_a_404(attempt):
     other = await register_other_tutor(attempt.client)
-    assert (await _redo(attempt, headers=other["headers"])).status_code == 404
-    await _assert_untouched(attempt)
+    await _carry_rows(attempt)
+    async with _assert_untouched(attempt):
+        assert (await _redo(attempt, headers=other["headers"])).status_code == 404
 
 
 async def test_a_colleague_who_does_not_teach_the_class_gets_a_404(
@@ -138,11 +148,112 @@ async def test_a_colleague_cannot_redo_a_past_paper_attempt_they_do_not_teach(
     """Marking a past paper is organization-wide (`_tutor_owns`); setting an
     attempt aside is destructive and needs the tutor to teach the student."""
     attempt = past_paper_attempt
+    headers = await _colleague_headers()
+    await _carry_rows(attempt)
 
-    response = await _redo(attempt, headers=await _colleague_headers())
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt, headers=headers)
 
     assert response.status_code == 404
-    await _assert_untouched(attempt)
+
+
+async def _colleague_id() -> int:
+    async with async_session() as session:
+        return (
+            await session.scalars(select(User.id).where(User.email == "colleague@example.com"))
+        ).one()
+
+
+async def test_a_colleague_who_teaches_the_student_only_in_another_subject_gets_a_404(
+    past_paper_attempt,
+):
+    """The student is in this tutor's chemistry class and a colleague's physics
+    class. The colleague teaches them, so the wide rule passes, and the paper is
+    open to the student through the first class — but the colleague does not teach
+    the paper's subject, so it is not theirs to set aside. `can_redo` follows."""
+    attempt = past_paper_attempt
+    headers = await _colleague_headers()
+    await _extra_class(attempt, other_subject=True, tutor_id=await _colleague_id())
+    await _carry_rows(attempt)
+
+    detail = await attempt.client.get(f"{API}/submissions/{attempt.submission_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["can_redo"] is False
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt, headers=headers)
+
+    assert response.status_code == 404
+
+
+async def test_a_colleague_who_teaches_the_papers_subject_to_the_student_may_redo(
+    past_paper_attempt,
+):
+    """The other half: teaching the student in a live class of the paper's own
+    subject is exactly what the narrowing asks for."""
+    attempt = past_paper_attempt
+    headers = await _colleague_headers()
+    await _extra_class(attempt, tutor_id=await _colleague_id())
+
+    detail = await attempt.client.get(f"{API}/submissions/{attempt.submission_id}", headers=headers)
+    assert detail.json()["can_redo"] is True
+    assert (await _redo(attempt, headers=headers)).status_code == 201
+
+
+# ---- admins and a second organization (QA-12) ---------------------------------------------
+
+
+async def test_an_admin_of_another_organization_gets_a_404(attempt):
+    async with async_session() as session:
+        other_org = Organization(name="Another Organization")
+        session.add(other_org)
+        await session.flush()
+        other_org_id = other_org.id
+        await session.commit()
+    headers = await _headers_for(UserRole.admin, "outside-admin@example.com", other_org_id)
+    await _carry_rows(attempt)
+
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt, headers=headers)
+
+    assert response.status_code == 404
+
+
+async def test_an_admin_of_the_same_organization_may_redo(attempt):
+    headers = await _headers_for(UserRole.admin, "inside-admin@example.com")
+    await _carry_rows(attempt)
+
+    detail = await attempt.client.get(f"{API}/submissions/{attempt.submission_id}", headers=headers)
+    assert detail.json()["can_redo"] is True
+    response = await _redo(attempt, headers=headers)
+
+    assert response.status_code == 201, response.text
+    assert await _count(Submission, Submission.id == attempt.submission_id) == 0
+    assert (await _only_redo()).allowed_by_id != attempt.tutor["user"]["id"]
+
+
+async def test_a_tutor_who_teaches_the_student_in_another_organization_gets_a_404(attempt):
+    """A student can sit in a second organization's class. That tutor teaches
+    them, but the work belongs to the first organization."""
+    other = await register_other_tutor(attempt.client)
+    async with async_session() as session:
+        other_org_id = (await session.get(User, other["user"]["id"])).organization_id
+        assert other_org_id != await org_id(session)
+        group = Group(
+            organization_id=other_org_id,
+            tutor_id=other["user"]["id"],
+            subject_id=attempt.subject["id"],
+            name="Their class",
+        )
+        session.add(group)
+        await session.flush()
+        session.add(GroupMember(group_id=group.id, student_id=attempt.student["user"]["id"]))
+        await session.commit()
+    await _carry_rows(attempt)
+
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt, headers=other["headers"])
+
+    assert response.status_code == 404
 
 
 # ---- nothing may be marking it -----------------------------------------------------------
@@ -154,19 +265,20 @@ async def test_an_attempt_with_marking_work_in_flight_is_refused_and_unchanged(
     homework_attempt, job_type, job_status
 ):
     attempt = homework_attempt
+    await _carry_rows(attempt)
     async with async_session() as session:
         session.add(
             Job(type=job_type, status=job_status, payload={"submission_id": attempt.submission_id})
         )
         await session.commit()
 
-    response = await _redo(attempt)
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt)
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
         "This attempt is being marked right now. Try again in a moment."
     )
-    await _assert_untouched(attempt)
 
 
 async def test_a_job_for_another_submission_does_not_block_a_redo(homework_attempt):
@@ -177,19 +289,45 @@ async def test_a_job_for_another_submission_does_not_block_a_redo(homework_attem
     assert (await _redo(homework_attempt)).status_code == 201
 
 
-async def test_a_race_that_violates_a_key_is_a_retry_message_not_a_500(
-    homework_attempt, monkeypatch
+def _clash(kind: str):
+    """The errors a clash with another writer raises out of the redo."""
+    if kind == "integrity":
+        return IntegrityError("DELETE", {}, Exception("foreign key"))
+    if kind == "operational":
+        return OperationalError("DELETE", {}, Exception("lock timeout"))
+    deadlock = Exception("deadlock detected")
+    deadlock.sqlstate = "40P01"  # type: ignore[attr-defined]
+    return DBAPIError("DELETE", {}, deadlock)
+
+
+@pytest.mark.parametrize("kind", ["integrity", "operational", "deadlock"])
+async def test_a_clash_with_another_writer_is_a_retry_message_not_a_500(
+    homework_attempt, monkeypatch, kind
 ):
     async def collide(*_args):
-        raise IntegrityError("DELETE", {}, Exception("foreign key"))
+        raise _clash(kind)
 
     monkeypatch.setattr("app.api.submissions.redo_attempt", collide)
+    await _carry_rows(homework_attempt)
 
-    response = await _redo(homework_attempt)
+    async with _assert_untouched(homework_attempt):
+        response = await _redo(homework_attempt)
 
     assert response.status_code == 409
     assert "Try again in a moment" in response.json()["detail"]
-    await _assert_untouched(homework_attempt)
+
+
+async def test_a_database_fault_that_is_not_a_clash_is_not_swallowed(homework_attempt, monkeypatch):
+    fault = Exception("syntax error")
+    fault.sqlstate = "42601"  # type: ignore[attr-defined]
+
+    async def broken(*_args):
+        raise DBAPIError("DELETE", {}, fault)
+
+    monkeypatch.setattr("app.api.submissions.redo_attempt", broken)
+
+    with pytest.raises(DBAPIError):
+        await _redo(homework_attempt)
 
 
 async def test_a_write_that_lands_between_the_snapshot_and_the_delete_fails_closed(
@@ -213,12 +351,16 @@ async def test_a_write_that_lands_between_the_snapshot_and_the_delete_fails_clos
 
     monkeypatch.setattr(attempt_redo, "build_snapshot", snapshot_then_write)
 
-    response = await _redo(homework_attempt)
+    # The attempt carries every kind of row, so the deletes that ran before the
+    # mismatch was noticed (topic links, mistakes, remark requests) are real and
+    # their rollback is what the counts prove.
+    await _carry_rows(homework_attempt)
+
+    async with _assert_untouched(homework_attempt):
+        response = await _redo(homework_attempt)
 
     assert response.status_code == 409
     assert "changed while it was being set aside" in response.json()["detail"]
-    await _assert_untouched(homework_attempt)
-    assert await _count(MarkOverrideAudit) == 0
 
 
 async def test_the_service_says_gone_for_a_submission_that_does_not_exist(homework_attempt):
@@ -242,7 +384,8 @@ async def _close_assignment(attempt: Attempt) -> None:
     from app.models import Assignment, AssignmentStatus
 
     async with async_session() as session:
-        (await session.get(Assignment, attempt.parent_id)).status = AssignmentStatus.closed
+        row = await session.get(Assignment, attempt.parent_id)
+        row.status = AssignmentStatus.closed
         await session.commit()
 
 
@@ -250,7 +393,8 @@ async def _close_mock(attempt: Attempt) -> None:
     from app.models import Mock, MockStatus
 
     async with async_session() as session:
-        (await session.get(Mock, attempt.parent_id)).status = MockStatus.closed
+        row = await session.get(Mock, attempt.parent_id)
+        row.status = MockStatus.closed
         await session.commit()
 
 
@@ -259,7 +403,8 @@ async def _delete_class(attempt: Attempt) -> None:
 
     await _extra_class(attempt)
     async with async_session() as session:
-        (await session.get(Group, attempt.group["id"])).deleted_at = utcnow()
+        row = await session.get(Group, attempt.group["id"])
+        row.deleted_at = utcnow()
         await session.commit()
 
 
@@ -287,7 +432,8 @@ async def _leave_the_subject(attempt: Attempt) -> None:
 
     await _extra_class(attempt, other_subject=True)
     async with async_session() as session:
-        (await session.get(Group, attempt.group["id"])).deleted_at = utcnow()
+        row = await session.get(Group, attempt.group["id"])
+        row.deleted_at = utcnow()
         await session.commit()
 
 
@@ -296,7 +442,8 @@ async def _keep_the_subject(attempt: Attempt) -> None:
 
     await _extra_class(attempt)
     async with async_session() as session:
-        (await session.get(Group, attempt.group["id"])).deleted_at = utcnow()
+        row = await session.get(Group, attempt.group["id"])
+        row.deleted_at = utcnow()
         await session.commit()
 
 
@@ -304,7 +451,8 @@ async def _hide_the_paper(attempt: Attempt) -> None:
     from app.models import PastPaper
 
     async with async_session() as session:
-        (await session.get(PastPaper, attempt.parent_id)).hidden_at = utcnow()
+        row = await session.get(PastPaper, attempt.parent_id)
+        row.hidden_at = utcnow()
         await session.commit()
 
 
@@ -315,13 +463,46 @@ CLOSED_TO_THE_STUDENT = [
     ("mock", _close_mock),
     ("mock", _delete_class),
     ("mock", _remove_from_class),
-    ("past_paper", _leave_the_subject),
 ]
 
 STILL_OPEN_TO_THE_STUDENT = [
     ("past_paper", _keep_the_subject),
     ("past_paper", _hide_the_paper),
 ]
+
+
+async def test_a_tutor_who_no_longer_teaches_the_papers_subject_gets_a_404(past_paper_attempt):
+    """Only a live class of the paper's own (organization, subject) lets a tutor set
+    a past-paper attempt aside. Once the student has only a class in another
+    subject, the paper is closed to the student and the tutor has lost it too."""
+    attempt = past_paper_attempt
+    await _carry_rows(attempt)
+    await _leave_the_subject(attempt)
+
+    assert (await attempt.hand_in()).status_code == 404
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt)
+
+    assert response.status_code == 404
+
+
+async def test_an_admin_is_refused_a_past_paper_redo_the_student_could_not_hand_in_again(
+    past_paper_attempt,
+):
+    """For a tutor the narrowing makes this state unreachable (teaching the paper's
+    subject is what opens it to the student). An admin keeps organization-wide
+    reach, so the hand-in gate is what stops a destructive redo for them."""
+    attempt = past_paper_attempt
+    headers = await _headers_for(UserRole.admin, "gate-admin@example.com")
+    await _carry_rows(attempt)
+    await _leave_the_subject(attempt)
+
+    assert (await attempt.hand_in()).status_code == 404
+    async with _assert_untouched(attempt):
+        response = await _redo(attempt, headers=headers)
+
+    assert response.status_code == 409, response.text
+    assert "This past paper is no longer open to this student" in response.json()["detail"]
 
 
 @pytest.fixture
@@ -340,15 +521,16 @@ def _ids(cases):
     ids=_ids(CLOSED_TO_THE_STUDENT),
 )
 async def test_a_redo_is_refused_exactly_when_the_student_could_not_hand_in_again(gated, change):
+    await _carry_rows(gated)
     await change(gated)
 
     assert (await gated.hand_in()).status_code == 404
-    response = await _redo(gated)
+    async with _assert_untouched(gated):
+        response = await _redo(gated)
 
     assert response.status_code == 409, response.text
     assert "is no longer open to this student" in response.json()["detail"]
     assert "could not hand it in again" in response.json()["detail"]
-    await _assert_untouched(gated)
 
 
 @pytest.mark.parametrize(
@@ -365,6 +547,29 @@ async def test_a_redo_is_allowed_when_the_student_could_still_hand_in_again(gate
     assert (await gated.hand_in()).status_code == 409
     assert (await _redo(gated)).status_code == 201
     assert (await gated.hand_in()).status_code == 201
+
+
+async def test_the_gate_reads_the_assignment_as_it_is_when_the_lock_is_taken(homework_attempt):
+    """A copy of the assignment left in the session's identity map from an earlier
+    read says "published" for one a tutor closed a moment ago. The service
+    re-reads the parent after taking the lock, so it is the current row that is
+    judged. (Two sessions share the test connection, so this stands in for two
+    requests; the lock itself is Postgres-only.)"""
+    from app.models import Assignment, AssignmentStatus
+    from app.services.attempt_redo import AttemptNotOpen, redo_attempt
+
+    attempt = homework_attempt
+    async with async_session() as stale, async_session() as other:
+        tutor = await stale.get(User, attempt.tutor["user"]["id"])
+        before = await stale.get(Assignment, attempt.parent_id)
+        assert before.status == AssignmentStatus.published
+        closing = await other.get(Assignment, attempt.parent_id)
+        closing.status = AssignmentStatus.closed
+        await other.commit()
+
+        with pytest.raises(AttemptNotOpen):
+            await redo_attempt(stale, attempt.submission_id, tutor)
+        await stale.rollback()
 
 
 async def test_the_review_page_is_not_offered_a_redo_the_endpoint_would_refuse(homework_attempt):

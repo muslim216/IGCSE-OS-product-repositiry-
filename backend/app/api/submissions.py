@@ -3,7 +3,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
@@ -1107,6 +1107,20 @@ async def request_remark(
     )
 
 
+#: Postgres states that mean "retry": deadlock detected, serialization failure,
+#: lock not available.
+_RETRYABLE_SQLSTATES = {"40P01", "40001", "55P03"}
+
+
+def _is_retryable(exc: DBAPIError) -> bool:
+    """Whether a database error raised by the redo is a clash with another writer
+    rather than a fault. The asyncpg adapter does not always translate a deadlock
+    into `OperationalError`, so the SQLSTATE is read as well."""
+    if isinstance(exc, (IntegrityError, OperationalError)):
+        return True
+    return getattr(exc.orig, "sqlstate", None) in _RETRYABLE_SQLSTATES
+
+
 @router.post(
     "/submissions/{submission_id}/redo",
     response_model=AttemptRedoOut,
@@ -1141,9 +1155,13 @@ async def let_student_redo(submission_id: int, db: DbSession, user: TutorUser) -
     except RedoRefused as exc:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
-    except IntegrityError as exc:
-        # A row written under us between the lock and the delete (Postgres
-        # enforces the keys SQLite does not). Nothing was deleted: ask for a retry.
+    except DBAPIError as exc:
+        # A row written under us between the lock and the delete, a lock wait
+        # that timed out, or a deadlock: all mean "someone else was at this
+        # attempt", and nothing was deleted. Anything else is a real fault and
+        # keeps its 500.
         await db.rollback()
+        if not _is_retryable(exc):
+            raise
         raise HTTPException(status.HTTP_409_CONFLICT, TRY_AGAIN) from exc
     return summary

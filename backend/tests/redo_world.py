@@ -5,6 +5,7 @@ Not a test module. The two autouse fixtures here are imported by each test file
 that needs them, so they apply there and cannot leak into the rest of the suite.
 """
 
+import contextlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -393,27 +394,66 @@ async def _only_redo() -> AttemptRedo:
         return (await session.scalars(select(AttemptRedo))).one()
 
 
-async def _assert_untouched(attempt: Attempt) -> None:
+async def _table_counts() -> dict[str, int]:
+    """Row counts of everything a redo deletes or writes, plus the queued readiness
+    jobs it would add — so "nothing changed" is a statement about every table the
+    redo touches, not only the submission row."""
+    from app.models import Mistake, MistakeTopic, MockOpening, PastPaperAttempt, SubmissionFile
+
+    tables = (
+        Submission,
+        SubmissionFile,
+        QuestionMark,
+        Mistake,
+        MistakeTopic,
+        RemarkRequest,
+        MarkOverrideAudit,
+        MistakeRevisionAudit,
+        Evidence,
+        MockOpening,
+        PastPaperAttempt,
+        AttemptRedo,
+    )
+    counts = {table.__tablename__: await _count(table) for table in tables}
+    counts["pending_readiness_jobs"] = len(await _readiness_jobs())
+    return counts
+
+
+@contextlib.asynccontextmanager
+async def _assert_untouched(attempt: Attempt):
+    """Wrap a refused redo: every counted table is the same afterwards and the
+    submission is still there. Run it over an attempt that carries rows
+    (`_carry_rows`), so a delete that ran part-way and was rolled back shows up as
+    a changed count rather than passing on an empty attempt."""
+    before = await _table_counts()
+    yield
+    assert await _table_counts() == before
     assert await _count(Submission, Submission.id == attempt.submission_id) == 1
-    assert await _count(QuestionMark) == 2
-    assert await _count(AttemptRedo) == 0
 
 
-async def _colleague_headers() -> dict:
+async def _headers_for(role: UserRole, email: str, organization_id: int | None = None) -> dict:
     async with async_session() as session:
-        colleague = await make_user(
+        user = await make_user(
             session,
-            organization_id=await org_id(session),
-            role=UserRole.tutor,
-            name="Colleague",
-            email="colleague@example.com",
+            organization_id=organization_id
+            if organization_id is not None
+            else await org_id(session),
+            role=role,
+            name=email.split("@")[0].title(),
+            email=email,
         )
         await session.commit()
-        token = create_access_token(colleague.id, colleague.token_version)
+        token = create_access_token(user.id, user.token_version)
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _extra_class(attempt: Attempt, *, other_subject: bool = False) -> int:
+async def _colleague_headers() -> dict:
+    return await _headers_for(UserRole.tutor, "colleague@example.com")
+
+
+async def _extra_class(
+    attempt: Attempt, *, other_subject: bool = False, tutor_id: int | None = None
+) -> int:
     """A second live class of the same tutor with this student in it, so deleting
     or leaving the first one leaves the tutor still teaching the student — the
     only state in which a redo's "could they hand it in again" check can answer
@@ -436,7 +476,7 @@ async def _extra_class(attempt: Attempt, *, other_subject: bool = False) -> int:
             subject_id = other.id
         group = Group(
             organization_id=await org_id(session),
-            tutor_id=attempt.tutor["user"]["id"],
+            tutor_id=tutor_id if tutor_id is not None else attempt.tutor["user"]["id"],
             subject_id=subject_id,
             name="Second class",
         )

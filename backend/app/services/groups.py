@@ -83,6 +83,29 @@ async def tutor_teaches_student(db: AsyncSession, tutor: User, student: User) ->
     return shares_group is not None
 
 
+async def tutor_teaches_student_in(
+    db: AsyncSession, tutor: User, student_id: int, *, organization_id: int, subject_id: int
+) -> bool:
+    """Whether this tutor teaches this student in a live class of exactly this
+    (organization, subject). `tutor_teaches_student` is the wider question — any
+    shared class — and is not enough for a destructive action on a piece of work
+    that belongs to the organization rather than to one class: a tutor who teaches
+    the student physics must not be able to set aside a chemistry past paper
+    because another tutor teaches them chemistry (`SEC-8`)."""
+    shares_group = await db.scalar(
+        select(GroupMember.id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(
+            GroupMember.student_id == student_id,
+            Group.organization_id == organization_id,
+            Group.subject_id == subject_id,
+            *live_classes_taught_by(tutor.id),
+        )
+        .limit(1)
+    )
+    return shares_group is not None
+
+
 def review_queue_predicate(organization_id: int):
     """The one definition of "waiting on a tutor **in the review queue**".
 
