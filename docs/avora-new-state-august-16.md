@@ -1599,6 +1599,65 @@ estimate as a measurement.**
 
 ---
 
+### Before Phase 10 — decided with the owner on 8 October 2026, not built
+
+Written here at the owner's request ("just write these into the plan"). The owner then chose to
+step back before any of it was built. **Nothing in this section is in the code.** Do not start
+it without the owner saying so.
+
+**B.1 — A tutor sees when a student's readiness leans on their own marking rules** *(S)*
+
+A tutor's marking rule can beat the exam board's mark scheme (the owner reversed `AV-76` and
+`AV-94`). Those marks count in full, so a predicted grade can be more generous than the exam
+will be, and nothing on the readiness page says so. The owner chose this on 9 September and
+confirmed the shape on 8 October in an interview:
+
+- **Outcome:** on one student's readiness, per subject, one quiet line for the tutor, such as
+  *"On 6 of the 80 questions marked in Physics, your marking rule was used where the exam
+  board's mark scheme says otherwise. These marks count in full."*
+- **Who sees it:** the tutor only. Never a student or a parent, in the app or in any message.
+- **Success:** before telling a parent "she is on track for a B", the tutor can see at a glance
+  whether that grade leans on their own rules.
+- **Constraint:** the marks still count in full. The readiness score, the evidence and the
+  predicted grade do not change. When a student has no such marks the line is absent, never
+  "0 of 80" (`PROD-2`).
+- **Out of scope:** a "what if" grade without those marks; a view per rule across a class;
+  marks the tutor changed by hand; anything on the class overview; anything in a notification,
+  weekly send, report or prompt.
+
+Engineering notes, worked out before the stop and not yet tested against a build:
+
+- **Count questions, not marks.** `QuestionMark.scheme_conflict` records that a rule beat the
+  scheme, not how many marks it added, so "6 marks came from your rules" cannot be traced
+  (`PROD-1`). The line counts questions. (The example put to the owner said "marks"; the owner
+  has not been shown this wording change.)
+- **A separate tutor-gated endpoint, not a field on the shared summary.**
+  `GET /readiness/students/{id}` serves tutors, parents and students with one schema
+  (`StudentReadinessSummary`), so a new field there would reach a parent. Use a route with
+  `user: TutorUser` in the signature, scoped by `visible_subject_ids`.
+- **Denominator:** the student's questions with a final mark on settled submissions in that
+  subject and organization, across homework, past papers and mocks. **Numerator:** those with a
+  `scheme_conflict` whose final mark the tutor did not afterwards change by hand.
+- No migration is expected.
+
+**B.2 — Move production off the free Render instance** *(owner job, S)*
+
+Found 8 October: the API runs on Render's free instance, not the `starter` plan with a 10 GB
+disk that `render.yaml` describes. Uploaded files are lost on every redeploy, restart or sleep,
+and the in-process worker stops while the service sleeps. Detail in
+`off-plan-2026-10-status.md`. **The owner's decision: upgrade after all features are settled and
+the build is finished.** It must happen before the first real tutor or student uploads anything.
+Until then a missing file in testing is expected, not a bug.
+
+**B.3 — `AV-42` and the readiness next steps** *(decision only, nothing to build)*
+
+The readiness summary gives a student two or three AI-written next steps
+(`recommended_revision`), which `AV-42` ("no 'do this now'") rules out. **The owner chose to
+keep them.** `AV-42` now governs the weak-topic lists only. The register entry above is left as
+written; this note is the amendment.
+
+---
+
 ### Phase 10 — Usage and sell-readiness
 
 | ID | Task | Size | Mode |
