@@ -358,7 +358,10 @@ async def student_attendance(
     member_q = (
         select(GroupMember.group_id, GroupMember.created_at)
         .join(Group, Group.id == GroupMember.group_id)
-        .where(GroupMember.student_id == student_id, Group.organization_id == organization_id)
+        .where(
+            GroupMember.student_id == student_id,
+            Group.organization_id == organization_id,
+        )
     )
     if group_id is not None:
         member_q = member_q.where(GroupMember.group_id == group_id)

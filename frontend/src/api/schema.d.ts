@@ -747,7 +747,13 @@ export interface paths {
         get: operations["group_detail_api_v1_groups__group_id__get"];
         put?: never;
         post?: never;
-        /** Delete Group */
+        /**
+         * Delete Group
+         * @description Delete a class: it disappears and stops sending, the students' record stays.
+         *
+         *     Soft, never `db.delete(group)`: see the note on `models.groups.Group`. A second
+         *     call is a 404 because `_owned_group` no longer finds it.
+         */
         delete: operations["delete_group_api_v1_groups__group_id__delete"];
         options?: never;
         head?: never;

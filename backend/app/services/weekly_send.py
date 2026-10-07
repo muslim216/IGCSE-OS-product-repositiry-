@@ -55,6 +55,7 @@ from app.models import (
     WeeklySendAudience,
 )
 from app.models.base import utcnow
+from app.services.groups import live_classes_taught_by
 from app.services.narrative import CLASS_NARRATIVE_JOB
 from app.services.notifications import notify
 from app.services.weekly_send_facts import (
@@ -193,7 +194,7 @@ async def _recipients(session: AsyncSession, organization_id: int) -> list[User]
     enrolled = (
         select(distinct(GroupMember.student_id))
         .join(Group, Group.id == GroupMember.group_id)
-        .where(Group.organization_id == organization_id)
+        .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
     )
     students = (
         await session.scalars(
@@ -446,13 +447,17 @@ async def _refresh_narratives(session: AsyncSession, organization_id: int) -> No
     groups_waiting = {p.get("group_id") for p in waiting}
     students_waiting = {p.get("student_id") for p in waiting}
     group_ids = (
-        await session.scalars(select(Group.id).where(Group.organization_id == organization_id))
+        await session.scalars(
+            select(Group.id).where(
+                Group.organization_id == organization_id, Group.deleted_at.is_(None)
+            )
+        )
     ).all()
     student_ids = (
         await session.scalars(
             select(distinct(GroupMember.student_id))
             .join(Group, Group.id == GroupMember.group_id)
-            .where(Group.organization_id == organization_id)
+            .where(Group.organization_id == organization_id, Group.deleted_at.is_(None))
         )
     ).all()
     # One flush for the batch, not one per row (`PERF-1`).
@@ -579,7 +584,7 @@ async def linked_children(
             User.id.in_(
                 select(GroupMember.student_id)
                 .join(Group, Group.id == GroupMember.group_id)
-                .where(Group.tutor_id == taught_by, Group.organization_id == organization_id)
+                .where(*live_classes_taught_by(taught_by), Group.organization_id == organization_id)
             )
         )
     return [LinkedChild(i, n, _aware(at)) for i, n, at in (await session.execute(query)).all()]

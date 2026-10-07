@@ -128,6 +128,9 @@ async def latest_learner_snapshots(
         )
         .where(
             GroupMember.group_id.in_(group_ids),
+            # Defence in depth: callers pass visible classes, but a deleted one is
+            # never summarised.
+            Group.deleted_at.is_(None),
             ReadinessSnapshot.status == AiSynthesisStatus.ready,
             *([ReadinessSnapshot.created_at <= before] if before is not None else []),
         )

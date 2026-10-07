@@ -404,7 +404,7 @@ def _fully_covered(chapter: Chapter, covered: set[int]) -> bool:
 
 async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     group = await session.get(Group, plan.group_id)
-    if group is None:
+    if group is None or group.deleted_at is not None:
         log.info("plan %s: its class no longer exists; nothing to draft", plan.id)
         return DraftResult(plan_id=plan.id, status="skipped", skipped="class is gone")
     subject = await session.get(Subject, group.subject_id)

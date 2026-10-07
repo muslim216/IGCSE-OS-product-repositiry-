@@ -289,7 +289,11 @@ async def load_state(db: AsyncSession, user: User) -> OnboardingState:
     groups = (
         await db.scalars(
             select(Group)
-            .where(Group.tutor_id == user.id, Group.organization_id == org_id)
+            .where(
+                Group.tutor_id == user.id,
+                Group.organization_id == org_id,
+                Group.deleted_at.is_(None),
+            )
             .order_by(Group.created_at, Group.id)
         )
     ).all()

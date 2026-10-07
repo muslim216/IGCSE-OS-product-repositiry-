@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.api.deps import (
     CurrentUser,
@@ -16,7 +16,9 @@ from app.models import (
     Assignment,
     AssignmentStatus,
     Classified,
+    Group,
     GroupMember,
+    Submission,
     User,
     UserRole,
 )
@@ -122,10 +124,19 @@ async def _can_view_classified(db, user: User, classified: Classified) -> bool:
     row = await db.scalar(
         select(Assignment.id)
         .join(GroupMember, GroupMember.group_id == Assignment.group_id)
+        .join(Group, Group.id == Assignment.group_id)
         .where(
             Assignment.classified_id == classified.id,
             Assignment.status.in_([AssignmentStatus.published, AssignmentStatus.closed]),
             GroupMember.student_id == user.id,
+            # A deleted class's paper stays readable only where the student
+            # handed that homework in.
+            or_(
+                Group.deleted_at.is_(None),
+                select(Submission.id)
+                .where(Submission.work_id == Assignment.work_id, Submission.student_id == user.id)
+                .exists(),
+            ),
         )
         .limit(1)
     )

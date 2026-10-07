@@ -16,7 +16,7 @@ router = APIRouter(tags=["resources"])
 
 async def _can_view_group(db, user: User, group_id: int) -> Group:
     group = await db.get(Group, group_id)
-    if group is None:
+    if group is None or group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
     if user.role in (UserRole.tutor, UserRole.admin):
         # The organization binds first, admins included (`SEC-7`).
@@ -169,6 +169,7 @@ async def delete_resource(resource_id: int, db: DbSession, user: CurrentUser) ->
     group = await db.get(Group, resource.group_id)
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (resource.tutor_id != user.id and user.role != UserRole.admin)
     ):

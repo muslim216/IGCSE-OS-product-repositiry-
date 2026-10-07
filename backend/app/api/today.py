@@ -79,6 +79,7 @@ async def class_overview(group_id: int, db: DbSession, user: TutorUser) -> Class
     # the org must come from the authenticated user and never from the fetched row.
     if (
         group is None
+        or group.deleted_at is not None
         or group.organization_id != user.organization_id
         or (group.tutor_id != user.id and user.role != UserRole.admin)
     ):

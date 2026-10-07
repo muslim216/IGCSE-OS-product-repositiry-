@@ -18,6 +18,17 @@ from app.models.users import User
 
 
 class Group(TimestampMixin, Base):
+    """A class. Deleting one is soft: `deleted_at` hides it, nothing is removed.
+
+    A class owns homework, submissions and marks, and finalized marks have become
+    `Evidence` that readiness is computed from. Evidence is permanent (`PROD-5`), so
+    a hard delete would either cascade through students' records or fail on a
+    foreign key. Instead a deleted class behaves as if it did not exist for
+    everything forward-looking (lists, pages, lessons, reminders, messages), while
+    submissions, marks, evidence and enrolment stay exactly as they were, so no
+    student's readiness changes. Filter with `Group.deleted_at.is_(None)`.
+    """
+
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -31,7 +42,13 @@ class Group(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True
     )
 
-    tutor: Mapped[User] = relationship()
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_groups_deleted_by_id_users"), nullable=True
+    )
+
+    # Two FKs to users now, so the join has to be named.
+    tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
     subject: Mapped[Subject] = relationship()
     members: Mapped[list["GroupMember"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"

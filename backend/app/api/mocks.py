@@ -20,7 +20,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.api.deps import (
     CurrentUser,
@@ -67,7 +67,9 @@ from app.workers.jobs import enqueue
 router = APIRouter(prefix="/mocks", tags=["mocks"])
 
 
-async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = False) -> Mock:
+async def _visible_mock(
+    db, user: User, mock_id: int, *, for_update: bool = False, sitting: bool = False
+) -> Mock:
     """A tutor sees the mocks they set; a student sees a mock set to a group
     they are actually in.
 
@@ -89,38 +91,67 @@ async def _visible_mock(db, user: User, mock_id: int, *, for_update: bool = Fals
     mock = await db.get(Mock, mock_id, with_for_update=for_update)
     if mock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+    # A deleted class takes its mocks with it: the tutor no longer manages them and a
+    # student no longer sees one they have not handed in. Work already handed in is
+    # untouched and still marked through the submission routes (`PROD-5`).
+    group_deleted = await _group_deleted(db, mock)
     if user.role == UserRole.admin:
         # Wider reach inside their organization, not across organizations (`SEC-7`).
-        if mock.organization_id != user.organization_id:
+        if mock.organization_id != user.organization_id or group_deleted:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
     if user.role == UserRole.tutor:
         # 404, not 403: integer keys are enumerable, and "exists but not yours"
         # is itself information (`API-7`, `SEC-9`).
-        if mock.tutor_id != user.id:
+        if mock.tutor_id != user.id or group_deleted:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         return mock
-    if user.role == UserRole.student:
-        # A student may see a mock only once it is published. While it is still
-        # extracting there is nothing to sit, and after a failed extraction
-        # there never will be — in both states the paper must not be readable.
-        # The gate lives here rather than on each route so the detail view and
-        # the paper download cannot drift apart.
-        #
-        # `closed` stays visible deliberately: a student keeps access to a paper
-        # they already sat. Nothing sets `closed` yet, and naming it here is
-        # what stops the day it does from silently hiding their own marked work.
-        if mock.status not in (MockStatus.published, MockStatus.closed):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
-        if mock.group_id is not None:
-            member = await db.scalar(
-                select(GroupMember.id).where(
-                    GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
-                )
-            )
-            if member is not None:
-                return mock
+    if user.role == UserRole.student and await _student_may_see(
+        db, user, mock, group_deleted=group_deleted, sitting=sitting
+    ):
+        return mock
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
+
+
+async def _group_deleted(db, mock: Mock) -> bool:
+    if mock.group_id is None:
+        return False
+    return await db.scalar(select(Group.deleted_at).where(Group.id == mock.group_id)) is not None
+
+
+async def _student_may_see(
+    db, user: User, mock: Mock, *, group_deleted: bool, sitting: bool
+) -> bool:
+    # A student may see a mock only once it is published. While it is still
+    # extracting there is nothing to sit, and after a failed extraction
+    # there never will be — in both states the paper must not be readable.
+    # The gate lives here rather than on each route so the detail view and
+    # the paper download cannot drift apart.
+    #
+    # `closed` stays visible deliberately: a student keeps access to a paper
+    # they already sat. Nothing sets `closed` yet, and naming it here is
+    # what stops the day it does from silently hiding their own marked work.
+    if mock.status not in (MockStatus.published, MockStatus.closed) or mock.group_id is None:
+        return False
+    member = await db.scalar(
+        select(GroupMember.id).where(
+            GroupMember.group_id == mock.group_id, GroupMember.student_id == user.id
+        )
+    )
+    if member is None:
+        return False
+    if not group_deleted:
+        return True
+    # A deleted class: work already handed in stays readable, but the mock can
+    # never be sat or opened again.
+    if sitting:
+        return False
+    handed_in = await db.scalar(
+        select(Submission.id).where(
+            Submission.work_id == mock.work_id, Submission.student_id == user.id
+        )
+    )
+    return handed_in is not None
 
 
 async def _question_counts(db, mock_ids: Sequence[int]) -> dict[int, int]:
@@ -155,7 +186,7 @@ def _out(mock: Mock, question_count: int, *, for_tutor: bool) -> MockOut:
 
 async def _owned_group(db, group_id: int, user: User) -> Group:
     group = await db.get(Group, group_id)
-    if group is None or group.tutor_id != user.id:
+    if group is None or group.tutor_id != user.id or group.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Class not found")
     return group
 
@@ -242,7 +273,11 @@ async def create_mock(
 async def list_mocks(
     db: DbSession, user: TutorUser, subject_id: int | None = None
 ) -> list[MockOut]:
-    query = select(Mock).where(Mock.tutor_id == user.id)
+    query = (
+        select(Mock)
+        .outerjoin(Group, Group.id == Mock.group_id)
+        .where(Mock.tutor_id == user.id, Group.deleted_at.is_(None))
+    )
     if subject_id is not None:
         query = query.where(Mock.subject_id == subject_id)
     mocks = (await db.scalars(query.order_by(Mock.id.desc()))).all()
@@ -257,9 +292,17 @@ async def my_mocks(db: DbSession, user: StudentUser) -> list[MockOut]:
         await db.scalars(
             select(Mock)
             .join(GroupMember, GroupMember.group_id == Mock.group_id)
+            .join(Group, Group.id == Mock.group_id)
             .where(
                 GroupMember.student_id == user.id,
                 Mock.status == MockStatus.published,
+                # A deleted class's mock stays only if this student already handed it in.
+                or_(
+                    Group.deleted_at.is_(None),
+                    select(Submission.id)
+                    .where(Submission.work_id == Mock.work_id, Submission.student_id == user.id)
+                    .exists(),
+                ),
             )
             .order_by(Mock.id.desc())
         )
@@ -438,7 +481,7 @@ async def sit_mock(
     files: Annotated[list[UploadFile] | None, File()] = None,
     typed_answer: Annotated[str | None, Form()] = None,
 ) -> MockSubmissionOut:
-    mock = await _visible_mock(db, user, mock_id)
+    mock = await _visible_mock(db, user, mock_id, sitting=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     # Either channel, or both — the same rule homework follows since AV-73.
@@ -478,7 +521,7 @@ async def sit_mock(
     # here has written a row worth keeping — that is what makes discarding the
     # transaction outright the right move rather than a blunt one.
     try:
-        locked = await _visible_mock(db, user, mock_id, for_update=True)
+        locked = await _visible_mock(db, user, mock_id, for_update=True, sitting=True)
         if locked.status != MockStatus.published:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
         submission, settled = await open_attempt(db, MOCK, locked.id, user.id)
@@ -543,7 +586,7 @@ async def open_mock(mock_id: int, db: DbSession, user: StudentUser) -> MockClock
     page polls this rather than trusting its own countdown — the browser's timer
     is a display, and a display can be reloaded, paused or lied to.
     """
-    mock = await _visible_mock(db, user, mock_id)
+    mock = await _visible_mock(db, user, mock_id, sitting=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     opening = await mock_clock.start(db, mock, user.id)

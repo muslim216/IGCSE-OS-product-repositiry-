@@ -1964,6 +1964,7 @@
           "groups"
         ],
         "summary": "Delete Group",
+        "description": "Delete a class: it disappears and stops sending, the students' record stays.\n\nSoft, never `db.delete(group)`: see the note on `models.groups.Group`. A second\ncall is a 404 because `_owned_group` no longer finds it.",
         "operationId": "delete_group_api_v1_groups__group_id__delete",
         "security": [
           {

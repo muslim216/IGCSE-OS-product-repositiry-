@@ -181,6 +181,9 @@ async def _valid_invite(db: AsyncSession, code: str, kind: InviteKind) -> Invite
     )
     if invite is None or invite.kind != kind:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
+    # A deleted class's code is indistinguishable from one that never existed.
+    if invite.group is not None and invite.group.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
     check_usable(invite)
     return invite
 
@@ -197,9 +200,11 @@ async def preview_invite(code: str, db: DbSession) -> InvitePreview:
     if invite.kind == InviteKind.student_join and invite.group_id is not None:
         group = await db.scalar(
             select(Group)
-            .where(Group.id == invite.group_id)
+            .where(Group.id == invite.group_id, Group.deleted_at.is_(None))
             .options(selectinload(Group.subject), selectinload(Group.tutor))
         )
+        if group is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
         return InvitePreview(
             kind=invite.kind.value,
             group_name=group.name,
@@ -294,6 +299,13 @@ async def join_with_invite(body: JoinRequest, db: DbSession, user: CurrentUser) 
     if invite.kind == InviteKind.student_join:
         if user.role != UserRole.student:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Only student accounts can join a group")
+        if (
+            await db.scalar(
+                select(Group.id).where(Group.id == invite.group_id, Group.deleted_at.is_(None))
+            )
+            is None
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
         await _add_to_group(db, invite.group_id, user.id)
     else:
         if user.role != UserRole.parent:

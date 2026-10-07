@@ -38,6 +38,7 @@ from app.schemas.notifications import (
     SelfContactSet,
     UndeliveredOut,
 )
+from app.services.groups import live_classes_taught_by
 from app.services.notifications.contacts import confirm_contact, contacts_for, set_contact
 from app.services.notifications.service import channel_registry
 
@@ -242,7 +243,7 @@ async def undelivered(db: DbSession, user: TutorUser) -> list[UndeliveredOut]:
         taught = (
             select(GroupMember.student_id)
             .join(Group, Group.id == GroupMember.group_id)
-            .where(Group.tutor_id == user.id, Group.organization_id == user.organization_id)
+            .where(*live_classes_taught_by(user.id), Group.organization_id == user.organization_id)
         )
         query = query.where(
             or_(

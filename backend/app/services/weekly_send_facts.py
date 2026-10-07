@@ -859,6 +859,8 @@ async def _student_weeks(session: AsyncSession, student: User, clock: _Clock) ->
                 .where(
                     GroupMember.student_id == student.id,
                     Group.organization_id == student.organization_id,
+                    # A deleted class is not reported on.
+                    Group.deleted_at.is_(None),
                 )
                 .order_by(Group.name, Group.id)
             )

@@ -95,7 +95,7 @@ async def reflow_plan_slots(session: AsyncSession, plan_id: int) -> dict | None:
         _skip(plan, plan_id, "the plan has no current drafted schedule to adjust")
         return None
     group = await session.get(Group, plan.group_id)
-    if group is None:
+    if group is None or group.deleted_at is not None:
         _skip(plan, plan_id, "the plan's class no longer exists")
         return None
     subject = await session.get(Subject, group.subject_id)
@@ -221,6 +221,7 @@ async def enqueue_reflow_for_subject(session: AsyncSession, subject_id: int) -> 
                 .where(
                     Group.subject_id == subject_id,
                     Group.organization_id == subject.organization_id,
+                    Group.deleted_at.is_(None),
                     TeachingPlan.organization_id == subject.organization_id,
                 )
                 .order_by(TeachingPlan.id)

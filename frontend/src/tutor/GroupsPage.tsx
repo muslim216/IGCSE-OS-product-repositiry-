@@ -1,11 +1,11 @@
-import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, ClipboardList, Plus, Users } from "lucide-react";
 import { createGroup, listGroups, listSubjects, type Group } from "../api/groups";
 import { formatSlot } from "../lib/schedule";
 import { friendlyError } from "../lib/errors";
-import { EmptyState, SectionCard } from "../components/ui";
+import { EmptyState, SectionCard, useToast } from "../components/ui";
 import { Button, Field, Input, Select } from "../components/controls";
 import { ErrorState, PageHeader, Skeleton } from "../components/page";
 
@@ -80,6 +80,17 @@ export default function GroupsPage() {
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [subjectId, setSubjectId] = useState<number | "">("");
+  // A deleted class arrives here with its confirmation in the navigation state.
+  const { toast, showToast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const notice = (location.state as { notice?: string } | null)?.notice;
+  useEffect(() => {
+    if (!notice) return;
+    showToast(notice);
+    // Shown once: left in history state it would return on every refresh and Back.
+    navigate(location.pathname, { replace: true, state: null });
+  }, [notice, showToast, navigate, location.pathname]);
 
   const create = useMutation({
     mutationFn: () => createGroup(name, subjectId as number),
@@ -209,6 +220,7 @@ export default function GroupsPage() {
           </SectionCard>
         )
       )}
+      {toast}
     </div>
   );
 }
