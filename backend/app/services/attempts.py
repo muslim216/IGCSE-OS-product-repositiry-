@@ -12,7 +12,9 @@ compares the three side by side. `API-20`'s discriminator already names which
 foreign key each kind uses, so there is nothing kind-specific left here.
 """
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
+from typing import Protocol
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +29,34 @@ from app.models import (
     SubmissionStatus,
 )
 from app.services.submission_kind import SubmissionKind
+
+
+class HasFinalMarks(Protocol):
+    """A `QuestionMark`, or any row shaped like one (the review page's `MarkRow`)."""
+
+    @property
+    def final_marks(self) -> int | None: ...
+
+
+def attempt_is_locked(submission: Submission, marks: Iterable[HasFinalMarks] | None = None) -> bool:
+    """Whether a student may no longer replace this attempt.
+
+    The one definition, shared by `open_attempt` (which refuses a replacement)
+    and `services/attempt_redo` (which only lets a tutor set a *locked* attempt
+    aside), so the two cannot drift: an attempt a student can replace is one a
+    tutor has no reason to redo. `marks` defaults to `submission.marks`, which
+    must then be loaded; a caller that already holds the rows passes them.
+    """
+    held = submission.marks if marks is None else marks
+    return (
+        submission.status in SETTLED_STATUSES
+        # The status alone is not the lock. A remark request moves a finalized
+        # submission back to `needs_review` so the tutor sees it, and a
+        # half-decided auto-marked one waits there too; replacing either would
+        # delete marks that already count, and the tutor's mistake revisions
+        # with them (`PROD-5`, `PROD-7`). One final mark settles the attempt.
+        or any(mark.final_marks is not None for mark in held)
+    )
 
 
 async def open_attempt(
@@ -59,15 +89,7 @@ async def open_attempt(
         )
         .options(selectinload(Submission.files), selectinload(Submission.marks))
     )
-    if submission is not None and (
-        submission.status in SETTLED_STATUSES
-        # The status alone is not the lock. A remark request moves a finalized
-        # submission back to `needs_review` so the tutor sees it, and a
-        # half-decided auto-marked one waits there too; replacing either would
-        # delete marks that already count, and the tutor's mistake revisions
-        # with them (`PROD-5`, `PROD-7`). One final mark settles the attempt.
-        or any(mark.final_marks is not None for mark in submission.marks)
-    ):
+    if submission is not None and attempt_is_locked(submission):
         return submission, True
 
     if submission is None:

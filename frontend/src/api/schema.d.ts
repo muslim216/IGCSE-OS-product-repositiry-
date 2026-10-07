@@ -2626,6 +2626,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/students/{student_id}/redos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Student Redos
+         * @description The attempts a tutor set aside so this student could hand work in again,
+         *     newest first. Tutor-only, and only for a student the tutor teaches
+         *     (`_tutor_student`, which answers 404 rather than 403 — `API-7`). The
+         *     organization is the tutor's own (`SEC-7`). The full record behind each row
+         *     is kept but deliberately not served.
+         */
+        get: operations["student_redos_api_v1_students__student_id__redos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/students/{student_id}/mistakes": {
         parameters: {
             query?: never;
@@ -2977,6 +3001,41 @@ export interface paths {
          *     on it, that question is settled.
          */
         post: operations["request_remark_api_v1_submissions__submission_id__questions__question_id__remark_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{submission_id}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let Student Redo
+         * @description Set a locked attempt aside so the student can hand the work in again.
+         *
+         *     Tutor-only, and ownership goes through `_tutor_owns` like every other
+         *     tutor route on a submission, so another tutor's or another organization's
+         *     attempt is a 404 (`API-7`, `API-20`). The old attempt stops counting
+         *     toward readiness at once; a record of it is kept and cannot be edited or
+         *     deleted through the API (`PROD-7`). See `services/attempt_redo.py`.
+         *
+         *     Also `404` unless this tutor teaches the student (a past paper is
+         *     organization-wide for marking, which is not enough for a destructive
+         *     action). `409`, with a sentence for the tutor, when the attempt is not
+         *     locked (the student can already replace it), when marking or tagging is
+         *     queued or running for it, when the student could not hand the work in
+         *     again, or when something wrote to it mid-redo. A second call finds the
+         *     submission gone and answers `404`, which is what makes a double-click
+         *     harmless. The rule is `redo_refusal`, shared with `can_redo`.
+         */
+        post: operations["let_student_redo_api_v1_submissions__submission_id__redo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3786,6 +3845,39 @@ export interface components {
              * @default 0
              */
             submission_count: number;
+        };
+        /**
+         * AttemptRedoOut
+         * @description What a tutor sees about an attempt they set aside. The snapshot itself is
+         *     kept but not exposed here: this is the receipt, not the record.
+         */
+        AttemptRedoOut: {
+            /** Id */
+            id: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Allowed By Id */
+            allowed_by_id: number;
+            /** Allowed By Name */
+            allowed_by_name: string;
+            /**
+             * Work Kind
+             * @enum {string}
+             */
+            work_kind: "homework" | "past_paper" | "mock";
+            /** Work Title */
+            work_title: string;
+            /** Previous Final Marks */
+            previous_final_marks: number | null;
+            /** Previous Max Marks */
+            previous_max_marks: number | null;
+            /** Previous Questions Marked */
+            previous_questions_marked: number;
+            /** Previous Question Count */
+            previous_question_count: number;
         };
         /** AttendanceEntryIn */
         AttendanceEntryIn: {
@@ -7072,6 +7164,8 @@ export interface components {
             bare_question_count: number;
             /** Mistakes Analysed */
             mistakes_analysed: boolean;
+            /** Can Redo */
+            can_redo: boolean;
         };
         /** SubmissionFileOut */
         SubmissionFileOut: {
@@ -12771,6 +12865,37 @@ export interface operations {
             };
         };
     };
+    student_redos_api_v1_students__student_id__redos_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                student_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttemptRedoOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     student_mistakes_api_v1_students__student_id__mistakes_get: {
         parameters: {
             query: {
@@ -13344,6 +13469,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RemarkRequestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    let_student_redo_api_v1_submissions__submission_id__redo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttemptRedoOut"];
                 };
             };
             /** @description Validation Error */

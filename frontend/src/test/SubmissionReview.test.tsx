@@ -58,6 +58,7 @@ function submissionBody(
     marks,
     bare_question_count: bareQuestionCount,
     mistakes_analysed: mistakesAnalysed,
+    can_redo: false,
   };
 }
 
@@ -182,7 +183,7 @@ function stubSubmission(
         revisions.push({ path, body: sent });
         current = current.map((m) => ({
           ...m,
-          mistakes: m.mistakes.map((x) =>
+          mistakes: (m.mistakes ?? []).map((x) =>
             String(x.id) === revised[2]
               ? {
                   ...x,

@@ -16,6 +16,8 @@ from app.models import (
     ScheduleSlot,
     Submission,
     SubmissionStatus,
+    User,
+    UserRole,
 )
 from app.models.base import utcnow
 from app.schemas.groups import GroupSummary, NextLesson
@@ -43,6 +45,65 @@ def live_classes_taught_by(tutor_id: int) -> tuple:
     work already handed in can still be marked.
     """
     return (Group.tutor_id == tutor_id, Group.deleted_at.is_(None))
+
+
+async def student_in_organization(db: AsyncSession, student: User, organization_id: int) -> bool:
+    """Homed in this organization, or a member of one of its classes — the rule
+    `api/readiness.visible_subject_ids` applies to an admin. A student can sit
+    in a second organization's class, so home organization alone gave an admin
+    less reach than a tutor beside them: the tutor opened the student, the
+    admin got a 404."""
+    if student.organization_id == organization_id:
+        return True
+    membership = await db.scalar(
+        select(GroupMember.id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(
+            GroupMember.student_id == student.id,
+            Group.organization_id == organization_id,
+            Group.deleted_at.is_(None),
+        )
+        .limit(1)
+    )
+    return membership is not None
+
+
+async def tutor_teaches_student(db: AsyncSession, tutor: User, student: User) -> bool:
+    """Whether this tutor (or admin) may act on this student: a tutor must share
+    a live class with them; an admin only needs the student in their own
+    organization (`SEC-7`). The one rule behind `api/students._tutor_student`
+    and a tutor's redo of an attempt."""
+    if tutor.role == UserRole.admin:
+        return await student_in_organization(db, student, tutor.organization_id)
+    shares_group = await db.scalar(
+        select(GroupMember.id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(GroupMember.student_id == student.id, *live_classes_taught_by(tutor.id))
+    )
+    return shares_group is not None
+
+
+async def tutor_teaches_student_in(
+    db: AsyncSession, tutor: User, student_id: int, *, organization_id: int, subject_id: int
+) -> bool:
+    """Whether this tutor teaches this student in a live class of exactly this
+    (organization, subject). `tutor_teaches_student` is the wider question — any
+    shared class — and is not enough for a destructive action on a piece of work
+    that belongs to the organization rather than to one class: a tutor who teaches
+    the student physics must not be able to set aside a chemistry past paper
+    because another tutor teaches them chemistry (`SEC-8`)."""
+    shares_group = await db.scalar(
+        select(GroupMember.id)
+        .join(Group, Group.id == GroupMember.group_id)
+        .where(
+            GroupMember.student_id == student_id,
+            Group.organization_id == organization_id,
+            Group.subject_id == subject_id,
+            *live_classes_taught_by(tutor.id),
+        )
+        .limit(1)
+    )
+    return shares_group is not None
 
 
 def review_queue_predicate(organization_id: int):

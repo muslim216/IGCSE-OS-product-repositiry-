@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, FileText } from "lucide-react";
 import { mistakeSourceLabel } from "./mistakeSourceLabel";
+import { RedoAttempt } from "./RedoAttempt";
 import {
   fetchFileUrl,
   finalizeSubmission,
@@ -400,29 +401,41 @@ export default function SubmissionReviewPage() {
           </>
         }
         actions={
-          finalized ? (
-            inQueue && (
-              <Button variant="secondary" onClick={goNext}>
-                {next ? "Next →" : "Back to queue"}
-              </Button>
-            )
-          ) : (
-            <>
-              {inQueue && (
-                // Skip leaves the marks exactly as they are — it is "not now",
-                // never a decision, so it must not write anything.
-                <Button variant="ghost" onClick={goNext}>
-                  Skip
+          <>
+            {finalized ? (
+              inQueue && (
+                <Button variant="secondary" onClick={goNext}>
+                  {next ? "Next →" : "Back to queue"}
                 </Button>
-              )}
-              <Button variant="secondary" loading={save.isPending} onClick={() => save.mutate()}>
-                Save draft
-              </Button>
-              <Button loading={finalize.isPending} onClick={() => finalize.mutate(inQueue)}>
-                {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
-              </Button>
-            </>
-          )
+              )
+            ) : (
+              <>
+                {inQueue && (
+                  // Skip leaves the marks exactly as they are — it is "not now",
+                  // never a decision, so it must not write anything.
+                  <Button variant="ghost" onClick={goNext}>
+                    Skip
+                  </Button>
+                )}
+                <Button variant="secondary" loading={save.isPending} onClick={() => save.mutate()}>
+                  Save draft
+                </Button>
+                <Button loading={finalize.isPending} onClick={() => finalize.mutate(inQueue)}>
+                  {inQueue ? (next ? "Finalize & next" : "Finalize & finish") : "Finalize marks"}
+                </Button>
+              </>
+            )}
+            {/* Offered only when the server says the attempt is locked. The
+                submission is gone afterwards, so the way out is back to where
+                the tutor came from, not on to the next in the queue. */}
+            {s.can_redo && (
+              <RedoAttempt
+                submissionId={s.id}
+                studentName={s.student_name}
+                onDone={() => navigate(back.to)}
+              />
+            )}
+          </>
         }
       />
 
@@ -589,7 +602,7 @@ function MistakeTag({
        controls re-enabled over the old tag, and the next change re-sends the
        stale counterpart. */
     onSuccess: (data) => {
-      const revised = data.marks.flatMap((m) => m.mistakes).find((x) => x.id === mistake.id);
+      const revised = data.marks.flatMap((m) => m.mistakes ?? []).find((x) => x.id === mistake.id);
       if (!revised) return;
       queryClient.setQueryData(
         ["submission", submissionId],
@@ -598,7 +611,7 @@ function MistakeTag({
             ...prev,
             marks: prev.marks.map((m) => ({
               ...m,
-              mistakes: m.mistakes.map((x) => (x.id === revised.id ? revised : x)),
+              mistakes: (m.mistakes ?? []).map((x) => (x.id === revised.id ? revised : x)),
             })),
           },
       );
@@ -834,7 +847,7 @@ function QuestionCard({
           lost no marks has nothing to categorise, and an empty picker on every
           card would read as a demand to fill it in — which is exactly the
           prompt AV-38 says the tutor is never given. */}
-      {mark.mistakes.map((mistake) => (
+      {(mark.mistakes ?? []).map((mistake) => (
         <MistakeTag
           key={mistake.id}
           submissionId={submissionId}
@@ -847,7 +860,7 @@ function QuestionCard({
       {/* Absent is shown as absent (PROD-2): with no tag and nothing having
           looked, the honest statement is that nobody has looked — not silence,
           which reads as a clean question. */}
-      {mark.mistakes.length === 0 && !mistakesAnalysed && draft?.final_marks != null && (
+      {(mark.mistakes ?? []).length === 0 && !mistakesAnalysed && draft?.final_marks != null && (
         <p className="mt-3 text-xs text-ink-500">Not examined for mistakes yet.</p>
       )}
 

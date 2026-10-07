@@ -1,4 +1,5 @@
 from app.models.ai_usage import AiFeature, AiUsageEvent
+from app.models.attempt_redo import AttemptRedo
 from app.models.base import Base
 from app.models.booklets import Booklet, BookletStatus
 from app.models.classroom import ClassroomCourseLink, ClassroomWorkLink, GoogleAccount
@@ -128,6 +129,7 @@ __all__ = [
     "Assignment",
     "AssignmentQuestion",
     "AssignmentStatus",
+    "AttemptRedo",
     "Base",
     "Booklet",
     "BookletStatus",

@@ -29,8 +29,6 @@ from app.models import (
     SETTLED_STATUSES,
     Booklet,
     BookletStatus,
-    Group,
-    GroupMember,
     PastPaper,
     PastPaperAttempt,
     PastPaperQuestion,
@@ -54,6 +52,11 @@ from app.schemas.past_paper import (
 from app.services import storage
 from app.services.attempts import open_attempt
 from app.services.extraction import queue_past_paper_read, read_in_progress
+
+# `_enrolled_scope` is the reference for (organization, subject) scoping (`SEC-8`);
+# it now lives in the service the tutor's redo shares with the student routes.
+from app.services.hand_in_gate import enrolled_scope as _enrolled_scope
+from app.services.hand_in_gate import past_paper_open_to
 from app.services.submission_kind import PAST_PAPER
 from app.services.work import create_work, parent_of
 from app.workers.jobs import enqueue
@@ -61,32 +64,6 @@ from app.workers.jobs import enqueue
 log = logging.getLogger("api")
 
 router = APIRouter(prefix="/past-papers", tags=["past-papers"])
-
-
-async def _enrolled_scope(db, student_id: int) -> set[tuple[int, int]]:
-    """The (organization_id, subject_id) pairs a student is actually taught in.
-
-    Subjects are global — every organization shares the same five built-in
-    syllabuses — so enrollment alone does not bound what a student may see.
-    Scoping on the pair keeps one tutor's uploads inside that tutor's
-    organization; matching on subject alone would show a student every past
-    paper any tutor anywhere had uploaded for their subject.
-
-    The pair comes from the groups the student is in rather than from
-    `user.organization_id`, so a student who joined a second tutor's group with
-    an invite (which does not move their organization) still sees that tutor's
-    papers, and only that tutor's.
-    """
-    rows = (
-        await db.execute(
-            select(Group.organization_id, Group.subject_id)
-            .join(GroupMember, GroupMember.group_id == Group.id)
-            # A deleted class gives no access to the organization's papers; a
-            # student with another live class in the subject keeps them.
-            .where(GroupMember.student_id == student_id, Group.deleted_at.is_(None))
-        )
-    ).all()
-    return {(org_id, subject_id) for org_id, subject_id in rows}
 
 
 async def _visible_paper(
@@ -110,7 +87,7 @@ async def _visible_paper(
     # cost of nobody checking that line twice is a student seeing another
     # tutor's material.
     if user.role == UserRole.student:  # noqa: SIM102
-        if (paper.organization_id, paper.subject_id) in await _enrolled_scope(db, user.id):
+        if await past_paper_open_to(db, paper, user.id):
             return paper
         # History: a student whose class was deleted can still read their own
         # attempt and its marks (`own_attempt_ok`), never open the paper again.

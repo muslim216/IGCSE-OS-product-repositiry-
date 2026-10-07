@@ -7713,6 +7713,58 @@
         }
       }
     },
+    "/api/v1/students/{student_id}/redos": {
+      "get": {
+        "tags": [
+          "students"
+        ],
+        "summary": "Student Redos",
+        "description": "The attempts a tutor set aside so this student could hand work in again,\nnewest first. Tutor-only, and only for a student the tutor teaches\n(`_tutor_student`, which answers 404 rather than 403 \u2014 `API-7`). The\norganization is the tutor's own (`SEC-7`). The full record behind each row\nis kept but deliberately not served.",
+        "operationId": "student_redos_api_v1_students__student_id__redos_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "student_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Student Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AttemptRedoOut"
+                  },
+                  "title": "Response Student Redos Api V1 Students  Student Id  Redos Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/students/{student_id}/mistakes": {
       "get": {
         "tags": [
@@ -8696,6 +8748,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RemarkRequestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{submission_id}/redo": {
+      "post": {
+        "tags": [
+          "submissions"
+        ],
+        "summary": "Let Student Redo",
+        "description": "Set a locked attempt aside so the student can hand the work in again.\n\nTutor-only, and ownership goes through `_tutor_owns` like every other\ntutor route on a submission, so another tutor's or another organization's\nattempt is a 404 (`API-7`, `API-20`). The old attempt stops counting\ntoward readiness at once; a record of it is kept and cannot be edited or\ndeleted through the API (`PROD-7`). See `services/attempt_redo.py`.\n\nAlso `404` unless this tutor teaches the student (a past paper is\norganization-wide for marking, which is not enough for a destructive\naction). `409`, with a sentence for the tutor, when the attempt is not\nlocked (the student can already replace it), when marking or tagging is\nqueued or running for it, when the student could not hand the work in\nagain, or when something wrote to it mid-redo. A second call finds the\nsubmission gone and answers `404`, which is what makes a double-click\nharmless. The rule is `redo_refusal`, shared with `can_redo`.",
+        "operationId": "let_student_redo_api_v1_submissions__submission_id__redo_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "submission_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Submission Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptRedoOut"
                 }
               }
             }
@@ -10912,6 +11012,85 @@
           "total_marks"
         ],
         "title": "AssignmentOut"
+      },
+      "AttemptRedoOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "allowed_by_id": {
+            "type": "integer",
+            "title": "Allowed By Id"
+          },
+          "allowed_by_name": {
+            "type": "string",
+            "title": "Allowed By Name"
+          },
+          "work_kind": {
+            "type": "string",
+            "enum": [
+              "homework",
+              "past_paper",
+              "mock"
+            ],
+            "title": "Work Kind"
+          },
+          "work_title": {
+            "type": "string",
+            "title": "Work Title"
+          },
+          "previous_final_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Final Marks"
+          },
+          "previous_max_marks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Max Marks"
+          },
+          "previous_questions_marked": {
+            "type": "integer",
+            "title": "Previous Questions Marked"
+          },
+          "previous_question_count": {
+            "type": "integer",
+            "title": "Previous Question Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "allowed_by_id",
+          "allowed_by_name",
+          "work_kind",
+          "work_title",
+          "previous_final_marks",
+          "previous_max_marks",
+          "previous_questions_marked",
+          "previous_question_count"
+        ],
+        "title": "AttemptRedoOut",
+        "description": "What a tutor sees about an attempt they set aside. The snapshot itself is\nkept but not exposed here: this is the receipt, not the record."
       },
       "AttendanceEntryIn": {
         "properties": {
@@ -20626,6 +20805,10 @@
           "mistakes_analysed": {
             "type": "boolean",
             "title": "Mistakes Analysed"
+          },
+          "can_redo": {
+            "type": "boolean",
+            "title": "Can Redo"
           }
         },
         "type": "object",
@@ -20642,7 +20825,8 @@
           "subject_id",
           "marks",
           "bare_question_count",
-          "mistakes_analysed"
+          "mistakes_analysed",
+          "can_redo"
         ],
         "title": "SubmissionDetail"
       },

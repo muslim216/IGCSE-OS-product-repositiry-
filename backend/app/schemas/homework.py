@@ -349,6 +349,11 @@ class SubmissionDetail(BaseModel):
     #: and "nobody has looked" render identically as a page of empty tags —
     #: the exact fabrication `PROD-2` exists to stop.
     mistakes_analysed: bool
+    #: Whether the attempt is locked and may be set aside so the student can
+    #: hand in again ("Let them redo this"). Decided on the server by the same
+    #: predicate that stops a student replacing it, so the button can never
+    #: offer what the endpoint would refuse.
+    can_redo: bool
 
 
 class MarkUpdate(BaseModel):
