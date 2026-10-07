@@ -48,7 +48,7 @@ testing (§12); Python style (§13).
 ## Sources
 
 Written from: `backend/app/main.py`; `backend/app/api/deps.py`; `backend/app/db.py`;
-`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 74 modules (and the `notifications/` package) in
+`backend/app/workers/jobs.py`; `backend/app/models/__init__.py`; the 77 modules (and the `notifications/` package) in
 `backend/app/services/`; the 37 routers in `backend/app/api/` (35 mounted).
 
 ---
@@ -85,8 +85,8 @@ backend/app/
   security.py   bcrypt + PyJWT (access, refresh, OAuth state)
   api/          37 routers + deps.py and file_responses.py, which define none (35 mounted; classroom and knowledge are hidden, 0.5/AV-58)
   schemas/      Pydantic request/response contracts, one module per domain
-  services/     74 modules and a `notifications/` package — the actual work
-  models/       SQLAlchemy 2.0 async ORM, 77 tables
+  services/     77 modules and a `notifications/` package — the actual work
+  models/       SQLAlchemy 2.0 async ORM, 78 tables
   workers/      jobs.py
 ```
 
@@ -142,11 +142,33 @@ than it looks: nine `groups.py` handlers have no gate of their own and rely enti
 route behind it stops working for a deleted class without each handler knowing (`DELETE
 /groups/{id}` is itself one of them, so a second delete is a `404`).
 
+**Rules shared between a student's hand-in and a tutor's redo (#150).** Three services hold
+them so the two sides cannot drift:
+
+- `services/hand_in_gate.py` answers "may this student hand this work in": `homework_open_to`,
+  `past_paper_open_to`, `mock_open_to`, and `open_to` which picks by kind. `enrolled_scope`
+  (the `SEC-8` reference, formerly `_enrolled_scope` in `api/past_papers.py`, which now aliases
+  it) and `class_deleted` live here too. `submit_work` and `_visible_paper` call these.
+- `services/attempts.py:attempt_is_locked(submission, marks)` is the one definition of a
+  locked attempt (a settled status, or any final mark). `open_attempt` uses it to refuse a
+  student's re-upload and the redo uses it to decide there is something to set aside.
+- `services/groups.py` gained `student_in_organization`, `tutor_teaches_student` and
+  `tutor_teaches_student_in` (the last narrows to one subject). `_tutor_student` in
+  `api/students.py` uses them. `_viewable_student`'s tutor arm still has its own copy of the
+  shared-class condition, which can drift.
+
+`services/attempt_redo.py` is the redo itself: `redo_refusal` (the one rule, used by the
+endpoint and by `can_redo` on the review page), `redo_attempt`, and the readers behind
+`GET /students/{id}/redos`. `services/attempt_redo_record.py` builds the snapshot (§06).
+The redo runs in the caller's transaction and flushes without committing, so a failure
+part-way leaves the attempt as it was. It then queues the readiness recompute
+(`enqueue_readiness_v2_debounced`) and the class narratives for that student and subject.
+
 Organization scoping is still applied ad hoc, per query, using `user.organization_id`.
 
 ### Services
 
-74 modules (plus the `notifications/` package), each owning one area. The shape that recurs and is worth copying: **a pure core
+77 modules (plus the `notifications/` package), each owning one area. The shape that recurs and is worth copying: **a pure core
 plus a database-facing shell**. `services/readiness_factors.py` (284 lines) is pure scoring
 math over dataclasses; `services/readiness_v2.py` (356 lines) gathers rows and calls it. The
 same split exists in v1 between `readiness.py`'s pure functions and `recompute_student()`.
@@ -158,7 +180,7 @@ they own a whole unit of work. The caller — router or job handler — commits.
 
 ### Models
 
-77 tables. **`models/__init__.py` is a re-export barrel with an explicit
+78 tables. **`models/__init__.py` is a re-export barrel with an explicit
 `__all__`**, and it is load-bearing twice over: Alembic's `env.py` imports from it to build
 `target_metadata`, and the test suite builds its schema from `Base.metadata`. A model not
 re-exported therefore **silently gets no table in tests** while working fine in production

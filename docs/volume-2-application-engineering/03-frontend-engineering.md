@@ -93,7 +93,7 @@ frontend/src/
   tutor/          17 pages, plus tabs/ and today/ subfolders
   student/        10 pages
   parent/         ParentDashboard
-  test/           91 spec files and setup.ts
+  test/           93 spec files and setup.ts
 ```
 
 Roughly 9,800 lines including CSS. The largest pages are
@@ -242,6 +242,15 @@ Every routed page composes the same pieces rather than restating classes:
   "Show hidden" footer). It is used by the setup checklist, chapter prompts, lesson reminders,
   the Overview dashboard and the onboarding flow under `tutor/`, and deliberately not by the
   work-waiting list.
+- `tutor/RedoAttempt.tsx` — the "Let them redo this" button on `SubmissionReviewPage`, shown
+  only when the detail's `can_redo` is true (the server's own rule, §05), behind a
+  `ConfirmDialog` whose focus starts on Cancel. On success it invalidates the submission, the
+  review queue, the student's redos and every class and readiness query the attempt fed.
+  `tutor/EarlierAttempts.tsx` is the "Attempts set aside" list on `StudentDetailPage`, from
+  `GET /students/{id}/redos`. An attempt with no final mark reads "was not fully marked", never
+  a score of 0 (`PROD-2`); a partly marked one says how many questions the total covers.
+  `SubmissionDetail`, `MistakeRow` and `MarkRow` in `api/homework.ts` are now aliases of the
+  generated types (`FE-4`).
 
 ### Server state
 

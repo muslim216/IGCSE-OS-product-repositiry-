@@ -26,7 +26,7 @@
 ## Purpose
 
 Answers *what is in the database, why is it shaped this way, and how do I change it safely*.
-Seventy-seven tables (`len(Base.metadata.tables)`, measured at migration `0070`; `chat.py`'s two
+Seventy-eight tables (`len(Base.metadata.tables)`, measured at migration `0071`; `chat.py`'s two
 tables were dropped by migration `0026`, task 0.3, AV-57 — `ADR-0007`'s "52 tables" is the
 count as of that Accepted, and therefore immutable, decision), with conventions that are unusually consistent in some
 dimensions and unusually thin in others.
@@ -63,7 +63,7 @@ Written from: all 15 modules in `backend/app/models/`; all 25 migrations in
 table rather than mutating a row. `evidence`, `factor_evaluations`, `mark_override_audit`,
 and `readiness_snapshots` exist so a number can name its inputs (§01 P2).
 
-**P2 — Consistency across 77 tables beats local optimality.** Integer keys, `VARCHAR` enums,
+**P2 — Consistency across 78 tables beats local optimality.** Integer keys, `VARCHAR` enums,
 timezone-aware timestamps — each is arguable in isolation and correct as a rule.
 
 **P3 — The test database must resemble the production database.** Every schema decision is
@@ -78,7 +78,7 @@ tests stop being evidence.
 
 ### The schema by domain
 
-77 tables. Grouped by the module that defines them. The table below is complete for the
+78 tables. Grouped by the module that defines them. The table below is complete for the
 modules it names; the Phase 0–4 additions are listed under it, because this section was last
 written before they landed, and the Phase 7–9 tables are named, not described, after those.
 
@@ -110,8 +110,8 @@ Tables added by earlier phases that the rows above predate: `chapters` (`syllabu
 Tables added by Phases 7–9, named here and **not yet described in this document**:
 `contact_points`, `lesson_attendance`, `lesson_meeting_imports`, `meeting_connections`,
 `meeting_participants`, `notification_preferences`, `notifications`, `setup_acknowledgements`,
-`taught_before_topics`, `weekly_sends`, `whatsapp_opt_outs`. The twelfth table added since
-Phase 6 is `dismissed_prompts`, described next.
+`taught_before_topics`, `weekly_sends`, `whatsapp_opt_outs`. The twelfth and thirteenth tables added
+since Phase 6 are `dismissed_prompts` and `attempt_redos`, described next.
 
 **`dismissed_prompts`** (`models/dismissal.py`, migration `0069`). A tutor's "Not now" on
 something their home page asked of them. Columns: `id`, `organization_id` (FK `organizations.id`,
@@ -123,6 +123,25 @@ service (`services/dismissals.py`) accepts only the exact key `setup_guide` and 
 `setup_step:`, `setup_checklist:`, `chapter_prompt:` and `lesson_reminder:` followed by something,
 and refuses a new row once a user holds 500 (`MAX_DISMISSALS_PER_USER`). No index beyond the
 unique constraint's.
+
+**`attempt_redos`** (`models/attempt_redo.py`, migration `0071`, #150). One row each time a tutor
+lets a student redo a locked attempt. **Append-only: no route edits or deletes a row.** Columns:
+`id`, `organization_id` (FK `organizations.id`, NOT NULL), `work_id` (FK `assessable_work.id`,
+NOT NULL), `student_id` and `allowed_by_id` (both FK `users.id`, NOT NULL), `created_at`,
+`previous_submission_id` (a plain integer, deliberately not a foreign key, because the submission
+it names is deleted in the same transaction), `previous_final_marks` and `previous_max_marks`
+(both NULL when the attempt had no final mark, never 0, `PROD-2`), and `record` (JSON, NOT NULL).
+Indexed on `organization_id` and `student_id` (`ix_attempt_redos_organization_id`,
+`ix_attempt_redos_student_id`), declared in the model as well (`DB-12`).
+
+`record` is the whole attempt as it stood: the submission row, its files, every `QuestionMark`,
+and under each mark its `mark_override_audit` rows, remark request, mistakes and their topic
+links, plus the `evidence` rows built from it and the mock-opening or past-paper-attempt row.
+`services/attempt_redo_record.py` builds it from `mapper.column_attrs`, so a column added to any
+of those tables later is carried without a change here; `RECORD_VERSION` (1) is stored inside
+it. After the row is written the live rows are **deleted**, which is why nothing that reads
+submissions, marks, mistakes or evidence needs a filter to stop counting a redone attempt.
+This is the one place `mark_override_audit` rows are removed; see Known Gaps.
 
 `jobs` lives in `homework.py` rather than with the worker — historical, and worth knowing when
 searching.
@@ -157,7 +176,7 @@ erDiagram
   factor_evaluations }o--|| readiness_snapshots : "evaluation_run_id"
 ```
 
-The diagram shows the spine, not all 77 tables. Note `assessable_work` in the middle: a
+The diagram shows the spine, not all 78 tables. Note `assessable_work` in the middle: a
 homework assignment, a past paper and a mock are each one row in their own table plus one
 parent row, and a submission answers the **parent**. That is what makes "whose work is this"
 and "what kind of work is this" one column each instead of a three-way branch — see
@@ -166,7 +185,7 @@ and "what kind of work is this" one column each instead of a three-way branch �
 ### Conventions
 
 **Primary keys.** Uniformly `id: Mapped[int] = mapped_column(primary_key=True)` — integer
-autoincrement on all 77 tables. **No UUIDs anywhere.** The one UUID-shaped value,
+autoincrement on all 78 tables. **No UUIDs anywhere.** The one UUID-shaped value,
 `evaluation_run_id: Mapped[str] = mapped_column(String(36))` on `factor_evaluations` and
 `readiness_snapshots`, is a correlation key, not a primary key.
 
@@ -416,10 +435,10 @@ application code maintains it.
 
 ### Migrations
 
-A linear chain from `0001` to `0070_group_deleted_at`, the current head (`0060_teaching_plans`,
-`0061_teaching_plan_draft_result`, `0062_plan_slot_lesson` are Phase 6; `0069_dismissed_prompts`
-and `0070_group_deleted_at` are the most recent; the listing below stops at `0028` and
-`0029`–`0070` are in `alembic/versions/`), with string revision ids
+A linear chain from `0001` to `0071_attempt_redos`, the current head (`0060_teaching_plans`,
+`0061_teaching_plan_draft_result`, `0062_plan_slot_lesson` are Phase 6; `0069_dismissed_prompts`,
+`0070_group_deleted_at` and `0071_attempt_redos` are the most recent; the listing below stops at `0028` and
+`0029`–`0071` are in `alembic/versions/`), with string revision ids
 matching the filename prefix and `down_revision` chained. One number is deliberately absent:
 `0024` was reserved for task 0.3's `drop_chat` while it was being written on a parallel branch
 (see the note under the list), but it landed as `0026` instead once `0025` had already merged.
@@ -488,7 +507,7 @@ painfully in 0020 and must be reused rather than rediscovered.
 `Base.metadata.create_all` and forces in-memory SQLite, so `pytest` proves nothing about
 Alembic. **CI is what exercises them.** The `migrations` job in `.github/workflows/ci.yml`
 runs `upgrade head` → `downgrade base` → `upgrade head` against a real `postgres:16-alpine`
-service container on every pull request, so all 69 migrations and all 69 downgrades run before
+service container on every pull request, so all 70 migrations and all 70 downgrades run before
 a merge rather than for the first time in production.
 
 **What that check still cannot see.** The CI database is **empty**. It proves the schema
@@ -507,7 +526,7 @@ automatically, because hosting providers hand out the bare scheme.
 
 **`DB-1` — MUST · Important · Active**
 New tables use an integer autoincrement primary key named `id`.
-*Rationale:* consistency across 77 tables; see `governance/non-goals.md` for why not UUIDs,
+*Rationale:* consistency across 78 tables; see `governance/non-goals.md` for why not UUIDs,
 including the enumerability that `API-7` then has to handle.
 
 **`DB-2` — MUST · Critical · Active**
@@ -646,6 +665,8 @@ wrong reason.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
+| **A redo deletes `mark_override_audit` rows, against `PROD-7`.** `POST /submissions/{id}/redo` copies them into `attempt_redos.record` and then removes them with the marks they belong to (#150). | The history survives, but as JSON inside one row rather than as rows: it cannot be joined or indexed, and the only reader is `GET /students/{id}/redos`, which returns totals, not the override history. Whether that is enough to answer a mark dispute was put to the owner and not answered; the rule is neither superseded nor amended. | `before scale` |
+| **`attempt_redos.record` has no retention or erasure rule.** It holds a student's marks and AI feedback indefinitely, and names stored page files that nothing deletes. | A student's data outlives the attempt it came from with no policy saying for how long. | `before scale` |
 | **Four of five indexes exist only in migrations, not in the models.** `evidence`, `factor_evaluations`, `readiness_snapshots`, and `mark_override_audit` indexes are invisible to `Base.metadata`. | The test database is not the production database, so no test exercises an indexed plan; and a reader of the models is misinformed. `DB-12` binds new work; converging the existing four is a one-migration-free change to `__table_args__`. | `blocking` |
 | **Most foreign key columns are not indexed** (a handful — see the Indexes section above — already are). | A join or parent-id filter on one of the remaining unindexed columns is a sequential scan. `DB-11` binds new work only. | `before scale` |
 | **`groups` is soft-deleted, against `DB-8`.** `groups.deleted_at IS NULL` is a filter every reader of `Group` must apply, and the code applies it by hand at each site; `live_classes_taught_by()` is the shared form for the "does this tutor teach this" checks only. Kept on purpose when a class is deleted: every `Submission`, `QuestionMark`, `Evidence` row and readiness snapshot, `group_members` and the subject enrolment, recorded attendance, and the class's teaching plan. Deliberately **not** filtered: the tutor review queue and `_tutor_owns` (work already handed in can be marked with no time limit), attendance already recorded, and the past-paper phase sweep (`past_paper_phase.py`, which must follow readiness). Homework not yet due when the class was deleted, or with no due date, is not counted as missed by readiness or the student CRM; homework already overdue still is. `DB-8` has not been superseded and no change-process record exists for the departure (the `Group` docstring gives the reason: a hard delete would cascade through students' records or fail on a foreign key). Whether `DB-8` and `governance/non-goals.md` should now say so is open. | A reader that forgets the filter shows or acts on a deleted class — the data-leak shape `DB-8` was written to prevent. No test covers parent views after deletion, the undelivered list or weekly-send content for a former student, the tutor's assessment list routes, student files and recordings, or a student with one live and one deleted class in the same subject; a security review read each and found them correct. | `before scale` |

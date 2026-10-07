@@ -269,9 +269,28 @@ in `SETTLED_STATUSES` **or any of its `QuestionMark` rows has `final_marks`**. T
 was not enough: a remark request moves a finalized submission back to `needs_review`, and a
 half-decided auto-marked submission waits there too, and in that state a re-upload used to be
 accepted and delete every mark, mistake and tutor mistake revision, including marks that already
-counted (`PROD-5`, `PROD-7`). A student therefore cannot replace partly marked work. No route reopens a
-mock or past paper for the student once a mark is final; that is a known gap (a "let them redo
-this" action was offered to the owner and not answered).
+counted (`PROD-5`, `PROD-7`). A student therefore cannot replace partly marked work.
+
+**Only a tutor can reopen a locked attempt, and the bar is higher than for marking it** (#150).
+`POST /submissions/{id}/redo` deletes marks that count, so `redo_refusal` in
+`services/attempt_redo.py` asks more than `_tutor_owns` does. `_tutor_owns` lets any tutor in the
+organization mark a past paper; for a redo the tutor must teach that student in a live class
+(`tutor_teaches_student`), and for a past paper in the paper's own subject
+(`tutor_teaches_student_in`), so teaching the student something else is not enough. Failing
+either is a `404`, like another organization's submission or one the caller may not mark
+(`API-7`). An admin needs only the student to be in their own organization and is bound by the
+rest. The redo is then refused with a `409` while a marking or tagging job for the attempt is
+pending or running, and whenever the student could not hand the work in again (class deleted,
+no longer a member, not taught the subject, work no longer published).
+
+The old attempt is written whole to an append-only `attempt_redos` row and then deleted (§06).
+The submission row and its mark rows are locked `FOR UPDATE` before the snapshot, each delete's
+row count is compared with the snapshot, and any mismatch, key violation, deadlock or lock
+timeout rolls everything back and answers `409`. Those lock paths are Postgres behaviour and
+the suite runs on SQLite, so they are tested with injected errors, not with two real writers.
+Three things are not covered: the student is not told; the Google Classroom sync, which is
+hidden, is not stopped from importing a redone attempt again; and until the student hands in
+again the weekly send and due reminders read the work as not handed in.
 
 **A stored weekly send is narrowed to its reader at read time** (#144). A parent's send is stored
 whole, with one entry per linked child, and links and classes change afterwards, so

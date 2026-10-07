@@ -170,6 +170,32 @@ that student already submitted, `POST /assignments/{id}/submissions` is a `404`,
 `GET /assignments/{id}/submissions` for a deleted class is a `404` too; marking continues from
 the review queue (§07). There is no restore route.
 
+### Letting a student redo a locked attempt (October 2026)
+
+Owner decision 2026-10-07 (#150, migration `0071`). Both routes are tutor-gated in the
+signature (`user: TutorUser`); an admin passes the same gate.
+
+| Route | Purpose | Non-2xx |
+|---|---|---|
+| `POST /submissions/{submission_id}/redo` | Set a locked attempt aside so the student can hand the work in again. Writes one `attempt_redos` row, deletes the live attempt, queues a readiness recompute. `201`, `AttemptRedoOut` | 404 the submission does not exist, is another organization's, is not the caller's to mark, or belongs to a student the caller does not teach (`API-7`); 409 with a plain reason when the redo is refused (below), and 409 "being marked right now, try again" when another writer got there first |
+| `GET /students/{student_id}/redos` | `list[AttemptRedoOut]`, newest first: the attempts set aside for one student | 404 a student the caller may not see |
+
+`AttemptRedoOut` carries `id`, `created_at`, `allowed_by_id`, `allowed_by_name`, `work_kind`,
+`work_title`, `previous_final_marks`, `previous_max_marks` (both `null` when the attempt had no
+final mark), `previous_questions_marked` and `previous_question_count`. It does not expose the
+stored record.
+
+`redo_refusal` (`services/attempt_redo.py`) checks four things in this order. **Reach first,
+answered `404`:** the caller shares a live class with the student, and for a past paper teaches
+them in the paper's own subject. An admin needs only the student to be in their organization.
+**Then three refusals, answered `409` with a sentence for the tutor:** the attempt is not locked
+(no settled status and no final mark, so the student can already replace it); a
+`mark_submission` or `tag_mistakes` job for it is pending or running; or the student could not
+hand the work in again right now (`services/hand_in_gate.py`), so a redo never deletes marks
+the student has no way to replace. `SubmissionDetail.can_redo` is the same
+function's answer, so the button is offered exactly when the call would succeed. A second call
+finds no submission and is a `404`.
+
 ### Errors
 
 **There are zero custom exception handlers.** `main.py` registers no `@app.exception_handler`
