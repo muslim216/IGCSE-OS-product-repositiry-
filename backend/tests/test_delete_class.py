@@ -261,30 +261,37 @@ async def test_an_old_invite_code_fails_like_an_unknown_one(client, tutor, group
     assert join.status_code == 404
 
 
+async def _published_mock(s, tutor, group, subject):
+    """A published mock set for the class, added to the session but not committed."""
+    organization_id = await org_id(s)
+    work = await create_work(
+        s,
+        kind=WorkKind.mock,
+        organization_id=organization_id,
+        subject_id=subject["id"],
+        title="Mock",
+    )
+    mock = Mock(
+        work_id=work.id,
+        organization_id=organization_id,
+        tutor_id=tutor["user"]["id"],
+        subject_id=subject["id"],
+        group_id=group["id"],
+        title="Mock",
+        paper_path="p.pdf",
+        paper_name="p.pdf",
+        paper_mime="application/pdf",
+        status=MockStatus.published,
+    )
+    s.add(mock)
+    return work, mock
+
+
 async def test_a_mock_not_yet_sat_leaves_the_tutor_and_the_student(
     client, tutor, group, student, subject
 ):
     async with async_session() as s:
-        work = await create_work(
-            s,
-            kind=WorkKind.mock,
-            organization_id=await org_id(s),
-            subject_id=subject["id"],
-            title="Mock",
-        )
-        mock = Mock(
-            work_id=work.id,
-            organization_id=await org_id(s),
-            tutor_id=tutor["user"]["id"],
-            subject_id=subject["id"],
-            group_id=group["id"],
-            title="Mock",
-            paper_path="p.pdf",
-            paper_name="p.pdf",
-            paper_mime="application/pdf",
-            status=MockStatus.published,
-        )
-        s.add(mock)
+        work, mock = await _published_mock(s, tutor, group, subject)
         await s.commit()
         mock_id = mock.id
     assert (await client.get(f"{API}/mocks", headers=tutor["headers"])).json()
@@ -379,7 +386,8 @@ async def test_readiness_is_identical_after_deletion(
 
     # A real v2 snapshot with a score, built by the job queue, not an empty payload.
     before = await _latest_snapshot(uid, sub_id)
-    assert before is not None and before.score is not None
+    assert before is not None
+    assert before.score is not None
     now = datetime.now(timezone.utc)
     factors_before = await _factors(uid, sub_id, now)
     assert any(f[0] == "homework_performance" and f[2] is not None for f in factors_before)
@@ -438,7 +446,8 @@ async def test_homework_not_yet_due_at_deletion_is_never_counted_as_missed(
 
     after = hw(await _factors(uid, sub_id, today))
     # The score is accuracy on marked work and does not move.
-    assert after[2] == before[2] and after[4]["accuracy"] == before[4]["accuracy"]
+    assert after[2] == before[2]
+    assert after[4]["accuracy"] == before[4]["accuracy"]
     # The overdue piece still counts as missed; the two the student can no longer
     # hand in do not.
     assert after[4]["assignment_count"] == 2
@@ -450,7 +459,9 @@ async def test_homework_not_yet_due_at_deletion_is_never_counted_as_missed(
     crm = await client.get(f"{API}/students/{uid}/crm", headers=student["headers"])
     if crm.status_code == 200:
         titles = {h["title"] for h in crm.json()["homework"]}
-        assert "Open" not in titles and "Undated" not in titles and "Overdue" in titles
+        assert "Open" not in titles
+        assert "Undated" not in titles
+        assert "Overdue" in titles
 
 
 async def test_work_awaiting_review_stays_in_the_queue_and_can_be_finalized(
@@ -768,26 +779,7 @@ async def test_a_handed_in_mock_can_be_read_but_not_sat_or_opened_again(
     client, tutor, group, student, subject
 ):
     async with async_session() as s:
-        work = await create_work(
-            s,
-            kind=WorkKind.mock,
-            organization_id=await org_id(s),
-            subject_id=subject["id"],
-            title="Mock",
-        )
-        mock = Mock(
-            work_id=work.id,
-            organization_id=await org_id(s),
-            tutor_id=tutor["user"]["id"],
-            subject_id=subject["id"],
-            group_id=group["id"],
-            title="Mock",
-            paper_path="p.pdf",
-            paper_name="p.pdf",
-            paper_mime="application/pdf",
-            status=MockStatus.published,
-        )
-        s.add(mock)
+        work, mock = await _published_mock(s, tutor, group, subject)
         await s.flush()
         s.add(
             Submission(
