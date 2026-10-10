@@ -1656,6 +1656,39 @@ The readiness summary gives a student two or three AI-written next steps
 keep them.** `AV-42` now governs the weak-topic lists only. The register entry above is left as
 written; this note is the amendment.
 
+**B.4 — The class becomes the tutor's home for its own work** *(one job, size not yet known)*
+
+Five notes the owner wrote on 8 October and handed over on 10 October. **The shape is not
+confirmed.** The owner agreed to treat them as one job and to be asked about them one at a
+time. Nothing here is built, and nothing below the owner's own words is decided.
+
+| # | The owner's words | Today | The reading, to be confirmed |
+|---|---|---|---|
+| 1 | "mocks and past papers fold them into classes" | Two top-level tabs, Mocks and Past papers (with Booklets), each with a subject picker since #146 | They move inside each class, beside Homework |
+| 2 | "reports by classes" | One top-level Reports tab | Reports live inside each class |
+| 3 | "homework redunatn tab" | A top-level Homework tab **and** a Homework tab in every class | One of the two goes. Which one is not yet asked |
+| 4 | "attendance and readiness in overview is useless" | The Overview home shows both | They come off Overview. What replaces them is not yet asked |
+| 5 | "in the classes tab it needs to be reorganized" | A class has six tabs: Homework, Students, Syllabus, Schedule, Resources, Analytics | Unknown. The least clear of the five |
+
+Taken together the top-level menu gets shorter and the class holds more. That reverses
+decisions settled on 19 August, and whichever of these the owner confirms must be recorded as
+superseding them, not left to contradict them silently (`GOV-3`):
+
+- **`AV-105`** — tutor navigation is flat, ten items in a fixed order. Notes 1, 2 and 3 remove
+  up to four of them.
+- **`AV-108`** — the top-level Homework tab holds the detail and the per-class one shows name
+  and metadata only. Note 3 says one of them is redundant.
+- **`AV-112`** — Readiness and Reports each get their own tab. Note 2 moves Reports into the
+  class. Whether the Readiness tab stays is not yet asked.
+- **`AV-115`** — the Mocks tab covers small tests, big tests and mocks. Note 1 moves it.
+
+Things the interview has to settle before any build: what a tutor with several classes in one
+subject sees for a past paper or mock that belongs to the subject and not to one class (past
+papers are scoped by organization and subject, `SEC-8`); whether Review, Students, Readiness
+and Library stay at the top level; where the tutor lands after the change; and what the student
+and parent menus do (`AV-106`, `AV-107` are not mentioned in the notes and are assumed
+unchanged).
+
 ---
 
 ### Phase 10 — Usage and sell-readiness
