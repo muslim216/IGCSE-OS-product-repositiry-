@@ -2,13 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+# Dependencies come from the lock, not from the ranges in pyproject.toml. With
+# only ranges, every image build (Render builds one on each merge) installed
+# whatever each library had released that day, so production could change
+# behaviour with no change in the repo. --require-hashes makes pip refuse any
+# file the lock does not name. Regenerate it with the command in its header.
+# Copied before the application code so this layer is cached until the lock
+# itself changes.
+COPY pyproject.toml requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY seed ./seed
 
-RUN pip install --no-cache-dir .
+# The app itself only; --no-deps because resolving anything here would undo the lock.
+RUN pip install --no-cache-dir --no-deps .
 
 EXPOSE 8000
 
