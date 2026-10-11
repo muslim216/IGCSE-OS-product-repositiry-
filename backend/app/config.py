@@ -123,13 +123,25 @@ class Settings(BaseSettings):
     ai_request_timeout_seconds: float = 600.0
     # Retries the SDK makes on a connection error, 429 or 5xx. One, not the SDK
     # default of two: each retry of a marking call can run for the whole request
-    # timeout, and the worker retries a failed job itself after a backoff.
+    # timeout, and the worker retries a failed job itself after a backoff. The
+    # SDK retries only *before the response starts*; a failure partway through a
+    # streamed answer is not retried by the SDK at all, only by the job's own
+    # retry.
     ai_max_retries: int = 1
-    # Total wall-clock cap on one AI call, retries included (services/ai.py).
-    # The two settings above bound a single silent request; this bounds the
-    # call, so a stream that keeps trickling bytes cannot hold the worker, which
-    # shares the API's event loop, indefinitely.
-    ai_call_timeout_seconds: float = 600.0
+    # Total wall-clock cap on one structured AI call (marking, extraction,
+    # readiness...), retries included (services/ai.py). The two settings above
+    # bound a single silent request; this bounds the call, so a stream that
+    # keeps trickling bytes cannot hold the worker, which shares the API's event
+    # loop, indefinitely. UNMEASURED: nobody has timed a real 32,000-token
+    # marking answer yet. 840 is deliberately under the worker's 900s
+    # JOB_STALL_SECONDS so a capped call ends as a clear timeout before the
+    # worker is reported hung. Revisit after the first rehearsal with real papers.
+    ai_call_timeout_seconds: float = 840.0
+    # The same cap for short plain-text calls (`text_complete`: the class brief,
+    # the stored narrative, capped at a few hundred tokens). Much lower because
+    # the class brief runs inside a web request that holds a database session
+    # for the whole wait; two minutes is already generous for 400 tokens.
+    ai_text_call_timeout_seconds: float = 120.0
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
@@ -359,9 +371,17 @@ class Settings(BaseSettings):
     def _ai_limits_are_sane(self) -> "Settings":
         # Zero or negative would make every AI call fail instantly with a
         # timeout, which reads as "the AI is down" rather than a config typo.
-        if self.ai_request_timeout_seconds <= 0 or self.ai_call_timeout_seconds <= 0:
+        if (
+            min(
+                self.ai_request_timeout_seconds,
+                self.ai_call_timeout_seconds,
+                self.ai_text_call_timeout_seconds,
+            )
+            <= 0
+        ):
             raise ValueError(
-                "AI_REQUEST_TIMEOUT_SECONDS and AI_CALL_TIMEOUT_SECONDS must be above 0"
+                "AI_REQUEST_TIMEOUT_SECONDS, AI_CALL_TIMEOUT_SECONDS and "
+                "AI_TEXT_CALL_TIMEOUT_SECONDS must be above 0"
             )
         if self.ai_max_retries < 0:
             raise ValueError("AI_MAX_RETRIES must be 0 or more")

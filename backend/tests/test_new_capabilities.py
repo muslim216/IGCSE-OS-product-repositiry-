@@ -5,6 +5,7 @@ import pytest
 
 from app.db import async_session
 from app.models import FactorConfidence, Subject, Topic
+from app.services.ai import AITimeoutError
 from app.workers.jobs import process_one_job
 from tests.factories import subject_defaults, subject_for_tutor, write_v2_snapshot
 
@@ -217,6 +218,32 @@ async def test_class_brief_fails_gracefully_without_api_key(client, tutor, world
         f"/api/v1/groups/{world['group']['id']}/brief", headers=tutor["headers"]
     )
     assert resp.status_code == 503
+
+
+async def test_class_brief_is_503_with_a_plain_message_when_the_ai_call_fails(
+    client, tutor, world, monkeypatch
+):
+    # A call that was made and failed (here: timed out) is a different type from
+    # "not configured" but must give the tutor the same clean 503, not a 500.
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=25.0,
+            topics={world["topic_id"]: (25.0, FactorConfidence.high)},
+        )
+        await session.commit()
+
+    async def timed_out(**kwargs):
+        raise AITimeoutError("The AI did not answer in time")
+
+    monkeypatch.setattr("app.api.groups.text_complete", timed_out)
+    resp = await client.post(
+        f"/api/v1/groups/{world['group']['id']}/brief", headers=tutor["headers"]
+    )
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "The AI did not answer in time"
 
 
 # ---- Homework attention list ----

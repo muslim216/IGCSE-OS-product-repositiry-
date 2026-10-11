@@ -28,10 +28,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Generic, TypedDict, TypeVar
 
-import httpx
+import anthropic
 from anthropic import AsyncAnthropic
 from anthropic.types import TextBlockParam
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -52,14 +52,46 @@ class AIKeyMissingError(AIUnavailableError):
     deployment faults that should fail loudly."""
 
 
-class AIOutputTruncatedError(AIUnavailableError):
+class AICallFailedError(RuntimeError):
+    """A call to the model was made and produced no usable answer.
+
+    Deliberately *not* a subclass of `AIUnavailableError`. That type has always
+    meant "AI is not configured", and callers degrade quietly on it —
+    `narrative.py` catches it and stores nothing, with no retry. A one-off
+    timeout or a cut-off answer is a transient failure of a configured system;
+    if it were swallowed the same way the work would be silently dropped where
+    it used to fail the job and be retried. Keeping the two apart in the type
+    hierarchy means no caller has to learn the difference.
+
+    `model` and the token counts are filled whenever the stream delivered a final
+    message with usage, so a later change can record what a failed call cost."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class AIOutputTruncatedError(AICallFailedError):
     """The model stopped at the output limit before it finished answering.
 
-    A subclass of `AIUnavailableError` so every caller that already degrades on
-    "the AI could not give an answer" degrades on this too, but its own type so
-    a caller (or a log search) can tell "raise the limit" from "no key". Before
-    this, a cut-off structured answer surfaced as a pydantic schema error about
-    unterminated JSON, which looked like a model fault rather than a limit."""
+    Its own type so a caller (or a log search) can tell "raise the limit" from
+    "the AI is down". Before this, a cut-off structured answer surfaced as a
+    pydantic schema error about unterminated JSON, which looked like a model
+    fault rather than a limit."""
+
+
+class AITimeoutError(AICallFailedError):
+    """The AI did not answer in time — either the whole-call deadline or the
+    SDK's per-request silence timeout. Both kinds look the same to a caller."""
 
 
 class AiProvider(str, enum.Enum):
@@ -198,14 +230,16 @@ class AiResponse(Generic[ParsedT]):
 # Test seam: when set, the Anthropic client sends through this transport instead
 # of the network, so tests can drive the real SDK (request building, streaming,
 # the max_tokens guard) against a canned server. None in production, which keeps
-# the SDK's own default transport.
-_transport: httpx.AsyncBaseTransport | None = None
+# the SDK's own default transport. Typed loosely on purpose: the SDK is built on
+# whichever HTTP library it vendors (httpx before 1.x, httpx2 since), and this
+# module must not import either — only the SDK's own re-exports.
+_transport: Any = None
 
 # (event loop, settings fingerprint, client). One slot, not a dict: production
 # has one loop and so one client, and a client's connection pool is bound to the
 # loop it first ran on, so a client must never be handed to a different one.
 # pytest gives every test its own loop; a single slot means a later test simply
-# replaces the entry instead of inheriting a client whose loop is closed.
+# replaces the entry instead of inheriting a client bound to another loop.
 _client_slot: tuple[asyncio.AbstractEventLoop, tuple[Any, ...], AsyncAnthropic] | None = None
 
 
@@ -230,9 +264,11 @@ def get_client() -> AsyncAnthropic:
             api_key=settings.anthropic_api_key,
             # connect is fixed and short: an unreachable host should fail fast
             # rather than spend the whole read timeout finding out.
-            timeout=httpx.Timeout(settings.ai_request_timeout_seconds, connect=5.0),
+            timeout=anthropic.Timeout(settings.ai_request_timeout_seconds, connect=5.0),
             max_retries=settings.ai_max_retries,
-            http_client=(httpx.AsyncClient(transport=_transport) if _transport else None),
+            http_client=(
+                anthropic.DefaultAsyncHttpxClient(transport=_transport) if _transport else None
+            ),
         )
 
     try:
@@ -240,7 +276,7 @@ def get_client() -> AsyncAnthropic:
     except RuntimeError:  # called outside a loop: nothing to bind a cache to
         return build()
     slot = _client_slot
-    if slot is not None and slot[0] is loop and slot[1] == fingerprint and not loop.is_closed():
+    if slot is not None and slot[0] is loop and slot[1] == fingerprint:
         return slot[2]
     client = build()
     _client_slot = (loop, fingerprint, client)
@@ -248,20 +284,29 @@ def get_client() -> AsyncAnthropic:
 
 
 @contextlib.asynccontextmanager
-async def _call_deadline(surface: str) -> AsyncIterator[None]:
-    """Cap the total time of one provider call.
+async def _call_deadline(surface: str, limit: float) -> AsyncIterator[None]:
+    """Cap the total time of one provider call, and make both kinds of timeout
+    look the same to a caller.
 
     The client's own timeout only bounds a single silent request, and with a
     streamed answer the clock restarts on every chunk, so a connection that
     trickles bytes could hold the worker — which shares the API's event loop —
-    for as long as it likes. This is the bound on the whole call (`BE-13`)."""
-    limit = get_settings().ai_call_timeout_seconds
+    for as long as it likes. This is the bound on the whole call (`BE-13`). The
+    SDK's per-request timeout (`APITimeoutError`) is translated here too, so a
+    caller handles one timeout type."""
     try:
-        async with asyncio.timeout(limit):
+        async with asyncio.timeout(limit) as deadline:
             yield
     except TimeoutError as exc:
-        log.error("AI call on surface %r exceeded %ss", surface, limit)
-        raise AIUnavailableError("The AI did not answer in time") from exc
+        # Only a timeout that is ours: a TimeoutError raised from inside the call
+        # for another reason must not be relabelled as the deadline.
+        if not deadline.expired():
+            raise
+        log.error("AI call on surface %r exceeded its %ss deadline", surface, limit)
+        raise AITimeoutError("The AI did not answer in time") from exc
+    except anthropic.APITimeoutError as exc:
+        log.error("AI request on surface %r timed out", surface)
+        raise AITimeoutError("The AI did not answer in time") from exc
 
 
 def get_gemini_client():
@@ -367,11 +412,11 @@ def require_parsed(response: AiResponse[ParsedT]) -> ParsedT:
 
     `AiResponse.parsed` is `ParsedT | None` on the dataclass because
     `text_complete` never sets it — but every path through `structured_complete`
-    itself does: the Anthropic branch raises `AIUnavailableError` itself when the
-    streamed message carries no `parsed_output` (or `AIOutputTruncatedError` when
-    it was cut off), and the Gemini branch raises `ValueError` when
-    `response.parsed` comes back empty. A caller
-    that only ever passes a `structured_complete` result through this is
+    itself does: the Anthropic branch raises `AICallFailedError` when the streamed
+    message holds no text (or a subclass when it was cut off or timed out), and
+    the Gemini branch raises `ValueError` when `response.parsed` comes back
+    empty. A caller that only ever passes a `structured_complete` result through
+    this is
     trading a real (if currently unreachable) `None` for an assertion error with
     a clear message, in exchange for mypy actually checking the schema type
     downstream instead of silently accepting `Any` (the gap this function
@@ -390,13 +435,66 @@ def _truncated_message(max_tokens: int) -> str:
     return f"The AI's answer was cut off at the output limit ({max_tokens} tokens)"
 
 
-def _is_unterminated_json(exc: ValidationError) -> bool:
-    """True when every error is invalid JSON that ran out of input — what a
-    structured answer cut off mid-way looks like to pydantic."""
-    errors = exc.errors()
-    return bool(errors) and all(
-        e["type"] == "json_invalid" and "EOF" in str(e.get("msg", "")) for e in errors
+def _failure(cls: type[AICallFailedError], message: str, final: Any) -> AICallFailedError:
+    """A failed-call error carrying whatever the final message says it cost."""
+    usage = getattr(final, "usage", None)
+    return cls(
+        message,
+        model=getattr(final, "model", None),
+        input_tokens=getattr(usage, "input_tokens", None),
+        output_tokens=getattr(usage, "output_tokens", None),
     )
+
+
+async def _final_message(stream: Any) -> Any:
+    """The stream's one complete message. The SDK trips a bare `assert` when the
+    body ended before any event arrived (a 200 with nothing in it); that is an
+    interrupted answer, not a programming error."""
+    try:
+        return await stream.get_final_message()
+    except AssertionError as exc:
+        raise AICallFailedError("The AI's answer was interrupted") from exc
+
+
+def _raise_for_stop_reason(final: Any, *, max_tokens: int, truncation_ok: bool) -> None:
+    """Refuse a message that did not end normally. `truncation_ok` lets a plain
+    text answer cut off at the limit through to the caller (see text_complete).
+
+    The stop reason is read here, from the finished message, and the structured
+    JSON is parsed only afterwards: the SDK parses at the end of the text block,
+    which is before the stop reason arrives, and a cut-off answer would then be
+    indistinguishable from a malformed one."""
+    reason = final.stop_reason
+    if reason is None:  # the stream ended without its closing message_delta
+        raise _failure(AICallFailedError, "The AI's answer was interrupted", final)
+    if reason == "max_tokens" and not truncation_ok:
+        raise _failure(AIOutputTruncatedError, _truncated_message(max_tokens), final)
+    if reason == "refusal":
+        raise _failure(AICallFailedError, "The AI declined to answer", final)
+    if reason == "model_context_window_exceeded":
+        raise _failure(
+            AICallFailedError,
+            "The input was too large for the AI to read in one go",
+            final,
+        )
+
+
+def _message_text(final: Any) -> str:
+    return "".join(
+        getattr(block, "text", "")
+        for block in final.content
+        if getattr(block, "type", None) == "text"
+    )
+
+
+def _json_schema_format(output_format: type[BaseModel]) -> Any:
+    """The request's `output_config`, built exactly as the SDK's own `parse` and
+    `stream` build it from a type. We build it ourselves because we must not hand
+    the type to `stream()`: given one, the SDK validates the answer as the text
+    block closes, before the stop reason is known (see _raise_for_stop_reason).
+    A test pins the result to what `messages.parse` sends."""
+    schema = anthropic.transform_schema(TypeAdapter(output_format).json_schema())
+    return {"format": {"type": "json_schema", "schema": schema}}
 
 
 async def structured_complete(
@@ -423,54 +521,46 @@ async def structured_complete(
         # longer than 10 minutes", above ~21k tokens), and marking asks for 32k.
         # This is transport only: nothing is passed on incrementally, and we
         # still wait for the one complete message.
-        try:
-            async with (
-                _call_deadline(surface),
-                client.messages.stream(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=_anthropic_system(prompt.system, extras, cache_extra_system),
-                    # `content` is list[dict] by this module's contract (see the
-                    # module docstring): call sites build Anthropic-shaped
-                    # blocks, and the Gemini branch below translates the same
-                    # dicts. The SDK's block union cannot type that without
-                    # every caller — marking, extraction, syllabus — importing
-                    # SDK types, which would put a vendor SDK in modules AI-1
-                    # keeps it out of. file_block() is the constructor that
-                    # holds the shape (CODE-26).
-                    messages=[{"role": "user", "content": content}],  # type: ignore[typeddict-item]
-                    output_format=output_format,
-                ) as stream,
-            ):
-                message = await stream.get_final_message()
-        except ValidationError as exc:
-            # The SDK validates the JSON as the text block closes, which is
-            # *before* the message's stop reason arrives, so a cut-off answer
-            # reaches us as a schema error about unterminated JSON rather than
-            # as `stop_reason == "max_tokens"`. Unterminated input is the
-            # signature of running out of tokens; any other schema failure is a
-            # real model fault and keeps its original error.
-            if _is_unterminated_json(exc):
-                raise AIOutputTruncatedError(_truncated_message(max_tokens)) from exc
-            raise
-        if message.stop_reason == "max_tokens":
-            raise AIOutputTruncatedError(_truncated_message(max_tokens))
-        if message.parsed_output is None:
-            raise AIUnavailableError("The AI returned no structured result")
-        usage = message.usage
+        async with (
+            _call_deadline(surface, get_settings().ai_call_timeout_seconds),
+            client.messages.stream(
+                model=model,
+                max_tokens=max_tokens,
+                system=_anthropic_system(prompt.system, extras, cache_extra_system),
+                # `content` is list[dict] by this module's contract (see the
+                # module docstring): call sites build Anthropic-shaped
+                # blocks, and the Gemini branch below translates the same
+                # dicts. The SDK's block union cannot type that without
+                # every caller — marking, extraction, syllabus — importing
+                # SDK types, which would put a vendor SDK in modules AI-1
+                # keeps it out of. file_block() is the constructor that
+                # holds the shape (CODE-26).
+                messages=[{"role": "user", "content": content}],  # type: ignore[typeddict-item]
+                output_config=_json_schema_format(output_format),
+            ) as stream,
+        ):
+            final = await _final_message(stream)
+        _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=False)
+        text = _message_text(final)
+        if not text.strip():
+            raise _failure(AICallFailedError, "The AI returned no structured result", final)
+        # A ValidationError here is a real model fault (wrong shape), not a
+        # transport problem, and propagates unchanged as it did under `parse`.
+        parsed = output_format.model_validate_json(text)
+        usage = final.usage
         return AiResponse(
             provider=provider,
-            model=getattr(message, "model", model),
+            model=getattr(final, "model", model),
             prompt_version=prompt.version,
             input_tokens=getattr(usage, "input_tokens", 0) or 0,
             output_tokens=getattr(usage, "output_tokens", 0) or 0,
-            parsed=message.parsed_output,
+            parsed=parsed,
         )
 
     from google.genai import types
 
     client = get_gemini_client()
-    async with _call_deadline(surface):
+    async with _call_deadline(surface, get_settings().ai_call_timeout_seconds):
         response = await client.aio.models.generate_content(
             model=model,
             contents=_gemini_parts(content),
@@ -514,7 +604,7 @@ async def text_complete(
         # non-streaming guard refuses large `max_tokens` before sending, and a
         # future caller should not have to know where that line is.
         async with (
-            _call_deadline(surface),
+            _call_deadline(surface, get_settings().ai_text_call_timeout_seconds),
             client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
@@ -526,16 +616,16 @@ async def text_complete(
                 messages=[{"role": "user", "content": prompt}],  # type: ignore[typeddict-item]
             ) as stream,
         ):
-            message = await stream.get_final_message()
-        usage = message.usage
-        text = "".join(
-            getattr(block, "text", "")
-            for block in message.content
-            if getattr(block, "type", None) == "text"
-        )
-        truncated = message.stop_reason == "max_tokens"
-        if truncated and not text.strip():
-            raise AIOutputTruncatedError(_truncated_message(max_tokens))
+            final = await _final_message(stream)
+        text = _message_text(final)
+        truncated = final.stop_reason == "max_tokens"
+        # A cut-off answer that has some text is let through (below); with none it
+        # is refused like every other bad ending.
+        _raise_for_stop_reason(final, max_tokens=max_tokens, truncation_ok=bool(text.strip()))
+        if not text.strip():
+            # An empty string must not reach a caller: narrative.py would store
+            # it and hide the previous good paragraph behind a blank one.
+            raise _failure(AICallFailedError, "The AI returned an empty answer", final)
         if truncated:
             # Still returned: a plain-text answer cut short is usable (a shorter
             # paragraph), unlike a half-written JSON document. But the caller's
@@ -545,9 +635,10 @@ async def text_complete(
                 surface,
                 max_tokens,
             )
+        usage = final.usage
         return AiResponse(
             provider=provider,
-            model=getattr(message, "model", model),
+            model=getattr(final, "model", model),
             prompt_version=template.version,
             input_tokens=getattr(usage, "input_tokens", 0) or 0,
             output_tokens=getattr(usage, "output_tokens", 0) or 0,
@@ -558,7 +649,7 @@ async def text_complete(
     from google.genai import types
 
     client = get_gemini_client()
-    async with _call_deadline(surface):
+    async with _call_deadline(surface, get_settings().ai_text_call_timeout_seconds):
         response = await client.aio.models.generate_content(
             model=model,
             contents=[{"text": prompt}],
