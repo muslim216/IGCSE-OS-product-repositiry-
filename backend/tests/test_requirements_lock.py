@@ -10,9 +10,8 @@ drift; the image-build job in CI is the check that the lock installs at all.
 
 The fix for a failure is one command, in the lock's own header:
 
-    uv pip compile pyproject.toml --python-version 3.11 \
-        --python-platform x86_64-manylinux_2_28 --generate-hashes \
-        --no-annotate -o requirements.lock
+    uv pip compile pyproject.toml --universal --python-version 3.11 \
+        --generate-hashes --no-annotate -o requirements.lock
 
 Re-running it keeps every version already pinned, so it only adds or moves what
 pyproject.toml now demands. Add --upgrade-package NAME to move one on purpose.

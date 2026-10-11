@@ -17,17 +17,26 @@ import re
 import sys
 from importlib import metadata
 
+from packaging.requirements import Requirement
+
 LOCK = pathlib.Path(__file__).resolve().parent.parent / "requirements.lock"
-PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==(\S+?)\s*(?:\\|;|$)", re.MULTILINE)
+# The lock is universal, so some pins carry an environment marker
+# (`async-timeout==5.0.1 ; python_full_version < '3.11.3'`). Those only have to
+# be installed where the marker holds.
+PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*==[^\\\n]+?)\s*\\?$", re.MULTILINE)
 
 
 def main() -> int:
-    pins = PIN.findall(LOCK.read_text())
+    pins = [Requirement(line) for line in PIN.findall(LOCK.read_text())]
     if not pins:
         print("no pins found in requirements.lock", file=sys.stderr)
         return 1
     problems = []
-    for name, wanted in pins:
+    for req in pins:
+        if req.marker is not None and not req.marker.evaluate():
+            continue
+        name = req.name
+        wanted = next(iter(req.specifier)).version
         try:
             installed = metadata.version(name)
         except metadata.PackageNotFoundError:
