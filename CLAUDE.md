@@ -95,6 +95,9 @@ and 4, on every pull request:
   answer it on its thread with the reason it does not apply. Then call them again.
 - **Answer SonarCloud.** Read its open issues for the pull request even when its quality gate
   is green, and clear every one before merge.
+- **Until 1 November 2026, cubic cannot review**: its free monthly allowance is used up and it
+  answers the call with that message. The owner decided on 12 October to carry on without it
+  until then. CodeRabbit, SonarCloud and the security scan still apply to every pull request.
 - **Gitar and Kody are not reviewers.** Ignore both and never count either as a review.
 - **Say which reviewers actually reviewed.** Never report "the reviewers passed" from the list
   of checks.
