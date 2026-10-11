@@ -1710,6 +1710,17 @@ infra yet"*, then *"lets fold those in into kinda a cleanup stage"*. Asked wheth
 written here as the next stage, before the class reorganisation (B.4), the owner said *"yes
 sure"*. **Nothing in this section is in the code.**
 
+> **Widened later the same day, and now detailed in `docs/cleanup-stage.md`. Where the two
+> differ, that document wins.** In an interview the owner set the outcome (*"the infrastructure
+> to be secure and any thing that fell through the cracks while building the phase 0 to 9 to be
+> addressed and the audit issues to be fixed and … ready to load test"*) and the rule
+> (*"anything that affects launch and 1k"*). That makes the stage larger than CL.1 to CL.5
+> below: twelve steps, which also take in the leftovers from Phases 0 to 9, task 10.4, and
+> tasks 11.1 to 11.5. The paragraph "What this stage does not take" further down no longer
+> holds; those items are inside the stage. CL.1 to CL.5 are kept as first written, for the
+> record: CL.1 is steps 1 to 4 of the new document, CL.2 is steps 5 and 12, CL.3 is step 6,
+> CL.4 is step 7, CL.5 is steps 9 and 10.
+
 **What it is for.** The launch check of 10 October (version 1, at commit `2218f00`) found that
 Avora is built but has never been run for real. No marking call has ever completed in
 production, the API sits on a free instance that loses uploaded files, and nothing reports a
@@ -1836,6 +1847,10 @@ still runs after the whole plan, as the owner decided on 10 October.
 
 ### Phase 10 — Usage and sell-readiness
 
+> **Since 11 October 2026:** task 10.4 is done inside the cleanup stage (step 10 of
+> `docs/cleanup-stage.md`), with the security criteria below unchanged. The minimum of 10.1 and
+> 10.3 that the cleanup stage needs is done there too. 10.2 stays here.
+
 | ID | Task | Size | Mode |
 |---|---|---|---|
 | **10.1** | Usage rollups | M | → |
@@ -1873,6 +1888,10 @@ from a single stolen session — and refresh tokens live 30 days.
 ---
 
 ### Phase 11 — Scale hardening *(AV-82 — "the rest")*
+
+> **Since 11 October 2026:** tasks 11.1 to 11.5 are done inside the cleanup stage (steps 4 and
+> 8 of `docs/cleanup-stage.md`). **This phase keeps 11.6, the load test.** `AV-85` is
+> unchanged: production stays on one instance until 11.2 is complete, wherever 11.2 is done.
 
 | ID | Task | Size | Mode |
 |---|---|---|---|
