@@ -353,8 +353,9 @@ async def test_an_http_error_mid_answer_becomes_one_of_ours(
     body = sse_message(VERDICT_JSON if helper == "structured" else "A paragraph of text.")
     monkeypatch.setattr(ai_service, "_transport", dropping_transport(body, error))
 
+    call = _structured if helper == "structured" else _text
     with pytest.raises(expected_type, match=message) as caught:
-        await (_structured() if helper == "structured" else _text())
+        await call()
 
     assert caught.value.__cause__ is error
     assert type(caught.value) in (AITimeoutError, AICallFailedError)
@@ -371,8 +372,9 @@ def test_the_http_stack_is_recognised_by_module_name_only():
 
 async def test_other_errors_pass_through_the_mid_answer_translation_untouched():
     for exc in (ValueError("x"), TimeoutError("x"), KeyError("x")):
+        translator = ai_service._http_errors_as_ai_errors()
         with pytest.raises(type(exc)) as caught:
-            async with ai_service._http_errors_as_ai_errors():
+            async with translator:
                 raise exc
         assert caught.value is exc
 
@@ -488,9 +490,11 @@ async def test_the_sdks_per_request_timeout_looks_the_same_as_the_deadline(
 async def test_a_timeout_error_from_inside_the_call_is_not_relabelled(monkeypatch):
     # Only our own deadline is converted; a TimeoutError raised for another
     # reason keeps its identity.
+    deadline = ai_service._call_deadline("marking", 60.0)
+    foreign = TimeoutError("someone else's")
     with pytest.raises(TimeoutError) as caught:
-        async with ai_service._call_deadline("marking", 60.0):
-            raise TimeoutError("someone else's")
+        async with deadline:
+            raise foreign
     assert not isinstance(caught.value, AITimeoutError)
 
 

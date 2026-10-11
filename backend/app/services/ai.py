@@ -52,6 +52,12 @@ class AIKeyMissingError(AIUnavailableError):
     deployment faults that should fail loudly."""
 
 
+# Said in more than one place, so defined once. Tests assert on the literal text
+# on purpose, so a reworded message still fails one.
+_TIMEOUT_MESSAGE = "The AI did not answer in time"
+_INTERRUPTED_MESSAGE = "The AI's answer was interrupted"
+
+
 class AICallFailedError(RuntimeError):
     """A call to the model was made and produced no usable answer.
 
@@ -303,10 +309,10 @@ async def _call_deadline(surface: str, limit: float) -> AsyncIterator[None]:
         if not deadline.expired():
             raise
         log.error("AI call on surface %r exceeded its %ss deadline", surface, limit)
-        raise AITimeoutError("The AI did not answer in time") from exc
+        raise AITimeoutError(_TIMEOUT_MESSAGE) from exc
     except anthropic.APITimeoutError as exc:
         log.error("AI request on surface %r timed out", surface)
-        raise AITimeoutError("The AI did not answer in time") from exc
+        raise AITimeoutError(_TIMEOUT_MESSAGE) from exc
 
 
 # Module roots of the HTTP stack the SDK sits on. Named, not imported: this
@@ -345,7 +351,7 @@ async def _http_errors_as_ai_errors() -> AsyncIterator[None]:
         if not _from_http_stack(exc):
             raise
         if _is_timeout(exc):
-            raise AITimeoutError("The AI did not answer in time") from exc
+            raise AITimeoutError(_TIMEOUT_MESSAGE) from exc
         raise AICallFailedError("The connection to the AI dropped mid-answer") from exc
 
 
@@ -493,9 +499,9 @@ async def _final_message(stream: Any) -> Any:
     try:
         final = await stream.get_final_message()
     except AssertionError as exc:
-        raise AICallFailedError("The AI's answer was interrupted") from exc
+        raise AICallFailedError(_INTERRUPTED_MESSAGE) from exc
     if final is None:  # the same case, for when the SDK's assert is not active
-        raise AICallFailedError("The AI's answer was interrupted")
+        raise AICallFailedError(_INTERRUPTED_MESSAGE)
     return final
 
 
@@ -509,7 +515,7 @@ def _raise_for_stop_reason(final: Any, *, max_tokens: int, truncation_ok: bool) 
     indistinguishable from a malformed one."""
     reason = final.stop_reason
     if reason is None:  # the stream ended without its closing message_delta
-        raise _failure(AICallFailedError, "The AI's answer was interrupted", final)
+        raise _failure(AICallFailedError, _INTERRUPTED_MESSAGE, final)
     if reason == "max_tokens" and not truncation_ok:
         raise _failure(AIOutputTruncatedError, _truncated_message(max_tokens), final)
     if reason == "refusal":
