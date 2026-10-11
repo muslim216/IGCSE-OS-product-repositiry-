@@ -94,7 +94,11 @@ def test_the_dev_lock_holds_the_dev_tools_and_agrees_with_the_runtime_lock():
         Requirement(line) for line in _project()["project"]["optional-dependencies"]["dev"]
     ):
         name = canonicalize_name(req.name)
-        if name in dev and not req.specifier.contains(dev[name], prereleases=True):
+        # Missing first: skipping an absent pin (uv, say) would let this test pass
+        # exactly when the lock is wrong.
+        if name not in dev:
+            problems.append(f"{req.name}: declared in dev but not pinned in requirements-dev.lock")
+        elif not req.specifier.contains(dev[name], prereleases=True):
             problems.append(
                 f"{req.name}: locked at {dev[name]}, does not satisfy '{req.specifier}'"
             )
