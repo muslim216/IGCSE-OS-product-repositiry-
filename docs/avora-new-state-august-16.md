@@ -141,7 +141,9 @@ within their phase. Tasks marked `→` are serial. Never run two tasks that list
 programme, not a sprint. **No completion date is claimed** (AV-5) — sequencing is by dependency and
 risk. The longest chain is Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5 → Phase 8 →
 Phase 9 → Phase 10 → Phase 11 → Phase 12, with Phase D and Phase 6 running alongside. Anyone
-needing a date should estimate that chain rather than the total.
+needing a date should estimate that chain rather than the total. (Since 11 October 2026 the
+cleanup stage, CL.1 to CL.5, sits in that chain between Phase 9 and Phase 10. It is not counted
+in the 76 tasks.)
 
 **Three workstreams could be cut without breaking anything else**, if the programme needs to
 shrink: the Zoom and Google Meet integrations (7.3), web push (8.7), and the mobile app
@@ -542,6 +544,9 @@ Phase 7  Attendance   ∥   Phase 8  Intelligence and communication
                     │
                     ▼
 Phase 9  Onboarding and tutor home
+                    │
+                    ▼
+The cleanup stage (CL.1 – CL.5)  ← added 11 October 2026; runs before B.4, B.1 and Phase 10
                     │
                     ▼
 Phase 10 Usage and sell-readiness
@@ -1605,6 +1610,9 @@ Written here at the owner's request ("just write these into the plan"). The owne
 step back before any of it was built. **Nothing in this section is in the code.** Do not start
 it without the owner saying so.
 
+> **Order, since 11 October 2026:** the cleanup stage (the section after this one) comes
+> **before** B.1 and B.4. B.2 is no longer a separate job: it is part of CL.1.
+
 **B.1 — A tutor sees when a student's readiness leans on their own marking rules** *(S)*
 
 A tutor's marking rule can beat the exam board's mark scheme (the owner reversed `AV-76` and
@@ -1649,6 +1657,10 @@ and the in-process worker stops while the service sleeps. Detail in
 the build is finished.** It must happen before the first real tutor or student uploads anything.
 Until then a missing file in testing is expected, not a bug.
 
+> **Superseded on 11 October 2026.** The owner agreed to bring the move forward into the cleanup
+> stage (CL.1), after being told plainly that this changes the decision above. The timing in
+> this paragraph no longer holds; the facts in it do.
+
 **B.3 — `AV-42` and the readiness next steps** *(decision only, nothing to build)*
 
 The readiness summary gives a student two or three AI-written next steps
@@ -1688,6 +1700,137 @@ papers are scoped by organization and subject, `SEC-8`); whether Review, Student
 and Library stay at the top level; where the tutor lands after the change; and what the student
 and parent menus do (`AV-106`, `AV-107` are not mentioned in the notes and are assumed
 unchanged).
+
+---
+
+### The cleanup stage — approved by the owner on 11 October 2026, not built
+
+The owner's words on 11 October: *"i feel that something is missing in avora i dont trust the
+infra yet"*, then *"lets fold those in into kinda a cleanup stage"*. Asked whether it should be
+written here as the next stage, before the class reorganisation (B.4), the owner said *"yes
+sure"*. **Nothing in this section is in the code.**
+
+**What it is for.** The launch check of 10 October (version 1, at commit `2218f00`) found that
+Avora is built but has never been run for real. No marking call has ever completed in
+production, the API sits on a free instance that loses uploaded files, and nothing reports a
+failure to anyone. This stage turns the product into something the owner can watch working,
+before more features are built on top of it.
+
+**Order.** Next: before B.1, B.4 and Phase 10. Inside the stage, CL.1 comes first and CL.2 is
+the proof of it; CL.3 to CL.5 can run beside them where a task does not need the new hosting.
+Phases 10, 11 and 12 keep their order and their contents.
+
+**The detail is not in this repository, on purpose.** This repository is public. The launch
+check's findings are cited here by id only (`OPS-01`, `SR-A`, `C-3`); the reports that explain
+them are in the owner's private audit folder. A PR, a commit message or this file describes
+what a fix does, never how the gap could be used.
+
+| ID | Task | Size | Mode |
+|---|---|---|---|
+| **CL.1** | Marking works, on a proper home, and a failure is seen | L | → |
+| **CL.2** | The rehearsal | M | after CL.1 |
+| **CL.3** | Close the doors | M | ∥ |
+| **CL.4** | Everyday gaps | M | ∥ |
+| **CL.5** | Money and privacy | M | measurement after CL.2 |
+
+**CL.1 — Marking works, on a proper home, and a failure is seen**
+
+Three parts, in this order.
+
+- **Marking.** Fix the marking call (`OPS-01`), pin the AI library version, and add a test that
+  builds the real client against a mock transport, so the class of failure the fake AI hid
+  cannot hide again. No test calls a real provider (`QA-8`).
+- **The move off the free instance** (this is B.2, brought forward), in the launch check's
+  order: the security-header change that lets the browser load stored files (`CFG-8`) first;
+  then object storage switched on (`STORAGE_BACKEND=s3`); then a paid, always-on API instance;
+  in the same change, migrations run as a pre-deploy step so a rollback still boots (`OPS-03`);
+  then a database backup with **one restore actually rehearsed** (`OPS-20`, `P-12`). The owner
+  chooses the data region when the services are created (`P-12`). Rows that point at files
+  already lost stay dead; that is expected.
+- **Seeing a failure.** An uptime monitor on `/api/v1/health/ready` that reaches the owner
+  (owner job); logging at INFO with a request id (`OPS-06`); and a list of permanently failed
+  work that a person can read (`OPS-07`). This is the minimum of 11.4 and 11.5 pulled forward.
+  The rest of both tasks stays in Phase 11.
+
+Known on 11 October: the owner pays $6.30 a month for the database, so it is a paid plan and
+does not expire (the launch check had it as free). Whether that plan keeps restorable backups is
+**not confirmed**. Instance sizes are a judgement and not load-tested; the smallest paid
+instance is enough for the rehearsal and too small for real students (`SA-03`).
+
+**CL.2 — The rehearsal**
+
+One pretend tutor and a pretend class of five go through the whole loop on the new hosting,
+with real AI: a real booklet and mark scheme are uploaded, homework is set, photographed
+handwritten pages are handed in, the AI marks them, the tutor reviews, readiness updates, a
+report goes out. Then it is broken on purpose:
+
+- the server is restarted, and the students' pages must still be there;
+- it is killed in the middle of marking, and the work must pick itself back up (`BE-6`,
+  `AV-84`);
+- the AI key is taken away, and the owner must be told.
+
+- **Outcome:** one page for the owner. What worked, what broke, how long each marking took and
+  what each one cost, **measured**. These are the first real numbers Avora has had.
+- **Needs from the owner:** a real booklet, its mark scheme, a few photographs of handwritten
+  answers, and a yes to a few dollars of real AI spend at the time.
+- **Not decided:** whether the rehearsal runs on a separate copy or on the setup that then
+  becomes production. There are no real users today, so either is safe.
+- **Out of scope:** load. A thousand students at once is 11.6 and stays last.
+
+**CL.3 — Close the doors**
+
+- Sign-up gating, and limits per account on AI calls and uploads (`SA-01`, `C-1`, `C-2`). This
+  needs an account status first (`GH-2`). **How tutors are let in is the owner's decision.**
+- The tenancy gap (`SR-A`, `SR-B`, `SR-C`, `SR-I`). **Owner decision, still open:** one
+  workspace per student at launch. Recommended yes, said plainly: it removes the "one student,
+  two tutors" case until the shared-student design exists.
+- The small safety fixes, one PR each (`SR-E`, `SA-02`, `SA-03`, `SA-04`, `GH-5`).
+- Owner checks, never done by an agent and never with a value read out: the production login
+  secret is set and is not the default; a monthly AI spending limit is set; the database
+  password shared on 8 October has been changed; a second person and two-step login on every
+  vendor account (`GH-10`).
+
+Every change here that touches auth ships with a test of the negative case (`QA-12`).
+
+**CL.4 — Everyday gaps**
+
+- Password reset and change for tutors and for students who joined by link (`CFG-10`, `SA-16`,
+  `GH-3`). Each one bumps `users.token_version` (`SEC-1`).
+- A class link can be switched off, and a removed student stays removed (`GH-1`).
+- Deleting a lesson that has topics attached no longer fails on Postgres (`DB-11`).
+- When AI marking fails, the student is told what happened and the page stops asking, and the
+  tutor has a "try marking again" action (`OPS-07`, `OPS-08`).
+
+**CL.5 — Money and privacy**
+
+The launch check modelled the AI cost at about $17.50 per student a month, with a range of $2.80
+to $61.50, **unmeasured**. The owner on 11 October: *"17 dollars per student is wayyyyy too
+much"*. Against the price in PR #151, at 15 students per tutor, that is more than a student brings in.
+
+- **Measure first.** Tokens, seconds and cost per marking come from CL.2. Count cache tokens in
+  the metering (`C-3`) before any figure is trusted; a model with no price stays unpriced, never
+  `$0` (`AI-17`).
+- **Then cut, cheapest risk first:** send only the pages a homework covers; set the model's
+  thinking effort for marking, with a quality check; move marking to a cheaper model **only
+  after the owner has seen the same pages marked side by side** (the split is task 3.2,
+  `AV-124`). Any prompt change bumps its version (`AI-7`) and keeps the untrusted-page rule
+  (`SEC-20`).
+- **The privacy page** (`P-11`). **Owner decision, still open:** change the wording to say only
+  what exists, or build consent, deletion and export first. A lawyer should read it; the
+  questions are prepared. A real contact address goes on the page either way. This is settled
+  **before any child's account is created**. Deletion and export themselves are 10.4 and stay
+  there.
+
+**What this stage does not take.** These launch-check items belong with the crowd work and are
+to be placed when Phase 11 is planned, so they are listed here rather than lost: pruning old
+rows (`DB-05`, `OPS-17`), the missing indexes (`DB-02`, `DB-13`), database connection settings
+(`DB-01`, `CAP-6`), a second worker (`CAP-2`), shrinking photos on the phone before upload
+(`GH-4`), a cap on files per upload (`SA-07`, `C-4`), refresh-token rotation (`SA-06`,
+`SA-11`), and parent unlink (`P-8`). The owner's usage and billing page is 10.3.
+
+**Done when** the owner has watched the rehearsal pass and holds the one-page result, the doors
+in CL.3 are closed, and the two owner decisions above are answered. The second launch check
+still runs after the whole plan, as the owner decided on 10 October.
 
 ---
 
