@@ -54,6 +54,9 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.16",
     "mypy>=1.10",
+    # Regenerates and checks the lock files (requirements*.lock). Listed here so
+    # CI gets it from the hashed dev lock rather than from an unpinned install.
+    "uv>=0.5",
 ]
 
 [tool.pytest.ini_options]
@@ -67,6 +70,9 @@ asyncio_mode = "auto"
 # task 1.3 (AV-82) exists to avoid.
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# So tests can import scripts/ (the lock-file reader is shared with CI's checks)
+# however pytest is invoked, not only via `python -m pytest`.
+pythonpath = ["."]
 
 [tool.ruff]
 # 100, not the 88 default, because that is what this codebase already is: the

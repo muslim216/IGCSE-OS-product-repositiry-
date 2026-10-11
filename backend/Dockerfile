@@ -2,23 +2,31 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Dependencies come from the lock, not from the ranges in pyproject.toml. With
+# Dependencies come from the locks, not from the ranges in pyproject.toml. With
 # only ranges, every image build (Render builds one on each merge) installed
 # whatever each library had released that day, so production could change
 # behaviour with no change in the repo. --require-hashes makes pip refuse any
-# file the lock does not name. Regenerate it with the command in its header.
-# Copied before the application code so this layer is cached until the lock
-# itself changes.
-COPY pyproject.toml requirements.lock ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+# file the locks do not name, and --only-binary :all: stops it falling back to
+# building a source distribution, which would run that package's setup script.
+# requirements-build.lock is the build backend (setuptools): the app is installed
+# below with --no-build-isolation, which would otherwise download an unpinned
+# one into a throwaway environment and run it. Regenerate the locks with the
+# command in each file's header. Only the lock files are copied first, so this
+# layer is cached until a lock changes and an edit to tool config in
+# pyproject.toml does not rebuild it.
+COPY requirements.lock requirements-build.lock ./
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: \
+    -r requirements.lock -r requirements-build.lock
 
+COPY pyproject.toml ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY seed ./seed
 
-# The app itself only; --no-deps because resolving anything here would undo the lock.
-RUN pip install --no-cache-dir --no-deps .
+# The app itself only: --no-deps because resolving anything here would undo the
+# locks, --no-build-isolation so the build uses the locked setuptools above.
+RUN pip install --no-cache-dir --no-deps --no-build-isolation --only-binary :all: .
 
 EXPOSE 8000
 

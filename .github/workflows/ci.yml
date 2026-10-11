@@ -49,7 +49,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             backend/pyproject.toml
-            backend/requirements.lock
+            backend/requirements*.lock
 
       - uses: actions/setup-node@v4
         with:
@@ -57,15 +57,32 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      # The lock first, so mypy below checks the code against the library
-      # versions production runs (a new release changing a signature has failed
-      # mypy here before, on code nobody had touched). Then the dev tools.
-      - name: Install backend (locked runtime, then dev tools)
+      # Everything below installs from hashed lock files, never from the ranges in
+      # pyproject.toml: ruff and mypy are pinned too, so a lint or type result
+      # changes only when a commit changes it. requirements-dev.lock is the runtime
+      # set (the versions production runs, so mypy checks the code against them)
+      # plus the dev tools; requirements-build.lock is setuptools, needed because
+      # the app itself goes in with --no-build-isolation rather than letting pip
+      # download an unpinned build backend. --only-binary :all: keeps pip from
+      # running a source distribution's setup script.
+      - name: Install backend (hashed locks, then the app itself)
         working-directory: backend
         run: |
-          pip install --require-hashes -r requirements.lock
-          pip install -e ".[dev]"
+          pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r requirements-build.lock
+          pip install --no-deps --no-build-isolation --only-binary :all: -e .
+          pip check
           python -m scripts.check_lock_installed
+
+      # The tests/test_requirements_lock.py drift test reads only names and
+      # version specifiers, so a changed extra (uvicorn[standard]) or a new
+      # transitive package would pass it and surface only as a cryptic pip error
+      # in the image build. This regenerates every lock from pyproject.toml with
+      # the command in its own header and fails on any difference; the commands
+      # carry --exclude-newer, so a failure is always "pyproject.toml and the lock
+      # disagree", never "PyPI moved". uv here is the one the dev lock pinned.
+      - name: Lock files match pyproject.toml
+        working-directory: backend
+        run: python -m scripts.check_locks_current
 
       - name: ruff check
         working-directory: backend
@@ -138,18 +155,20 @@ jobs:
           cache: pip
           cache-dependency-path: |
             backend/pyproject.toml
-            backend/requirements.lock
+            backend/requirements*.lock
 
-      # backend/requirements.lock is what the production image installs, so the
-      # suite must run on those exact versions rather than whatever resolves
-      # today. Locked runtime first; the dev extra second adds only pytest and
-      # friends. pip would not normally move a locked package, but "would not
-      # normally" is not a guarantee, so check_lock_installed fails the job if
-      # any locked package ended up at a different version.
-      - name: Install (locked runtime, then dev tools)
+      # The production image installs requirements.lock, and requirements-dev.lock
+      # is that same runtime set (compiled against it, so no package can be at two
+      # versions) plus pytest and friends. Installing from it means the suite runs
+      # on the versions that ship, with the test tools pinned as well. Nothing
+      # resolves here: --require-hashes, --only-binary :all:, --no-deps for the
+      # app. check_lock_installed then fails the job if any locked package ended up
+      # at a different version anyway.
+      - name: Install (hashed locks, then the app itself)
         run: |
-          pip install --require-hashes -r requirements.lock
-          pip install -e ".[dev]"
+          pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r requirements-build.lock
+          pip install --no-deps --no-build-isolation --only-binary :all: -e .
+          pip check
           python -m scripts.check_lock_installed
 
       # tests/conftest.py forces sqlite+aiosqlite:///:memory: before any app
@@ -237,14 +256,15 @@ jobs:
           cache: pip
           cache-dependency-path: |
             backend/pyproject.toml
-            backend/requirements.lock
+            backend/requirements*.lock
 
       # Same locked install as the backend job: migrations run against the
       # SQLAlchemy, Alembic and asyncpg versions production uses.
-      - name: Install (locked runtime, then dev tools)
+      - name: Install (hashed locks, then the app itself)
         run: |
-          pip install --require-hashes -r requirements.lock
-          pip install -e ".[dev]"
+          pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r requirements-build.lock
+          pip install --no-deps --no-build-isolation --only-binary :all: -e .
+          pip check
           python -m scripts.check_lock_installed
 
       - name: Upgrade to head
@@ -308,9 +328,11 @@ jobs:
       - name: Start an S3 stand-in for the two-instance storage case
         run: |
           set -euo pipefail
+          # The one install in this file that is still unpinned and unhashed: a
+          # test-only S3 stand-in that is not part of any lock. What guards the
+          # shipped runtime set here is check_lock_installed on the next line,
+          # which fails if moto's own requirements moved a locked package.
           pip install "moto[server]>=5,<6"
-          # moto drags in its own requirements; if any of them moved a locked
-          # package, the tests below would no longer be on the shipped versions.
           python -m scripts.check_lock_installed
           moto_server -H 0.0.0.0 -p 9000 >/tmp/moto.log 2>&1 &
           # Poll rather than sleep a guess: a fixed sleep is either flaky or
@@ -353,8 +375,9 @@ jobs:
     name: Image build (backend)
     runs-on: ubuntu-latest
     # Render builds backend/Dockerfile on every merge, and the Dockerfile installs
-    # from backend/requirements.lock with --require-hashes in python:3.11-slim.
-    # The other jobs install the same lock on the runner's Python, which proves
+    # from backend/requirements.lock (and requirements-build.lock) with
+    # --require-hashes in python:3.11-slim. The other jobs install the same pins
+    # (via the dev lock) on the runner's Python, which proves
     # the versions work but not that they install in the real base image: a
     # hash, a wheel missing for Linux, or a conflict only shows up there. Without
     # this job that failure arrives as a broken production deploy after the merge
@@ -365,14 +388,23 @@ jobs:
       - name: docker build
         run: docker build --tag avora-api-ci backend/
 
-      # A build can succeed and still produce an image that cannot start. pip
-      # check proves the installed set is internally consistent, and importing
-      # the app proves every locked library loads together. The entrypoint is
-      # overridden so this does not run `alembic upgrade head` (the image's CMD).
-      - name: Installed packages are consistent and the app imports
+      # A build can succeed and still produce an image that cannot start. This
+      # proves the installed set is internally consistent (pip check), that the
+      # app and the worker entrypoint import, that the migration chain resolves to
+      # one head, and that the seed module imports. It does NOT run the image's
+      # CMD: that applies migrations to a database and starts a server, which this
+      # job has no database for. The entrypoint is overridden for the same reason.
+      - name: Installed packages are consistent and the start path resolves
         run: |
           docker run --rm --entrypoint python avora-api-ci -m pip check
-          docker run --rm --entrypoint python avora-api-ci -c "import app.main"
+          docker run --rm --entrypoint python avora-api-ci -c "import app.main, app.workers.__main__, seed.demo"
+          docker run --rm --entrypoint alembic avora-api-ci heads
+
+      # The image is meant to hold the runtime set plus the build backend and
+      # none of the dev tools; fail if one ever leaks in through the lock files.
+      - name: No dev tools in the image
+        run: |
+          docker run --rm --entrypoint python avora-api-ci -c "import importlib.util as u, sys; found = [m for m in ('pytest', 'ruff', 'mypy', 'uv') if u.find_spec(m)]; print('dev tools in image:', found); sys.exit(1 if found else 0)"
 
   frontend:
     name: Frontend tests and build

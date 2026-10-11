@@ -1,52 +1,53 @@
-"""`requirements.lock` must pin every runtime dependency in `pyproject.toml`.
+"""The lock files must stay in step with `pyproject.toml`.
 
-The Dockerfile installs from the lock with `--require-hashes` and then installs
-the app with `--no-deps`. That is what keeps a library release from changing
-production, and it fails open in one way: add or raise a dependency in
-pyproject.toml, forget the lock, and the image builds without the new package
-(or with the old version) — the app then fails at import in production, or
-worse, runs on a version nobody chose. This test is the offline check for that
-drift; the image-build job in CI is the check that the lock installs at all.
+The Dockerfile installs requirements.lock (plus requirements-build.lock) with
+`--require-hashes` and then the app with `--no-deps`. That is what keeps a
+library release from changing production, and it fails open in one way: add or
+raise a dependency in pyproject.toml, forget the lock, and the image builds
+without the new package (or with the old version) — the app then fails at import
+in production, or worse, runs on a version nobody chose. This is the offline
+check for that drift. Two other checks cover what it cannot: CI's image-build job
+proves the locks install in the real base image, and `scripts/check_locks_current`
+regenerates each lock and compares it byte for byte (a changed extra or a new
+transitive package is invisible to a test that reads only names and specifiers).
 
-The fix for a failure is one command, in the lock's own header:
-
-    uv pip compile pyproject.toml --universal --python-version 3.11 \
-        --generate-hashes --no-annotate -o requirements.lock
-
-Re-running it keeps every version already pinned, so it only adds or moves what
-pyproject.toml now demands. Add --upgrade-package NAME to move one on purpose.
+Every failure message ends with the commands that fix it.
 """
 
-import pathlib
-import re
 import tomllib
 
+import pytest
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
-from packaging.version import Version
 
-BACKEND = pathlib.Path(__file__).resolve().parent.parent
-LOCK = BACKEND / "requirements.lock"
+from scripts.lockfile import (
+    BACKEND,
+    BUILD_LOCK,
+    DEV_LOCK,
+    RUNTIME_LOCK,
+    parse_lock,
+    regenerate_hint,
+    versions,
+)
+
 PYPROJECT = BACKEND / "pyproject.toml"
-
-# `name==1.2.3 \` at the start of a line; the hash and comment lines are indented
-# or begin with `#`, so anchoring at column 0 skips them.
-PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==(\S+?)\s*(?:\\|;|$)", re.MULTILINE)
+DEV_TOOLS = {"pytest", "pytest-asyncio", "ruff", "mypy"}
 
 
-def _locked() -> dict[str, Version]:
-    return {
-        canonicalize_name(name): Version(version) for name, version in PIN.findall(LOCK.read_text())
-    }
+def _project() -> dict:
+    return tomllib.loads(PYPROJECT.read_text())
 
 
 def _runtime_requirements() -> list[Requirement]:
-    data = tomllib.loads(PYPROJECT.read_text())
-    return [Requirement(line) for line in data["project"]["dependencies"]]
+    return [Requirement(line) for line in _project()["project"]["dependencies"]]
+
+
+def _fail(problems: list[str]) -> None:
+    assert not problems, "\n".join(problems) + "\n\n" + regenerate_hint()
 
 
 def test_every_runtime_dependency_is_pinned_at_an_allowed_version():
-    locked = _locked()
+    locked = versions(RUNTIME_LOCK)
     problems = []
     for req in _runtime_requirements():
         name = canonicalize_name(req.name)
@@ -56,24 +57,78 @@ def test_every_runtime_dependency_is_pinned_at_an_allowed_version():
             problems.append(
                 f"{req.name}: locked at {locked[name]} which does not satisfy '{req.specifier}'"
             )
-    assert not problems, "requirements.lock is out of step with pyproject.toml:\n" + "\n".join(
-        problems
-    )
+    _fail(problems)
 
 
-def test_every_pin_carries_hashes():
+def test_every_pin_in_every_lock_carries_hashes():
     # `pip install --require-hashes` rejects an unhashed line, but only on the
     # image build; catching it here keeps the failure on the pull request.
-    text = LOCK.read_text()
-    blocks = re.split(r"(?m)^(?=[A-Za-z0-9])", text)[1:]
-    assert blocks, "no pins found in requirements.lock"
-    unhashed = [b.split("==")[0] for b in blocks if "--hash=sha256:" not in b]
-    assert not unhashed, f"pins without a hash: {unhashed}"
+    problems = []
+    for path in (RUNTIME_LOCK, BUILD_LOCK, DEV_LOCK):
+        pins = parse_lock(path)
+        if not pins:
+            problems.append(f"{path.name}: no pins found")
+        problems += [f"{path.name}: {p.name} has no hashes" for p in pins if not p.hashes]
+    _fail(problems)
 
 
-def test_dev_tools_are_not_in_the_lock():
-    # The lock is the runtime set. Locking pytest or ruff would ship them in the
-    # production image and make the dev extra look pinned when it is not.
-    locked = _locked()
-    dev = {"pytest", "pytest-asyncio", "ruff", "mypy"}
-    assert not (dev & set(locked)), f"dev tools leaked into the lock: {dev & set(locked)}"
+def test_the_runtime_lock_has_no_dev_tools():
+    # The image installs this file; locking pytest or ruff here would ship them.
+    leaked = DEV_TOOLS & set(versions(RUNTIME_LOCK))
+    _fail([f"dev tools leaked into requirements.lock: {sorted(leaked)}"] if leaked else [])
+
+
+def test_the_dev_lock_holds_the_dev_tools_and_agrees_with_the_runtime_lock():
+    # One package at two versions across the files would mean CI tests something
+    # production does not run.
+    runtime, dev = versions(RUNTIME_LOCK), versions(DEV_LOCK)
+    problems = [
+        f"dev extra '{n}' is not in requirements-dev.lock" for n in sorted(DEV_TOOLS - set(dev))
+    ]
+    problems += [
+        f"{name}: {version} in requirements.lock but {dev.get(name)} in requirements-dev.lock"
+        for name, version in runtime.items()
+        if dev.get(name) != version
+    ]
+    for req in (
+        Requirement(line) for line in _project()["project"]["optional-dependencies"]["dev"]
+    ):
+        name = canonicalize_name(req.name)
+        if name in dev and not req.specifier.contains(dev[name], prereleases=True):
+            problems.append(
+                f"{req.name}: locked at {dev[name]}, does not satisfy '{req.specifier}'"
+            )
+    _fail(problems)
+
+
+@pytest.mark.parametrize("requirement", _project()["build-system"]["requires"])
+def test_the_build_backend_is_pinned_at_an_allowed_version(requirement):
+    # The app is installed with --no-build-isolation, so the build backend named
+    # in pyproject.toml must come from a lock instead of being downloaded unpinned.
+    req = Requirement(requirement)
+    locked = versions(BUILD_LOCK)
+    name = canonicalize_name(req.name)
+    problems = []
+    if name not in locked:
+        problems.append(f"{req.name}: [build-system].requires but not in requirements-build.lock")
+    elif not req.specifier.contains(locked[name], prereleases=True):
+        problems.append(f"{req.name}: locked at {locked[name]}, does not satisfy '{req.specifier}'")
+    _fail(problems)
+
+
+def test_the_build_lock_input_matches_pyproject():
+    # requirements-build.in repeats [build-system].requires (uv cannot read it
+    # from there); this keeps the copy honest.
+    lines = [
+        line.strip()
+        for line in (BACKEND / "requirements-build.in").read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    _fail(
+        []
+        if sorted(lines) == sorted(_project()["build-system"]["requires"])
+        else [
+            f"requirements-build.in {lines} differs from [build-system].requires "
+            f"{_project()['build-system']['requires']}"
+        ]
+    )

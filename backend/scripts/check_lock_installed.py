@@ -1,57 +1,62 @@
-"""Fail if the environment is not running exactly the versions in requirements.lock.
+"""Fail if the environment is not running exactly the versions in the lock files.
 
-CI installs the lock first and the project with its `dev` extra second, so the
-suite exercises the versions that ship. The second install is a plain
-`pip install -e ".[dev]"`: pip leaves an already-satisfied package alone, but
-nothing guarantees it — a dev tool whose own requirement wants a newer
-`packaging`, or a pyproject.toml range edited without the lock, would move a
-locked package and the suite would quietly stop testing what production runs.
-This is the check for that: every pin in the lock must be installed at exactly
-that version.
+CI installs requirements-dev.lock (the runtime set plus pytest, ruff, mypy, uv)
+and requirements-build.lock, then the project with --no-deps, so the suite
+exercises the versions that ship. Nothing in that sequence resolves, so nothing
+should move a locked package — but the migrations job also installs moto, which
+is deliberately left unlocked, and a step that "should" be harmless is exactly
+what needs a check. This is it: every pin in each lock file must be installed at
+exactly that version (pins whose environment marker is false here, such as
+`async-timeout` on a new enough Python, are skipped and not counted).
 
-Usage (from backend/): python -m scripts.check_lock_installed
+Usage (from backend/): python -m scripts.check_lock_installed [LOCKFILE ...]
+With no arguments it checks all of them.
 """
 
 import pathlib
-import re
 import sys
 from importlib import metadata
 
-from packaging.requirements import Requirement
-
-LOCK = pathlib.Path(__file__).resolve().parent.parent / "requirements.lock"
-# The lock is universal, so some pins carry an environment marker
-# (`async-timeout==5.0.1 ; python_full_version < '3.11.3'`). Those only have to
-# be installed where the marker holds.
-PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*==[^\\\n]+?)\s*\\?$", re.MULTILINE)
+from scripts.lockfile import ALL_LOCKS, parse_lock, regenerate_hint
 
 
-def main() -> int:
-    pins = [Requirement(line) for line in PIN.findall(LOCK.read_text())]
-    if not pins:
-        print("no pins found in requirements.lock", file=sys.stderr)
-        return 1
+def main(argv: list[str]) -> int:
+    paths = [pathlib.Path(a) for a in argv] or list(ALL_LOCKS)
     problems = []
-    for req in pins:
-        if req.marker is not None and not req.marker.evaluate():
-            continue
-        name = req.name
-        wanted = next(iter(req.specifier)).version
-        try:
-            installed = metadata.version(name)
-        except metadata.PackageNotFoundError:
-            problems.append(f"{name}: locked at {wanted}, not installed")
-            continue
-        if installed != wanted:
-            problems.append(f"{name}: locked at {wanted}, installed {installed}")
+    checked: set[str] = set()
+    for path in paths:
+        for pin in parse_lock(path):
+            if not pin.applies_here():
+                continue
+            checked.add(pin.name)  # the dev lock repeats every runtime pin
+            try:
+                installed = metadata.version(pin.name)
+            except metadata.PackageNotFoundError:
+                problems.append(f"{path.name}: {pin.name} locked at {pin.version}, not installed")
+                continue
+            if installed != str(pin.version):
+                problems.append(
+                    f"{path.name}: {pin.name} locked at {pin.version}, installed {installed}"
+                )
+    if not checked:
+        print("no pins found in the lock files", file=sys.stderr)
+        return 1
     if problems:
-        print("environment disagrees with requirements.lock:", file=sys.stderr)
+        print("environment disagrees with the lock files:", file=sys.stderr)
         for line in problems:
             print(f"  {line}", file=sys.stderr)
+        print(
+            "\nIf a package was installed outside the locks, reinstall from them:\n"
+            "  pip install --require-hashes --only-binary :all: "
+            "-r requirements-dev.lock -r requirements-build.lock\n"
+            "If a lock file itself is stale (pyproject.toml changed), regenerate it.\n"
+            + regenerate_hint(),
+            file=sys.stderr,
+        )
         return 1
-    print(f"{len(pins)} locked packages installed at their locked versions")
+    print(f"{len(checked)} distinct locked packages installed at their locked versions")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
