@@ -82,6 +82,23 @@ deploy with no further gate. Every change:
    agent's, unless they have said otherwise for that change.
 5. Delete the branch on merge. Render and Vercel redeploy from `main` on their own.
 
+**Every pull request is reviewed by cubic and CodeRabbit, and neither runs on its own here.**
+This is the owner's standing rule for every session, set on 12 October 2026 after two pull
+requests were reported as "all checks green" when both reviewers had skipped. Between steps 3
+and 4, on every pull request:
+
+- **Call both reviewers yourself**, right after opening the pull request and again after every
+  later push, with two PR comments: `@coderabbitai review` and `@cubic-dev-ai review`.
+  CodeRabbit posts a passing check while skipping the review ("fewer than 10 stars"), and
+  cubic's check shows `skipping`. A green tick from either is not a review.
+- **Read what they wrote**, inline comments and PR-level comments both, and fix each finding or
+  answer it on its thread with the reason it does not apply. Then call them again.
+- **Answer SonarCloud.** Read its open issues for the pull request even when its quality gate
+  is green, and clear every one before merge.
+- **Gitar and Kody are not reviewers.** Ignore both and never count either as a review.
+- **Say which reviewers actually reviewed.** Never report "the reviewers passed" from the list
+  of checks.
+
 **The only edits that may go straight to `main` are documentation-only** — prose in
 `README.md`, this file, or `docs/`. **A code comment is not a documentation change**, because
 it lives in a file that ships. Anything under `backend/`, `frontend/`, or `alembic/versions/`
