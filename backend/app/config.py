@@ -137,10 +137,12 @@ class Settings(BaseSettings):
     # JOB_STALL_SECONDS so a capped call ends as a clear timeout before the
     # worker is reported hung. Revisit after the first rehearsal with real papers.
     ai_call_timeout_seconds: float = 840.0
-    # The same cap for short plain-text calls (`text_complete`: the class brief,
-    # the stored narrative, capped at a few hundred tokens). Much lower because
-    # the class brief runs inside a web request that holds a database session
-    # for the whole wait; two minutes is already generous for 400 tokens.
+    # The same cap for short plain-text calls: the stored narrative and the class
+    # brief, a few hundred tokens each. Much lower because the class brief runs
+    # inside a web request that holds a database session for the whole wait; two
+    # minutes is already generous for 400 tokens. A longer plain-text call (the
+    # report writer, run in a background job) passes `ai_call_timeout_seconds`
+    # instead.
     ai_text_call_timeout_seconds: float = 120.0
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately

@@ -309,6 +309,46 @@ async def _call_deadline(surface: str, limit: float) -> AsyncIterator[None]:
         raise AITimeoutError("The AI did not answer in time") from exc
 
 
+# Module roots of the HTTP stack the SDK sits on. Named, not imported: this
+# module must not import either library (the SDK vendors `httpx2` from 1.x,
+# `httpx` before), and which one is installed changes with the SDK version.
+_HTTP_STACK_ROOTS = frozenset({"httpx", "httpx2", "httpcore", "httpcore2"})
+
+
+def _from_http_stack(exc: BaseException) -> bool:
+    """Whether `exc` is an error of the HTTP library under the SDK. Decided by
+    the class's module name rather than `isinstance`, because the point is to
+    recognise errors from libraries we deliberately do not import. The SDK wraps
+    transport errors only while it sends the request; once the response body is
+    being read they escape as themselves."""
+    return type(exc).__module__.split(".")[0] in _HTTP_STACK_ROOTS
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    return any(
+        cls.__name__ == "TimeoutException" or cls.__name__.endswith("Timeout")
+        for cls in type(exc).__mro__
+    )
+
+
+@contextlib.asynccontextmanager
+async def _http_errors_as_ai_errors() -> AsyncIterator[None]:
+    """Turn a raw HTTP-library error from partway through an answer into one of
+    our own, so a caller sees one timeout type and a readable message instead of
+    the bare class name (`submission.ai_error` was just "ReadTimeout"). Wraps the
+    whole stream block, so it also covers an error raised while leaving it.
+    Everything else — `anthropic.APIError`, `ValidationError`, cancellation —
+    passes through untouched."""
+    try:
+        yield
+    except Exception as exc:
+        if not _from_http_stack(exc):
+            raise
+        if _is_timeout(exc):
+            raise AITimeoutError("The AI did not answer in time") from exc
+        raise AICallFailedError("The connection to the AI dropped mid-answer") from exc
+
+
 def get_gemini_client():
     """The google-genai client. Imported lazily so the SDK stays an optional
     dependency — an install without it runs fine as long as no surface is
@@ -451,9 +491,12 @@ async def _final_message(stream: Any) -> Any:
     body ended before any event arrived (a 200 with nothing in it); that is an
     interrupted answer, not a programming error."""
     try:
-        return await stream.get_final_message()
+        final = await stream.get_final_message()
     except AssertionError as exc:
         raise AICallFailedError("The AI's answer was interrupted") from exc
+    if final is None:  # the same case, for when the SDK's assert is not active
+        raise AICallFailedError("The AI's answer was interrupted")
+    return final
 
 
 def _raise_for_stop_reason(final: Any, *, max_tokens: int, truncation_ok: bool) -> None:
@@ -522,6 +565,7 @@ async def structured_complete(
         # This is transport only: nothing is passed on incrementally, and we
         # still wait for the one complete message.
         async with (
+            _http_errors_as_ai_errors(),
             _call_deadline(surface, get_settings().ai_call_timeout_seconds),
             client.messages.stream(
                 model=model,
@@ -591,9 +635,15 @@ async def text_complete(
     prompt: str,
     max_tokens: int,
     extra_system: list[str] | None = None,
+    timeout_seconds: float | None = None,
 ) -> AiResponse[Any]:
     """A plain-text completion for one surface. Never sets `parsed` — there is
-    no schema to parametrize `AiResponse` by, so callers get `Any` for it."""
+    no schema to parametrize `AiResponse` by, so callers get `Any` for it.
+
+    `timeout_seconds` is the total deadline for this call. The default is the
+    short text cap, right for a line written inside a web request; a caller that
+    writes a long document in a background job passes a longer one."""
+    limit = timeout_seconds or get_settings().ai_text_call_timeout_seconds
     provider, model = resolve_surface(surface)
     template = get_prompt(surface)
     extras = extra_system or []
@@ -604,7 +654,8 @@ async def text_complete(
         # non-streaming guard refuses large `max_tokens` before sending, and a
         # future caller should not have to know where that line is.
         async with (
-            _call_deadline(surface, get_settings().ai_text_call_timeout_seconds),
+            _http_errors_as_ai_errors(),
+            _call_deadline(surface, limit),
             client.messages.stream(
                 model=model,
                 max_tokens=max_tokens,
@@ -649,7 +700,7 @@ async def text_complete(
     from google.genai import types
 
     client = get_gemini_client()
-    async with _call_deadline(surface, get_settings().ai_text_call_timeout_seconds):
+    async with _call_deadline(surface, limit):
         response = await client.aio.models.generate_content(
             model=model,
             contents=[{"text": prompt}],

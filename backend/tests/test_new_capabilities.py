@@ -246,6 +246,44 @@ async def test_class_brief_is_503_with_a_plain_message_when_the_ai_call_fails(
     assert resp.json()["detail"] == "The AI did not answer in time"
 
 
+@pytest.mark.parametrize("which", ["ReadTimeout", "RemoteProtocolError", "ReadError"])
+async def test_class_brief_is_503_when_the_connection_fails_mid_answer(
+    client, tutor, world, monkeypatch, which
+):
+    # The real client over a stream that dies partway: the raw HTTP-library error
+    # must not reach the handler as a 500.
+    from app.config import get_settings
+    from app.services import ai as ai_service
+    from tests.ai_stream_fakes import dropping_transport, http, sse_message
+
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=25.0,
+            topics={world["topic_id"]: (25.0, FactorConfidence.high)},
+        )
+        await session.commit()
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "sk-ant-canned", raising=False)
+    error = getattr(http, which)("boom")
+    monkeypatch.setattr(
+        ai_service, "_transport", dropping_transport(sse_message("A brief paragraph."), error)
+    )
+
+    resp = await client.post(
+        f"/api/v1/groups/{world['group']['id']}/brief", headers=tutor["headers"]
+    )
+
+    assert resp.status_code == 503
+    expected = (
+        "The AI did not answer in time"
+        if which == "ReadTimeout"
+        else "The connection to the AI dropped mid-answer"
+    )
+    assert resp.json()["detail"] == expected
+
+
 # ---- Homework attention list ----
 
 

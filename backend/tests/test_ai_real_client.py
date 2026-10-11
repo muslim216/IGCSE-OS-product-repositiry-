@@ -10,7 +10,7 @@ used (`QA-8`).
 """
 
 import asyncio
-import importlib
+import contextlib
 import json
 
 import anthropic
@@ -29,12 +29,25 @@ from app.services.ai import (
     structured_complete,
     text_complete,
 )
-from app.services.marking import MARKING_MAX_TOKENS
-
-# The SDK is built on whichever HTTP library it vendors (`httpx` up to 0.x,
-# `httpx2` from 1.x), and a transport from the wrong one is silently ignored or
-# rejected. The only place that is decided; everything below uses `http`.
-http = importlib.import_module("httpx2" if hasattr(anthropic._client, "httpx2") else "httpx")
+from app.services.extraction import (
+    BookletExtractionResult,
+    ExtractionResult,
+    PastPaperExtractionResult,
+)
+from app.services.marking import MARKING_MAX_TOKENS, MarkingResult
+from app.services.marking_rules import MarkingRulesSummary
+from app.services.mistake_tagging import MistakeTaggingResult
+from app.services.plan_drafting import PlanWeightingResult
+from app.services.readiness_v2_ai import ReadinessSynthesis
+from app.services.syllabus_extraction import SyllabusExtractionResult
+from tests.ai_stream_fakes import (
+    VERDICT_JSON,
+    CannedServer,
+    Trickle,
+    dropping_transport,
+    http,
+    sse_message,
+)
 
 CONTENT = [{"type": "text", "text": "mark this"}]
 
@@ -42,145 +55,6 @@ CONTENT = [{"type": "text", "text": "mark this"}]
 class Verdict(BaseModel):
     mark: int
     comment: str
-
-
-VERDICT_JSON = json.dumps({"mark": 3, "comment": "Correct method, arithmetic slip."})
-
-
-def _event(name: str, data: dict) -> str:
-    return f"event: {name}\ndata: {json.dumps(data)}\n\n"
-
-
-def sse_message(
-    text: str,
-    *,
-    thinking: str | None = None,
-    stop_reason: str | None = "end_turn",
-    input_tokens: int = 123,
-    output_tokens: int = 45,
-    model: str = "claude-canned",
-) -> bytes:
-    """A complete Messages API server-sent-events body carrying `text`, as one
-    text block (empty if `text` is). `stop_reason=None` leaves out the closing
-    `message_delta`, like a connection that dropped before the end."""
-    parts = [
-        _event(
-            "message_start",
-            {
-                "type": "message_start",
-                "message": {
-                    "id": "msg_test",
-                    "type": "message",
-                    "role": "assistant",
-                    "model": model,
-                    "content": [],
-                    "stop_reason": None,
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": input_tokens, "output_tokens": 1},
-                },
-            },
-        )
-    ]
-    index = 0
-    if thinking is not None:
-        parts += [
-            _event(
-                "content_block_start",
-                {
-                    "type": "content_block_start",
-                    "index": index,
-                    "content_block": {"type": "thinking", "thinking": "", "signature": ""},
-                },
-            ),
-            _event(
-                "content_block_delta",
-                {
-                    "type": "content_block_delta",
-                    "index": index,
-                    "delta": {"type": "thinking_delta", "thinking": thinking},
-                },
-            ),
-            _event(
-                "content_block_delta",
-                {
-                    "type": "content_block_delta",
-                    "index": index,
-                    "delta": {"type": "signature_delta", "signature": "sig"},
-                },
-            ),
-            _event("content_block_stop", {"type": "content_block_stop", "index": index}),
-        ]
-        index += 1
-    parts.append(
-        _event(
-            "content_block_start",
-            {
-                "type": "content_block_start",
-                "index": index,
-                "content_block": {"type": "text", "text": ""},
-            },
-        )
-    )
-    for i in range(0, len(text), 8):
-        parts.append(
-            _event(
-                "content_block_delta",
-                {
-                    "type": "content_block_delta",
-                    "index": index,
-                    "delta": {"type": "text_delta", "text": text[i : i + 8]},
-                },
-            )
-        )
-    parts.append(_event("content_block_stop", {"type": "content_block_stop", "index": index}))
-    if stop_reason is not None:
-        parts.append(
-            _event(
-                "message_delta",
-                {
-                    "type": "message_delta",
-                    "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": output_tokens},
-                },
-            )
-        )
-    parts.append(_event("message_stop", {"type": "message_stop"}))
-    return "".join(parts).encode()
-
-
-def json_message(text: str) -> dict:
-    """The same answer as a non-streaming Messages API response body."""
-    return {
-        "id": "msg_test",
-        "type": "message",
-        "role": "assistant",
-        "model": "claude-canned",
-        "content": [{"type": "text", "text": text}],
-        "stop_reason": "end_turn",
-        "stop_sequence": None,
-        "usage": {"input_tokens": 1, "output_tokens": 1},
-    }
-
-
-class CannedServer:
-    """Records every request. Answers a streaming request with `body` and a
-    plain one (only `messages.parse` makes those) with a JSON message."""
-
-    def __init__(self, body: bytes):
-        self.body = body
-        self.requests: list = []
-
-    def __call__(self, request):
-        self.requests.append(request)
-        if json.loads(request.content).get("stream"):
-            return http.Response(
-                200, headers={"content-type": "text/event-stream"}, content=self.body
-            )
-        return http.Response(200, json=json_message(VERDICT_JSON))
-
-    @property
-    def sent(self) -> dict:
-        return json.loads(self.requests[-1].content)
 
 
 @pytest.fixture
@@ -255,27 +129,47 @@ async def test_no_max_tokens_is_refused_client_side_text(serve, max_tokens):
     assert response.truncated is False
 
 
-async def test_the_schema_sent_is_exactly_what_messages_parse_sends(serve):
+@pytest.mark.parametrize(
+    "output_format",
+    [
+        Verdict,
+        MarkingResult,
+        MarkingRulesSummary,
+        MistakeTaggingResult,
+        SyllabusExtractionResult,
+        ExtractionResult,
+        PastPaperExtractionResult,
+        BookletExtractionResult,
+        PlanWeightingResult,
+        ReadinessSynthesis,
+    ],
+)
+async def test_the_schema_sent_is_exactly_what_messages_parse_sends(serve, output_format):
     # We build `output_config` ourselves (so the answer can be parsed after the
     # stop reason is known); this pins it to what the SDK's own `parse` builds
-    # from the same type, so the API sees the same constraint as before.
+    # from the same type, for every model a real call site passes, so the API
+    # sees the same constraint as before. The canned answer is not valid for most
+    # of these models, which does not matter: only the request is compared.
     server = serve(sse_message(VERDICT_JSON))
-    await _structured(50)
+    with contextlib.suppress(ValidationError):
+        await structured_complete(
+            surface="marking", content=CONTENT, output_format=output_format, max_tokens=50
+        )
     ours = server.sent
 
-    model = ours["model"]
-    await get_client().messages.parse(
-        model=model,
-        max_tokens=50,
-        messages=[{"role": "user", "content": "x"}],
-        output_format=Verdict,
-    )
+    with contextlib.suppress(ValidationError):
+        await get_client().messages.parse(
+            model=ours["model"],
+            max_tokens=50,
+            messages=[{"role": "user", "content": "x"}],
+            output_format=output_format,
+        )
     theirs = server.sent
 
     assert theirs.get("stream") is None  # it really was the non-streaming call
     assert ours["output_config"] == theirs["output_config"]
     assert ours["output_config"]["format"]["type"] == "json_schema"
-    assert ours["output_config"]["format"]["schema"]["properties"].keys() == {"mark", "comment"}
+    assert ours["output_config"]["format"]["schema"]["properties"]
 
 
 # --------------------------------------------------------------------------
@@ -399,6 +293,23 @@ async def test_text_refusal_raises_even_with_partial_text(serve):
         await _text()
 
 
+async def test_whitespace_only_text_is_no_result_for_both_helpers(serve):
+    serve(sse_message("  \n "))
+
+    with pytest.raises(AICallFailedError, match="no structured result"):
+        await _structured()
+    with pytest.raises(AICallFailedError, match="empty answer"):
+        await _text()
+
+
+async def test_two_text_blocks_together_form_one_json_document(serve):
+    serve(sse_message([VERDICT_JSON[:15], VERDICT_JSON[15:]]))
+
+    response = await _structured()
+
+    assert response.parsed == Verdict(mark=3, comment="Correct method, arithmetic slip.")
+
+
 # --------------------------------------------------------------------------
 # The error types
 # --------------------------------------------------------------------------
@@ -418,30 +329,63 @@ def test_a_failed_call_is_not_a_not_configured_error():
 
 
 # --------------------------------------------------------------------------
+# A failure partway through the answer
+# --------------------------------------------------------------------------
+# The SDK wraps transport errors only while it sends the request. Once the body
+# is being read they escape as the HTTP library's own classes, which is the most
+# likely real failure of a long marking answer (the silence timeout fires).
+
+
+def _mid_answer_errors():
+    return [
+        (http.ReadTimeout("no bytes for 600s"), AITimeoutError, "did not answer in time"),
+        (http.RemoteProtocolError("peer closed"), AICallFailedError, "dropped mid-answer"),
+        (http.ReadError("connection reset"), AICallFailedError, "dropped mid-answer"),
+    ]
+
+
+@pytest.mark.parametrize("which", [0, 1, 2])
+@pytest.mark.parametrize("helper", ["structured", "text"])
+async def test_an_http_error_mid_answer_becomes_one_of_ours(
+    monkeypatch, anthropic_key, which, helper
+):
+    error, expected_type, message = _mid_answer_errors()[which]
+    body = sse_message(VERDICT_JSON if helper == "structured" else "A paragraph of text.")
+    monkeypatch.setattr(ai_service, "_transport", dropping_transport(body, error))
+
+    with pytest.raises(expected_type, match=message) as caught:
+        await (_structured() if helper == "structured" else _text())
+
+    assert caught.value.__cause__ is error
+    assert type(caught.value) in (AITimeoutError, AICallFailedError)
+    if expected_type is AICallFailedError:
+        assert not isinstance(caught.value, AITimeoutError)
+
+
+def test_the_http_stack_is_recognised_by_module_name_only():
+    assert ai_service._from_http_stack(http.ReadError("x"))
+    assert not ai_service._from_http_stack(anthropic.APIError("x", request=None, body=None))
+    assert not ai_service._from_http_stack(ValueError("x"))
+    assert not ai_service._from_http_stack(TimeoutError("x"))
+
+
+async def test_other_errors_pass_through_the_mid_answer_translation_untouched():
+    for exc in (ValueError("x"), TimeoutError("x"), KeyError("x")):
+        with pytest.raises(type(exc)) as caught:
+            async with ai_service._http_errors_as_ai_errors():
+                raise exc
+        assert caught.value is exc
+
+
+# --------------------------------------------------------------------------
 # Time limits
 # --------------------------------------------------------------------------
-
-
-class _Trickle(http.AsyncByteStream):
-    """A response that never ends: it sends one heartbeat after another, so the
-    SDK's per-read silence timeout never fires. Only a total limit can stop it."""
-
-    def __init__(self):
-        self.closed = False
-
-    async def __aiter__(self):
-        while True:
-            yield b": heartbeat\n\n"
-            await asyncio.sleep(0.01)
-
-    async def aclose(self):
-        self.closed = True
 
 
 async def test_a_stream_that_trickles_past_the_deadline_is_cut_and_closed(
     monkeypatch, anthropic_key
 ):
-    trickle = _Trickle()
+    trickle = Trickle()
     transport = http.MockTransport(
         lambda request: http.Response(
             200, headers={"content-type": "text/event-stream"}, stream=trickle
@@ -459,7 +403,7 @@ async def test_a_stream_that_trickles_past_the_deadline_is_cut_and_closed(
 async def test_text_calls_use_their_own_shorter_deadline(monkeypatch, anthropic_key):
     transport = http.MockTransport(
         lambda request: http.Response(
-            200, headers={"content-type": "text/event-stream"}, stream=_Trickle()
+            200, headers={"content-type": "text/event-stream"}, stream=Trickle()
         )
     )
     monkeypatch.setattr(ai_service, "_transport", transport)
@@ -469,6 +413,61 @@ async def test_text_calls_use_their_own_shorter_deadline(monkeypatch, anthropic_
 
     with pytest.raises(AITimeoutError):
         await _text()
+
+
+async def test_a_caller_can_ask_a_text_call_for_the_long_cap(monkeypatch, anthropic_key):
+    # The report writer is a long document written in a job, not a short line.
+    transport = http.MockTransport(
+        lambda request: http.Response(
+            200, headers={"content-type": "text/event-stream"}, stream=Trickle()
+        )
+    )
+    monkeypatch.setattr(ai_service, "_transport", transport)
+    monkeypatch.setattr(get_settings(), "ai_text_call_timeout_seconds", 0.05, raising=False)
+    seen: list[float] = []
+    real_deadline = ai_service._call_deadline
+
+    def spy(surface, limit):
+        seen.append(limit)
+        return real_deadline(surface, 0.1)  # still end the test quickly
+
+    monkeypatch.setattr(ai_service, "_call_deadline", spy)
+
+    with pytest.raises(AITimeoutError):
+        await text_complete(
+            surface="reports", prompt="write", max_tokens=2000, timeout_seconds=840.0
+        )
+    with pytest.raises(AITimeoutError):
+        await text_complete(surface="narrative", prompt="write", max_tokens=400)
+
+    assert seen == [840.0, 0.05]
+
+
+async def test_the_report_writer_asks_for_the_long_cap(monkeypatch):
+    from app.services import reports
+
+    seen: dict = {}
+
+    async def fake_text_complete(**kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop here")
+
+    monkeypatch.setattr(reports, "text_complete", fake_text_complete)
+    monkeypatch.setattr(get_settings(), "ai_call_timeout_seconds", 840.0, raising=False)
+    monkeypatch.setattr(get_settings(), "ai_text_call_timeout_seconds", 120.0, raising=False)
+
+    with pytest.raises(RuntimeError, match="stop here"):
+        await reports._write_report(
+            reports.ReportAudience.parent,
+            "facts",
+            None,
+            organization_id=1,
+            tutor_id=1,
+            student_id=1,
+        )
+
+    assert seen["surface"] == "reports"
+    assert seen["timeout_seconds"] == 840.0
 
 
 async def test_the_sdks_per_request_timeout_looks_the_same_as_the_deadline(
