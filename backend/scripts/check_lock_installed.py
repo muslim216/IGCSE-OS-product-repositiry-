@@ -20,24 +20,35 @@ from importlib import metadata
 from scripts.lockfile import ALL_LOCKS, parse_lock, regenerate_hint
 
 
-def main(argv: list[str]) -> int:
-    paths = [pathlib.Path(a) for a in argv] or list(ALL_LOCKS)
-    problems = []
+def find_problems(paths: list[pathlib.Path]) -> tuple[set[str], list[str]]:
+    """The distinct package names checked, and a line for every disagreement."""
     checked: set[str] = set()
+    problems: list[str] = []
     for path in paths:
         for pin in parse_lock(path):
             if not pin.applies_here():
                 continue
             checked.add(pin.name)  # the dev lock repeats every runtime pin
-            try:
-                installed = metadata.version(pin.name)
-            except metadata.PackageNotFoundError:
+            installed = _installed_version(pin.name)
+            if installed is None:
                 problems.append(f"{path.name}: {pin.name} locked at {pin.version}, not installed")
-                continue
-            if installed != str(pin.version):
+            elif installed != str(pin.version):
                 problems.append(
                     f"{path.name}: {pin.name} locked at {pin.version}, installed {installed}"
                 )
+    return checked, problems
+
+
+def _installed_version(name: str) -> str | None:
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return None
+
+
+def main(argv: list[str]) -> int:
+    paths = [pathlib.Path(a) for a in argv] or list(ALL_LOCKS)
+    checked, problems = find_problems(paths)
     if not checked:
         print("no pins found in the lock files", file=sys.stderr)
         return 1

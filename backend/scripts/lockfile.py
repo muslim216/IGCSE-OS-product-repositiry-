@@ -45,32 +45,33 @@ class Pin:
         return Requirement(f"x; {self.marker}").marker.evaluate()  # type: ignore[union-attr]
 
 
+def _parse_pin(line: str, path: pathlib.Path) -> Pin:
+    try:
+        req = Requirement(line)
+    except InvalidRequirement as exc:
+        raise ValueError(f"{path.name}: cannot read line {line[:80]!r}: {exc}") from exc
+    specs = list(req.specifier)
+    if len(specs) != 1 or specs[0].operator != "==":
+        raise ValueError(f"{path.name}: not an exact pin: {line[:80]!r}")
+    return Pin(
+        name=canonicalize_name(req.name),
+        version=Version(specs[0].version),
+        marker=str(req.marker) if req.marker is not None else None,
+    )
+
+
 def parse_lock(path: pathlib.Path) -> list[Pin]:
     pins: list[Pin] = []
     for raw in path.read_text().splitlines():
-        line = raw.strip()
+        line = raw.strip().removesuffix("\\").strip()
         if not line or line.startswith("#"):
             continue
         if line.startswith("--hash="):
             if not pins:
                 raise ValueError(f"{path.name}: hash line before any pin: {line[:60]}")
-            pins[-1].hashes.append(line.removeprefix("--hash=").removesuffix("\\").strip())
-            continue
-        line = line.removesuffix("\\").strip()
-        try:
-            req = Requirement(line)
-        except InvalidRequirement as exc:
-            raise ValueError(f"{path.name}: cannot read line {line[:80]!r}: {exc}") from exc
-        specs = list(req.specifier)
-        if len(specs) != 1 or specs[0].operator != "==":
-            raise ValueError(f"{path.name}: not an exact pin: {line[:80]!r}")
-        pins.append(
-            Pin(
-                name=canonicalize_name(req.name),
-                version=Version(specs[0].version),
-                marker=str(req.marker) if req.marker is not None else None,
-            )
-        )
+            pins[-1].hashes.append(line.removeprefix("--hash="))
+        else:
+            pins.append(_parse_pin(line, path))
     return pins
 
 
