@@ -84,8 +84,9 @@ deploy with no further gate. Every change:
 
 **Every pull request is reviewed by cubic and CodeRabbit, and neither runs on its own here.**
 This is the owner's standing rule for every session, set on 12 October 2026 after two pull
-requests were reported as "all checks green" when both reviewers had skipped. Between steps 3
-and 4, on every pull request:
+requests were reported as "all checks green" when both reviewers had skipped. Both reviews are
+required whenever both reviewers can review; the one dated exception, for cubic, is in the list
+below. Between steps 3 and 4, on every pull request:
 
 - **Call both reviewers yourself**, right after opening the pull request and again after every
   later push, with two PR comments: `@coderabbitai review` and `@cubic-dev-ai review`.
@@ -97,7 +98,9 @@ and 4, on every pull request:
   is green, and clear every one before merge.
 - **Until 1 November 2026, cubic cannot review**: its free monthly allowance is used up and it
   answers the call with that message. The owner decided on 12 October to carry on without it
-  until then. CodeRabbit, SonarCloud and the security scan still apply to every pull request.
+  until then, so until that date a pull request may merge without cubic's review. CodeRabbit,
+  SonarCloud and the security scan still apply to every pull request. From 1 November, call
+  cubic again and delete this bullet.
 - **Gitar and Kody are not reviewers.** Ignore both and never count either as a review.
 - **Say which reviewers actually reviewed.** Never report "the reviewers passed" from the list
   of checks.
