@@ -1,0 +1,4 @@
+# Build backend for installing the app itself with --no-build-isolation (the
+# Dockerfile and CI). Must match [build-system].requires in pyproject.toml;
+# tests/test_requirements_lock.py fails if they differ.
+setuptools>=68
