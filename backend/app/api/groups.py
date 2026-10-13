@@ -34,7 +34,12 @@ from app.schemas.groups import (
 )
 from app.security import hash_password
 from app.services import taught_before
-from app.services.ai import AIUnavailableError, record_usage, text_complete
+from app.services.ai import (
+    AICallFailedError,
+    AIUnavailableError,
+    record_usage,
+    text_complete,
+)
 from app.services.class_report import FutureSince, build_class_report
 from app.services.groups import summaries as group_summaries
 from app.services.invites import build_invite
@@ -334,7 +339,10 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
     )
     try:
         response = await text_complete(surface="class_brief", prompt=prompt, max_tokens=400)
-    except AIUnavailableError as exc:
+    except (AIUnavailableError, AICallFailedError) as exc:
+        # Two different things with one answer for the tutor: the AI is not
+        # configured, or it was asked and gave nothing usable (timed out, cut
+        # off, declined). Both are "try again later", with the plain message.
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     await record_usage(
         db,

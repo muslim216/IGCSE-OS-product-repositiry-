@@ -62,6 +62,11 @@ from app.workers.jobs import enqueue
 # tutor. Anything else goes to the review queue.
 AUTO_FINALIZE_CONFIDENCE = (MarkConfidence.high, MarkConfidence.medium)
 
+# The output limit for one marking call. Named so a test can prove the real
+# client accepts exactly this value (a call above ~21k tokens is refused by the
+# SDK unless it streams — see services/ai.py).
+MARKING_MAX_TOKENS = 32000
+
 
 class QuestionMarkDraft(BaseModel):
     number: str = Field(description="Question number, matching the assignment's question list")
@@ -483,7 +488,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         surface="marking",
         content=content,
         output_format=MarkingResult,
-        max_tokens=32000,
+        max_tokens=MARKING_MAX_TOKENS,
         extra_system=[block for block in (marking_context, kb_context) if block],
         cache_extra_system=True,
     )

@@ -5,6 +5,7 @@ it is told never to invent marks, grades, or facts not present in the data."""
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import (
     AiFeature,
     CustomCriterion,
@@ -263,6 +264,8 @@ async def _write_report(
         ),
         max_tokens=2000,
         extra_system=[kb_context] if kb_context else [],
+        # A long document written in a job, not a short line written inside a web request.
+        timeout_seconds=get_settings().ai_call_timeout_seconds,
     )
     await record_usage(
         session,

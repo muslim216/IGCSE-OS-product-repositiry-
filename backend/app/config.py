@@ -115,6 +115,35 @@ class Settings(BaseSettings):
     # once per plan draft, not per student, so Opus's cost is not a concern.
     ai_plan_weighting_provider: str = "anthropic"
     ai_plan_weighting_model: str = ""
+    # How long one Anthropic HTTP request may sit silent (httpx read timeout) —
+    # the SDK default, written down because it was implicit: a hung call held
+    # the only worker for ~half an hour once the SDK's two retries were added.
+    # Connect stays at a fixed 5s in services/ai.py: a host that will not accept
+    # a connection is down, and waiting longer does not help it.
+    ai_request_timeout_seconds: float = 600.0
+    # Retries the SDK makes on a connection error, 429 or 5xx. One, not the SDK
+    # default of two: each retry of a marking call can run for the whole request
+    # timeout, and the worker retries a failed job itself after a backoff. The
+    # SDK retries only *before the response starts*; a failure partway through a
+    # streamed answer is not retried by the SDK at all, only by the job's own
+    # retry.
+    ai_max_retries: int = 1
+    # Total wall-clock cap on one structured AI call (marking, extraction,
+    # readiness...), retries included (services/ai.py). The two settings above
+    # bound a single silent request; this bounds the call, so a stream that
+    # keeps trickling bytes cannot hold the worker, which shares the API's event
+    # loop, indefinitely. UNMEASURED: nobody has timed a real 32,000-token
+    # marking answer yet. 840 is deliberately under the worker's 900s
+    # JOB_STALL_SECONDS so a capped call ends as a clear timeout before the
+    # worker is reported hung. Revisit after the first rehearsal with real papers.
+    ai_call_timeout_seconds: float = 840.0
+    # The same cap for short plain-text calls: the stored narrative and the class
+    # brief, a few hundred tokens each. Much lower because the class brief runs
+    # inside a web request that holds a database session for the whole wait; two
+    # minutes is already generous for 400 tokens. A longer plain-text call (the
+    # report writer, run in a background job) passes `ai_call_timeout_seconds`
+    # instead.
+    ai_text_call_timeout_seconds: float = 120.0
     # Per-token prices used to estimate ai_usage_events.cost_usd, as JSON:
     # {"<model id>": {"input_per_1m": 3.0, "output_per_1m": 15.0}}. Deliberately
     # empty by default — a model with no entry records cost_usd = NULL rather
@@ -338,6 +367,26 @@ class Settings(BaseSettings):
         # /health/ready. Fail startup instead.
         if not 0 < self.redis_timeout_seconds <= 5:
             raise ValueError("REDIS_TIMEOUT_SECONDS must be between 0 and 5")
+        return self
+
+    @model_validator(mode="after")
+    def _ai_limits_are_sane(self) -> "Settings":
+        # Zero or negative would make every AI call fail instantly with a
+        # timeout, which reads as "the AI is down" rather than a config typo.
+        if (
+            min(
+                self.ai_request_timeout_seconds,
+                self.ai_call_timeout_seconds,
+                self.ai_text_call_timeout_seconds,
+            )
+            <= 0
+        ):
+            raise ValueError(
+                "AI_REQUEST_TIMEOUT_SECONDS, AI_CALL_TIMEOUT_SECONDS and "
+                "AI_TEXT_CALL_TIMEOUT_SECONDS must be above 0"
+            )
+        if self.ai_max_retries < 0:
+            raise ValueError("AI_MAX_RETRIES must be 0 or more")
         return self
 
     @model_validator(mode="after")
