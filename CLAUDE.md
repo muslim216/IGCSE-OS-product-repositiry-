@@ -82,28 +82,30 @@ deploy with no further gate. Every change:
    agent's, unless they have said otherwise for that change.
 5. Delete the branch on merge. Render and Vercel redeploy from `main` on their own.
 
-**Every pull request is reviewed by cubic and CodeRabbit, and neither runs on its own here.**
-This is the owner's standing rule for every session, set on 12 October 2026 after two pull
-requests were reported as "all checks green" when both reviewers had skipped. Both reviews are
-required whenever both reviewers can review; the one dated exception, for cubic, is in the list
-below. Between steps 3 and 4, on every pull request:
+**Every pull request is reviewed by Sonnet reviewer agents chosen for what it touches.** This is
+the owner's standing rule for every session, set on 13 October 2026. It replaces the rule of
+12 October that named cubic and CodeRabbit: cubic's free monthly allowance ran out and
+CodeRabbit's free plan allows one review an hour, so the owner dropped both. Between steps 3
+and 4, on every pull request:
 
-- **Call both reviewers yourself**, right after opening the pull request and again after every
-  later push, with two PR comments: `@coderabbitai review` and `@cubic-dev-ai review`.
-  CodeRabbit posts a passing check while skipping the review ("fewer than 10 stars"), and
-  cubic's check shows `skipping`. A green tick from either is not a review.
-- **Read what they wrote**, inline comments and PR-level comments both, and fix each finding or
-  answer it on its thread with the reason it does not apply. Then call them again.
+- **Run the reviewers yourself, as subagents on Sonnet**, picked by what the pull request
+  handles: Python and FastAPI code gets a Python or FastAPI reviewer; sign-in, permissions,
+  uploads, secrets or anything crossing between organizations gets a security reviewer; a
+  migration, model or query gets a database reviewer; `frontend/` gets a React or TypeScript
+  reviewer; error handling and jobs get a silent-failure reviewer; a change that is mostly tests
+  gets a test reviewer. Two independent reviewers for a code change, one for a
+  documentation-only change.
+- **Each reviewer reads the diff cold**: the diff against the base branch and the code around
+  it, not the builder's account of what it does. A reviewer that only confirms the builder's
+  summary has not reviewed.
+- **Fix each finding or record the reason it does not apply**, then run the reviewers again on
+  the fixed diff. The orchestrator reads the whole diff too.
 - **Answer SonarCloud.** Read its open issues for the pull request even when its quality gate
-  is green, and clear every one before merge.
-- **Until 1 November 2026, cubic cannot review**: its free monthly allowance is used up and it
-  answers the call with that message. The owner decided on 12 October to carry on without it
-  until then, so until that date a pull request may merge without cubic's review. CodeRabbit,
-  SonarCloud and the security scan still apply to every pull request. From 1 November, call
-  cubic again and delete this bullet.
-- **Gitar and Kody are not reviewers.** Ignore both and never count either as a review.
-- **Say which reviewers actually reviewed.** Never report "the reviewers passed" from the list
-  of checks.
+  is green, and clear every one before merge. The security scan (CodeQL) must pass.
+- **cubic, CodeRabbit, Gitar and Kody are not reviewers.** Do not call them or wait for them,
+  and never count a tick or a comment from any of them as a review.
+- **Say on the pull request which reviewers read it** and what was fixed. Never report "the
+  reviewers passed" from the list of checks.
 
 **The only edits that may go straight to `main` are documentation-only** — prose in
 `README.md`, this file, or `docs/`. **A code comment is not a documentation change**, because
