@@ -485,6 +485,16 @@ async def test_a_provider_status_becomes_one_of_ours(
         ("The PDF specified is password protected", "could not read one of the files"),
         ("image exceeds 5 MB maximum", "could not read one of the files"),
         ("A maximum of 100 PDF pages may be provided", "could not read one of the files"),
+        (
+            "image dimensions exceed max allowed size: 8000 pixels",
+            "could not read one of the files",
+        ),
+        ("PDF has too many pages (max 100)", "could not read one of the files"),
+        ("The PDF specified exceeds the page limit", "could not read one of the files"),
+        ("The PDF specified was not valid.", "could not read one of the files"),
+        ("Could not process image", "could not read one of the files"),
+        # Ours again: the schema we sent, which happens to have a field of that name.
+        ("output_config.format.schema.properties.pages: unsupported", "rejected the request"),
         ("messages.0.content.1: unexpected field", "rejected the request"),
         # Faults of ours that happen to mention a file. A tutor told to upload
         # again for any of these would be doing it for nothing.

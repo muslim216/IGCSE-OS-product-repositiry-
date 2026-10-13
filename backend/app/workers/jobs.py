@@ -192,7 +192,7 @@ async def register_worker(now: datetime | None = None) -> None:
                         # A job in flight: a worker inside a single long job
                         # does not advance last_loop_at (see worker_loop()), so
                         # last_loop_at cannot be the test here — a live job
-                        # past JOB_STALL_SECONDS must keep reporting `stalled`,
+                        # past the default time limit must keep reporting `stalled`,
                         # not disappear. job_started_at itself is what a
                         # process killed mid-job leaves behind forever, so once
                         # a job has been "in flight" past the same
@@ -416,8 +416,8 @@ class WorkerStatus:
     - `stalled` — a single job has been in flight past the default time limit
       (`default_job_timeout_seconds`, JOB_STALL_SECONDS unless the AI deadline
       was raised). The worker stops a job there, so this state now means a job
-      with a longer limit of its own (the booklet reader) or a stop that is
-      itself stuck.
+      with a longer limit of its own (the booklet reader), a stop that is itself
+      stuck, or the few seconds a normal stop takes to unwind and be recorded.
     - `stale` — the loop stopped completing iterations with nothing in flight.
 
     The timestamps are kept apart on purpose. A worker part-way through a slow
