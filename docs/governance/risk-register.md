@@ -75,11 +75,12 @@ Redis and MinIO in CI, and fails the build if any of them skips.
 
 **Likelihood:** Low · **Impact:** Medium · **Priority:** P4 (residual) · **Owner:** Founder
 
-**Mitigated.** `.github/workflows/ci.yml` runs on every pull request in four jobs: `ruff
+**Mitigated.** `.github/workflows/ci.yml` runs on every pull request in five jobs: `ruff
 check` + `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`
-and `prettier --check`; `pytest`; `vitest`, the API-type freshness check and
-`npm run build` (which is `tsc -b && vite build`, the only frontend type check); and an
-Alembic `upgrade head` → `downgrade base` → `upgrade head` against Postgres 16.
+and `prettier --check`; `pytest`; an Alembic `upgrade head` → `downgrade base` →
+`upgrade head` against Postgres 16; a build of the backend image with checks that it installs
+and imports (#152); and `vitest`, the API-type freshness check and `npm run build` (which is
+`tsc -b && vite build`, the only frontend type check).
 
 Until then `.github/` had never existed on any branch, and `CLAUDE.md` stated that CI gated
 pull requests via CodeQL, Vercel preview builds and CodeRabbit. Those are GitHub-App
@@ -336,17 +337,20 @@ against the real provider before a prompt or model change ships. See §09.
 
 ---
 
-## RISK-11 — Dependencies are unpinned and unscanned
+## RISK-11 — Dependencies are unscanned, and the image is not hardened
 
 **Likelihood:** High · **Impact:** High · **Priority:** P1 · **Owner:** Founder
 
-`backend/Dockerfile` runs `pip install .` against the `>=` ranges in `pyproject.toml` with no
-lockfile, so two builds of the same commit can produce different dependency trees. The image
+`backend/Dockerfile` installs from hash-checked lock files (#152), so two builds of the same
+commit produce the same Python dependency tree; before that it ran `pip install .` against
+the `>=` ranges in `pyproject.toml`. Some build inputs still resolve by tag or range: the
+`python:3.11-slim` base image, the GitHub Actions in CI, and one CI-only install. The image
 runs as root. There is no `.dockerignore`. Nothing scans dependencies for known
 vulnerabilities.
 
-**Trigger:** an upstream release breaking a build that previously worked; a published CVE in
-a transitive dependency.
+**Trigger:** an upstream release breaking a build that previously worked (closed for the
+backend's Python packages by #152: a release reaches a build only when a lock is regenerated);
+a published CVE in a transitive dependency.
 
 **The trigger has fired.** Running `npm audit` for the first time — incidentally, while
 adding eslint, which is how nobody had run it before — reports **8 advisories on the
@@ -368,8 +372,9 @@ major is a real upgrade with its own regression surface across 49 frontend tests
 Tailwind v4 plugin, and burying it inside a formatting pass is exactly the pattern the split
 commits there exist to avoid.
 
-**Mitigation:** lockfile, non-root user, `.dockerignore`, and a vulnerability scan. The
-scan is the cheapest of the four and now has a demonstrated hit rate — an `npm audit` and
+**Mitigation:** lockfile (done for the backend, #152), non-root user, `.dockerignore`, and a
+vulnerability scan. The scan is the cheapest of the three still open and now has a
+demonstrated hit rate — an `npm audit` and
 `pip-audit` step in the CI lint job would have caught this two majors ago. Next: upgrade
 `vite`/`vitest` on their own branch, then add the audit step so the count cannot climb
 again unobserved. See §08 and §07.
@@ -430,7 +435,7 @@ breaker. The metering foundation is deliberately built for exactly this.
 
 | ID | Risk | L | I | P | Note |
 |---|---|---|---|---|---|
-| RISK-11 | Dependencies unpinned and unscanned | High | High | P1 | **trigger fired** — 1 critical + 1 high advisory, both dev-only, both needing a major |
+| RISK-11 | Dependencies unscanned, image not hardened | High | High | P1 | **trigger fired** — 1 critical + 1 high advisory, both dev-only, both needing a major |
 | RISK-5 | Two readiness engines can disagree | — | — | closed | closed 2026-09-26 by 5.3b — one engine |
 | RISK-6 | Frontend/backend contracts drift silently | Low | Med | P4 | closed for the shared contract types — generated from OpenAPI and checked fresh in CI; per-domain wrappers still hand-written |
 | RISK-1 | Single-instance with no scale-out path | Med | High | P2 | |

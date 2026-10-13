@@ -40,7 +40,9 @@ docker compose up -d db
 # 2. Backend (http://localhost:8000, docs at /docs)
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+# Install from the hash-checked lock files, the same install CI runs, then the app itself:
+pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r requirements-build.lock
+pip install --no-deps --no-build-isolation --only-binary :all: -e .
 cp .env.example .env        # then set JWT_SECRET and ANTHROPIC_API_KEY
 alembic upgrade head
 uvicorn app.main:app --reload
@@ -142,6 +144,7 @@ All backend settings come from environment variables (see `backend/.env.example`
 | `ANTHROPIC_MODEL` | Optional. Defaults to `claude-opus-5`; the four unpinned surfaces follow it |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | Unused since task 3.2 (`AV-124`) — no surface routes to Gemini |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
+| `AI_REQUEST_TIMEOUT_SECONDS` / `AI_MAX_RETRIES` / `AI_CALL_TIMEOUT_SECONDS` / `AI_TEXT_CALL_TIMEOUT_SECONDS` | Optional limits on Anthropic calls: seconds one request may sit silent (600), SDK retries before a response starts (1), total seconds for one structured call (840) and for one short text call (120) |
 | `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google Classroom; the surface is unmounted (0.5, AV-58), so these currently have no effect |
 | `CORS_ORIGINS` | Comma-separated allowed frontend origins |

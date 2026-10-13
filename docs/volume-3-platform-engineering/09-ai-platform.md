@@ -16,6 +16,7 @@
   - [The choke point](#the-choke-point)
   - [Surfaces and routing](#surfaces-and-routing)
   - [The two helpers](#the-two-helpers)
+  - [How an Anthropic call is made](#how-an-anthropic-call-is-made)
   - [Content blocks](#content-blocks)
   - [Prompts](#prompts)
   - [Metering and cost](#metering-and-cost)
@@ -56,16 +57,21 @@ of the trust boundary (§07); AI-driven cost and latency (§10); testing AI path
   existed.
 - **No prompts outside `services/prompts.py`.**
 - **No agentic or tool-using loops.** Every call is a single request with a bounded response.
-- **No streaming, full stop.** Chat was the one streaming surface; task 0.3 deleted it (AV-57)
-  along with `stream_complete()` and the provider check that existed only for it.
+- **No streaming to a user.** Chat was the one streaming surface; task 0.3 deleted it (AV-57)
+  along with `stream_complete()` and the provider check that existed only for it. Since #153
+  the Anthropic helpers use the SDK's streaming *transport* to receive one complete answer;
+  nothing reaches a browser incrementally (see
+  [How an Anthropic call is made](#how-an-anthropic-call-is-made)).
 
 ## Sources
 
-Written from: `backend/app/services/ai.py` (448 lines);
+Written from: `backend/app/services/ai.py` (822 lines);
 `backend/app/services/prompts.py` (161 lines); `backend/app/services/marking.py`;
 `backend/app/services/extraction.py`; `backend/app/services/readiness_v2_ai.py`;
 `backend/app/services/knowledge.py`; `backend/app/models/ai_usage.py`;
-`backend/app/config.py`; `backend/app/api/ai_usage.py`.
+`backend/app/config.py`; `backend/app/api/ai_usage.py`; `backend/app/api/groups.py`;
+`backend/app/services/reports.py`; `backend/tests/test_ai_real_client.py`;
+`backend/tests/ai_stream_fakes.py`.
 
 ---
 
@@ -93,12 +99,12 @@ evidence reports "no data", not `0`.
 
 ### The choke point
 
-`backend/app/services/ai.py` is 448 lines and the only module that imports either SDK. It
+`backend/app/services/ai.py` is 822 lines and the only module that imports either SDK. It
 provides client construction, the surface routing table, two call helpers, the neutral
 content-block format, cost estimation, and usage recording.
 
 `AiResponse` is the normalized result — `{provider, model, prompt_version, input_tokens,
-output_tokens, parsed, text}` — so **nothing downstream branches on which vendor answered**.
+output_tokens, parsed, text, truncated}` — so **nothing downstream branches on which vendor answered**.
 
 ### Surfaces and routing
 
@@ -144,13 +150,66 @@ the billing-facing grouping.
 | Helper | Providers | Returns | Used for |
 |---|---|---|---|
 | `structured_complete()` | Both | `AiResponse.parsed` | Schema-constrained output — marking, extraction, syllabus, readiness |
-| `text_complete()` | Both | `AiResponse.text` | Prose — reports, class brief, narrative |
+| `text_complete()` | Both | `AiResponse.text` | Prose — reports, class brief, narrative. Takes an optional `timeout_seconds` for its total deadline |
 
 **`stream_complete()` is gone.** It was Anthropic-only and existed for the chat surface alone;
 task 0.3 deleted both together (AV-57), and with them the one live configuration trap this
 platform had — `AI_CHAT_PROVIDER=gemini` producing a runtime failure on the surface users
-interacted with directly. Every remaining surface is fully non-streaming and provider-agnostic
-at the call site.
+interacted with directly. No surface streams to a user, and every surface is
+provider-agnostic at the call site. (What the Anthropic helpers do internally is described
+next.)
+
+### How an Anthropic call is made
+
+Both helpers send through `client.messages.stream(...)` and wait for the one complete message.
+This is transport only: nothing is passed on incrementally. The reason is a client-side guard
+in the SDK — a non-streaming request with a large `max_tokens` (above roughly 21,000) is
+refused before anything is sent, and marking asks for 32,000 (`MARKING_MAX_TOKENS` in
+`services/marking.py`). Before #153 the helpers used `messages.parse` and `messages.create`,
+and a marking call could not reach the model at all.
+
+- **The schema goes in `output_config`.** `structured_complete()` builds the JSON-schema format
+  itself (`_json_schema_format`, using the SDK's `transform_schema`) rather than handing the
+  Pydantic type to the SDK. Given the type, the SDK validates the answer as the text block
+  closes, which is before the stop reason is known. A test pins the result to exactly what
+  `messages.parse` would send.
+- **The stop reason is checked before the answer is read.** `_raise_for_stop_reason` runs on the
+  finished message; only then is the text joined and validated with `model_validate_json`. A
+  `max_tokens` stop raises `AIOutputTruncatedError` even if the JSON happens to be whole; a
+  `refusal`, a `model_context_window_exceeded` stop, a stream that ended with no closing
+  message or no body, and an empty answer each raise `AICallFailedError` with its own message.
+  A well-formed answer of the wrong shape is still a Pydantic `ValidationError`, unchanged.
+  `text_complete()` is the one exception: a plain-text answer cut off at the limit with some
+  text in it is returned with `truncated=True` and a warning in the log, because a shorter
+  paragraph is usable and half a JSON document is not. With no text it raises.
+- **Failures are their own error family.** `AICallFailedError` (the call was made and produced
+  nothing usable), with `AIOutputTruncatedError` and `AITimeoutError` beneath it, is
+  deliberately **not** a subclass of `AIUnavailableError`, which means "not configured" and which
+  callers degrade on quietly. `narrative.py` catches `AIUnavailableError` and stores nothing;
+  were a timeout to be caught there too, the work would be dropped where it used to fail the job
+  and be retried. The error carries the `model` and token counts when the stream delivered a
+  final message.
+- **Three time limits, one timeout type.** Connect is fixed at 5 seconds.
+  `AI_REQUEST_TIMEOUT_SECONDS` (600) bounds one silent request, but a streamed answer restarts
+  that clock on every chunk, so `_call_deadline` caps the whole call: `AI_CALL_TIMEOUT_SECONDS`
+  (840) for `structured_complete()`, `AI_TEXT_CALL_TIMEOUT_SECONDS` (120) for `text_complete()`
+  unless the caller passes `timeout_seconds` — the report writer, which runs in a job, passes
+  the 840. The deadline wraps Gemini calls too. Both the deadline and the SDK's own
+  `APITimeoutError` surface as `AITimeoutError`, and a raw HTTP-library error from partway
+  through an answer becomes `AITimeoutError` (a timeout) or `AICallFailedError` ("The connection
+  to the AI dropped mid-answer"), so `Submission.ai_error` holds a readable sentence rather than
+  a bare class name.
+- **Retries.** `AI_MAX_RETRIES` (1) is the SDK's retry on a connection error, 429 or 5xx, and
+  applies only before a response starts. A failure partway through an answer is retried only by
+  the job's own retry.
+- **One client per event loop.** `get_client()` caches a single client keyed on the running loop
+  and on the settings that shape it (key, timeouts, retries), because a client's connection pool
+  is bound to the loop it first ran on. The key is read on every call, so a rotated key or a
+  test's changed setting never gets a stale client; outside a running loop it builds a fresh one.
+- **Callers.** The class-brief endpoint maps both `AIUnavailableError` and `AICallFailedError`
+  to a `503` carrying the message. `mark_submission` stores `str(exc)` in `Submission.ai_error`
+  and re-raises; readiness synthesis catches any exception and persists a `failed` snapshot;
+  the narrative job lets `AICallFailedError` fail the job.
 
 ### Content blocks
 
@@ -302,14 +361,19 @@ never asked for a date, a lesson count or an order, and nothing it returns can p
 
 ### Degradation
 
-`get_client()` and `get_gemini_client()` raise `AIUnavailableError` when their key is unset,
-with a message naming the variable to set. **The app runs fine without either key** — the
+`get_client()` and `get_gemini_client()` raise `AIKeyMissingError` (a subclass of
+`AIUnavailableError`) when their key is unset, with a message naming the variable to set.
+**The app runs fine without either key** — the
 surfaces routed to that provider fail with a clear, user-facing message and everything else
 works.
 
 `get_gemini_client()` imports `google.genai` lazily, so an install without the SDK runs fine as
 long as no surface is routed to Gemini, and raises a message telling you to install it or
 re-route the surface.
+
+A call that was made and failed is a different case from a missing key, and is not degraded
+quietly: it raises `AICallFailedError` (see
+[How an Anthropic call is made](#how-an-anthropic-call-is-made)).
 
 Handler failures persist to a domain column — `Assignment.extraction_error`,
 `Submission.ai_error`, `Report.error`, `SyllabusUpload.error`, `ReadinessSnapshot.error` — so
@@ -468,7 +532,7 @@ deterministic work already completed.
 | **`AI_MODEL_PRICING` is empty in every environment.** | Spend is reported as `unpriced_call_count` rather than a number anyone can act on — correct behaviour, but it means cost is currently unmeasured. `RISK-12`. | `before scale` |
 | **No budget, cap, or circuit breaker.** Metering is built; enforcement is not. | A large classified or a burst of submissions spends whatever it spends. `RISK-12`. | `before scale` |
 | **No calibration measurement on the trust rule.** Remark-request rate and tutor override rate on auto-finalized marks are both derivable from existing rows and neither is computed. | The auto-finalize threshold cannot be tuned on evidence. `ADR-0009` names this. | `before scale` |
-| **No per-call timeout or retry policy in `services/ai.py`.** Job-level retry is the only recovery, and it has no backoff (§04). | A hung provider call occupies the single worker until the client's own default fires. | `before scale` |
+| **Per-call deadlines exist but are unmeasured.** #153 gave every provider call a total deadline and the SDK one retry before a response starts; the values (840 s structured, 120 s text) are estimates, not timings of a real 32,000-token marking answer. Job-level retry is the only recovery, and it has no backoff (§04). | A hung provider call now occupies the single worker for at most its deadline rather than until the client's own default fires. A deadline set too low fails good calls; too high holds the worker. | `before scale` |
 
 ---
 

@@ -46,7 +46,9 @@ performance measurement (§10).
 - **No end-to-end browser suite.** No Playwright, no Cypress. The manual pass in §14 covers
   the flows an e2e suite would.
 - **No mocking of the database.** Tests run against real SQLite through the real ORM.
-- **No calls to real AI providers in tests.** Every AI path is exercised through `fake_ai`.
+- **No calls to real AI providers in tests.** Every AI path is exercised through `fake_ai`,
+  except the AI layer's own client code, which `tests/test_ai_real_client.py` drives through an
+  in-process transport (#153) — nothing leaves the process and no real key is used.
 - **No coverage percentage target.** Coverage of the marking, auth, and readiness paths matters;
   a repository-wide number does not, and optimizing one produces tests written for the metric.
 - **No snapshot testing of rendered output.** Assert behaviour, not markup.
@@ -55,7 +57,9 @@ performance measurement (§10).
 
 Written from: `backend/tests/` (26 files); `backend/tests/conftest.py`;
 `backend/pyproject.toml`; `backend/app/db.py`; `frontend/src/test/` (7 files);
-`frontend/vite.config.ts`; `frontend/tsconfig.json`; `frontend/package.json`.
+`frontend/vite.config.ts`; `frontend/tsconfig.json`; `frontend/package.json`;
+`.github/workflows/ci.yml`; `backend/scripts/`; `backend/tests/test_requirements_lock.py`;
+`backend/tests/test_ai_real_client.py`; `backend/tests/ai_stream_fakes.py`.
 
 ---
 
@@ -172,6 +176,17 @@ The `fake_ai` docstring says this explicitly. Getting it wrong produces a test t
 makes a real network call — or, with no key configured, fails with `AIUnavailableError` from an
 unexpected place.
 
+**The one place the real SDK client is built in a test.** Every `fake_ai` test replaces
+`structured_complete`, so none of them ever constructs the Anthropic client; that is how a
+marking call the SDK refuses before sending (`max_tokens=32000` on a non-streaming request)
+went unnoticed. `tests/test_ai_real_client.py` builds the real `AsyncAnthropic` and points
+`app.services.ai._transport` at an in-process `MockTransport` serving canned server-sent events
+(`tests/ai_stream_fakes.py`: `sse_message`, `CannedServer`, `Trickle`, `dropping_transport`). It
+exercises the request the SDK actually builds, the schema sent in `output_config` (pinned to what
+`messages.parse` sends, for each model a real call site passes), each stop reason and the error it
+must produce, a stream cut mid-answer, the total deadline against a stream that keeps trickling,
+and one cached client per event loop. It stays within `QA-8`: no network, no real key, no provider.
+
 ### The frontend suite
 
 **23 files, 181 tests.** The largest: `contrast.test.ts` (167 lines, 19 tests),
@@ -247,13 +262,19 @@ nothing produces them.
 ### What verifies a pull request
 
 `.github/workflows/ci.yml`, on every pull request and on every push to the default branch.
-Four jobs:
+Five jobs. The three Python jobs (`lint`, `backend`, `migrations`) install only from the
+hash-checked lock files, so a result changes when a commit changes it and not when a library
+releases (#152): `pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r
+requirements-build.lock`, then the app with `pip install --no-deps --no-build-isolation
+--only-binary :all: -e .`, then `pip check` and `python -m scripts.check_lock_installed`, which
+fails the job if any locked package ended up at a different version.
 
 | Job | Runs | Catches |
 |---|---|---|
-| `lint` | `ruff check`, `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`, `prettier --check` | Style and correctness defects ruff and eslint see, and type errors in the two checked backend packages |
-| `backend` | Python 3.11, `pip install -e ".[dev]"`, `pytest` from `backend/` | Every backend regression the suite covers. No service container — `conftest.py` forces in-memory SQLite |
+| `lint` | The locked install above, then `python -m scripts.check_locks_current`, `ruff check`, `ruff format --check`, `mypy app/services app/schemas`, `eslint --max-warnings 0`, `prettier --check` | Style and correctness defects ruff and eslint see, and type errors in the two checked backend packages. `check_locks_current` regenerates each lock from its own header command and fails on any difference, so a lock that disagrees with `pyproject.toml` (a changed extra, a new transitive package) fails here rather than in the image build |
+| `backend` | Python 3.11, the locked install above, `pytest` from `backend/` | Every backend regression the suite covers. No service container — `conftest.py` forces in-memory SQLite |
 | `migrations` | `postgres:16-alpine` service, then `alembic upgrade head` → `downgrade base` → `upgrade head` | A migration that is invalid or irreversible on Postgres. This is the only thing that has ever executed the downgrade path |
+| `image` | `docker build backend/`, then in the built image `pip check`, an import of `app.main`, `app.workers.__main__` and `seed.demo`, `alembic heads`, and a check that `pytest`, `ruff`, `mypy` and `uv` are absent | A lock that installs on the runner but not in `python:3.11-slim` (a hash, a wheel missing for Linux, a conflict) — which would otherwise first appear as a failed Render deploy after the merge (`INF-1`) — an image that cannot import the app, and a dev tool leaking into the image. It does not run the image's `CMD`: that applies migrations and starts a server, and the job has no database |
 | `frontend` | Node 20, `npm ci`, `npm test`, the API-type regeneration diff, `npm run build` | Vitest regressions, generated types drifting from `openapi.json`, and — via `tsc -b` inside `build` — every frontend type error, which is the only type check the frontend has |
 
 `concurrency` with `cancel-in-progress` means a force-push supersedes the previous run rather
@@ -266,6 +287,11 @@ than racing it.
   `app/workers` are still decoration nothing verifies. Widening it is a per-module ratchet —
   `[tool.mypy] packages` in `backend/pyproject.toml` and the CI step move together. This is
   now the whole of `RISK-2`.
+- **Not every input is pinned.** The locks cover the Python dependency set. The
+  `python:3.11-slim` base image and the `postgres:16-alpine` and `redis:7-alpine` service
+  images are referenced by tag, the GitHub Actions by tag rather than commit, and the
+  `migrations` job installs `moto[server]>=5,<6` outside the locks (followed by
+  `check_lock_installed`, which fails the job if that moved a locked package).
 - **No dependency scan**, which is not a theoretical gap: the first `npm audit` anyone ran
   reported a critical and a high advisory in `vitest` and `vite`. See `RISK-11`.
 - **No coverage measurement**, so nothing reports which risky paths the 528 backend tests miss.

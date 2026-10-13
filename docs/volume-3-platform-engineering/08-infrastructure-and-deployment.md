@@ -57,7 +57,8 @@ Global entries in `governance/non-goals.md`. Specific here:
 
 Written from: `render.yaml`; `backend/Dockerfile`; `frontend/vercel.json`;
 `docker-compose.yml`; `backend/app/config.py`; `backend/.env.example`;
-`backend/app/main.py`; `frontend/vite.config.ts`; `README.md`.
+`backend/app/main.py`; `frontend/vite.config.ts`; `README.md`;
+`backend/requirements*.lock`; `.github/workflows/ci.yml`.
 
 ---
 
@@ -136,24 +137,48 @@ filesystem and the database stores only relative paths — without it, every dep
 container and silently orphans every file row. **A Render service with a disk runs a single
 instance.**
 
-`backend/Dockerfile` is 16 lines:
+`backend/Dockerfile` installs from hash-checked lock files, not from the `>=` ranges in
+`pyproject.toml` (#152). Condensed here, with its comments and the note above `CMD` left out:
 
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
+COPY requirements.lock requirements-build.lock ./
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: \
+    -r requirements.lock -r requirements-build.lock
 COPY pyproject.toml ./
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY seed ./seed
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps --no-build-isolation --only-binary :all: .
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 ```
 
-Single-stage. **Runs as root. No lockfile** — dependencies resolve from the `>=` ranges in
-`pyproject.toml` at build time, so two builds of the same commit can differ. **No
-`.dockerignore`**, so the build context carries whatever is in `backend/`. **No `HEALTHCHECK`.**
+Three lock files live in `backend/`, each written by `uv pip compile … --generate-hashes
+--exclude-newer <timestamp>`; the exact command that regenerates a file is in its own header:
+
+| File | Holds | Installed by |
+|---|---|---|
+| `requirements.lock` | The runtime set, compiled from `pyproject.toml` | The image, and (inside the dev lock) CI |
+| `requirements-build.lock` | `setuptools`, compiled from `requirements-build.in` | The image and CI, because the app is installed with `--no-build-isolation` and would otherwise download an unpinned build backend |
+| `requirements-dev.lock` | The runtime set plus `pytest`, `ruff`, `mypy` and `uv`, compiled with `-c requirements.lock` so no package can sit at two versions across the files | CI only; the image does not carry the dev tools |
+
+`--require-hashes` makes pip refuse any file the locks do not name, and `--only-binary :all:`
+stops it falling back to a source distribution, which would run that package's setup script.
+The app goes in last with `--no-deps`, because resolving anything there would undo the locks.
+Only the lock files are copied before the install, so that layer is cached until a lock
+changes. Regenerating after a dependency change is a command in each file's header; §12 lists
+the checks that fail a pull request when a lock and `pyproject.toml` disagree.
+
+Single-stage. **Runs as root.** **No `.dockerignore`**, so the build context carries whatever
+is in `backend/`. **No `HEALTHCHECK`.** **Inputs still resolved by tag, not pinned:** the
+`python:3.11-slim` base image (so the Python patch release and pip itself come from whatever
+that tag points at on build day), the GitHub Actions in `ci.yml` (referenced as `@v4`/`@v5`,
+not by commit), the `postgres:16-alpine` and `redis:7-alpine` CI service images, and one CI
+install outside the locks: `moto[server]>=5,<6` in the `migrations` job, which is followed by a
+check that it moved no locked package.
 
 **Migrations run at container start**, chained with `&&`. The consequence is the most important
 operational fact in this document: **a failing migration means the service never starts.** It
@@ -235,6 +260,10 @@ Every setting in `backend/app/config.py`. Env var names are the field names uppe
 | `AI_READINESS_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
 | `AI_CLASS_BRIEF_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
 | `AI_NARRATIVE_PROVIDER` / `_MODEL` | `anthropic` / `""` | default | — |
+| `AI_REQUEST_TIMEOUT_SECONDS` | `600` | default | Seconds one Anthropic request may sit silent before it is abandoned. Must be above 0 or startup fails. The connect timeout is fixed at 5 seconds in `services/ai.py` |
+| `AI_MAX_RETRIES` | `1` | default | Retries the SDK makes on a connection error, 429 or 5xx, and only before a response starts; a failure partway through an answer is not retried by the SDK. 0 or more |
+| `AI_CALL_TIMEOUT_SECONDS` | `840` | default | Hard cap on one whole structured call (marking, extraction, syllabus, readiness…), retries included; also used by the report writer. Above 0. Deliberately under the worker's 900-second stall limit. Unmeasured against a real full-length marking answer |
+| `AI_TEXT_CALL_TIMEOUT_SECONDS` | `120` | default | Hard cap on one short plain-text call (class brief, narrative). Above 0 |
 | `AI_MODEL_PRICING` | `"{}"` | `sync: false` | Empty means every call records `cost_usd = NULL` and reports as `unpriced_call_count` — never a fabricated `$0` |
 
 **Readiness**
@@ -392,8 +421,9 @@ in production sends a 30-day credential over plain HTTP.
 
 **`INF-12` — SHOULD · Important · Active**
 The image installs from a lockfile, runs as a non-root user, and ships a `.dockerignore`.
-*Rationale:* reproducibility and least privilege; none of the three is true today (`RISK-11`,
-`SEC-28`).
+*Rationale:* reproducibility and least privilege. The lock files are in place (#152: hashed,
+installed with `--require-hashes`, kept current by a test and a CI step); the non-root user
+and the `.dockerignore` are not (`RISK-11`, `SEC-28`).
 
 **`INF-13` — MUST · Critical · Active**
 Migrations run before the API starts, and a migration failure stops startup rather than
@@ -430,8 +460,10 @@ against existing rows — is still on the author.
 
 | Gap | Why it matters | Severity |
 |---|---|---|
-| **No staging environment for the API.** Vercel previews cover the frontend; the backend has nothing. | CI now runs migrations against a real Postgres, so a migration's first *execution* is no longer in production — but its first execution against **real data** still is, and nothing exercises the built image, the start command, or the persistent disk before the deploy does. `RISK-3` residual. | `before scale` |
-| **No lockfile, root user, no `.dockerignore`, no `HEALTHCHECK`.** | Non-reproducible builds and unnecessary privilege. `RISK-11`, `INF-12`. | `before scale` |
+| **No staging environment for the API.** Vercel previews cover the frontend; the backend has nothing. | CI now runs migrations against a real Postgres, so a migration's first *execution* is no longer in production — but its first execution against **real data** still is, and CI builds the image and checks that it installs, imports and resolves one migration head (#152), but nothing runs its start command or touches the persistent disk before the deploy does. `RISK-3` residual. | `before scale` |
+| ~~**No lockfile.**~~ **Closed** by #152: three hash-checked lock files, installed with `--require-hashes --only-binary :all:` by the image and the Python CI jobs. | Two builds of one commit can no longer resolve different dependency trees. `RISK-11`, `INF-12`. | `closed` |
+| **Root user, no `.dockerignore`, no `HEALTHCHECK`.** | Unnecessary privilege, and a build context carrying whatever is in `backend/`. `RISK-11`, `INF-12`. | `before scale` |
+| **Some build inputs are still floating:** the `python:3.11-slim` base tag, GitHub Actions referenced by tag rather than commit, the CI service-image tags, and the unlocked `moto[server]` install in the `migrations` job. | A build of one commit can still differ by what those tags point at on the day. The Python dependency set itself does not. `RISK-11`. | `before scale` |
 | **`docker-compose.yml`'s `full` profile omits `GEMINI_API_KEY` and `REFRESH_COOKIE_SECURE`.** | The homework pipeline fails and sessions stop refreshing, both presenting as application bugs. Breaks `INF-15`. | `before scale` |
 | **`UPLOAD_DIR` is missing from `.env.example`** while documented in `config.py` and set in `render.yaml`. | Breaks `INF-8`; a developer's local storage path differs from production without knowing. | `nice to have` |
 | **`main.py:80–81` states frontend security headers are set in `render.yaml`.** They moved to `frontend/vercel.json`. | A stale comment on a security-relevant subject, pointing at the wrong file. Fixing it is a code change. | `nice to have` |

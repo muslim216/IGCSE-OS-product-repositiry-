@@ -315,7 +315,7 @@ so the review is the only checkpoint for every budget above.
 | **Jobs are strictly serial on one worker.** | Queue wait is the user-visible latency for every AI surface, and two concurrent submissions serialize. Unwinding is step 2 of §08's constraint chain. | `before scale` |
 | **`QueryClient` has no defaults** — no `staleTime`, no retry policy. | Refetch-heavy behaviour on every mount, and inconsistent retry semantics across the app. | `nice to have` |
 | **No bundle analysis, code splitting, or size budget.** | `PERF-16`'s bundle target is unverified. Students load this on phones. | `nice to have` |
-| **No per-call AI timeout.** Job-level retry is the only recovery, and it has no backoff. | A hung provider call occupies the single worker until the SDK's own default fires. §09, §04. | `before scale` |
+| **Per-call AI deadlines exist but are unmeasured.** #153 added a total deadline to every provider call (`AI_CALL_TIMEOUT_SECONDS`, `AI_TEXT_CALL_TIMEOUT_SECONDS`); the values are estimates, not timings of real marking answers. Job-level retry is the only recovery, and it has no backoff. | A hung provider call now occupies the single worker for at most its deadline (840 s for structured calls) rather than until the SDK's own default fires; a deadline set too low would fail good calls. §09, §04. | `before scale` |
 | **No spend bound of any kind**, and `AI_MODEL_PRICING` is empty so spend is not even reported as a number. | `PERF-9` through `PERF-12` are the only cost controls, and all are conventions. `RISK-12`. | `before scale` |
 | **`factor_evaluations` has no implemented retention policy.** | The highest-growth table in the schema, on the most frequent background job. `DB-20` is Draft. | `before scale` |
 

@@ -127,11 +127,14 @@ whatever single branch is actively in flight, and the `archive/*` branches prese
 superseded UI experiments and the original build history. A branch that has merged is finished
 — **never reopen or stack new work on it**; start again from `main`.
 
-> **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request in four jobs —
+> **CI, accurately:** `.github/workflows/ci.yml` runs on every pull request in five jobs —
 > `ruff check` + `ruff format --check`, `mypy app/services app/schemas`, `eslint
-> --max-warnings 0` and `prettier --check`; `pytest`; `vitest`, an API-type freshness check
-> and `npm run build` (the only *frontend* type check); and an Alembic
-> `upgrade head` → `downgrade base` → `upgrade head` against a real Postgres 16. **Still run
+> --max-warnings 0` and `prettier --check`, plus a check that the lock files still match
+> `pyproject.toml`; `pytest`; an Alembic `upgrade head` → `downgrade base` → `upgrade head`
+> against a real Postgres 16; a build of the backend Docker image with checks that it installs
+> and imports (#152); and `vitest`, an API-type freshness check and `npm run build` (the only
+> *frontend* type check). The Python jobs install only from the hash-checked
+> `backend/requirements*.lock` files, never from the ranges in `pyproject.toml`. **Still run
 > both suites and both linters locally before opening a PR**; CI is a backstop, not a
 > substitute for knowing your change works. Note the shape of the Python type checking added
 > in task 0.8: **`packages = ["app.services", "app.schemas"]` is the explicit mypy scope** —
@@ -151,7 +154,9 @@ Backend (run from `backend/`, Python 3.11+):
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+# the install CI runs, from the hash-checked locks (requirements*.lock), then the app itself:
+pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r requirements-build.lock
+pip install --no-deps --no-build-isolation --only-binary :all: -e .
 cp .env.example .env                 # set JWT_SECRET and the AI keys
 docker compose up -d db              # Postgres for local dev (from repo root)
 alembic upgrade head                 # apply migrations
@@ -164,6 +169,10 @@ uvicorn app.main:app --reload        # http://localhost:8000, OpenAPI docs at /d
 .venv/bin/ruff check .               # lint — same command CI runs
 .venv/bin/ruff check --fix .         # and fix what is mechanical
 .venv/bin/ruff format .              # format (CI runs `--check`, which never writes)
+
+# After changing a dependency in pyproject.toml, regenerate the locks in the same PR. This
+# fails when they are stale and prints the exact commands (it needs `uv`, which the dev lock installs):
+python -m scripts.check_locks_current
 
 # (No built-in syllabuses since AV-8: a tutor uploads their own, and seed.demo builds its own subject.)
 python -m seed.demo                  # idempotent demo tutor/students/parent with ~90d of data
@@ -356,6 +365,13 @@ Keep these loaded. Each cites the document holding its full reasoning.
   records `cost_usd = NULL` and reports as `unpriced_call_count`, never `$0`. (`AI-17`)
 - **A missing key degrades that surface with a clear message and never blocks startup.**
   (`AI-20`, `INF-9`)
+- **A call that was made and failed is not "AI unavailable".** `AICallFailedError` (with
+  `AIOutputTruncatedError` and `AITimeoutError`) is deliberately not a subclass of
+  `AIUnavailableError`, which callers degrade on quietly; keep the two apart. Anthropic calls
+  go through the SDK's streaming transport with a total deadline per call
+  (`AI_CALL_TIMEOUT_SECONDS`, `AI_TEXT_CALL_TIMEOUT_SECONDS`), and the stop reason is checked
+  before the answer is parsed. `tests/test_ai_real_client.py` is the one test that builds the
+  real SDK client, against an in-process transport (#153).
 
 ### Frontend
 

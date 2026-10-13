@@ -662,8 +662,11 @@ configuration.
 
 **`SEC-27` — SHOULD · Important · Active**
 Dependencies are pinned by a lockfile and scanned for known vulnerabilities before release.
-*Rationale:* `pip install .` against `>=` ranges means two builds of one commit can differ, and
-nothing currently scans anything (`RISK-11`).
+*Rationale:* an install resolved against `>=` ranges means two builds of one commit can differ.
+The backend's pinning is in place (#152: hash-checked lock files that the image and the Python
+CI jobs install with `--require-hashes`); nothing scans for known vulnerabilities yet
+(`RISK-11`). The base image tag, the GitHub Actions and one CI-only install are still not
+pinned (§08).
 
 **`SEC-28` — SHOULD · Important · Active**
 Application containers run as a non-root user.
@@ -677,7 +680,7 @@ Application containers run as a non-root user.
 |---|---|---|
 | **Organization scoping is still a convention, not a mechanism.** `get_current_org_id` and `CurrentOrg` remain dead code. | The role half of `RISK-7` closed; this half did not. A query that omits the organization filter fails open with nothing to detect it — `SEC-7` rests on every author remembering. | `before scale` |
 | **No security-specific job in CI.** `.github/workflows/ci.yml` runs the whole suite, so `test_security_hardening.py` and `test_authorization.py` do gate every PR — but there is no dependency audit, no secret scan in the workflow, and no SAST. | The rules with tests behind them are now enforced; the rest are still enforced by review alone. `RISK-2` residual. | `before scale` |
-| **No dependency pinning or vulnerability scanning.** No lockfile; `pip install .` resolves `>=` ranges at build time. | Non-reproducible builds and no signal on a published CVE. `RISK-11`, `SEC-27`. | `before scale` |
+| **No vulnerability scanning of dependencies.** The backend is pinned (#152: hash-checked lock files, installed by the image and CI), so what ships no longer moves between builds; nothing reports a published advisory against the pinned set. The base image tag, GitHub Actions and one CI-only install are still floating (§08). | No signal on a published CVE. `RISK-11`, `SEC-27`. | `before scale` |
 | **The container runs as root** with no `.dockerignore`. | Breaks `SEC-28`; the build context also carries whatever is in the directory. | `before scale` |
 | **No data retention or deletion policy**, and no subject-access or erasure path. | C2 data on minors is kept indefinitely with no defined basis or route to remove it. `RISK-9`. | `before scale` |
 | **No security logging.** Failed authorization, token revocation, and password resets are not recorded anywhere. | A compromise could not be reconstructed. Compounded by there being no request ids at all (§11). | `before scale` |

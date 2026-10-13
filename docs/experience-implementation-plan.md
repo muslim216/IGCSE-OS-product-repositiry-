@@ -1471,9 +1471,9 @@ For every PR:
    `npm run build` (`tsc -b && vite build`) is **the only type check anywhere** — `npm test` does
    not type-check. **There is no Python type checker**, so every annotation in `backend/` is
    decoration nothing verifies; the tests are the only proof the backend works.
-3. **Open a PR into `main`.** CI runs four jobs: the two linter pairs; `pytest`; `vitest` +
-   `npm run build`; and Alembic `upgrade head` → `downgrade base` → `upgrade head` against a real
-   Postgres 16. CI is a backstop, not a substitute for step 2.
+3. **Open a PR into `main`.** CI runs five jobs: the two linter pairs; `pytest`; `vitest` +
+   `npm run build`; Alembic `upgrade head` → `downgrade base` → `upgrade head` against a real
+   Postgres 16; and a build of the backend Docker image. CI is a backstop, not a substitute for step 2.
 4. **Merge once green and the tutor/owner approves.** The merge button is theirs, and a merge
    ships immediately with no further gate.
 5. **Watch the deploy to green** before calling it shipped, and before starting anything
