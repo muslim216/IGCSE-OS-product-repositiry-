@@ -82,30 +82,36 @@ deploy with no further gate. Every change:
    agent's, unless they have said otherwise for that change.
 5. Delete the branch on merge. Render and Vercel redeploy from `main` on their own.
 
-**Every pull request is reviewed by Sonnet reviewer agents chosen for what it touches.** This is
-the owner's standing rule for every session, set on 13 October 2026. It replaces the rule of
-12 October that named cubic and CodeRabbit: cubic's free monthly allowance ran out and
-CodeRabbit's free plan allows one review an hour, so the owner dropped both. Between steps 3
-and 4, on every pull request:
+**Every pull request is read by Sonnet reviewer agents chosen for what it touches.** The owner
+set this for every session on 13 October 2026. It replaces waiting on the cubic and CodeRabbit
+review bots, which the owner dropped because of their rate limits. The owner also requires
+SonarCloud's findings to be answered on every pull request (12 October 2026). The list below is
+the practice for carrying both out. It applies between steps 3 and 4, and the owner's approval
+in step 4 still comes last.
 
-- **Run the reviewers yourself, as subagents on Sonnet**, picked by what the pull request
-  handles: Python and FastAPI code gets a Python or FastAPI reviewer; sign-in, permissions,
-  uploads, secrets or anything crossing between organizations gets a security reviewer; a
-  migration, model or query gets a database reviewer; `frontend/` gets a React or TypeScript
-  reviewer; error handling and jobs get a silent-failure reviewer; a change that is mostly tests
-  gets a test reviewer. Two independent reviewers for a code change, one for a
-  documentation-only change.
-- **Each reviewer reads the diff cold**: the diff against the base branch and the code around
-  it, not the builder's account of what it does. A reviewer that only confirms the builder's
-  summary has not reviewed.
-- **Fix each finding or record the reason it does not apply**, then run the reviewers again on
-  the fixed diff. The orchestrator reads the whole diff too.
-- **Answer SonarCloud.** Read its open issues for the pull request even when its quality gate
-  is green, and clear every one before merge. The security scan (CodeQL) must pass.
-- **cubic, CodeRabbit, Gitar and Kody are not reviewers.** Do not call them or wait for them,
-  and never count a tick or a comment from any of them as a review.
-- **Say on the pull request which reviewers read it** and what was fixed. Never report "the
-  reviewers passed" from the list of checks.
+- **Spawn the reviewers yourself, as separate subagents with `model: sonnet`**, by what the
+  pull request handles:
+  - backend code: `ecc:python-reviewer` or `ecc:fastapi-reviewer`;
+  - authentication, authorization, uploads, secrets or tenancy: `ecc:security-reviewer`;
+  - a migration, model or query: `ecc:database-reviewer`;
+  - `frontend/`: `ecc:react-reviewer` or `ecc:typescript-reviewer`;
+  - error handling and jobs: `ecc:silent-failure-hunter`;
+  - tests: `ecc:pr-test-analyzer`.
+
+  Run every kind that matches, and never fewer than two for a code change. A
+  documentation-only pull request gets one general reviewer, who checks the text against the
+  code and documents it describes. Where a named agent is not installed, give a
+  general-purpose agent the same brief.
+- **Each reviewer reads the diff against the base branch and the code around it**, not the
+  builder's account of the change.
+- **Fix each finding or record the reason it does not apply**, then have the reviewers read the
+  fixed diff. The orchestrator reads the whole diff too.
+- **Read SonarCloud's open issues** for the pull request even when its quality gate is green.
+  Before merge, fix each one, or mark it in SonarCloud as a false positive or accepted, with
+  the reason.
+- **cubic, CodeRabbit, Gitar and Kody are not reviewers.** Do not call them or wait for them. A
+  green check from any of them is not a review.
+- **Say on the pull request which reviewer agents read it**, what they found and what changed.
 
 **The only edits that may go straight to `main` are documentation-only** — prose in
 `README.md`, this file, or `docs/`. **A code comment is not a documentation change**, because
@@ -131,8 +137,10 @@ superseded UI experiments and the original build history. A branch that has merg
 > `enqueue`) are verified too, in practice. `app/api`, `app/security.py` and `app/main.py`
 > are genuinely unchecked — nothing in `app/services` or `app/schemas` imports any of them
 > (`BE-1` keeps the routers and the entrypoint from being imported by a lower layer). Widening
-> the *explicit* scope to any of them is still a per-module ratchet, not a flag flip. CodeQL, Vercel preview builds,
-> and CodeRabbit are GitHub Apps and may also run; nothing in the repo evidences them.
+> the *explicit* scope to any of them is still a per-module ratchet, not a flag flip.
+> CodeQL and Vercel preview builds are GitHub Apps and may also run; nothing in the repo
+> evidences them. The review bots that post checks alongside them are not reviewers (see the
+> review rule above).
 
 ## Common commands
 
