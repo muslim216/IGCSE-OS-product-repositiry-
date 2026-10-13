@@ -191,7 +191,9 @@ def resolve_surface(surface: str) -> tuple[AiProvider, str]:
             f"AI_{surface.upper()}_PROVIDER is '{raw_provider}'; expected one of "
             + ", ".join(p.value for p in AiProvider)
         ) from None
-    model = getattr(settings, f"ai_{surface}_model", "") or (
+    # Stripped before the fallback: a per-surface model saved as a lone space is
+    # truthy, and would otherwise go to the provider as the model id.
+    model = (getattr(settings, f"ai_{surface}_model", "") or "").strip() or (
         settings.gemini_model if provider is AiProvider.gemini else settings.anthropic_model
     )
     return provider, model

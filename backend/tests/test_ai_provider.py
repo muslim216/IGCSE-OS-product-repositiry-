@@ -80,6 +80,17 @@ def test_the_blank_model_surfaces_move_with_the_anthropic_default(monkeypatch):
         assert resolve_surface(surface) == (AiProvider.anthropic, "claude-test"), surface
 
 
+def test_a_whitespace_only_surface_model_still_follows_the_default(monkeypatch):
+    """`AI_MARKING_MODEL=" "` is truthy, so without the strip in
+    `resolve_surface` it was sent to the provider as the model id."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "anthropic_model", "claude-test")
+    monkeypatch.setattr(settings, "ai_marking_model", "   ")
+    assert resolve_surface("marking") == (AiProvider.anthropic, "claude-test")
+    monkeypatch.setattr(settings, "ai_marking_model", " claude-pinned ")
+    assert resolve_surface("marking") == (AiProvider.anthropic, "claude-pinned")
+
+
 def test_the_pinned_surfaces_do_not_move_with_it(monkeypatch):
     """Reports, the class brief and the narrative are prose written from data
     the platform already computed, not a judgement about a student's work — so
