@@ -98,20 +98,23 @@ in step 4 still comes last.
   - error handling and jobs: `ecc:silent-failure-hunter`;
   - tests: `ecc:pr-test-analyzer`.
 
-  Run every kind that matches, and never fewer than two for a code change. A
+  Run every kind that matches, and where a line names two agents, run both. Never fewer than
+  two reviewers for a code change: if only one would run, add `ecc:code-reviewer`. A
   documentation-only pull request gets one general reviewer, who checks the text against the
-  code and documents it describes. Where a named agent is not installed, give a
-  general-purpose agent the same brief.
+  code and the other documents it describes. Where a named agent is not installed, give a
+  general-purpose agent the same brief. The owner's rule covers pull requests; a
+  documentation-only edit that goes straight to `main` has no pull request and is outside it.
 - **Each reviewer reads the diff against the base branch and the code around it**, not the
   builder's account of the change.
-- **Fix each finding or record the reason it does not apply**, then have the reviewers read the
-  fixed diff. The orchestrator reads the whole diff too.
+- **Fix each finding, or note on the pull request why it does not apply**, then have the
+  reviewers read the fixed diff. The orchestrator reads the whole diff too.
 - **Read SonarCloud's open issues** for the pull request even when its quality gate is green.
   Before merge, fix each one, or mark it in SonarCloud as a false positive or accepted, with
   the reason.
 - **cubic, CodeRabbit, Gitar and Kody are not reviewers.** Do not call them or wait for them. A
   green check from any of them is not a review.
-- **Say on the pull request which reviewer agents read it**, what they found and what changed.
+- **Say on the pull request which reviewer agents read it**, what they found, what changed,
+  and what was set aside and why.
 
 **The only edits that may go straight to `main` are documentation-only** — prose in
 `README.md`, this file, or `docs/`. **A code comment is not a documentation change**, because
@@ -139,8 +142,8 @@ superseded UI experiments and the original build history. A branch that has merg
 > (`BE-1` keeps the routers and the entrypoint from being imported by a lower layer). Widening
 > the *explicit* scope to any of them is still a per-module ratchet, not a flag flip.
 > CodeQL and Vercel preview builds are GitHub Apps and may also run; nothing in the repo
-> evidences them. The review bots that post checks alongside them are not reviewers (see the
-> review rule above).
+> evidences them. Any review bot that posts a check (cubic, CodeRabbit and the like) is not a
+> reviewer; see the review rule above.
 
 ## Common commands
 
