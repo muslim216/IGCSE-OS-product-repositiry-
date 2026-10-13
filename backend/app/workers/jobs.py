@@ -20,7 +20,6 @@ import logging
 import math
 import os
 import secrets
-import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -577,7 +576,7 @@ async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str |
             # the only second chance the work gets.
             log.error("job %s (%s) stopped at its %ss limit", job_id, job_type, limit)
             return _timeout_message(limit), False
-        log.error("job %s (%s) failed: %s\n%s", job_id, job_type, exc, traceback.format_exc())
+        log.exception("job %s (%s) failed: %s", job_id, job_type, exc)
         return str(exc) or exc.__class__.__name__, is_permanent(exc)
     return None, False
 
