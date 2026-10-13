@@ -26,7 +26,7 @@ New engineers should read `docs/README.md` first; it carries a reading order.
 |---|---|
 | Backend | Python 3.11, FastAPI, SQLAlchemy 2 (async), Alembic, Postgres |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, TanStack Query |
-| AI | Claude on every surface (`AV-124`, task 3.2): Opus 5 for marking, question extraction, syllabus and readiness; Sonnet 5 for reports, class briefs and the narrative. The Gemini client is kept but unrouted |
+| AI | Claude Sonnet 5 on every surface. `AV-124` (task 3.2) put marking, question extraction, syllabus and readiness on Opus 5; the owner moved them to Sonnet in October 2026. `ANTHROPIC_MODEL` is the way back. The Gemini client is kept but unrouted |
 | Deploy | API on Render (`render.yaml` blueprint), frontend on Vercel (`frontend/vercel.json`); Docker for local dev |
 
 ## Local development

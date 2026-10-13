@@ -35,12 +35,27 @@ class Settings(BaseSettings):
     #: Sonnet since October 2026, by the owner's decision ("ill use sonnet not
     #: opus", 11 October 2026). That supersedes the half of AV-124 that put the
     #: judgement surfaces (marking, extraction, booklet, syllabus, readiness,
-    #: plan weighting) on Opus: the modelled cost per student on Opus was more
-    #: than the product charges. UNMEASURED: nobody has compared Sonnet's marks
-    #: with Opus's on real papers. The first rehearsal with real papers is where
-    #: that is looked at; going back is this one line, or ANTHROPIC_MODEL in the
+    #: plan weighting) on Opus: the owner judged Opus's estimated cost per
+    #: student too high. UNMEASURED: nobody has compared Sonnet's marks with
+    #: Opus's on real papers. The first rehearsal with real papers is where that
+    #: is looked at; going back is this one line, or ANTHROPIC_MODEL in the
     #: environment, with a cost somebody chose.
+    #:
+    #: Checked against Anthropic's model page on 13 October 2026: the id is
+    #: valid, and its output limit (128K tokens) is well above the largest
+    #: answer any surface asks for (marking, 32,000).
     anthropic_model: str = "claude-sonnet-5"
+
+    @field_validator("anthropic_model")
+    @classmethod
+    def _blank_anthropic_model_is_the_default(cls, v: str) -> str:
+        # `ANTHROPIC_MODEL=` with nothing after it reads as "", and "" went to
+        # the provider as the model id for every surface that follows this
+        # default, marking included. Blank means "the default" here, the same
+        # thing a blank per-surface model means, rather than a failed start:
+        # a bad AI setting must never block startup (AI-20).
+        return v.strip() or cls.model_fields["anthropic_model"].default
+
     # Google Gemini. **No surface routes here as of task 3.2** (AV-124) — these
     # two settings and the client in services/ai.py are kept, unused, because
     # the plan says to keep them: retiring a provider is a routing decision, and
