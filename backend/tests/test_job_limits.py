@@ -146,7 +146,8 @@ async def test_a_handler_that_never_returns_is_stopped(client, handler):
     job = await _the_job()
     assert job.status == JobStatus.pending, "a stall gets the one retry, like any failure"
     assert job.error == f"The job ran past its {SHORT:g}-second time limit and was stopped"
-    assert job.claimed_by is None and job.claimed_at is None
+    assert job.claimed_by is None
+    assert job.claimed_at is None
 
 
 async def test_a_job_stopped_twice_is_failed_and_the_queue_moves_on(client, handler):
@@ -440,9 +441,10 @@ async def test_a_missing_file_is_logged_with_its_key_where_it_is_raised(
     caplog, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(get_settings(), "upload_dir", str(tmp_path))
+    backend = storage.LocalBackend()
     with (
         caplog.at_level("WARNING", logger=storage.log.name),
         pytest.raises(storage.ObjectNotFoundError),
     ):
-        await storage.LocalBackend().download("org/3/never-uploaded.pdf")
+        await backend.download("org/3/never-uploaded.pdf")
     assert "org/3/never-uploaded.pdf" in caplog.text

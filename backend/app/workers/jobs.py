@@ -17,6 +17,7 @@ contain.
 import asyncio
 import contextlib
 import logging
+import math
 import os
 import secrets
 import traceback
@@ -314,9 +315,10 @@ def register_handler(
     default time limit (`job_timeout_seconds`) for a job that is known to need
     a different one; leaving it out also clears an override left by an earlier
     registration."""
-    if timeout_seconds is not None and not timeout_seconds > 0:
+    if timeout_seconds is not None and (timeout_seconds <= 0 or math.isnan(timeout_seconds)):
         # Zero, a negative or NaN would stop every run of the job the moment it
-        # started, which reads as "the job is broken", not as a typo here.
+        # started, which reads as "the job is broken", not as a typo here. NaN
+        # is named because it compares false to everything, `<= 0` included.
         raise ValueError(f"timeout_seconds for '{job_type}' must be above 0")
     _handlers[job_type] = handler
     if timeout_seconds is None:
@@ -550,6 +552,36 @@ async def enqueue(
     return job
 
 
+async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str | None, bool]:
+    """Run one claimed job's handler inside its time limit. Returns the error to
+    record (None when the handler finished) and whether that failure itself
+    says a second attempt cannot succeed. Never raises for a job's own failure;
+    a cancellation of the worker passes straight through."""
+    handler = _handlers.get(job_type)
+    if handler is None:
+        # Not permanent: during a deploy an older worker can claim a job type
+        # only the newer code knows, and the retry lands on that.
+        return f"No handler registered for job type '{job_type}'", False
+    limit = job_timeout_seconds(job_type)
+    try:
+        # The session is opened inside the limit, so its rollback and close run
+        # as the cancellation unwinds. `asyncio.timeout` turns only its own
+        # cancellation into TimeoutError: a worker being shut down still sees
+        # CancelledError and stops.
+        async with asyncio.timeout(limit) as deadline, async_session() as session:
+            await handler(session, payload)
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001 — worker must survive any job error
+        if isinstance(exc, TimeoutError) and deadline.expired():
+            # Not marked permanent: a stall can be a one-off, and the retry is
+            # the only second chance the work gets.
+            log.error("job %s (%s) stopped at its %ss limit", job_id, job_type, limit)
+            return _timeout_message(limit), False
+        log.error("job %s (%s) failed: %s\n%s", job_id, job_type, exc, traceback.format_exc())
+        return str(exc) or exc.__class__.__name__, is_permanent(exc)
+    return None, False
+
+
 async def process_one_job() -> bool:
     """Claim and run one due pending job. Returns False when nothing is due."""
     now = datetime.now(timezone.utc)
@@ -578,41 +610,7 @@ async def process_one_job() -> bool:
 
     await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
     try:
-        handler = _handlers.get(job_type)
-        error: str | None = None
-        # Whether the failure itself says a second attempt cannot succeed. A
-        # missing handler does not: during a deploy an older worker can claim a
-        # job type only the newer code knows, and the retry lands on that.
-        permanent = False
-        if handler is None:
-            error = f"No handler registered for job type '{job_type}'"
-        else:
-            limit = job_timeout_seconds(job_type)
-            try:
-                # The session is opened inside the limit, so its rollback and
-                # close run as the cancellation unwinds. `asyncio.timeout`
-                # turns only its own cancellation into TimeoutError: a worker
-                # being shut down still sees CancelledError and stops.
-                async with asyncio.timeout(limit) as deadline:
-                    async with async_session() as session:
-                        await handler(session, payload)
-                        await session.commit()
-            except Exception as exc:  # noqa: BLE001 — worker must survive any job error
-                if isinstance(exc, TimeoutError) and deadline.expired():
-                    # Not marked permanent: a stall can be a one-off, and the
-                    # retry is the only second chance the work gets.
-                    log.error("job %s (%s) stopped at its %ss limit", job_id, job_type, limit)
-                    error = _timeout_message(limit)
-                else:
-                    log.error(
-                        "job %s (%s) failed: %s\n%s",
-                        job_id,
-                        job_type,
-                        exc,
-                        traceback.format_exc(),
-                    )
-                    error = str(exc) or exc.__class__.__name__
-                    permanent = is_permanent(exc)
+        error, permanent = await _run_handler(job_id, job_type, payload)
 
         async with async_session() as session:
             job = await session.get(Job, job_id)
