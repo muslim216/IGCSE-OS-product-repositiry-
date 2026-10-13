@@ -139,7 +139,7 @@ All backend settings come from environment variables (see `backend/.env.example`
 | `DATABASE_URL` | Postgres connection string (`postgres://…` URLs are auto-adapted) |
 | `JWT_SECRET` | Signing key for access/refresh tokens |
 | `ANTHROPIC_API_KEY` | Every AI surface. Without it, nothing AI-driven works |
-| `ANTHROPIC_MODEL` | Optional. Defaults to `claude-opus-5`; the four unpinned surfaces follow it |
+| `ANTHROPIC_MODEL` | Optional. Defaults to `claude-sonnet-5`; every surface with a blank model follows it |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | Unused since task 3.2 (`AV-124`) — no surface routes to Gemini |
 | `AI_MODEL_PRICING` | Per-token prices for cost analytics; `{}` reports calls as unpriced |
 | `READINESS_V2_SHADOW_ENABLED` | Kill switch for Readiness v2; `false` falls back to the v1 engine |

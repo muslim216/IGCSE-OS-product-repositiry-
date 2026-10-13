@@ -26,6 +26,11 @@ ENV_EXAMPLE = pathlib.Path(__file__).resolve().parent.parent / ".env.example"
 # narrative. Hard-coded from the decision rather than read from config.py,
 # because this table is deliberately priced ahead of the routing flip (task
 # 3.2) and must not silently follow config back to Gemini.
+#
+# Since October 2026 nothing resolves to Opus by default (see
+# test_no_surface_resolves_to_opus_by_default). It stays in this list because
+# ANTHROPIC_MODEL=claude-opus-5 is the documented way back, and a way back
+# that records every call as unpriced is the drift this file exists to catch.
 AV_124_MODELS = ("claude-opus-5", "claude-sonnet-5")
 
 # Configured today, deliberately not priced — on the way out under AV-124,
@@ -43,18 +48,11 @@ DELIBERATELY_UNPRICED = {"gemini-2.5-pro"}
 # provider's default", so the defaults are what such a surface actually bills
 # against — which is why anthropic_model is in this list and is separately
 # required to carry a price below.
-_MODEL_SETTINGS = (
-    "anthropic_model",
-    "gemini_model",
-    "ai_marking_model",
-    "ai_extraction_model",
-    "ai_syllabus_model",
-    "ai_reports_model",
-    "ai_readiness_model",
-    "ai_class_brief_model",
-    "ai_narrative_model",
-    "ai_marking_rules_model",
-)
+#
+# Read off `Settings` by name rather than listed by hand: the hand-written
+# list had fallen three surfaces behind (booklet, mistake tagging, plan
+# weighting), so the "exhaustive" guards below were not.
+_MODEL_SETTINGS = tuple(name for name in Settings.model_fields if name.endswith("_model"))
 
 
 def _repo_settings() -> Settings:
@@ -79,7 +77,7 @@ def _repo_settings() -> Settings:
     environment variables, which forces each one back to config.py's default
     regardless of what the process environment holds. Verified: exporting
     `ANTHROPIC_MODEL`/`GEMINI_MODEL` before running this still resolves to
-    `claude-opus-5` / `gemini-2.5-pro`."""
+    config.py's own defaults."""
     overrides = {name: Settings.model_fields[name].default for name in _MODEL_SETTINGS}
     return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
 
@@ -134,7 +132,7 @@ def test_the_models_av_124_routes_to_are_priced():
 
 def test_the_anthropic_default_is_priced():
     """Every surface with a blank per-surface model resolves to
-    `anthropic_model` — four of the seven since task 3.2. Leaving it unpriced
+    `anthropic_model` — every judgement surface since task 3.2. Leaving it unpriced
     would blind most of the product's spend at once."""
     prices = _example_pricing()
     default = _repo_settings().anthropic_model
@@ -142,6 +140,24 @@ def test_the_anthropic_default_is_priced():
         f"anthropic_model is {default!r} and it has no price in .env.example — "
         "price it, or land task 3.2 so nothing resolves to it."
     )
+
+
+def test_no_surface_resolves_to_opus_by_default():
+    """The owner's decision of 11 October 2026: "ill use sonnet not opus".
+
+    It supersedes the half of AV-124 that put the judgement surfaces on Opus.
+    Asserted on every model setting rather than on `anthropic_model` alone,
+    because a per-surface pin naming Opus would put that surface back on it
+    while the default still read Sonnet. Going back is allowed; doing it by
+    accident in a default is what this stops."""
+    settings = _repo_settings()
+    assert settings.anthropic_model == "claude-sonnet-5"
+    on_opus = {
+        attr: value
+        for attr in _MODEL_SETTINGS
+        if "opus" in (value := getattr(settings, attr, "") or "").lower()
+    }
+    assert not on_opus, f"these settings default to an Opus model: {on_opus}"
 
 
 def test_no_configured_model_is_unpriced_by_accident():
