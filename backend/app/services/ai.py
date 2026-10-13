@@ -51,6 +51,11 @@ class AIKeyMissingError(AIUnavailableError):
     swallowing a missing optional SDK or a misrouted provider, which are
     deployment faults that should fail loudly."""
 
+    #: Read by the job worker (`workers/jobs.py:is_permanent`): a second
+    #: attempt a minute later meets the same missing key, so the job is not
+    #: retried. Only this subclass is marked; the parent keeps its retry.
+    retryable = False
+
 
 # Said in more than one place, so defined once. Tests assert on the literal text
 # on purpose, so a reworded message still fails one.
@@ -70,7 +75,17 @@ class AICallFailedError(RuntimeError):
     hierarchy means no caller has to learn the difference.
 
     `model` and the token counts are filled whenever the stream delivered a final
-    message with usage, so a later change can record what a failed call cost."""
+    message with usage, so a later change can record what a failed call cost.
+
+    `retryable` is what the job worker reads (`workers/jobs.py:is_permanent`)
+    to decide whether the job's one retry is worth making. True unless the
+    failure is one the same request would meet again: an answer cut off at the
+    output limit, a refusal, an input too large to read, or a request the
+    provider rejected outright (a bad key, an unknown model, a malformed
+    request). A timeout, a dropped connection, a rate limit and a provider
+    fault all keep the retry."""
+
+    retryable: bool = True
 
     def __init__(
         self,
@@ -79,11 +94,16 @@ class AICallFailedError(RuntimeError):
         model: str | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        retryable: bool | None = None,
     ) -> None:
         super().__init__(message)
         self.model = model
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
+        # Left to the class default unless a raise site says otherwise, so a
+        # subclass can decide for all of its instances.
+        if retryable is not None:
+            self.retryable = retryable
 
 
 class AIOutputTruncatedError(AICallFailedError):
@@ -92,7 +112,12 @@ class AIOutputTruncatedError(AICallFailedError):
     Its own type so a caller (or a log search) can tell "raise the limit" from
     "the AI is down". Before this, a cut-off structured answer surfaced as a
     pydantic schema error about unterminated JSON, which looked like a model
-    fault rather than a limit."""
+    fault rather than a limit.
+
+    Not retried: the same request stops at the same limit, and each attempt
+    bills the whole cut-off answer."""
+
+    retryable = False
 
 
 class AITimeoutError(AICallFailedError):
@@ -339,16 +364,62 @@ def _is_timeout(exc: BaseException) -> bool:
     )
 
 
+#: What a person is told for a status the provider answered with, and whether
+#: asking again could go differently. The wording is shown to a tutor as it is
+#: (`submission.ai_error`, `extraction_error`), so it says what happened and
+#: nothing about keys or request ids; the provider's own text goes to the log.
+_REJECTED_MESSAGE = "The AI provider rejected the request"
+_STATUS_FAILURES: dict[int, tuple[str, bool]] = {
+    400: (_REJECTED_MESSAGE, False),
+    401: ("The AI provider did not accept the API key", False),
+    403: ("The AI provider refused access for this API key", False),
+    404: ("The AI provider does not have the model that was asked for", False),
+    413: ("The request was too large for the AI provider", False),
+    422: (_REJECTED_MESSAGE, False),
+    429: ("The AI provider is limiting how many requests it accepts right now", True),
+}
+
+
+def _status_failure(status: int) -> tuple[str, bool]:
+    """Message and `retryable` for a provider status. Anything not listed is
+    treated as the provider's own fault and worth one more try: the 5xx family,
+    529 (overloaded), and any 4xx this table has not met — an unknown failure
+    keeps its retry, which is the rule everywhere else in the job worker."""
+    return _STATUS_FAILURES.get(status, (f"The AI provider had a problem (status {status})", True))
+
+
 @contextlib.asynccontextmanager
-async def _http_errors_as_ai_errors() -> AsyncIterator[None]:
-    """Turn a raw HTTP-library error from partway through an answer into one of
-    our own, so a caller sees one timeout type and a readable message instead of
-    the bare class name (`submission.ai_error` was just "ReadTimeout"). Wraps the
-    whole stream block, so it also covers an error raised while leaving it.
-    Everything else — `anthropic.APIError`, `ValidationError`, cancellation —
-    passes through untouched."""
+async def _provider_errors_as_ai_errors(surface: str) -> AsyncIterator[None]:
+    """Turn what the provider or the HTTP library under it raises into one of
+    our own errors, so a caller sees one family (`AICallFailedError`), a
+    readable message instead of a bare class name (`submission.ai_error` was
+    just "ReadTimeout"), and a `retryable` flag the job worker can act on.
+    Wraps the whole stream block, so it also covers an error raised while
+    leaving it.
+
+    Three sources. A status the provider answered with (`APIStatusError`): the
+    SDK has already made its own retry by the time one reaches here. A request
+    that never got an answer (`APIConnectionError`; its timeout subclass is
+    translated further in, by `_call_deadline`). And a raw HTTP-library error
+    from partway through the answer, which the SDK does not wrap.
+
+    Everything else — `ValidationError`, our own errors, cancellation — passes
+    through untouched."""
     try:
         yield
+    except anthropic.APIStatusError as exc:
+        message, retryable = _status_failure(exc.status_code)
+        log.error(
+            "AI call on surface %r was answered with status %s (request %s): %s",
+            surface,
+            exc.status_code,
+            exc.request_id,
+            exc,
+        )
+        raise AICallFailedError(message, retryable=retryable) from exc
+    except anthropic.APIConnectionError as exc:
+        log.error("AI call on surface %r could not reach the provider: %r", surface, exc)
+        raise AICallFailedError("Could not reach the AI provider") from exc
     except Exception as exc:
         if not _from_http_stack(exc):
             raise
@@ -483,7 +554,9 @@ def _truncated_message(max_tokens: int) -> str:
     return f"The AI's answer was cut off at the output limit ({max_tokens} tokens)"
 
 
-def _failure(cls: type[AICallFailedError], message: str, final: Any) -> AICallFailedError:
+def _failure(
+    cls: type[AICallFailedError], message: str, final: Any, *, retryable: bool | None = None
+) -> AICallFailedError:
     """A failed-call error carrying whatever the final message says it cost."""
     usage = getattr(final, "usage", None)
     return cls(
@@ -491,6 +564,7 @@ def _failure(cls: type[AICallFailedError], message: str, final: Any) -> AICallFa
         model=getattr(final, "model", None),
         input_tokens=getattr(usage, "input_tokens", None),
         output_tokens=getattr(usage, "output_tokens", None),
+        retryable=retryable,
     )
 
 
@@ -520,13 +594,16 @@ def _raise_for_stop_reason(final: Any, *, max_tokens: int, truncation_ok: bool) 
         raise _failure(AICallFailedError, _INTERRUPTED_MESSAGE, final)
     if reason == "max_tokens" and not truncation_ok:
         raise _failure(AIOutputTruncatedError, _truncated_message(max_tokens), final)
+    # Neither of these two is retried: the same pages and the same prompt meet
+    # the same refusal, and an input that does not fit will not fit a minute on.
     if reason == "refusal":
-        raise _failure(AICallFailedError, "The AI declined to answer", final)
+        raise _failure(AICallFailedError, "The AI declined to answer", final, retryable=False)
     if reason == "model_context_window_exceeded":
         raise _failure(
             AICallFailedError,
             "The input was too large for the AI to read in one go",
             final,
+            retryable=False,
         )
 
 
@@ -573,7 +650,7 @@ async def structured_complete(
         # This is transport only: nothing is passed on incrementally, and we
         # still wait for the one complete message.
         async with (
-            _http_errors_as_ai_errors(),
+            _provider_errors_as_ai_errors(surface),
             _call_deadline(surface, get_settings().ai_call_timeout_seconds),
             client.messages.stream(
                 model=model,
@@ -662,7 +739,7 @@ async def text_complete(
         # non-streaming guard refuses large `max_tokens` before sending, and a
         # future caller should not have to know where that line is.
         async with (
-            _http_errors_as_ai_errors(),
+            _provider_errors_as_ai_errors(surface),
             _call_deadline(surface, limit),
             client.messages.stream(
                 model=model,

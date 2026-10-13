@@ -20,6 +20,7 @@ production cutover, which is deliberately a separate change from this one;
 
 import asyncio
 import io
+import logging
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -29,6 +30,8 @@ from urllib.parse import quote
 from fastapi import HTTPException, UploadFile, status
 
 from app.config import get_settings
+
+log = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 20 * 1024 * 1024  # 20 MB per file
 ALLOWED_MIMES = {
@@ -152,7 +155,20 @@ class ObjectNotFoundError(Exception):
     other way a backend can fail — a 502. Without this, a stale row or an
     object expired out of a lifecycle policy surfaced as a bare unhandled 500
     with no distinguishing signal in the response or the log line.
+
+    Its message is what a tutor reads when a job needed the file
+    (`submission.ai_error`, `extraction_error`), so it is a sentence and not
+    the storage key it used to be. The key is on `.key` and in the log line
+    written where this is raised.
     """
+
+    #: Read by the job worker (`workers/jobs.py:is_permanent`): a file that is
+    #: gone is still gone a minute later, so the job is not retried.
+    retryable = False
+
+    def __init__(self, key: str) -> None:
+        super().__init__("An uploaded file this needs is missing from storage")
+        self.key = key
 
 
 # --------------------------------------------------------------------------- #
@@ -213,6 +229,7 @@ class LocalBackend:
             try:
                 return self._path(key).read_bytes()
             except FileNotFoundError:
+                log.warning("stored object is missing (local): %s", key)
                 raise ObjectNotFoundError(key) from None
 
         return await asyncio.to_thread(_read)
@@ -281,6 +298,7 @@ class S3Backend:
                 response = self._client.get_object(Bucket=self._bucket, Key=key)
             except ClientError as exc:
                 if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                    log.warning("stored object is missing (s3): %s", key)
                     raise ObjectNotFoundError(key) from None
                 raise
             body: bytes = response["Body"].read()

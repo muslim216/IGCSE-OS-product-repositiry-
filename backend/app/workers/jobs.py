@@ -2,8 +2,10 @@
 
 Jobs are persisted so nothing is lost on restart. Handlers are registered in a
 dict by job type; the worker loop claims the oldest pending job, runs it, and
-records success or failure (with one retry). Tests call process_one_job()
-directly instead of running the loop.
+records success or failure (with one retry, unless the failure says a retry
+cannot help: see `is_permanent`). A handler that runs past its time limit is
+stopped (`JOB_TIMEOUT_SECONDS`). Tests call process_one_job() directly instead
+of running the loop.
 
 The worker can run inside the API process (today's deployment) or as its own
 service (`python -m app.workers`, task 1.3) — the claim query has always been
@@ -50,6 +52,25 @@ STALE_AFTER_SECONDS = 120.0
 #: would.
 JOB_STALL_SECONDS = 900.0
 
+#: A handler still running after this long is stopped and its job counted as a
+#: failed attempt. The same number as JOB_STALL_SECONDS on purpose: that is
+#: where a job is already declared hung, and until now nothing acted on the
+#: declaration — with one worker, a handler that never returned stopped every
+#: job behind it for good, and the only trace was a field on /health/ready.
+#:
+#: This is the backstop, not the usual way a slow job ends. Every AI call has
+#: its own shorter deadline (`ai_call_timeout_seconds`, 840) and every outbound
+#: HTTP client its own timeout, and those end as ordinary exceptions the
+#: handler can catch to record a failure on the row it was working on. This
+#: limit arrives as a cancellation, which no handler's `except Exception` sees:
+#: a handler stopped here leaves its row as it was ("extracting", "generating",
+#: a submission still "submitted"). That is the same state a deploy that kills
+#: the process mid-job leaves, and it is repaired by the same later work, not
+#: here. A stopped handler is still better than a stopped queue.
+#:
+#: UNMEASURED, like the AI deadline it sits above: no real job has been timed.
+JOB_TIMEOUT_SECONDS = JOB_STALL_SECONDS
+
 #: A worker that raises on every iteration is restarted by the supervisor every
 #: WORKER_RESTART_SECONDS, and each restart re-stamps _last_loop_at — so without
 #: counting restarts a crash loop is indistinguishable from a healthy worker,
@@ -61,6 +82,10 @@ CRASH_LOOP_THRESHOLD = 3
 
 Handler = Callable[[AsyncSession, dict], Awaitable[None]]
 _handlers: dict[str, Handler] = {}
+#: Job types whose time limit is not JOB_TIMEOUT_SECONDS. Kept beside
+#: `_handlers` rather than inside it so that dict stays what tests and callers
+#: already treat it as: job type -> handler.
+_timeouts: dict[str, float] = {}
 
 #: This process's worker identity. Generated per process, not per machine: a
 #: restarted process is a new worker with its own row, which is what makes a
@@ -295,8 +320,39 @@ def _aware(value: datetime | None) -> datetime | None:
     return value
 
 
-def register_handler(job_type: str, handler: Handler) -> None:
+def register_handler(
+    job_type: str, handler: Handler, *, timeout_seconds: float | None = None
+) -> None:
+    """Register `handler` for `job_type`. `timeout_seconds` replaces
+    JOB_TIMEOUT_SECONDS for a job that is known to need longer; leaving it out
+    also clears an override left by an earlier registration."""
     _handlers[job_type] = handler
+    if timeout_seconds is None:
+        _timeouts.pop(job_type, None)
+    else:
+        _timeouts[job_type] = timeout_seconds
+
+
+def job_timeout_seconds(job_type: str) -> float:
+    """How long one run of `job_type` may take before it is stopped."""
+    return _timeouts.get(job_type, JOB_TIMEOUT_SECONDS)
+
+
+def is_permanent(exc: BaseException) -> bool:
+    """Whether a second attempt at the job that raised `exc` cannot succeed.
+
+    A failure opts out of the retry by carrying `retryable = False`, on the
+    class or the instance. An attribute rather than a base class because the
+    failures that need it are defined in `services/` (a missing API key, an
+    answer cut off at the output limit, a request the provider rejected, an
+    uploaded file that is gone) and this module imports nothing from there.
+    Everything unmarked keeps the retry: an unknown failure is treated as one
+    that might pass, which is what the retry has always been for."""
+    return getattr(exc, "retryable", True) is False
+
+
+def _timeout_message(limit: float) -> str:
+    return f"The job ran past its {limit:g}-second time limit and was stopped"
 
 
 @dataclass(frozen=True)
@@ -476,18 +532,39 @@ async def process_one_job() -> bool:
     try:
         handler = _handlers.get(job_type)
         error: str | None = None
+        # Whether the failure itself says a second attempt cannot succeed. A
+        # missing handler does not: during a deploy an older worker can claim a
+        # job type only the newer code knows, and the retry lands on that.
+        permanent = False
         if handler is None:
             error = f"No handler registered for job type '{job_type}'"
         else:
+            limit = job_timeout_seconds(job_type)
             try:
-                async with async_session() as session:
-                    await handler(session, payload)
-                    await session.commit()
+                # The session is opened inside the limit, so its rollback and
+                # close run as the cancellation unwinds. `asyncio.timeout`
+                # turns only its own cancellation into TimeoutError: a worker
+                # being shut down still sees CancelledError and stops.
+                async with asyncio.timeout(limit) as deadline:
+                    async with async_session() as session:
+                        await handler(session, payload)
+                        await session.commit()
             except Exception as exc:  # noqa: BLE001 — worker must survive any job error
-                log.error(
-                    "job %s (%s) failed: %s\n%s", job_id, job_type, exc, traceback.format_exc()
-                )
-                error = str(exc) or exc.__class__.__name__
+                if isinstance(exc, TimeoutError) and deadline.expired():
+                    # Not marked permanent: a stall can be a one-off, and the
+                    # retry is the only second chance the work gets.
+                    log.error("job %s (%s) stopped at its %ss limit", job_id, job_type, limit)
+                    error = _timeout_message(limit)
+                else:
+                    log.error(
+                        "job %s (%s) failed: %s\n%s",
+                        job_id,
+                        job_type,
+                        exc,
+                        traceback.format_exc(),
+                    )
+                    error = str(exc) or exc.__class__.__name__
+                    permanent = is_permanent(exc)
 
         async with async_session() as session:
             job = await session.get(Job, job_id)
@@ -500,7 +577,7 @@ async def process_one_job() -> bool:
             if error is None:
                 job.status = JobStatus.done
                 job.error = None
-            elif attempts < MAX_ATTEMPTS:
+            elif attempts < MAX_ATTEMPTS and not permanent:
                 job.status = JobStatus.pending  # retry
                 # Held back rather than re-claimed on the next poll: see
                 # RETRY_BACKOFF_SECONDS. Handlers are required to be safe to
@@ -517,7 +594,12 @@ async def process_one_job() -> bool:
                 # Nothing watches the failed count yet, so this line is the only
                 # record that a piece of a student's work stopped moving.
                 log.error(
-                    "job %s (%s) gave up after %s attempts: %s", job_id, job_type, attempts, error
+                    "job %s (%s) gave up after %s attempt(s)%s: %s",
+                    job_id,
+                    job_type,
+                    attempts,
+                    ", a retry could not have helped" if permanent else "",
+                    error,
                 )
             await session.commit()
     finally:

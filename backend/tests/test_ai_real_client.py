@@ -370,13 +370,139 @@ def test_the_http_stack_is_recognised_by_module_name_only():
     assert not ai_service._from_http_stack(TimeoutError("x"))
 
 
-async def test_other_errors_pass_through_the_mid_answer_translation_untouched():
-    for exc in (ValueError("x"), TimeoutError("x"), KeyError("x")):
-        translator = ai_service._http_errors_as_ai_errors()
+async def test_other_errors_pass_through_the_translation_untouched():
+    ours = AITimeoutError("already ours")
+    for exc in (ValueError("x"), TimeoutError("x"), KeyError("x"), ours):
+        translator = ai_service._provider_errors_as_ai_errors("marking")
         with pytest.raises(type(exc)) as caught:
             async with translator:
                 raise exc
         assert caught.value is exc
+
+
+# --------------------------------------------------------------------------
+# A status the provider answered with, and a request that never got an answer
+# --------------------------------------------------------------------------
+# These used to escape as the SDK's own classes: `submission.ai_error` held the
+# provider's raw text, the class brief answered 500, and the job worker retried
+# a rejected API key a minute later as if a minute could change it.
+
+PROVIDER_TEXT = "x-api-key header is invalid: sk-ant-PROVIDER-DETAIL"
+
+
+@pytest.fixture
+def answer_with(monkeypatch, anthropic_key):
+    """Point the real client at a server that answers every request with one
+    status. The SDK's own retry is switched off so a 429 or 5xx does not sit
+    in its backoff; that retry is the SDK's and is not what is under test."""
+    monkeypatch.setattr(get_settings(), "ai_max_retries", 0)
+
+    def _answer(status: int) -> list:
+        requests: list = []
+
+        def _respond(request):
+            requests.append(request)
+            return http.Response(
+                status,
+                headers={"request-id": "req_canned"},
+                json={"type": "error", "error": {"type": "some_error", "message": PROVIDER_TEXT}},
+            )
+
+        monkeypatch.setattr(ai_service, "_transport", http.MockTransport(_respond))
+        return requests
+
+    return _answer
+
+
+@pytest.mark.parametrize(
+    ("status", "message", "retryable"),
+    [
+        (400, "The AI provider rejected the request", False),
+        (401, "The AI provider did not accept the API key", False),
+        (403, "The AI provider refused access for this API key", False),
+        (404, "The AI provider does not have the model that was asked for", False),
+        (413, "The request was too large for the AI provider", False),
+        (422, "The AI provider rejected the request", False),
+        (429, "The AI provider is limiting how many requests it accepts right now", True),
+        (500, "The AI provider had a problem (status 500)", True),
+        (529, "The AI provider had a problem (status 529)", True),
+        (418, "The AI provider had a problem (status 418)", True),
+    ],
+)
+@pytest.mark.parametrize("helper", ["structured", "text"])
+async def test_a_provider_status_becomes_one_of_ours(
+    answer_with, caplog, helper, status, message, retryable
+):
+    requests = answer_with(status)
+
+    call = _structured if helper == "structured" else _text
+    with (
+        caplog.at_level("ERROR", logger=ai_service.log.name),
+        pytest.raises(AICallFailedError) as caught,
+    ):
+        await call()
+
+    assert len(requests) == 1
+    assert type(caught.value) is AICallFailedError
+    assert str(caught.value) == message
+    assert caught.value.retryable is retryable
+    assert isinstance(caught.value.__cause__, anthropic.APIStatusError)
+    # What a tutor reads carries none of the provider's own text; the log does.
+    assert "PROVIDER-DETAIL" not in str(caught.value)
+    assert "PROVIDER-DETAIL" in caplog.text
+    assert "req_canned" in caplog.text
+
+
+@pytest.mark.parametrize("helper", ["structured", "text"])
+async def test_a_request_that_never_reaches_the_provider_is_ours_and_retried(
+    monkeypatch, anthropic_key, helper
+):
+    monkeypatch.setattr(get_settings(), "ai_max_retries", 0)
+
+    def _refuse(request):
+        raise http.ConnectError("connection refused")
+
+    monkeypatch.setattr(ai_service, "_transport", http.MockTransport(_refuse))
+
+    call = _structured if helper == "structured" else _text
+    with pytest.raises(AICallFailedError, match="Could not reach the AI provider") as caught:
+        await call()
+
+    assert type(caught.value) is AICallFailedError
+    assert caught.value.retryable is True
+    assert isinstance(caught.value.__cause__, anthropic.APIConnectionError)
+
+
+def test_which_failures_a_retry_cannot_fix():
+    """The flag the job worker reads. Marked by hand on purpose: a new failure
+    type keeps the retry until somebody decides it should not."""
+    assert AIKeyMissingError("x").retryable is False
+    assert AIOutputTruncatedError("x").retryable is False
+    assert AICallFailedError("x").retryable is True
+    assert AITimeoutError("x").retryable is True
+    assert AICallFailedError("x", retryable=False).retryable is False
+    # The parent of the missing-key error keeps its retry (a missing optional
+    # SDK or a misrouted provider), so it carries no flag at all.
+    assert not hasattr(AIUnavailableError("x"), "retryable")
+
+
+async def test_a_refusal_and_an_oversized_input_are_not_retried(serve):
+    serve(sse_message("", stop_reason="refusal"))
+    with pytest.raises(AICallFailedError) as refused:
+        await _structured()
+    assert refused.value.retryable is False
+
+    serve(sse_message("", stop_reason="model_context_window_exceeded"))
+    with pytest.raises(AICallFailedError) as too_large:
+        await _structured()
+    assert too_large.value.retryable is False
+
+
+async def test_an_interrupted_answer_keeps_its_retry(serve):
+    serve(sse_message(VERDICT_JSON, stop_reason=None))
+    with pytest.raises(AICallFailedError) as caught:
+        await _structured()
+    assert caught.value.retryable is True
 
 
 # --------------------------------------------------------------------------

@@ -12,6 +12,7 @@ entry points import it: `app.main` for the in-process worker, and
 which is the direction `BE-1` allows.
 """
 
+from app.config import get_settings
 from app.services.booklets import split_booklet
 from app.services.extraction import (
     extract_assignment,
@@ -47,6 +48,10 @@ from app.services.weekly_send import SWEEP_JOB as WEEKLY_SEND_SWEEP_JOB
 from app.services.weekly_send import build_weekly_sends, sweep_weekly_sends
 from app.workers.jobs import register_handler
 
+#: Room on top of the booklet reader's two AI deadlines for reading the files
+#: and counting pages.
+BOOKLET_READ_MARGIN_SECONDS = 120.0
+
 
 def register_all() -> None:
     """Register every job handler. Idempotent — registration is a dict
@@ -59,7 +64,19 @@ def register_all() -> None:
     register_handler("extract_mock", extract_mock)
     # Reads the list of papers inside an uploaded booklet (task 3.5, AV-117).
     # It only drafts — nothing exists until the tutor approves the list.
-    register_handler("extract_booklet", extract_booklet)
+    #
+    # The one job with a longer time limit than the rest: it makes two AI calls
+    # one after the other (the booklet, then its mark scheme), each allowed
+    # `ai_call_timeout_seconds`. Under the default limit a slow first call would
+    # leave the second cut short by the worker, which arrives as a cancellation
+    # and leaves the booklet showing "extracting" with no error. While such a
+    # read runs past JOB_STALL_SECONDS, /health/ready reports the worker as
+    # stalled; that is accurate, since the queue behind it is waiting.
+    register_handler(
+        "extract_booklet",
+        extract_booklet,
+        timeout_seconds=2 * get_settings().ai_call_timeout_seconds + BOOKLET_READ_MARGIN_SECONDS,
+    )
     # And cuts the booklet into those papers once they have. A job rather than
     # part of the approve request because splitting a PDF blocks (`BE-13`).
     register_handler("split_booklet", split_booklet)
