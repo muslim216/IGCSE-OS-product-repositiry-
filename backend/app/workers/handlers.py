@@ -66,7 +66,7 @@ def register_all() -> None:
     # `ai_call_timeout_seconds`, where the default limit leaves room for one.
     # A slow first call would otherwise leave the second cut short by the
     # worker, which arrives as a cancellation and leaves the booklet showing
-    # "extracting" with no error. While such a read runs past JOB_STALL_SECONDS,
+    # "extracting" with no error. While such a read runs past the default limit,
     # /health/ready reports the worker as stalled; that is accurate, since the
     # queue behind it is waiting. Read once, here: a deployment sets the AI
     # deadline in its environment, not while running.

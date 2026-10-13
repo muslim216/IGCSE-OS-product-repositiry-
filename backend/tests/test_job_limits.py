@@ -31,6 +31,7 @@ from app.workers.handlers import register_all
 from app.workers.jobs import (
     JOB_STALL_SECONDS,
     JOB_TIMEOUT_MARGIN_SECONDS,
+    default_job_timeout_seconds,
     enqueue,
     is_permanent,
     job_timeout_seconds,
@@ -96,6 +97,34 @@ def test_the_limit_follows_the_ai_deadline_and_never_drops_below_the_stall_point
 
     monkeypatch.setattr(settings, "ai_call_timeout_seconds", 30.0)
     assert job_timeout_seconds("mark_submission") == JOB_STALL_SECONDS
+
+
+def test_health_and_the_worker_agree_on_when_a_job_has_run_too_long(monkeypatch):
+    """One number, read in three places. With the AI deadline raised, a job the
+    worker still allows must not be reported as hung."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import WorkerHeartbeat
+
+    now = datetime.now(timezone.utc)
+
+    def _state(job_seconds: float) -> str:
+        row = WorkerHeartbeat(
+            worker_id="w",
+            started_at=now - timedelta(hours=1),
+            last_loop_at=now - timedelta(seconds=job_seconds),
+            job_started_at=now - timedelta(seconds=job_seconds),
+            restarts=[],
+        )
+        return jobs._status_for(row, now).state
+
+    assert default_job_timeout_seconds() == JOB_STALL_SECONDS
+    assert _state(JOB_STALL_SECONDS + 60) == "stalled"
+
+    monkeypatch.setattr(get_settings(), "ai_call_timeout_seconds", 1000.0)
+    assert default_job_timeout_seconds() == 1000.0 + JOB_TIMEOUT_MARGIN_SECONDS
+    assert _state(JOB_STALL_SECONDS + 60) == "running", "still inside the worker's limit"
+    assert _state(1000.0 + JOB_TIMEOUT_MARGIN_SECONDS + 60) == "stalled"
 
 
 async def test_a_handler_that_never_returns_is_stopped(client, handler):
@@ -178,11 +207,12 @@ async def test_a_timeout_raised_by_the_handler_itself_is_reported_as_its_own(cli
     assert job.status == JobStatus.pending
 
 
-async def test_the_ai_deadline_ends_a_slow_call_before_the_worker_has_to(client, handler):
-    """Why the worker's limit must be the longer one. The AI deadline arrives
-    inside the handler as an ordinary exception, so the handler's own `except`
-    runs and records the failure on its row. The worker's limit arrives as a
-    cancellation, which that `except` never sees."""
+async def test_an_ai_deadline_reaches_the_handler_as_an_ordinary_failure(client, handler):
+    """What is lost when the worker's limit fires first, and so the reason it is
+    derived to be the longer one (the derivation is pinned by the first test in
+    this file). An AI deadline that expires inside a running job arrives in the
+    handler as an ordinary exception: the handler's own `except` runs and
+    records the failure on its row. The next test is the other half."""
     recorded: list[str] = []
 
     async def _marks(session, payload):

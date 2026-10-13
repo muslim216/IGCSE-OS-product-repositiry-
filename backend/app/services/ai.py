@@ -410,36 +410,60 @@ _TRANSIENT_4XX = frozenset({408, 409, 429})
 #: A rejected request is the one failure a tutor can sometimes fix themselves,
 #: by uploading the file again. The provider says which in its own words, so
 #: those words are read for a few known phrases; anything unrecognised gets the
-#: general sentence. Matching the provider's wording is fragile on purpose-built
-#: text, which is why a miss costs only a vaguer message, never a wrong retry:
-#: every row here is as final as the general one.
+#: general sentence. Two rules keep this from telling a tutor to upload again
+#: for a fault that is ours. The phrases are whole expressions the provider
+#: uses about a file's content, never single words: "image" alone is in the
+#: field path of every request that carries one, and "pdf" in the message for a
+#: model that does not accept PDFs at all. And only the provider's own message
+#: is read, never the text of a response that was not its usual JSON (a proxy's
+#: error page). A miss costs a vaguer message, never a wrong retry: every row
+#: here is as final as the general one.
 _UNREADABLE_FILE = (
     "The AI provider could not read one of the files. It may be damaged, "
     "password-protected, too long or too large"
 )
 _INPUT_TOO_LARGE = "The input was too large for the AI to read in one go"
 _REJECTION_PHRASES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("credit balance", "billing"), _BILLING[0]),
-    (("prompt is too long", "too many tokens", "context window"), _INPUT_TOO_LARGE),
-    (("pdf", "image", "password", "pages"), _UNREADABLE_FILE),
+    (("credit balance", "usage limits", "regain access"), _BILLING[0]),
+    (("prompt is too long",), _INPUT_TOO_LARGE),
+    (
+        (
+            "password protected",
+            "password-protected",
+            "not a valid pdf",
+            "pdf specified was not valid",
+            "could not process pdf",
+            "could not process image",
+            "image exceeds",
+            "pdf pages",
+        ),
+        _UNREADABLE_FILE,
+    ),
 )
-#: How much of the provider's own text one log line keeps. It normally names a
-#: field of the request; nothing promises it stays short.
+#: How much of the provider's (or the HTTP library's) own text one log line
+#: keeps. It normally names a field of the request or a host; nothing promises
+#: it stays short.
 _PROVIDER_TEXT_LOG_LIMIT = 500
 
 
-def _provider_error_detail(exc: anthropic.APIStatusError) -> tuple[str | None, str]:
-    """The provider's error type and message, read from the response body when
-    it has the usual shape and from the exception otherwise."""
+def _provider_error_detail(exc: anthropic.APIStatusError) -> tuple[str | None, str | None]:
+    """The provider's error type and its own message, read from the response
+    body. The message is None when the body does not have the provider's usual
+    shape, so that a proxy's error page is never read as the provider's words."""
     body = exc.body if isinstance(exc.body, dict) else {}
     error = body.get("error")
     error = error if isinstance(error, dict) else {}
     kind = error.get("type") or getattr(exc, "type", None)
-    text = error.get("message") or str(exc)
-    return (kind if isinstance(kind, str) else None), str(text)
+    message = error.get("message")
+    return (
+        kind if isinstance(kind, str) else None,
+        message if isinstance(message, str) and message else None,
+    )
 
 
-def _classify_provider_failure(status: int, kind: str | None, text: str) -> tuple[str, bool]:
+def _classify_provider_failure(
+    status: int, kind: str | None, provider_message: str | None
+) -> tuple[str, bool]:
     """Message and `job_retryable` for a failure the provider reported.
 
     An error status decides on its own. Below 400 the error came inside a
@@ -451,8 +475,8 @@ def _classify_provider_failure(status: int, kind: str | None, text: str) -> tupl
         permanent = 400 <= status < 500 and status not in _TRANSIENT_4XX
         return _REJECTED if permanent else _PROVIDER_FAULT
     message, retryable = _FAILURES_BY_KIND[known]
-    if known == "invalid_request_error":
-        lowered = text.lower()
+    if known == "invalid_request_error" and provider_message:
+        lowered = provider_message.lower()
         for phrases, specific in _REJECTION_PHRASES:
             if any(phrase in lowered for phrase in phrases):
                 return specific, False
@@ -483,8 +507,8 @@ async def _provider_errors_as_ai_errors(surface: str) -> AsyncIterator[None]:
     try:
         yield
     except anthropic.APIStatusError as exc:
-        kind, text = _provider_error_detail(exc)
-        message, retryable = _classify_provider_failure(exc.status_code, kind, text)
+        kind, provider_message = _provider_error_detail(exc)
+        message, retryable = _classify_provider_failure(exc.status_code, kind, provider_message)
         log.log(
             logging.WARNING if retryable else logging.ERROR,
             "AI call on surface %r failed at the provider: status %s, type %s, request %s: %s",
@@ -492,7 +516,7 @@ async def _provider_errors_as_ai_errors(surface: str) -> AsyncIterator[None]:
             exc.status_code,
             kind,
             exc.request_id,
-            text[:_PROVIDER_TEXT_LOG_LIMIT],
+            (provider_message or str(exc))[:_PROVIDER_TEXT_LOG_LIMIT],
         )
         raise AICallFailedError(message, job_retryable=retryable) from exc
     except anthropic.APIConnectionError as exc:
@@ -503,7 +527,7 @@ async def _provider_errors_as_ai_errors(surface: str) -> AsyncIterator[None]:
             "AI call on surface %r could not reach the provider: %s: %s",
             surface,
             type(cause).__name__ if cause is not None else type(exc).__name__,
-            cause if cause is not None else exc,
+            str(cause if cause is not None else exc)[:_PROVIDER_TEXT_LOG_LIMIT],
         )
         raise AICallFailedError("Could not reach the AI provider") from exc
     except anthropic.APIError as exc:
@@ -516,7 +540,7 @@ async def _provider_errors_as_ai_errors(surface: str) -> AsyncIterator[None]:
             "AI call on surface %r lost its connection mid-answer: %s: %s",
             surface,
             type(exc).__name__,
-            exc,
+            str(exc)[:_PROVIDER_TEXT_LOG_LIMIT],
         )
         if _is_timeout(exc):
             raise AITimeoutError(_TIMEOUT_MESSAGE) from exc

@@ -69,7 +69,7 @@ CRASH_LOOP_THRESHOLD = 3
 
 Handler = Callable[[AsyncSession, dict], Awaitable[None]]
 _handlers: dict[str, Handler] = {}
-#: Job types whose time limit is not JOB_TIMEOUT_SECONDS. Kept beside
+#: Job types whose time limit is not the default one. Kept beside
 #: `_handlers` rather than inside it so that dict stays what tests and callers
 #: already treat it as: job type -> handler.
 _timeouts: dict[str, float] = {}
@@ -353,15 +353,25 @@ def job_timeout_seconds(job_type: str) -> float:
     worker to tell a handler its job was given up on. A stopped handler with
     one stuck row is still better than a stopped queue.
 
-    With the default settings this is exactly JOB_STALL_SECONDS, which
-    `services/extraction.py:read_in_progress` also uses for "a read this old is
-    not live": the worker stops a read at the moment that check stops
-    believing in it.
+    With the default settings this is exactly JOB_STALL_SECONDS. The margin is
+    deliberately the small one that keeps it there. A handler is cut before its
+    AI deadline only if reading its files took longer than the margin *and* the
+    AI call then ran to its own deadline, which is a failed job either way; the
+    difference is only whether the handler or the worker ends it.
 
     UNMEASURED, like the AI deadline under it: no real job has been timed."""
     override = _timeouts.get(job_type)
-    if override is not None:
-        return override
+    return override if override is not None else default_job_timeout_seconds()
+
+
+def default_job_timeout_seconds() -> float:
+    """The time limit of a job with no limit of its own, and the single number
+    for "this job has run too long". Three places read it and must agree: the
+    worker stops a job at it, /health/ready calls a job `stalled` past it, and
+    `services/extraction.py:read_in_progress` stops believing a read is live
+    past it. If they disagreed, a deployment that raised the AI deadline would
+    have health calling a healthy job hung, and a tutor's fix queued beside a
+    read that was still running."""
     return max(
         JOB_STALL_SECONDS,
         get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS,
@@ -403,7 +413,11 @@ class WorkerStatus:
     - `running` — the loop completed an iteration recently, or is inside a job.
     - `crash_looping` — the supervisor has restarted the loop CRASH_LOOP_THRESHOLD
       times inside the window. The loop is alive and no work is getting done.
-    - `stalled` — a single job has been in flight past JOB_STALL_SECONDS.
+    - `stalled` — a single job has been in flight past the default time limit
+      (`default_job_timeout_seconds`, JOB_STALL_SECONDS unless the AI deadline
+      was raised). The worker stops a job there, so this state now means a job
+      with a longer limit of its own (the booklet reader) or a stop that is
+      itself stuck.
     - `stale` — the loop stopped completing iterations with nothing in flight.
 
     The timestamps are kept apart on purpose. A worker part-way through a slow
@@ -448,7 +462,7 @@ def _status_for(row: WorkerHeartbeat, now: datetime) -> WorkerStatus:
         # question with the wrong answer.
         state = "crash_looping"
     elif job_seconds is not None:
-        state = "stalled" if job_seconds > JOB_STALL_SECONDS else "running"
+        state = "stalled" if job_seconds > default_job_timeout_seconds() else "running"
     elif loop_seconds is not None and loop_seconds > STALE_AFTER_SECONDS:
         state = "stale"
     else:

@@ -1743,6 +1743,28 @@ async def test_a_fix_waits_for_a_read_already_running(client, tutor, unreadable_
         assert (await session.get(PastPaper, paper_id)).paper_name == "paper.pdf"
 
 
+async def test_a_read_still_inside_a_raised_time_limit_blocks_a_fix(
+    client, tutor, unreadable_paper, monkeypatch
+):
+    """The age at which a read stops counting as live is the worker's own limit
+    for it. With the AI deadline raised, a read the worker still allows is
+    still a read in progress; at the old fixed threshold a fix would have
+    queued a second read beside it."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "ai_call_timeout_seconds", 1000.0)
+    async with async_session() as session:
+        [job] = (await session.scalars(select(Job))).all()
+        job.status = JobStatus.running
+        job.claimed_at = datetime.now(timezone.utc) - timedelta(seconds=JOB_STALL_SECONDS + 60)
+        await session.commit()
+    retry = await client.post(
+        f"/api/v1/past-papers/{unreadable_paper['id']}/retry-extraction",
+        headers=tutor["headers"],
+    )
+    assert retry.status_code == 409
+
+
 async def test_a_read_its_dead_worker_left_running_does_not_block_a_fix(
     client, tutor, unreadable_paper
 ):

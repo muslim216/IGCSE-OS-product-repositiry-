@@ -476,11 +476,26 @@ async def test_a_provider_status_becomes_one_of_ours(
     ("provider_text", "message"),
     [
         ("Your credit balance is too low to access the API", "billing problem"),
+        (
+            "You have reached your specified workspace API usage limits. "
+            "You will regain access on 2026-11-01",
+            "billing problem",
+        ),
         ("prompt is too long: 1203441 tokens > 1000000 maximum", "too large for the AI to read"),
         ("The PDF specified is password protected", "could not read one of the files"),
         ("image exceeds 5 MB maximum", "could not read one of the files"),
         ("A maximum of 100 PDF pages may be provided", "could not read one of the files"),
         ("messages.0.content.1: unexpected field", "rejected the request"),
+        # Faults of ours that happen to mention a file. A tutor told to upload
+        # again for any of these would be doing it for nothing.
+        (
+            "messages.0.content.0.image.source.base64.media_type: Input should be "
+            "'image/jpeg', 'image/png', 'image/gif' or 'image/webp'",
+            "rejected the request",
+        ),
+        ("'claude-x' does not support PDF input (document blocks)", "rejected the request"),
+        ("messages: model does not support image input", "rejected the request"),
+        ("max_tokens: 64000 > 32000, which is the maximum allowed", "rejected the request"),
     ],
 )
 async def test_a_rejected_request_says_what_a_tutor_can_do_about_it(
@@ -496,6 +511,26 @@ async def test_a_rejected_request_says_what_a_tutor_can_do_about_it(
 
     assert caught.value.job_retryable is False
     assert provider_text not in str(caught.value)
+
+
+async def test_a_response_that_is_not_the_providers_is_not_read_for_file_phrases(
+    monkeypatch, anthropic_key
+):
+    """A proxy or gateway in front of the provider answers with its own page.
+    Its text is not the provider talking about a file."""
+    monkeypatch.setattr(get_settings(), "ai_max_retries", 0)
+    page = "<html><title>400 Bad Request</title>password protected pdf pages</html>"
+    monkeypatch.setattr(
+        ai_service,
+        "_transport",
+        http.MockTransport(lambda request: http.Response(400, text=page)),
+    )
+
+    with pytest.raises(AICallFailedError) as caught:
+        await _structured()
+
+    assert str(caught.value) == REJECTED
+    assert caught.value.job_retryable is False
 
 
 def _mid_stream_error(kind: str) -> bytes:
