@@ -155,7 +155,8 @@ class Settings(BaseSettings):
     ai_request_timeout_seconds: float = 600.0
     # Retries the SDK makes on a connection error, 429 or 5xx. One, not the SDK
     # default of two: each retry of a marking call can run for the whole request
-    # timeout, and the worker retries a failed job itself after a backoff. The
+    # timeout, and the worker retries a failed job itself after a backoff
+    # (unless the failure is one a retry cannot fix, workers/jobs.py). The
     # SDK retries only *before the response starts*; a failure partway through a
     # streamed answer is not retried by the SDK at all, only by the job's own
     # retry.
@@ -168,6 +169,8 @@ class Settings(BaseSettings):
     # marking answer yet. 840 is deliberately under the worker's 900s
     # JOB_STALL_SECONDS so a capped call ends as a clear timeout before the
     # worker is reported hung. Revisit after the first rehearsal with real papers.
+    # The worker's own limit on a job follows this number (this plus a margin,
+    # workers/jobs.py:job_timeout_seconds), so raising it here is enough.
     ai_call_timeout_seconds: float = 840.0
     # The same cap for short plain-text calls: the stored narrative and the class
     # brief, a few hundred tokens each. Much lower because the class brief runs

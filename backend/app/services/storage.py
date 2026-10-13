@@ -164,11 +164,17 @@ class ObjectNotFoundError(Exception):
 
     #: Read by the job worker (`workers/jobs.py:is_permanent`): a file that is
     #: gone is still gone a minute later, so the job is not retried.
-    retryable = False
+    job_retryable = False
 
     def __init__(self, key: str) -> None:
-        super().__init__("An uploaded file this needs is missing from storage")
+        super().__init__(key)
         self.key = key
+        # Printed under the traceback, so a log of the failed job still names
+        # the file, without the key being part of what a tutor is shown.
+        self.add_note(f"storage key: {key}")
+
+    def __str__(self) -> str:
+        return "An uploaded file this needs is missing from storage"
 
 
 # --------------------------------------------------------------------------- #

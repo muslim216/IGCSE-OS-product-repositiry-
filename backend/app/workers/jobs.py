@@ -4,7 +4,7 @@ Jobs are persisted so nothing is lost on restart. Handlers are registered in a
 dict by job type; the worker loop claims the oldest pending job, runs it, and
 records success or failure (with one retry, unless the failure says a retry
 cannot help: see `is_permanent`). A handler that runs past its time limit is
-stopped (`JOB_TIMEOUT_SECONDS`). Tests call process_one_job() directly instead
+stopped (`job_timeout_seconds`). Tests call process_one_job() directly instead
 of running the loop.
 
 The worker can run inside the API process (today's deployment) or as its own
@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus, WorkerHeartbeat
 
@@ -52,24 +53,10 @@ STALE_AFTER_SECONDS = 120.0
 #: would.
 JOB_STALL_SECONDS = 900.0
 
-#: A handler still running after this long is stopped and its job counted as a
-#: failed attempt. The same number as JOB_STALL_SECONDS on purpose: that is
-#: where a job is already declared hung, and until now nothing acted on the
-#: declaration — with one worker, a handler that never returned stopped every
-#: job behind it for good, and the only trace was a field on /health/ready.
-#:
-#: This is the backstop, not the usual way a slow job ends. Every AI call has
-#: its own shorter deadline (`ai_call_timeout_seconds`, 840) and every outbound
-#: HTTP client its own timeout, and those end as ordinary exceptions the
-#: handler can catch to record a failure on the row it was working on. This
-#: limit arrives as a cancellation, which no handler's `except Exception` sees:
-#: a handler stopped here leaves its row as it was ("extracting", "generating",
-#: a submission still "submitted"). That is the same state a deploy that kills
-#: the process mid-job leaves, and it is repaired by the same later work, not
-#: here. A stopped handler is still better than a stopped queue.
-#:
-#: UNMEASURED, like the AI deadline it sits above: no real job has been timed.
-JOB_TIMEOUT_SECONDS = JOB_STALL_SECONDS
+#: How far above the AI deadline a job's time limit sits (see
+#: `job_timeout_seconds`): room to read the uploaded files before the call and
+#: to write the result after it.
+JOB_TIMEOUT_MARGIN_SECONDS = 60.0
 
 #: A worker that raises on every iteration is restarted by the supervisor every
 #: WORKER_RESTART_SECONDS, and each restart re-stamps _last_loop_at — so without
@@ -323,9 +310,14 @@ def _aware(value: datetime | None) -> datetime | None:
 def register_handler(
     job_type: str, handler: Handler, *, timeout_seconds: float | None = None
 ) -> None:
-    """Register `handler` for `job_type`. `timeout_seconds` replaces
-    JOB_TIMEOUT_SECONDS for a job that is known to need longer; leaving it out
-    also clears an override left by an earlier registration."""
+    """Register `handler` for `job_type`. `timeout_seconds` replaces the
+    default time limit (`job_timeout_seconds`) for a job that is known to need
+    a different one; leaving it out also clears an override left by an earlier
+    registration."""
+    if timeout_seconds is not None and not timeout_seconds > 0:
+        # Zero, a negative or NaN would stop every run of the job the moment it
+        # started, which reads as "the job is broken", not as a typo here.
+        raise ValueError(f"timeout_seconds for '{job_type}' must be above 0")
     _handlers[job_type] = handler
     if timeout_seconds is None:
         _timeouts.pop(job_type, None)
@@ -334,21 +326,63 @@ def register_handler(
 
 
 def job_timeout_seconds(job_type: str) -> float:
-    """How long one run of `job_type` may take before it is stopped."""
-    return _timeouts.get(job_type, JOB_TIMEOUT_SECONDS)
+    """How long one run of `job_type` may take before the worker stops it and
+    counts the job as a failed attempt.
+
+    Until this existed nothing acted on a hung job: with one worker, a handler
+    that never returned stopped every job behind it for good, and the only
+    trace was the `stalled` state on /health/ready.
+
+    The limit is **derived from the AI deadline**, never a number of its own,
+    because it must always be the longer of the two. The AI deadline
+    (`ai_call_timeout_seconds`) and every outbound HTTP timeout end as ordinary
+    exceptions inside the handler, which is where a handler records a failure
+    on the row it was working on. This limit arrives as a cancellation, which
+    no handler's `except Exception` sees. So it is the backstop for a hang
+    nothing else bounds, and a deployment that raises the AI deadline moves it
+    too. It never drops below JOB_STALL_SECONDS, the point where health starts
+    calling a job hung.
+
+    What a stop leaves behind, plainly: the handler's writes are rolled back
+    and the row it was working on stays as it was ("extracting", "generating",
+    a submission still "submitted"). The first stop is retried, and the retry
+    runs the handler again from the start. A second stop fails the job with
+    that row still showing as in progress and no error on it; for a booklet
+    there is then no retry button either. A deploy that kills the process
+    mid-job leaves the same state. Nothing repairs it yet; that needs the
+    worker to tell a handler its job was given up on. A stopped handler with
+    one stuck row is still better than a stopped queue.
+
+    With the default settings this is exactly JOB_STALL_SECONDS, which
+    `services/extraction.py:read_in_progress` also uses for "a read this old is
+    not live": the worker stops a read at the moment that check stops
+    believing in it.
+
+    UNMEASURED, like the AI deadline under it: no real job has been timed."""
+    override = _timeouts.get(job_type)
+    if override is not None:
+        return override
+    return max(
+        JOB_STALL_SECONDS,
+        get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS,
+    )
 
 
 def is_permanent(exc: BaseException) -> bool:
     """Whether a second attempt at the job that raised `exc` cannot succeed.
 
-    A failure opts out of the retry by carrying `retryable = False`, on the
-    class or the instance. An attribute rather than a base class because the
-    failures that need it are defined in `services/` (a missing API key, an
-    answer cut off at the output limit, a request the provider rejected, an
-    uploaded file that is gone) and this module imports nothing from there.
-    Everything unmarked keeps the retry: an unknown failure is treated as one
-    that might pass, which is what the retry has always been for."""
-    return getattr(exc, "retryable", True) is False
+    A failure opts out of the retry by carrying `job_retryable = False`, on
+    the class or the instance. An attribute rather than a base class because
+    some failures decide per instance (a provider error is permanent or not by
+    its status). Named for this queue rather than plain `retryable` because
+    other libraries use that word for their own purposes: google-auth's
+    exceptions carry a `retryable` that defaults to False, and reading it here
+    would have silently taken the retry away from them. The failures that set
+    it are defined in `services/`: a missing API key, an answer cut off at the
+    output limit, a request the provider rejected, an uploaded file that is
+    gone. Everything unmarked keeps the retry: an unknown failure is treated as
+    one that might pass, which is what the retry has always been for."""
+    return getattr(exc, "job_retryable", True) is False
 
 
 def _timeout_message(limit: float) -> str:

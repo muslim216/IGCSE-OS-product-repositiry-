@@ -54,7 +54,7 @@ class AIKeyMissingError(AIUnavailableError):
     #: Read by the job worker (`workers/jobs.py:is_permanent`): a second
     #: attempt a minute later meets the same missing key, so the job is not
     #: retried. Only this subclass is marked; the parent keeps its retry.
-    retryable = False
+    job_retryable = False
 
 
 # Said in more than one place, so defined once. Tests assert on the literal text
@@ -77,7 +77,7 @@ class AICallFailedError(RuntimeError):
     `model` and the token counts are filled whenever the stream delivered a final
     message with usage, so a later change can record what a failed call cost.
 
-    `retryable` is what the job worker reads (`workers/jobs.py:is_permanent`)
+    `job_retryable` is what the job worker reads (`workers/jobs.py:is_permanent`)
     to decide whether the job's one retry is worth making. True unless the
     failure is one the same request would meet again: an answer cut off at the
     output limit, a refusal, an input too large to read, or a request the
@@ -85,7 +85,7 @@ class AICallFailedError(RuntimeError):
     request). A timeout, a dropped connection, a rate limit and a provider
     fault all keep the retry."""
 
-    retryable: bool = True
+    job_retryable: bool = True
 
     def __init__(
         self,
@@ -94,7 +94,7 @@ class AICallFailedError(RuntimeError):
         model: str | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
-        retryable: bool | None = None,
+        job_retryable: bool | None = None,
     ) -> None:
         super().__init__(message)
         self.model = model
@@ -102,8 +102,8 @@ class AICallFailedError(RuntimeError):
         self.output_tokens = output_tokens
         # Left to the class default unless a raise site says otherwise, so a
         # subclass can decide for all of its instances.
-        if retryable is not None:
-            self.retryable = retryable
+        if job_retryable is not None:
+            self.job_retryable = job_retryable
 
 
 class AIOutputTruncatedError(AICallFailedError):
@@ -117,7 +117,7 @@ class AIOutputTruncatedError(AICallFailedError):
     Not retried: the same request stops at the same limit, and each attempt
     bills the whole cut-off answer."""
 
-    retryable = False
+    job_retryable = False
 
 
 class AITimeoutError(AICallFailedError):
@@ -364,28 +364,99 @@ def _is_timeout(exc: BaseException) -> bool:
     )
 
 
-#: What a person is told for a status the provider answered with, and whether
-#: asking again could go differently. The wording is shown to a tutor as it is
-#: (`submission.ai_error`, `extraction_error`), so it says what happened and
-#: nothing about keys or request ids; the provider's own text goes to the log.
-_REJECTED_MESSAGE = "The AI provider rejected the request"
-_STATUS_FAILURES: dict[int, tuple[str, bool]] = {
-    400: (_REJECTED_MESSAGE, False),
-    401: ("The AI provider did not accept the API key", False),
-    403: ("The AI provider refused access for this API key", False),
-    404: ("The AI provider does not have the model that was asked for", False),
-    413: ("The request was too large for the AI provider", False),
-    422: (_REJECTED_MESSAGE, False),
-    429: ("The AI provider is limiting how many requests it accepts right now", True),
+#: What a person is told for each kind of failure the provider reports, and
+#: whether asking again could go differently. The wording is shown to a tutor
+#: as it is (`submission.ai_error`, `extraction_error`, the class brief), so it
+#: says what happened and carries no key, request id or provider text; those go
+#: to the log. Keyed by the provider's own error type rather than the HTTP
+#: status, because an error that arrives partway through a streamed answer has
+#: a type and a status of 200.
+_REJECTED = ("The AI provider rejected the request", False)
+_PROVIDER_FAULT = ("The AI provider had a problem", True)
+_BILLING = ("The AI provider's account has a billing problem", False)
+_FAILURES_BY_KIND: dict[str, tuple[str, bool]] = {
+    "invalid_request_error": _REJECTED,
+    "authentication_error": ("The AI provider did not accept the API key", False),
+    "billing_error": _BILLING,
+    "permission_error": ("The AI provider refused access for this API key", False),
+    "not_found_error": ("The AI provider does not have the model that was asked for", False),
+    "request_too_large": ("The request was too large for the AI provider", False),
+    "rate_limit_error": (
+        "The AI provider is limiting how many requests it accepts right now",
+        True,
+    ),
+    "overloaded_error": ("The AI provider is overloaded right now", True),
+    "timeout_error": ("The AI provider took too long to answer", True),
+    "api_error": _PROVIDER_FAULT,
 }
+#: The error type each status means, for a response that carries no readable
+#: body. 422 is the provider's other way of saying the request was malformed.
+_KIND_BY_STATUS = {
+    400: "invalid_request_error",
+    401: "authentication_error",
+    402: "billing_error",
+    403: "permission_error",
+    404: "not_found_error",
+    413: "request_too_large",
+    422: "invalid_request_error",
+    429: "rate_limit_error",
+    504: "timeout_error",
+    529: "overloaded_error",
+}
+#: The 4xx statuses that are about the moment and not the request. The SDK
+#: retries exactly these and no other 4xx, and the worker follows it.
+_TRANSIENT_4XX = frozenset({408, 409, 429})
+
+#: A rejected request is the one failure a tutor can sometimes fix themselves,
+#: by uploading the file again. The provider says which in its own words, so
+#: those words are read for a few known phrases; anything unrecognised gets the
+#: general sentence. Matching the provider's wording is fragile on purpose-built
+#: text, which is why a miss costs only a vaguer message, never a wrong retry:
+#: every row here is as final as the general one.
+_UNREADABLE_FILE = (
+    "The AI provider could not read one of the files. It may be damaged, "
+    "password-protected, too long or too large"
+)
+_INPUT_TOO_LARGE = "The input was too large for the AI to read in one go"
+_REJECTION_PHRASES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("credit balance", "billing"), _BILLING[0]),
+    (("prompt is too long", "too many tokens", "context window"), _INPUT_TOO_LARGE),
+    (("pdf", "image", "password", "pages"), _UNREADABLE_FILE),
+)
+#: How much of the provider's own text one log line keeps. It normally names a
+#: field of the request; nothing promises it stays short.
+_PROVIDER_TEXT_LOG_LIMIT = 500
 
 
-def _status_failure(status: int) -> tuple[str, bool]:
-    """Message and `retryable` for a provider status. Anything not listed is
-    treated as the provider's own fault and worth one more try: the 5xx family,
-    529 (overloaded), and any 4xx this table has not met — an unknown failure
-    keeps its retry, which is the rule everywhere else in the job worker."""
-    return _STATUS_FAILURES.get(status, (f"The AI provider had a problem (status {status})", True))
+def _provider_error_detail(exc: anthropic.APIStatusError) -> tuple[str | None, str]:
+    """The provider's error type and message, read from the response body when
+    it has the usual shape and from the exception otherwise."""
+    body = exc.body if isinstance(exc.body, dict) else {}
+    error = body.get("error")
+    error = error if isinstance(error, dict) else {}
+    kind = error.get("type") or getattr(exc, "type", None)
+    text = error.get("message") or str(exc)
+    return (kind if isinstance(kind, str) else None), str(text)
+
+
+def _classify_provider_failure(status: int, kind: str | None, text: str) -> tuple[str, bool]:
+    """Message and `job_retryable` for a failure the provider reported.
+
+    An error status decides on its own. Below 400 the error came inside a
+    streamed answer that had already started as a 200, and only its type says
+    what it was. An unlisted 4xx is not retried and an unlisted anything else
+    is, which is the SDK's own rule for what a second request can change."""
+    known = _KIND_BY_STATUS.get(status) if status >= 400 else kind
+    if known not in _FAILURES_BY_KIND:
+        permanent = 400 <= status < 500 and status not in _TRANSIENT_4XX
+        return _REJECTED if permanent else _PROVIDER_FAULT
+    message, retryable = _FAILURES_BY_KIND[known]
+    if known == "invalid_request_error":
+        lowered = text.lower()
+        for phrases, specific in _REJECTION_PHRASES:
+            if any(phrase in lowered for phrase in phrases):
+                return specific, False
+    return message, retryable
 
 
 @contextlib.asynccontextmanager
@@ -393,36 +464,60 @@ async def _provider_errors_as_ai_errors(surface: str) -> AsyncIterator[None]:
     """Turn what the provider or the HTTP library under it raises into one of
     our own errors, so a caller sees one family (`AICallFailedError`), a
     readable message instead of a bare class name (`submission.ai_error` was
-    just "ReadTimeout"), and a `retryable` flag the job worker can act on.
+    just "ReadTimeout"), and a `job_retryable` flag the job worker can act on.
     Wraps the whole stream block, so it also covers an error raised while
     leaving it.
 
-    Three sources. A status the provider answered with (`APIStatusError`): the
-    SDK has already made its own retry by the time one reaches here. A request
-    that never got an answer (`APIConnectionError`; its timeout subclass is
-    translated further in, by `_call_deadline`). And a raw HTTP-library error
-    from partway through the answer, which the SDK does not wrap.
+    Four sources. A failure the provider reported (`APIStatusError`), either as
+    the status of the response or as an error event inside an answer that had
+    begun; the SDK has already made its own retry by the time one reaches here.
+    A request that never got an answer (`APIConnectionError`; its timeout
+    subclass is translated further in, by `_call_deadline`). Any other error of
+    the SDK's own, such as a response it could not parse. And a raw
+    HTTP-library error from partway through the answer, which the SDK does not
+    wrap.
 
     Everything else — `ValidationError`, our own errors, cancellation — passes
-    through untouched."""
+    through untouched. Each branch logs what it swallowed: the message a caller
+    gets is written for a tutor and leaves out what an operator needs."""
     try:
         yield
     except anthropic.APIStatusError as exc:
-        message, retryable = _status_failure(exc.status_code)
-        log.error(
-            "AI call on surface %r was answered with status %s (request %s): %s",
+        kind, text = _provider_error_detail(exc)
+        message, retryable = _classify_provider_failure(exc.status_code, kind, text)
+        log.log(
+            logging.WARNING if retryable else logging.ERROR,
+            "AI call on surface %r failed at the provider: status %s, type %s, request %s: %s",
             surface,
             exc.status_code,
+            kind,
             exc.request_id,
-            exc,
+            text[:_PROVIDER_TEXT_LOG_LIMIT],
         )
-        raise AICallFailedError(message, retryable=retryable) from exc
+        raise AICallFailedError(message, job_retryable=retryable) from exc
     except anthropic.APIConnectionError as exc:
-        log.error("AI call on surface %r could not reach the provider: %r", surface, exc)
+        # The SDK's own message is always "Connection error."; what failed (DNS,
+        # TLS, a refused connection) is only on the cause.
+        cause = exc.__cause__
+        log.warning(
+            "AI call on surface %r could not reach the provider: %s: %s",
+            surface,
+            type(cause).__name__ if cause is not None else type(exc).__name__,
+            cause if cause is not None else exc,
+        )
         raise AICallFailedError("Could not reach the AI provider") from exc
+    except anthropic.APIError as exc:
+        log.warning("AI call on surface %r failed inside the SDK: %r", surface, exc)
+        raise AICallFailedError("The AI provider's answer could not be read") from exc
     except Exception as exc:
         if not _from_http_stack(exc):
             raise
+        log.warning(
+            "AI call on surface %r lost its connection mid-answer: %s: %s",
+            surface,
+            type(exc).__name__,
+            exc,
+        )
         if _is_timeout(exc):
             raise AITimeoutError(_TIMEOUT_MESSAGE) from exc
         raise AICallFailedError("The connection to the AI dropped mid-answer") from exc
@@ -555,7 +650,11 @@ def _truncated_message(max_tokens: int) -> str:
 
 
 def _failure(
-    cls: type[AICallFailedError], message: str, final: Any, *, retryable: bool | None = None
+    cls: type[AICallFailedError],
+    message: str,
+    final: Any,
+    *,
+    job_retryable: bool | None = None,
 ) -> AICallFailedError:
     """A failed-call error carrying whatever the final message says it cost."""
     usage = getattr(final, "usage", None)
@@ -564,7 +663,7 @@ def _failure(
         model=getattr(final, "model", None),
         input_tokens=getattr(usage, "input_tokens", None),
         output_tokens=getattr(usage, "output_tokens", None),
-        retryable=retryable,
+        job_retryable=job_retryable,
     )
 
 
@@ -597,13 +696,13 @@ def _raise_for_stop_reason(final: Any, *, max_tokens: int, truncation_ok: bool) 
     # Neither of these two is retried: the same pages and the same prompt meet
     # the same refusal, and an input that does not fit will not fit a minute on.
     if reason == "refusal":
-        raise _failure(AICallFailedError, "The AI declined to answer", final, retryable=False)
+        raise _failure(AICallFailedError, "The AI declined to answer", final, job_retryable=False)
     if reason == "model_context_window_exceeded":
         raise _failure(
             AICallFailedError,
-            "The input was too large for the AI to read in one go",
+            _INPUT_TOO_LARGE,
             final,
-            retryable=False,
+            job_retryable=False,
         )
 
 

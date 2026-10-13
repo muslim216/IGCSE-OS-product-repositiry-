@@ -387,7 +387,11 @@ async def test_other_errors_pass_through_the_translation_untouched():
 # provider's raw text, the class brief answered 500, and the job worker retried
 # a rejected API key a minute later as if a minute could change it.
 
-PROVIDER_TEXT = "x-api-key header is invalid: sk-ant-PROVIDER-DETAIL"
+PROVIDER_TEXT = "x-api-key header is invalid: PROVIDER-DETAIL"
+
+
+def _error_body(kind: str = "some_error", message: str = PROVIDER_TEXT) -> dict:
+    return {"type": "error", "error": {"type": kind, "message": message}}
 
 
 @pytest.fixture
@@ -397,15 +401,13 @@ def answer_with(monkeypatch, anthropic_key):
     in its backoff; that retry is the SDK's and is not what is under test."""
     monkeypatch.setattr(get_settings(), "ai_max_retries", 0)
 
-    def _answer(status: int) -> list:
+    def _answer(status: int, body: dict | None = None) -> list:
         requests: list = []
 
         def _respond(request):
             requests.append(request)
             return http.Response(
-                status,
-                headers={"request-id": "req_canned"},
-                json={"type": "error", "error": {"type": "some_error", "message": PROVIDER_TEXT}},
+                status, headers={"request-id": "req_canned"}, json=body or _error_body()
             )
 
         monkeypatch.setattr(ai_service, "_transport", http.MockTransport(_respond))
@@ -414,19 +416,31 @@ def answer_with(monkeypatch, anthropic_key):
     return _answer
 
 
+REJECTED = "The AI provider rejected the request"
+FAULT = "The AI provider had a problem"
+
+
 @pytest.mark.parametrize(
     ("status", "message", "retryable"),
     [
-        (400, "The AI provider rejected the request", False),
+        (400, REJECTED, False),
         (401, "The AI provider did not accept the API key", False),
+        (402, "The AI provider's account has a billing problem", False),
         (403, "The AI provider refused access for this API key", False),
         (404, "The AI provider does not have the model that was asked for", False),
         (413, "The request was too large for the AI provider", False),
-        (422, "The AI provider rejected the request", False),
+        (422, REJECTED, False),
+        # A 4xx nobody listed is not retried, which is the SDK's own rule...
+        (418, REJECTED, False),
+        # ...except the three that are about the moment and not the request.
+        (408, FAULT, True),
+        (409, FAULT, True),
         (429, "The AI provider is limiting how many requests it accepts right now", True),
-        (500, "The AI provider had a problem (status 500)", True),
-        (529, "The AI provider had a problem (status 529)", True),
-        (418, "The AI provider had a problem (status 418)", True),
+        (500, FAULT, True),
+        (502, FAULT, True),
+        (503, FAULT, True),
+        (504, "The AI provider took too long to answer", True),
+        (529, "The AI provider is overloaded right now", True),
     ],
 )
 @pytest.mark.parametrize("helper", ["structured", "text"])
@@ -437,7 +451,7 @@ async def test_a_provider_status_becomes_one_of_ours(
 
     call = _structured if helper == "structured" else _text
     with (
-        caplog.at_level("ERROR", logger=ai_service.log.name),
+        caplog.at_level("WARNING", logger=ai_service.log.name),
         pytest.raises(AICallFailedError) as caught,
     ):
         await call()
@@ -445,64 +459,174 @@ async def test_a_provider_status_becomes_one_of_ours(
     assert len(requests) == 1
     assert type(caught.value) is AICallFailedError
     assert str(caught.value) == message
-    assert caught.value.retryable is retryable
+    assert caught.value.job_retryable is retryable
     assert isinstance(caught.value.__cause__, anthropic.APIStatusError)
-    # What a tutor reads carries none of the provider's own text; the log does.
+    # What a tutor reads carries none of the provider's own text and no status
+    # number; the log has the status, the request id and the provider's words.
     assert "PROVIDER-DETAIL" not in str(caught.value)
+    assert str(status) not in str(caught.value)
     assert "PROVIDER-DETAIL" in caplog.text
     assert "req_canned" in caplog.text
+    assert f"status {status}" in caplog.text
+    # A failure nobody can retry away is an error; one that may pass is not.
+    assert caplog.records[-1].levelname == ("WARNING" if retryable else "ERROR")
+
+
+@pytest.mark.parametrize(
+    ("provider_text", "message"),
+    [
+        ("Your credit balance is too low to access the API", "billing problem"),
+        ("prompt is too long: 1203441 tokens > 1000000 maximum", "too large for the AI to read"),
+        ("The PDF specified is password protected", "could not read one of the files"),
+        ("image exceeds 5 MB maximum", "could not read one of the files"),
+        ("A maximum of 100 PDF pages may be provided", "could not read one of the files"),
+        ("messages.0.content.1: unexpected field", "rejected the request"),
+    ],
+)
+async def test_a_rejected_request_says_what_a_tutor_can_do_about_it(
+    answer_with, provider_text, message
+):
+    """One status, several causes, and a tutor can fix only some of them by
+    uploading the file again. The provider's wording decides which sentence
+    they get; none of them is retried."""
+    answer_with(400, _error_body("invalid_request_error", provider_text))
+
+    with pytest.raises(AICallFailedError, match=message) as caught:
+        await _structured()
+
+    assert caught.value.job_retryable is False
+    assert provider_text not in str(caught.value)
+
+
+def _mid_stream_error(kind: str) -> bytes:
+    """An answer that starts normally and then carries an `error` event, which
+    is how the provider reports overload once a 200 has gone out."""
+    start = sse_message(VERDICT_JSON, stop_reason=None).split(b"event: content_block_start")[0]
+    return (
+        start
+        + (
+            "event: error\ndata: " + json.dumps(_error_body(kind, "PROVIDER-DETAIL")) + "\n\n"
+        ).encode()
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "message", "retryable"),
+    [
+        ("overloaded_error", "The AI provider is overloaded right now", True),
+        ("api_error", FAULT, True),
+        ("rate_limit_error", "limiting how many requests", True),
+        ("invalid_request_error", REJECTED, False),
+        ("authentication_error", "did not accept the API key", False),
+        ("something_new", FAULT, True),
+    ],
+)
+@pytest.mark.parametrize("helper", ["structured", "text"])
+async def test_an_error_inside_a_streamed_answer_is_named_by_its_type(
+    serve, caplog, helper, kind, message, retryable
+):
+    """Such an error reaches the SDK on a response whose status was 200. Read by
+    status it was "a problem (status 200)", retried whatever it was."""
+    serve(_mid_stream_error(kind))
+
+    call = _structured if helper == "structured" else _text
+    with (
+        caplog.at_level("WARNING", logger=ai_service.log.name),
+        pytest.raises(AICallFailedError, match=message) as caught,
+    ):
+        await call()
+
+    assert caught.value.job_retryable is retryable
+    assert "200" not in str(caught.value)
+    assert f"type {kind}" in caplog.text
 
 
 @pytest.mark.parametrize("helper", ["structured", "text"])
 async def test_a_request_that_never_reaches_the_provider_is_ours_and_retried(
-    monkeypatch, anthropic_key, helper
+    monkeypatch, anthropic_key, caplog, helper
 ):
     monkeypatch.setattr(get_settings(), "ai_max_retries", 0)
 
     def _refuse(request):
-        raise http.ConnectError("connection refused")
+        raise http.ConnectError("name resolution failed for the provider")
 
     monkeypatch.setattr(ai_service, "_transport", http.MockTransport(_refuse))
 
     call = _structured if helper == "structured" else _text
-    with pytest.raises(AICallFailedError, match="Could not reach the AI provider") as caught:
+    with (
+        caplog.at_level("WARNING", logger=ai_service.log.name),
+        pytest.raises(AICallFailedError, match="Could not reach the AI provider") as caught,
+    ):
         await call()
 
     assert type(caught.value) is AICallFailedError
-    assert caught.value.retryable is True
+    assert caught.value.job_retryable is True
     assert isinstance(caught.value.__cause__, anthropic.APIConnectionError)
+    # The SDK's own text is always "Connection error."; the log names the cause.
+    assert "ConnectError" in caplog.text
+    assert "name resolution failed" in caplog.text
+
+
+async def test_any_other_sdk_error_is_ours_too():
+    """Whatever else the SDK raises of its own (a response it could not parse)
+    must not reach a request handler as a 500 or a tutor as a class name."""
+    raw = anthropic.APIError("could not parse", request=None, body=None)  # type: ignore[arg-type]
+    with pytest.raises(AICallFailedError, match="could not be read") as caught:
+        async with ai_service._provider_errors_as_ai_errors("marking"):
+            raise raw
+    assert caught.value.__cause__ is raw
+    assert caught.value.job_retryable is True
+
+
+async def test_cancellation_passes_through_the_translation():
+    with pytest.raises(asyncio.CancelledError):
+        async with ai_service._provider_errors_as_ai_errors("marking"):
+            raise asyncio.CancelledError
+
+
+async def test_a_mid_answer_drop_is_logged_with_its_cause(monkeypatch, anthropic_key, caplog):
+    body = sse_message(VERDICT_JSON)
+    monkeypatch.setattr(
+        ai_service, "_transport", dropping_transport(body, http.ReadError("connection reset"))
+    )
+    with (
+        caplog.at_level("WARNING", logger=ai_service.log.name),
+        pytest.raises(AICallFailedError, match="dropped mid-answer"),
+    ):
+        await _structured()
+    assert "ReadError" in caplog.text
 
 
 def test_which_failures_a_retry_cannot_fix():
     """The flag the job worker reads. Marked by hand on purpose: a new failure
     type keeps the retry until somebody decides it should not."""
-    assert AIKeyMissingError("x").retryable is False
-    assert AIOutputTruncatedError("x").retryable is False
-    assert AICallFailedError("x").retryable is True
-    assert AITimeoutError("x").retryable is True
-    assert AICallFailedError("x", retryable=False).retryable is False
+    assert AIKeyMissingError("x").job_retryable is False
+    assert AIOutputTruncatedError("x").job_retryable is False
+    assert AICallFailedError("x").job_retryable is True
+    assert AITimeoutError("x").job_retryable is True
+    assert AICallFailedError("x", job_retryable=False).job_retryable is False
     # The parent of the missing-key error keeps its retry (a missing optional
     # SDK or a misrouted provider), so it carries no flag at all.
-    assert not hasattr(AIUnavailableError("x"), "retryable")
+    assert not hasattr(AIUnavailableError("x"), "job_retryable")
 
 
 async def test_a_refusal_and_an_oversized_input_are_not_retried(serve):
     serve(sse_message("", stop_reason="refusal"))
     with pytest.raises(AICallFailedError) as refused:
         await _structured()
-    assert refused.value.retryable is False
+    assert refused.value.job_retryable is False
 
     serve(sse_message("", stop_reason="model_context_window_exceeded"))
     with pytest.raises(AICallFailedError) as too_large:
         await _structured()
-    assert too_large.value.retryable is False
+    assert too_large.value.job_retryable is False
 
 
 async def test_an_interrupted_answer_keeps_its_retry(serve):
     serve(sse_message(VERDICT_JSON, stop_reason=None))
     with pytest.raises(AICallFailedError) as caught:
         await _structured()
-    assert caught.value.retryable is True
+    assert caught.value.job_retryable is True
 
 
 # --------------------------------------------------------------------------
