@@ -38,7 +38,7 @@ from app.services import pdf, storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.knowledge import build_tutor_context
 from app.services.notifications.triggers import announce_homework_set
-from app.workers.jobs import JOB_STALL_SECONDS, enqueue
+from app.workers.jobs import enqueue, job_timeout_seconds
 
 
 class ExtractedQuestion(BaseModel):
@@ -310,14 +310,17 @@ async def read_in_progress(session: AsyncSession, past_paper_id: int) -> bool:
     rewrite its question list — the older finishing last would leave a
     replacement marked against the questions of the copy it replaced.
 
-    Only a claim younger than JOB_STALL_SECONDS counts. A worker killed
+    Only a claim younger than the read job's own time limit counts (the
+    worker stops a read at that age, so nothing older is live). A worker killed
     mid-read (a restart, in today's one-process deployment) leaves its job
     `running` for hours until the orphan sweep requeues it; counting that as a
     read in progress would refuse both fixes for the whole window. A read that
     old is the one /health already reports as stalled, so the fix queues a
     fresh read — which reads the current file, as would the requeued one.
     """
-    live_since = datetime.now(timezone.utc) - timedelta(seconds=JOB_STALL_SECONDS)
+    live_since = datetime.now(timezone.utc) - timedelta(
+        seconds=job_timeout_seconds("extract_past_paper")
+    )
     running = await session.scalars(
         select(Job.payload).where(
             Job.type == "extract_past_paper",

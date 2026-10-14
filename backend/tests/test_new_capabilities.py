@@ -284,6 +284,57 @@ async def test_class_brief_is_503_when_the_connection_fails_mid_answer(
     assert resp.json()["detail"] == expected
 
 
+@pytest.mark.parametrize(
+    ("status", "detail"),
+    [
+        (401, "The AI provider did not accept the API key"),
+        (400, "The AI provider rejected the request"),
+        (429, "The AI provider is limiting how many requests it accepts right now"),
+        (500, "The AI provider had a problem"),
+        (None, "Could not reach the AI provider"),
+    ],
+)
+async def test_class_brief_is_503_whatever_the_provider_answers(
+    client, tutor, world, monkeypatch, status, detail
+):
+    # The real client against a provider that answers with an error status, or
+    # (None) refuses the connection. Each used to escape as the SDK's own
+    # exception and reach the tutor as a bare 500.
+    from app.config import get_settings
+    from app.services import ai as ai_service
+    from tests.ai_stream_fakes import http
+
+    async with async_session() as session:
+        await write_v2_snapshot(
+            session,
+            student_id=world["student_id"],
+            subject_id=world["subject_id"],
+            score=25.0,
+            topics={world["topic_id"]: (25.0, FactorConfidence.high)},
+        )
+        await session.commit()
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "sk-ant-canned", raising=False)
+    monkeypatch.setattr(get_settings(), "ai_max_retries", 0)
+
+    def _respond(request):
+        if status is None:
+            raise http.ConnectError("connection refused")
+        return http.Response(
+            status,
+            json={"type": "error", "error": {"type": "x", "message": "PROVIDER-DETAIL"}},
+        )
+
+    monkeypatch.setattr(ai_service, "_transport", http.MockTransport(_respond))
+
+    resp = await client.post(
+        f"/api/v1/groups/{world['group']['id']}/brief", headers=tutor["headers"]
+    )
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == detail
+    assert "PROVIDER-DETAIL" not in resp.text
+
+
 # ---- Homework attention list ----
 
 
