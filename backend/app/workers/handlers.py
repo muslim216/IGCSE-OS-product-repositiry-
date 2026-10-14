@@ -13,17 +13,21 @@ which is the direction `BE-1` allows.
 """
 
 from app.config import get_settings
-from app.services.booklets import split_booklet
+from app.services.booklets import split_booklet, split_given_up
 from app.services.extraction import (
+    assignment_read_given_up,
+    booklet_read_given_up,
     extract_assignment,
     extract_booklet,
     extract_mock,
     extract_past_paper,
+    mock_read_given_up,
+    past_paper_read_given_up,
 )
 from app.services.google_classroom import sync_classroom
 from app.services.lesson_autorecord import SWEEP_JOB as AUTORECORD_SWEEP_JOB
 from app.services.lesson_autorecord import sweep_planned_lessons
-from app.services.marking import mark_submission
+from app.services.marking import mark_submission, marking_given_up
 from app.services.marking_rules import SUMMARISE_JOB, summarise_marking_rules
 from app.services.meeting_integrations import IMPORT_JOB, import_meeting_attendance
 from app.services.mistake_tagging import tag_mistakes
@@ -33,7 +37,11 @@ from app.services.narrative import (
     generate_narrative,
     sweep_parent_narratives,
 )
-from app.services.notifications.service import SEND_JOB, send_notification
+from app.services.notifications.service import (
+    SEND_JOB,
+    notification_given_up,
+    send_notification,
+)
 from app.services.notifications.triggers import SWEEP_JOB as MESSAGE_TRIGGER_SWEEP_JOB
 from app.services.notifications.triggers import sweep_message_triggers
 from app.services.past_paper_phase import SWEEP_JOB as PAST_PAPER_PHASE_SWEEP_JOB
@@ -41,8 +49,8 @@ from app.services.past_paper_phase import sweep_past_paper_phase
 from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
 from app.services.plan_reflow import PLAN_REFLOW_JOB, reflow_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
-from app.services.reports import generate_report
-from app.services.syllabus_extraction import extract_syllabus
+from app.services.reports import generate_report, report_given_up
+from app.services.syllabus_extraction import extract_syllabus, syllabus_read_given_up
 from app.services.weekly_send import BUILD_JOB as WEEKLY_SEND_BUILD_JOB
 from app.services.weekly_send import SWEEP_JOB as WEEKLY_SEND_SWEEP_JOB
 from app.services.weekly_send import build_weekly_sends, sweep_weekly_sends
@@ -52,12 +60,16 @@ from app.workers.jobs import JOB_TIMEOUT_MARGIN_SECONDS, register_handler
 def register_all() -> None:
     """Register every job handler. Idempotent — registration is a dict
     assignment keyed by job type, so importing twice cannot double-register."""
-    register_handler("extract_assignment", extract_assignment)
+    # `on_give_up` (see `register_handler`): when a job of these types fails for
+    # good without its handler getting to say so (stopped at its time limit, or
+    # its worker died), the row it was working on is marked failed rather than
+    # left showing as in progress for ever.
+    register_handler("extract_assignment", extract_assignment, on_give_up=assignment_read_given_up)
     # A past paper is a full-paper classified: same extractor, same prompt.
-    register_handler("extract_past_paper", extract_past_paper)
+    register_handler("extract_past_paper", extract_past_paper, on_give_up=past_paper_read_given_up)
     # A mock is the tutor's own full paper (task 3.4, AV-26): same extractor,
     # same prompt, and the status it sets is what makes the mock sittable.
-    register_handler("extract_mock", extract_mock)
+    register_handler("extract_mock", extract_mock, on_give_up=mock_read_given_up)
     # Reads the list of papers inside an uploaded booklet (task 3.5, AV-117).
     # It only drafts — nothing exists until the tutor approves the list.
     #
@@ -74,11 +86,12 @@ def register_all() -> None:
         "extract_booklet",
         extract_booklet,
         timeout_seconds=2 * get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS,
+        on_give_up=booklet_read_given_up,
     )
     # And cuts the booklet into those papers once they have. A job rather than
     # part of the approve request because splitting a PDF blocks (`BE-13`).
-    register_handler("split_booklet", split_booklet)
-    register_handler("mark_submission", mark_submission)
+    register_handler("split_booklet", split_booklet, on_give_up=split_given_up)
+    register_handler("mark_submission", mark_submission, on_give_up=marking_given_up)
     # Examines a settled submission for recurring mistakes (4.2, AV-40).
     # Enqueued from `services/marking.py` where marks settle — both the
     # auto-finalize path and the tutor's own finalize endpoint meet there —
@@ -95,8 +108,8 @@ def register_all() -> None:
     # (student, subject) so a burst of auto-finalized submissions costs one
     # synthesis, not one each.
     register_handler("compute_readiness_v2", compute_readiness_v2)
-    register_handler("generate_report", generate_report)
-    register_handler("extract_syllabus", extract_syllabus)
+    register_handler("generate_report", generate_report, on_give_up=report_given_up)
+    register_handler("extract_syllabus", extract_syllabus, on_give_up=syllabus_read_given_up)
     # Polling sync: imports courseWork/submissions from every course a tutor has
     # linked. Its router is unmounted (0.5, AV-58) so nothing enqueues this
     # today, but the handler stays registered: rows of type "sync_classroom" may
@@ -131,7 +144,7 @@ def register_all() -> None:
     register_handler(IMPORT_JOB, import_meeting_attendance)
     # Delivers one outbox row (task 8.1). Safe to re-run (`BE-6`): only a
     # `queued` notification is acted on.
-    register_handler(SEND_JOB, send_notification)
+    register_handler(SEND_JOB, send_notification, on_give_up=notification_given_up)
     # The weekly send (task 8.2): a sweep finds organizations whose week has
     # closed and queues one build each. Both are safe to re-run (`BE-6`).
     register_handler(WEEKLY_SEND_SWEEP_JOB, sweep_weekly_sends)

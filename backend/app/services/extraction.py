@@ -793,3 +793,56 @@ async def _run_booklet_extraction(session: AsyncSession, booklet: Booklet) -> No
         ),
         "scheme_mismatch": mismatch,
     }
+
+
+# Each `*_given_up` below is the `on_give_up` hook for one handler above (see
+# `register_handler` in app/workers/jobs.py). It runs once that handler's job has
+# failed for good, and matters only when the handler never got to say so itself:
+# the worker stopped it at its time limit, or died holding it. So each changes
+# a row only while it still shows as in progress, and leaves one the handler
+# already marked, or one that has moved on since, as it is.
+
+
+async def assignment_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    await session.execute(
+        update(Assignment)
+        .where(
+            Assignment.id == payload["assignment_id"],
+            Assignment.status == AssignmentStatus.extracting,
+        )
+        .values(status=AssignmentStatus.extraction_failed, extraction_error=error)
+    )
+
+
+async def past_paper_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    # A past paper has no status. A stopped read leaves no questions and no
+    # reason, and with no reason both fixes refuse it (`_require_unread` in
+    # api/past_papers.py), so the tutor could never try again. A read that
+    # finished always has questions: one that finds none raises.
+    await session.execute(
+        update(PastPaper)
+        .where(
+            PastPaper.id == payload["past_paper_id"],
+            PastPaper.extraction_error.is_(None),
+            ~select(PastPaperQuestion.id)
+            .where(PastPaperQuestion.past_paper_id == PastPaper.id)
+            .exists(),
+        )
+        .values(extraction_error=error)
+    )
+
+
+async def mock_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    await session.execute(
+        update(Mock)
+        .where(Mock.id == payload["mock_id"], Mock.status == MockStatus.extracting)
+        .values(status=MockStatus.extraction_failed, extraction_error=error)
+    )
+
+
+async def booklet_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    await session.execute(
+        update(Booklet)
+        .where(Booklet.id == payload["booklet_id"], Booklet.status == BookletStatus.extracting)
+        .values(status=BookletStatus.extraction_failed, error=error)
+    )

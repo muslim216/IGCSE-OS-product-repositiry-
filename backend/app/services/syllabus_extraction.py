@@ -13,6 +13,7 @@ They are tutor-entered (task 2.4, AV-11)."""
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
@@ -73,6 +74,19 @@ async def extract_syllabus(session: AsyncSession, payload: dict) -> None:
         upload.error = str(exc) or exc.__class__.__name__
         await session.commit()
         raise
+
+
+async def syllabus_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    """The `on_give_up` hook for `extract_syllabus` (see `register_handler` in
+    app/workers/jobs.py): only an upload still `extracting` is marked failed."""
+    await session.execute(
+        update(SyllabusUpload)
+        .where(
+            SyllabusUpload.id == payload["syllabus_upload_id"],
+            SyllabusUpload.status == SyllabusUploadStatus.extracting,
+        )
+        .values(status=SyllabusUploadStatus.extraction_failed, error=error)
+    )
 
 
 async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None:

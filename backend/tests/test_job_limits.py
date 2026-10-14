@@ -236,8 +236,10 @@ async def test_an_ai_deadline_reaches_the_handler_as_an_ordinary_failure(client,
 
 
 async def test_a_handler_stopped_by_the_worker_cannot_record_its_own_failure(client, handler):
-    """The known limit of the backstop, pinned so it is changed on purpose: the
-    handler's `except Exception` does not run when the worker stops it."""
+    """Pinned so it is changed on purpose: the handler's `except Exception`
+    does not run when the worker stops it. That is why a job type can register
+    `on_give_up`, which is what marks the row failed instead
+    (tests/test_given_up_jobs.py)."""
     recorded: list[str] = []
 
     async def _marks(session, payload):
