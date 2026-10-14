@@ -75,6 +75,15 @@ async def extract_syllabus(session: AsyncSession, payload: dict) -> None:
         raise
 
 
+async def syllabus_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    """The `on_give_up` hook for `extract_syllabus` (see `register_handler` in
+    app/workers/jobs.py): only an upload still `extracting` is marked failed."""
+    upload = await session.get(SyllabusUpload, payload["syllabus_upload_id"])
+    if upload is not None and upload.status is SyllabusUploadStatus.extracting:
+        upload.status = SyllabusUploadStatus.extraction_failed
+        upload.error = error
+
+
 async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None:
     content: list[dict] = [file_block(await storage.read_file(upload.file_path), upload.file_mime)]
     content.append(

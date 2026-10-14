@@ -352,3 +352,13 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
         report.error = str(exc) or exc.__class__.__name__
         await session.commit()
         raise
+
+
+async def report_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    """The `on_give_up` hook for `generate_report` (see `register_handler` in
+    app/workers/jobs.py): a report still `generating` when its job is given up
+    on would otherwise show a spinner for ever."""
+    report = await session.get(Report, payload["report_id"])
+    if report is not None and report.status is ReportStatus.generating:
+        report.status = ReportStatus.failed
+        report.error = error

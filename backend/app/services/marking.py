@@ -112,6 +112,21 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
         raise
 
 
+async def marking_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    """The `on_give_up` hook for `mark_submission` (see `register_handler` in
+    app/workers/jobs.py): a marking job the worker stopped, or lost, leaves the
+    attempt `submitted` with no marks and no error, waiting on a job that is
+    gone. Only that state is touched; a mark already drafted or finalized is
+    never undone here."""
+    submission = await session.get(Submission, payload["submission_id"])
+    if submission is not None and submission.status in (
+        SubmissionStatus.submitted,
+        SubmissionStatus.marking,
+    ):
+        submission.status = SubmissionStatus.ai_failed
+        submission.ai_error = error
+
+
 @dataclass
 class _MarkingSource:
     """What is being marked, flattened so _run_marking doesn't branch on

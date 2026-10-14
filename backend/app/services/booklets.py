@@ -114,6 +114,17 @@ async def split_booklet(session: AsyncSession, payload: dict) -> None:
     await session.commit()
 
 
+async def split_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    """The `on_give_up` hook for `split_booklet` (see `register_handler` in
+    app/workers/jobs.py). A split stopped part-way leaves the booklet
+    `applying`; marking it `split_failed` is what lets a re-run pick it up,
+    since the handler accepts exactly that state."""
+    booklet = await session.get(Booklet, payload["booklet_id"])
+    if booklet is not None and booklet.status is BookletStatus.applying:
+        booklet.status = BookletStatus.split_failed
+        booklet.error = error
+
+
 async def _create_paper(
     session: AsyncSession,
     booklet: Booklet,

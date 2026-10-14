@@ -69,6 +69,16 @@ CRASH_LOOP_THRESHOLD = 3
 
 Handler = Callable[[AsyncSession, dict], Awaitable[None]]
 _handlers: dict[str, Handler] = {}
+#: What a job type does when the worker gives up on one of its jobs: see
+#: `register_handler` and `_tell_handler_it_was_given_up`.
+GiveUp = Callable[[AsyncSession, dict, str], Awaitable[None]]
+_give_ups: dict[str, GiveUp] = {}
+#: What a row is marked with when the worker holding its job died on the last
+#: attempt (a deploy or a crash mid-job, twice).
+ORPHANED_MESSAGE = "The server restarted while this was being worked on, so it was not finished"
+#: Ceiling on one give-up call. It is a single small write, made on the worker's
+#: own path after a job has already failed; it must not become the next hang.
+GIVE_UP_TIMEOUT_SECONDS = 30.0
 #: Job types whose time limit is not the default one. Kept beside
 #: `_handlers` rather than inside it so that dict stays what tests and callers
 #: already treat it as: job type -> handler.
@@ -308,12 +318,26 @@ def _aware(value: datetime | None) -> datetime | None:
 
 
 def register_handler(
-    job_type: str, handler: Handler, *, timeout_seconds: float | None = None
+    job_type: str,
+    handler: Handler,
+    *,
+    timeout_seconds: float | None = None,
+    on_give_up: GiveUp | None = None,
 ) -> None:
     """Register `handler` for `job_type`. `timeout_seconds` replaces the
     default time limit (`job_timeout_seconds`) for a job that is known to need
     a different one; leaving it out also clears an override left by an earlier
-    registration."""
+    registration.
+
+    `on_give_up(session, payload, error)` is called once whenever a job of this
+    type ends `failed`, whichever way it got there. It exists for the two ways
+    a job can fail without its handler knowing: stopped at the time limit (a
+    cancellation, which no handler's `except Exception` sees) and orphaned by a
+    worker that died with no attempts left. In both the row the job was working
+    on is still in its "in progress" state with no error, and nothing else will
+    ever move it. The hook's whole job is to end that: if the row is still in
+    progress, mark it failed with `error`. It must leave alone a row the
+    handler already marked, or one that has moved on since."""
     if timeout_seconds is not None and (timeout_seconds <= 0 or math.isnan(timeout_seconds)):
         # Zero, a negative or NaN would stop every run of the job the moment it
         # started, which reads as "the job is broken", not as a typo here. NaN
@@ -324,6 +348,10 @@ def register_handler(
         _timeouts.pop(job_type, None)
     else:
         _timeouts[job_type] = timeout_seconds
+    if on_give_up is None:
+        _give_ups.pop(job_type, None)
+    else:
+        _give_ups[job_type] = on_give_up
 
 
 def job_timeout_seconds(job_type: str) -> float:
@@ -344,15 +372,12 @@ def job_timeout_seconds(job_type: str) -> float:
     too. It never drops below JOB_STALL_SECONDS, the point where health starts
     calling a job hung.
 
-    What a stop leaves behind, plainly: the handler's writes are rolled back
-    and the row it was working on stays as it was ("extracting", "generating",
-    a submission still "submitted"). The first stop is retried, and the retry
-    runs the handler again from the start. A second stop fails the job with
-    that row still showing as in progress and no error on it; for a booklet
-    there is then no retry button either. A deploy that kills the process
-    mid-job leaves the same state. Nothing repairs it yet; that needs the
-    worker to tell a handler its job was given up on. A stopped handler with
-    one stuck row is still better than a stopped queue.
+    What a stop leaves behind: the handler's writes are rolled back and the
+    row it was working on stays as it was ("extracting", "generating", a
+    submission still "submitted"). The first stop is retried, and the retry
+    runs the handler again from the start. A second stop fails the job, and the
+    job type's `on_give_up` hook then marks that row failed so it does not show
+    as in progress for ever (see `register_handler`).
 
     With the default settings this is exactly JOB_STALL_SECONDS. The margin is
     deliberately the small one that keeps it there. A handler is cut before its
@@ -551,6 +576,22 @@ async def enqueue(
     return job
 
 
+async def _tell_handler_it_was_given_up(job_type: str, payload: dict, error: str) -> None:
+    """Run the job type's `on_give_up` hook, if it has one, after a job of that
+    type ended `failed`. Never fatal: the job's own outcome is already
+    committed, and a worker that cannot record this is still a worker that can
+    do work. A cancellation of the worker passes straight through."""
+    hook = _give_ups.get(job_type)
+    if hook is None:
+        return
+    try:
+        async with asyncio.timeout(GIVE_UP_TIMEOUT_SECONDS), async_session() as session:
+            await hook(session, payload, error)
+            await session.commit()
+    except Exception:  # noqa: BLE001 — recording a failure must not stop the worker
+        log.exception("could not record that a %s job was given up on", job_type)
+
+
 async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str | None, bool]:
     """Run one claimed job's handler inside its time limit. Returns the error to
     record (None when the handler finished) and whether that failure itself
@@ -610,6 +651,7 @@ async def process_one_job() -> bool:
     await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
     try:
         error, permanent = await _run_handler(job_id, job_type, payload)
+        gave_up = False
 
         async with async_session() as session:
             job = await session.get(Job, job_id)
@@ -636,6 +678,7 @@ async def process_one_job() -> bool:
             else:
                 job.status = JobStatus.failed
                 job.error = error
+                gave_up = True
                 # Nothing watches the failed count yet, so this line is the only
                 # record that a piece of a student's work stopped moving.
                 log.error(
@@ -647,6 +690,12 @@ async def process_one_job() -> bool:
                     error,
                 )
             await session.commit()
+        # After the commit, never inside it: the job's own outcome is the
+        # record that matters, and it must not wait on, or roll back with, a
+        # write to some other row.
+        if gave_up:
+            assert error is not None
+            await _tell_handler_it_was_given_up(job_type, payload, error)
     finally:
         await _write_heartbeat(job_started_at=None)
     return True
@@ -697,6 +746,7 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=ORPHAN_RECLAIM_SECONDS)
     reclaimed = 0
+    given_up: list[tuple[str, dict]] = []
     async with async_session() as session:
         orphans = (
             await session.scalars(
@@ -741,10 +791,16 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
                 job.status = JobStatus.failed
                 job.error = f"{note}; no attempts left"
                 log.error("job %s (%s) orphaned with no attempts left", job.id, job.type)
+                given_up.append((job.type, job.payload))
             job.claimed_by = None
             job.claimed_at = None
             reclaimed += 1
         await session.commit()
+
+    # The worker's id means nothing to a tutor, so the row is given the plain
+    # version of what happened rather than the job's own error.
+    for job_type, payload in given_up:
+        await _tell_handler_it_was_given_up(job_type, payload, ORPHANED_MESSAGE)
 
     if reclaimed:
         # ERROR, not INFO: reaching here means a worker died holding work.
