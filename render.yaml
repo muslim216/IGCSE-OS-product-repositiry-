@@ -125,9 +125,10 @@ services:
       # id. Unset means calls record an unknown cost and report as
       # unpriced_call_count — never a fabricated $0 (AI-17).
       #
-      # The ids in backend/.env.example are what every surface now resolves to:
-      # claude-opus-5 for marking, extraction, syllabus and readiness, and
-      # claude-sonnet-5 for reports, the class brief and the narrative. Task 3.2
+      # The ids in backend/.env.example are what a surface can resolve to:
+      # claude-sonnet-5 for every surface since October 2026 (the default
+      # ANTHROPIC_MODEL moved to Sonnet), and claude-opus-5, still priced so
+      # that setting ANTHROPIC_MODEL back to it is not an unpriced call. Task 3.2
       # landed the flip, so there is no longer an unpriced Gemini remainder —
       # **but the deployed value is whatever was typed into the dashboard.** If
       # it still prices only claude-opus-4-8, every call after this deploy

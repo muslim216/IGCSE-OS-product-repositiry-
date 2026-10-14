@@ -29,8 +29,33 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     anthropic_api_key: str | None = None
     #: The default every surface inherits when its own model is left blank, and
-    #: the one line that moves the four Opus surfaces at once (task 3.2, AV-124).
-    anthropic_model: str = "claude-opus-5"
+    #: the one line that moves the blank-model surfaces at once (task 3.2,
+    #: AV-124).
+    #:
+    #: Sonnet since October 2026, by the owner's decision ("ill use sonnet not
+    #: opus", 11 October 2026). That supersedes the half of AV-124 that put the
+    #: judgement surfaces (marking, extraction, booklet, syllabus, readiness,
+    #: plan weighting) on Opus: the owner judged Opus's estimated cost per
+    #: student too high. UNMEASURED: nobody has compared Sonnet's marks with
+    #: Opus's on real papers. The first rehearsal with real papers is where that
+    #: is looked at; going back is this one line, or ANTHROPIC_MODEL in the
+    #: environment, with a cost somebody chose.
+    #:
+    #: Checked against Anthropic's model page on 13 October 2026: the id is
+    #: valid, and its output limit (128K tokens) is well above the largest
+    #: answer any surface asks for (marking, 32,000).
+    anthropic_model: str = "claude-sonnet-5"
+
+    @field_validator("anthropic_model")
+    @classmethod
+    def _blank_anthropic_model_is_the_default(cls, v: str) -> str:
+        # `ANTHROPIC_MODEL=` with nothing after it reads as "", and "" went to
+        # the provider as the model id for every surface that follows this
+        # default, marking included. Blank means "the default" here, the same
+        # thing a blank per-surface model means, rather than a failed start:
+        # a bad AI setting must never block startup (AI-20).
+        return v.strip() or cls.model_fields["anthropic_model"].default
+
     # Google Gemini. **No surface routes here as of task 3.2** (AV-124) — these
     # two settings and the client in services/ai.py are kept, unused, because
     # the plan says to keep them: retiring a provider is a routing decision, and
@@ -52,11 +77,17 @@ class Settings(BaseSettings):
     # because nothing signals which surfaces have already moved.
     #
     # Two shapes below, and the difference is deliberate. A **blank** model
-    # inherits `anthropic_model`, so the four Opus surfaces — marking,
-    # extraction, syllabus, readiness — move together whenever that default
-    # moves. An **explicit** model pins a surface that diverges on purpose, and
-    # a pin has to be edited by hand to change. Blank is not "unset": it is a
-    # statement that this surface follows the default.
+    # inherits `anthropic_model`, so the judgement surfaces — marking,
+    # extraction, booklet, syllabus, readiness, plan weighting — move together
+    # whenever that default moves. An **explicit** model pins a surface that
+    # diverges on purpose, and a pin has to be edited by hand to change. Blank
+    # is not "unset": it is a statement that this surface follows the default.
+    #
+    # Since the default itself became Sonnet (October 2026, see
+    # `anthropic_model`), both shapes resolve to the same model today. The pins
+    # are kept, and their comments still say "Opus", because what they guard
+    # against is unchanged: the day the default moves to a dearer model again,
+    # the pinned surfaces must not move with it.
     ai_marking_provider: str = "anthropic"
     ai_marking_model: str = ""
     ai_extraction_provider: str = "anthropic"
@@ -94,14 +125,14 @@ class Settings(BaseSettings):
     # what kind of judgement it makes.
     #
     # By the rule above it would take the blank default and follow
-    # `anthropic_model` onto Opus, because it is a judgement about a student's
-    # work. That is where it started. But it is the most frequent model call in
-    # the product: one per settled submission, for every student, forever —
-    # where marking is one per submission *that needs marking*, and a tutor
-    # finalizing the review queue reaches no model at all. The judgement is
-    # also narrow: pick from a list of five or so tutor-written words, given
-    # text the marking model already produced. No pages, no mark scheme, no
-    # marks to decide.
+    # `anthropic_model` (Opus when this was written), because it is a judgement
+    # about a student's work. That is where it started. But it is the most
+    # frequent model call in the product: one per settled submission, for every
+    # student, forever — where marking is one per submission *that needs
+    # marking*, and a tutor finalizing the review queue reaches no model at all.
+    # The judgement is also narrow: pick from a list of five or so tutor-written
+    # words, given text the marking model already produced. No pages, no mark
+    # scheme, no marks to decide.
     #
     # Pinned rather than blank so a later bump of `anthropic_model` cannot
     # silently move the product's highest-volume call back onto its most
@@ -110,9 +141,10 @@ class Settings(BaseSettings):
     ai_mistake_tagging_provider: str = "anthropic"
     ai_mistake_tagging_model: str = "claude-sonnet-5"
     # Weighting chapters for the teaching plan (task 6.3): a judgement over a
-    # syllabus and a tutor's guidance document, which AV-124 puts on Opus. Blank
-    # so it follows `anthropic_model` with the other judgement surfaces. It runs
-    # once per plan draft, not per student, so Opus's cost is not a concern.
+    # syllabus and a tutor's guidance document. Blank so it follows
+    # `anthropic_model` with the other judgement surfaces, wherever that points.
+    # It runs once per plan draft, not per student, so it is not the surface
+    # whose cost decides which model the default should be.
     ai_plan_weighting_provider: str = "anthropic"
     ai_plan_weighting_model: str = ""
     # How long one Anthropic HTTP request may sit silent (httpx read timeout) —
