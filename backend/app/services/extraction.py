@@ -804,10 +804,14 @@ async def _run_booklet_extraction(session: AsyncSession, booklet: Booklet) -> No
 
 
 async def assignment_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
-    assignment = await session.get(Assignment, payload["assignment_id"])
-    if assignment is not None and assignment.status is AssignmentStatus.extracting:
-        assignment.status = AssignmentStatus.extraction_failed
-        assignment.extraction_error = error
+    await session.execute(
+        update(Assignment)
+        .where(
+            Assignment.id == payload["assignment_id"],
+            Assignment.status == AssignmentStatus.extracting,
+        )
+        .values(status=AssignmentStatus.extraction_failed, extraction_error=error)
+    )
 
 
 async def past_paper_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
@@ -815,25 +819,30 @@ async def past_paper_read_given_up(session: AsyncSession, payload: dict, error: 
     # reason, and with no reason both fixes refuse it (`_require_unread` in
     # api/past_papers.py), so the tutor could never try again. A read that
     # finished always has questions: one that finds none raises.
-    paper = await session.get(PastPaper, payload["past_paper_id"])
-    if paper is None or paper.extraction_error is not None:
-        return
-    has_questions = await session.scalar(
-        select(PastPaperQuestion.id).where(PastPaperQuestion.past_paper_id == paper.id).limit(1)
+    await session.execute(
+        update(PastPaper)
+        .where(
+            PastPaper.id == payload["past_paper_id"],
+            PastPaper.extraction_error.is_(None),
+            ~select(PastPaperQuestion.id)
+            .where(PastPaperQuestion.past_paper_id == PastPaper.id)
+            .exists(),
+        )
+        .values(extraction_error=error)
     )
-    if has_questions is None:
-        paper.extraction_error = error
 
 
 async def mock_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
-    mock = await session.get(Mock, payload["mock_id"])
-    if mock is not None and mock.status is MockStatus.extracting:
-        mock.status = MockStatus.extraction_failed
-        mock.extraction_error = error
+    await session.execute(
+        update(Mock)
+        .where(Mock.id == payload["mock_id"], Mock.status == MockStatus.extracting)
+        .values(status=MockStatus.extraction_failed, extraction_error=error)
+    )
 
 
 async def booklet_read_given_up(session: AsyncSession, payload: dict, error: str) -> None:
-    booklet = await session.get(Booklet, payload["booklet_id"])
-    if booklet is not None and booklet.status is BookletStatus.extracting:
-        booklet.status = BookletStatus.extraction_failed
-        booklet.error = error
+    await session.execute(
+        update(Booklet)
+        .where(Booklet.id == payload["booklet_id"], Booklet.status == BookletStatus.extracting)
+        .values(status=BookletStatus.extraction_failed, error=error)
+    )

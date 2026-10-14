@@ -337,7 +337,9 @@ def register_handler(
     on is still in its "in progress" state with no error, and nothing else will
     ever move it. The hook's whole job is to end that: if the row is still in
     progress, mark it failed with `error`. It must leave alone a row the
-    handler already marked, or one that has moved on since."""
+    handler already marked, or one that has moved on since, and so makes the
+    check and the write one conditional UPDATE: a read followed by a write
+    could land on a row another job finished in between."""
     if timeout_seconds is not None and (timeout_seconds <= 0 or math.isnan(timeout_seconds)):
         # Zero, a negative or NaN would stop every run of the job the moment it
         # started, which reads as "the job is broken", not as a typo here. NaN
@@ -576,20 +578,52 @@ async def enqueue(
     return job
 
 
-async def _tell_handler_it_was_given_up(job_type: str, payload: dict, error: str) -> None:
-    """Run the job type's `on_give_up` hook, if it has one, after a job of that
-    type ended `failed`. Never fatal: the job's own outcome is already
-    committed, and a worker that cannot record this is still a worker that can
-    do work. A cancellation of the worker passes straight through."""
+async def _tell_handler_it_was_given_up(
+    job_id: int, job_type: str, payload: dict, error: str
+) -> None:
+    """Run the job type's `on_give_up` hook, if it has one, after job `job_id`
+    ended `failed`. Never fatal: the job's own outcome is already committed,
+    and a worker that cannot record this is still a worker that can do work. A
+    cancellation of the worker passes straight through.
+
+    Skipped while another job of the same type and payload is pending or
+    running. A tutor's "try again" or a student's resubmission can put the row
+    back in progress with a fresh job behind it while this one was still
+    failing; the row is that job's now, and marking it failed would show a
+    failure for work still going (and, for marking, put the attempt where the
+    waiting-answers sweep queues it a second time).
+
+    Best effort, and at most once: a process that dies between the job's
+    commit and this call leaves the row as it was before this hook existed.
+    """
     hook = _give_ups.get(job_type)
     if hook is None:
         return
     try:
         async with asyncio.timeout(GIVE_UP_TIMEOUT_SECONDS), async_session() as session:
+            # Payloads are compared here, not in SQL: Postgres has no equality
+            # operator for `json`, and a type's live jobs are a handful of rows.
+            others = await session.scalars(
+                select(Job.payload).where(
+                    Job.type == job_type,
+                    Job.id != job_id,
+                    Job.status.in_((JobStatus.pending, JobStatus.running)),
+                )
+            )
+            if any(other == payload for other in others):
+                log.info(
+                    "job %s (%s) given up on, but a newer job for %s is live; row left to it",
+                    job_id,
+                    job_type,
+                    payload,
+                )
+                return
             await hook(session, payload, error)
             await session.commit()
     except Exception:  # noqa: BLE001 — recording a failure must not stop the worker
-        log.exception("could not record that a %s job was given up on", job_type)
+        log.exception(
+            "could not record that job %s (%s) for %s was given up on", job_id, job_type, payload
+        )
 
 
 async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str | None, bool]:
@@ -693,9 +727,8 @@ async def process_one_job() -> bool:
         # After the commit, never inside it: the job's own outcome is the
         # record that matters, and it must not wait on, or roll back with, a
         # write to some other row.
-        if gave_up:
-            assert error is not None
-            await _tell_handler_it_was_given_up(job_type, payload, error)
+        if gave_up and error is not None:
+            await _tell_handler_it_was_given_up(job_id, job_type, payload, error)
     finally:
         await _write_heartbeat(job_started_at=None)
     return True
@@ -746,7 +779,7 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=ORPHAN_RECLAIM_SECONDS)
     reclaimed = 0
-    given_up: list[tuple[str, dict]] = []
+    given_up: list[tuple[int, str, dict]] = []
     async with async_session() as session:
         orphans = (
             await session.scalars(
@@ -791,7 +824,7 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
                 job.status = JobStatus.failed
                 job.error = f"{note}; no attempts left"
                 log.error("job %s (%s) orphaned with no attempts left", job.id, job.type)
-                given_up.append((job.type, job.payload))
+                given_up.append((job.id, job.type, job.payload))
             job.claimed_by = None
             job.claimed_at = None
             reclaimed += 1
@@ -799,8 +832,8 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
 
     # The worker's id means nothing to a tutor, so the row is given the plain
     # version of what happened rather than the job's own error.
-    for job_type, payload in given_up:
-        await _tell_handler_it_was_given_up(job_type, payload, ORPHANED_MESSAGE)
+    for job_id, job_type, payload in given_up:
+        await _tell_handler_it_was_given_up(job_id, job_type, payload, ORPHANED_MESSAGE)
 
     if reclaimed:
         # ERROR, not INFO: reaching here means a worker died holding work.

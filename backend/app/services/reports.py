@@ -2,7 +2,7 @@
 narrative report. The AI writes prose strictly from the factual block we build —
 it is told never to invent marks, grades, or facts not present in the data."""
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -358,7 +358,8 @@ async def report_given_up(session: AsyncSession, payload: dict, error: str) -> N
     """The `on_give_up` hook for `generate_report` (see `register_handler` in
     app/workers/jobs.py): a report still `generating` when its job is given up
     on would otherwise show a spinner for ever."""
-    report = await session.get(Report, payload["report_id"])
-    if report is not None and report.status is ReportStatus.generating:
-        report.status = ReportStatus.failed
-        report.error = error
+    await session.execute(
+        update(Report)
+        .where(Report.id == payload["report_id"], Report.status == ReportStatus.generating)
+        .values(status=ReportStatus.failed, error=error)
+    )

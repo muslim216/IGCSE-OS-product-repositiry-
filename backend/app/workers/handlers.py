@@ -37,7 +37,11 @@ from app.services.narrative import (
     generate_narrative,
     sweep_parent_narratives,
 )
-from app.services.notifications.service import SEND_JOB, send_notification
+from app.services.notifications.service import (
+    SEND_JOB,
+    notification_given_up,
+    send_notification,
+)
 from app.services.notifications.triggers import SWEEP_JOB as MESSAGE_TRIGGER_SWEEP_JOB
 from app.services.notifications.triggers import sweep_message_triggers
 from app.services.past_paper_phase import SWEEP_JOB as PAST_PAPER_PHASE_SWEEP_JOB
@@ -140,7 +144,7 @@ def register_all() -> None:
     register_handler(IMPORT_JOB, import_meeting_attendance)
     # Delivers one outbox row (task 8.1). Safe to re-run (`BE-6`): only a
     # `queued` notification is acted on.
-    register_handler(SEND_JOB, send_notification)
+    register_handler(SEND_JOB, send_notification, on_give_up=notification_given_up)
     # The weekly send (task 8.2): a sweep finds organizations whose week has
     # closed and queues one build each. Both are safe to re-run (`BE-6`).
     register_handler(WEEKLY_SEND_SWEEP_JOB, sweep_weekly_sends)

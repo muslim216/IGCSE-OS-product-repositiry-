@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -118,13 +118,14 @@ async def marking_given_up(session: AsyncSession, payload: dict, error: str) -> 
     attempt `submitted` with no marks and no error, waiting on a job that is
     gone. Only that state is touched; a mark already drafted or finalized is
     never undone here."""
-    submission = await session.get(Submission, payload["submission_id"])
-    if submission is not None and submission.status in (
-        SubmissionStatus.submitted,
-        SubmissionStatus.marking,
-    ):
-        submission.status = SubmissionStatus.ai_failed
-        submission.ai_error = error
+    await session.execute(
+        update(Submission)
+        .where(
+            Submission.id == payload["submission_id"],
+            Submission.status == SubmissionStatus.submitted,
+        )
+        .values(status=SubmissionStatus.ai_failed, ai_error=error)
+    )
 
 
 @dataclass

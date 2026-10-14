@@ -20,7 +20,7 @@ Three things this module deliberately does not do:
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -293,3 +293,18 @@ async def send_notification(session: AsyncSession, payload: dict) -> None:
         _end(note, NotificationStatus.sent, "; ".join(errors)[:1000] or None)
         return
     _end(note, NotificationStatus.failed, "; ".join(errors)[:1000] or "No channel accepted it")
+
+
+async def notification_given_up(session: AsyncSession, payload: dict, error: str) -> None:
+    """The `on_give_up` hook for `send_notification` (see `register_handler` in
+    app/workers/jobs.py). The handler ends its row itself on every path it can
+    see; a send stopped at the time limit, or lost with its worker, is the one
+    it cannot, and leaves the row `queued` with no job behind it."""
+    await session.execute(
+        update(Notification)
+        .where(
+            Notification.id == payload["notification_id"],
+            Notification.status == NotificationStatus.queued,
+        )
+        .values(status=NotificationStatus.failed, error=error[:1000])
+    )

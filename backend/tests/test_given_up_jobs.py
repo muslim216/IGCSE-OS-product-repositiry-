@@ -26,6 +26,9 @@ from app.models import (
     JobStatus,
     Mock,
     MockStatus,
+    Notification,
+    NotificationKind,
+    NotificationStatus,
     PastPaper,
     PastPaperQuestion,
     Report,
@@ -44,6 +47,7 @@ from app.services.extraction import (
     past_paper_read_given_up,
 )
 from app.services.marking import marking_given_up
+from app.services.notifications.service import notification_given_up
 from app.services.reports import report_given_up
 from app.services.syllabus_extraction import syllabus_read_given_up
 from app.workers import jobs
@@ -223,7 +227,9 @@ async def test_a_hook_that_raises_is_logged_and_the_job_stays_failed(client, pro
 
     assert (await _the_job()).status == JobStatus.failed
     assert any(
-        "could not record that a give_up_probe job was given up on" in r.getMessage()
+        "could not record that job" in r.getMessage()
+        and "give_up_probe" in r.getMessage()
+        and "thing_id" in r.getMessage()
         and r.exc_info is not None
         for r in caplog.records
     )
@@ -261,6 +267,99 @@ async def test_what_a_hook_writes_is_committed(client, probe):
     assert written == 1
 
 
+async def test_a_newer_job_for_the_same_row_keeps_the_row(client, probe):
+    """A tutor's "try again" (or a student's resubmission) can put the row back
+    in progress with a fresh job behind it while the old job was still on its
+    last attempt. The row is the fresh job's: failing it would show a failure
+    for work that is still going."""
+    calls = probe(_hangs, timeout_seconds=SHORT)
+    await _queue()
+    assert await asyncio.wait_for(process_one_job(), timeout=10) is True
+    # The fresh job: same type and payload, not yet due, so the old job's
+    # second attempt is what the worker claims next.
+    async with async_session() as session:
+        fresh = Job(type=JOB, payload=dict(PAYLOAD), status=JobStatus.pending)
+        fresh.run_after = datetime.now(timezone.utc) + timedelta(hours=1)
+        session.add(fresh)
+        await session.commit()
+    await _skip_backoff_of_the_first()
+
+    assert await asyncio.wait_for(process_one_job(), timeout=10) is True
+
+    async with async_session() as session:
+        statuses = (await session.scalars(select(Job.status).where(Job.type == JOB))).all()
+    assert sorted(statuses) == sorted([JobStatus.failed, JobStatus.pending])
+    assert calls == []
+
+
+async def test_a_job_for_another_row_does_not_hold_the_hook_back(client, probe):
+    calls = probe(_hangs, timeout_seconds=SHORT)
+    await _queue()
+    assert await asyncio.wait_for(process_one_job(), timeout=10) is True
+    async with async_session() as session:
+        other = Job(type=JOB, payload={"thing_id": 8}, status=JobStatus.pending)
+        other.run_after = datetime.now(timezone.utc) + timedelta(hours=1)
+        session.add(other)
+        await session.commit()
+    await _skip_backoff_of_the_first()
+
+    assert await asyncio.wait_for(process_one_job(), timeout=10) is True
+
+    assert len(calls) == 1
+
+
+async def test_an_orphan_whose_row_has_a_newer_job_keeps_the_row(client, probe):
+    calls = probe(_hangs)
+    await _orphan(attempts=MAX_ATTEMPTS)
+    await _queue()  # the student resubmitted while the old job was stuck
+
+    assert await reclaim_orphaned_jobs() == 1
+
+    assert calls == []
+
+
+async def test_the_hook_runs_after_the_jobs_failure_is_committed(client, probe):
+    seen: list[JobStatus] = []
+
+    async def _reads_the_job(session, payload, error):
+        async with async_session() as other:
+            job = await other.scalar(select(Job).where(Job.type == JOB))
+            seen.append(job.status)
+
+    probe(_hangs, on_give_up=_reads_the_job, timeout_seconds=SHORT)
+    await _queue()
+
+    await _run_twice()
+
+    assert seen == [JobStatus.failed]
+
+
+async def test_stopping_the_worker_during_a_hook_is_not_swallowed(client, probe):
+    """Only failures of the hook are contained. A cancellation is the worker
+    being shut down, and must reach whoever is shutting it down."""
+    entered = asyncio.Event()
+
+    async def _waits(session, payload, error):
+        entered.set()
+        await asyncio.sleep(30)
+
+    probe(_hangs, on_give_up=_waits)
+    await _orphan(attempts=MAX_ATTEMPTS)
+
+    sweep = asyncio.create_task(reclaim_orphaned_jobs())
+    await asyncio.wait_for(entered.wait(), timeout=10)
+    sweep.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await sweep
+
+
+async def _skip_backoff_of_the_first() -> None:
+    async with async_session() as session:
+        job = await session.scalar(select(Job).where(Job.type == JOB).order_by(Job.id).limit(1))
+        job.run_after = None
+        await session.commit()
+
+
 def test_registering_without_a_hook_clears_one_left_by_an_earlier_registration(monkeypatch):
     monkeypatch.setattr(jobs, "_handlers", {})
     monkeypatch.setattr(jobs, "_give_ups", {})
@@ -285,6 +384,7 @@ HOOKED = {
     "mark_submission": marking_given_up,
     "generate_report": report_given_up,
     "extract_syllabus": syllabus_read_given_up,
+    "send_notification": notification_given_up,
 }
 
 
@@ -375,6 +475,18 @@ def _submission(status, error=None):
     return Submission(work_id=next(_ids), student_id=1, status=status, ai_error=error)
 
 
+def _notification(status, error=None):
+    return Notification(
+        organization_id=1,
+        recipient_user_id=1,
+        kind=NotificationKind.homework_set,
+        template="t",
+        idempotency_key=f"k{next(_ids)}",
+        status=status,
+        error=error,
+    )
+
+
 # (hook, payload key, build, error attribute, in progress, failed, moved on)
 CASES = [
     pytest.param(
@@ -413,7 +525,7 @@ CASES = [
     ),
     pytest.param(
         marking_given_up, "submission_id", _submission, "ai_error",
-        [SubmissionStatus.submitted, SubmissionStatus.marking], SubmissionStatus.ai_failed,
+        [SubmissionStatus.submitted], SubmissionStatus.ai_failed,
         [
             SubmissionStatus.ai_marked,
             SubmissionStatus.needs_review,
@@ -421,6 +533,12 @@ CASES = [
             SubmissionStatus.finalized,
         ],
         id="submission",
+    ),
+    pytest.param(
+        notification_given_up, "notification_id", _notification, "error",
+        [NotificationStatus.queued], NotificationStatus.failed,
+        [NotificationStatus.sent, NotificationStatus.suppressed],
+        id="notification",
     ),
 ]  # fmt: skip
 
