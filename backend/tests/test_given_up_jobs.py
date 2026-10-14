@@ -168,8 +168,10 @@ async def test_a_job_that_succeeds_or_is_retried_tells_nobody(client, probe):
     await _queue(payload={"other": 1})
     assert await process_one_job() is True
     async with async_session() as session:
-        retried = await session.scalar(select(Job).where(Job.payload == {"other": 1}))
-    assert retried is not None and retried.status == JobStatus.pending
+        retried = await session.scalar(select(Job).where(Job.type == JOB).order_by(Job.id.desc()))
+    assert retried is not None
+    assert retried.payload == {"other": 1}
+    assert retried.status == JobStatus.pending
     assert calls == []
 
 
