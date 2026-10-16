@@ -12,17 +12,11 @@ Kept free of app imports so the worker layer and the API can both use it
 
 import contextvars
 import logging
-import re
 import uuid
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s [%(context)s] %(message)s"
 
 _context: contextvars.ContextVar[str] = contextvars.ContextVar("log_context", default="-")
-
-#: A caller-supplied request id is kept only if it is short and plain, so a
-#: header cannot inject text, or a newline, into the log.
-_SAFE_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-
 
 def bind(value: str) -> contextvars.Token[str]:
     """Mark everything logged from here on, in this task and the tasks it
@@ -34,11 +28,9 @@ def reset(token: contextvars.Token[str]) -> None:
     _context.reset(token)
 
 
-def request_id(header: str | None) -> str:
-    """The id for one request: the caller's `X-Request-ID` if it is safe to
-    log, otherwise a new one."""
-    if header and _SAFE_ID.match(header):
-        return header
+def new_request_id() -> str:
+    """A fresh id for one request: 128 random bits, never guessable or chosen
+    by the caller."""
     return uuid.uuid4().hex
 
 
@@ -63,3 +55,7 @@ def configure_logging() -> None:
     handler.addFilter(ContextFilter())
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    # At INFO the HTTP client logs every request's full URL, which for the
+    # meeting integrations carries meeting ids and query strings.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)

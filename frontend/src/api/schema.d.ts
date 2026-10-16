@@ -51,11 +51,15 @@ export interface paths {
          *     returning a hardcoded "ok", and marking had silently stopped (RISK-4).
          *
          *     503 means the database is unreachable, the worker started and then
-         *     stopped turning, or a configured Redis has stopped answering and login
-         *     throttling has silently degraded to per-instance (task 1.4, AV-83).
-         *     Under the test client the worker never starts at all (ASGITransport does
-         *     not run lifespan), which reports as `not_started` and is not a failure —
-         *     a test run is not a broken deployment.
+         *     stopped turning, a configured Redis has stopped answering and login
+         *     throttling has silently degraded to per-instance (task 1.4, AV-83), an
+         *     AI provider a surface is routed to has no key, or this process has been
+         *     serving for over a minute with no worker anywhere (cleanup stage,
+         *     OPS-05). Under the test client the lifespan never runs
+         *     (ASGITransport does not run it), so the worker reports `not_started`
+         *     and that is not a failure: a test run is not a broken deployment.
+         *     Recently queued work that failed (`failed_queued_last_24h`) and how long
+         *     due work has waited (`oldest_due_age_seconds`) are reported, not judged.
          */
         get: operations["health_ready_api_v1_health_ready_get"];
         put?: never;

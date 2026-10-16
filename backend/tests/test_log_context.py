@@ -38,18 +38,10 @@ def collected():
     root.removeHandler(handler)
 
 
-def test_a_plain_caller_id_is_kept():
-    assert log_context.request_id("abc-123_X.y") == "abc-123_X.y"
-
-
-@pytest.mark.parametrize(
-    "header", [None, "", "has space", "line\nbreak", "x" * 65, 'quote"', "évil"]
-)
-def test_anything_else_gets_a_fresh_id(header):
-    rid = log_context.request_id(header)
-    assert rid != header
-    assert len(rid) == 32
-    assert all(c in "0123456789abcdef" for c in rid)
+def test_request_ids_are_fresh_and_unguessable():
+    ids = {log_context.new_request_id() for _ in range(100)}
+    assert len(ids) == 100
+    assert all(len(i) == 32 and all(c in "0123456789abcdef" for c in i) for i in ids)
 
 
 def test_outside_any_request_or_job_the_context_is_a_dash():
@@ -58,12 +50,39 @@ def test_outside_any_request_or_job_the_context_is_a_dash():
     assert record.context == "-"
 
 
-async def test_every_response_carries_its_request_id(client):
-    fresh = await client.get("/api/v1/health")
-    assert len(fresh.headers["x-request-id"]) == 32
+async def test_every_response_carries_its_own_request_id(client):
+    first = await client.get("/api/v1/health")
+    second = await client.get("/api/v1/health", headers={"X-Request-ID": "chosen-by-caller"})
 
-    echoed = await client.get("/api/v1/health", headers={"X-Request-ID": "tutor-report-17"})
-    assert echoed.headers["x-request-id"] == "tutor-report-17"
+    assert len(first.headers["x-request-id"]) == 32
+    # A caller cannot choose one: theirs could collide with someone else's
+    # lines in a search of the log.
+    assert second.headers["x-request-id"] != "chosen-by-caller"
+    assert second.headers["x-request-id"] != first.headers["x-request-id"]
+
+
+async def test_an_unhandled_error_is_logged_and_answered_with_the_request_id(client, collected):
+    """The case someone reports, so the one that most needs the id."""
+    from app.main import app
+
+    async def _boom():
+        raise RuntimeError("something broke")
+
+    app.add_api_route("/api/v1/_test_boom", _boom)
+    try:
+        resp = await client.get("/api/v1/_test_boom")
+    finally:
+        app.router.routes = [
+            r for r in app.router.routes if getattr(r, "path", "") != "/api/v1/_test_boom"
+        ]
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "Internal Server Error"}
+    rid = resp.headers["x-request-id"]
+    [line] = [r for r in collected if "unhandled error" in r.getMessage()]
+    assert line.context == f"req-{rid}"
+    assert line.exc_info is not None
+    assert "something broke" not in resp.text
 
 
 async def test_lines_logged_during_a_request_carry_its_id(client, monkeypatch, collected):
@@ -72,11 +91,11 @@ async def test_lines_logged_during_a_request_carry_its_id(client, monkeypatch, c
 
     monkeypatch.setattr("app.main.async_session", _refused)
 
-    await client.get("/api/v1/health/ready", headers={"X-Request-ID": "find-me"})
+    resp = await client.get("/api/v1/health/ready")
 
     lines = [r for r in collected if "could not reach the database" in r.getMessage()]
     assert lines
-    assert all(r.context == "req-find-me" for r in lines)
+    assert all(r.context == f"req-{resp.headers['x-request-id']}" for r in lines)
 
 
 async def test_lines_logged_during_a_job_carry_its_id(client, monkeypatch, collected, caplog):
@@ -113,8 +132,12 @@ def test_configuring_twice_adds_one_handler_and_logs_info():
         assert len(ours) == 1
         assert root.level == logging.INFO
         assert "%(context)s" in ours[0].formatter._fmt
+        # The HTTP client would log every request's full URL at INFO.
+        assert logging.getLogger("httpx").getEffectiveLevel() == logging.WARNING
     finally:
         for h in list(root.handlers):
             if h not in before_handlers:
                 root.removeHandler(h)
         root.setLevel(before_level)
+        for noisy in ("httpx", "httpcore"):
+            logging.getLogger(noisy).setLevel(logging.NOTSET)

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 
 from app import log_context
@@ -182,13 +183,9 @@ DOCS_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect"})
 #: silent stop: an API serving happily while no background work ever runs.
 WORKER_START_GRACE_SECONDS = 60.0
 
-#: Work that has been due this long without a worker picking it up means the
-#: queue is not keeping up, or not moving. Twice the default job time limit,
-#: so one long marking job holding the worker is not mistaken for it.
-QUEUE_STUCK_SECONDS = 1800.0
-
-#: How far back /health/ready counts failed jobs. Reported, not judged: a
-#: single unreadable upload fails for good and is not an outage.
+#: How far back /health/ready counts failed jobs, by when they were queued.
+#: Reported, not judged: a single unreadable upload fails for good and is not
+#: an outage.
 FAILED_WINDOW = timedelta(hours=24)
 
 #: Cap on the readiness endpoint's database probe. Well under any sensible
@@ -243,15 +240,17 @@ def _ai_keys() -> dict:
     failed jobs found in production in October were this.
     """
     settings = get_settings()
-    keys = {
-        AiProvider.anthropic: settings.anthropic_api_key,
-        AiProvider.gemini: settings.gemini_api_key,
-    }
+    # `<provider>_api_key` for every provider, so a new one cannot be
+    # reported as missing for want of an entry here.
+    keys = {p: getattr(settings, f"{p.value}_api_key", None) for p in AiProvider}
     try:
         routed = {resolve_surface(surface)[0] for surface in SURFACES}
-    except ValueError as exc:
+    except ValueError:
         # A misspelt provider is a configuration fault every AI call would hit.
-        return {"ok": False, "error": str(exc)}
+        # The message names the setting and echoes its raw value, so it goes to
+        # the log, not to this public answer.
+        log.exception("an AI surface is routed to a provider that does not exist")
+        return {"ok": False, "error": "provider_misconfigured"}
     missing = sorted(p.value for p in routed if not (keys.get(p) or "").strip())
     return {"ok": not missing, "missing_keys": missing}
 
@@ -312,16 +311,29 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
 
     @app.middleware("http")
     async def request_context(request, call_next):
         """Tag every log line of a request with its id, and return the id, so a
-        problem someone reports can be found in the log (OPS-06)."""
-        rid = log_context.request_id(request.headers.get("x-request-id"))
+        problem someone reports can be found in the log (OPS-06). Always made
+        here: a caller choosing its own could make its lines collide with
+        someone else's in a search."""
+        rid = log_context.new_request_id()
         token = log_context.bind(f"req-{rid}")
         try:
             response = await call_next(request)
+        except Exception:
+            # An unhandled error is the case someone reports, so it is the one
+            # that most needs the id: logged here, while the request's context
+            # is still bound, and returned on the 500. Left to the server's own
+            # handler it would be logged with no id and answered without one.
+            log.exception("unhandled error in %s %s", request.method, request.url.path)
+            response = JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "Internal Server Error"},
+            )
         finally:
             log_context.reset(token)
         response.headers["X-Request-ID"] = rid
@@ -368,13 +380,13 @@ def create_app() -> FastAPI:
         503 means the database is unreachable, the worker started and then
         stopped turning, a configured Redis has stopped answering and login
         throttling has silently degraded to per-instance (task 1.4, AV-83), an
-        AI provider a surface is routed to has no key, work has been due for
-        over `QUEUE_STUCK_SECONDS` with nothing picking it up, or this process
-        has been serving for over a minute with no worker anywhere (cleanup
-        stage, OPS-05). Under the test client the lifespan never runs
+        AI provider a surface is routed to has no key, or this process has been
+        serving for over a minute with no worker anywhere (cleanup stage,
+        OPS-05). Under the test client the lifespan never runs
         (ASGITransport does not run it), so the worker reports `not_started`
         and that is not a failure: a test run is not a broken deployment.
-        Recent failed jobs are counted (`failed_last_24h`) but not judged.
+        Recently queued work that failed (`failed_queued_last_24h`) and how long
+        due work has waited (`oldest_due_age_seconds`) are reported, not judged.
         """
         database: dict = {"ok": False}
         queue: dict | None = None
@@ -395,10 +407,14 @@ def create_app() -> FastAPI:
                 "pending": by_status.get(JobStatus.pending, 0),
                 "running": by_status.get(JobStatus.running, 0),
                 "failed": by_status.get(JobStatus.failed, 0),
-                "failed_last_24h": snapshot["failed_recently"],
+                # By when the job was queued: the table records no time a job
+                # failed, so a job queued days ago that failed just now is not here.
+                "failed_queued_last_24h": snapshot["failed_recently"],
                 "oldest_pending_age_seconds": _age_seconds(snapshot["oldest_pending"]),
+                # Reported, not judged. A queue that is not moving already shows
+                # as a stale or stalled worker; a long one that is moving is a
+                # backlog (one tutor's batch of uploads), not an outage.
                 "oldest_due_age_seconds": oldest_due_age,
-                "stuck": oldest_due_age is not None and oldest_due_age > QUEUE_STUCK_SECONDS,
             }
         except Exception as exc:  # noqa: BLE001 — the failure is the answer
             log.exception("readiness check could not reach the database")
@@ -427,7 +443,6 @@ def create_app() -> FastAPI:
             and not worker_missing
             and rate_limit["ok"]
             and ai["ok"]
-            and not (queue or {}).get("stuck", False)
         )
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

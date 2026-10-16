@@ -759,8 +759,10 @@ async def process_one_job() -> bool:
         await asyncio.shield(_hand_back(job_id))
         raise
     finally:
-        await _write_heartbeat(job_started_at=None)
-        log_context.reset(context)
+        try:
+            await _write_heartbeat(job_started_at=None)
+        finally:
+            log_context.reset(context)
     return True
 
 

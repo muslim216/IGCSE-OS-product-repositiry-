@@ -112,10 +112,9 @@ async def test_readiness_reports_the_database_and_the_queue(client):
         "pending": 0,
         "running": 0,
         "failed": 0,
-        "failed_last_24h": 0,
+        "failed_queued_last_24h": 0,
         "oldest_pending_age_seconds": None,
         "oldest_due_age_seconds": None,
-        "stuck": False,
     }
     assert body["ai"] == {"ok": True, "missing_keys": []}
 
@@ -520,15 +519,21 @@ async def test_a_blank_ai_key_is_a_missing_one(client, monkeypatch):
     assert (await client.get("/api/v1/health/ready")).status_code == 503
 
 
-async def test_a_misspelt_ai_provider_reports_503(client, monkeypatch):
+async def test_a_misspelt_ai_provider_reports_503_without_echoing_the_setting(
+    client, monkeypatch, caplog
+):
+    """The endpoint is public. The setting's raw value, which someone could
+    have pasted a key into by mistake, goes to the log, not the answer."""
     from app.config import get_settings
 
     monkeypatch.setattr(get_settings(), "ai_marking_provider", "anthropik")
 
     resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 503
-    assert resp.json()["ai"]["ok"] is False
-    assert "anthropik" in resp.json()["ai"]["error"]
+    assert resp.json()["ai"] == {"ok": False, "error": "provider_misconfigured"}
+    assert "anthropik" not in resp.text
+    logged = [r for r in caplog.records if r.exc_info and "anthropik" in str(r.exc_info[1])]
+    assert logged, "the detail is in the log"
 
 
 async def _job(*, status: JobStatus, created_ago: float, run_after_in: float | None = None):
@@ -546,18 +551,18 @@ async def _job(*, status: JobStatus, created_ago: float, run_after_in: float | N
         await session.commit()
 
 
-async def test_work_due_for_too_long_reports_503(client):
-    from app.main import QUEUE_STUCK_SECONDS
-
-    await _job(status=JobStatus.pending, created_ago=QUEUE_STUCK_SECONDS + 60)
+async def test_a_long_backlog_is_reported_not_judged(client):
+    """One tutor's batch of uploads can keep work waiting for half an hour while
+    the worker drains it steadily. That is a backlog, not an outage; a queue
+    that is not moving already shows as a stale or stalled worker."""
+    await _job(status=JobStatus.pending, created_ago=3600)
 
     resp = await client.get("/api/v1/health/ready")
-    assert resp.status_code == 503
-    assert resp.json()["queue"]["stuck"] is True
-    assert resp.json()["queue"]["oldest_due_age_seconds"] > QUEUE_STUCK_SECONDS
+    assert resp.status_code == 200
+    assert resp.json()["queue"]["oldest_due_age_seconds"] > 3500
 
 
-async def test_work_scheduled_for_later_is_not_stuck_however_old(client):
+async def test_work_scheduled_for_later_is_not_counted_as_waiting(client):
     """The weekly sweeps sit queued for up to a day by design. Judged by when it
     was queued, a healthy system would page every night."""
     await _job(status=JobStatus.pending, created_ago=86_000, run_after_in=3600)
@@ -567,7 +572,6 @@ async def test_work_scheduled_for_later_is_not_stuck_however_old(client):
     body = resp.json()["queue"]
     assert body["oldest_pending_age_seconds"] > 80_000
     assert body["oldest_due_age_seconds"] is None
-    assert body["stuck"] is False
 
 
 async def test_due_age_counts_from_when_the_work_became_due(client):
@@ -577,7 +581,6 @@ async def test_due_age_counts_from_when_the_work_became_due(client):
 
     body = (await client.get("/api/v1/health/ready")).json()["queue"]
     assert 0 < body["oldest_due_age_seconds"] < 120
-    assert body["stuck"] is False
 
 
 async def test_recent_failures_are_counted_but_do_not_fail_the_check(client):
@@ -588,7 +591,7 @@ async def test_recent_failures_are_counted_but_do_not_fail_the_check(client):
     resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 200
     assert resp.json()["queue"]["failed"] == 2
-    assert resp.json()["queue"]["failed_last_24h"] == 1
+    assert resp.json()["queue"]["failed_queued_last_24h"] == 1
 
 
 @pytest.fixture
