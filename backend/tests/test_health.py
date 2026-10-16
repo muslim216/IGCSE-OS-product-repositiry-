@@ -522,8 +522,9 @@ async def test_a_blank_ai_key_is_a_missing_one(client, monkeypatch):
 async def test_a_misspelt_ai_provider_reports_503_without_echoing_the_setting(
     client, monkeypatch, caplog
 ):
-    """The endpoint is public. The setting's raw value, which someone could
-    have pasted a key into by mistake, goes to the log, not the answer."""
+    """The endpoint is public, and it logs on every poll. The setting's raw
+    value, which someone could have pasted a key into by mistake, goes to
+    neither."""
     from app.config import get_settings
 
     monkeypatch.setattr(get_settings(), "ai_marking_provider", "anthropik")
@@ -532,8 +533,8 @@ async def test_a_misspelt_ai_provider_reports_503_without_echoing_the_setting(
     assert resp.status_code == 503
     assert resp.json()["ai"] == {"ok": False, "error": "provider_misconfigured"}
     assert "anthropik" not in resp.text
-    logged = [r for r in caplog.records if r.exc_info and "anthropik" in str(r.exc_info[1])]
-    assert logged, "the detail is in the log"
+    assert any("AI_*_PROVIDER" in r.getMessage() for r in caplog.records)
+    assert not any("anthropik" in r.getMessage() or r.exc_info for r in caplog.records)
 
 
 async def _job(*, status: JobStatus, created_ago: float, run_after_in: float | None = None):

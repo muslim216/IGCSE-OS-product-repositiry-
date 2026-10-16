@@ -247,9 +247,11 @@ def _ai_keys() -> dict:
         routed = {resolve_surface(surface)[0] for surface in SURFACES}
     except ValueError:
         # A misspelt provider is a configuration fault every AI call would hit.
-        # The message names the setting and echoes its raw value, so it goes to
-        # the log, not to this public answer.
-        log.exception("an AI surface is routed to a provider that does not exist")
+        # Its message echoes the setting's raw value, which could be a key
+        # pasted into the wrong field, so it goes neither to this public answer
+        # nor to the log this endpoint writes on every poll; the AI call that
+        # hits it raises it in full.
+        log.error("an AI surface is routed to a provider that does not exist; check AI_*_PROVIDER")
         return {"ok": False, "error": "provider_misconfigured"}
     missing = sorted(p.value for p in routed if not (keys.get(p) or "").strip())
     return {"ok": not missing, "missing_keys": missing}

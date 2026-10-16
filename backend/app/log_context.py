@@ -18,6 +18,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s [%(context)s] %(message)s"
 
 _context: contextvars.ContextVar[str] = contextvars.ContextVar("log_context", default="-")
 
+
 def bind(value: str) -> contextvars.Token[str]:
     """Mark everything logged from here on, in this task and the tasks it
     starts, as belonging to `value`. Undo with `reset`."""
