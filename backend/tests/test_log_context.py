@@ -61,8 +61,9 @@ async def test_every_response_carries_its_own_request_id(client):
     assert second.headers["x-request-id"] != first.headers["x-request-id"]
 
 
-async def test_an_unhandled_error_is_logged_and_answered_with_the_request_id(client, collected):
-    """The case someone reports, so the one that most needs the id."""
+async def test_an_unhandled_error_is_logged_with_the_request_id_and_still_raises(client, collected):
+    """The case someone reports, so the one whose log line most needs the id.
+    The error still propagates, as it always has, for the server to answer."""
     from app.main import app
 
     async def _boom():
@@ -70,19 +71,17 @@ async def test_an_unhandled_error_is_logged_and_answered_with_the_request_id(cli
 
     app.add_api_route("/api/v1/_test_boom", _boom)
     try:
-        resp = await client.get("/api/v1/_test_boom")
+        with pytest.raises(RuntimeError, match="something broke"):
+            await client.get("/api/v1/_test_boom")
     finally:
         app.router.routes = [
             r for r in app.router.routes if getattr(r, "path", "") != "/api/v1/_test_boom"
         ]
 
-    assert resp.status_code == 500
-    assert resp.json() == {"detail": "Internal Server Error"}
-    rid = resp.headers["x-request-id"]
     [line] = [r for r in collected if "unhandled error" in r.getMessage()]
-    assert line.context == f"req-{rid}"
+    assert line.context.startswith("req-")
+    assert len(line.context) == len("req-") + 32
     assert line.exc_info is not None
-    assert "something broke" not in resp.text
 
 
 async def test_lines_logged_during_a_request_carry_its_id(client, monkeypatch, collected):

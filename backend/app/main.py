@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 
 from app import log_context
@@ -303,6 +302,31 @@ def _age_seconds(value: datetime | None) -> float | None:
     return (datetime.now(timezone.utc) - value).total_seconds()
 
 
+async def _request_context(request, call_next):
+    """Tag every log line of a request with its id, and return the id, so a
+    problem someone reports can be found in the log (OPS-06). Always made
+    here: a caller choosing its own could make its lines collide with someone
+    else's in a search.
+
+    An unhandled error is logged here, while the request's id is still bound,
+    and then left to propagate as before: the server answers it with its own
+    500, which carries no id, but the log line that explains it does. Turning
+    it into our own response would also hide it from anything below the
+    server that relies on the exception (the test client among them).
+    """
+    rid = log_context.new_request_id()
+    token = log_context.bind(f"req-{rid}")
+    try:
+        response = await call_next(request)
+    except Exception:
+        log.exception("unhandled error in %s %s", request.method, request.url.path)
+        raise
+    finally:
+        log_context.reset(token)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -316,30 +340,7 @@ def create_app() -> FastAPI:
         expose_headers=["X-Request-ID"],
     )
 
-    @app.middleware("http")
-    async def request_context(request, call_next):
-        """Tag every log line of a request with its id, and return the id, so a
-        problem someone reports can be found in the log (OPS-06). Always made
-        here: a caller choosing its own could make its lines collide with
-        someone else's in a search."""
-        rid = log_context.new_request_id()
-        token = log_context.bind(f"req-{rid}")
-        try:
-            response = await call_next(request)
-        except Exception:
-            # An unhandled error is the case someone reports, so it is the one
-            # that most needs the id: logged here, while the request's context
-            # is still bound, and returned on the 500. Left to the server's own
-            # handler it would be logged with no id and answered without one.
-            log.exception("unhandled error in %s %s", request.method, request.url.path)
-            response = JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"detail": "Internal Server Error"},
-            )
-        finally:
-            log_context.reset(token)
-        response.headers["X-Request-ID"] = rid
-        return response
+    app.middleware("http")(_request_context)
 
     @app.middleware("http")
     async def security_headers(request, call_next):
