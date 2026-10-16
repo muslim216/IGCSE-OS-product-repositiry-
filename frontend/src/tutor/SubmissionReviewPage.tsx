@@ -330,7 +330,7 @@ export default function SubmissionReviewPage() {
       if (submissionId === id) setError(friendlyError(err));
     },
   });
-  const retryStatus = useRef<HTMLParagraphElement>(null);
+  const retryStatus = useRef<HTMLOutputElement>(null);
   /* This page stays mounted while the review queue walks from one submission
      to the next, so what one submission's retry said must not follow the
      tutor onto the next. */
@@ -544,14 +544,14 @@ export default function SubmissionReviewPage() {
           (the button that was pressed has gone), and that is what reads it out:
           a region that appears from `display: none` is not reliably announced
           on its own. */}
-      <p ref={retryStatus} role="status" tabIndex={-1} className="empty:hidden">
+      <output ref={retryStatus} tabIndex={-1} className="block empty:hidden">
         {retriedThis && (
           <span className="block rounded-md bg-ok-100 px-3 py-2 text-sm text-ok-700">
             Sent back to the AI. It usually finishes within a few minutes; reload this page then to
             see the marks.
           </span>
         )}
-      </p>
+      </output>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left: the student's work. Sticky on wide screens, so the page being

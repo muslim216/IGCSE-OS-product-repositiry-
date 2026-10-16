@@ -3021,7 +3021,8 @@ export interface paths {
          * @description Send work the AI could not mark back to the AI.
          *
          *     Tutor-only; another tutor's or organization's submission is a `404`
-         *     (`API-7`, `API-20`). `409`, with a sentence for the tutor, unless the
+         *     (`API-7`, `API-20`), and so is a past paper's for a tutor who does not
+         *     teach this student in that subject. `409`, with a sentence for the tutor, unless the
          *     attempt is `ai_failed`, or while a marking job for it is running. The
          *     attempt goes back to `submitted` and is marked again; see
          *     `services.marking.retry_marking`.

@@ -8771,7 +8771,7 @@
           "submissions"
         ],
         "summary": "Retry Submission Marking",
-        "description": "Send work the AI could not mark back to the AI.\n\nTutor-only; another tutor's or organization's submission is a `404`\n(`API-7`, `API-20`). `409`, with a sentence for the tutor, unless the\nattempt is `ai_failed`, or while a marking job for it is running. The\nattempt goes back to `submitted` and is marked again; see\n`services.marking.retry_marking`.",
+        "description": "Send work the AI could not mark back to the AI.\n\nTutor-only; another tutor's or organization's submission is a `404`\n(`API-7`, `API-20`), and so is a past paper's for a tutor who does not\nteach this student in that subject. `409`, with a sentence for the tutor, unless the\nattempt is `ai_failed`, or while a marking job for it is running. The\nattempt goes back to `submitted` and is marked again; see\n`services.marking.retry_marking`.",
         "operationId": "retry_submission_marking_api_v1_submissions__submission_id__retry_marking_post",
         "security": [
           {

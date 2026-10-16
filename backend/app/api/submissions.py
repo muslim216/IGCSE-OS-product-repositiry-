@@ -1126,7 +1126,7 @@ def _is_retryable(exc: DBAPIError) -> bool:
     return getattr(exc.orig, "sqlstate", None) in _RETRYABLE_SQLSTATES
 
 
-@router.post("/submissions/{submission_id}/retry-marking", response_model=SubmissionDetail)
+@router.post("/submissions/{submission_id}/retry-marking")
 async def retry_submission_marking(
     submission_id: int, db: DbSession, user: TutorUser
 ) -> SubmissionDetail:
