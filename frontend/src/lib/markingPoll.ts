@@ -25,20 +25,25 @@ export function markingPollInterval(waitedMs: number): number | false {
 
 /**
  * A `refetchInterval` for a query whose data carries the student-facing
- * `status`. The clock starts the first time the page sees "being marked" and
- * resets when it sees anything else, so a fresh hand-in polls quickly again.
+ * `status`. The clock starts the first time the page sees "being marked" for
+ * this piece of work (`key`) and resets when it sees anything else, or when
+ * the same page moves on to other work, so a fresh hand-in polls quickly
+ * again.
  */
-export function useMarkingRefetchInterval() {
-  const since = useRef<number | null>(null);
+export function useMarkingRefetchInterval(key: number) {
+  const clock = useRef<{ key: number; since: number } | null>(null);
   // `unknown`, so this callback never steers how the page's query data is
   // typed; the status is read defensively instead.
-  return useCallback((query: { state: { data?: unknown } }): number | false => {
-    const data = query.state.data as { status?: string } | null | undefined;
-    if (data?.status !== "being_marked") {
-      since.current = null;
-      return false;
-    }
-    since.current ??= Date.now();
-    return markingPollInterval(Date.now() - since.current);
-  }, []);
+  return useCallback(
+    (query: { state: { data?: unknown } }): number | false => {
+      const data = query.state.data as { status?: string } | null | undefined;
+      if (data?.status !== "being_marked") {
+        clock.current = null;
+        return false;
+      }
+      if (clock.current?.key !== key) clock.current = { key, since: Date.now() };
+      return markingPollInterval(Date.now() - clock.current.since);
+    },
+    [key],
+  );
 }

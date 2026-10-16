@@ -33,7 +33,7 @@ export default function SitPastPaperPage() {
   const queryClient = useQueryClient();
 
   const paper = useQuery({ queryKey: ["past-paper", id], queryFn: () => getPastPaper(id) });
-  const markingRefetch = useMarkingRefetchInterval();
+  const markingRefetch = useMarkingRefetchInterval(id);
   const attempt = useQuery({
     queryKey: ["past-paper-attempt", id],
     queryFn: () => myAttempt(id),

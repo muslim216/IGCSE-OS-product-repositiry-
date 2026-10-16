@@ -315,13 +315,34 @@ export default function SubmissionReviewPage() {
      rather than waiting on a refetch. */
   const retry = useMutation({
     mutationFn: () => retryMarking(id),
-    onSuccess: (updated) => {
+    onSuccess: async (updated) => {
       setError(null);
+      // A refetch already in flight (a window focus) read the old `ai_failed`
+      // row and would land on top of this answer.
+      await queryClient.cancelQueries({ queryKey: ["submission", id] });
       queryClient.setQueryData(["submission", id], updated);
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
     },
     onError: (err) => setError(friendlyError(err)),
   });
+  const retryStatus = useRef<HTMLParagraphElement>(null);
+  /* This page stays mounted while the review queue walks from one submission
+     to the next, so what one submission's retry said must not follow the
+     tutor onto the next. */
+  const { reset: resetRetry } = retry;
+  useEffect(() => {
+    resetRetry();
+    setError(null);
+  }, [id, resetRetry]);
+  // After the confirmation has rendered: the button that was pressed is gone,
+  // and focus would otherwise fall back to the page itself.
+  const retriedThis =
+    retry.data !== undefined &&
+    retry.data.id === submission.data?.id &&
+    submission.data.status === "submitted";
+  useEffect(() => {
+    if (retriedThis) retryStatus.current?.focus();
+  }, [retriedThis]);
 
   /* An unmarked question contributes nothing to either side of the total, and
      the count of them is shown beside it. Adding its max to the denominator
@@ -514,12 +535,16 @@ export default function SubmissionReviewPage() {
         )}
       </div>
 
-      {retry.isSuccess && s.status === "submitted" && (
-        <p role="status" className="rounded-md bg-ok-100 px-3 py-2 text-sm text-ok-700">
-          Sent back to the AI. The marks will appear here when it has finished, usually within a few
-          minutes.
-        </p>
-      )}
+      {/* Always rendered, so screen readers announce the text when it arrives;
+          focus moves here because the button that was pressed has gone. */}
+      <p ref={retryStatus} role="status" tabIndex={-1} className="empty:hidden">
+        {retriedThis && (
+          <span className="block rounded-md bg-ok-100 px-3 py-2 text-sm text-ok-700">
+            Sent back to the AI. It usually finishes within a few minutes; reload this page then to
+            see the marks.
+          </span>
+        )}
+      </p>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left: the student's work. Sticky on wide screens, so the page being

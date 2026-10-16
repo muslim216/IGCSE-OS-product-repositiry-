@@ -16,7 +16,9 @@ from app.services.ai import AIKeyMissingError
 from app.services.marking import ALREADY_MARKING, NOT_RETRYABLE
 from app.workers.jobs import process_one_job
 from tests.conftest import PNG_BYTES
+from tests.redo_world import _colleague_headers
 from tests.test_auto_marking import _confident_result, assignment_all_scheme  # noqa: F401
+from tests.test_past_papers import _log_attempt, past_paper  # noqa: F401
 
 API = "/api/v1"
 
@@ -139,6 +141,7 @@ async def test_a_retry_already_waiting_is_brought_forward_not_doubled(
     assert response.status_code == 200
     [job] = await _marking_jobs(JobStatus.pending)
     assert job.id == waiting.id
+    assert job.attempts == 0, "a fresh job: whatever made it fail is what changed"
     run_after = job.run_after
     assert run_after is None or run_after.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc)
 
@@ -219,3 +222,110 @@ async def test_a_missing_submission_is_a_404(client, tutor):
     )
 
     assert response.status_code == 404
+
+
+async def test_marks_the_tutor_already_entered_survive_the_retry(
+    client, tutor, failed_attempt, ai_marks
+):
+    """A tutor may start marking failed work by hand, then try the AI again
+    for the rest. The AI fills in what is left; it never replaces a mark the
+    tutor gave (`PROD-7`)."""
+    detail = await client.get(f"{API}/submissions/{failed_attempt}", headers=tutor["headers"])
+    first = detail.json()["marks"][0]
+    saved = await client.put(
+        f"{API}/submissions/{failed_attempt}/marks",
+        json=[{"question_id": first["question_id"], "final_marks": 1, "final_feedback": "Mine."}],
+        headers=tutor["headers"],
+    )
+    assert saved.status_code == 200, saved.text
+
+    retried = await client.post(
+        f"{API}/submissions/{failed_attempt}/retry-marking", headers=tutor["headers"]
+    )
+    assert retried.status_code == 200
+    ai_marks()
+    assert await process_one_job() is True
+
+    after = await client.get(f"{API}/submissions/{failed_attempt}", headers=tutor["headers"])
+    mine = next(m for m in after.json()["marks"] if m["question_id"] == first["question_id"])
+    assert mine["final_marks"] == 1
+    assert mine["final_feedback"] == "Mine."
+
+
+@pytest.fixture
+async def failed_past_paper_attempt(client, student, past_paper, ai_fails):  # noqa: F811
+    response = await _log_attempt(client, student, past_paper["id"])
+    assert response.status_code == 201, response.text
+    assert await process_one_job() is True
+    async with async_session() as session:
+        row = await session.scalar(select(Submission))
+        assert row is not None
+        assert row.status is SubmissionStatus.ai_failed
+        return row.id
+
+
+async def test_a_colleague_who_does_not_teach_the_student_cannot_retry_a_past_paper(
+    client, failed_past_paper_attempt
+):
+    """A past paper belongs to the organization, so any tutor in it can open
+    an attempt. Marking it again spends money and writes the student's
+    evidence, so, as for a redo, only a tutor who teaches this student in the
+    paper's subject may."""
+    response = await client.post(
+        f"{API}/submissions/{failed_past_paper_attempt}/retry-marking",
+        headers=await _colleague_headers(),
+    )
+
+    assert response.status_code == 404
+    assert (await _submission(failed_past_paper_attempt)).status is SubmissionStatus.ai_failed
+    assert await _marking_jobs(JobStatus.pending) == []
+
+
+async def test_the_tutor_who_teaches_the_student_can_retry_a_past_paper(
+    client, tutor, failed_past_paper_attempt
+):
+    response = await client.post(
+        f"{API}/submissions/{failed_past_paper_attempt}/retry-marking", headers=tutor["headers"]
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "submitted"
+
+
+async def test_a_colleague_teaching_the_student_another_subject_cannot_retry_a_past_paper(
+    client, student, failed_past_paper_attempt
+):
+    """Teaching the student is not enough: it must be in the paper's subject.
+    A physics tutor cannot spend on, or write evidence for, a chemistry paper."""
+    from app.models import Group, GroupMember, Subject, User
+    from tests.factories import org_id, subject_defaults
+
+    headers = await _colleague_headers()
+    async with async_session() as session:
+        colleague = await session.scalar(select(User).where(User.email == "colleague@example.com"))
+        physics = Subject(
+            **await subject_defaults(session),
+            exam_board="Edexcel IGCSE",
+            code="4PH1",
+            name="Physics",
+            grade_scale="9-1",
+        )
+        session.add(physics)
+        await session.flush()
+        group = Group(
+            organization_id=await org_id(session),
+            tutor_id=colleague.id,
+            subject_id=physics.id,
+            name="Physics class",
+        )
+        session.add(group)
+        await session.flush()
+        session.add(GroupMember(group_id=group.id, student_id=student["user"]["id"]))
+        await session.commit()
+
+    response = await client.post(
+        f"{API}/submissions/{failed_past_paper_attempt}/retry-marking", headers=headers
+    )
+
+    assert response.status_code == 404
+    assert await _marking_jobs(JobStatus.pending) == []

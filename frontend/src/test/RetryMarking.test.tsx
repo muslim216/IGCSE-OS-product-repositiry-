@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import SubmissionReviewPage from "../tutor/SubmissionReviewPage";
@@ -7,9 +7,9 @@ import SubmissionReviewPage from "../tutor/SubmissionReviewPage";
 /* "Try marking again" on work the AI couldn't mark. Before it, a failed
    marking had one way out: the tutor marking every question by hand. */
 
-function body(status: string, aiError: string | null) {
+function body(status: string, aiError: string | null, id = 1) {
   return {
-    id: 1,
+    id,
     assignment_id: 7,
     past_paper_id: null,
     mock_id: null,
@@ -41,6 +41,9 @@ function stub(retryAnswer: { status: number; body: unknown }) {
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
       if (method === "GET" && path === "/api/v1/submissions/1")
         return json(body("ai_failed", "AI is not configured"));
+      // The next item in the queue: waiting to be marked, never retried here.
+      if (method === "GET" && path === "/api/v1/submissions/2")
+        return json(body("submitted", null, 2));
       if (method === "GET" && path === "/api/v1/submissions/review-queue") return json([]);
       if (method === "GET" && /^\/api\/v1\/subjects\/\d+\/mistake-categories$/.test(path))
         return json({ subject_id: 3, subject_name: "Chemistry", source: "none", categories: [] });
@@ -53,13 +56,31 @@ function stub(retryAnswer: { status: number; body: unknown }) {
   );
 }
 
+/** Stands in for the review queue moving the same page on to the next item. */
+function GoToNext() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate("/tutor/submissions/2")}>
+      next item
+    </button>
+  );
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/tutor/submissions/1"]}>
         <Routes>
-          <Route path="/tutor/submissions/:submissionId" element={<SubmissionReviewPage />} />
+          <Route
+            path="/tutor/submissions/:submissionId"
+            element={
+              <>
+                <SubmissionReviewPage />
+                <GoToNext />
+              </>
+            }
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -74,7 +95,9 @@ test("work the AI couldn't mark can be sent back to it", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "Try marking again" }));
 
-  expect(await screen.findByRole("status")).toHaveTextContent("Sent back to the AI");
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Sent back to the AI"));
+  // The button that was pressed has gone, so focus lands on the confirmation.
+  await waitFor(() => expect(screen.getByRole("status")).toHaveFocus());
   expect(posts).toEqual(["/api/v1/submissions/1/retry-marking"]);
   // The failure panel goes with the error: the work is queued again.
   expect(screen.queryByText("The AI couldn't mark this work.")).not.toBeInTheDocument();
@@ -93,6 +116,19 @@ test("a refusal is shown in the server's words and nothing pretends it worked", 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "The AI is marking this right now. Check back in a few minutes.",
   );
-  expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  // The live region is always there (so it can announce); it stays empty.
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
   await waitFor(() => expect(posts).toHaveLength(1));
+});
+
+test("what one submission's retry said does not follow the tutor to the next", async () => {
+  stub({ status: 200, body: body("submitted", null) });
+  renderPage();
+  fireEvent.click(await screen.findByRole("button", { name: "Try marking again" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Sent back to the AI"));
+
+  fireEvent.click(screen.getByRole("button", { name: "next item" }));
+
+  await screen.findByText("Waiting to be marked");
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
 });

@@ -24,7 +24,7 @@ export default function SubmitHomeworkPage() {
   const id = Number(assignmentId);
   const queryClient = useQueryClient();
 
-  const markingRefetch = useMarkingRefetchInterval();
+  const markingRefetch = useMarkingRefetchInterval(id);
   const view = useQuery({
     queryKey: ["my-submission", id],
     queryFn: () => mySubmission(id),
