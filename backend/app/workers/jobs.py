@@ -118,9 +118,9 @@ HEARTBEAT_WRITE_TIMEOUT_SECONDS = 5.0
 #: Throttle for the loop clock; see HEARTBEAT_INTERVAL_SECONDS.
 _last_heartbeat_write: datetime | None = None
 
-#: Slack added to the longest job time limit before a quiet worker is believed
-#: dead: the outcome write, a give-up hook, heartbeat writes and the sweep itself
-#: all run on the worker's path between two loop stamps.
+#: Slack added to the longest job time limit before a claim is believed
+#: abandoned: the claim commit, the job-start heartbeat, the cancellation unwind
+#: and the outcome write all fall inside a claim's life besides the handler.
 ORPHAN_GRACE_SECONDS = 300.0
 
 #: What a job handed back at shutdown carries in `error` until it runs again.
@@ -912,10 +912,10 @@ async def worker_loop() -> None:
     global _last_heartbeat_write, _last_orphan_sweep
     await register_worker()
     log.info("job worker started (worker_id=%s)", WORKER_ID)
-    # Immediately after registering, because that call is what reaps the dead
-    # worker rows this sweep reads the absence of. A process that crashed
-    # holding a job is therefore repaired by its own restart, which is the
-    # common case and the one worth healing without waiting out an interval.
+    # Immediately at start: a claim the previous process left behind and that
+    # is already past `orphan_reclaim_seconds()` is repaired by this restart,
+    # without waiting out an interval. A younger one is picked up by the
+    # periodic sweep below once it passes the window.
     #
     # Stamping the throttle is part of the call, not bookkeeping after it: the
     # loop below treats `None` as "never swept" and would run a second,
