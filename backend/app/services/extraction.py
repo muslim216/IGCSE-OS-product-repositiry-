@@ -297,7 +297,7 @@ async def _mark_waiting_attempts(session: AsyncSession, paper: PastPaper) -> Non
     for submission in waiting:
         submission.status = SubmissionStatus.submitted
         submission.ai_error = None
-    await _run_now(
+    await run_now(
         session, "mark_submission", [{"submission_id": submission.id} for submission in waiting]
     )
 
@@ -334,10 +334,10 @@ async def read_in_progress(session: AsyncSession, past_paper_id: int) -> bool:
 async def queue_past_paper_read(session: AsyncSession, past_paper_id: int) -> None:
     """Read a paper's questions again, now — the tutor's fix for a paper the AI
     could not read (owner decision, 2026-10-02)."""
-    await _run_now(session, "extract_past_paper", [{"past_paper_id": past_paper_id}])
+    await run_now(session, "extract_past_paper", [{"past_paper_id": past_paper_id}])
 
 
-async def _run_now(
+async def run_now(
     session: AsyncSession,
     job_type: str,
     payloads: list[dict],

@@ -287,6 +287,12 @@ export const reviseMistake = (
 export const finalizeSubmission = (id: number) =>
   api<SubmissionDetail>(`/api/v1/submissions/${id}/finalize`, { method: "POST" });
 
+/** Send work the AI couldn't mark back to the AI. Only an `ai_failed` attempt
+    is accepted; anything else, or one being marked right now, is a 409 with a
+    sentence for the tutor. */
+export const retryMarking = (id: number) =>
+  api<SubmissionDetail>(`/api/v1/submissions/${id}/retry-marking`, { method: "POST" });
+
 /** Set a locked attempt aside so the student can hand the work in again. The
     old attempt stops counting toward readiness; a record of it is kept. */
 export const redoAttempt = (id: number) =>

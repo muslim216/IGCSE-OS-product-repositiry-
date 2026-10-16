@@ -70,7 +70,7 @@ from app.services.groups import review_queue_predicate
 from app.services.hand_in_gate import class_deleted as _class_deleted
 from app.services.hand_in_gate import homework_open_to
 from app.services.injection_scan import scan_typed_answer
-from app.services.marking import record_marks_as_evidence
+from app.services.marking import MarkingRetryRefused, record_marks_as_evidence, retry_marking
 from app.services.mistake_revision import RevisionRejected, revise_mistake
 from app.services.readiness_v2_ai import enqueue_readiness_v2_debounced
 from app.services.submission_kind import HOMEWORK, MOCK, PAST_PAPER, kind_of
@@ -1119,6 +1119,28 @@ def _is_retryable(exc: DBAPIError) -> bool:
     if isinstance(exc, (IntegrityError, OperationalError)):
         return True
     return getattr(exc.orig, "sqlstate", None) in _RETRYABLE_SQLSTATES
+
+
+@router.post("/submissions/{submission_id}/retry-marking", response_model=SubmissionDetail)
+async def retry_submission_marking(
+    submission_id: int, db: DbSession, user: TutorUser
+) -> SubmissionDetail:
+    """Send work the AI could not mark back to the AI.
+
+    Tutor-only; another tutor's or organization's submission is a `404`
+    (`API-7`, `API-20`). `409`, with a sentence for the tutor, unless the
+    attempt is `ai_failed`, or while a marking job for it is running. The
+    attempt goes back to `submitted` and is marked again; see
+    `services.marking.retry_marking`.
+    """
+    submission = await _tutor_submission(db, user, submission_id)
+    try:
+        await retry_marking(db, submission)
+    except MarkingRetryRefused as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await db.commit()
+    return await submission_detail(submission_id, db, user)
 
 
 @router.post(

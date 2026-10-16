@@ -9,6 +9,7 @@ import {
   finalizeSubmission,
   getSubmission,
   markHistory,
+  retryMarking,
   reviewQueue,
   reviseMistake,
   saveMarks,
@@ -309,6 +310,19 @@ export default function SubmissionReviewPage() {
     onError: (err) => setError(friendlyError(err)),
   });
 
+  /* Sends work the AI couldn't mark back to it. The answer is the submission
+     as it now stands (`submitted`, no error), so it replaces the cached copy
+     rather than waiting on a refetch. */
+  const retry = useMutation({
+    mutationFn: () => retryMarking(id),
+    onSuccess: (updated) => {
+      setError(null);
+      queryClient.setQueryData(["submission", id], updated);
+      queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+    },
+    onError: (err) => setError(friendlyError(err)),
+  });
+
   /* An unmarked question contributes nothing to either side of the total, and
      the count of them is shown beside it. Adding its max to the denominator
      while its blank mark counted 0 in the numerator — which is what `?? 0` did
@@ -471,8 +485,20 @@ export default function SubmissionReviewPage() {
           <div className="rounded-xl border border-line bg-warn-100 px-4 py-3 text-sm text-ink-900">
             <p>
               <span className="font-medium">The AI couldn't mark this work.</span> Mark each
-              question yourself below.
+              question yourself below
+              {s.status === "ai_failed" ? ", or send it back to the AI to try again." : "."}
             </p>
+            {s.status === "ai_failed" && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                loading={retry.isPending}
+                onClick={() => retry.mutate()}
+              >
+                Try marking again
+              </Button>
+            )}
             {/* The job's own reason, folded away for whoever has to fix it —
                 a raw exception string is not a message for a tutor. */}
             <details className="mt-2 text-xs text-ink-500">
@@ -487,6 +513,13 @@ export default function SubmissionReviewPage() {
           </p>
         )}
       </div>
+
+      {retry.isSuccess && s.status === "submitted" && (
+        <p role="status" className="rounded-md bg-ok-100 px-3 py-2 text-sm text-ok-700">
+          Sent back to the AI. The marks will appear here when it has finished, usually within a few
+          minutes.
+        </p>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left: the student's work. Sticky on wide screens, so the page being

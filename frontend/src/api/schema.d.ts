@@ -3007,6 +3007,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/{submission_id}/retry-marking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Submission Marking
+         * @description Send work the AI could not mark back to the AI.
+         *
+         *     Tutor-only; another tutor's or organization's submission is a `404`
+         *     (`API-7`, `API-20`). `409`, with a sentence for the tutor, unless the
+         *     attempt is `ai_failed`, or while a marking job for it is running. The
+         *     attempt goes back to `submitted` and is marked again; see
+         *     `services.marking.retry_marking`.
+         */
+        post: operations["retry_submission_marking_api_v1_submissions__submission_id__retry_marking_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/submissions/{submission_id}/redo": {
         parameters: {
             query?: never;
@@ -13469,6 +13495,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RemarkRequestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_submission_marking_api_v1_submissions__submission_id__retry_marking_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                submission_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionDetail"];
                 };
             };
             /** @description Validation Error */

@@ -43,6 +43,7 @@ from app.models import (
 from app.services import storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
 from app.services.evidence import build_homework_evidence
+from app.services.extraction import run_now
 from app.services.knowledge import build_tutor_context
 from app.services.marking_context import MarkingContextSources, build_marking_context
 from app.services.narrative import enqueue_class_narratives_for_student_subject
@@ -110,6 +111,48 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
         submission.ai_error = str(exc) or exc.__class__.__name__
         await session.commit()
         raise
+
+
+class MarkingRetryRefused(Exception):
+    """Marking cannot be tried again right now. `str(exc)` is a sentence fit
+    for a tutor."""
+
+
+NOT_RETRYABLE = "Only work the AI couldn't mark can be marked again"
+ALREADY_MARKING = "The AI is marking this right now. Check back in a few minutes."
+
+
+async def retry_marking(session: AsyncSession, submission: Submission) -> None:
+    """Send work the AI could not mark back to the AI (cleanup stage, OPS-08).
+
+    Until this, `ai_failed` was a dead end with no way back but marking every
+    question by hand, however passing the cause had been. The caller has
+    already checked the tutor owns the submission; this decides whether a
+    retry makes sense and queues it.
+
+    Only an `ai_failed` attempt: anything else is either already queued
+    (`submitted`), has marks a tutor may already have touched, or is final.
+    The row is locked first, so two presses cannot both pass the check.
+    Refused while a marking job for it is running, because the attempt still
+    reads `ai_failed` during the worker's own retry and a second job would mark
+    the same pages twice and bill for both. A retry still waiting out its
+    backoff is brought forward rather than doubled (`run_now`).
+    """
+    await session.execute(
+        select(Submission.id).where(Submission.id == submission.id).with_for_update()
+    )
+    await session.refresh(submission)
+    if submission.status != SubmissionStatus.ai_failed:
+        raise MarkingRetryRefused(NOT_RETRYABLE)
+    running = await session.scalars(
+        select(Job.payload).where(Job.type == "mark_submission", Job.status == JobStatus.running)
+    )
+    # Compared in Python: `payload` is JSON, which Postgres cannot compare.
+    if any(payload == {"submission_id": submission.id} for payload in running):
+        raise MarkingRetryRefused(ALREADY_MARKING)
+    submission.status = SubmissionStatus.submitted
+    submission.ai_error = None
+    await run_now(session, "mark_submission", [{"submission_id": submission.id}])
 
 
 async def marking_given_up(session: AsyncSession, payload: dict, error: str) -> None:
