@@ -311,10 +311,10 @@ async def read_in_progress(session: AsyncSession, past_paper_id: int) -> bool:
     replacement marked against the questions of the copy it replaced.
 
     Only a claim younger than the read job's own time limit counts (the
-    worker stops a read at that age, so nothing older is live). A worker killed
-    mid-read (a restart, in today's one-process deployment) leaves its job
-    `running` for hours until the orphan sweep requeues it; counting that as a
-    read in progress would refuse both fixes for the whole window. A read that
+    worker stops a read at that age, so nothing older is live). A worker stopped
+    mid-read hands its job back, but one killed outright leaves it `running`
+    until the orphan sweep requeues it, about half an hour later; counting that
+    as a read in progress would refuse both fixes for the whole window. A read that
     old is the one /health already reports as stalled, so the fix queues a
     fresh read — which reads the current file, as would the requeued one.
     """

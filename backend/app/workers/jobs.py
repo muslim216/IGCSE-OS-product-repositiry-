@@ -118,23 +118,17 @@ HEARTBEAT_WRITE_TIMEOUT_SECONDS = 5.0
 #: Throttle for the loop clock; see HEARTBEAT_INTERVAL_SECONDS.
 _last_heartbeat_write: datetime | None = None
 
-#: How old a claim must be before the orphan sweep will look at it (task 1.5,
-#: AV-84). Deliberately **above** HEARTBEAT_REAP_SECONDS, and that ordering is
-#: the whole safety argument.
-#:
-#: The sweep's signal is "the claiming worker has no heartbeat row". A dead
-#: worker's row is reaped, so that reads correctly for the case this exists for.
-#: But `register_worker()` can also reap a *live* worker's row — one whose job
-#: has been in flight past HEARTBEAT_REAP_SECONDS, because at that point a job
-#: in flight is indistinguishable from a process that died holding one (§3.4's
-#: accepted residual). That worker is row-less until its next heartbeat write,
-#: which for a process inside a long job does not come until the job ends.
-#:
-#: Requeueing there would run a handler that is still running — the duplicate
-#: side effect this whole suite exists to prevent. Waiting twice the reap window
-#: means a claim is only ever reclaimed long past the point where anything
-#: legitimately holds a job.
-ORPHAN_RECLAIM_SECONDS = 2 * HEARTBEAT_REAP_SECONDS
+#: Slack added to the longest job time limit before a quiet worker is believed
+#: dead: the outcome write, a give-up hook, heartbeat writes and the sweep itself
+#: all run on the worker's path between two loop stamps.
+ORPHAN_GRACE_SECONDS = 300.0
+
+#: What a job handed back at shutdown carries in `error` until it runs again.
+HANDED_BACK_MESSAGE = "Stopped by a server restart before it finished; queued to run again"
+
+#: Ceiling on handing a job back at shutdown. Shutdown waits for it, and a
+#: database that does not answer must not hold the process open.
+HAND_BACK_TIMEOUT_SECONDS = 5.0
 
 #: How often the orphan sweep runs. Rare on purpose: it is a repair path, not a
 #: control loop, and the rows it looks for are minted only by a process dying.
@@ -684,7 +678,14 @@ async def process_one_job() -> bool:
 
     await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
     try:
-        error, permanent = await _run_handler(job_id, job_type, payload)
+        try:
+            error, permanent = await _run_handler(job_id, job_type, payload)
+        except asyncio.CancelledError:
+            # The worker is being stopped: a deploy, a restart, the instance
+            # going to sleep. Shielded, because the cancellation that brought us
+            # here would otherwise cancel the write too.
+            await asyncio.shield(_hand_back(job_id))
+            raise
         gave_up = False
 
         async with async_session() as session:
@@ -734,6 +735,46 @@ async def process_one_job() -> bool:
     return True
 
 
+def orphan_reclaim_seconds() -> float:
+    """How long a claim, and its worker's silence, must last before the orphan
+    sweep believes the worker is dead (task 1.5, AV-84).
+
+    Every job now runs under a time limit (`job_timeout_seconds`), so a live
+    worker stamps `last_loop_at` at least once per longest limit, plus
+    `ORPHAN_GRACE_SECONDS` for what runs around a job. A worker quieter than
+    that is gone. Before job limits existed a live worker inside a long job
+    could be silent for any length of time, so the sweep could trust only a
+    missing heartbeat row, and waited two hours on top: a crashed worker's job
+    sat `running` for hours. The window also stays under
+    HEARTBEAT_REAP_SECONDS, so `register_worker()` can no longer reap a live
+    worker's row, which was the one case a missing row did not mean dead.
+    """
+    longest = max([default_job_timeout_seconds(), *_timeouts.values()])
+    return longest + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
+
+
+async def _hand_back(job_id: int) -> None:
+    """Return a job this worker was told to stop to `pending`, and give back
+    the attempt its claim took. A stop at shutdown says nothing about the job,
+    so it must not count towards failing it, and nothing should wait for the
+    orphan sweep to notice a worker that is leaving on purpose."""
+    try:
+        async with asyncio.timeout(HAND_BACK_TIMEOUT_SECONDS), async_session() as session:
+            job = await session.get(Job, job_id)
+            if job is None or job.status != JobStatus.running or job.claimed_by != WORKER_ID:
+                return
+            job.status = JobStatus.pending
+            job.attempts = max(0, job.attempts - 1)
+            job.claimed_by = None
+            job.claimed_at = None
+            job.run_after = None
+            job.error = HANDED_BACK_MESSAGE
+            await session.commit()
+        log.warning("job %s handed back to the queue at shutdown", job_id)
+    except Exception:  # noqa: BLE001 — shutdown must complete; the sweep is the backstop
+        log.exception("could not hand job %s back at shutdown; the orphan sweep will", job_id)
+
+
 async def _sweep_orphans_safely() -> None:
     """`reclaim_orphaned_jobs`, but never fatal to the loop.
 
@@ -755,18 +796,19 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
     there permanently, the work stopped, and the only trace was a number on
     /health/ready that nothing watches.
 
-    **The predicate is "the claimant has no heartbeat row", not "its heartbeat
-    is stale".** That distinction is the difference between a repair and a
-    duplicate-execution bug. `last_loop_at` is stamped by `worker_loop` *before*
-    each claim, so a worker part-way through a slow marking call has a
-    deliberately stale loop clock — it is healthy and working. Requeueing on
-    staleness would hand its job to a second worker while the first still had
-    it. A missing row means the process is gone: a live worker always has one
-    and re-registers if its row is reaped (see `_write_heartbeat`).
-
-    `ORPHAN_RECLAIM_SECONDS` guards the one case where a live worker can be
-    row-less — a job in flight past the reap window — by waiting twice that
-    window before believing it.
+    **The claimant is believed gone when it has no heartbeat row, or when its
+    loop clock is older than `orphan_reclaim_seconds()`.** The window is the
+    difference between a repair and a duplicate-execution bug. `last_loop_at`
+    is stamped by `worker_loop` *before* each claim, so a worker part-way
+    through a slow marking call has a deliberately stale loop clock while it is
+    healthy and working; requeueing on any staleness would hand its job to a
+    second worker while the first still had it. Until every job had a time
+    limit there was no bound on that silence, and only a missing row could be
+    trusted. Now there is one: a live worker cannot be quieter than its longest
+    job limit plus the grace (see that function). That is what brings a crashed worker's job
+    back within about half an hour rather than hours. A worker stopped on
+    purpose hands its job back itself (`_hand_back`), so this is for a process
+    that died without the chance.
 
     Requeueing means a handler may run a second time on the same payload, which
     is safe only because `BE-6` requires exactly that. The alternative is a job
@@ -777,7 +819,7 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
     forever.
     """
     now = now or datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=ORPHAN_RECLAIM_SECONDS)
+    cutoff = now - timedelta(seconds=orphan_reclaim_seconds())
     reclaimed = 0
     given_up: list[tuple[int, str, dict]] = []
     async with async_session() as session:
@@ -804,7 +846,10 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
                     select(WorkerHeartbeat.worker_id).where(
                         WorkerHeartbeat.worker_id.in_(
                             {o.claimed_by for o in orphans if o.claimed_by}
-                        )
+                        ),
+                        # Quiet past the window means gone: see
+                        # `orphan_reclaim_seconds`.
+                        WorkerHeartbeat.last_loop_at >= cutoff,
                     )
                 )
             ).all()

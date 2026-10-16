@@ -416,9 +416,9 @@ async def test_a_job_orphaned_by_a_dead_worker_is_requeued_and_runs(queue):
         await session.commit()
     jobs._worker_registered = False
 
-    # `now` is pushed past ORPHAN_RECLAIM_SECONDS rather than sleeping it: the
+    # `now` is pushed past orphan_reclaim_seconds() rather than sleeping it: the
     # grace is two hours, and a test must not encode a wait to prove a cutoff.
-    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.ORPHAN_RECLAIM_SECONDS + 60)
+    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() + 60)
     assert await jobs.reclaim_orphaned_jobs(now=future) == 1
 
     release.set()
@@ -461,7 +461,7 @@ async def test_a_job_held_by_a_live_worker_is_never_reclaimed(queue):
         )
         await session.commit()
 
-    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.ORPHAN_RECLAIM_SECONDS + 60)
+    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() + 60)
     assert await jobs.reclaim_orphaned_jobs(now=future) == 0
 
     async with async_session() as session:
@@ -470,7 +470,7 @@ async def test_a_job_held_by_a_live_worker_is_never_reclaimed(queue):
 
 
 async def test_a_recently_claimed_job_is_left_alone(queue):
-    """The grace period. A claim younger than `ORPHAN_RECLAIM_SECONDS` is not
+    """The grace period. A claim younger than `orphan_reclaim_seconds()` is not
     reconsidered even with no heartbeat row, because a worker whose row was just
     reaped mid-job re-registers rather than dying (§3.3)."""
     async with async_session() as session:
@@ -502,7 +502,7 @@ async def test_an_orphan_out_of_attempts_fails_instead_of_looping(queue):
         job.claimed_at = datetime.now(timezone.utc)
         await session.commit()
 
-    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.ORPHAN_RECLAIM_SECONDS + 60)
+    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() + 60)
     assert await jobs.reclaim_orphaned_jobs(now=future) == 1
 
     async with async_session() as session:
@@ -528,7 +528,7 @@ async def test_two_sweeps_running_at_once_reclaim_each_row_once(queue):
             row.claimed_at = datetime.now(timezone.utc)
         await session.commit()
 
-    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.ORPHAN_RECLAIM_SECONDS + 60)
+    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() + 60)
     counts = await asyncio.gather(
         jobs.reclaim_orphaned_jobs(now=future),
         jobs.reclaim_orphaned_jobs(now=future),
