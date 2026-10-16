@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import case, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -118,23 +118,17 @@ HEARTBEAT_WRITE_TIMEOUT_SECONDS = 5.0
 #: Throttle for the loop clock; see HEARTBEAT_INTERVAL_SECONDS.
 _last_heartbeat_write: datetime | None = None
 
-#: How old a claim must be before the orphan sweep will look at it (task 1.5,
-#: AV-84). Deliberately **above** HEARTBEAT_REAP_SECONDS, and that ordering is
-#: the whole safety argument.
-#:
-#: The sweep's signal is "the claiming worker has no heartbeat row". A dead
-#: worker's row is reaped, so that reads correctly for the case this exists for.
-#: But `register_worker()` can also reap a *live* worker's row — one whose job
-#: has been in flight past HEARTBEAT_REAP_SECONDS, because at that point a job
-#: in flight is indistinguishable from a process that died holding one (§3.4's
-#: accepted residual). That worker is row-less until its next heartbeat write,
-#: which for a process inside a long job does not come until the job ends.
-#:
-#: Requeueing there would run a handler that is still running — the duplicate
-#: side effect this whole suite exists to prevent. Waiting twice the reap window
-#: means a claim is only ever reclaimed long past the point where anything
-#: legitimately holds a job.
-ORPHAN_RECLAIM_SECONDS = 2 * HEARTBEAT_REAP_SECONDS
+#: Slack added to the longest job time limit before a claim is believed
+#: abandoned: the claim commit, the job-start heartbeat, the cancellation unwind
+#: and the outcome write all fall inside a claim's life besides the handler.
+ORPHAN_GRACE_SECONDS = 300.0
+
+#: What a job handed back at shutdown carries in `error` until it runs again.
+HANDED_BACK_MESSAGE = "Stopped by a server restart before it finished; queued to run again"
+
+#: Ceiling on handing a job back at shutdown. Shutdown waits for it, and a
+#: database that does not answer must not hold the process open.
+HAND_BACK_TIMEOUT_SECONDS = 5.0
 
 #: How often the orphan sweep runs. Rare on purpose: it is a repair path, not a
 #: control loop, and the rows it looks for are minted only by a process dying.
@@ -656,6 +650,55 @@ async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str |
     return None, False
 
 
+async def _record_outcome(
+    job_id: int, job_type: str, attempts: int, error: str | None, permanent: bool
+) -> bool:
+    """Write a finished job's outcome: done, back to pending for its retry, or
+    failed. Returns whether it failed for good (so its give-up hook is owed)."""
+    gave_up = False
+    async with async_session() as session:
+        job = await session.get(Job, job_id, with_for_update=True)
+        if job is None or job.status != JobStatus.running or job.claimed_by != WORKER_ID:
+            # Someone else holds it now: the orphan sweep requeued it while
+            # this worker was stalled past the window, and another worker
+            # may be running it. Its outcome is theirs to write.
+            log.warning("job %s (%s) is no longer this worker's; outcome dropped", job_id, job_type)
+            return False
+        # Cleared on every outcome below, including the retry: a pending row
+        # is held by nobody, and a stale claimant on one would make the
+        # orphan sweep reason about a worker that already let go.
+        job.claimed_by = None
+        job.claimed_at = None
+        if error is None:
+            job.status = JobStatus.done
+            job.error = None
+        elif attempts < MAX_ATTEMPTS and not permanent:
+            job.status = JobStatus.pending  # retry
+            # Held back rather than re-claimed on the next poll: see
+            # RETRY_BACKOFF_SECONDS. Handlers are required to be safe to
+            # re-run on the same payload (BE-6), so the only question a
+            # retry answers is whether the *cause* has passed, and two
+            # attempts two seconds apart never gives it the chance to.
+            job.run_after = datetime.now(timezone.utc) + timedelta(seconds=RETRY_BACKOFF_SECONDS)
+            job.error = error
+        else:
+            job.status = JobStatus.failed
+            job.error = error
+            gave_up = True
+            # Nothing watches the failed count yet, so this line is the only
+            # record that a piece of a student's work stopped moving.
+            log.error(
+                "job %s (%s) gave up after %s attempt(s)%s: %s",
+                job_id,
+                job_type,
+                attempts,
+                ", a retry could not have helped" if permanent else "",
+                error,
+            )
+        await session.commit()
+    return gave_up
+
+
 async def process_one_job() -> bool:
     """Claim and run one due pending job. Returns False when nothing is due."""
     now = datetime.now(timezone.utc)
@@ -682,56 +725,94 @@ async def process_one_job() -> bool:
         await session.commit()
         job_id, job_type, payload, attempts = job.id, job.type, job.payload, job.attempts
 
-    await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
     try:
-        error, permanent = await _run_handler(job_id, job_type, payload)
-        gave_up = False
-
-        async with async_session() as session:
-            job = await session.get(Job, job_id)
-            assert job is not None
-            # Cleared on every outcome below, including the retry: a pending row
-            # is held by nobody, and a stale claimant on one would make the
-            # orphan sweep reason about a worker that already let go.
-            job.claimed_by = None
-            job.claimed_at = None
-            if error is None:
-                job.status = JobStatus.done
-                job.error = None
-            elif attempts < MAX_ATTEMPTS and not permanent:
-                job.status = JobStatus.pending  # retry
-                # Held back rather than re-claimed on the next poll: see
-                # RETRY_BACKOFF_SECONDS. Handlers are required to be safe to
-                # re-run on the same payload (BE-6), so the only question a
-                # retry answers is whether the *cause* has passed, and two
-                # attempts two seconds apart never gives it the chance to.
-                job.run_after = datetime.now(timezone.utc) + timedelta(
-                    seconds=RETRY_BACKOFF_SECONDS
-                )
-                job.error = error
-            else:
-                job.status = JobStatus.failed
-                job.error = error
-                gave_up = True
-                # Nothing watches the failed count yet, so this line is the only
-                # record that a piece of a student's work stopped moving.
-                log.error(
-                    "job %s (%s) gave up after %s attempt(s)%s: %s",
-                    job_id,
-                    job_type,
-                    attempts,
-                    ", a retry could not have helped" if permanent else "",
-                    error,
-                )
-            await session.commit()
+        await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
+        try:
+            error, permanent = await _run_handler(job_id, job_type, payload)
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise  # the worker is being stopped: handed back below
+            # Nobody asked this worker to stop: something inside the handler
+            # cancelled its own work. That is the job failing, and is treated
+            # as one, attempt and all; refunding it would let a job that does
+            # this run for ever.
+            log.error("job %s (%s) was cancelled from inside its handler", job_id, job_type)
+            error, permanent = "The work was cancelled before it finished", False
+        gave_up = await _record_outcome(job_id, job_type, attempts, error, permanent)
         # After the commit, never inside it: the job's own outcome is the
         # record that matters, and it must not wait on, or roll back with, a
         # write to some other row.
         if gave_up and error is not None:
             await _tell_handler_it_was_given_up(job_id, job_type, payload, error)
+    except asyncio.CancelledError:
+        # The worker is being stopped (a deploy, a restart, the instance going
+        # to sleep), at any point after the claim: during the handler, the
+        # outcome write or the give-up hook. Shielded, because the cancellation
+        # that brought us here would otherwise cancel the write too.
+        # `_hand_back` only touches a row still running under this worker, so
+        # an outcome that did commit is left as it is.
+        await asyncio.shield(_hand_back(job_id))
+        raise
     finally:
         await _write_heartbeat(job_started_at=None)
     return True
+
+
+def orphan_reclaim_seconds() -> float:
+    """How old a claim must be before the orphan sweep believes the worker
+    holding it is gone (task 1.5, AV-84).
+
+    Every job now runs under a time limit (`job_timeout_seconds`), so a live
+    worker either finishes or stops a job within its limit, and writes the
+    outcome straight after. A claim older than the longest limit, plus the
+    give-up hook and `ORPHAN_GRACE_SECONDS` for the writes around a job, has
+    no live worker behind it. Before job limits a live worker could hold a job
+    for any length of time, so the sweep could trust only a missing heartbeat
+    row, and waited two hours on top: a crashed worker's job sat `running`
+    until a restart at least three hours later.
+
+    Computed from this process's settings and registrations. A separate worker
+    service must run with the same `AI_CALL_TIMEOUT_SECONDS`, or one with a
+    longer limit could have its jobs swept early.
+    """
+    longest = max([default_job_timeout_seconds(), *_timeouts.values()])
+    return longest + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
+
+
+async def _hand_back(job_id: int) -> None:
+    """Return a job this worker was told to stop to `pending`, and give back
+    the attempt its claim took. A stop at shutdown says nothing about the job,
+    so it must not count towards failing it, and nothing should wait for the
+    orphan sweep to notice a worker that is leaving on purpose.
+
+    One conditional UPDATE: only a row still `running` under this worker is
+    touched. Read-then-write could hand back a job the sweep had requeued and
+    another worker had claimed in between.
+    """
+    try:
+        async with asyncio.timeout(HAND_BACK_TIMEOUT_SECONDS), async_session() as session:
+            result = await session.execute(
+                update(Job)
+                .where(
+                    Job.id == job_id,
+                    Job.status == JobStatus.running,
+                    Job.claimed_by == WORKER_ID,
+                )
+                .values(
+                    status=JobStatus.pending,
+                    attempts=case((Job.attempts > 0, Job.attempts - 1), else_=0),
+                    claimed_by=None,
+                    claimed_at=None,
+                    run_after=None,
+                    error=HANDED_BACK_MESSAGE,
+                )
+            )
+            await session.commit()
+        if result.rowcount:  # type: ignore[attr-defined]
+            log.warning("job %s handed back to the queue at shutdown", job_id)
+    except Exception:  # noqa: BLE001 — shutdown must complete; the sweep is the backstop
+        log.exception("could not hand job %s back at shutdown; the orphan sweep will", job_id)
 
 
 async def _sweep_orphans_safely() -> None:
@@ -755,18 +836,18 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
     there permanently, the work stopped, and the only trace was a number on
     /health/ready that nothing watches.
 
-    **The predicate is "the claimant has no heartbeat row", not "its heartbeat
-    is stale".** That distinction is the difference between a repair and a
-    duplicate-execution bug. `last_loop_at` is stamped by `worker_loop` *before*
-    each claim, so a worker part-way through a slow marking call has a
-    deliberately stale loop clock — it is healthy and working. Requeueing on
-    staleness would hand its job to a second worker while the first still had
-    it. A missing row means the process is gone: a live worker always has one
-    and re-registers if its row is reaped (see `_write_heartbeat`).
-
-    `ORPHAN_RECLAIM_SECONDS` guards the one case where a live worker can be
-    row-less — a job in flight past the reap window — by waiting twice that
-    window before believing it.
+    **A claim older than `orphan_reclaim_seconds()` is believed abandoned,
+    whoever made it.** That window is the difference between a repair and a
+    duplicate-execution bug. Until every job had a time limit there was no
+    bound on how long a live worker could hold one, so the sweep also required
+    the claimant's heartbeat row to be gone (a live worker always has one).
+    Now the bound is the window itself, and claim age alone is the stronger
+    test: it also repairs a row a live worker left `running` when its outcome
+    write failed, which the heartbeat test kept stuck for as long as that
+    worker lived. That is what brings a crashed worker's job
+    back within about half an hour rather than hours. A worker stopped on
+    purpose hands its job back itself (`_hand_back`), so this is for a process
+    that died without the chance.
 
     Requeueing means a handler may run a second time on the same payload, which
     is safe only because `BE-6` requires exactly that. The alternative is a job
@@ -777,7 +858,7 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
     forever.
     """
     now = now or datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=ORPHAN_RECLAIM_SECONDS)
+    cutoff = now - timedelta(seconds=orphan_reclaim_seconds())
     reclaimed = 0
     given_up: list[tuple[int, str, dict]] = []
     async with async_session() as session:
@@ -798,19 +879,8 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
         if not orphans:
             return 0
 
-        live = set(
-            (
-                await session.scalars(
-                    select(WorkerHeartbeat.worker_id).where(
-                        WorkerHeartbeat.worker_id.in_(
-                            {o.claimed_by for o in orphans if o.claimed_by}
-                        )
-                    )
-                )
-            ).all()
-        )
         for job in orphans:
-            if job.claimed_by is None or job.claimed_by in live:
+            if job.claimed_by is None:
                 continue
             note = f"worker {job.claimed_by} disappeared while holding this job"
             if job.attempts < MAX_ATTEMPTS:
@@ -846,10 +916,10 @@ async def worker_loop() -> None:
     global _last_heartbeat_write, _last_orphan_sweep
     await register_worker()
     log.info("job worker started (worker_id=%s)", WORKER_ID)
-    # Immediately after registering, because that call is what reaps the dead
-    # worker rows this sweep reads the absence of. A process that crashed
-    # holding a job is therefore repaired by its own restart, which is the
-    # common case and the one worth healing without waiting out an interval.
+    # Immediately at start: a claim the previous process left behind and that
+    # is already past `orphan_reclaim_seconds()` is repaired by this restart,
+    # without waiting out an interval. A younger one is picked up by the
+    # periodic sweep below once it passes the window.
     #
     # Stamping the throttle is part of the call, not bookkeeping after it: the
     # loop below treats `None` as "never swept" and would run a second,

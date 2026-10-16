@@ -329,8 +329,9 @@ async def test_shutting_the_worker_down_is_not_mistaken_for_the_limit(client, ha
         await task
 
     job = await _the_job()
-    assert job.status == JobStatus.running, "left for the orphan sweep, as before"
-    assert job.error is None
+    assert job.status == JobStatus.pending, "handed back, not recorded as a failure"
+    assert job.attempts == 0
+    assert job.error == jobs.HANDED_BACK_MESSAGE
 
 
 # --- No retry for a failure that cannot succeed ------------------------------

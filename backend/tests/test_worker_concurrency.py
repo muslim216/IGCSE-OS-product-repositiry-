@@ -147,19 +147,16 @@ async def test_two_workers_never_claim_the_same_job(pg_schema):
     assert done == 20
 
 
-async def test_a_job_left_running_by_a_killed_worker_is_visible(pg_schema):
-    """A worker killed mid-job leaves the row in `running`, naming its claimant.
+async def test_a_job_stopped_at_shutdown_is_handed_back_to_the_queue(pg_schema):
+    """A worker cancelled mid-job (a deploy, a restart, the instance going to
+    sleep) puts its job back to `pending` itself, on a real Postgres.
 
-    This used to record a gap: nothing re-queued an orphaned `running` row, so
-    the work simply stopped. Task 1.5 (AV-84) closed it — `reclaim_orphaned_jobs`
-    returns such a row to `pending` once its claimant has no heartbeat, and
-    `tests/test_two_instance.py` owns that half.
-
-    What is asserted here is the state a kill *leaves behind*, which is the
-    input the recovery reads: `running`, with `claimed_by` naming the process
-    that owed an answer. A kill that left the claim unset would leave the sweep
-    nothing to reason about, and every recovery test would still pass while the
-    real thing stayed stuck.
+    This test used to assert the opposite, as the state a kill leaves behind:
+    `running`, naming the claimant, for the orphan sweep to find. That was true
+    of a cancellation too, and it meant every deploy stranded the job in flight
+    until the sweep, hours later (audit finding OPS-02). A cancellation now
+    hands the job back (`_hand_back`); a process that dies without one is still
+    the sweep's, and `tests/test_two_instance.py` owns that half.
     """
     started = asyncio.Event()
     release = asyncio.Event()
@@ -202,6 +199,8 @@ async def test_a_job_left_running_by_a_killed_worker_is_visible(pg_schema):
     async with async_session() as session:
         row = await session.scalar(select(Job).where(Job.type == "hang_probe"))
     assert row is not None
-    assert row.status == JobStatus.running
-    assert row.claimed_by == jobs.WORKER_ID, "the recovery has nothing to go on without this"
-    assert row.claimed_at is not None
+    assert row.status == JobStatus.pending
+    assert row.claimed_by is None
+    assert row.claimed_at is None
+    assert row.attempts == 0, "a shutdown is not the job's failure"
+    assert row.error == jobs.HANDED_BACK_MESSAGE

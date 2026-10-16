@@ -54,9 +54,9 @@ from app.workers import jobs
 from app.workers.handlers import register_all
 from app.workers.jobs import (
     MAX_ATTEMPTS,
-    ORPHAN_RECLAIM_SECONDS,
     ORPHANED_MESSAGE,
     enqueue,
+    orphan_reclaim_seconds,
     process_one_job,
     reclaim_orphaned_jobs,
     register_handler,
@@ -186,7 +186,7 @@ async def _orphan(*, attempts: int, job_type: str = JOB, payload: dict = PAYLOAD
                 attempts=attempts,
                 claimed_by="worker-that-died",
                 claimed_at=datetime.now(timezone.utc)
-                - timedelta(seconds=ORPHAN_RECLAIM_SECONDS + 60),
+                - timedelta(seconds=orphan_reclaim_seconds() + 60),
             )
         )
         await session.commit()
