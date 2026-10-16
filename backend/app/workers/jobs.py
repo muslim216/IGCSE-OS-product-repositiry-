@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import case, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import log_context
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus, WorkerHeartbeat
@@ -725,6 +726,9 @@ async def process_one_job() -> bool:
         await session.commit()
         job_id, job_type, payload, attempts = job.id, job.type, job.payload, job.attempts
 
+    # Everything logged from here until the job is settled, by the worker or
+    # the handler, carries the job's id.
+    context = log_context.bind(f"job-{job_id}")
     try:
         await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
         try:
@@ -756,6 +760,7 @@ async def process_one_job() -> bool:
         raise
     finally:
         await _write_heartbeat(job_started_at=None)
+        log_context.reset(context)
     return True
 
 

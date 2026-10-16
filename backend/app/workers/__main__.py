@@ -19,6 +19,7 @@ import contextlib
 import logging
 import signal
 
+from app.log_context import configure_logging
 from app.workers.handlers import register_all
 from app.workers.runner import supervised_worker
 
@@ -26,10 +27,7 @@ log = logging.getLogger("jobs")
 
 
 async def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     register_all()
     log.info("standalone job worker starting")
 

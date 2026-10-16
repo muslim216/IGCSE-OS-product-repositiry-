@@ -3,12 +3,13 @@ import asyncio
 import contextlib
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
+from app import log_context
 from app.api import (
     ai_usage,
     analytics,
@@ -49,6 +50,7 @@ from app.api import (
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
+from app.services.ai import SURFACES, AiProvider, resolve_surface
 from app.services.lesson_autorecord import ensure_lesson_autorecord_scheduled
 from app.services.narrative import ensure_narrative_sweep_scheduled
 from app.services.notifications.triggers import ensure_message_trigger_sweep_scheduled
@@ -68,6 +70,14 @@ register_all()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # First, so everything below is logged with a time, a level and its
+    # request or job (`app/log_context.py`). Here rather than at import, so the
+    # test suite's own log capture is left alone.
+    log_context.configure_logging()
+    # Marks this process as a real deployment for /health/ready: a worker that
+    # has still not started a minute after this is a failure, not a test
+    # harness (see WORKER_START_GRACE_SECONDS).
+    app.state.serving_since = datetime.now(timezone.utc)
     # Floor under the parent-narrative schedule: the sweep re-enqueues itself,
     # but if that row is ever lost (a failure past MAX_ATTEMPTS, a manual purge)
     # every parent narrative stops silently. Re-scheduling it here is idempotent
@@ -167,24 +177,83 @@ SECURITY_HEADERS = {
 DOCS_PATHS = frozenset({"/docs", "/redoc", "/docs/oauth2-redirect"})
 
 
+#: How long after the process starts serving a missing worker is still
+#: believed to be starting up. Past it, `not_started` on a deployment is the
+#: silent stop: an API serving happily while no background work ever runs.
+WORKER_START_GRACE_SECONDS = 60.0
+
+#: Work that has been due this long without a worker picking it up means the
+#: queue is not keeping up, or not moving. Twice the default job time limit,
+#: so one long marking job holding the worker is not mistaken for it.
+QUEUE_STUCK_SECONDS = 1800.0
+
+#: How far back /health/ready counts failed jobs. Reported, not judged: a
+#: single unreadable upload fails for good and is not an outage.
+FAILED_WINDOW = timedelta(hours=24)
+
 #: Cap on the readiness endpoint's database probe. Well under any sensible
 #: monitor timeout, so a hung database is reported rather than waited out.
 READINESS_DB_TIMEOUT_SECONDS = 5.0
 
 
-async def _queue_snapshot() -> tuple[dict, datetime | None]:
-    """Job counts by status, and when the oldest pending job was queued.
+async def _queue_snapshot() -> dict:
+    """Job counts by status, and the ages /health/ready judges.
 
     The aggregate proves connectivity on its own, so there is no separate
-    `SELECT 1` — a round-trip that returns rows has already answered the
+    `SELECT 1`: a round-trip that returns rows has already answered the
     question a liveness probe would ask.
+
+    `oldest_due` is when the longest-waiting job that may run now became due
+    (its `run_after`, or when it was queued). `oldest_pending` counts jobs
+    scheduled for later too (the weekly sweeps, a retry waiting out its
+    backoff), so it is up to a day old on a healthy system and useless for an
+    alert.
     """
+    now = datetime.now(timezone.utc)
     async with async_session() as session:
         counts = await session.execute(select(Job.status, func.count(Job.id)).group_by(Job.status))
         oldest_pending = await session.scalar(
             select(func.min(Job.created_at)).where(Job.status == JobStatus.pending)
         )
-    return dict(counts.all()), oldest_pending
+        oldest_due = await session.scalar(
+            select(func.min(func.coalesce(Job.run_after, Job.created_at))).where(
+                Job.status == JobStatus.pending,
+                or_(Job.run_after.is_(None), Job.run_after <= now),
+            )
+        )
+        failed_recently = await session.scalar(
+            select(func.count(Job.id)).where(
+                Job.status == JobStatus.failed, Job.created_at >= now - FAILED_WINDOW
+            )
+        )
+    return {
+        "by_status": dict(counts.all()),
+        "oldest_pending": oldest_pending,
+        "oldest_due": oldest_due,
+        "failed_recently": failed_recently or 0,
+    }
+
+
+def _ai_keys() -> dict:
+    """Whether every AI provider a surface is routed to has its key.
+
+    A missing key never blocks startup (`AI-20`): each surface degrades with a
+    clear message. But with the key gone nothing is marked, read or written,
+    and the only sign was each failure arriving one at a time; 15 of the 18
+    failed jobs found in production in October were this.
+    """
+    settings = get_settings()
+    keys = {
+        AiProvider.anthropic: settings.anthropic_api_key,
+        AiProvider.gemini: settings.gemini_api_key,
+    }
+    try:
+        routed = {resolve_surface(surface)[0] for surface in SURFACES}
+    except ValueError as exc:
+        # A misspelt provider is a configuration fault every AI call would hit.
+        return {"ok": False, "error": str(exc)}
+    missing = sorted(p.value for p in routed if not (keys.get(p) or "").strip())
+    return {"ok": not missing, "missing_keys": missing}
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -246,6 +315,19 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
+    async def request_context(request, call_next):
+        """Tag every log line of a request with its id, and return the id, so a
+        problem someone reports can be found in the log (OPS-06)."""
+        rid = log_context.request_id(request.headers.get("x-request-id"))
+        token = log_context.bind(f"req-{rid}")
+        try:
+            response = await call_next(request)
+        finally:
+            log_context.reset(token)
+        response.headers["X-Request-ID"] = rid
+        return response
+
+    @app.middleware("http")
     async def security_headers(request, call_next):
         response = await call_next(request)
         for header, value in SECURITY_HEADERS.items():
@@ -284,11 +366,15 @@ def create_app() -> FastAPI:
         returning a hardcoded "ok", and marking had silently stopped (RISK-4).
 
         503 means the database is unreachable, the worker started and then
-        stopped turning, or a configured Redis has stopped answering and login
-        throttling has silently degraded to per-instance (task 1.4, AV-83).
-        Under the test client the worker never starts at all (ASGITransport does
-        not run lifespan), which reports as `not_started` and is not a failure —
-        a test run is not a broken deployment.
+        stopped turning, a configured Redis has stopped answering and login
+        throttling has silently degraded to per-instance (task 1.4, AV-83), an
+        AI provider a surface is routed to has no key, work has been due for
+        over `QUEUE_STUCK_SECONDS` with nothing picking it up, or this process
+        has been serving for over a minute with no worker anywhere (cleanup
+        stage, OPS-05). Under the test client the lifespan never runs
+        (ASGITransport does not run it), so the worker reports `not_started`
+        and that is not a failure: a test run is not a broken deployment.
+        Recent failed jobs are counted (`failed_last_24h`) but not judged.
         """
         database: dict = {"ok": False}
         queue: dict | None = None
@@ -299,15 +385,20 @@ def create_app() -> FastAPI:
             # still. An endpoint whose job is to give a straight answer must not
             # hang; a monitor that times out learns nothing, where a 503 with
             # error "TimeoutError" says exactly what is wrong.
-            by_status, oldest_pending = await asyncio.wait_for(
+            snapshot = await asyncio.wait_for(
                 _queue_snapshot(), timeout=READINESS_DB_TIMEOUT_SECONDS
             )
             database = {"ok": True}
+            by_status = snapshot["by_status"]
+            oldest_due_age = _age_seconds(snapshot["oldest_due"])
             queue = {
                 "pending": by_status.get(JobStatus.pending, 0),
                 "running": by_status.get(JobStatus.running, 0),
                 "failed": by_status.get(JobStatus.failed, 0),
-                "oldest_pending_age_seconds": _age_seconds(oldest_pending),
+                "failed_last_24h": snapshot["failed_recently"],
+                "oldest_pending_age_seconds": _age_seconds(snapshot["oldest_pending"]),
+                "oldest_due_age_seconds": oldest_due_age,
+                "stuck": oldest_due_age is not None and oldest_due_age > QUEUE_STUCK_SECONDS,
             }
         except Exception as exc:  # noqa: BLE001 — the failure is the answer
             log.exception("readiness check could not reach the database")
@@ -323,7 +414,21 @@ def create_app() -> FastAPI:
         # configured at all is the documented single-instance mode, needs no
         # round trip, and is not degraded.
         rate_limit = await rate_limit_health()
-        ok = database["ok"] and worker.healthy and rate_limit["ok"]
+        ai = _ai_keys()
+        serving_since = getattr(app.state, "serving_since", None)
+        worker_missing = (
+            worker.state == "not_started"
+            and serving_since is not None
+            and _age_seconds(serving_since) > WORKER_START_GRACE_SECONDS
+        )
+        ok = (
+            database["ok"]
+            and worker.healthy
+            and not worker_missing
+            and rate_limit["ok"]
+            and ai["ok"]
+            and not (queue or {}).get("stuck", False)
+        )
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {
@@ -340,6 +445,7 @@ def create_app() -> FastAPI:
             },
             "queue": queue,
             "rate_limit": rate_limit,
+            "ai": ai,
         }
 
     for router in (
