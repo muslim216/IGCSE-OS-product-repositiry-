@@ -9,6 +9,7 @@ import {
   finalizeSubmission,
   getSubmission,
   markHistory,
+  retryMarking,
   reviewQueue,
   reviseMistake,
   saveMarks,
@@ -309,6 +310,45 @@ export default function SubmissionReviewPage() {
     onError: (err) => setError(friendlyError(err)),
   });
 
+  /* Sends work the AI couldn't mark back to it. The answer is the submission
+     as it now stands (`submitted`, no error), so it replaces the cached copy
+     rather than waiting on a refetch. */
+  /* Called with the submission it is for: the queue can move the page on while
+     the request is out, and its answer must land on that submission's cache,
+     not on whichever one the tutor is now looking at. */
+  const retry = useMutation({
+    mutationFn: (submissionId: number) => retryMarking(submissionId),
+    onSuccess: async (updated, submissionId) => {
+      // A refetch already in flight (a window focus) read the old `ai_failed`
+      // row and would land on top of this answer.
+      await queryClient.cancelQueries({ queryKey: ["submission", submissionId] });
+      queryClient.setQueryData(["submission", submissionId], updated);
+      queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+      if (submissionId === id) setError(null);
+    },
+    onError: (err, submissionId) => {
+      if (submissionId === id) setError(friendlyError(err));
+    },
+  });
+  const retryStatus = useRef<HTMLOutputElement>(null);
+  /* This page stays mounted while the review queue walks from one submission
+     to the next, so what one submission's retry said must not follow the
+     tutor onto the next. */
+  const { reset: resetRetry } = retry;
+  useEffect(() => {
+    resetRetry();
+    setError(null);
+  }, [id, resetRetry]);
+  // After the confirmation has rendered: the button that was pressed is gone,
+  // and focus would otherwise fall back to the page itself.
+  const retriedThis =
+    retry.data !== undefined &&
+    retry.data.id === submission.data?.id &&
+    submission.data.status === "submitted";
+  useEffect(() => {
+    if (retriedThis) retryStatus.current?.focus();
+  }, [retriedThis]);
+
   /* An unmarked question contributes nothing to either side of the total, and
      the count of them is shown beside it. Adding its max to the denominator
      while its blank mark counted 0 in the numerator — which is what `?? 0` did
@@ -471,8 +511,20 @@ export default function SubmissionReviewPage() {
           <div className="rounded-xl border border-line bg-warn-100 px-4 py-3 text-sm text-ink-900">
             <p>
               <span className="font-medium">The AI couldn't mark this work.</span> Mark each
-              question yourself below.
+              question yourself below
+              {s.status === "ai_failed" ? ", or send it back to the AI to try again." : "."}
             </p>
+            {s.status === "ai_failed" && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-2"
+                loading={retry.isPending}
+                onClick={() => retry.mutate(id)}
+              >
+                Try marking again
+              </Button>
+            )}
             {/* The job's own reason, folded away for whoever has to fix it —
                 a raw exception string is not a message for a tutor. */}
             <details className="mt-2 text-xs text-ink-500">
@@ -487,6 +539,19 @@ export default function SubmissionReviewPage() {
           </p>
         )}
       </div>
+
+      {/* Hidden while empty. Focus moves here once the confirmation renders
+          (the button that was pressed has gone), and that is what reads it out:
+          a region that appears from `display: none` is not reliably announced
+          on its own. */}
+      <output ref={retryStatus} tabIndex={-1} className="block empty:hidden">
+        {retriedThis && (
+          <span className="block rounded-md bg-ok-100 px-3 py-2 text-sm text-ok-700">
+            Sent back to the AI. It usually finishes within a few minutes; reload this page then to
+            see the marks.
+          </span>
+        )}
+      </output>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left: the student's work. Sticky on wide screens, so the page being

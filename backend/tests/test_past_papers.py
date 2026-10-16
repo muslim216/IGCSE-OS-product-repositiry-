@@ -1662,7 +1662,7 @@ async def test_a_retry_the_worker_already_claimed_is_queued_afresh(unreadable_pa
     retry, and a running job has read the old state — on a replaced paper, the
     file about to be deleted. Bringing forward a job that is no longer waiting
     must queue a new one rather than rewrite the running one."""
-    from app.services.extraction import _run_now
+    from app.services.extraction import run_now
 
     payload = {"past_paper_id": unreadable_paper["id"]}
     async with async_session() as session:
@@ -1674,7 +1674,7 @@ async def test_a_retry_the_worker_already_claimed_is_queued_afresh(unreadable_pa
         claimed.attempts = 2
         await session.commit()
 
-        await _run_now(session, "extract_past_paper", [payload], waiting=waiting)
+        await run_now(session, "extract_past_paper", [payload], waiting=waiting)
         await session.commit()
 
     async with async_session() as session:

@@ -136,7 +136,7 @@ async def _marking_in_flight(session: AsyncSession, submission_id: int) -> bool:
     return any(p.get("submission_id") == submission_id for p in payloads)
 
 
-async def _teaches_this_work(
+async def teaches_this_work(
     session: AsyncSession, kind: SubmissionKind, parent: Any, tutor: User, student_id: int
 ) -> bool:
     """A past paper belongs to the organization, so `_tutor_owns` lets any tutor in
@@ -175,7 +175,7 @@ async def redo_refusal(
     parent = parent if parent is not None else await parent_of(session, submission)
     if parent is None:
         return AttemptGone(NOT_FOUND)
-    if not await _teaches_this_work(session, kind, parent, tutor, submission.student_id):
+    if not await teaches_this_work(session, kind, parent, tutor, submission.student_id):
         return AttemptGone(NOT_FOUND)
     if not attempt_is_locked(submission, marks):
         return AttemptNotLocked(

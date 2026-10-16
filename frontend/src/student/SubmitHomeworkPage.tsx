@@ -15,6 +15,7 @@ import { Button, Field, FileInput, Textarea } from "../components/controls";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { useMarkingRefetchInterval } from "../lib/markingPoll";
 
 const BACK = { to: "/student/homework", label: "Homework" };
 
@@ -23,10 +24,11 @@ export default function SubmitHomeworkPage() {
   const id = Number(assignmentId);
   const queryClient = useQueryClient();
 
+  const markingRefetch = useMarkingRefetchInterval(id);
   const view = useQuery({
     queryKey: ["my-submission", id],
     queryFn: () => mySubmission(id),
-    refetchInterval: (query) => (query.state.data?.status === "being_marked" ? 4000 : false),
+    refetchInterval: markingRefetch,
   });
   // The submission view carries no title, so "Your marked homework" could not
   // say *which* homework. The student's assignment list — the same cached query
@@ -147,7 +149,7 @@ export default function SubmitHomeworkPage() {
           <Clock aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             Your work is in and your tutor is marking it. Your marks and feedback will appear here
-            when they&apos;re ready — this page checks for them automatically.
+            when they&apos;re ready. You can leave this page and come back later.
           </p>
         </div>
       ) : (

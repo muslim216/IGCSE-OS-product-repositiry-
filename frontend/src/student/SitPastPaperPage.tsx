@@ -9,6 +9,7 @@ import { Button, Field, FileInput, Input } from "../components/controls";
 import { ErrorState, NotFoundState, PageHeader, PageSkeleton } from "../components/page";
 import { SectionCard } from "../components/ui";
 import { friendlyError } from "../lib/errors";
+import { useMarkingRefetchInterval } from "../lib/markingPoll";
 
 const BACK = { to: "/student/past-papers", label: "Past papers" };
 
@@ -32,10 +33,11 @@ export default function SitPastPaperPage() {
   const queryClient = useQueryClient();
 
   const paper = useQuery({ queryKey: ["past-paper", id], queryFn: () => getPastPaper(id) });
+  const markingRefetch = useMarkingRefetchInterval(id);
   const attempt = useQuery({
     queryKey: ["past-paper-attempt", id],
     queryFn: () => myAttempt(id),
-    refetchInterval: (query) => (query.state.data?.status === "being_marked" ? 4000 : false),
+    refetchInterval: markingRefetch,
   });
 
   const [files, setFiles] = useState<File[]>([]);
@@ -155,7 +157,10 @@ export default function SitPastPaperPage() {
           className="flex gap-3 rounded-xl border border-line bg-warn-100 p-4 text-sm text-warn-700"
         >
           <Clock aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>Your answers are being marked. This page checks for your result automatically.</p>
+          <p>
+            Your answers are being marked. Your result will appear here when it&apos;s ready. You
+            can leave this page and come back later.
+          </p>
         </div>
       ) : (
         <SectionCard>
