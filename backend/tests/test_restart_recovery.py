@@ -293,3 +293,33 @@ def test_raising_the_ai_deadline_widens_the_window(monkeypatch):
     before = orphan_reclaim_seconds()
     monkeypatch.setattr(get_settings(), "ai_call_timeout_seconds", 3000.0)
     assert orphan_reclaim_seconds() > before
+
+
+async def test_a_dropped_late_failure_does_not_mark_anything_given_up(client, handler):
+    """Dropping the late outcome drops all of it: a failure that would have
+    been final for this worker must not run the give-up hook on a row another
+    worker is now working on."""
+    from app.services.ai import AIKeyMissingError
+
+    told: list[str] = []
+
+    async def _taken_over_then_fails(session, payload):
+        async with async_session() as other:
+            job = await other.scalar(select(Job).where(Job.type == JOB))
+            job.claimed_by = "the-worker-that-took-it"
+            await other.commit()
+        raise AIKeyMissingError("marking")
+
+    async def _hook(session, payload, error):
+        told.append(error)
+
+    handler(_taken_over_then_fails)
+    jobs._give_ups[JOB] = _hook
+    try:
+        await _queue()
+        assert await process_one_job() is True
+    finally:
+        jobs._give_ups.pop(JOB, None)
+
+    assert told == []
+    assert (await _the_job()).claimed_by == "the-worker-that-took-it"

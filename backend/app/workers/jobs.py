@@ -650,6 +650,55 @@ async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str |
     return None, False
 
 
+async def _record_outcome(
+    job_id: int, job_type: str, attempts: int, error: str | None, permanent: bool
+) -> bool:
+    """Write a finished job's outcome: done, back to pending for its retry, or
+    failed. Returns whether it failed for good (so its give-up hook is owed)."""
+    gave_up = False
+    async with async_session() as session:
+        job = await session.get(Job, job_id, with_for_update=True)
+        if job is None or job.status != JobStatus.running or job.claimed_by != WORKER_ID:
+            # Someone else holds it now: the orphan sweep requeued it while
+            # this worker was stalled past the window, and another worker
+            # may be running it. Its outcome is theirs to write.
+            log.warning("job %s (%s) is no longer this worker's; outcome dropped", job_id, job_type)
+            return False
+        # Cleared on every outcome below, including the retry: a pending row
+        # is held by nobody, and a stale claimant on one would make the
+        # orphan sweep reason about a worker that already let go.
+        job.claimed_by = None
+        job.claimed_at = None
+        if error is None:
+            job.status = JobStatus.done
+            job.error = None
+        elif attempts < MAX_ATTEMPTS and not permanent:
+            job.status = JobStatus.pending  # retry
+            # Held back rather than re-claimed on the next poll: see
+            # RETRY_BACKOFF_SECONDS. Handlers are required to be safe to
+            # re-run on the same payload (BE-6), so the only question a
+            # retry answers is whether the *cause* has passed, and two
+            # attempts two seconds apart never gives it the chance to.
+            job.run_after = datetime.now(timezone.utc) + timedelta(seconds=RETRY_BACKOFF_SECONDS)
+            job.error = error
+        else:
+            job.status = JobStatus.failed
+            job.error = error
+            gave_up = True
+            # Nothing watches the failed count yet, so this line is the only
+            # record that a piece of a student's work stopped moving.
+            log.error(
+                "job %s (%s) gave up after %s attempt(s)%s: %s",
+                job_id,
+                job_type,
+                attempts,
+                ", a retry could not have helped" if permanent else "",
+                error,
+            )
+        await session.commit()
+    return gave_up
+
+
 async def process_one_job() -> bool:
     """Claim and run one due pending job. Returns False when nothing is due."""
     now = datetime.now(timezone.utc)
@@ -690,52 +739,7 @@ async def process_one_job() -> bool:
             # this run for ever.
             log.error("job %s (%s) was cancelled from inside its handler", job_id, job_type)
             error, permanent = "The work was cancelled before it finished", False
-        gave_up = False
-
-        async with async_session() as session:
-            job = await session.get(Job, job_id, with_for_update=True)
-            if job is None or job.status != JobStatus.running or job.claimed_by != WORKER_ID:
-                # Someone else holds it now: the orphan sweep requeued it while
-                # this worker was stalled past the window, and another worker
-                # may be running it. Its outcome is theirs to write.
-                log.warning(
-                    "job %s (%s) is no longer this worker's; outcome dropped", job_id, job_type
-                )
-                return True
-            # Cleared on every outcome below, including the retry: a pending row
-            # is held by nobody, and a stale claimant on one would make the
-            # orphan sweep reason about a worker that already let go.
-            job.claimed_by = None
-            job.claimed_at = None
-            if error is None:
-                job.status = JobStatus.done
-                job.error = None
-            elif attempts < MAX_ATTEMPTS and not permanent:
-                job.status = JobStatus.pending  # retry
-                # Held back rather than re-claimed on the next poll: see
-                # RETRY_BACKOFF_SECONDS. Handlers are required to be safe to
-                # re-run on the same payload (BE-6), so the only question a
-                # retry answers is whether the *cause* has passed, and two
-                # attempts two seconds apart never gives it the chance to.
-                job.run_after = datetime.now(timezone.utc) + timedelta(
-                    seconds=RETRY_BACKOFF_SECONDS
-                )
-                job.error = error
-            else:
-                job.status = JobStatus.failed
-                job.error = error
-                gave_up = True
-                # Nothing watches the failed count yet, so this line is the only
-                # record that a piece of a student's work stopped moving.
-                log.error(
-                    "job %s (%s) gave up after %s attempt(s)%s: %s",
-                    job_id,
-                    job_type,
-                    attempts,
-                    ", a retry could not have helped" if permanent else "",
-                    error,
-                )
-            await session.commit()
+        gave_up = await _record_outcome(job_id, job_type, attempts, error, permanent)
         # After the commit, never inside it: the job's own outcome is the
         # record that matters, and it must not wait on, or roll back with, a
         # write to some other row.
