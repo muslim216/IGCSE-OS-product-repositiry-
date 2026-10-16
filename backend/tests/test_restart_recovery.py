@@ -21,7 +21,6 @@ from app.workers.handlers import register_all
 from app.workers.jobs import (
     GIVE_UP_TIMEOUT_SECONDS,
     HANDED_BACK_MESSAGE,
-    HEARTBEAT_REAP_SECONDS,
     JOB_TIMEOUT_MARGIN_SECONDS,
     MAX_ATTEMPTS,
     ORPHAN_GRACE_SECONDS,
@@ -157,6 +156,46 @@ async def test_a_hand_back_that_cannot_reach_the_database_does_not_hold_shutdown
     assert any("could not hand job 1 back" in r.getMessage() for r in caplog.records)
 
 
+async def test_a_cancellation_from_inside_the_handler_is_a_failure_not_a_shutdown(client, handler):
+    """Only a worker that was asked to stop hands its job back. A handler that
+    cancels its own work is failing, keeps the attempt it used, and the worker
+    carries on; refunding it would let such a job run for ever."""
+
+    async def _cancels_itself(session, payload):
+        raise asyncio.CancelledError
+
+    handler(_cancels_itself)
+    await _queue()
+
+    assert await process_one_job() is True
+
+    job = await _the_job()
+    assert job.status == JobStatus.pending
+    assert job.attempts == 1
+    assert job.error == "The work was cancelled before it finished"
+
+
+async def test_an_outcome_for_a_job_someone_else_now_holds_is_dropped(client, handler):
+    """A worker stalled past the window can find, when it finally finishes,
+    that the sweep requeued its job and another worker claimed it. The late
+    outcome must not overwrite theirs."""
+
+    async def _taken_over(session, payload):
+        async with async_session() as other:
+            job = await other.scalar(select(Job).where(Job.type == JOB))
+            job.claimed_by = "the-worker-that-took-it"
+            await other.commit()
+
+    handler(_taken_over)
+    await _queue()
+
+    assert await process_one_job() is True
+
+    job = await _the_job()
+    assert job.status == JobStatus.running
+    assert job.claimed_by == "the-worker-that-took-it"
+
+
 # --- Killed -----------------------------------------------------------------
 
 
@@ -190,7 +229,7 @@ async def _heartbeat(worker_id: str, *, quiet_for: float) -> None:
         await session.commit()
 
 
-async def test_a_crashed_workers_job_comes_back_once_it_has_been_silent_too_long(client):
+async def test_a_crashed_workers_job_comes_back_once_its_claim_passes_the_window(client):
     """The case the old sweep could not see: the dead worker's heartbeat row is
     still there, because nothing reaps it for an hour, and the claim was under
     two hours old. It waited for a restart at least three hours later."""
@@ -216,6 +255,18 @@ async def test_a_worker_still_inside_its_time_limit_keeps_its_job(client):
     assert (await _the_job()).status == JobStatus.running
 
 
+async def test_a_claim_past_the_window_is_repaired_even_with_a_fresh_heartbeat(client):
+    """A live worker whose outcome write failed leaves its row `running` and
+    carries on looping. The old sweep counted any heartbeat row as alive, so
+    that row stayed stuck for as long as the worker lived."""
+    window = orphan_reclaim_seconds()
+    await _heartbeat("alive-but-dropped-it", quiet_for=5)
+    await _held_by("alive-but-dropped-it", claimed_ago=window + 60)
+
+    assert await reclaim_orphaned_jobs() == 1
+    assert (await _the_job()).status == JobStatus.pending
+
+
 async def test_a_young_claim_is_left_even_when_its_worker_has_no_row(client):
     await _held_by("vanished", claimed_ago=60)
 
@@ -223,10 +274,9 @@ async def test_a_young_claim_is_left_even_when_its_worker_has_no_row(client):
 
 
 def test_the_window_covers_the_longest_job_and_comes_back_in_minutes(monkeypatch):
-    """The safety argument, as numbers: a live worker is never silent longer
-    than its longest job limit plus the grace, so the window is that. It stays
-    under the heartbeat reap, so a live worker's row is never reaped from under
-    it, and it is minutes rather than the hours it used to be."""
+    """The safety argument, as numbers: no live claim outlasts the longest job
+    limit plus the grace, so the window is that, and it is minutes rather than
+    the hours it used to be."""
     monkeypatch.setattr(jobs, "_handlers", {})
     monkeypatch.setattr(jobs, "_timeouts", {})
     monkeypatch.setattr(jobs, "_give_ups", {})
@@ -235,7 +285,6 @@ def test_the_window_covers_the_longest_job_and_comes_back_in_minutes(monkeypatch
     booklet = 2 * get_settings().ai_call_timeout_seconds + JOB_TIMEOUT_MARGIN_SECONDS
     assert max(jobs._timeouts.values()) == booklet
     assert orphan_reclaim_seconds() == booklet + GIVE_UP_TIMEOUT_SECONDS + ORPHAN_GRACE_SECONDS
-    assert orphan_reclaim_seconds() < HEARTBEAT_REAP_SECONDS
     assert orphan_reclaim_seconds() <= 40 * 60
 
 

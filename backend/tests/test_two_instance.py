@@ -135,14 +135,27 @@ async def _run_until_claimed(started: asyncio.Event) -> asyncio.Task:
 async def _kill(task: asyncio.Task) -> None:
     """Cancel a task mid-transaction, the way `SIGKILL` takes a worker.
 
+    A cancellation is a polite stop, and a worker told to stop hands its job
+    back (`jobs._hand_back`). `SIGKILL` gives it no such chance, so the hand-back
+    is switched off for the duration: what is left is what a kill leaves.
+
     Disposing the engine afterwards is not tidiness. The cancelled task
     abandoned an asyncpg connection mid-transaction; the pool does not know it
     is unusable, and the next checkout fails deep inside asyncpg with an error
     that describes neither this test nor the code under test.
     """
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+
+    async def _killed_before_it_could(job_id: int) -> None:
+        return None
+
+    real_hand_back = jobs._hand_back
+    jobs._hand_back = _killed_before_it_could
+    try:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    finally:
+        jobs._hand_back = real_hand_back
     await engine.dispose()
 
 
@@ -408,16 +421,17 @@ async def test_a_job_orphaned_by_a_dead_worker_is_requeued_and_runs(queue):
         assert row.status is JobStatus.running
         assert row.claimed_by == jobs.WORKER_ID
 
-    # The dead process's heartbeat row is gone — reaped by whichever worker
-    # registered next, which is what a restart does. That absence is the sweep's
-    # entire signal.
+    # The dead process's heartbeat row is gone, reaped by whichever worker
+    # registered next, which is what a restart does. The sweep no longer needs
+    # that (claim age is its test), but it is the state a kill leaves.
     async with async_session() as session:
         await session.execute(delete(WorkerHeartbeat))
         await session.commit()
     jobs._worker_registered = False
 
     # `now` is pushed past orphan_reclaim_seconds() rather than sleeping it: the
-    # grace is two hours, and a test must not encode a wait to prove a cutoff.
+    # window is over half an hour, and a test must not encode a wait to prove a
+    # cutoff.
     future = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() + 60)
     assert await jobs.reclaim_orphaned_jobs(now=future) == 1
 
@@ -436,10 +450,11 @@ async def test_a_job_held_by_a_live_worker_is_never_reclaimed(queue):
     """The half that makes the repair safe rather than a duplicate-execution bug.
 
     A worker part-way through a slow marking call has a deliberately stale
-    `last_loop_at` — the loop clock is stamped before each claim, not during the
-    work — so a staleness-based sweep would hand its job to a second worker
-    while the first still held it. The predicate is the claimant's heartbeat row
-    being *absent*, and a live worker always has one.
+    `last_loop_at` (the loop clock is stamped before each claim, not during the
+    work), so a staleness-based sweep would hand its job to a second worker
+    while the first still held it. The sweep's test is claim age against
+    `orphan_reclaim_seconds()`, which no live claim can reach because every job
+    is stopped at its time limit. An ancient heartbeat changes nothing.
     """
     async with async_session() as session:
         await jobs.enqueue(session, "never_run", {})
@@ -461,8 +476,8 @@ async def test_a_job_held_by_a_live_worker_is_never_reclaimed(queue):
         )
         await session.commit()
 
-    future = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() + 60)
-    assert await jobs.reclaim_orphaned_jobs(now=future) == 0
+    inside = datetime.now(timezone.utc) + timedelta(seconds=jobs.orphan_reclaim_seconds() - 60)
+    assert await jobs.reclaim_orphaned_jobs(now=inside) == 0
 
     async with async_session() as session:
         row = await session.scalar(select(Job))
@@ -471,8 +486,8 @@ async def test_a_job_held_by_a_live_worker_is_never_reclaimed(queue):
 
 async def test_a_recently_claimed_job_is_left_alone(queue):
     """The grace period. A claim younger than `orphan_reclaim_seconds()` is not
-    reconsidered even with no heartbeat row, because a worker whose row was just
-    reaped mid-job re-registers rather than dying (§3.3)."""
+    reconsidered even with no heartbeat row: inside its time limit a job may
+    still be running."""
     async with async_session() as session:
         await jobs.enqueue(session, "never_run", {})
         await session.commit()
