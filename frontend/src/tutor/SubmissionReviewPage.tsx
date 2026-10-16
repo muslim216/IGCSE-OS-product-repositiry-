@@ -313,17 +313,22 @@ export default function SubmissionReviewPage() {
   /* Sends work the AI couldn't mark back to it. The answer is the submission
      as it now stands (`submitted`, no error), so it replaces the cached copy
      rather than waiting on a refetch. */
+  /* Called with the submission it is for: the queue can move the page on while
+     the request is out, and its answer must land on that submission's cache,
+     not on whichever one the tutor is now looking at. */
   const retry = useMutation({
-    mutationFn: () => retryMarking(id),
-    onSuccess: async (updated) => {
-      setError(null);
+    mutationFn: (submissionId: number) => retryMarking(submissionId),
+    onSuccess: async (updated, submissionId) => {
       // A refetch already in flight (a window focus) read the old `ai_failed`
       // row and would land on top of this answer.
-      await queryClient.cancelQueries({ queryKey: ["submission", id] });
-      queryClient.setQueryData(["submission", id], updated);
+      await queryClient.cancelQueries({ queryKey: ["submission", submissionId] });
+      queryClient.setQueryData(["submission", submissionId], updated);
       queryClient.invalidateQueries({ queryKey: ["review-queue"] });
+      if (submissionId === id) setError(null);
     },
-    onError: (err) => setError(friendlyError(err)),
+    onError: (err, submissionId) => {
+      if (submissionId === id) setError(friendlyError(err));
+    },
   });
   const retryStatus = useRef<HTMLParagraphElement>(null);
   /* This page stays mounted while the review queue walks from one submission
@@ -515,7 +520,7 @@ export default function SubmissionReviewPage() {
                 size="sm"
                 className="mt-2"
                 loading={retry.isPending}
-                onClick={() => retry.mutate()}
+                onClick={() => retry.mutate(id)}
               >
                 Try marking again
               </Button>
@@ -535,8 +540,10 @@ export default function SubmissionReviewPage() {
         )}
       </div>
 
-      {/* Always rendered, so screen readers announce the text when it arrives;
-          focus moves here because the button that was pressed has gone. */}
+      {/* Hidden while empty. Focus moves here once the confirmation renders
+          (the button that was pressed has gone), and that is what reads it out:
+          a region that appears from `display: none` is not reliably announced
+          on its own. */}
       <p ref={retryStatus} role="status" tabIndex={-1} className="empty:hidden">
         {retriedThis && (
           <span className="block rounded-md bg-ok-100 px-3 py-2 text-sm text-ok-700">

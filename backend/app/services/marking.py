@@ -144,13 +144,12 @@ async def retry_marking(session: AsyncSession, submission: Submission, tutor: Us
     When: only an `ai_failed` attempt. Anything else is already queued
     (`submitted`), has marks a tutor may have touched, or is final. Never two
     marking jobs for one attempt, which would mark the same pages twice and
-    bill for both. So, in this order: the submission row is locked, so two
-    presses cannot both pass; the worker's own retry, if one is waiting out
-    its backoff, is locked too, so the worker cannot claim it between this
-    check and `run_now` (its claim skips locked rows); then a marking job
-    already running for it refuses the retry, because the attempt still reads
-    `ai_failed` while the worker's retry runs. The waiting retry is brought
-    forward rather than doubled.
+    bill for both. So the submission row is locked, so two presses cannot both
+    pass; then every marking job for it is locked, so the worker can neither
+    claim one nor send a failed one back to wait between the check and the
+    queueing. A job running for it refuses the retry, because the attempt
+    still reads `ai_failed` while the worker's own retry runs. A waiting one is
+    brought forward rather than doubled.
     """
     await session.execute(
         select(Submission.id).where(Submission.id == submission.id).with_for_update()
@@ -168,36 +167,32 @@ async def retry_marking(session: AsyncSession, submission: Submission, tutor: Us
         raise MarkingRetryRefused(NOT_RETRYABLE)
 
     payload = {"submission_id": submission.id}
-    # Compared in Python: `payload` is JSON, which Postgres cannot compare.
-    pending_ids = [
+    # Every marking job for this attempt, waiting or running, is locked before
+    # anything is decided. The worker's claim skips locked rows, and its
+    # outcome write waits on the lock, so neither a claim (pending -> running)
+    # nor a failure (running -> pending, for its retry) can slip between the
+    # check below and the queueing. Compared in Python: `payload` is JSON,
+    # which Postgres cannot compare.
+    ids = [
         job_id
         for job_id, job_payload in (
             await session.execute(
                 select(Job.id, Job.payload).where(
-                    Job.type == "mark_submission", Job.status == JobStatus.pending
+                    Job.type == "mark_submission",
+                    Job.status.in_((JobStatus.pending, JobStatus.running)),
                 )
             )
         ).all()
         if job_payload == payload
     ]
-    waiting = (
-        list(
-            (
-                await session.scalars(
-                    select(Job)
-                    .where(Job.id.in_(pending_ids), Job.status == JobStatus.pending)
-                    .with_for_update()
-                )
-            ).all()
-        )
-        if pending_ids
+    held = (
+        list((await session.scalars(select(Job).where(Job.id.in_(ids)).with_for_update())).all())
+        if ids
         else []
     )
-    running = await session.scalars(
-        select(Job.payload).where(Job.type == "mark_submission", Job.status == JobStatus.running)
-    )
-    if any(job_payload == payload for job_payload in running):
+    if any(job.status == JobStatus.running for job in held):
         raise MarkingRetryRefused(ALREADY_MARKING)
+    waiting = [job for job in held if job.status == JobStatus.pending]
     submission.status = SubmissionStatus.submitted
     submission.ai_error = None
     await run_now(session, "mark_submission", [payload], waiting=waiting)
