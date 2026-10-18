@@ -3,6 +3,7 @@ record. This is the single source of truth for both the CRM UI and the AI's
 grounding context (services/student_context.py reads from it too), so the two
 surfaces can never drift apart."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -60,26 +61,31 @@ class StudentCrm:
     communications: list[ParentCommunication]
 
 
-async def enrolled_subject_ids(session: AsyncSession, student_id: int) -> list[int]:
+async def enrolled_subject_ids(
+    session: AsyncSession, student_id: int, organization_id: int | None = None
+) -> list[int]:
     """Subjects the student is enrolled in via group membership — used to
-    scope the readiness summary regardless of the CRM's own enrollment rows."""
-    rows = (
-        await session.scalars(
-            select(Group.subject_id)
-            .join(GroupMember, GroupMember.group_id == Group.id)
-            .where(GroupMember.student_id == student_id)
-            .distinct()
-        )
-    ).all()
+    scope the readiness summary regardless of the CRM's own enrollment rows.
+    With `organization_id`, only that organization's classes count."""
+    query = (
+        select(Group.subject_id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .where(GroupMember.student_id == student_id)
+    )
+    if organization_id is not None:
+        query = query.where(Group.organization_id == organization_id)
+    rows = (await session.scalars(query.distinct())).all()
     return list(rows)
 
 
 async def get_student_crm(session: AsyncSession, student: User, viewer: User) -> StudentCrm:
-    # A student can sit in a second organization's class, so a tutor or admin
-    # there can open this record. What one organization wrote about a family —
-    # the profile with the parent's contact details, tutor notes, parent
-    # communications — is that organization's, and is not handed to the other
-    # (`SEC-7`). The student and their parent read their own record unscoped.
+    # A student can sit in a second organization's class (joined before one
+    # workspace per student was enforced), so a tutor or admin there can open
+    # this record. Everything below is scoped to the viewer's organization:
+    # the profile with the parent's contact details, enrolments, readiness,
+    # homework, notes and communications are that organization's, and are not
+    # handed to the other (`SEC-7`). The student and their parent read their own
+    # record unscoped — except notes and communications, below.
     staff_org = viewer.organization_id if viewer.role in (UserRole.tutor, UserRole.admin) else None
     profile_query = select(StudentProfile).where(StudentProfile.student_id == student.id)
     if staff_org is not None:
@@ -92,7 +98,7 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
     enrollments: list[Enrollment] = []
     for row in enrollment_rows:
         subject = await session.get(Subject, row.subject_id)
-        if subject is None:
+        if subject is None or (staff_org is not None and subject.organization_id != staff_org):
             continue
         enrollments.append(
             Enrollment(
@@ -103,32 +109,33 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
             )
         )
 
-    subject_ids = await enrolled_subject_ids(session, student.id)
+    subject_ids = await enrolled_subject_ids(session, student.id, staff_org)
     readiness_summary = await build_summary_v2(session, student, subject_ids)
 
-    homework_rows = (
-        await session.execute(
-            select(Assignment, Submission)
-            .join(Group, Group.id == Assignment.group_id)
-            .join(GroupMember, GroupMember.group_id == Group.id)
-            .outerjoin(
-                Submission,
-                (Submission.work_id == Assignment.work_id) & (Submission.student_id == student.id),
-            )
-            .where(
-                GroupMember.student_id == student.id,
-                Assignment.status.in_([AssignmentStatus.published, AssignmentStatus.closed]),
-                # Same rule as readiness: a deleted class's not-yet-due homework
-                # was never missed, the student just can no longer hand it in.
-                or_(
-                    Group.deleted_at.is_(None),
-                    Submission.id.is_not(None),
-                    Assignment.due_at <= Group.deleted_at,
-                ),
-            )
-            .order_by(Assignment.due_at.desc())
-            .limit(20)
+    homework_query = (
+        select(Assignment, Submission)
+        .join(Group, Group.id == Assignment.group_id)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .outerjoin(
+            Submission,
+            (Submission.work_id == Assignment.work_id) & (Submission.student_id == student.id),
         )
+        .where(
+            GroupMember.student_id == student.id,
+            Assignment.status.in_([AssignmentStatus.published, AssignmentStatus.closed]),
+            # Same rule as readiness: a deleted class's not-yet-due homework
+            # was never missed, the student just can no longer hand it in.
+            or_(
+                Group.deleted_at.is_(None),
+                Submission.id.is_not(None),
+                Assignment.due_at <= Group.deleted_at,
+            ),
+        )
+    )
+    if staff_org is not None:
+        homework_query = homework_query.where(Group.organization_id == staff_org)
+    homework_rows = (
+        await session.execute(homework_query.order_by(Assignment.due_at.desc()).limit(20))
     ).all()
     homework: list[HomeworkItem] = []
     for assignment, submission in homework_rows:
@@ -159,17 +166,31 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
             )
         )
 
-    notes_query = select(TutorNote).where(TutorNote.student_id == student.id)
-    comms_query = select(ParentCommunication).where(ParentCommunication.student_id == student.id)
+    # A tutor's notes and their log of parent contact are the tutor's working
+    # record and never reach the student or the parent (owner, 18 Oct 2026:
+    # "no never"). Not filtered out after loading: never read for them at all.
+    notes: Sequence[TutorNote] = []
+    communications: Sequence[ParentCommunication] = []
     if staff_org is not None:
         # Neither row carries an organization; the author's is the tenant.
         authors = select(User.id).where(User.organization_id == staff_org)
-        notes_query = notes_query.where(TutorNote.tutor_id.in_(authors))
-        comms_query = comms_query.where(ParentCommunication.tutor_id.in_(authors))
-    notes = (await session.scalars(notes_query.order_by(TutorNote.created_at.desc()))).all()
-    communications = (
-        await session.scalars(comms_query.order_by(ParentCommunication.created_at.desc()))
-    ).all()
+        notes = (
+            await session.scalars(
+                select(TutorNote)
+                .where(TutorNote.student_id == student.id, TutorNote.tutor_id.in_(authors))
+                .order_by(TutorNote.created_at.desc())
+            )
+        ).all()
+        communications = (
+            await session.scalars(
+                select(ParentCommunication)
+                .where(
+                    ParentCommunication.student_id == student.id,
+                    ParentCommunication.tutor_id.in_(authors),
+                )
+                .order_by(ParentCommunication.created_at.desc())
+            )
+        ).all()
 
     return StudentCrm(
         student=student,

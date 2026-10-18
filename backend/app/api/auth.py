@@ -299,13 +299,26 @@ async def join_with_invite(body: JoinRequest, db: DbSession, user: CurrentUser) 
     if invite.kind == InviteKind.student_join:
         if user.role != UserRole.student:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Only student accounts can join a group")
-        if (
-            await db.scalar(
-                select(Group.id).where(Group.id == invite.group_id, Group.deleted_at.is_(None))
+        group_org = await db.scalar(
+            select(Group.organization_id).where(
+                Group.id == invite.group_id, Group.deleted_at.is_(None)
             )
-            is None
-        ):
+        )
+        if group_org is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "This invite link is not valid")
+        # One tutor's workspace per student at launch (owner, 18 Oct 2026). A
+        # student in a second organization's class is the shared-student design
+        # that was never finished: that tutor could read the first one's records,
+        # reset the child's password and mint a parent link to them. This join is
+        # the only way such a membership is made, so refusing it here closes all
+        # of that at the source; the checks in students.py and groups.py are the
+        # second line for memberships made before it.
+        if group_org != user.organization_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This account already belongs to another tutor on Avora, so it can't join "
+                "this class. Ask this class's tutor to create an account for you.",
+            )
         await _add_to_group(db, invite.group_id, user.id)
     else:
         if user.role != UserRole.parent:

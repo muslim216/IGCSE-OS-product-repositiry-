@@ -254,10 +254,14 @@ async def reset_student_password(
             GroupMember.group_id == group.id, GroupMember.student_id == student_id
         )
     )
-    if member is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student is not in this group")
     student = await db.get(User, student_id)
-    if student is None or student.email is not None:
+    # Only the organization the account belongs to may take it over: a class
+    # elsewhere is not enough, or another workspace's tutor could reset a child's
+    # password and lock out the tutor who made the account. 404 like a stranger,
+    # so the id says nothing (`API-7`).
+    if member is None or student is None or student.organization_id != user.organization_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student is not in this group")
+    if student.email is not None:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Password resets are only available for accounts without an email address",
