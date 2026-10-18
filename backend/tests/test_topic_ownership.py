@@ -108,6 +108,12 @@ async def test_a_question_keeps_its_own_topic_and_drops_a_foreign_one(
     [question] = resp.json()["questions"]
     assert [t["id"] for t in question["topics"]] == [subject["topic1"]]
     assert "B-SECRET-TOPIC" not in resp.text
+    # Not written at all, not merely hidden by the read.
+    async with async_session() as session:
+        stored = await session.scalars(
+            select(QuestionTopic.topic_id).where(QuestionTopic.question_id == question["id"])
+        )
+        assert list(stored) == [subject["topic1"]]
 
 
 async def test_a_question_drops_a_topic_of_another_subject_of_the_same_organization(
