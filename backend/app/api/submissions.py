@@ -207,7 +207,9 @@ async def submit_work(
     submission.typed_flag_reason = scan_typed_answer(typed).reason
 
     for position, upload in enumerate(files or []):
-        path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
+        path, name, mime = await storage.save_upload(
+            upload, organization_id=user.organization_id, student_id=user.id
+        )
         db.add(
             SubmissionFile(
                 submission_id=submission.id, position=position, path=path, name=name, mime=mime

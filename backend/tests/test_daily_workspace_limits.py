@@ -25,7 +25,9 @@ from app.services.rate_limit import (
     ALL_LIMITERS,
     RateLimiter,
     ai_daily_limiter,
+    marking_daily_limiter,
     message_daily_limiter,
+    student_upload_daily_limiter,
     upload_daily_limiter,
 )
 from app.workers.jobs import is_permanent
@@ -100,6 +102,30 @@ async def test_structured_calls_spend_the_same_allowance(monkeypatch, tutor):
         )
 
 
+@pytest.mark.usefixtures("no_ai_key")
+async def test_marking_has_its_own_allowance(monkeypatch, tutor):
+    """A day of reports and summaries must not leave hand-ins unmarked."""
+    _allow(monkeypatch, ai_daily_limiter, 0)
+    _allow(monkeypatch, marking_daily_limiter, 1)
+    org = await _org(tutor)
+
+    async def call(surface: str):
+        await ai.structured_complete(
+            organization_id=org,
+            surface=surface,
+            content=[{"type": "text", "text": "x"}],
+            output_format=ai.BaseModel,
+            max_tokens=10,
+        )
+
+    with pytest.raises(ai.AIDailyLimitError):
+        await call("readiness")
+    with pytest.raises(ai.AIKeyMissingError):
+        await call("marking")
+    with pytest.raises(ai.AIDailyLimitError):
+        await call("marking")
+
+
 # --- Uploads ---------------------------------------------------------------
 
 
@@ -115,6 +141,39 @@ async def test_uploads_past_the_allowance_are_a_429(
     second = await client.post(path, files=files, headers=student["headers"])
     assert second.status_code == 429, second.text
     assert second.json()["detail"] == storage.DAILY_UPLOAD_LIMIT_MESSAGE
+
+
+async def test_one_student_spending_their_uploads_leaves_the_workspaces_for_others(
+    monkeypatch, client, tutor, group, student, published_assignment
+):
+    path = f"{API}/assignments/{published_assignment['id']}/submissions"
+    files = [("files", ("p.png", PNG_BYTES, "image/png"))]
+    other = await client.post(
+        f"{API}/groups/{group['id']}/students",
+        json={"name": "Bob", "username": "bob01", "password": "password123"},
+        headers=tutor["headers"],
+    )
+    assert other.status_code == 201, other.text
+    login = await client.post(
+        f"{API}/auth/login", json={"identifier": "bob01", "password": "password123"}
+    )
+    bob = {"Authorization": f"Bearer {login.json()['tokens']['access_token']}"}
+    _allow(monkeypatch, student_upload_daily_limiter, 1)
+    _allow(monkeypatch, upload_daily_limiter, 10)
+
+    assert (await client.post(path, files=files, headers=student["headers"])).status_code == 201
+    refused = await client.post(path, files=files, headers=student["headers"])
+    assert refused.status_code == 429, refused.text
+    assert (await client.post(path, files=files, headers=bob)).status_code == 201
+
+
+async def test_pieces_cut_from_a_counted_upload_do_not_count_again(monkeypatch):
+    _allow(monkeypatch, upload_daily_limiter, 0)
+    pdf = b"%PDF-1.4 piece"
+    key, _name, mime = await storage.save_bytes(
+        pdf, "application/pdf", "p.pdf", organization_id=1, counted=False
+    )
+    assert mime == "application/pdf" and key
 
 
 async def test_a_job_saving_past_the_allowance_gets_a_value_error(monkeypatch):
@@ -160,7 +219,13 @@ async def test_messages_past_the_allowance_end_without_being_sent(monkeypatch, t
 
 def test_the_daily_allowances_are_reported_with_the_other_limiters():
     purposes = {limiter.purpose for limiter in ALL_LIMITERS}
-    assert {"ai_daily", "upload_daily", "message_daily"} <= purposes
+    assert {
+        "marking_daily",
+        "ai_daily",
+        "upload_daily",
+        "student_upload_daily",
+        "message_daily",
+    } <= purposes
 
 
 async def test_a_notification_row_counts_for_its_workspace(monkeypatch, tutor):

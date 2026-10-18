@@ -378,10 +378,19 @@ class Settings(BaseSettings):
     #: What one workspace (organization) may do in a day, so an account nobody
     #: vetted cannot run up the AI bill, the disk or the messaging number
     #: (`SA-01`; tutor sign-up stays open, owner 2026-10-18). About three times
-    #: a busy tutor's day with 40 students. Counted per rolling 24 hours in the
-    #: rate-limit store (`services/rate_limit.py`).
+    #: a busy tutor's day with 40 students. Counted in the rate-limit store
+    #: (`services/rate_limit.py`) per fixed 24-hour window — up to twice the
+    #: figure across a window's edge, and reset on a restart while `REDIS_URL`
+    #: is unset. Read at startup, so a change needs a restart.
+    #:
+    #: Marking has its own allowance, so a day of reports, summaries and
+    #: progress recalculations cannot leave students' work unmarked; and one
+    #: student's uploads are capped inside the workspace's, so one student
+    #: cannot spend the tutor's.
+    daily_marking_calls_per_workspace: int = 500
     daily_ai_calls_per_workspace: int = 500
     daily_uploads_per_workspace: int = 200
+    daily_uploads_per_student: int = 50
     daily_messages_per_workspace: int = 300
 
     @property

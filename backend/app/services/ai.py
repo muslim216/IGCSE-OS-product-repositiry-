@@ -37,7 +37,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import AiFeature, AiUsageEvent
 from app.services.prompts import get_prompt
-from app.services.rate_limit import ai_daily_limiter, spend_daily_allowance
+from app.services.rate_limit import (
+    ai_daily_limiter,
+    marking_daily_limiter,
+    spend_daily_allowance,
+)
 
 log = logging.getLogger(__name__)
 
@@ -67,10 +71,12 @@ class AIDailyLimitError(AIUnavailableError):
     job_retryable = False
 
 
-async def _spend_ai_allowance(organization_id: int) -> None:
+async def _spend_ai_allowance(organization_id: int, surface: str) -> None:
     # Every model call starts here, so no surface can go round the limit; the
-    # count is per workspace, whichever tutor or job is asking.
-    if not await spend_daily_allowance(ai_daily_limiter, organization_id):
+    # count is per workspace, whichever tutor or job is asking. Marking draws
+    # on its own allowance: background work must not leave hand-ins unmarked.
+    limiter = marking_daily_limiter if surface == "marking" else ai_daily_limiter
+    if not await spend_daily_allowance(limiter, organization_id):
         raise AIDailyLimitError(
             "This workspace has reached today's limit for AI work. It frees up within 24 hours."
         )
@@ -784,7 +790,7 @@ async def structured_complete(
     is a list of Anthropic-shaped blocks; `output_format` is a Pydantic model
     both providers are asked to fill in. `organization_id` is whose daily AI
     allowance the call spends."""
-    await _spend_ai_allowance(organization_id)
+    await _spend_ai_allowance(organization_id, surface)
     provider, model = resolve_surface(surface)
     prompt = get_prompt(surface)
     extras = extra_system or []
@@ -878,7 +884,7 @@ async def text_complete(
     short text cap, right for a line written inside a web request; a caller that
     writes a long document in a background job passes a longer one.
     `organization_id` is whose daily AI allowance the call spends."""
-    await _spend_ai_allowance(organization_id)
+    await _spend_ai_allowance(organization_id, surface)
     limit = timeout_seconds or get_settings().ai_text_call_timeout_seconds
     provider, model = resolve_surface(surface)
     template = get_prompt(surface)

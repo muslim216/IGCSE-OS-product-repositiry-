@@ -13,6 +13,7 @@ GOOGLE_CLIENT_SECRET aren't set — see GoogleClassroomUnavailableError.
 
 import base64
 import hashlib
+import logging
 from datetime import datetime, timezone
 
 import httpx
@@ -38,6 +39,8 @@ from app.models import (
 from app.services import storage
 from app.services.work import create_work
 from app.workers.jobs import enqueue
+
+log = logging.getLogger(__name__)
 
 AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -407,8 +410,10 @@ async def _download_attachments(
                     organization_id=organization_id,
                 )
             )
-        except ValueError:
-            # Over the 20MB cap, or bytes that don't match the type Drive
-            # declared. Skip the attachment rather than failing the whole sync.
+        except ValueError as exc:
+            # Over the 20MB cap, bytes that don't match the type Drive declared,
+            # or the workspace's daily upload allowance spent. Skip the
+            # attachment rather than failing the whole sync, but say so.
+            log.warning("skipped a Classroom attachment for org %s: %s", organization_id, exc)
             continue
     return files
