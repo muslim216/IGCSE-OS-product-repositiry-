@@ -1,12 +1,42 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+from pydantic_core import PydanticCustomError
 
 from app.models.users import UserRole
+
+#: bcrypt reads at most 72 bytes, and the installed bcrypt raises past it
+#: rather than truncating, so a longer password was a 500 (`SA-05`).
+BCRYPT_MAX_BYTES = 72
+
+
+def _fits_bcrypt(value: str) -> str:
+    # Bytes, not characters: an accented or Arabic letter is two in UTF-8, so
+    # 40 Arabic letters are already over.
+    if len(value.encode()) > BCRYPT_MAX_BYTES:
+        raise PydanticCustomError(
+            "password_too_long",
+            "Must be at most 72 characters, fewer if it uses accented or Arabic letters.",
+        )
+    return value
+
+
+#: A password being set. Signing in keeps its own looser field: no account can
+#: have a password over 72 bytes, and `verify_password` answers False for one
+#: (bcrypt 5 raises, which it catches).
+NewPassword = Annotated[
+    # The character cap only bounds the input; the byte check is the real limit
+    # and the one whose message a person sees.
+    str,
+    Field(min_length=8, max_length=128),
+    AfterValidator(_fits_bcrypt),
+]
 
 
 class TutorSignupRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
     # IANA zone from the browser, so "today" means the tutor's today from the
     # first session. Optional: a browser that cannot report one still signs up,
     # and the organization falls back to UTC until Settings sets it. Validated

@@ -3,7 +3,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.schemas.auth import UserOut
+from app.schemas.auth import NewPassword, UserOut
 
 
 class SubjectOut(BaseModel):
@@ -125,25 +125,25 @@ class StudentCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=128)
     username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class StudentPasswordReset(BaseModel):
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class StudentRegisterRequest(BaseModel):
     invite_code: str
     name: str = Field(min_length=1, max_length=128)
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class ParentRegisterRequest(BaseModel):
     link_code: str
     name: str = Field(min_length=1, max_length=128)
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: NewPassword
 
 
 class JoinRequest(BaseModel):
