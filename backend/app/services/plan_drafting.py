@@ -51,6 +51,7 @@ from app.models import (
 from app.models.base import utcnow
 from app.services import storage
 from app.services.ai import (
+    AIDailyLimitError,
     AIKeyMissingError,
     file_block,
     record_usage,
@@ -228,14 +229,16 @@ async def weigh_chapters(*, group: Group, subject: Subject, chapters: list[Chapt
     )
     try:
         response = await structured_complete(
+            organization_id=group.organization_id,
             surface="plan_weighting",
             content=content,
             output_format=PlanWeightingResult,
             max_tokens=4000,
         )
-    except AIKeyMissingError as exc:
-        # `AI-20`, `INF-9`: a missing key degrades this surface and says so. Only
-        # the key: a missing SDK or a misrouted provider is a deployment fault.
+    except (AIKeyMissingError, AIDailyLimitError) as exc:
+        # `AI-20`, `INF-9`: a missing key degrades this surface and says so, as
+        # does a workspace's spent daily allowance (`SA-01`). Only those two: a
+        # missing SDK or a misrouted provider is a deployment fault.
         result.weight_source = WEIGHTS_FROM_STORED
         result.degraded_reason = (
             f"{exc}. Chapter time was weighted from the weights stored on the chapters instead."

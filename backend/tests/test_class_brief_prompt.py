@@ -69,7 +69,7 @@ async def test_handler_contributes_no_instruction_text(client, tutor, monkeypatc
 
     captured = {}
 
-    async def fake_text_complete(*, surface, prompt, max_tokens):
+    async def fake_text_complete(*, organization_id, surface, prompt, max_tokens):
         captured["surface"] = surface
         captured["prompt"] = prompt
         return AiResponse(

@@ -85,6 +85,7 @@ async def summarise_marking_rules(session: AsyncSession, payload: dict) -> None:
         return
 
     response = await structured_complete(
+        organization_id=subject.organization_id,
         surface="marking_rules",
         content=[{"type": "text", "text": rules}],
         output_format=MarkingRulesSummary,

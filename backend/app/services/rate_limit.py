@@ -518,10 +518,45 @@ login_limiter = RateLimiter(
     window_seconds=LOGIN_WINDOW_SECONDS,
 )
 
-#: Every limiter the app defines. A list rather than one global because the next
-#: limiter (`RISK-12` wants one on the AI-triggering endpoints) must be able to
-#: join the health report without changing its shape.
-ALL_LIMITERS: list[RateLimiter] = [login_limiter]
+DAY_SECONDS = 24 * 60 * 60
+
+#: Per workspace, per day (`SA-01`, `RISK-12`): every AI call, every stored
+#: file, every message sent. Keyed by organization; the limits are settings.
+ai_daily_limiter = RateLimiter(
+    purpose="ai_daily",
+    limit=get_settings().daily_ai_calls_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+upload_daily_limiter = RateLimiter(
+    purpose="upload_daily",
+    limit=get_settings().daily_uploads_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+message_daily_limiter = RateLimiter(
+    purpose="message_daily",
+    limit=get_settings().daily_messages_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+
+#: Every limiter the app defines. A list rather than one global so a new
+#: limiter joins the health report without changing its shape.
+ALL_LIMITERS: list[RateLimiter] = [
+    login_limiter,
+    ai_daily_limiter,
+    upload_daily_limiter,
+    message_daily_limiter,
+]
+
+
+async def spend_daily_allowance(limiter: RateLimiter, organization_id: int) -> bool:
+    """Count one use against the workspace's allowance; False, counting
+    nothing, once it is spent. Counted before the work, so a failed AI call or
+    upload still uses its place and retries cannot go round the limit."""
+    identifier = str(organization_id)
+    if await limiter.is_limited(identifier, tenant=organization_id):
+        return False
+    await limiter.record(identifier, tenant=organization_id)
+    return True
 
 
 async def rate_limit_health() -> dict:

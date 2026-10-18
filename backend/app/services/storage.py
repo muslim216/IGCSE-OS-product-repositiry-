@@ -31,6 +31,7 @@ from urllib.parse import quote
 from fastapi import HTTPException, UploadFile, status
 
 from app.config import get_settings
+from app.services.rate_limit import spend_daily_allowance, upload_daily_limiter
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +74,11 @@ class ImageTooLargeError(ValueError):
     """A photo with more pixels than `MAX_IMAGE_PIXELS`. A ValueError, so a
     caller that only knows "this file was refused" still catches it."""
 
+#: Every stored file spends one of the workspace's daily allowance (`SA-01`,
+#: `SA-07`): the disk is shared, and each upload can start paid AI work.
+DAILY_UPLOAD_LIMIT_MESSAGE = (
+    "This workspace has reached today's upload limit. It frees up within 24 hours."
+)
 
 # Some clients (and Google Drive) report these instead of the canonical type.
 MIME_ALIASES = {
@@ -440,6 +446,8 @@ async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, s
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Only PDF, JPEG, PNG, WebP and iPhone (HEIC) files are accepted",
         )
+    if not await spend_daily_allowance(upload_daily_limiter, organization_id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
     # At most one byte past the cap, so an oversized file is refused having
     # read 20 MB of it rather than all of it (`SEC-17`).
     data = await file.read(MAX_FILE_BYTES + 1)
@@ -472,6 +480,8 @@ async def save_bytes(
     # through the decoder and measure the (smaller) transcoded JPEG instead.
     if len(data) > MAX_FILE_BYTES:
         raise ValueError("File exceeds the 20 MB limit")
+    if not await spend_daily_allowance(upload_daily_limiter, organization_id):
+        raise ValueError(DAILY_UPLOAD_LIMIT_MESSAGE)
     data, mime = await _normalize(data, mime)
     if mime not in ALLOWED_MIMES:
         raise ValueError(f"Unsupported file type: {mime}")

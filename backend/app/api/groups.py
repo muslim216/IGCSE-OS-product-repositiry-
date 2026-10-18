@@ -342,7 +342,12 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
         f"Learners with the lowest overall readiness:\n{weak_students_text or '(none yet)'}"
     )
     try:
-        response = await text_complete(surface="class_brief", prompt=prompt, max_tokens=400)
+        response = await text_complete(
+            organization_id=group.organization_id,
+            surface="class_brief",
+            prompt=prompt,
+            max_tokens=400,
+        )
     except (AIUnavailableError, AICallFailedError) as exc:
         # Two different things with one answer for the tutor: the AI is not
         # configured, or it was asked and gave nothing usable (timed out, cut

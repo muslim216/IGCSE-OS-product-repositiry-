@@ -375,6 +375,15 @@ class Settings(BaseSettings):
     max_upload_request_mb: int = 150
     max_files_per_upload: int = 40
 
+    #: What one workspace (organization) may do in a day, so an account nobody
+    #: vetted cannot run up the AI bill, the disk or the messaging number
+    #: (`SA-01`; tutor sign-up stays open, owner 2026-10-18). About three times
+    #: a busy tutor's day with 40 students. Counted per rolling 24 hours in the
+    #: rate-limit store (`services/rate_limit.py`).
+    daily_ai_calls_per_workspace: int = 500
+    daily_uploads_per_workspace: int = 200
+    daily_messages_per_workspace: int = 300
+
     @property
     def jwt_secret_is_weak(self) -> bool:
         """The placeholder, or too short to sign with. Reported by

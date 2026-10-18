@@ -185,6 +185,7 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
     kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
 
     response = await structured_complete(
+        organization_id=group.organization_id,
         surface="extraction",
         content=content,
         output_format=ExtractionResult,
@@ -452,6 +453,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
     )
 
     response = await structured_complete(
+        organization_id=paper.organization_id,
         surface="extraction",
         content=content,
         output_format=PastPaperExtractionResult,
@@ -599,6 +601,7 @@ async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:
 
     kb_context = await build_tutor_context(session, mock.tutor_id, mock.subject_id)
     response = await structured_complete(
+        organization_id=mock.organization_id,
         surface="extraction",
         content=content,
         output_format=ExtractionResult,
@@ -676,6 +679,7 @@ async def _read_papers(
     output, and a scheme's page 4 is not the paper's page 4 — one call over both
     documents returns ranges with no way to tell which document they index."""
     response = await structured_complete(
+        organization_id=booklet.organization_id,
         surface="booklet",
         content=[file_block(await storage.read_file(path), mime)],
         output_format=BookletExtractionResult,

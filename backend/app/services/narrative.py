@@ -316,7 +316,12 @@ async def _store(
     stated-absence state, it never blocks the worker or startup (AI-20, INF-9)."""
     template = get_prompt("narrative")
     try:
-        response = await text_complete(surface="narrative", prompt=grounding, max_tokens=400)
+        response = await text_complete(
+            organization_id=organization_id,
+            surface="narrative",
+            prompt=grounding,
+            max_tokens=400,
+        )
     except AIUnavailableError:
         log.warning("narrative surface unavailable; leaving the surface in its absent state")
         return None

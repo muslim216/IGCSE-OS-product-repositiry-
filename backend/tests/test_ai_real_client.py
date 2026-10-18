@@ -77,12 +77,18 @@ def serve(monkeypatch, anthropic_key):
 
 async def _structured(max_tokens: int = 500):
     return await structured_complete(
-        surface="marking", content=CONTENT, output_format=Verdict, max_tokens=max_tokens
+        organization_id=1,
+        surface="marking",
+        content=CONTENT,
+        output_format=Verdict,
+        max_tokens=max_tokens,
     )
 
 
 async def _text(max_tokens: int = 400):
-    return await text_complete(surface="narrative", prompt="write", max_tokens=max_tokens)
+    return await text_complete(
+        organization_id=1, surface="narrative", prompt="write", max_tokens=max_tokens
+    )
 
 
 # --------------------------------------------------------------------------
@@ -153,7 +159,11 @@ async def test_the_schema_sent_is_exactly_what_messages_parse_sends(serve, outpu
     server = serve(sse_message(VERDICT_JSON))
     with contextlib.suppress(ValidationError):
         await structured_complete(
-            surface="marking", content=CONTENT, output_format=output_format, max_tokens=50
+            organization_id=1,
+            surface="marking",
+            content=CONTENT,
+            output_format=output_format,
+            max_tokens=50,
         )
     ours = server.sent
 
@@ -732,10 +742,14 @@ async def test_a_caller_can_ask_a_text_call_for_the_long_cap(monkeypatch, anthro
 
     with pytest.raises(AITimeoutError):
         await text_complete(
-            surface="reports", prompt="write", max_tokens=2000, timeout_seconds=840.0
+            organization_id=1,
+            surface="reports",
+            prompt="write",
+            max_tokens=2000,
+            timeout_seconds=840.0,
         )
     with pytest.raises(AITimeoutError):
-        await text_complete(surface="narrative", prompt="write", max_tokens=400)
+        await text_complete(organization_id=1, surface="narrative", prompt="write", max_tokens=400)
 
     assert seen == [840.0, 0.05]
 

@@ -257,6 +257,7 @@ async def _write_report(
 ) -> str:
     """The AI call — factored out so tests can patch it."""
     response = await text_complete(
+        organization_id=organization_id,
         surface="reports",
         prompt=(
             f"{AUDIENCE_GUIDANCE[audience]}\n\n"
