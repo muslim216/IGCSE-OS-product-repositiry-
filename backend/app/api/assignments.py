@@ -455,6 +455,21 @@ async def replace_questions(
     for q in existing:
         await db.delete(q)
     await db.flush()
+    # Only topics of the class's own subject. Topics are per subject, and a
+    # subject belongs to one organization, so an id from anywhere else would
+    # tag the question with another tutor's syllabus and hand its title back in
+    # the response (`SR-L`, `SEC-8`). Dropped like an id that doesn't exist.
+    group = await db.get(Group, assignment.group_id)
+    asked = {topic_id for q in body for topic_id in q.topic_ids}
+    allowed = (
+        set(
+            await db.scalars(
+                select(Topic.id).where(Topic.id.in_(asked), Topic.subject_id == group.subject_id)
+            )
+        )
+        if asked and group is not None
+        else set()
+    )
     for position, q in enumerate(body):
         question = AssignmentQuestion(
             assignment_id=assignment.id,
@@ -466,10 +481,8 @@ async def replace_questions(
         )
         db.add(question)
         await db.flush()
-        for topic_id in set(q.topic_ids):
-            topic = await db.get(Topic, topic_id)
-            if topic is not None:
-                db.add(QuestionTopic(question_id=question.id, topic_id=topic_id))
+        for topic_id in set(q.topic_ids) & allowed:
+            db.add(QuestionTopic(question_id=question.id, topic_id=topic_id))
     if assignment.status == AssignmentStatus.extraction_failed and body:
         assignment.status = AssignmentStatus.review
     await db.commit()

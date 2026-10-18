@@ -235,7 +235,11 @@ async def add_lesson_observation(
     topic = None
     if body.topic_id is not None:
         topic = await db.get(Topic, body.topic_id)
-        if topic is None:
+        group = await db.get(Group, lesson.group_id)
+        # The lesson's own subject only: a topic id from another subject, which
+        # may be another organization's, is treated as one that doesn't exist
+        # (`SR-L`, `SEC-8`).
+        if topic is None or group is None or topic.subject_id != group.subject_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
 
     observation = LessonObservation(

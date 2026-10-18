@@ -206,8 +206,22 @@ async def create_observation(
     if shares is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found in your groups")
 
-    if body.topic_id is not None and await db.get(Topic, body.topic_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
+    # A topic of a subject this tutor teaches the student, not any topic id:
+    # topics are per subject and subjects per organization (`SR-L`, `SEC-8`).
+    if body.topic_id is not None:
+        topic_taught = await db.scalar(
+            select(Topic.id)
+            .join(Group, Group.subject_id == Topic.subject_id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(
+                Topic.id == body.topic_id,
+                GroupMember.student_id == body.student_id,
+                *live_classes_taught_by(user.id),
+            )
+            .limit(1)
+        )
+        if topic_taught is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Topic not found")
 
     observation = TutorObservation(
         tutor_id=user.id,
