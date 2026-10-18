@@ -104,7 +104,7 @@ async def generate(body: ReportGenerate, db: DbSession, user: ReportAuthor) -> R
     await db.flush()
     await enqueue(db, "generate_report", {"report_id": report.id})
     await db.commit()
-    return _detail(report)
+    return _detail(report, user)
 
 
 @router.get("", response_model=list[ReportOut])
@@ -128,7 +128,7 @@ async def get_report(report_id: int, db: DbSession, user: CurrentUser) -> Report
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
     await _check_can_view_student(db, user, report.student_id)
-    return _detail(report)
+    return _detail(report, user)
 
 
 def _out(r: Report) -> ReportOut:
@@ -144,9 +144,12 @@ def _out(r: Report) -> ReportOut:
     )
 
 
-def _detail(r: Report) -> ReportDetail:
+def _detail(r: Report, viewer: User) -> ReportDetail:
     return ReportDetail(
         **_out(r).model_dump(),
         content=r.content,
-        error=r.error,
+        # Why generation failed is the exception's own text and can carry what
+        # the model sent back; it is for staff. A student or parent reading a
+        # report addressed to them sees `status: failed`, as the page shows.
+        error=r.error if viewer.role in (UserRole.tutor, UserRole.admin) else None,
     )

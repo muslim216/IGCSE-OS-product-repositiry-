@@ -700,3 +700,31 @@ async def test_students_and_parents_read_their_reports_whichever_organization_wr
     ]:
         detail = await client.get(f"/api/v1/reports/{report_id}", headers=headers)
         assert detail.status_code == 200, detail.text
+
+
+async def test_why_a_report_failed_is_for_the_tutor_not_the_parent(
+    client, tutor, world, monkeypatch
+):
+    """The stored text is the exception's own and can carry what the model sent
+    back. The parent the report is addressed to sees only that it failed."""
+
+    async def broken_write(*args, **kwargs):
+        raise ValueError("model said: <raw provider output>")
+
+    monkeypatch.setattr("app.services.reports._write_report", broken_write)
+    resp = await client.post(
+        "/api/v1/reports/generate",
+        json={"student_id": world["student_id"], "audience": "parent"},
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
+    await process_one_job()
+    path = f"/api/v1/reports/{resp.json()['id']}"
+
+    staff = (await client.get(path, headers=tutor["headers"])).json()
+    assert staff["status"] == "failed"
+    assert "raw provider output" in staff["error"]
+    theirs = await client.get(path, headers=world["parent_headers"])
+    assert theirs.status_code == 200, theirs.text
+    assert theirs.json()["status"] == "failed"
+    assert theirs.json()["error"] is None

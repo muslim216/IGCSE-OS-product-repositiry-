@@ -122,7 +122,7 @@ async def _snapshot_out(
         recommended_revision=snapshot.recommended_revision,
         # Why a run failed is for the tutor: the text is the exception's own,
         # which can carry provider detail. A student or parent still sees
-        # `status: failed`, which is what the screens say (OPS-10).
+        # `status: failed`, which is what the screens say.
         error=snapshot.error if show_error else None,
         created_at=snapshot.created_at,
         factors=[
@@ -179,6 +179,7 @@ async def student_readiness_v2(
     # a real product question, and an open one. It is not answered here, and
     # answering it means changing synthesis first.
     all_boundaries = await org_boundaries(db, student.organization_id)
+    is_staff = user.role in (UserRole.tutor, UserRole.admin)
     subjects_out = []
     for subject_id in subject_ids or []:
         subject = await db.get(Subject, subject_id)
@@ -197,7 +198,7 @@ async def student_readiness_v2(
                 subject,
                 boundaries_for(all_boundaries, subject),
                 config,
-                show_error=user.role in (UserRole.tutor, UserRole.admin),
+                show_error=is_staff,
             )
         )
     return StudentReadinessV2Summary(
