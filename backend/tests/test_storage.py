@@ -234,8 +234,9 @@ async def test_a_photo_over_the_pixel_ceiling_is_refused_before_it_is_decoded(mo
         lambda self, *a, **k: decoded.append(1) or real_convert(self, *a, **k),
     )
 
+    photo = _heic(200, 200)
     with pytest.raises(storage.ImageTooLargeError, match="resolution is too high"):
-        await storage._normalize(_heic(200, 200), "image/heic")
+        await storage._normalize(photo, "image/heic")
     assert decoded == []
 
 
@@ -263,8 +264,9 @@ async def test_a_job_saving_a_photo_over_the_ceiling_gets_a_value_error(monkeypa
     """`save_bytes` serves background jobs (a Google Drive attachment), which
     catch ValueError for any refused file."""
     monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    photo = _heic(200, 200)
     with pytest.raises(ValueError, match="resolution is too high"):
-        await storage.save_bytes(_heic(200, 200), "image/heic", "a.heic", organization_id=1)
+        await storage.save_bytes(photo, "image/heic", "a.heic", organization_id=1)
 
 
 def test_the_real_ceiling_holds_a_default_phone_photo_and_not_a_full_resolution_one():
@@ -281,8 +283,9 @@ async def test_a_non_heif_body_sent_as_heic_is_not_decoded():
 
     buffer = io.BytesIO()
     Image.new("RGB", (50, 50)).save(buffer, format="PNG")
+    png = buffer.getvalue()
     with pytest.raises(ValueError, match="couldn't be read"):
-        await storage._normalize(buffer.getvalue(), "image/heic")
+        await storage._normalize(png, "image/heic")
 
 
 async def test_photos_are_decoded_one_at_a_time_off_the_shared_pool(monkeypatch):
