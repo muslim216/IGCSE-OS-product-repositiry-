@@ -6,7 +6,9 @@ while a sign-in ran (`SA-02`). And bcrypt reads at most 72 bytes: the installed
 version raises past that, which answered a long password with a 500 (`SA-05`).
 """
 
+import re
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -36,7 +38,8 @@ def hashing_threads(monkeypatch) -> list[str]:
 
 
 def _off_the_loop(seen: list[str]) -> bool:
-    return bool(seen) and threading.main_thread().name not in seen
+    """On bcrypt's own pool, so neither the loop nor the shared one."""
+    return bool(seen) and all(name.startswith("bcrypt") for name in seen)
 
 
 async def test_signing_up_hashes_off_the_event_loop(client, hashing_threads):
@@ -98,7 +101,7 @@ async def test_a_password_over_72_bytes_is_refused_with_a_reason(client, passwor
     assert resp.status_code == 422, resp.text
     [error] = resp.json()["detail"]
     assert error["loc"][-1] == "password"
-    assert "shorter password" in error["msg"]
+    assert "at most 72 characters" in error["msg"]
 
 
 @pytest.mark.parametrize("password", ["a" * 72, "ب" * 36])
@@ -146,3 +149,19 @@ async def test_signing_in_with_an_over_long_password_is_just_wrong(client, tutor
         f"{API}/auth/login", json={"identifier": "tutor@example.com", "password": "a" * 100}
     )
     assert resp.status_code == 401, resp.text
+
+
+def test_no_request_path_calls_bcrypt_on_the_event_loop():
+    """The sync pair is still exported for seeds and tests, so one call to it in
+    a handler or service would bring the stall back with nothing to notice.
+    The one allowed call is the dummy hash, which runs on bcrypt's pool."""
+    app_dir = Path(security.__file__).parent
+    allowed = {("api/auth.py", "return hash_password(secrets.token_urlsafe(32))")}
+    found = []
+    for path in [*app_dir.glob("api/*.py"), *app_dir.glob("services/**/*.py")]:
+        rel = path.relative_to(app_dir).as_posix()
+        for line in path.read_text().splitlines():
+            calls_sync = re.search(r"\b(hash_password|verify_password)\(", line)
+            if calls_sync and (rel, line.strip()) not in allowed:
+                found.append(f"{rel}: {line.strip()}")
+    assert found == []

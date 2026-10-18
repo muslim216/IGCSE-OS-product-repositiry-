@@ -16,14 +16,14 @@ def _fits_bcrypt(value: str) -> str:
     if len(value.encode()) > BCRYPT_MAX_BYTES:
         raise PydanticCustomError(
             "password_too_long",
-            "Use a shorter password: 72 characters at most, fewer with accents or "
-            "non-Latin letters.",
+            "Must be at most 72 characters, fewer if it uses accented or Arabic letters.",
         )
     return value
 
 
-#: A password being set. Signing in keeps its own looser field: an over-long
-#: one there is simply wrong, and `verify_password` already answers False.
+#: A password being set. Signing in keeps its own looser field: no account can
+#: have a password over 72 bytes, and `verify_password` answers False for one
+#: (bcrypt 5 raises, which it catches).
 NewPassword = Annotated[
     # The character cap only bounds the input; the byte check is the real limit
     # and the one whose message a person sees.

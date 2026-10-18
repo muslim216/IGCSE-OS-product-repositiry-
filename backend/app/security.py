@@ -1,5 +1,6 @@
 import asyncio
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -23,13 +24,26 @@ def verify_password(password: str, password_hash: str) -> bool:
 # worker share one event loop: run on it, twenty concurrent sign-ins stalled
 # every other request for five seconds (`SA-02`, `BE-13`). bcrypt releases the
 # GIL while it hashes, so a thread really does run it alongside the loop.
+#
+# Its own two threads rather than the loop's shared pool: that pool is a
+# handful of threads on a small instance and also carries every file read,
+# write and photo conversion, so a burst of sign-ins (which need no account)
+# would queue uploads behind it. Here a burst queues only other sign-ins.
+_BCRYPT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bcrypt")
+
+
+async def run_bcrypt(fn, *args):
+    """Run a bcrypt-bound call off the event loop, in its own pool."""
+    return await asyncio.get_running_loop().run_in_executor(_BCRYPT_POOL, fn, *args)
+
+
 # Request handlers use these; the sync pair above stays for seeds and tests.
 async def hash_password_async(password: str) -> str:
-    return await asyncio.to_thread(hash_password, password)
+    return await run_bcrypt(hash_password, password)
 
 
 async def verify_password_async(password: str, password_hash: str) -> bool:
-    return await asyncio.to_thread(verify_password, password, password_hash)
+    return await run_bcrypt(verify_password, password, password_hash)
 
 
 def _create_token(

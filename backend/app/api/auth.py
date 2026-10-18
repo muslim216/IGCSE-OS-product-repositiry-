@@ -1,4 +1,3 @@
-import asyncio
 import secrets
 from functools import lru_cache
 
@@ -32,6 +31,7 @@ from app.security import (
     decode_token,
     hash_password,
     hash_password_async,
+    run_bcrypt,
     verify_password_async,
 )
 from app.services.invites import check_usable, consume
@@ -134,7 +134,7 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
         )
     )
     # The dummy hash off the loop too: the first miss after a restart makes it.
-    stored = user.password_hash if user else await asyncio.to_thread(_dummy_hash)
+    stored = user.password_hash if user else await run_bcrypt(_dummy_hash)
     password_ok = await verify_password_async(body.password, stored)
     if user is None or not password_ok:
         await login_limiter.record(identifier)
