@@ -22,6 +22,7 @@ import asyncio
 import io
 import logging
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -47,13 +48,25 @@ ALLOWED_MIMES = {
 # rather than accepted here and failed later.
 CONVERT_TO_JPEG = {"image/heic", "image/heif", "image/heic-sequence"}
 
-#: Converting a HEIC photo decodes it to raw pixels first, at roughly 7 bytes a
-#: pixel at peak. The 20 MB cap is on the file, not the picture: a 21 KB file
-#: can declare 10,000 x 10,000 and needed about 800 MB to decode, enough to kill
-#: the process for everyone (`SA-03`). 40 megapixels holds every phone's
-#: default (a 48 MP iPhone saves 24 MP HEIC unless set to full resolution) at
-#: about 300 MB, and is refused before a single pixel is decoded.
-MAX_IMAGE_PIXELS = 40_000_000
+#: Converting a HEIC photo decodes it to raw pixels first: about 14 bytes a pixel
+#: at peak, measured (pillow 12.3, pillow-heif 1.8, libheif 1.23). The 20 MB cap
+#: is on the file, not the picture: a 21 KB file can declare 10,000 x 10,000 and
+#: took enough memory to kill the process for everyone (`SA-03`). The header's
+#: size is the size decoded — libheif refuses a picture that differs from it.
+#:
+#: 25 megapixels is the default photo of a current iPhone (5712 x 4284, 24 MP;
+#: full-resolution 48 MP is opt-in and refused with a reason) at about 330 MB.
+#: That still does not fit beside the app on a 512 MB instance, so the server
+#: size is what makes the default photo safe; this makes everything larger
+#: refused before a single pixel is decoded. Not Pillow's own
+#: `Image.MAX_IMAGE_PIXELS`, which only warns at this size.
+MAX_IMAGE_PIXELS = 25_000_000
+
+#: One photo decoded at a time, on its own thread: the ceiling bounds one
+#: picture, and several decoding at once (one submission can carry many pages)
+#: would add up past it. Not the loop's shared pool, which file reads and
+#: writes also need.
+_DECODE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="image-decode")
 
 
 class ImageTooLargeError(ValueError):
@@ -73,7 +86,7 @@ def _to_jpeg(data: bytes) -> bytes:
     """Transcode a HEIC/HEIF image to JPEG. Decoding doubles as validation —
     bytes that merely claim to be HEIC fail here rather than getting stored.
 
-    Called only via `asyncio.to_thread`: decode-and-re-encode is CPU-bound and
+    Called only on `_DECODE_POOL`: decode-and-re-encode is CPU-bound and
     ran on the event loop until task 1.2, stalling request serving for every
     other user of the instance for the duration of each iPhone photo
     (`BE-13`, `PERF-1`).
@@ -84,6 +97,10 @@ def _to_jpeg(data: bytes) -> bytes:
     pillow_heif.register_heif_opener()
     # `open` reads only the header; nothing is decoded until `convert`.
     with Image.open(io.BytesIO(data)) as img:
+        # Pillow opens any format it knows, and the declared type is the
+        # client's word (`SEC-15`): only an actual HEIF/AVIF gets decoded.
+        if img.format not in {"HEIF", "AVIF"}:
+            raise ValueError("not a HEIF image")
         if img.width * img.height > MAX_IMAGE_PIXELS:
             raise ImageTooLargeError(
                 "That photo's resolution is too high to read. Take it at a lower "
@@ -102,7 +119,7 @@ async def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
     mime = MIME_ALIASES.get(mime, mime)
     if mime in CONVERT_TO_JPEG:
         try:
-            data = await asyncio.to_thread(_to_jpeg, data)
+            data = await asyncio.get_running_loop().run_in_executor(_DECODE_POOL, _to_jpeg, data)
         except ImageTooLargeError:
             raise
         except Exception:  # noqa: BLE001 — a corrupt photo is not a server fault
@@ -413,13 +430,11 @@ async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, s
         )
     data = await file.read()
     if len(data) > MAX_FILE_BYTES:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Files must be 20 MB or smaller"
-        )
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Files must be 20 MB or smaller")
     try:
         data, mime = await _normalize(data, mime)
     except ImageTooLargeError as exc:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)) from None
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
     if not content_matches_mime(data, mime):

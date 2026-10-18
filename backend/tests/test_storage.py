@@ -267,6 +267,46 @@ async def test_a_job_saving_a_photo_over_the_ceiling_gets_a_value_error(monkeypa
         await storage.save_bytes(_heic(200, 200), "image/heic", "a.heic", organization_id=1)
 
 
-def test_the_real_ceiling_holds_a_default_phone_photo_and_not_a_bomb():
-    # 5712 x 4284 is a 24 MP iPhone HEIC; 10,000 x 10,000 was the audit's file.
-    assert 5712 * 4284 <= storage.MAX_IMAGE_PIXELS < 10_000 * 10_000
+def test_the_real_ceiling_holds_a_default_phone_photo_and_not_a_full_resolution_one():
+    # 5712 x 4284 is a 24 MP iPhone HEIC, 8064 x 6048 a 48 MP one.
+    assert 5712 * 4284 <= storage.MAX_IMAGE_PIXELS < 8064 * 6048
+
+
+async def test_a_non_heif_body_sent_as_heic_is_not_decoded():
+    """A PNG labelled image/heic: Pillow would open it, so the type is checked
+    from the file itself before anything is decoded (`SEC-15`)."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (50, 50)).save(buffer, format="PNG")
+    with pytest.raises(ValueError, match="couldn't be read"):
+        await storage._normalize(buffer.getvalue(), "image/heic")
+
+
+async def test_photos_are_decoded_one_at_a_time_off_the_shared_pool(monkeypatch):
+    import threading
+    import time
+
+    running, peak, threads = 0, 0, set()
+    lock = threading.Lock()
+    real = storage._to_jpeg
+
+    def counting(data):
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+            threads.add(threading.current_thread().name)
+        time.sleep(0.05)
+        try:
+            return real(data)
+        finally:
+            with lock:
+                running -= 1
+
+    monkeypatch.setattr(storage, "_to_jpeg", counting)
+    await asyncio.gather(*(storage._normalize(_heic(50, 50), "image/heic") for _ in range(4)))
+    assert peak == 1
+    assert all(name.startswith("image-decode") for name in threads)
