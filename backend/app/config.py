@@ -5,6 +5,12 @@ from urllib.parse import urlsplit
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: The value `.env.example` ships with and the default below. The repository
+#: is public, so anyone can sign a token with it (`SA-04`).
+PLACEHOLDER_JWT_SECRET = "change-me-in-production"
+#: HS256 signs with the secret itself; under 32 bytes it can be brute-forced.
+MIN_JWT_SECRET_BYTES = 32
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -23,7 +29,7 @@ class Settings(BaseSettings):
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 30
@@ -353,6 +359,13 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = False
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
+
+    @property
+    def jwt_secret_is_weak(self) -> bool:
+        """The placeholder, or too short to sign with. Reported by
+        /health/ready; never the value itself."""
+        secret = self.jwt_secret.strip()
+        return secret == PLACEHOLDER_JWT_SECRET or len(secret.encode()) < MIN_JWT_SECRET_BYTES
 
     @property
     def cors_origin_list(self) -> list[str]:

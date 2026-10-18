@@ -383,7 +383,8 @@ def create_app() -> FastAPI:
         503 means the database is unreachable, the worker started and then
         stopped turning, a configured Redis has stopped answering and login
         throttling has silently degraded to per-instance (task 1.4, AV-83), an
-        AI provider a surface is routed to has no key, or this process has been
+        AI provider a surface is routed to has no key, the sign-in secret is the
+        public placeholder or too short (`SA-04`), or this process has been
         serving for over a minute with no worker anywhere (cleanup stage,
         OPS-05). Under the test client the lifespan never runs
         (ASGITransport does not run it), so the worker reports `not_started`
@@ -434,6 +435,10 @@ def create_app() -> FastAPI:
         # round trip, and is not degraded.
         rate_limit = await rate_limit_health()
         ai = _ai_keys()
+        # A yes or no, never the value. With the placeholder anyone can sign a
+        # token for any account (`SA-04`); reported here first so the live
+        # value can be checked before startup refuses it.
+        auth = {"secret_ok": not get_settings().jwt_secret_is_weak}
         serving_since = getattr(app.state, "serving_since", None)
         worker_missing = (
             worker.state == "not_started"
@@ -446,6 +451,7 @@ def create_app() -> FastAPI:
             and not worker_missing
             and rate_limit["ok"]
             and ai["ok"]
+            and auth["secret_ok"]
         )
         if not ok:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
@@ -464,6 +470,7 @@ def create_app() -> FastAPI:
             "queue": queue,
             "rate_limit": rate_limit,
             "ai": ai,
+            "auth": auth,
         }
 
     for router in (
