@@ -155,7 +155,7 @@ async def test_same_organization_admin_keeps_their_reach(
     assert resp.status_code == 201, resp.text
 
 
-async def test_admin_reaches_a_student_homed_elsewhere_who_sits_in_their_class(
+async def test_admin_sees_but_cannot_edit_a_student_homed_elsewhere_in_their_class(
     client, tutor, student
 ):
     """Reach is "in a class of my organization, or homed in it" — the rule
@@ -194,15 +194,18 @@ async def test_admin_reaches_a_student_homed_elsewhere_who_sits_in_their_class(
         session.add(GroupMember(group_id=class_id, student_id=sid))
         await session.commit()
 
-    # `_viewable_student` and `_tutor_student`, one rule in both.
+    # Seeing, yes: `_viewable_student` reaches a student in one of the
+    # organization's classes. Writing, no: since one workspace per student
+    # (owner, 18 Oct 2026) the record's edits belong to the student's home
+    # organization alone, and a membership made before that is not enough.
     resp = await client.get(f"/api/v1/students/{sid}/crm", headers=headers)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/v1/students/{sid}/notes", json={"body": "x"}, headers=headers)
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 404, resp.text
 
     # Reaching the student is not reaching what the home organization wrote
     # about the family: its profile, notes and parent communications stay its
-    # own, in both directions (`SEC-7`).
+    # own (`SEC-7`).
     home = tutor["headers"]
     profile = {"school": "Home School", "parent_email": "parent@home.example"}
     assert (
@@ -216,12 +219,12 @@ async def test_admin_reaches_a_student_homed_elsewhere_who_sits_in_their_class(
 
     theirs = (await client.get(f"/api/v1/students/{sid}/crm", headers=headers)).json()
     assert theirs["profile"] is None
-    assert [n["body"] for n in theirs["notes"]] == ["x"]
+    assert theirs["notes"] == []
     assert theirs["communications"] == []
     resp = await client.put(
         f"/api/v1/students/{sid}/profile", json={"school": "Overwritten"}, headers=headers
     )
-    assert resp.status_code == 409, resp.text
+    assert resp.status_code == 404, resp.text
 
     mine = (await client.get(f"/api/v1/students/{sid}/crm", headers=home)).json()
     assert mine["profile"]["school"] == "Home School"

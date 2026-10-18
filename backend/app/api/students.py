@@ -14,7 +14,6 @@ from app.models import (
     ParentLink,
     StudentProfile,
     StudentSubject,
-    Subject,
     TutorNote,
     User,
     UserRole,
@@ -117,6 +116,12 @@ async def _tutor_student(db: AsyncSession, tutor: User, student_id: int) -> User
     # for a student in a live class they teach. One rule, shared with a tutor's
     # redo of an attempt (`services/groups.tutor_teaches_student`).
     if not await tutor_teaches_student(db, tutor, student):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
+    # And only inside the student's own organization: these edits write that
+    # organization's record of the family, and parent-code hands a parent the
+    # whole of it. A class in a second organization is not enough (one
+    # workspace per student, owner 18 Oct 2026).
+    if student.organization_id != tutor.organization_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Student not found")
     return student
 
@@ -224,8 +229,9 @@ async def update_student_profile(
         db.add(profile)
     elif profile.organization_id != user.organization_id:
         # One profile row per student, and it belongs to the organization that
-        # wrote it. A tutor who teaches the student in a second organization
-        # cannot read it (services/student_crm.py) and must not overwrite it —
+        # wrote it. `_tutor_student` now admits only the student's home
+        # organization, so this is reached only by a row a second organization
+        # wrote before one workspace per student — still not overwritten, since
         # that would replace another tenant's parent contact details (`SEC-7`).
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -281,18 +287,20 @@ async def update_enrollment(
     student_id: int, subject_id: int, body: StudentSubjectUpdate, db: DbSession, user: CurrentUser
 ) -> StudentSubjectOut:
     student = await _tutor_student(db, user, student_id)
+    # The caller's own subject, as enroll_subject requires: the path's id
+    # otherwise reached another organization's enrolment and named its subject.
+    subject = await owned_subject(db, subject_id, user)
     enrollment = await db.scalar(
         select(StudentSubject).where(
-            StudentSubject.student_id == student.id, StudentSubject.subject_id == subject_id
+            StudentSubject.student_id == student.id, StudentSubject.subject_id == subject.id
         )
     )
     if enrollment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Enrollment not found")
     enrollment.target_grade = body.target_grade
-    subject = await db.get(Subject, subject_id)
     await db.commit()
     return StudentSubjectOut(
-        subject_id=subject_id,
+        subject_id=subject.id,
         subject_name=subject.name,
         exam_board=subject.exam_board,
         target_grade=enrollment.target_grade,
@@ -304,9 +312,10 @@ async def remove_enrollment(
     student_id: int, subject_id: int, db: DbSession, user: CurrentUser
 ) -> None:
     student = await _tutor_student(db, user, student_id)
+    subject = await owned_subject(db, subject_id, user)
     enrollment = await db.scalar(
         select(StudentSubject).where(
-            StudentSubject.student_id == student.id, StudentSubject.subject_id == subject_id
+            StudentSubject.student_id == student.id, StudentSubject.subject_id == subject.id
         )
     )
     if enrollment is None:
