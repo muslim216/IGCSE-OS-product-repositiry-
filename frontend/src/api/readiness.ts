@@ -69,6 +69,10 @@ export interface SubjectReadiness {
   weak_topics: WeakTopic[];
   /** A recompute is queued or running — the score shown is the last known one. */
   is_updating: boolean;
+  /** The newest run failed: with a score, that score is the last one that
+      worked; without one, the subject couldn't be calculated — not "not
+      enough data yet". */
+  calculation_failed: boolean;
   computed_at: string | null;
   rationale: string | null;
   recommended_revision: string | null;

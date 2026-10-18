@@ -32,6 +32,7 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     topics: [],
     weak_topics: [],
     is_updating: false,
+    calculation_failed: false,
     computed_at: null,
     rationale: null,
     recommended_revision: null,
@@ -294,4 +295,24 @@ test("nothing due never reads as all clear when the verdict needs attention", as
   expect(await screen.findByText("Nothing due.")).toBeInTheDocument();
   expect(screen.getByText("Focus on: Ionic bonding, Moles")).toBeInTheDocument();
   expect(screen.queryByText(/you're clear/i)).not.toBeInTheDocument();
+});
+
+test("a failed calculation is said on the home strip and the verdict", async () => {
+  stubFetch(
+    [
+      subject({
+        score: null,
+        predicted_grade: null,
+        status: null,
+        direction: null,
+        calculation_failed: true,
+        verdict: { status: "not_enough_data", reason_topics: [], next_step: "x" },
+      }),
+    ],
+    [],
+  );
+  const { container } = renderHome();
+  expect(await screen.findByText("couldn't be calculated right now")).toBeInTheDocument();
+  expect(screen.getByText("Couldn't be calculated right now")).toBeInTheDocument();
+  expect(container.textContent).not.toMatch(/not enough data yet/i);
 });

@@ -10,7 +10,9 @@ Every ReadinessSnapshot carries the evaluation_run_id linking it back to the
 exact FactorEvaluation rows it was built from. If the AI call fails, the
 deterministic Layer 1 rows are still committed and a snapshot is still
 written with status="failed" — the evaluation as a whole never silently
-disappears, only the AI's contribution to it.
+disappears, only the AI's contribution to it. The job then fails too, after
+committing, so the worker's one retry gets a second try at a failure that may
+pass and the queue shows what the snapshot row alone would hide.
 
 enqueue_readiness_v2_debounced() is the one way a run is queued
 (enqueue_v2_shadow() is an older alias for it). It only enqueues
@@ -52,7 +54,7 @@ from app.services.readiness_config import (
 )
 from app.services.readiness_factors import CONFIDENCE_RANK
 from app.services.readiness_v2 import evaluate_subject_factors
-from app.workers.jobs import enqueue
+from app.workers.jobs import enqueue, is_permanent
 
 log = logging.getLogger("readiness_v2_ai")
 
@@ -253,10 +255,13 @@ def _factor_prompt_line(
 
 async def _synthesize_subject(
     session: AsyncSession, student: User, subject_id: int, now: datetime
-) -> None:
+) -> Exception | None:
+    """Write one subject's snapshot. Returns the AI failure when the snapshot
+    had to be written as failed, so the caller can fail the job after the
+    rows are committed; None otherwise."""
     subject = await session.get(Subject, subject_id)
     if subject is None:
-        return
+        return None
 
     # Resolved once, before Layer 1: the half-life is a Layer 1 input, and the
     # weights and switches below must come from the same read of the row.
@@ -297,7 +302,7 @@ async def _synthesize_subject(
                 recommended_revision=None,
             )
         )
-        return
+        return None
 
     weights = config.weights
     topics = (await session.scalars(select(Topic).where(Topic.subject_id == subject_id))).all()
@@ -328,6 +333,14 @@ async def _synthesize_subject(
             extra_system=[kb_context] if kb_context else [],
         )
     except Exception as exc:  # noqa: BLE001 - AIUnavailableError or any API failure
+        # The class name only: the message can carry provider detail, and the
+        # snapshot's error column already keeps it.
+        log.warning(
+            "readiness synthesis failed for student %s subject %s: %s",
+            student.id,
+            subject_id,
+            exc.__class__.__name__,
+        )
         session.add(
             ReadinessSnapshot(
                 evaluation_run_id=evaluation_run_id,
@@ -342,7 +355,7 @@ async def _synthesize_subject(
                 error=str(exc) or exc.__class__.__name__,
             )
         )
-        return
+        return exc
 
     if tutor_id is not None:
         await record_usage(
@@ -373,6 +386,7 @@ async def _synthesize_subject(
             recommended_revision=result.recommended_revision,
         )
     )
+    return None
 
 
 async def compute_readiness_v2(session: AsyncSession, payload: dict) -> None:
@@ -400,6 +414,19 @@ async def compute_readiness_v2(session: AsyncSession, payload: dict) -> None:
             ).all()
         )
 
+    failures: list[Exception] = []
     for sid in subject_ids:
-        await _synthesize_subject(session, student, sid, now)
+        failure = await _synthesize_subject(session, student, sid, now)
+        if failure is not None:
+            failures.append(failure)
+    # Committed first, so the failed snapshots (and every subject that did
+    # succeed) are kept whatever the worker does with the raise below.
     await session.commit()
+    if failures:
+        # Raised so the job fails where it can be seen, and so a failure that
+        # may pass (a timeout, a rate limit) gets the worker's one retry. A
+        # retryable failure is preferred: one subject meeting a cut-off answer
+        # should not cost another subject its retry after a timeout. The retry
+        # re-runs every subject in the payload — safe, because runs are
+        # append-only and the summary reads only the newest snapshot.
+        raise next((f for f in failures if not is_permanent(f)), failures[0])

@@ -43,7 +43,9 @@ async def _latest_snapshot(
         .where(
             ReadinessSnapshot.student_id == student_id, ReadinessSnapshot.subject_id == subject_id
         )
-        .order_by(ReadinessSnapshot.created_at.desc())
+        # id breaks a created_at tie, as the summary does, so the two never
+        # pick different rows for the same run.
+        .order_by(ReadinessSnapshot.created_at.desc(), ReadinessSnapshot.id.desc())
         .limit(1)
     )
 

@@ -53,8 +53,14 @@ function SubjectRow({ subject }: { subject: SubjectReadiness }) {
         // No band. Distinguish "nothing marked yet" from "marked work exists but
         // the subject has no grade boundaries to map it through" — the two are
         // different facts and only the first is "not enough data yet" (CodeRabbit).
+        // A failed run is said before either: it is why there is no band,
+        // whatever has been marked (OPS-10).
         <span className="text-sm text-ink-500">
-          {subject.marked_piece_count > 0 ? ABSENT.noBoundaries : ABSENT.noEvidence}
+          {subject.calculation_failed
+            ? ABSENT.notCalculated
+            : subject.marked_piece_count > 0
+              ? ABSENT.noBoundaries
+              : ABSENT.noEvidence}
         </span>
       ) : (
         <>

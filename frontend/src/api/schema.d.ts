@@ -7101,6 +7101,11 @@ export interface components {
              * @default false
              */
             is_updating: boolean;
+            /**
+             * Calculation Failed
+             * @default false
+             */
+            calculation_failed: boolean;
             /** Computed At */
             computed_at?: string | null;
             /** Rationale */

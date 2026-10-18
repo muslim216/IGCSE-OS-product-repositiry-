@@ -61,6 +61,7 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     topics: [],
     weak_topics: [],
     is_updating: false,
+    calculation_failed: false,
     computed_at: null,
     rationale: null,
     recommended_revision: null,
@@ -318,4 +319,24 @@ test("no verdict counts a single subject as a fraction of one", () => {
   for (const status of ["on_track", "needs_attention", "at_risk"] as const) {
     expect(parentVerdict("Sara", [subject({ status })])).not.toMatch(/of one|all one|one of/);
   }
+});
+
+test("a failed calculation is said to the parent, not shown as no marked work", async () => {
+  stubFetch([unmeasured({ marked_piece_count: 4, calculation_failed: true })]);
+  renderParent();
+  expect(await screen.findByText("couldn't be calculated right now")).toBeInTheDocument();
+  expect(screen.queryByText("not enough data yet")).not.toBeInTheDocument();
+  expect(screen.queryByText("no grade boundaries set")).not.toBeInTheDocument();
+});
+
+test("the parent's headline and next step say a failed calculation, not missing work", async () => {
+  stubFetch([unmeasured({ marked_piece_count: 4, calculation_failed: true })]);
+  renderParent();
+  expect(
+    await screen.findByText("Sara's progress couldn't be calculated right now."),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText("There's nothing you need to do. Progress couldn't be calculated right now."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/isn't enough marked work/)).not.toBeInTheDocument();
 });

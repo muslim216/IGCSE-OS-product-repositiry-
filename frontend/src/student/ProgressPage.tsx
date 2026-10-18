@@ -107,6 +107,13 @@ function topicBasis(score: number, topic: TopicReadiness | undefined): string {
   return ABSENT.noEvidence;
 }
 
+/** Why the predicted grade is missing. A failed run comes before "no data":
+    the student may have plenty of marked work (OPS-10). */
+function predictedAbsence(subject: SubjectReadiness): string {
+  if (subject.score !== null) return ABSENT.noBoundaries;
+  return subject.calculation_failed ? ABSENT.notCalculated : ABSENT.noEvidence;
+}
+
 function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
   const gap = gradeGap(subject);
   const movement = movementSentence(subject.month_delta);
@@ -137,7 +144,7 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
         <GradeTile
           label="Predicted grade"
           grade={subject.predicted_grade}
-          absent={subject.score !== null ? ABSENT.noBoundaries : ABSENT.noEvidence}
+          absent={predictedAbsence(subject)}
           detail={subject.score !== null ? `${Math.round(subject.score)}% ready` : null}
         >
           <DirectionMark direction={subject.direction} />
@@ -156,6 +163,10 @@ function SubjectProgress({ subject }: { subject: SubjectReadiness }) {
           }
         />
       </dl>
+
+      {!subject.is_updating && subject.calculation_failed && subject.score !== null && (
+        <p className="text-xs text-ink-500">{ABSENT.lastCalculated}</p>
+      )}
 
       {(gap !== null || thin || movement) && (
         <div className="max-w-prose space-y-1.5 text-sm leading-relaxed">

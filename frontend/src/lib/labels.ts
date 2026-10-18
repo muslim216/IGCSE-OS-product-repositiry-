@@ -57,6 +57,10 @@ export const ABSENT = {
   noBoundaries: "no grade boundaries set",
   noBoundariesAction: "Set them →",
   updating: "Updating…",
+  // The last readiness run failed: a different fact from noEvidence, which a
+  // student with plenty of marked work would otherwise be shown (OPS-10).
+  notCalculated: "couldn't be calculated right now",
+  lastCalculated: "This is the last score that was calculated — the newest update didn't finish.",
   aiUnavailable: "Guidance is unavailable right now.",
   loadFailed: "This is usually temporary — refresh the page to try again.",
   // For a surface that offers its own retry control: the wording above sends

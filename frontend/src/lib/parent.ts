@@ -49,6 +49,11 @@ function joinNames(subjects: SubjectReadiness[]): string {
 export function parentVerdict(name: string, subjects: SubjectReadiness[]): string {
   const banded = bandedSubjects(subjects);
   if (banded.length === 0) {
+    // Said before "not enough marked work": when a run failed that claim can be
+    // untrue, and this is the sentence a parent reads first (OPS-10).
+    if (subjects.some((s) => s.calculation_failed)) {
+      return `${name}'s progress couldn't be calculated right now.`;
+    }
     return `There isn't enough marked work yet to say how ${name} is doing.`;
   }
   const onTrack = banded.filter((s) => s.verdict.status === "on_track");
@@ -106,6 +111,9 @@ export function whatYouCanDo(subjects: SubjectReadiness[]): string {
   // least one, and every one of them on track (PROD-2).
   const banded = bandedSubjects(subjects);
   if (banded.length === 0) {
+    if (subjects.some((s) => s.calculation_failed)) {
+      return "There's nothing you need to do. Progress couldn't be calculated right now.";
+    }
     return "There isn't enough marked work yet to say whether anything is needed.";
   }
   const unmeasured = subjects.filter((s) => s.verdict.status === "not_enough_data");

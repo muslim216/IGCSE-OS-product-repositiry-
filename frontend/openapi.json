@@ -20565,6 +20565,11 @@
             "title": "Is Updating",
             "default": false
           },
+          "calculation_failed": {
+            "type": "boolean",
+            "title": "Calculation Failed",
+            "default": false
+          },
           "computed_at": {
             "anyOf": [
               {

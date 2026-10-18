@@ -92,6 +92,11 @@ class SubjectReadiness(BaseModel):
     # A recompute is queued or running: the score below is the last known one,
     # not the current one. The UI should say so rather than imply it is fresh.
     is_updating: bool = False
+    # The newest run's AI synthesis failed. With a score, that score is the
+    # last one that worked and is behind the evidence; without one, the
+    # subject is "couldn't be calculated", which is a different fact from
+    # "not enough data yet" and must not be shown as it (PROD-2).
+    calculation_failed: bool = False
     computed_at: datetime | None = None
     # v2 only: the AI's explanation of the score and what to revise next.
     rationale: str | None = None

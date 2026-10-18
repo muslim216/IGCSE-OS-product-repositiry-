@@ -56,6 +56,7 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     topics: [],
     weak_topics: [],
     is_updating: false,
+    calculation_failed: false,
     computed_at: null,
     rationale: null,
     recommended_revision: null,
