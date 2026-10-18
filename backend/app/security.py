@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -16,6 +17,19 @@ def verify_password(password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(password.encode(), password_hash.encode())
     except ValueError:
         return False
+
+
+# bcrypt takes about a quarter of a second by design, and the API and the job
+# worker share one event loop: run on it, twenty concurrent sign-ins stalled
+# every other request for five seconds (`SA-02`, `BE-13`). bcrypt releases the
+# GIL while it hashes, so a thread really does run it alongside the loop.
+# Request handlers use these; the sync pair above stays for seeds and tests.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 def _create_token(

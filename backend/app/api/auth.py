@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 from functools import lru_cache
 
@@ -30,7 +31,8 @@ from app.security import (
     create_refresh_token,
     decode_token,
     hash_password,
-    verify_password,
+    hash_password_async,
+    verify_password_async,
 )
 from app.services.invites import check_usable, consume
 from app.services.rate_limit import login_limiter
@@ -91,7 +93,7 @@ async def register_tutor(
     await db.flush()
     user = User(
         email=email,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         role=UserRole.tutor,
         name=body.name,
         organization_id=org.id,
@@ -131,7 +133,9 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
             or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
         )
     )
-    password_ok = verify_password(body.password, user.password_hash if user else _dummy_hash())
+    # The dummy hash off the loop too: the first miss after a restart makes it.
+    stored = user.password_hash if user else await asyncio.to_thread(_dummy_hash)
+    password_ok = await verify_password_async(body.password, stored)
     if user is None or not password_ok:
         await login_limiter.record(identifier)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
@@ -241,7 +245,7 @@ async def register_student(
     tutor = await db.get(User, invite.group.tutor_id)
     user = User(
         email=email,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         role=UserRole.student,
         name=body.name,
         organization_id=tutor.organization_id,
@@ -272,7 +276,7 @@ async def register_parent(
     student = await db.get(User, invite.student_id)
     user = User(
         email=email,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         role=UserRole.parent,
         name=body.name,
         organization_id=student.organization_id,

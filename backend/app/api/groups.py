@@ -32,7 +32,7 @@ from app.schemas.groups import (
     TaughtBeforeOut,
     TaughtBeforeUpdate,
 )
-from app.security import hash_password
+from app.security import hash_password_async
 from app.services import taught_before
 from app.services.ai import (
     AICallFailedError,
@@ -222,7 +222,7 @@ async def create_student_account(
         raise HTTPException(status.HTTP_409_CONFLICT, "This username is already taken")
     student = User(
         username=username,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         role=UserRole.student,
         name=body.name,
         created_by_id=user.id,
@@ -262,7 +262,7 @@ async def reset_student_password(
             status.HTTP_403_FORBIDDEN,
             "Password resets are only available for accounts without an email address",
         )
-    student.password_hash = hash_password(body.password)
+    student.password_hash = await hash_password_async(body.password)
     student.token_version += 1
     await db.commit()
 
