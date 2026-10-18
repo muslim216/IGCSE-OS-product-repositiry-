@@ -198,3 +198,75 @@ def test_content_disposition_still_blocks_header_injection():
 def test_content_disposition_always_marks_the_file_as_an_attachment():
     """Never inline: a PDF opened inline executes in the origin's context."""
     assert storage.content_disposition("x.pdf").startswith("attachment;")
+
+
+# --------------------------------------------------------------------------- #
+# Pixel ceiling (SA-03)
+#
+# A tiny HEIC can declare an enormous picture, and decoding it to make the JPEG
+# took enough memory to kill the process. The test images are small and the
+# ceiling is lowered to them, so the test proves the check without allocating
+# what it protects against.
+# --------------------------------------------------------------------------- #
+
+
+def _heic(width: int, height: int) -> bytes:
+    import io
+
+    import pillow_heif
+    from PIL import Image
+
+    pillow_heif.register_heif_opener()
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (10, 90, 140)).save(buffer, format="HEIF")
+    return buffer.getvalue()
+
+
+async def test_a_photo_over_the_pixel_ceiling_is_refused_before_it_is_decoded(monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    decoded = []
+    real_convert = Image.Image.convert
+    monkeypatch.setattr(
+        Image.Image,
+        "convert",
+        lambda self, *a, **k: decoded.append(1) or real_convert(self, *a, **k),
+    )
+
+    with pytest.raises(storage.ImageTooLargeError, match="resolution is too high"):
+        await storage._normalize(_heic(200, 200), "image/heic")
+    assert decoded == []
+
+
+async def test_a_photo_at_the_pixel_ceiling_is_converted(monkeypatch):
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200)
+    data, mime = await storage._normalize(_heic(200, 200), "image/heic")
+    assert mime == "image/jpeg"
+    assert data.startswith(b"\xff\xd8\xff")
+
+
+async def test_an_upload_over_the_pixel_ceiling_is_a_413_with_the_reason(
+    client, student, published_assignment, monkeypatch
+):
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    resp = await client.post(
+        f"/api/v1/assignments/{published_assignment['id']}/submissions",
+        files=[("files", ("page1.heic", _heic(200, 200), "image/heic"))],
+        headers=student["headers"],
+    )
+    assert resp.status_code == 413, resp.text
+    assert "resolution is too high" in resp.json()["detail"]
+
+
+async def test_a_job_saving_a_photo_over_the_ceiling_gets_a_value_error(monkeypatch):
+    """`save_bytes` serves background jobs (a Google Drive attachment), which
+    catch ValueError for any refused file."""
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    with pytest.raises(ValueError, match="resolution is too high"):
+        await storage.save_bytes(_heic(200, 200), "image/heic", "a.heic", organization_id=1)
+
+
+def test_the_real_ceiling_holds_a_default_phone_photo_and_not_a_bomb():
+    # 5712 x 4284 is a 24 MP iPhone HEIC; 10,000 x 10,000 was the audit's file.
+    assert 5712 * 4284 <= storage.MAX_IMAGE_PIXELS < 10_000 * 10_000

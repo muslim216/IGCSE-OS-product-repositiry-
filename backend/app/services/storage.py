@@ -47,6 +47,20 @@ ALLOWED_MIMES = {
 # rather than accepted here and failed later.
 CONVERT_TO_JPEG = {"image/heic", "image/heif", "image/heic-sequence"}
 
+#: Converting a HEIC photo decodes it to raw pixels first, at roughly 7 bytes a
+#: pixel at peak. The 20 MB cap is on the file, not the picture: a 21 KB file
+#: can declare 10,000 x 10,000 and needed about 800 MB to decode, enough to kill
+#: the process for everyone (`SA-03`). 40 megapixels holds every phone's
+#: default (a 48 MP iPhone saves 24 MP HEIC unless set to full resolution) at
+#: about 300 MB, and is refused before a single pixel is decoded.
+MAX_IMAGE_PIXELS = 40_000_000
+
+
+class ImageTooLargeError(ValueError):
+    """A photo with more pixels than `MAX_IMAGE_PIXELS`. A ValueError, so a
+    caller that only knows "this file was refused" still catches it."""
+
+
 # Some clients (and Google Drive) report these instead of the canonical type.
 MIME_ALIASES = {
     "image/jpg": "image/jpeg",
@@ -68,7 +82,13 @@ def _to_jpeg(data: bytes) -> bytes:
     from PIL import Image
 
     pillow_heif.register_heif_opener()
+    # `open` reads only the header; nothing is decoded until `convert`.
     with Image.open(io.BytesIO(data)) as img:
+        if img.width * img.height > MAX_IMAGE_PIXELS:
+            raise ImageTooLargeError(
+                "That photo's resolution is too high to read. Take it at a lower "
+                "resolution, or save it as JPEG, and upload it again."
+            )
         buffer = io.BytesIO()
         img.convert("RGB").save(buffer, format="JPEG", quality=90)
         return buffer.getvalue()
@@ -83,6 +103,8 @@ async def _normalize(data: bytes, mime: str) -> tuple[bytes, str]:
     if mime in CONVERT_TO_JPEG:
         try:
             data = await asyncio.to_thread(_to_jpeg, data)
+        except ImageTooLargeError:
+            raise
         except Exception:  # noqa: BLE001 — a corrupt photo is not a server fault
             # Pillow and pillow-heif raise across a wide surface on a malformed
             # file — UnidentifiedImageError, OSError, struct.error, and whatever
@@ -396,6 +418,8 @@ async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, s
         )
     try:
         data, mime = await _normalize(data, mime)
+    except ImageTooLargeError as exc:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from None
     if not content_matches_mime(data, mime):
