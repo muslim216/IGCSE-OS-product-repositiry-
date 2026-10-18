@@ -481,12 +481,12 @@ async def sit_mock(
     files: Annotated[list[UploadFile] | None, File()] = None,
     typed_answer: Annotated[str | None, Form()] = None,
 ) -> MockSubmissionOut:
+    storage.check_file_count(files)
     mock = await _visible_mock(db, user, mock_id, sitting=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     # Either channel, or both — the same rule homework follows since AV-73.
     typed = form_typed_answer(typed_answer)
-    storage.check_file_count(files)
     if not files and typed is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

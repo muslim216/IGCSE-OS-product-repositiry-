@@ -7,6 +7,8 @@ check without sending what it protects against.
 """
 
 import pytest
+from fastapi import FastAPI, File, UploadFile
+from httpx import ASGITransport, AsyncClient
 
 from app import body_limit
 from app.config import get_settings
@@ -16,11 +18,16 @@ from tests.conftest import PNG_BYTES
 API = "/api/v1"
 
 
-# --- The body ceiling ------------------------------------------------------
-
-
-async def test_a_json_body_over_the_plain_ceiling_is_a_413(client, monkeypatch):
+@pytest.fixture
+def small_plain_ceiling(monkeypatch):
     monkeypatch.setattr(body_limit, "MAX_PLAIN_BODY_BYTES", 1000)
+
+
+# --- The plain ceiling -----------------------------------------------------
+
+
+@pytest.mark.usefixtures("small_plain_ceiling")
+async def test_a_json_body_over_the_plain_ceiling_is_a_413(client):
     resp = await client.post(f"{API}/auth/login", json={"identifier": "a" * 2000, "password": "x"})
     assert resp.status_code == 413, resp.text
     assert "too large" in resp.json()["detail"]
@@ -33,9 +40,9 @@ async def test_a_json_body_under_the_ceiling_is_handled_as_before(client):
     assert resp.status_code == 401, resp.text
 
 
-async def test_a_body_without_a_length_is_counted_as_it_arrives(client, monkeypatch):
+@pytest.mark.usefixtures("small_plain_ceiling")
+async def test_a_body_without_a_length_is_counted_as_it_arrives(client):
     """A chunked body declares no length, so the bytes are counted as read."""
-    monkeypatch.setattr(body_limit, "MAX_PLAIN_BODY_BYTES", 1000)
 
     async def chunks():
         for _ in range(5):
@@ -47,59 +54,134 @@ async def test_a_body_without_a_length_is_counted_as_it_arrives(client, monkeypa
     assert resp.status_code == 413, resp.text
 
 
-async def test_an_upload_over_the_upload_ceiling_is_a_413(
-    client, student, published_assignment, monkeypatch
-):
-    # The middleware read the setting when the app was built: lower the limit
-    # on the instance in the stack instead.
-    _limit(client).max_upload_bytes = 1000
-    try:
-        resp = await client.post(
-            f"{API}/assignments/{published_assignment['id']}/submissions",
-            files=[("files", ("p.png", PNG_BYTES + b"x" * 2000, "image/png"))],
-            headers=student["headers"],
-        )
-    finally:
-        _limit(client).max_upload_bytes = get_settings().max_upload_request_mb * 1024 * 1024
+@pytest.mark.usefixtures("small_plain_ceiling")
+async def test_calling_a_json_route_multipart_does_not_buy_the_upload_ceiling(client):
+    """The client names its own content type; the sign-in route reads its whole
+    body before anything else runs."""
+    resp = await client.post(
+        f"{API}/auth/login",
+        files=[("identifier", ("a.txt", b"x" * 5000, "text/plain"))],
+    )
     assert resp.status_code == 413, resp.text
 
 
-async def test_an_upload_is_held_to_the_upload_ceiling_not_the_plain_one(
-    client, student, published_assignment, monkeypatch
+@pytest.mark.usefixtures("small_plain_ceiling")
+async def test_a_signed_in_caller_gets_no_upload_ceiling_on_a_route_without_files(client, student):
+    """Signed in is not enough: the route must take files."""
+    resp = await client.post(
+        f"{API}/auth/login",
+        files=[("identifier", ("a.txt", b"x" * 5000, "text/plain"))],
+        headers=student["headers"],
+    )
+    assert resp.status_code == 413, resp.text
+
+
+@pytest.mark.usefixtures("small_plain_ceiling")
+async def test_an_upload_without_a_sign_in_is_held_to_the_plain_ceiling(
+    client, published_assignment
 ):
-    monkeypatch.setattr(body_limit, "MAX_PLAIN_BODY_BYTES", 100)
+    """Files are parsed to disk before the route checks who is asking."""
     resp = await client.post(
         f"{API}/assignments/{published_assignment['id']}/submissions",
-        files=[("files", ("p.png", PNG_BYTES + b"x" * 500, "image/png"))],
+        files=[("files", ("p.png", PNG_BYTES + b"x" * 5000, "image/png"))],
+    )
+    assert resp.status_code == 413, resp.text
+
+
+@pytest.mark.usefixtures("small_plain_ceiling")
+async def test_a_signed_in_upload_gets_the_upload_ceiling(client, student, published_assignment):
+    resp = await client.post(
+        f"{API}/assignments/{published_assignment['id']}/submissions",
+        files=[("files", ("p.png", PNG_BYTES + b"x" * 5000, "image/png"))],
         headers=student["headers"],
     )
     assert resp.status_code == 201, resp.text
 
 
-def _limit(client) -> body_limit.BodySizeLimit:
-    app = client._transport.app
-    stack = app.middleware_stack or app.build_middleware_stack()
-    app.middleware_stack = stack
-    layer = stack
-    while not isinstance(layer, body_limit.BodySizeLimit):
-        layer = layer.app
-    return layer
+def test_every_route_that_takes_files_gets_the_upload_ceiling():
+    """Found from the app's own OpenAPI, so a new upload route needs no list."""
+    from app.main import app
+
+    found = {(m, p.pattern) for m, p in body_limit.upload_routes(app.openapi())}
+    assert ("POST", "^/api/v1/assignments/(?P<assignment_id>[^/]+)/submissions$") in found
+    assert ("POST", "^/api/v1/syllabus\\-uploads$") in found
+    assert not any("auth" in pattern for _, pattern in found)
+
+
+# --- The upload ceiling, on a small app of its own ---------------------------
+
+
+def _small_app(max_upload_bytes: int) -> FastAPI:
+    app = FastAPI()
+
+    @app.post("/upload")
+    async def upload(files: list[UploadFile] = File()) -> dict:  # noqa: B008
+        return {"files": len(files)}
+
+    app.add_middleware(
+        body_limit.BodySizeLimit, max_upload_bytes=max_upload_bytes, openapi=app.openapi
+    )
+    return app
+
+
+async def test_a_signed_in_upload_over_the_upload_ceiling_is_a_413(student):
+    transport = ASGITransport(app=_small_app(3000))
+    async with AsyncClient(transport=transport, base_url="http://test") as small:
+        over = await small.post(
+            "/upload",
+            files=[("files", ("p.png", b"x" * 5000, "image/png"))],
+            headers=student["headers"],
+        )
+        under = await small.post(
+            "/upload",
+            files=[("files", ("p.png", b"x" * 2000, "image/png"))],
+            headers=student["headers"],
+        )
+    assert over.status_code == 413, over.text
+    assert under.status_code == 200, under.text
+
+
+async def test_a_declared_length_over_the_ceiling_is_refused_before_reading_any_body():
+    """`Content-Length` alone is enough: nothing is read or parsed."""
+    reached, reads, sent = [], [], []
+
+    async def app(scope, receive, send):
+        reached.append(1)
+
+    async def receive():
+        reads.append(1)
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    limit = body_limit.BodySizeLimit(app, max_upload_bytes=10, openapi=lambda: {})
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/x",
+        "headers": [(b"content-type", b"application/json"), (b"content-length", b"2000000")],
+    }
+    await limit(scope, receive, send)
+    assert reached == [] and reads == []
+    assert sent[0]["status"] == 413
 
 
 # --- Files per hand-in -----------------------------------------------------
 
 
-@pytest.mark.parametrize("route", ["homework", "past paper"])
+@pytest.mark.parametrize("route", ["homework", "past paper", "mock"])
 async def test_more_files_than_the_ceiling_is_refused(
     client, student, published_assignment, monkeypatch, route
 ):
     monkeypatch.setattr(get_settings(), "max_files_per_upload", 2)
     files = [("files", (f"p{i}.png", PNG_BYTES, "image/png")) for i in range(3)]
-    if route == "homework":
-        path = f"{API}/assignments/{published_assignment['id']}/submissions"
-    else:
-        # Refused before the paper is even looked up.
-        path = f"{API}/past-papers/999999/attempts"
+    # The past-paper and mock routes refuse before even looking the paper up.
+    path = {
+        "homework": f"{API}/assignments/{published_assignment['id']}/submissions",
+        "past paper": f"{API}/past-papers/999999/attempts",
+        "mock": f"{API}/mocks/999999/submissions",
+    }[route]
     resp = await client.post(
         path, files=files, data={"attempted_at": "2026-10-01"}, headers=student["headers"]
     )
@@ -141,29 +223,3 @@ async def test_an_oversized_file_is_refused_having_read_only_past_the_cap(monkey
         await storage.save_upload(Upload(), organization_id=1)
     assert getattr(raised.value, "status_code", None) == 413
     assert asked == [101]
-
-
-async def test_a_declared_length_over_the_ceiling_is_refused_before_reading_any_body():
-    """`Content-Length` alone is enough: nothing is read or parsed."""
-    reached, reads, sent = [], [], []
-
-    async def app(scope, receive, send):
-        reached.append(1)
-
-    async def receive():
-        reads.append(1)
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(message):
-        sent.append(message)
-
-    limit = body_limit.BodySizeLimit(app, max_upload_bytes=10)
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/x",
-        "headers": [(b"content-type", b"application/json"), (b"content-length", b"2000000")],
-    }
-    await limit(scope, receive, send)
-    assert reached == [] and reads == []
-    assert sent[0]["status"] == 413
