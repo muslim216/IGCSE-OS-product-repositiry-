@@ -198,3 +198,118 @@ def test_content_disposition_still_blocks_header_injection():
 def test_content_disposition_always_marks_the_file_as_an_attachment():
     """Never inline: a PDF opened inline executes in the origin's context."""
     assert storage.content_disposition("x.pdf").startswith("attachment;")
+
+
+# --------------------------------------------------------------------------- #
+# Pixel ceiling (SA-03)
+#
+# A tiny HEIC can declare an enormous picture, and decoding it to make the JPEG
+# took enough memory to kill the process. The test images are small and the
+# ceiling is lowered to them, so the test proves the check without allocating
+# what it protects against.
+# --------------------------------------------------------------------------- #
+
+
+def _heic(width: int, height: int) -> bytes:
+    import io
+
+    import pillow_heif
+    from PIL import Image
+
+    pillow_heif.register_heif_opener()
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (10, 90, 140)).save(buffer, format="HEIF")
+    return buffer.getvalue()
+
+
+async def test_a_photo_over_the_pixel_ceiling_is_refused_before_it_is_decoded(monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    decoded = []
+    real_convert = Image.Image.convert
+    monkeypatch.setattr(
+        Image.Image,
+        "convert",
+        lambda self, *a, **k: decoded.append(1) or real_convert(self, *a, **k),
+    )
+
+    photo = _heic(200, 200)
+    with pytest.raises(storage.ImageTooLargeError, match="resolution is too high"):
+        await storage._normalize(photo, "image/heic")
+    assert decoded == []
+
+
+async def test_a_photo_at_the_pixel_ceiling_is_converted(monkeypatch):
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200)
+    data, mime = await storage._normalize(_heic(200, 200), "image/heic")
+    assert mime == "image/jpeg"
+    assert data.startswith(b"\xff\xd8\xff")
+
+
+async def test_an_upload_over_the_pixel_ceiling_is_a_413_with_the_reason(
+    client, student, published_assignment, monkeypatch
+):
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    resp = await client.post(
+        f"/api/v1/assignments/{published_assignment['id']}/submissions",
+        files=[("files", ("page1.heic", _heic(200, 200), "image/heic"))],
+        headers=student["headers"],
+    )
+    assert resp.status_code == 413, resp.text
+    assert "resolution is too high" in resp.json()["detail"]
+
+
+async def test_a_job_saving_a_photo_over_the_ceiling_gets_a_value_error(monkeypatch):
+    """`save_bytes` serves background jobs (a Google Drive attachment), which
+    catch ValueError for any refused file."""
+    monkeypatch.setattr(storage, "MAX_IMAGE_PIXELS", 200 * 200 - 1)
+    photo = _heic(200, 200)
+    with pytest.raises(ValueError, match="resolution is too high"):
+        await storage.save_bytes(photo, "image/heic", "a.heic", organization_id=1)
+
+
+def test_the_real_ceiling_holds_a_default_phone_photo_and_not_a_full_resolution_one():
+    # 5712 x 4284 is a 24 MP iPhone HEIC, 8064 x 6048 a 48 MP one.
+    assert 5712 * 4284 <= storage.MAX_IMAGE_PIXELS < 8064 * 6048
+
+
+async def test_a_non_heif_body_sent_as_heic_is_not_decoded():
+    """A PNG labelled image/heic: Pillow would open it, so the type is checked
+    from the file itself before anything is decoded (`SEC-15`)."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (50, 50)).save(buffer, format="PNG")
+    png = buffer.getvalue()
+    with pytest.raises(ValueError, match="couldn't be read"):
+        await storage._normalize(png, "image/heic")
+
+
+async def test_photos_are_decoded_one_at_a_time_off_the_shared_pool(monkeypatch):
+    import threading
+    import time
+
+    running, peak, threads = 0, 0, set()
+    lock = threading.Lock()
+    real = storage._to_jpeg
+
+    def counting(data):
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+            threads.add(threading.current_thread().name)
+        time.sleep(0.05)
+        try:
+            return real(data)
+        finally:
+            with lock:
+                running -= 1
+
+    monkeypatch.setattr(storage, "_to_jpeg", counting)
+    await asyncio.gather(*(storage._normalize(_heic(50, 50), "image/heic") for _ in range(4)))
+    assert peak == 1
+    assert all(name.startswith("image-decode") for name in threads)
