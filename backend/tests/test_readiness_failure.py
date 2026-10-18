@@ -16,16 +16,12 @@ from sqlalchemy import select, update
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
-    Assessment,
-    AssessmentScore,
-    AssessmentType,
     Group,
     GroupMember,
     Job,
     JobStatus,
     ReadinessSnapshot,
     Subject,
-    User,
 )
 from app.services import readiness_v2_ai
 from app.services.ai import AIOutputTruncatedError, AITimeoutError
@@ -37,29 +33,22 @@ from tests.test_readiness_api import world  # noqa: F401 - shared fixture
 JOB = "compute_readiness_v2"
 
 
-async def _marked_work(world) -> None:  # noqa: F811
-    """One scored mock, so the run has evidence and reaches the model."""
-    async with async_session() as session:
-        tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
-        assessment = Assessment(
-            tutor_id=tutor_user.id,
-            subject_id=world["subject_id"],
-            title="Mock",
-            type=AssessmentType.mock,
-            date=date.today(),
-        )
-        session.add(assessment)
-        await session.flush()
-        session.add(
-            AssessmentScore(
-                assessment_id=assessment.id,
-                student_id=world["student_id"],
-                topic_id=world["topic1"],
-                marks=10,
-                max_marks=20,
-            )
-        )
-        await session.commit()
+async def _marked_work(client, tutor, world) -> None:  # noqa: F811
+    """One scored mock, entered as a tutor would, so the run has evidence and
+    reaches the model."""
+    score = {"student_id": world["student_id"], "topic_id": world["topic1"]}
+    resp = await client.post(
+        "/api/v1/assessments",
+        json={
+            "subject_id": world["subject_id"],
+            "title": "Mock",
+            "type": "mock",
+            "date": date.today().isoformat(),
+            "scores": [score | {"marks": 10, "max_marks": 20}],
+        },
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 201, resp.text
 
 
 async def _queue_run(world) -> None:  # noqa: F811
@@ -105,7 +94,7 @@ def _raising(exc: Exception):
 async def test_a_timeout_fails_the_job_and_the_retry_produces_the_score(
     client, tutor, world, monkeypatch, fake_ai
 ):
-    await _marked_work(world)
+    await _marked_work(client, tutor, world)
     await _queue_run(world)
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
@@ -145,7 +134,7 @@ async def test_a_timeout_fails_the_job_and_the_retry_produces_the_score(
 async def test_a_missing_key_fails_the_job_at_once_without_a_retry(client, tutor, world):
     """No key in tests: a minute later the key is still missing, so the one
     retry would only spend a slot."""
-    await _marked_work(world)
+    await _marked_work(client, tutor, world)
     await _queue_run(world)
 
     assert await asyncio.wait_for(process_one_job(), timeout=10) is True
@@ -160,7 +149,7 @@ async def test_a_missing_key_fails_the_job_at_once_without_a_retry(client, tutor
 async def test_a_failure_is_logged_with_the_student_and_subject(
     client, tutor, world, monkeypatch, caplog
 ):
-    await _marked_work(world)
+    await _marked_work(client, tutor, world)
     monkeypatch.setattr(
         "app.services.readiness_v2_ai.structured_complete",
         _raising(AITimeoutError("The AI did not answer in time")),
@@ -261,9 +250,14 @@ async def test_only_permanent_failures_raise_the_first_one(client, tutor, world,
 # --- What the screens are told ---------------------------------------------
 
 
-async def _snapshot_history(world, statuses: list[AiSynthesisStatus]) -> None:  # noqa: F811
-    """Snapshots in the given order, oldest first, a minute apart. A ready one
-    carries a score so it is told apart from the no-snapshot shape."""
+async def _snapshot_history(
+    world,  # noqa: F811
+    statuses: list[AiSynthesisStatus],
+    step: timedelta = timedelta(minutes=1),
+) -> None:
+    """Snapshots in the given order, oldest first, `step` apart (zero for a
+    tie, which the row id then breaks). A ready one carries a score so it is
+    told apart from the no-snapshot shape."""
     start = datetime.now(timezone.utc) - timedelta(hours=1)
     async with async_session() as session:
         for i, status in enumerate(statuses):
@@ -278,7 +272,7 @@ async def _snapshot_history(world, statuses: list[AiSynthesisStatus]) -> None:  
                     predicted_grade="4" if ready else None,
                     weak_topics=[],
                     error=None if ready else "The AI did not answer in time",
-                    created_at=start + timedelta(minutes=i),
+                    created_at=start + step * i,
                 )
             )
         await session.commit()
@@ -322,22 +316,9 @@ async def test_a_subject_never_calculated_is_not_a_failure(client, tutor, world)
 async def test_a_created_at_tie_is_broken_by_id(client, tutor, world):
     """Two runs stamped in the same instant: the later row is the newer one,
     as every other reader of snapshots orders them."""
-    at = datetime.now(timezone.utc) - timedelta(minutes=5)
-    async with async_session() as session:
-        for i, status in enumerate([AiSynthesisStatus.ready, AiSynthesisStatus.failed]):
-            session.add(
-                ReadinessSnapshot(
-                    evaluation_run_id=f"tie-{i}",
-                    student_id=world["student_id"],
-                    subject_id=world["subject_id"],
-                    status=status,
-                    score=62.0 if status == AiSynthesisStatus.ready else None,
-                    predicted_grade=None,
-                    weak_topics=[],
-                    created_at=at,
-                )
-            )
-        await session.commit()
+    await _snapshot_history(
+        world, [AiSynthesisStatus.ready, AiSynthesisStatus.failed], step=timedelta(0)
+    )
     subject = await _my_subject(client, world)
     assert subject["calculation_failed"] is True
     assert subject["score"] == 62.0
