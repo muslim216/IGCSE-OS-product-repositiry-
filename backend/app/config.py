@@ -368,6 +368,13 @@ class Settings(BaseSettings):
     #: branches on where the app runs.
     render: bool = False
 
+    #: The most one file-upload request may send, all files together
+    #: (`app/body_limit.py`), and how many files one hand-in may carry. Sized for
+    #: a whole past paper photographed page by page; each file is still held to
+    #: 20 MB on its own (`services/storage.MAX_FILE_BYTES`).
+    max_upload_request_mb: int = 150
+    max_files_per_upload: int = 40
+
     @property
     def jwt_secret_is_weak(self) -> bool:
         """The placeholder, or too short to sign with. Reported by

@@ -47,6 +47,7 @@ from app.api import (
     webhooks,
     weekly_sends,
 )
+from app.body_limit import BodySizeLimit
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
@@ -339,6 +340,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Request-ID"],
     )
+    # Inside the request-id and security-header middleware below, so a 413
+    # still carries both.
+    app.add_middleware(BodySizeLimit, max_upload_bytes=settings.max_upload_request_mb * 1024 * 1024)
 
     app.middleware("http")(_request_context)
 

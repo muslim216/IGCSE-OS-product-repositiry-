@@ -486,6 +486,7 @@ async def sit_mock(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
     # Either channel, or both — the same rule homework follows since AV-73.
     typed = form_typed_answer(typed_answer)
+    storage.check_file_count(files)
     if not files and typed is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

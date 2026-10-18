@@ -420,6 +420,18 @@ def new_key(organization_id: int, mime: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def check_file_count(files: list[UploadFile] | None) -> None:
+    """One hand-in carries at most `MAX_FILES_PER_UPLOAD` files. Without it a
+    single request stored as many as it sent and each one went to marking
+    (`SA-07`, `SR-F`)."""
+    ceiling = get_settings().max_files_per_upload
+    if files and len(files) > ceiling:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            f"Up to {ceiling} files can be added at a time.",
+        )
+
+
 async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, str, str]:
     """Persist an uploaded file; returns (object_key, original_name, mime)."""
     mime = MIME_ALIASES.get(file.content_type or "", file.content_type or "")
@@ -428,7 +440,9 @@ async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, s
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Only PDF, JPEG, PNG, WebP and iPhone (HEIC) files are accepted",
         )
-    data = await file.read()
+    # At most one byte past the cap, so an oversized file is refused having
+    # read 20 MB of it rather than all of it (`SEC-17`).
+    data = await file.read(MAX_FILE_BYTES + 1)
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Files must be 20 MB or smaller")
     try:
