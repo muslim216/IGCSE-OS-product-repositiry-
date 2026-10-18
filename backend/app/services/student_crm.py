@@ -77,40 +77,11 @@ async def enrolled_subject_ids(
     return list(rows)
 
 
-async def get_student_crm(session: AsyncSession, student: User, viewer: User) -> StudentCrm:
-    # A student can sit in a second organization's class (joined before one
-    # workspace per student was enforced), so a tutor or admin there can open
-    # this record. Everything below is scoped to the viewer's organization:
-    # the profile with the parent's contact details, enrolments, readiness,
-    # homework, notes and communications are that organization's, and are not
-    # handed to the other (`SEC-7`). The student and their parent read their own
-    # record unscoped — except notes and communications, below.
-    staff_org = viewer.organization_id if viewer.role in (UserRole.tutor, UserRole.admin) else None
-    profile_query = select(StudentProfile).where(StudentProfile.student_id == student.id)
-    if staff_org is not None:
-        profile_query = profile_query.where(StudentProfile.organization_id == staff_org)
-    profile = await session.scalar(profile_query)
-
-    enrollment_rows = (
-        await session.scalars(select(StudentSubject).where(StudentSubject.student_id == student.id))
-    ).all()
-    enrollments: list[Enrollment] = []
-    for row in enrollment_rows:
-        subject = await session.get(Subject, row.subject_id)
-        if subject is None or (staff_org is not None and subject.organization_id != staff_org):
-            continue
-        enrollments.append(
-            Enrollment(
-                subject_id=subject.id,
-                subject_name=subject.name,
-                exam_board=subject.exam_board,
-                target_grade=row.target_grade,
-            )
-        )
-
-    subject_ids = await enrolled_subject_ids(session, student.id, staff_org)
-    readiness_summary = await build_summary_v2(session, student, subject_ids)
-
+async def _homework(
+    session: AsyncSession, student: User, staff_org: int | None
+) -> list[HomeworkItem]:
+    """The student's last 20 published or closed assignments, with their marks.
+    With `staff_org`, only that organization's classes."""
     homework_query = (
         select(Assignment, Submission)
         .join(Group, Group.id == Assignment.group_id)
@@ -164,6 +135,44 @@ async def get_student_crm(session: AsyncSession, student: User, viewer: User) ->
                 total_max=total_max,
             )
         )
+    return homework
+
+
+async def get_student_crm(session: AsyncSession, student: User, viewer: User) -> StudentCrm:
+    # A student can sit in a second organization's class (joined before one
+    # workspace per student was enforced), so a tutor or admin there can open
+    # this record. Everything below is scoped to the viewer's organization:
+    # the profile with the parent's contact details, enrolments, readiness,
+    # homework, notes and communications are that organization's, and are not
+    # handed to the other (`SEC-7`). The student and their parent read their own
+    # record unscoped — except notes and communications, below.
+    staff_org = viewer.organization_id if viewer.role in (UserRole.tutor, UserRole.admin) else None
+    profile_query = select(StudentProfile).where(StudentProfile.student_id == student.id)
+    if staff_org is not None:
+        profile_query = profile_query.where(StudentProfile.organization_id == staff_org)
+    profile = await session.scalar(profile_query)
+
+    enrollment_rows = (
+        await session.scalars(select(StudentSubject).where(StudentSubject.student_id == student.id))
+    ).all()
+    enrollments: list[Enrollment] = []
+    for row in enrollment_rows:
+        subject = await session.get(Subject, row.subject_id)
+        if subject is None or (staff_org is not None and subject.organization_id != staff_org):
+            continue
+        enrollments.append(
+            Enrollment(
+                subject_id=subject.id,
+                subject_name=subject.name,
+                exam_board=subject.exam_board,
+                target_grade=row.target_grade,
+            )
+        )
+
+    subject_ids = await enrolled_subject_ids(session, student.id, staff_org)
+    readiness_summary = await build_summary_v2(session, student, subject_ids)
+
+    homework = await _homework(session, student, staff_org)
 
     # A tutor's notes and their log of parent contact are the tutor's working
     # record and never reach the student or the parent (owner, 18 Oct 2026:
