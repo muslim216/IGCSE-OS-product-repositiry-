@@ -10,9 +10,20 @@ and title straight back. Every refusal treats a foreign id as a missing one
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 
 from app.db import async_session
-from app.models import Group, GroupMember, Lesson, Organization, Topic, User, UserRole
+from app.models import (
+    Group,
+    GroupMember,
+    Lesson,
+    Organization,
+    QuestionTopic,
+    Topic,
+    TutorObservation,
+    User,
+    UserRole,
+)
 from app.security import hash_password
 from tests.factories import make_subject
 
@@ -44,6 +55,19 @@ async def foreign_topic(student) -> int:
         session.add(group)
         await session.flush()
         session.add(GroupMember(group_id=group.id, student_id=student["user"]["id"]))
+        await session.commit()
+        return topic.id
+
+
+@pytest.fixture
+async def untaught_topic(group) -> int:
+    """A topic of another subject in the tutor's own organization, which no
+    class of theirs teaches."""
+    async with async_session() as session:
+        org_id = (await session.get(Group, group["id"])).organization_id
+        subject = await make_subject(session, organization_id=org_id, code="4MA1", name="Maths")
+        topic = Topic(subject_id=subject.id, code="1.1", title="Number")
+        session.add(topic)
         await session.commit()
         return topic.id
 
@@ -86,17 +110,59 @@ async def test_a_question_keeps_its_own_topic_and_drops_a_foreign_one(
     assert "B-SECRET-TOPIC" not in resp.text
 
 
+async def test_a_question_drops_a_topic_of_another_subject_of_the_same_organization(
+    client, tutor, subject, published_assignment, untaught_topic
+):
+    resp = await client.put(
+        f"{API}/assignments/{published_assignment['id']}/questions",
+        json=[
+            {
+                "number": "1",
+                "text_summary": "Atoms",
+                "max_marks": 4,
+                "has_mark_scheme": False,
+                "topic_ids": [untaught_topic],
+            }
+        ],
+        headers=tutor["headers"],
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["questions"][0]["topics"] == []
+
+
+async def test_a_foreign_tag_written_before_the_check_is_not_shown(
+    client, tutor, published_assignment, foreign_topic
+):
+    question_id = published_assignment["questions"][0]["id"]
+    async with async_session() as session:
+        session.add(QuestionTopic(question_id=question_id, topic_id=foreign_topic))
+        await session.commit()
+
+    resp = await client.get(
+        f"{API}/assignments/{published_assignment['id']}", headers=tutor["headers"]
+    )
+    assert resp.status_code == 200, resp.text
+    assert "B-SECRET-TOPIC" not in resp.text
+
+
+async def _observations() -> int:
+    async with async_session() as session:
+        return len((await session.scalars(select(TutorObservation))).all())
+
+
 async def test_an_observation_on_a_foreign_topic_is_refused(
-    client, tutor, subject, student, foreign_topic
+    client, tutor, subject, student, foreign_topic, untaught_topic
 ):
     body = {"student_id": student["user"]["id"], "comment": "Strong on this"}
 
-    refused = await client.post(
-        f"{API}/observations",
-        json=body | {"topic_id": foreign_topic},
-        headers=tutor["headers"],
-    )
-    assert refused.status_code == 404, refused.text
+    for topic_id in (foreign_topic, untaught_topic):
+        refused = await client.post(
+            f"{API}/observations",
+            json=body | {"topic_id": topic_id},
+            headers=tutor["headers"],
+        )
+        assert refused.status_code == 404, refused.text
+    assert await _observations() == 0
 
     own = await client.post(
         f"{API}/observations",
@@ -107,15 +173,16 @@ async def test_an_observation_on_a_foreign_topic_is_refused(
 
 
 async def test_a_lesson_observation_on_another_subjects_topic_is_refused(
-    client, tutor, subject, student, lesson_id, foreign_topic
+    client, tutor, subject, student, lesson_id, foreign_topic, untaught_topic
 ):
     body = {"student_id": student["user"]["id"], "body": "Asked good questions"}
     path = f"{API}/lessons/{lesson_id}/observations"
 
-    refused = await client.post(
-        path, json=body | {"topic_id": foreign_topic}, headers=tutor["headers"]
-    )
-    assert refused.status_code == 404, refused.text
+    for topic_id in (foreign_topic, untaught_topic):
+        refused = await client.post(
+            path, json=body | {"topic_id": topic_id}, headers=tutor["headers"]
+        )
+        assert refused.status_code == 404, refused.text
 
     own = await client.post(
         path, json=body | {"topic_id": subject["topic1"]}, headers=tutor["headers"]

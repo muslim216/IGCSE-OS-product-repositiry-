@@ -87,7 +87,7 @@ def _detail_stub(assignment: Assignment) -> AssignmentDetail:
     )
 
 
-async def _question_rows(db, assignment_id: int) -> list[QuestionOut]:
+async def _question_rows(db, assignment_id: int, subject_id: int) -> list[QuestionOut]:
     questions = (
         await db.scalars(
             select(AssignmentQuestion)
@@ -99,7 +99,13 @@ async def _question_rows(db, assignment_id: int) -> list[QuestionOut]:
     topic_ids = {qt.topic_id for q in questions for qt in q.topics}
     topics = {}
     if topic_ids:
-        for t in (await db.scalars(select(Topic).where(Topic.id.in_(topic_ids)))).all():
+        # The class's subject only, so a tag written before writes were checked
+        # (`SR-L`) can't hand back another subject's topic title.
+        for t in (
+            await db.scalars(
+                select(Topic).where(Topic.id.in_(topic_ids), Topic.subject_id == subject_id)
+            )
+        ).all():
             topics[t.id] = TopicOut.model_validate(t)
     return [
         QuestionOut(
@@ -400,6 +406,8 @@ async def assignment_detail(
     assignment_id: int, db: DbSession, user: CurrentUser
 ) -> AssignmentDetail:
     assignment = await _owned_assignment(db, user, assignment_id, include_deleted=True)
+    group = await db.get(Group, assignment.group_id)
+    assert group is not None  # `_owned_assignment` just resolved it
     return AssignmentDetail(
         id=assignment.id,
         group_id=assignment.group_id,
@@ -411,7 +419,7 @@ async def assignment_detail(
         question_range=assignment.question_range,
         status=assignment.status.value,
         extraction_error=assignment.extraction_error,
-        questions=await _question_rows(db, assignment.id),
+        questions=await _question_rows(db, assignment.id, group.subject_id),
     )
 
 
@@ -460,15 +468,12 @@ async def replace_questions(
     # tag the question with another tutor's syllabus and hand its title back in
     # the response (`SR-L`, `SEC-8`). Dropped like an id that doesn't exist.
     group = await db.get(Group, assignment.group_id)
+    assert group is not None  # `_owned_assignment` just resolved it
     asked = {topic_id for q in body for topic_id in q.topic_ids}
-    allowed = (
-        set(
-            await db.scalars(
-                select(Topic.id).where(Topic.id.in_(asked), Topic.subject_id == group.subject_id)
-            )
+    allowed = set(
+        await db.scalars(
+            select(Topic.id).where(Topic.id.in_(asked), Topic.subject_id == group.subject_id)
         )
-        if asked and group is not None
-        else set()
     )
     for position, q in enumerate(body):
         question = AssignmentQuestion(
