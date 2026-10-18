@@ -117,6 +117,7 @@ async def test_readiness_reports_the_database_and_the_queue(client):
         "oldest_due_age_seconds": None,
     }
     assert body["ai"] == {"ok": True, "missing_keys": []}
+    assert body["auth"] == {"secret_ok": True}
 
 
 async def test_readiness_counts_queued_work_and_its_age(client):
@@ -623,3 +624,32 @@ async def test_a_deployment_still_starting_its_worker_is_not_failing(client, ser
     serving_since(5)
 
     assert (await client.get("/api/v1/health/ready")).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "secret",
+    ["change-me-in-production", "  change-me-in-production  ", "short-secret", "x" * 31],
+)
+async def test_a_placeholder_or_short_sign_in_secret_reports_503_without_the_value(
+    client, monkeypatch, secret
+):
+    """With the public placeholder anyone can sign a token for any account
+    (`SA-04`). Reported as a yes or no: the answer is public, so it never
+    carries the secret, and the log line this endpoint writes does not either."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "jwt_secret", secret)
+
+    resp = await client.get("/api/v1/health/ready")
+    assert resp.status_code == 503
+    assert resp.json()["auth"] == {"secret_ok": False}
+    assert secret.strip() not in resp.text
+
+
+async def test_a_32_byte_sign_in_secret_is_enough(client, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "jwt_secret", "x" * 32)
+
+    resp = await client.get("/api/v1/health/ready")
+    assert resp.json()["auth"] == {"secret_ok": True}

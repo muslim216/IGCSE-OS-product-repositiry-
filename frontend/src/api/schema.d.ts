@@ -53,7 +53,8 @@ export interface paths {
          *     503 means the database is unreachable, the worker started and then
          *     stopped turning, a configured Redis has stopped answering and login
          *     throttling has silently degraded to per-instance (task 1.4, AV-83), an
-         *     AI provider a surface is routed to has no key, or this process has been
+         *     AI provider a surface is routed to has no key, the sign-in secret is the
+         *     public placeholder or too short (`SA-04`), or this process has been
          *     serving for over a minute with no worker anywhere (cleanup stage,
          *     OPS-05). Under the test client the lifespan never runs
          *     (ASGITransport does not run it), so the worker reports `not_started`
