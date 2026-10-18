@@ -13,7 +13,10 @@ MIN_JWT_SECRET_BYTES = 32
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # `hide_input_in_errors`: a failed validator otherwise prints the whole
+    # input, every secret and the database URL with its password, into the
+    # startup log that Render keeps for each failed deploy.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     app_name: str = "Avora"
     database_url: str = "postgresql+asyncpg://igcse:igcse@localhost:5432/igcse"
@@ -360,6 +363,11 @@ class Settings(BaseSettings):
     # Disable only for plain-HTTP local dev/tests; production (HTTPS) should keep this True.
     refresh_cookie_secure: bool = True
 
+    #: Render sets `RENDER=true` in every service it runs. Read only to decide
+    #: whether a weak sign-in secret stops startup (below); nothing else
+    #: branches on where the app runs.
+    render: bool = False
+
     @property
     def jwt_secret_is_weak(self) -> bool:
         """The placeholder, or too short to sign with. Reported by
@@ -406,6 +414,22 @@ class Settings(BaseSettings):
             f"REDIS_URL points off-box ({host}) over cleartext redis://. "
             "Use rediss:// so the password in the URL is not sent in the clear."
         )
+
+    @model_validator(mode="after")
+    def _jwt_secret_is_real_on_render(self) -> "Settings":
+        # With the public placeholder anyone can sign a token for any account
+        # (`SA-04`). On the server that is refused at startup: the deploy fails
+        # and Render keeps the previous one serving, rather than this one going
+        # live forgeable. Checked first in /health/ready (#163), which read true
+        # in production before this was switched on. Local development keeps
+        # working from `.env.example`; `/health/ready` still says 503 there.
+        # No override: the fix for a weak secret is a real one, the same click.
+        if self.render and self.jwt_secret_is_weak:
+            raise ValueError(
+                "JWT_SECRET is the public placeholder or shorter than 32 bytes. Set a "
+                "random value of at least 32 bytes before this server can start."
+            )
+        return self
 
     @model_validator(mode="after")
     def _redis_timeout_is_sane(self) -> "Settings":

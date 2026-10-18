@@ -185,3 +185,18 @@ async def test_bumping_token_version_invalidates_both_tokens(client, tutor):
     new_access = resp.json()["tokens"]["access_token"]
     me2 = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {new_access}"})
     assert me2.status_code == 200
+
+
+async def test_a_token_with_a_deeply_nested_header_is_refused_not_a_500(client):
+    """PyJWT once raised RecursionError, which is not a PyJWTError, on a header
+    nested deep enough, so any authenticated route answered 500 (`SR-M`). The
+    locked version refuses it; this keeps it refused."""
+    import base64
+
+    def b64(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    header = b'{"alg":"HS256","typ":"JWT","x":' + b"[" * 50_000 + b"]" * 50_000 + b"}"
+    token = f"{b64(header)}.{b64(b'{}')}.{b64(b'sig')}"
+    resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401, resp.text
