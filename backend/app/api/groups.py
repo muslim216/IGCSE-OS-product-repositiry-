@@ -254,7 +254,7 @@ async def reset_student_password(
             GroupMember.group_id == group.id, GroupMember.student_id == student_id
         )
     )
-    student = await db.get(User, student_id)
+    student = await db.get(User, student_id) if member is not None else None
     # Only the organization the account belongs to may take it over: a class
     # elsewhere is not enough, or another workspace's tutor could reset a child's
     # password and lock out the tutor who made the account. 404 like a stranger,

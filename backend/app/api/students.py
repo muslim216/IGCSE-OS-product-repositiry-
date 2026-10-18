@@ -300,7 +300,7 @@ async def update_enrollment(
     enrollment.target_grade = body.target_grade
     await db.commit()
     return StudentSubjectOut(
-        subject_id=subject_id,
+        subject_id=subject.id,
         subject_name=subject.name,
         exam_board=subject.exam_board,
         target_grade=enrollment.target_grade,

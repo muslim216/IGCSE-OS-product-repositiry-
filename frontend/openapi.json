@@ -19808,7 +19808,7 @@
           "communications"
         ],
         "title": "StudentCrmOut",
-        "description": "The student's full academic record \u2014 the one aggregation that feeds\nboth the CRM UI and the AI's grounding context (services/student_context.py)."
+        "description": "The student's full academic record, as the CRM page reads it."
       },
       "StudentFacts": {
         "properties": {

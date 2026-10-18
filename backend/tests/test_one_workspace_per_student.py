@@ -152,21 +152,27 @@ async def test_the_other_tutor_cannot_mint_a_parent_link(
         assert (await session.scalars(select(Invite).where(Invite.student_id == sid))).all() == []
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "notes", {"body": "x"}),
+        ("POST", "communications", {"body": "x"}),
+        ("PUT", "profile", {"school": "Overwritten"}),
+        ("POST", "subjects", None),
+    ],
+)
 async def test_the_other_tutor_cannot_write_to_the_record(
-    client, other_tutor, other_class, already_in_other_class
+    client, other_tutor, other_class, already_in_other_class, method, path, body
 ):
+    """One case each, so every write is shown refused on its own."""
     sid = already_in_other_class
-    headers = other_tutor["headers"]
-    for method, path, body in (
-        ("post", "notes", {"body": "x"}),
-        ("post", "communications", {"body": "x"}),
-        ("put", "profile", {"school": "Overwritten"}),
-        ("post", "subjects", {"subject_id": other_class["subject_id"]}),
-    ):
-        resp = await client.request(
-            method.upper(), f"{API}/students/{sid}/{path}", json=body, headers=headers
-        )
-        assert resp.status_code == 404, (path, resp.text)
+    resp = await client.request(
+        method,
+        f"{API}/students/{sid}/{path}",
+        json=body or {"subject_id": other_class["subject_id"]},
+        headers=other_tutor["headers"],
+    )
+    assert resp.status_code == 404, resp.text
 
 
 async def test_enrolment_changes_need_the_callers_own_subject(

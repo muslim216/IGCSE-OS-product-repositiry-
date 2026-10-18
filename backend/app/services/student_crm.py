@@ -1,7 +1,6 @@
 """The Student CRM aggregation — the student's continuously-updating academic
-record. This is the single source of truth for both the CRM UI and the AI's
-grounding context (services/student_context.py reads from it too), so the two
-surfaces can never drift apart."""
+record, as `/students/{id}/crm` serves it. (It once fed the student chat's AI
+grounding too; that surface was deleted in task 0.3, AV-57.)"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass

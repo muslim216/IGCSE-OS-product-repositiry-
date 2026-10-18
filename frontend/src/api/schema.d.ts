@@ -6843,8 +6843,7 @@ export interface components {
         };
         /**
          * StudentCrmOut
-         * @description The student's full academic record — the one aggregation that feeds
-         *     both the CRM UI and the AI's grounding context (services/student_context.py).
+         * @description The student's full academic record, as the CRM page reads it.
          */
         StudentCrmOut: {
             /** Student Id */

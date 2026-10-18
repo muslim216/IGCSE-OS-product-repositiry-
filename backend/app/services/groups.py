@@ -52,7 +52,8 @@ async def student_in_organization(db: AsyncSession, student: User, organization_
     `api/readiness.visible_subject_ids` applies to an admin. A student can sit
     in a second organization's class, so home organization alone gave an admin
     less reach than a tutor beside them: the tutor opened the student, the
-    admin got a 404."""
+    admin got a 404. That reach is for seeing the student; editing their record
+    also needs their home organization (`api/students._tutor_student`)."""
     if student.organization_id == organization_id:
         return True
     membership = await db.scalar(
