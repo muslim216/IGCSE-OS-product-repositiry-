@@ -635,7 +635,7 @@ async def test_a_placeholder_or_short_sign_in_secret_reports_503_without_the_val
 ):
     """With the public placeholder anyone can sign a token for any account
     (`SA-04`). Reported as a yes or no: the answer is public, so it never
-    carries the secret, and the log line this endpoint writes does not either."""
+    carries the secret."""
     from app.config import get_settings
 
     monkeypatch.setattr(get_settings(), "jwt_secret", secret)
@@ -646,10 +646,13 @@ async def test_a_placeholder_or_short_sign_in_secret_reports_503_without_the_val
     assert secret.strip() not in resp.text
 
 
-async def test_a_32_byte_sign_in_secret_is_enough(client, monkeypatch):
+@pytest.mark.parametrize("secret", ["x" * 32, "é" * 16])
+async def test_a_32_byte_sign_in_secret_is_enough(client, monkeypatch, secret):
+    """Bytes, not characters, as HS256 reads it: 16 accented letters are 32."""
     from app.config import get_settings
 
-    monkeypatch.setattr(get_settings(), "jwt_secret", "x" * 32)
+    monkeypatch.setattr(get_settings(), "jwt_secret", secret)
 
     resp = await client.get("/api/v1/health/ready")
+    assert resp.status_code == 200, resp.text
     assert resp.json()["auth"] == {"secret_ok": True}
