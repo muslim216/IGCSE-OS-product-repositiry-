@@ -322,3 +322,40 @@ async def test_a_created_at_tie_is_broken_by_id(client, tutor, world):
     subject = await _my_subject(client, world)
     assert subject["calculation_failed"] is True
     assert subject["score"] == 62.0
+
+
+# --- Who is told why --------------------------------------------------------
+
+
+async def test_the_failure_text_is_for_staff_and_not_the_student_or_parent(client, tutor, world):
+    """The text is the exception's own and can carry provider detail. The
+    tutor reads it; the student and parent see only that the run failed."""
+    await _snapshot_history(world, [AiSynthesisStatus.failed])
+    sid = world["student_id"]
+    code = await client.post(f"/api/v1/students/{sid}/parent-code", headers=tutor["headers"])
+    assert code.status_code == 201, code.text
+    parent = await client.post(
+        "/api/v1/auth/register/parent",
+        json={
+            "link_code": code.json()["code"],
+            "name": "Mum",
+            "email": "mum@example.com",
+            "password": "password123",
+        },
+    )
+    assert parent.status_code == 201, parent.text
+    parent_headers = {"Authorization": f"Bearer {parent.json()['tokens']['access_token']}"}
+
+    def _subject(resp) -> dict:
+        assert resp.status_code == 200, resp.text
+        [subject] = resp.json()["subjects"]
+        return subject
+
+    path = f"/api/v1/readiness/v2/students/{sid}"
+    staff = _subject(await client.get(path, headers=tutor["headers"]))
+    assert staff["status"] == "failed"
+    assert staff["error"] == "The AI did not answer in time"
+    for headers in (world["student_headers"], parent_headers):
+        theirs = _subject(await client.get(path, headers=headers))
+        assert theirs["status"] == "failed"
+        assert theirs["error"] is None

@@ -56,6 +56,8 @@ async def _snapshot_out(
     subject: Subject,
     boundaries: list[dict],
     config: ReadinessConfig,
+    *,
+    show_error: bool,
 ) -> ReadinessSnapshotOut:
     factor_rows = (
         await db.scalars(
@@ -118,7 +120,10 @@ async def _snapshot_out(
         ],
         rationale=snapshot.rationale,
         recommended_revision=snapshot.recommended_revision,
-        error=snapshot.error,
+        # Why a run failed is for the tutor: the text is the exception's own,
+        # which can carry provider detail. A student or parent still sees
+        # `status: failed`, which is what the screens say (OPS-10).
+        error=snapshot.error if show_error else None,
         created_at=snapshot.created_at,
         factors=[
             FactorEvaluationOut(
@@ -187,7 +192,12 @@ async def student_readiness_v2(
         config = await resolve_readiness_config(db, student.organization_id, subject_id)
         subjects_out.append(
             await _snapshot_out(
-                db, snapshot, subject, boundaries_for(all_boundaries, subject), config
+                db,
+                snapshot,
+                subject,
+                boundaries_for(all_boundaries, subject),
+                config,
+                show_error=user.role in (UserRole.tutor, UserRole.admin),
             )
         )
     return StudentReadinessV2Summary(
