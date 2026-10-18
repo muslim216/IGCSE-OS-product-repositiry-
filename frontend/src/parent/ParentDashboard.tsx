@@ -45,6 +45,12 @@ import { parentVerdict, provenance, whatYouCanDo } from "../lib/parent";
  * Account page now, one tap from the avatar.
  */
 
+/** Why a subject has no band, in the order that is true first. */
+function absentReason(subject: SubjectReadiness): string {
+  if (subject.calculation_failed) return ABSENT.notCalculated;
+  return subject.marked_piece_count > 0 ? ABSENT.noBoundaries : ABSENT.noEvidence;
+}
+
 function SubjectRow({ subject }: { subject: SubjectReadiness }) {
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-3">
@@ -55,13 +61,7 @@ function SubjectRow({ subject }: { subject: SubjectReadiness }) {
         // different facts and only the first is "not enough data yet" (CodeRabbit).
         // A failed run is said before either: it is why there is no band,
         // whatever has been marked (OPS-10).
-        <span className="text-sm text-ink-500">
-          {subject.calculation_failed
-            ? ABSENT.notCalculated
-            : subject.marked_piece_count > 0
-              ? ABSENT.noBoundaries
-              : ABSENT.noEvidence}
-        </span>
+        <span className="text-sm text-ink-500">{absentReason(subject)}</span>
       ) : (
         <>
           <VerdictLine role="parent" verdict={subject.verdict} showNextStep={false} />

@@ -11,7 +11,7 @@ import asyncio
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db import async_session
 from app.models import (
@@ -129,7 +129,8 @@ async def test_a_timeout_fails_the_job_and_the_retry_produces_the_score(
         fake_ai(ReadinessSynthesis(score=50.0, rationale="r", recommended_revision="-")),
     )
     async with async_session() as session:
-        (await session.get(Job, job.id)).run_after = None
+        # Past the 60s backoff without waiting for it.
+        await session.execute(update(Job).where(Job.id == job.id).values(run_after=None))
         await session.commit()
     assert await asyncio.wait_for(process_one_job(), timeout=10) is True
 

@@ -429,4 +429,5 @@ async def compute_readiness_v2(session: AsyncSession, payload: dict) -> None:
         # should not cost another subject its retry after a timeout. The retry
         # re-runs every subject in the payload — safe, because runs are
         # append-only and the summary reads only the newest snapshot.
-        raise next((f for f in failures if not is_permanent(f)), failures[0])
+        raised = next((f for f in failures if not is_permanent(f)), failures[0])
+        raise raised
