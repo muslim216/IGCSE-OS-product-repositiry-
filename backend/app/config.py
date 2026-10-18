@@ -13,7 +13,10 @@ MIN_JWT_SECRET_BYTES = 32
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # `hide_input_in_errors`: a failed validator otherwise prints the whole
+    # input, every secret and the database URL with its password, into the
+    # startup log that Render keeps for each failed deploy.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     app_name: str = "Avora"
     database_url: str = "postgresql+asyncpg://igcse:igcse@localhost:5432/igcse"

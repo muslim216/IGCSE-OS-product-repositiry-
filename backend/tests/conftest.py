@@ -19,6 +19,9 @@ os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqli
 os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 os.environ["REFRESH_COOKIE_SECURE"] = "false"
+# A shell on Render has RENDER=true, which makes a weak sign-in secret stop
+# startup; the suite builds settings with short test secrets of its own.
+os.environ.pop("RENDER", None)
 
 import contextlib
 
