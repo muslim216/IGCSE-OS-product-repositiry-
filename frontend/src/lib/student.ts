@@ -45,6 +45,8 @@ export interface SubjectValue {
   score: number | null;
   direction: SubjectReadiness["direction"];
   status: SubjectReadiness["status"];
+  /** The last run failed, so a null score is "couldn't be calculated". */
+  calculation_failed: boolean;
 }
 
 /** The subject strip, in a stable order so it does not reshuffle between visits
@@ -59,6 +61,7 @@ export function subjectStrip(subjects: SubjectReadiness[]): SubjectValue[] {
       score: s.score === null ? null : Math.round(s.score),
       direction: s.direction,
       status: s.status,
+      calculation_failed: s.calculation_failed,
     }));
 }
 

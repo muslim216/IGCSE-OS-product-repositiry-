@@ -2,7 +2,7 @@ import { Sparkles } from "lucide-react";
 import type { SubjectReadiness } from "../api/readiness";
 import ReadinessFigure from "./ReadinessFigure";
 import { ABSENT } from "../lib/labels";
-import { VerdictLine } from "./VerdictLine";
+import { NOT_CALCULATED, VerdictLine } from "./VerdictLine";
 
 /* A topic has no band of its own, so its bar is drawn in one neutral colour and
    the number beside it carries the meaning (UX-28). The subject's own band is
@@ -59,7 +59,11 @@ export function SubjectReadinessCard({
           </div>
           <p className="text-sm text-ink-500">{subject.exam_board}</p>
           <div className="mt-1.5">
-            <VerdictLine role="tutor" verdict={subject.verdict} />
+            <VerdictLine
+              role="tutor"
+              verdict={subject.verdict}
+              calculationFailed={subject.calculation_failed}
+            />
           </div>
         </div>
         {subject.score !== null ? (
@@ -77,7 +81,7 @@ export function SubjectReadinessCard({
           </div>
         ) : (
           <span className="shrink-0 rounded-md bg-surface-muted px-2 py-1 text-xs text-ink-500">
-            Not enough data yet
+            {subject.calculation_failed ? NOT_CALCULATED : "Not enough data yet"}
           </span>
         )}
       </div>
@@ -89,6 +93,11 @@ export function SubjectReadinessCard({
           <p className="mt-2 text-xs text-brand-700">
             Showing the last calculated score while a new one is worked out.
           </p>
+        )}
+        {/* The newest run failed and nothing is retrying it: the score above
+            is behind the evidence, and says so (PROD-2). */}
+        {!subject.is_updating && subject.calculation_failed && subject.score !== null && (
+          <p className="mt-2 text-xs text-ink-500">{ABSENT.lastCalculated}</p>
         )}
       </div>
 

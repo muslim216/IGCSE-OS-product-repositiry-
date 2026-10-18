@@ -57,10 +57,12 @@ function SubjectChip({
   name,
   score,
   direction,
+  calculationFailed,
 }: {
   name: string;
   score: number | null;
   direction: "up" | "flat" | "down" | null;
+  calculationFailed: boolean;
 }) {
   return (
     <li className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-4 py-3 shadow-[0_1px_2px_rgba(44,26,14,0.06)]">
@@ -68,7 +70,9 @@ function SubjectChip({
       {score === null ? (
         // Absent is words. A subject with no confident evidence is not a zero,
         // and it is not an empty bar either (PROD-2, UX-19).
-        <span className="shrink-0 text-xs text-ink-500">{ABSENT.noEvidence}</span>
+        <span className="shrink-0 text-xs text-ink-500">
+          {calculationFailed ? ABSENT.notCalculated : ABSENT.noEvidence}
+        </span>
       ) : (
         // "62% ready", never a bare "62": a number with no unit on a
         // student's home is read as a mark out of a hundred, or worse.
@@ -176,6 +180,7 @@ export default function StudentHomePage() {
                 name={s.subject_name}
                 score={s.score}
                 direction={s.direction}
+                calculationFailed={s.calculation_failed}
               />
             ))}
           </ul>
@@ -202,7 +207,11 @@ export default function StudentHomePage() {
                 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3"
               >
                 <span className="font-medium text-ink-900">{s.subject_name}</span>
-                <VerdictLine role="student" verdict={s.verdict} />
+                <VerdictLine
+                  role="student"
+                  verdict={s.verdict}
+                  calculationFailed={s.calculation_failed}
+                />
               </li>
             ))}
           </ul>

@@ -30,6 +30,7 @@ function subject(over: Partial<SubjectReadiness> = {}): SubjectReadiness {
     topics: [],
     weak_topics: [],
     is_updating: false,
+    calculation_failed: false,
     computed_at: null,
     rationale: null,
     recommended_revision: null,
@@ -327,4 +328,20 @@ test("each grade is labelled as what it is", async () => {
   expect(await screen.findByText("Predicted grade")).toBeInTheDocument();
   expect(screen.getByText("Averaging grade")).toBeInTheDocument();
   expect(screen.getByText("72% ready")).toBeInTheDocument();
+});
+
+test("a failed calculation is said in the predicted tile, not as missing data", async () => {
+  stubFetch([
+    subject({ score: null, predicted_grade: null, status: null, calculation_failed: true }),
+  ]);
+  renderProgress();
+  expect(await screen.findByText("couldn't be calculated right now")).toBeInTheDocument();
+  // The averaging grade is real marked work and is still shown.
+  expect(screen.getByText(/Average mark 64%/)).toBeInTheDocument();
+});
+
+test("a score behind a failed calculation says it is the last one calculated", async () => {
+  stubFetch([subject({ calculation_failed: true })]);
+  renderProgress();
+  expect(await screen.findByText(/newest update didn't finish/)).toBeInTheDocument();
 });

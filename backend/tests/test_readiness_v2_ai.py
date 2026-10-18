@@ -2,6 +2,7 @@
 
 from datetime import date, timedelta
 
+import pytest
 from sqlalchemy import select
 
 from app.db import async_session
@@ -20,6 +21,7 @@ from app.models import (
     Subject,
     User,
 )
+from app.services.ai import AIKeyMissingError
 from app.services.grade_boundaries import set_org_boundaries
 from app.services.readiness_v2_ai import (
     DEFAULT_WEIGHTS,
@@ -306,6 +308,7 @@ async def test_a_config_where_every_counted_weight_is_zero_is_refused(client, tu
     assert resp.status_code == 200, resp.text
 
 
+@pytest.mark.usefixtures("no_ai_key")
 async def test_ai_unavailable_writes_failed_snapshot_but_keeps_factors(client, tutor, world):
     async with async_session() as session:
         tutor_user = await session.scalar(select(User).where(User.email == "tutor@example.com"))
@@ -329,11 +332,13 @@ async def test_ai_unavailable_writes_failed_snapshot_but_keeps_factors(client, t
         )
         await session.commit()
 
-    # No ANTHROPIC_API_KEY is configured in tests -> AIUnavailableError.
+    # No ANTHROPIC_API_KEY is configured in tests -> AIKeyMissingError, which
+    # the job raises once the rows are committed so the failure is visible.
     async with async_session() as session:
-        await compute_readiness_v2(
-            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
-        )
+        with pytest.raises(AIKeyMissingError):
+            await compute_readiness_v2(
+                session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+            )
 
     async with async_session() as session:
         snapshot = (
@@ -548,6 +553,7 @@ async def test_synthesis_without_boundaries_stores_no_predicted_grade(
     assert snapshot.predicted_grade is None
 
 
+@pytest.mark.usefixtures("no_ai_key")
 async def test_synthesis_runs_layer_1_on_the_tutors_half_life(client, tutor, world):
     """F1: the job resolves the subject's config before Layer 1 and hands its
     half-life down. No model is reached (no key in tests) — the factor rows
@@ -584,9 +590,10 @@ async def test_synthesis_runs_layer_1_on_the_tutors_half_life(client, tutor, wor
         await session.commit()
 
     async with async_session() as session:
-        await compute_readiness_v2(
-            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
-        )
+        with pytest.raises(AIKeyMissingError):
+            await compute_readiness_v2(
+                session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+            )
     async with async_session() as session:
         row = (
             await session.scalars(

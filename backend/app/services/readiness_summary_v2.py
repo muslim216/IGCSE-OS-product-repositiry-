@@ -11,6 +11,11 @@ Two deliberate behaviours:
   yet (v2 never ran, or every run's AI synthesis failed) gets the no-snapshot
   shape below — never a fabricated 0 (PROD-2). There is no other engine to
   fall back to since 5.3b deleted v1.
+- **A failed run is said, not folded into "no data".** When the newest
+  snapshot is a failed one, calculation_failed is set: over the last ready
+  score if there is one (it is now behind the evidence), or over the
+  no-snapshot shape (which would otherwise read as "not enough data yet" for a
+  student with plenty of marked work).
 - **"Updating" is derived from the job queue, not the snapshot.** A
   ReadinessSnapshot row only exists once a run has finished, so there is no
   in-progress row to read. Instead a pending or running compute_readiness_v2
@@ -90,6 +95,22 @@ async def latest_ready_snapshot(
             ReadinessSnapshot.student_id == student_id,
             ReadinessSnapshot.subject_id == subject_id,
             ReadinessSnapshot.status == AiSynthesisStatus.ready,
+        )
+        .order_by(ReadinessSnapshot.created_at.desc(), ReadinessSnapshot.id.desc())
+        .limit(1)
+    )
+
+
+async def latest_snapshot(
+    db: AsyncSession, student_id: int, subject_id: int
+) -> ReadinessSnapshot | None:
+    """The newest snapshot whatever its status — the one that says whether the
+    last run worked."""
+    return await db.scalar(
+        select(ReadinessSnapshot)
+        .where(
+            ReadinessSnapshot.student_id == student_id,
+            ReadinessSnapshot.subject_id == subject_id,
         )
         .order_by(ReadinessSnapshot.created_at.desc(), ReadinessSnapshot.id.desc())
         .limit(1)
@@ -275,6 +296,7 @@ async def _subject_without_snapshot(
 ) -> SubjectReadiness:
     """No ready snapshot yet: v2 never ran for this subject, or every run's AI
     synthesis failed. The subject is still shown — as "not enough data yet",
+    or as "couldn't be calculated" when the caller sets calculation_failed —
     never omitted and never a 0 (PROD-2). Marked-work averaging is real data
     that does not depend on either engine, so it is still reported (PROD-1)."""
     topic_count = (
@@ -324,13 +346,22 @@ async def build_summary_v2(
         subject = await db.get(Subject, subject_id)
         if subject is None:
             continue
-        snapshot = await latest_ready_snapshot(db, student.id, subject_id)
+        newest = await latest_snapshot(db, student.id, subject_id)
+        last_failed = newest is not None and newest.status == AiSynthesisStatus.failed
+        # The usual case costs one query: the newest snapshot is the ready one.
+        # Anything else falls back to the newest ready one, so a status added
+        # later is never shown as a score by default.
+        if newest is None or newest.status == AiSynthesisStatus.ready:
+            snapshot = newest
+        else:
+            snapshot = await latest_ready_snapshot(db, student.id, subject_id)
         if snapshot is None:
             out = await _subject_without_snapshot(db, student, subject)
         else:
             out = await _subject_from_snapshot(db, student, subject, snapshot)
             out.computed_at = snapshot.created_at
         out.is_updating = everything_updating or subject_id in updating
+        out.calculation_failed = last_failed
         subjects_out.append(out)
 
     subjects_out.sort(key=lambda s: subject_ids.index(s.subject_id))
