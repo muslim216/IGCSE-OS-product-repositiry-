@@ -51,6 +51,18 @@ engine = create_async_engine(
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 
+async def release_connection(session: AsyncSession) -> None:
+    """End the session's transaction before a long wait, a model call above all,
+    which can take minutes. Its connection then goes back to the pool for that
+    time instead of sitting idle in a transaction with its row locks held
+    (`CAP-6`, `DB-01`); the next statement takes a fresh one.
+
+    It commits whatever is pending, so it belongs only where the writes made so
+    far are fine to keep if the call then fails. Loaded objects stay usable
+    (`expire_on_commit=False`), though they are no fresher than before."""
+    await session.commit()
+
+
 async def get_db() -> AsyncIterator[AsyncSession]:
     async with async_session() as session:
         yield session

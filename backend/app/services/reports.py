@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db import release_connection
 from app.models import (
     AiFeature,
     CustomCriterion,
@@ -256,6 +257,8 @@ async def _write_report(
     kb_context: str = "",
 ) -> str:
     """The AI call — factored out so tests can patch it."""
+    # Only the report row's reads come before this; nothing to lose.
+    await release_connection(session)
     response = await text_complete(
         organization_id=organization_id,
         surface="reports",

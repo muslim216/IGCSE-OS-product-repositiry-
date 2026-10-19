@@ -32,7 +32,7 @@ from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db import async_session
+from app.db import async_session, release_connection
 from app.models import (
     AiFeature,
     Chapter,
@@ -455,6 +455,7 @@ async def _draft(session: AsyncSession, plan: TeachingPlan) -> DraftResult:
     if free < needing:
         raise NotEnoughLessons(free, needing)
 
+    await release_connection(session)
     result = await weigh_chapters(group=group, subject=subject, chapters=chapters)
     result.plan_id = plan.id
 

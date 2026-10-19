@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db import release_connection
 from app.models import (
     AiFeature,
     AiSynthesisStatus,
@@ -324,6 +325,10 @@ async def _synthesize_subject(
         "Synthesize the overall readiness score, rationale, and recommended revision."
     )
 
+    # This run's factor rows are committed here, ahead of its snapshot. Every
+    # reader reaches factor rows through a snapshot, so a run whose call then
+    # fails before one is written is never shown; retention clears it later.
+    await release_connection(session)
     try:
         response = await structured_complete(
             organization_id=student.organization_id,

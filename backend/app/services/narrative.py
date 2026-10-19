@@ -30,7 +30,7 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db import async_session
+from app.db import async_session, release_connection
 from app.models import (
     AiFeature,
     Evidence,
@@ -315,6 +315,7 @@ async def _store(
     the AI surface is unavailable — a missing key degrades the surface to its
     stated-absence state, it never blocks the worker or startup (AI-20, INF-9)."""
     template = get_prompt("narrative")
+    await release_connection(session)
     try:
         response = await text_complete(
             organization_id=organization_id,
