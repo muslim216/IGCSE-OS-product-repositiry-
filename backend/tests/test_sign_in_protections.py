@@ -100,9 +100,7 @@ async def test_a_refresh_token_works_once_and_a_replay_ends_every_session(
     assert (await client.post(LOGIN, json=GOOD)).status_code == 200
 
 
-async def test_one_browser_refreshing_from_several_requests_at_once_is_not_a_replay(
-    client, tutor
-):
+async def test_one_browser_refreshing_from_several_requests_at_once_is_not_a_replay(client, tutor):
     first = tutor["refresh_token"]
     a = await client.post(REFRESH, json={"refresh_token": first})
     b = await client.post(REFRESH, json={"refresh_token": first})
