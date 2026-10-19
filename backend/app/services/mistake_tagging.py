@@ -29,6 +29,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import release_connection
 from app.models import (
     AiFeature,
     Mistake,
@@ -423,6 +424,7 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
         await session.commit()
         return
 
+    await release_connection(session)
     response = await _tag_call(organization_id, categories, lost)
 
     tutor_id = await resolve_org_tutor_id(session, organization_id)

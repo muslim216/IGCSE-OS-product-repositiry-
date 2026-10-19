@@ -605,3 +605,39 @@ async def test_synthesis_runs_layer_1_on_the_tutors_half_life(client, tutor, wor
         ).one()
     # 20% from 60 days ago, 90% today. At the default 45 days this is ~70.
     assert row.score > 85.0
+
+
+async def test_the_synthesis_call_holds_no_database_transaction(
+    client,
+    tutor,
+    world,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The run's factor rows are committed before the model is asked, so its
+    connection is back in the pool for the call (`CAP-6`)."""
+    from app.services import readiness_v2_ai
+
+    await _teach_topic1(world)
+    held = {}
+    real_release = readiness_v2_ai.release_connection
+
+    async def spy(session):
+        await real_release(session)
+        held["session"] = session
+
+    answer = fake_ai(ReadinessSynthesis(score=20, rationale="r", recommended_revision="-"))
+
+    async def model(**kwargs):
+        # Recorded, not asserted here: the job would catch the assertion as
+        # an AI failure and the test would never see it.
+        held["open_during_call"] = held["session"].in_transaction()
+        return await answer(**kwargs)
+
+    monkeypatch.setattr(readiness_v2_ai, "release_connection", spy)
+    monkeypatch.setattr(readiness_v2_ai, "structured_complete", model)
+    async with async_session() as session:
+        await compute_readiness_v2(
+            session, {"student_id": world["student_id"], "subject_id": world["subject_id"]}
+        )
+    assert held["open_during_call"] is False

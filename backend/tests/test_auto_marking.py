@@ -815,3 +815,35 @@ async def test_a_failure_on_replaced_pages_does_not_mark_the_replacement_failed(
         f"/api/v1/assignments/{assignment_all_scheme}/submissions", headers=tutor["headers"]
     )
     assert subs.json()[0]["status"] == "auto_finalized"
+
+
+async def test_the_marking_call_holds_no_database_transaction(
+    client,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """While the model reads the pages, the job's connection is back in the
+    pool, not idle in a transaction for minutes (`CAP-6`)."""
+    from app.services import marking
+
+    held = {}
+    real_release = marking.release_connection
+
+    async def spy(session):
+        await real_release(session)
+        held["session"] = session
+
+    answer = fake_ai(_confident_result())
+
+    async def model(**kwargs):
+        # Recorded, not asserted here: the job would catch the assertion as
+        # an AI failure and the test would never see it.
+        held["open_during_call"] = held["session"].in_transaction()
+        return await answer(**kwargs)
+
+    monkeypatch.setattr(marking, "release_connection", spy)
+    monkeypatch.setattr(marking, "structured_complete", model)
+    await _submit(client, assignment_all_scheme, student)
+    assert held["open_during_call"] is False

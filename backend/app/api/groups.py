@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.analytics import group_analytics
 from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor, owned_subject
+from app.db import release_connection
 from app.models import (
     AiFeature,
     Group,
@@ -341,6 +342,9 @@ async def class_brief(group_id: int, db: DbSession, user: CurrentUser) -> ClassB
         f"Weakest topics across the class:\n{weak_topics_text or '(none yet)'}\n\n"
         f"Learners with the lowest overall readiness:\n{weak_students_text or '(none yet)'}"
     )
+    # A request handler too: the class brief's model call must not hold one of
+    # the pool's connections for its whole length.
+    await release_connection(db)
     try:
         response = await text_complete(
             organization_id=group.organization_id,

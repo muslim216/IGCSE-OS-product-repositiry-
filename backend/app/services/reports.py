@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db import release_connection
 from app.models import (
     AiFeature,
     CustomCriterion,
@@ -319,6 +320,9 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
             return
         facts = await build_report_facts(session, student, subject_ids, summary)
         kb_context = await build_tutor_context(session, tutor.id, report.subject_id)
+        # Here rather than inside `_write_report`, which tests patch out. Only
+        # reads come before it; nothing to lose.
+        await release_connection(session)
         report.content = await _write_report(
             report.audience,
             facts,

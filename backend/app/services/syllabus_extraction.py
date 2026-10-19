@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import release_connection
 from app.models import AiFeature, SubjectLevel, SyllabusUpload, SyllabusUploadStatus, User
 from app.services import storage
 from app.services.ai import file_block, record_usage, require_parsed, structured_complete
@@ -100,6 +101,7 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
 
     tutor = await session.get(User, upload.tutor_id)
     assert tutor is not None
+    await release_connection(session)
     response = await structured_complete(
         organization_id=tutor.organization_id,
         surface="syllabus",

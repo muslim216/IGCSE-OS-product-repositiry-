@@ -39,6 +39,7 @@ import logging
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import release_connection
 from app.models import AiFeature, Subject
 from app.services.ai import record_usage, require_parsed, structured_complete
 
@@ -84,6 +85,7 @@ async def summarise_marking_rules(session: AsyncSession, payload: dict) -> None:
     if subject.marking_rules_summary_of == stamp:
         return
 
+    await release_connection(session)
     response = await structured_complete(
         organization_id=subject.organization_id,
         surface="marking_rules",

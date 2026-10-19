@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db import release_connection
 from app.models import (
     AiFeature,
     AssessableWork,
@@ -184,6 +185,10 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
 
     kb_context = await build_tutor_context(session, group.tutor_id, group.subject_id)
 
+    # The cleared question list is committed here, ahead of the new one. A
+    # failed read already saves it that way (the failure is recorded and
+    # committed), and a retry clears and reads again (`BE-6`).
+    await release_connection(session)
     response = await structured_complete(
         organization_id=group.organization_id,
         surface="extraction",
@@ -452,6 +457,7 @@ async def _run_past_paper_extraction(session: AsyncSession, paper: PastPaper) ->
         }
     )
 
+    await release_connection(session)
     response = await structured_complete(
         organization_id=paper.organization_id,
         surface="extraction",
@@ -600,6 +606,7 @@ async def _run_mock_extraction(session: AsyncSession, mock: Mock) -> None:
     )
 
     kb_context = await build_tutor_context(session, mock.tutor_id, mock.subject_id)
+    await release_connection(session)
     response = await structured_complete(
         organization_id=mock.organization_id,
         surface="extraction",
@@ -678,6 +685,7 @@ async def _read_papers(
     scheme each get their own call: page ranges are the whole point of the
     output, and a scheme's page 4 is not the paper's page 4 — one call over both
     documents returns ranges with no way to tell which document they index."""
+    await release_connection(session)
     response = await structured_complete(
         organization_id=booklet.organization_id,
         surface="booklet",

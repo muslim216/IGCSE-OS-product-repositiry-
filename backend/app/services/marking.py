@@ -25,6 +25,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.db import release_connection
 from app.models import (
     AiFeature,
     AssignmentQuestion,
@@ -600,6 +601,9 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         MarkingContextSources(subject=source.subject, classified=source.classified),
     )
 
+    # Nothing is written before this point, and the replacement check after the
+    # call takes its own lock in the new transaction.
+    await release_connection(session)
     response = await structured_complete(
         organization_id=source.organization_id,
         surface="marking",
