@@ -12,8 +12,9 @@ columns no existing index leads with:
 - `group_members(student_id)`: which classes a student is in.
 - `lower(email)` and `lower(username)` on `users`, unique: sign-in and sign-up
   compare the folded value, which the plain unique columns cannot serve. Every
-  writer has lowercased both since the first release, so no existing pair of
-  rows can collide.
+  writer in the code has lowercased both since the first release, so no pair
+  of rows it wrote can collide; a row put in by hand could, and would fail this
+  migration loudly (it rolls back and the previous release keeps serving).
 
 A plain build locks each table against writes while it runs. Every table is
 small today, so that is a moment; on a large table this would need
