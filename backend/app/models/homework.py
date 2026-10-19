@@ -466,6 +466,9 @@ class Job(TimestampMixin, Base):
         # the five older indexes exist only in migrations, so the test schema
         # differs from production, and this one is not joining them.
         Index("ix_jobs_status_claimed_at", "status", "claimed_at"),
+        # The retention sweep's: finished rows created before a cutoff
+        # (`services/retention.py`). Migration 0072.
+        Index("ix_jobs_status_created_at", "status", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
