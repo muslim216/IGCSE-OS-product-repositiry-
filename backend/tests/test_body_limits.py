@@ -7,7 +7,7 @@ check without sending what it protects against.
 """
 
 import pytest
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from httpx import ASGITransport, AsyncClient
 
 from app import body_limit
@@ -163,7 +163,8 @@ async def test_a_declared_length_over_the_ceiling_is_refused_before_reading_any_
         "headers": [(b"content-type", b"application/json"), (b"content-length", b"2000000")],
     }
     await limit(scope, receive, send)
-    assert reached == [] and reads == []
+    assert reached == []
+    assert reads == []
     assert sent[0]["status"] == 413
 
 
@@ -219,7 +220,8 @@ async def test_an_oversized_file_is_refused_having_read_only_past_the_cap(monkey
             data = PNG_BYTES + b"x" * 10_000
             return data if size < 0 else data[:size]
 
-    with pytest.raises(Exception) as raised:
-        await storage.save_upload(Upload(), organization_id=1)
-    assert getattr(raised.value, "status_code", None) == 413
+    upload = Upload()
+    with pytest.raises(HTTPException) as raised:
+        await storage.save_upload(upload, organization_id=1)
+    assert raised.value.status_code == 413
     assert asked == [101]
