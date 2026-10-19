@@ -483,6 +483,9 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         MOCK: _mock_source,
     }
     source = await builders[kind_of(submission)](session, submission)
+    # Which attempt these pages belong to. A replacement resets it
+    # (`attempts.open_attempt`), and is checked once the model has answered.
+    marking_attempt = submission.submitted_at
     questions = source.questions
     files = sorted(submission.files, key=lambda f: f.position)
     # Either channel is a submission (AV-73, task 3.3) — this is the line that
@@ -604,6 +607,12 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         feature=AiFeature.marking,
     )
     result = require_parsed(response)
+    if not await _still_the_same_attempt(session, submission.id, marking_attempt):
+        # The student replaced these pages while the model read them. The
+        # replacement queued its own marking; writing these marks would count
+        # the old pages and make that job find every question decided and
+        # skip the new ones (`DB-08`). The call is still recorded above.
+        return
 
     flagged = submission.typed_flag_reason is not None
     drafts_by_number = {d.number.lstrip("Qq"): d for d in result.questions}
@@ -670,6 +679,19 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             mark.needs_review = True
 
     await _settle_submission(session, submission, source.subject_id)
+
+
+async def _still_the_same_attempt(
+    session: AsyncSession, submission_id: int, marking_attempt: datetime
+) -> bool:
+    """Whether the submission is still the attempt that was sent to the model,
+    read fresh and locked until this job commits. The lock is what makes the
+    answer stay true while the marks are written: a replacement waits on it
+    (`attempts.open_attempt`). Taken after the model call, never across it."""
+    current = await session.scalar(
+        select(Submission.submitted_at).where(Submission.id == submission_id).with_for_update()
+    )
+    return current is not None and current == marking_attempt
 
 
 async def _settle_submission(

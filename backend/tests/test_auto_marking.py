@@ -709,3 +709,58 @@ async def test_a_remark_request_does_not_reopen_the_upload(
         # Still in front of the tutor, with the request open.
         assert (await session.get(Submission, sid)).status == SubmissionStatus.needs_review
         assert (await session.scalar(select(RemarkRequest))).status == RemarkRequestStatus.open
+
+
+async def test_pages_replaced_while_being_marked_are_marked_fresh(
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The student swaps the photo while the model is reading the first one
+    (`DB-08`). The first answer must not count, and the replacement must be
+    marked rather than skipped as though every question were decided."""
+    first = fake_ai(_confident_result())
+    second = fake_ai(
+        _confident_result().model_copy(
+            update={
+                "questions": [
+                    q.model_copy(update={"proposed_marks": 1})
+                    for q in _confident_result().questions
+                ]
+            }
+        )
+    )
+    calls = 0
+
+    async def model(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            # The replacement lands mid-call, as a second request would.
+            replaced = await client.post(
+                f"/api/v1/assignments/{assignment_all_scheme}/submissions",
+                files=[("files", ("page1-again.png", PNG_BYTES, "image/png"))],
+                headers=student["headers"],
+            )
+            assert replaced.status_code == 201, replaced.text
+            return await first(**kwargs)
+        return await second(**kwargs)
+
+    monkeypatch.setattr("app.services.marking.structured_complete", model)
+    await _submit(client, assignment_all_scheme, student)  # the first marking job
+    assert await process_one_job() is True  # the replacement's own job
+
+    assert calls == 2
+    subs = await client.get(
+        f"/api/v1/assignments/{assignment_all_scheme}/submissions", headers=tutor["headers"]
+    )
+    assert subs.json()[0]["status"] == "auto_finalized"
+    assert subs.json()[0]["total_final"] == 2  # the replacement's marks, not 5
+    async with async_session() as session:
+        marks = (await session.scalars(select(QuestionMark))).all()
+        evidence = (await session.scalars(select(Evidence))).all()
+    assert len(marks) == 2
+    assert len(evidence) == len(marks)

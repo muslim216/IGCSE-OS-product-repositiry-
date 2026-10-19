@@ -81,6 +81,13 @@ async def open_attempt(
     if parent is None:
         raise ValueError(f"no {kind.name} with id {parent_id}")
 
+    # Locked before the marks are read. A marking job that is writing marks
+    # holds this row (`marking._still_the_same_attempt`), so a replacement
+    # waits for it and then sees those marks: it deletes them, or refuses if one
+    # is final. Read unlocked, it could miss marks still being written and leave
+    # them on the new attempt, where they would count against pages nobody
+    # marked (`DB-08`). `selectin` loads are separate queries, so nothing joined
+    # falls under the lock.
     submission = await session.scalar(
         select(Submission)
         .where(
@@ -88,6 +95,7 @@ async def open_attempt(
             Submission.student_id == student_id,
         )
         .options(selectinload(Submission.files), selectinload(Submission.marks))
+        .with_for_update()
     )
     if submission is not None and attempt_is_locked(submission):
         return submission, True
