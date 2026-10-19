@@ -119,7 +119,7 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
             # the replacement has its own job. Writing `ai_failed` would show a
             # tutor a failure for work still being marked, and raising would
             # retry this job into marking the new pages a second time.
-            _log_replaced(submission.id, marking_attempt)
+            _log_replaced(submission.id, marking_attempt, exc)
             return
         submission.status = SubmissionStatus.ai_failed
         submission.ai_error = str(exc) or exc.__class__.__name__
@@ -693,13 +693,18 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     await _settle_submission(session, submission, source.subject_id)
 
 
-def _log_replaced(submission_id: int, marking_attempt: datetime) -> None:
+def _log_replaced(
+    submission_id: int, marking_attempt: datetime, exc: Exception | None = None
+) -> None:
     # The only trace of a job that marked nothing on purpose. If this ever
-    # fires with no newer marking job queued, the submission is stuck.
-    logger.info(
+    # fires with no newer marking job queued, the submission is stuck. A
+    # failure is kept in the log, since the replacement may repeat it.
+    logger.log(
+        logging.WARNING if exc else logging.INFO,
         "marking: submission %s was replaced during marking (attempt of %s); result discarded",
         submission_id,
         marking_attempt.isoformat(),
+        exc_info=exc,
     )
 
 
