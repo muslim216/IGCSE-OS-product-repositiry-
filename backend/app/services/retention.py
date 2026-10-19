@@ -217,9 +217,10 @@ async def prune_orphaned_files(session: AsyncSession, now: datetime) -> int:
     for key in stale:
         if key in referenced:
             continue
+        # One stuck file must not hold up the rest, every day.
         try:
             await backend.delete(key)
-        except Exception:  # noqa: BLE001 — one stuck file must not hold up the rest, every day
+        except Exception:  # noqa: BLE001
             log.warning("retention: could not delete orphaned file %s", key, exc_info=True)
             continue
         deleted += 1
@@ -254,7 +255,7 @@ async def _commit_successor_sweep() -> None:
         await session.commit()
 
 
-async def sweep_retention(session: AsyncSession, payload: dict) -> None:
+async def sweep_retention(session: AsyncSession, _payload: dict) -> None:
     """Job handler. Payload is `{}`; safe to re-run, since each step deletes only
     what is past its period and a second pass finds nothing more (`BE-6`).
 
@@ -272,7 +273,8 @@ async def sweep_retention(session: AsyncSession, payload: dict) -> None:
     ):
         try:
             counts[name] = await step(session, now)
-        except Exception:  # noqa: BLE001 — logged, and re-raised below once every step ran
+        except Exception:  # noqa: BLE001
+            # Logged, and re-raised below once every step ran.
             await session.rollback()
             log.exception("retention: deleting %s failed", name)
             failed.append(name)
