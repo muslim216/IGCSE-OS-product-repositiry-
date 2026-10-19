@@ -445,7 +445,9 @@ async def log_attempt(
     submission.time_taken_minutes = time_taken_minutes
     submission.attempted_at = attempted_at
     for position, upload in enumerate(files):
-        path, name, mime = await storage.save_upload(upload, organization_id=user.organization_id)
+        path, name, mime = await storage.save_upload(
+            upload, organization_id=user.organization_id, student_id=user.id
+        )
         db.add(
             SubmissionFile(
                 submission_id=submission.id, position=position, path=path, name=name, mime=mime

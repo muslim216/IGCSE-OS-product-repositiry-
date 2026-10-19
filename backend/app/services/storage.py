@@ -31,6 +31,11 @@ from urllib.parse import quote
 from fastapi import HTTPException, UploadFile, status
 
 from app.config import get_settings
+from app.services.rate_limit import (
+    spend_daily_allowance,
+    student_upload_daily_limiter,
+    upload_daily_limiter,
+)
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +78,12 @@ class ImageTooLargeError(ValueError):
     """A photo with more pixels than `MAX_IMAGE_PIXELS`. A ValueError, so a
     caller that only knows "this file was refused" still catches it."""
 
+
+#: Every stored file spends one of the workspace's daily allowance (`SA-01`,
+#: `SA-07`): the disk is shared, and each upload can start paid AI work.
+DAILY_UPLOAD_LIMIT_MESSAGE = (
+    "This workspace has reached today's upload limit. It frees up within 24 hours."
+)
 
 # Some clients (and Google Drive) report these instead of the canonical type.
 MIME_ALIASES = {
@@ -432,7 +443,9 @@ def check_file_count(files: list[UploadFile] | None) -> None:
         )
 
 
-async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, str, str]:
+async def save_upload(
+    file: UploadFile, *, organization_id: int, student_id: int | None = None
+) -> tuple[str, str, str]:
     """Persist an uploaded file; returns (object_key, original_name, mime)."""
     mime = MIME_ALIASES.get(file.content_type or "", file.content_type or "")
     if mime not in ALLOWED_MIMES and mime not in CONVERT_TO_JPEG:
@@ -440,6 +453,15 @@ async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, s
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Only PDF, JPEG, PNG, WebP and iPhone (HEIC) files are accepted",
         )
+    # A student's own cap first, so one student spending theirs leaves the
+    # workspace's allowance for everyone else (`student_id`, from the routes a
+    # student hands work in through).
+    if student_id is not None and not await spend_daily_allowance(
+        student_upload_daily_limiter, organization_id, key=student_id
+    ):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
+    if not await spend_daily_allowance(upload_daily_limiter, organization_id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, DAILY_UPLOAD_LIMIT_MESSAGE)
     # At most one byte past the cap, so an oversized file is refused having
     # read 20 MB of it rather than all of it (`SEC-17`).
     data = await file.read(MAX_FILE_BYTES + 1)
@@ -461,7 +483,7 @@ async def save_upload(file: UploadFile, *, organization_id: int) -> tuple[str, s
 
 
 async def save_bytes(
-    data: bytes, mime: str, filename: str, *, organization_id: int
+    data: bytes, mime: str, filename: str, *, organization_id: int, counted: bool = True
 ) -> tuple[str, str, str]:
     """Persist raw bytes fetched from an external source (e.g. a Google Drive
     attachment) under the same validation and layout as a direct upload.
@@ -472,6 +494,10 @@ async def save_bytes(
     # through the decoder and measure the (smaller) transcoded JPEG instead.
     if len(data) > MAX_FILE_BYTES:
         raise ValueError("File exceeds the 20 MB limit")
+    # `counted=False` only for pieces the server cuts from a file it already
+    # counted (a booklet's papers): the allowance is for what comes in.
+    if counted and not await spend_daily_allowance(upload_daily_limiter, organization_id):
+        raise ValueError(DAILY_UPLOAD_LIMIT_MESSAGE)
     data, mime = await _normalize(data, mime)
     if mime not in ALLOWED_MIMES:
         raise ValueError(f"Unsupported file type: {mime}")

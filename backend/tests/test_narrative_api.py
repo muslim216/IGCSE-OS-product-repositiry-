@@ -294,7 +294,7 @@ async def test_prepare_again_enqueues_a_forced_refresh(client, tutor, world, mon
             weak_students=[SimpleNamespace(student_name="Sara", score=44)],
         )
 
-    async def fake_text_complete(*, surface, prompt, max_tokens):
+    async def fake_text_complete(*, organization_id, surface, prompt, max_tokens):
         return AiResponse(
             provider=AiProvider.anthropic,
             model="test-model",

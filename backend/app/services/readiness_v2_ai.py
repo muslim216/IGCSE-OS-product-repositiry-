@@ -326,6 +326,7 @@ async def _synthesize_subject(
 
     try:
         response = await structured_complete(
+            organization_id=student.organization_id,
             surface="readiness",
             content=[{"type": "text", "text": prompt}],
             output_format=ReadinessSynthesis,

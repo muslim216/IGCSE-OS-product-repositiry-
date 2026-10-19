@@ -368,7 +368,7 @@ async def test_readiness_is_not_degraded_when_no_redis_is_configured(client, mon
     body = (await client.get("/api/v1/health/ready")).json()
 
     assert body["rate_limit"]["ok"] is True
-    limiter = body["rate_limit"]["limiters"][0]
+    limiter = _login(body["rate_limit"]["limiters"])
     assert limiter["configured"] is False
     assert limiter["degraded"] is False
     assert limiter["backend"] == "in_process"
@@ -391,7 +391,7 @@ async def test_readiness_reports_a_configured_redis_that_stopped_answering(
     body = resp.json()
     assert body["status"] == "degraded"
     assert body["rate_limit"]["ok"] is False
-    assert body["rate_limit"]["limiters"][0]["degraded"] is True
+    assert _login(body["rate_limit"]["limiters"])["degraded"] is True
 
 
 async def test_readiness_probes_rather_than_remembering(client, broken_redis):
@@ -403,7 +403,7 @@ async def test_readiness_probes_rather_than_remembering(client, broken_redis):
     resp = await client.get("/api/v1/health/ready")
 
     assert resp.status_code == 503
-    limiter = resp.json()["rate_limit"]["limiters"][0]
+    limiter = _login(resp.json()["rate_limit"]["limiters"])
     assert limiter["reachable"] is False
     assert limiter["degraded"] is True
     assert broken_redis.calls > 0, "readiness must actually probe"
@@ -506,3 +506,9 @@ async def test_every_counter_carries_a_ttl(redis_settings):
     finally:
         await limiter.reset(identifier)
         await store.close()
+
+
+def _login(limiters: list[dict]) -> dict:
+    """The login limiter's report: the health block lists every limiter."""
+    [login] = [limiter for limiter in limiters if limiter["purpose"] == "login"]
+    return login

@@ -98,14 +98,15 @@ async def _run_extraction(session: AsyncSession, upload: SyllabusUpload) -> None
         }
     )
 
+    tutor = await session.get(User, upload.tutor_id)
+    assert tutor is not None
     response = await structured_complete(
+        organization_id=tutor.organization_id,
         surface="syllabus",
         content=content,
         output_format=SyllabusExtractionResult,
         max_tokens=16000,
     )
-    tutor = await session.get(User, upload.tutor_id)
-    assert tutor is not None
     await record_usage(
         session,
         response,

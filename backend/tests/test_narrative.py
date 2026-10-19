@@ -50,7 +50,7 @@ def fake_narrative_ai(monkeypatch):
     def _install(text: str = "A short paragraph.", *, raises: Exception | None = None):
         calls: list[str] = []
 
-        async def _call(*, surface, prompt, max_tokens):
+        async def _call(*, organization_id, surface, prompt, max_tokens):
             calls.append(prompt)
             if raises is not None:
                 raise raises

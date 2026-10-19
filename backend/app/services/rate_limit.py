@@ -518,10 +518,63 @@ login_limiter = RateLimiter(
     window_seconds=LOGIN_WINDOW_SECONDS,
 )
 
-#: Every limiter the app defines. A list rather than one global because the next
-#: limiter (`RISK-12` wants one on the AI-triggering endpoints) must be able to
-#: join the health report without changing its shape.
-ALL_LIMITERS: list[RateLimiter] = [login_limiter]
+DAY_SECONDS = 24 * 60 * 60
+
+#: Per workspace, per day (`SA-01`, `RISK-12`): every AI call, every stored
+#: file, every message sent. Keyed by organization; the limits are settings.
+marking_daily_limiter = RateLimiter(
+    purpose="marking_daily",
+    limit=get_settings().daily_marking_calls_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+ai_daily_limiter = RateLimiter(
+    purpose="ai_daily",
+    limit=get_settings().daily_ai_calls_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+upload_daily_limiter = RateLimiter(
+    purpose="upload_daily",
+    limit=get_settings().daily_uploads_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+#: Keyed by student, inside their workspace's allowance.
+student_upload_daily_limiter = RateLimiter(
+    purpose="student_upload_daily",
+    limit=get_settings().daily_uploads_per_student,
+    window_seconds=DAY_SECONDS,
+)
+message_daily_limiter = RateLimiter(
+    purpose="message_daily",
+    limit=get_settings().daily_messages_per_workspace,
+    window_seconds=DAY_SECONDS,
+)
+
+#: Every limiter the app defines. A list rather than one global so a new
+#: limiter joins the health report without changing its shape.
+ALL_LIMITERS: list[RateLimiter] = [
+    login_limiter,
+    marking_daily_limiter,
+    ai_daily_limiter,
+    upload_daily_limiter,
+    student_upload_daily_limiter,
+    message_daily_limiter,
+]
+
+
+async def spend_daily_allowance(
+    limiter: RateLimiter, organization_id: int, *, key: int | None = None
+) -> bool:
+    """Count one use against an allowance within the workspace — the
+    workspace's own, or `key`'s (a student) inside it; False, counting nothing,
+    once it is spent. Counted before the work, so a failed AI call or upload
+    still uses its place and retries cannot go round the limit. A check then a
+    count, not one atomic step: with Redis, callers at the same instant can
+    overshoot by a few, which a daily ceiling can afford."""
+    identifier = str(organization_id if key is None else key)
+    if await limiter.is_limited(identifier, tenant=organization_id):
+        return False
+    await limiter.record(identifier, tenant=organization_id)
+    return True
 
 
 async def rate_limit_health() -> dict:

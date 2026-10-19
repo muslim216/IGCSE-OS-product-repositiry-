@@ -37,6 +37,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models import AiFeature, AiUsageEvent
 from app.services.prompts import get_prompt
+from app.services.rate_limit import (
+    ai_daily_limiter,
+    marking_daily_limiter,
+    spend_daily_allowance,
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +60,26 @@ class AIKeyMissingError(AIUnavailableError):
     #: attempt a minute later meets the same missing key, so the job is not
     #: retried. Only this subclass is marked; the parent keeps its retry.
     job_retryable = False
+
+
+class AIDailyLimitError(AIUnavailableError):
+    """This workspace has used today's allowance of AI calls (`SA-01`). A
+    surface degrades for it as for a missing key: the AI is not available to
+    this workspace until the allowance frees up."""
+
+    #: A minute later the allowance is still spent.
+    job_retryable = False
+
+
+async def _spend_ai_allowance(organization_id: int, surface: str) -> None:
+    # Every model call starts here, so no surface can go round the limit; the
+    # count is per workspace, whichever tutor or job is asking. Marking draws
+    # on its own allowance: background work must not leave hand-ins unmarked.
+    limiter = marking_daily_limiter if surface == "marking" else ai_daily_limiter
+    if not await spend_daily_allowance(limiter, organization_id):
+        raise AIDailyLimitError(
+            "This workspace has reached today's limit for AI work. It frees up within 24 hours."
+        )
 
 
 # Said in more than one place, so defined once. Tests assert on the literal text
@@ -753,6 +778,7 @@ def _json_schema_format(output_format: type[BaseModel]) -> Any:
 
 async def structured_complete(
     *,
+    organization_id: int,
     surface: str,
     content: list[dict],
     output_format: type[ParsedT],
@@ -762,7 +788,9 @@ async def structured_complete(
 ) -> AiResponse[ParsedT]:
     """A structured (schema-constrained) completion for one surface. `content`
     is a list of Anthropic-shaped blocks; `output_format` is a Pydantic model
-    both providers are asked to fill in."""
+    both providers are asked to fill in. `organization_id` is whose daily AI
+    allowance the call spends."""
+    await _spend_ai_allowance(organization_id, surface)
     provider, model = resolve_surface(surface)
     prompt = get_prompt(surface)
     extras = extra_system or []
@@ -842,6 +870,7 @@ async def structured_complete(
 
 async def text_complete(
     *,
+    organization_id: int,
     surface: str,
     prompt: str,
     max_tokens: int,
@@ -853,7 +882,9 @@ async def text_complete(
 
     `timeout_seconds` is the total deadline for this call. The default is the
     short text cap, right for a line written inside a web request; a caller that
-    writes a long document in a background job passes a longer one."""
+    writes a long document in a background job passes a longer one.
+    `organization_id` is whose daily AI allowance the call spends."""
+    await _spend_ai_allowance(organization_id, surface)
     limit = timeout_seconds or get_settings().ai_text_call_timeout_seconds
     provider, model = resolve_surface(surface)
     template = get_prompt(surface)

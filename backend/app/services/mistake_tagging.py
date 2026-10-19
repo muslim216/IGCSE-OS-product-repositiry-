@@ -201,11 +201,12 @@ def _build_content(categories: list[MistakeCategory], lost: list[LostAnswer]) ->
 
 
 async def _tag_call(
-    categories: list[MistakeCategory], lost: list[LostAnswer]
+    organization_id: int, categories: list[MistakeCategory], lost: list[LostAnswer]
 ) -> AiResponse[MistakeTaggingResult]:
     """The model call and nothing else — kept apart from `tag_mistakes` so
     that function stays about the writes, per this module's ~250-line budget."""
     return await structured_complete(
+        organization_id=organization_id,
         surface="mistake_tagging",
         content=_build_content(categories, lost),
         output_format=MistakeTaggingResult,
@@ -422,7 +423,7 @@ async def tag_mistakes(session: AsyncSession, payload: dict) -> None:
         await session.commit()
         return
 
-    response = await _tag_call(categories, lost)
+    response = await _tag_call(organization_id, categories, lost)
 
     tutor_id = await resolve_org_tutor_id(session, organization_id)
     if tutor_id is None:

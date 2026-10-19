@@ -42,6 +42,7 @@ from app.services.notifications.contacts import suppress_contact
 from app.services.notifications.email import EmailChannel
 from app.services.notifications.templates import clean_params, template_for
 from app.services.notifications.whatsapp import WhatsAppChannel
+from app.services.rate_limit import message_daily_limiter, spend_daily_allowance
 from app.workers.jobs import MAX_ATTEMPTS, enqueue
 
 log = logging.getLogger("notifications")
@@ -50,6 +51,10 @@ SEND_JOB = "send_notification"
 
 #: WhatsApp first, email as the fallback (owner decision, task 8.1).
 CHANNEL_ORDER = (NotificationChannel.whatsapp, NotificationChannel.email)
+
+
+#: What a message refused by the daily allowance records as its reason.
+DAILY_MESSAGE_LIMIT_REASON = "This workspace reached today's message limit"
 
 
 def channel_registry() -> dict[NotificationChannel, Channel]:
@@ -196,6 +201,12 @@ async def notify(
     selection = await select_channels(session, recipient, kind)
     if selection.status is not None:
         _end(note, selection.status, selection.reason)
+        await session.flush()
+        return note
+    # Only a message that would go out spends the workspace's daily allowance
+    # (`SA-01`, `SA-10`): one with no channel never reaches a provider.
+    if not await spend_daily_allowance(message_daily_limiter, note.organization_id):
+        _end(note, NotificationStatus.failed, DAILY_MESSAGE_LIMIT_REASON)
         await session.flush()
         return note
     await enqueue(session, SEND_JOB, {"notification_id": note.id})

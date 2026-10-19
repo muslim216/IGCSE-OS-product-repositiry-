@@ -498,7 +498,7 @@ async def sit_mock(
     # `mocks` row across every student's file I/O would make them queue behind
     # one another for the length of an upload. Nothing here touches the mock.
     saved = [
-        await storage.save_upload(upload, organization_id=user.organization_id)
+        await storage.save_upload(upload, organization_id=user.organization_id, student_id=user.id)
         for upload in files or []
     ]
 

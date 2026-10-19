@@ -587,6 +587,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     )
 
     response = await structured_complete(
+        organization_id=source.organization_id,
         surface="marking",
         content=content,
         output_format=MarkingResult,

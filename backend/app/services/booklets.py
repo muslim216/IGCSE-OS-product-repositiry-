@@ -38,7 +38,10 @@ async def _cut(
 ) -> tuple[str, str, str]:
     """One page range, stored as its own PDF. Blocking work off the loop."""
     piece = await asyncio.to_thread(pdf.extract_pages, data, paper.first_page, paper.last_page)
-    return await storage.save_bytes(piece, "application/pdf", name, organization_id=organization_id)
+    # Cut from a booklet whose upload already counted against the allowance.
+    return await storage.save_bytes(
+        piece, "application/pdf", name, organization_id=organization_id, counted=False
+    )
 
 
 async def split_booklet(session: AsyncSession, payload: dict) -> None:
