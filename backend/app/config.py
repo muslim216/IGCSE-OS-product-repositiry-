@@ -32,6 +32,17 @@ class Settings(BaseSettings):
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
+    #: Connections one process may hold: `db_pool_size` kept open, up to
+    #: `db_max_overflow` more under load. Every process (each API instance, a
+    #: separate worker, and the old and new instance overlapping during a
+    #: deploy) holds its own, so the sum must stay under the plan's limit:
+    #: Render's Basic-256mb allows 100, 10 of them reserved (render.com compute
+    #: plans, read 19 October 2026). 20 each leaves room for four processes.
+    #: SQLAlchemy's own default was 15 for the API and its worker together,
+    #: which 60 students handing in at once would run out of (`DB-01`).
+    db_pool_size: int = 10
+    db_max_overflow: int = 10
+
     jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
