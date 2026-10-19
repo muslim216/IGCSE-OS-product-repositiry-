@@ -336,6 +336,14 @@ class Settings(BaseSettings):
     # means marking, extraction, readiness and reports all stop with no error
     # anywhere — /health/ready reports `not_started`, which is the signal.
     run_worker_in_api: bool = True
+    #: How many jobs one worker process runs at once (`CAP-2`). One job at a
+    #: time marks about 170 hand-ins an hour at best, so a class handing in at
+    #: a deadline waits hours for the last mark. Every slot holds a database
+    #: connection only between its model calls (`db.release_connection`), so
+    #: this sits well inside `db_pool_size`. One is the default and the only
+    #: value used before October 2026; more is switched on deliberately, after
+    #: the rehearsal shows it safe (`AV-85`).
+    worker_concurrency: int = Field(default=1, ge=1, le=16)
 
     # --- Redis (rate-limit counters only) ---------------------------------
     # Unset -> failed-login counters stay in process memory, which is correct at

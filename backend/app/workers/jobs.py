@@ -85,6 +85,17 @@ GIVE_UP_TIMEOUT_SECONDS = 30.0
 #: already treat it as: job type -> handler.
 _timeouts: dict[str, float] = {}
 
+#: Job types nobody is waiting on: sweeps, narratives, recomputes. With more
+#: than one slot (`worker_concurrency`) only the first slot runs these, so a
+#: sweep that queues hundreds of them can never hold up a student's marking
+#: (`CAP-2`). With one slot, the only setting before this, every type shares
+#: it in id order, exactly as before.
+_background: set[str] = set()
+
+#: Jobs this process is running now, and since when. The heartbeat reports the
+#: oldest, so a stuck one still shows as `stalled` while others come and go.
+_in_flight: dict[int, datetime] = {}
+
 #: This process's worker identity. Generated per process, not per machine: a
 #: restarted process is a new worker with its own row, which is what makes a
 #: worker that vanished visible as a row that stopped updating rather than one
@@ -318,6 +329,7 @@ def register_handler(
     *,
     timeout_seconds: float | None = None,
     on_give_up: GiveUp | None = None,
+    background: bool = False,
 ) -> None:
     """Register `handler` for `job_type`. `timeout_seconds` replaces the
     default time limit (`job_timeout_seconds`) for a job that is known to need
@@ -349,6 +361,10 @@ def register_handler(
         _give_ups.pop(job_type, None)
     else:
         _give_ups[job_type] = on_give_up
+    if background:
+        _background.add(job_type)
+    else:
+        _background.discard(job_type)
 
 
 def job_timeout_seconds(job_type: str) -> float:
@@ -700,19 +716,20 @@ async def _record_outcome(
     return gave_up
 
 
-async def process_one_job() -> bool:
-    """Claim and run one due pending job. Returns False when nothing is due."""
+async def process_one_job(*, skip_background: bool = False) -> bool:
+    """Claim and run one due pending job. Returns False when nothing is due.
+    `skip_background` leaves the background types (`_background`) to the
+    first slot."""
     now = datetime.now(timezone.utc)
+    due = [
+        Job.status == JobStatus.pending,
+        or_(Job.run_after.is_(None), Job.run_after <= now),
+    ]
+    if skip_background and _background:
+        due.append(Job.type.not_in(_background))
     async with async_session() as session:
         job = await session.scalar(
-            select(Job)
-            .where(
-                Job.status == JobStatus.pending,
-                or_(Job.run_after.is_(None), Job.run_after <= now),
-            )
-            .order_by(Job.id)
-            .limit(1)
-            .with_for_update(skip_locked=True)
+            select(Job).where(*due).order_by(Job.id).limit(1).with_for_update(skip_locked=True)
         )
         if job is None:
             return False
@@ -730,7 +747,8 @@ async def process_one_job() -> bool:
     # the handler, carries the job's id.
     context = log_context.bind(f"job-{job_id}")
     try:
-        await _write_heartbeat(job_started_at=datetime.now(timezone.utc))
+        _in_flight[job_id] = datetime.now(timezone.utc)
+        await _write_heartbeat(job_started_at=min(_in_flight.values()))
         try:
             error, permanent = await _run_handler(job_id, job_type, payload)
         except asyncio.CancelledError:
@@ -759,8 +777,9 @@ async def process_one_job() -> bool:
         await asyncio.shield(_hand_back(job_id))
         raise
     finally:
+        _in_flight.pop(job_id, None)
         try:
-            await _write_heartbeat(job_started_at=None)
+            await _write_heartbeat(job_started_at=min(_in_flight.values(), default=None))
         finally:
             log_context.reset(context)
     return True
@@ -935,6 +954,31 @@ async def worker_loop() -> None:
     # answered.
     await _sweep_orphans_safely()
     _last_orphan_sweep = datetime.now(timezone.utc)
+    # The first slot is the loop below, unchanged: it keeps the heartbeat and
+    # the orphan sweep, and takes every job type. Each further slot runs only
+    # the jobs somebody is waiting on (see `_background`). One task group, so
+    # stopping the worker stops every slot, and each hands its job back.
+    async with asyncio.TaskGroup() as slots:
+        for _ in range(get_settings().worker_concurrency - 1):
+            slots.create_task(_extra_slot())
+        await _first_slot()
+
+
+async def _extra_slot() -> None:
+    while True:
+        try:
+            worked = await process_one_job(skip_background=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("job worker slot iteration crashed")
+            worked = False
+        if not worked:
+            await asyncio.sleep(POLL_SECONDS)
+
+
+async def _first_slot() -> None:
+    global _last_heartbeat_write, _last_orphan_sweep
     while True:
         # Retried, not attempted once: a database that is unreachable at
         # startup would otherwise leave this worker permanently unregistered.
