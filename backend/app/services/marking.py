@@ -15,6 +15,7 @@ finalized mark through a remark request.
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
@@ -62,6 +63,8 @@ from app.services.submission_kind import (
 from app.services.work import parent_of
 from app.workers.jobs import enqueue
 
+logger = logging.getLogger(__name__)
+
 # Confidence levels good enough for a scheme-backed mark to stand without a
 # tutor. Anything else goes to the review queue.
 AUTO_FINALIZE_CONFIDENCE = (MarkConfidence.high, MarkConfidence.medium)
@@ -106,10 +109,18 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
     )
     if submission is None or submission.status == SubmissionStatus.finalized:
         return
+    marking_attempt = submission.submitted_at
     try:
         await _run_marking(session, submission)
         submission.ai_error = None
     except Exception as exc:
+        if not await _still_the_same_attempt(session, submission.id, marking_attempt):
+            # Replaced while this job ran: the failure was the old pages', and
+            # the replacement has its own job. Writing `ai_failed` would show a
+            # tutor a failure for work still being marked, and raising would
+            # retry this job into marking the new pages a second time.
+            _log_replaced(submission.id, marking_attempt)
+            return
         submission.status = SubmissionStatus.ai_failed
         submission.ai_error = str(exc) or exc.__class__.__name__
         await session.commit()
@@ -612,6 +623,7 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         # replacement queued its own marking; writing these marks would count
         # the old pages and make that job find every question decided and
         # skip the new ones (`DB-08`). The call is still recorded above.
+        _log_replaced(submission.id, marking_attempt)
         return
 
     flagged = submission.typed_flag_reason is not None
@@ -679,6 +691,16 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             mark.needs_review = True
 
     await _settle_submission(session, submission, source.subject_id)
+
+
+def _log_replaced(submission_id: int, marking_attempt: datetime) -> None:
+    # The only trace of a job that marked nothing on purpose. If this ever
+    # fires with no newer marking job queued, the submission is stuck.
+    logger.info(
+        "marking: submission %s was replaced during marking (attempt of %s); result discarded",
+        submission_id,
+        marking_attempt.isoformat(),
+    )
 
 
 async def _still_the_same_attempt(

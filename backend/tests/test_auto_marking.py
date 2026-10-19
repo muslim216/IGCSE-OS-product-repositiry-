@@ -9,6 +9,8 @@ from app.db import async_session
 from app.models import (
     AssignmentQuestion,
     Evidence,
+    Job,
+    JobStatus,
     MarkOverrideAudit,
     QuestionMark,
     RemarkRequest,
@@ -764,3 +766,52 @@ async def test_pages_replaced_while_being_marked_are_marked_fresh(
         evidence = (await session.scalars(select(Evidence))).all()
     assert len(marks) == 2
     assert len(evidence) == len(marks)
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+    assert submission.ai_error is None
+
+
+async def test_a_failure_on_replaced_pages_does_not_mark_the_replacement_failed(
+    client,
+    tutor,
+    student,
+    assignment_all_scheme,
+    monkeypatch,
+    fake_ai,  # noqa: F811
+):
+    """The old pages' model call fails after the student replaced them. That
+    failure belongs to pages that no longer exist: the replacement is not shown
+    as failed, and the old job is not retried into marking it a second time."""
+    second = fake_ai(_confident_result())
+    calls = 0
+
+    async def model(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            replaced = await client.post(
+                f"/api/v1/assignments/{assignment_all_scheme}/submissions",
+                files=[("files", ("page1-again.png", PNG_BYTES, "image/png"))],
+                headers=student["headers"],
+            )
+            assert replaced.status_code == 201, replaced.text
+            raise RuntimeError("provider timed out")
+        return await second(**kwargs)
+
+    monkeypatch.setattr("app.services.marking.structured_complete", model)
+    await _submit(client, assignment_all_scheme, student)
+    async with async_session() as session:
+        submission = await session.scalar(select(Submission))
+    assert submission.status == SubmissionStatus.submitted
+    assert submission.ai_error is None
+
+    assert await process_one_job() is True  # the replacement's job
+    async with async_session() as session:
+        markings = (await session.scalars(select(Job).where(Job.type == "mark_submission"))).all()
+    # Both done, once each: the old job is not left to retry into a third call.
+    assert [(job.status, job.attempts) for job in markings] == [(JobStatus.done, 1)] * 2
+    assert calls == 2
+    subs = await client.get(
+        f"/api/v1/assignments/{assignment_all_scheme}/submissions", headers=tutor["headers"]
+    )
+    assert subs.json()[0]["status"] == "auto_finalized"
