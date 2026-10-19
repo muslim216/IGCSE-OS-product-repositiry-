@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     #: A refresh token is single-use. A browser that fires several requests at
     #: once refreshes several times with the same cookie, so the token just
     #: replaced is still accepted for this long. Past it, a replay means two
-    #: parties hold the token, and every session of that account is ended.
-    refresh_reuse_grace_seconds: int = 60
+    #: parties hold the token, and that sign-in is ended for both.
+    refresh_reuse_grace_seconds: int = 30
     #: How long a browser that signed in stays "known" to that account. A known
     #: browser has its own failed-sign-in allowance, so a stranger typing wrong
     #: passwords cannot lock its owner out (`SA-06`).

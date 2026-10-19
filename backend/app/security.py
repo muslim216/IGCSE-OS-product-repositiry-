@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -104,15 +103,16 @@ def decode_refresh_token(token: str) -> tuple[int, int, int, int] | None:
         return None
 
 
-def create_device_token(identifier: str) -> str:
-    """Marks a browser that has signed in to `identifier`, so its owner keeps a
+def create_device_token(user_id: int) -> str:
+    """Marks a browser that has signed in to this account, so its owner keeps a
     failed-sign-in allowance of their own that a stranger cannot spend (`SA-06`).
-    It grants no access by itself."""
+    Bound to the account, not to what was typed, so it holds whether the owner
+    signs in by email or by username. It grants no access by itself."""
     settings = get_settings()
     now = datetime.now(timezone.utc)
     payload = {
         "type": "device",
-        "idf": _identifier_digest(identifier),
+        "uid": user_id,
         "nonce": secrets.token_urlsafe(12),
         "iat": now,
         "exp": now + timedelta(days=settings.known_device_days),
@@ -120,8 +120,8 @@ def create_device_token(identifier: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def known_device(token: str | None, identifier: str) -> str | None:
-    """This browser's id if `token` is a device token issued for `identifier`."""
+def known_device(token: str | None, user_id: int) -> str | None:
+    """This browser's id if `token` is a device token issued for `user_id`."""
     if not token:
         return None
     settings = get_settings()
@@ -129,15 +129,10 @@ def known_device(token: str | None, identifier: str) -> str | None:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except jwt.PyJWTError:
         return None
-    if payload.get("type") != "device" or payload.get("idf") != _identifier_digest(identifier):
+    if payload.get("type") != "device" or payload.get("uid") != user_id:
         return None
     nonce = payload.get("nonce")
     return nonce if isinstance(nonce, str) and nonce else None
-
-
-def _identifier_digest(identifier: str) -> str:
-    # Hashed so the cookie does not carry the email address in readable form.
-    return hashlib.sha256(identifier.encode()).hexdigest()[:32]
 
 
 #: OAuth round-trips leave the app and come back through Google. Ten minutes is
@@ -182,7 +177,13 @@ def verify_state_token(token: str, user_id: int, purpose: str) -> bool:
 
 
 def decode_token(token: str, expected_type: str) -> tuple[int, int] | None:
-    """Return (user id, token version) if the token is valid and of the expected type."""
+    """Return (user id, token version) if the token is valid and of the expected type.
+
+    Never for a refresh token: those go through `decode_refresh_token`, because
+    accepting one here would skip the single-use check in `rotate()` (`SA-11`).
+    """
+    if expected_type == "refresh":
+        return None
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])

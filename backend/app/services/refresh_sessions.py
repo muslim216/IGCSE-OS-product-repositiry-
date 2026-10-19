@@ -4,14 +4,23 @@ A refresh token used to be a 30-day bearer credential that could be replayed
 any number of times, so a cookie copied off a shared school laptop worked
 silently for a month. Now each sign-in is a `RefreshSession` and each token
 names a generation of it: a token works once, and a second use outside the
-grace window ends every session the account has (`users.token_version`, the
-same switch logout and a tutor's password reset use — `SEC-1`).
+grace window ends that sign-in for whoever holds it.
+
+Only that sign-in, not every session of the account. A copied cookie can only
+continue the chain it was copied from, so ending the chain is enough to cut the
+thief off; ending every device as well would turn a phone that lost a refresh
+response on a bad connection into a sign-out everywhere. This is the token-
+family revocation of the OAuth security best practice (RFC 9700 §4.14.2).
+Residual: an access token the thief already holds lives out its 30 minutes.
+Logout and a tutor's password reset still end everything (`token_version`,
+`SEC-1`).
 """
 
 import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, update
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -38,9 +47,10 @@ def expires_at(session: RefreshSession, now: datetime) -> datetime:
 async def start(db: AsyncSession, user: User) -> RefreshSession:
     """A new sign-in for `user`. The caller commits.
 
-    Clears the user's sessions that are past their hard limit on the way, so the
-    table holds about one row per browser per user rather than one per sign-in
-    for ever.
+    Clears the user's sessions that are past their hard limit on the way, and
+    logout clears all of them (`end_all`), so a user's rows are bounded by their
+    sign-ins in the last `refresh_session_max_days`. Rows of a user who never
+    signs in or out again stay; each is a few integers.
     """
     now = utcnow()
     cutoff = now - timedelta(days=get_settings().refresh_session_max_days)
@@ -67,8 +77,8 @@ async def rotate(
     - It is the one just replaced, within the grace window: the same browser
       refreshing from several requests at once. They all get the current token.
     - Anything older is a replay. Someone else holds a copy of this chain, and
-      there is no telling which party is the owner, so the account's every
-      session ends and whoever is real signs in again with the password.
+      there is no telling which party is the owner, so the chain ends for both
+      and whoever is real signs in again with the password.
     """
     now = utcnow()
     session = await db.get(RefreshSession, session_id)
@@ -88,7 +98,11 @@ async def rotate(
             .execution_options(synchronize_session=False)
         )
         await db.commit()
-        await db.refresh(session)
+        try:
+            await db.refresh(session)
+        except InvalidRequestError:
+            # A replay of this chain deleted it between the two statements.
+            return None
         if moved.rowcount == 1:  # type: ignore[attr-defined]
             return session
 
@@ -97,11 +111,16 @@ async def rotate(
         return session
 
     log.warning(
-        "refresh token replayed; ending every session (user_id=%s session_id=%s)",
+        "refresh token replayed; ending that sign-in (user_id=%s session_id=%s)",
         user.id,
         session.id,
     )
-    user.token_version += 1
-    await db.delete(session)
+    await db.execute(delete(RefreshSession).where(RefreshSession.id == session.id))
     await db.commit()
     return None
+
+
+async def end_all(db: AsyncSession, user: User) -> None:
+    """Drop every session of `user`. The caller commits, alongside the
+    `token_version` bump that is what actually ends them."""
+    await db.execute(delete(RefreshSession).where(RefreshSession.user_id == user.id))

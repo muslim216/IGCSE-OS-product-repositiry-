@@ -93,17 +93,15 @@ def _issue(response: Response, user: User, session: RefreshSession) -> AccessTok
     return _access_only(tokens)
 
 
-async def _sign_in(
-    db: AsyncSession, response: Response, user: User, identifier: str
-) -> AccessToken:
+async def _sign_in(db: AsyncSession, response: Response, user: User) -> AccessToken:
     """Every way into an account ends here: a new refresh session, its first
-    token, and this browser marked as known to `identifier` (`SA-06`, `SA-11`)."""
+    token, and this browser marked as known to the account (`SA-06`, `SA-11`)."""
     session = await refresh_sessions.start(db, user)
     await db.commit()
     settings = get_settings()
     response.set_cookie(
         DEVICE_COOKIE,
-        create_device_token(identifier),
+        create_device_token(user.id),
         max_age=settings.known_device_days * 86400,
         httponly=True,
         secure=settings.refresh_cookie_secure,
@@ -144,7 +142,7 @@ async def register_tutor(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    tokens = await _sign_in(db, response, user, email)
+    tokens = await _sign_in(db, response, user)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
@@ -173,19 +171,24 @@ async def login(
     # cookie, and counts its failures on a key of its own that nobody else can
     # reach. The shared counter still caps everyone else, so guessing gains
     # nothing — a device key is only ever minted after the right password.
-    device = known_device(request.cookies.get(DEVICE_COOKIE), identifier)
-    throttle_key = identifier if device is None else f"{identifier}\x00device:{device}"
+    #
+    # The account is looked up before the throttle check so the cookie can be
+    # matched to it however the owner typed their name. That costs one indexed
+    # query per attempt and opens no timing difference: the bcrypt verify below,
+    # which is what an attacker could time, still runs for a miss.
+    user = await db.scalar(
+        select(User).where(
+            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
+        )
+    )
+    device = known_device(request.cookies.get(DEVICE_COOKIE), user.id) if user else None
+    throttle_key = identifier if device is None else f"user:{user.id}\x00device:{device}"
     if await login_limiter.is_limited(throttle_key):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many failed sign-in attempts. Wait a few minutes and try again.",
         )
 
-    user = await db.scalar(
-        select(User).where(
-            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
-        )
-    )
     # The dummy hash off the loop too: the first miss after a restart makes it.
     stored = user.password_hash if user else await run_bcrypt(_dummy_hash)
     password_ok = await verify_password_async(body.password, stored)
@@ -194,7 +197,7 @@ async def login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
 
     await login_limiter.reset(throttle_key)
-    tokens = await _sign_in(db, response, user, identifier)
+    tokens = await _sign_in(db, response, user)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
@@ -223,6 +226,8 @@ async def refresh(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response, db: DbSession, user: CurrentUser) -> None:
     user.token_version += 1
+    # The bump has already made every one of these sessions useless.
+    await refresh_sessions.end_all(db, user)
     await db.commit()
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
 
@@ -308,7 +313,7 @@ async def register_student(
     await _add_to_group(db, invite.group_id, user.id)
     await db.commit()
     await db.refresh(user)
-    tokens = await _sign_in(db, response, user, email)
+    tokens = await _sign_in(db, response, user)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
@@ -339,7 +344,7 @@ async def register_parent(
     await consume(db, invite)
     await db.commit()
     await db.refresh(user)
-    tokens = await _sign_in(db, response, user, email)
+    tokens = await _sign_in(db, response, user)
     return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
