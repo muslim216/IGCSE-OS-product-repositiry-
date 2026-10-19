@@ -154,6 +154,14 @@ def _dummy_hash() -> str:
     return hash_password(secrets.token_urlsafe(32))
 
 
+async def _find_account(db: AsyncSession, identifier: str) -> User | None:
+    return await db.scalar(
+        select(User).where(
+            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
+        )
+    )
+
+
 @router.post("/login", response_model=AuthResponse)
 async def login(
     body: LoginRequest, request: Request, db: DbSession, response: Response
@@ -172,22 +180,26 @@ async def login(
     # reach. The shared counter still caps everyone else, so guessing gains
     # nothing — a device key is only ever minted after the right password.
     #
-    # The account is looked up before the throttle check so the cookie can be
-    # matched to it however the owner typed their name. That costs one indexed
-    # query per attempt and opens no timing difference: the bcrypt verify below,
-    # which is what an attacker could time, still runs for a miss.
-    user = await db.scalar(
-        select(User).where(
-            or_(func.lower(User.email) == identifier, func.lower(User.username) == identifier)
-        )
-    )
-    device = known_device(request.cookies.get(DEVICE_COOKIE), user.id) if user else None
-    throttle_key = identifier if device is None else f"user:{user.id}\x00device:{device}"
+    # With a device cookie, the account is looked up before the throttle check
+    # so the cookie can be matched to it however the owner typed their name.
+    # That opens no timing difference: the bcrypt verify below, which is what
+    # an attacker could time, still runs for a miss. Without one, the shared
+    # counter is checked first, so hammering a locked identifier costs no query.
+    device_cookie = request.cookies.get(DEVICE_COOKIE)
+    user = None
+    throttle_key = identifier
+    if device_cookie:
+        user = await _find_account(db, identifier)
+        device = known_device(device_cookie, user.id) if user else None
+        if user is not None and device is not None:
+            throttle_key = f"user:{user.id}\x00device:{device}"
     if await login_limiter.is_limited(throttle_key):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many failed sign-in attempts. Wait a few minutes and try again.",
         )
+    if not device_cookie:
+        user = await _find_account(db, identifier)
 
     # The dummy hash off the loop too: the first miss after a restart makes it.
     stored = user.password_hash if user else await run_bcrypt(_dummy_hash)

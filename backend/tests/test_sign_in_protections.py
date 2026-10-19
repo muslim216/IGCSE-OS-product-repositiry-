@@ -18,14 +18,22 @@ from app.security import (
     create_device_token,
     create_refresh_token,
     decode_refresh_token,
+    known_device,
 )
 from app.services import refresh_sessions
-from app.services.rate_limit import LOGIN_FAILURE_LIMIT
+from app.services.rate_limit import LOGIN_FAILURE_LIMIT, login_limiter
 
 LOGIN = "/api/v1/auth/login"
 REFRESH = "/api/v1/auth/refresh"
 GOOD = {"identifier": "tutor@example.com", "password": "password123"}
 BAD = {"identifier": "tutor@example.com", "password": "not-the-password"}
+
+
+@pytest.fixture(autouse=True)
+def _window_that_cannot_roll_over(monkeypatch):
+    """The login window is fixed to the clock, so a test that straddles a
+    15-minute boundary would see the stranger's allowance refilled mid-test."""
+    monkeypatch.setattr(login_limiter.local, "window_seconds", 10.0**12)
 
 
 def _browser() -> AsyncClient:
@@ -137,18 +145,34 @@ async def test_the_pass_holds_however_the_owner_types_their_name(client, tutor, 
     assert (await client.post(LOGIN, json=shouty)).status_code == 200
 
 
-async def test_every_way_in_marks_the_browser_known(client, tutor, student):
-    from app.security import known_device
+async def test_joining_through_an_invite_marks_the_browser_known(client, tutor, group):
+    invite = await client.post(f"/api/v1/groups/{group['id']}/invites", headers=tutor["headers"])
+    async with _browser() as fresh:
+        resp = await fresh.post(
+            "/api/v1/auth/register/student",
+            json={
+                "invite_code": invite.json()["code"],
+                "name": "Sara",
+                "email": "sara@example.com",
+                "password": "password123",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        user_id = resp.json()["user"]["id"]
+        assert known_device(fresh.cookies.get("avora_device"), user_id) is not None
+        assert fresh.cookies.get("igcse_refresh")
+    assert len(await _session_rows(user_id)) == 1
 
-    for user_id, email in (
-        (tutor["user"]["id"], None),
-        (student["user"]["id"], "sara@example.com"),
-    ):
-        async with _browser() as fresh:
-            ident = email or "tutor@example.com"
-            resp = await fresh.post(LOGIN, json={"identifier": ident, "password": "password123"})
-            assert resp.status_code == 200
-            assert known_device(fresh.cookies.get("avora_device"), user_id) is not None
+
+async def test_a_browser_is_known_to_the_last_account_signed_in_on_it(client, tutor, stranger):
+    """Pinned limit: one device cookie per browser. On a laptop two people share,
+    the one who signed in last is the one the browser vouches for."""
+    await client.post(
+        "/api/v1/auth/register/tutor",
+        json={"name": "Second", "email": "second@example.com", "password": "password123"},
+    )
+    await _spend_the_shared_allowance(stranger)
+    assert (await client.post(LOGIN, json=GOOD)).status_code == 429
 
 
 @pytest.mark.parametrize("path", ["/api/v1/auth/register/tutor", LOGIN])
@@ -208,7 +232,8 @@ async def test_one_browser_refreshing_from_several_requests_at_once_is_not_a_rep
     first = tutor["refresh_token"]
     a = await client.post(REFRESH, json={"refresh_token": first})
     b = await client.post(REFRESH, json={"refresh_token": first})
-    assert a.status_code == b.status_code == 200
+    assert a.status_code == 200
+    assert b.status_code == 200
     # Both answers carry the same current token, so the chain carries on.
     assert a.cookies.get("igcse_refresh") == b.cookies.get("igcse_refresh")
     current = b.cookies.get("igcse_refresh")
