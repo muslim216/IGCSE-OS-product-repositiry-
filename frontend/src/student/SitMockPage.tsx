@@ -50,10 +50,13 @@ export default function SitMockPage() {
     // Only while there is a running clock to keep honest: none once the work is
     // handed in, the time is up, or the tutor set no duration. It used to keep
     // asking every 30 s, hidden tab included, for as long as the page was open.
-    refetchInterval: (query) =>
-      submission.data || query.state.data?.overdue || query.state.data?.seconds_remaining == null
-        ? false
-        : CLOCK_REFETCH_MS,
+    // A clock that failed to start keeps retrying, as it always did.
+    refetchInterval: (query) => {
+      if (submission.data) return false;
+      const c = query.state.data;
+      if (!c) return CLOCK_REFETCH_MS;
+      return c.overdue || c.seconds_remaining == null ? false : CLOCK_REFETCH_MS;
+    },
     // Both deliberate. React Query stops interval refetches for a hidden tab
     // by default, and a student who switches away for twenty minutes would
     // come back to a local countdown that had drifted — the exact thing the

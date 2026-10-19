@@ -48,8 +48,14 @@ const NEEDS_TUTOR = new Set(["ai_marked", "ai_failed", "needs_review"]);
     waiting on the tutor, and polling will not change it. */
 const IN_PROGRESS = new Set(["submitted", "marking"]);
 
-function anyInProgress(data: unknown): boolean {
-  return ((data as { status: string }[] | undefined) ?? []).some((s) => IN_PROGRESS.has(s.status));
+/** Which hand-ins are in progress, so a new one restarts the poll's clock
+    even while an older one is stuck; `false` when there are none. */
+function handInsInProgress(data: unknown): string | false {
+  if (!Array.isArray(data)) return false;
+  const ids = (data as ({ id: number; status: string } | null)[])
+    .flatMap((s) => (s && IN_PROGRESS.has(s.status) ? [s.id] : []))
+    .sort((a, b) => a - b);
+  return ids.length ? ids.join(",") : false;
 }
 
 /** The shared control look at the denser size a table row needs. Width is left
@@ -77,7 +83,7 @@ export default function AssignmentDetailPage() {
     queryFn: () => listTopics(group.data!.subject.id),
     enabled: !!group.data,
   });
-  const submissionsRefetch = useBackoffRefetchInterval(id, anyInProgress);
+  const submissionsRefetch = useBackoffRefetchInterval(id, handInsInProgress);
   const submissions = useQuery({
     queryKey: ["submissions", id],
     queryFn: () => listSubmissions(id),

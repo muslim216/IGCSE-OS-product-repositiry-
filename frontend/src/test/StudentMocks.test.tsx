@@ -321,3 +321,21 @@ test("and never asks again when the tutor set no time limit", async () => {
     vi.useRealTimers();
   }
 });
+
+test("and stops once the server says the time is up", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockFetch({
+      opened_at: "2026-09-14T09:00:00Z",
+      due_at: "2026-09-14T10:30:00Z",
+      seconds_remaining: 0,
+      overdue: true,
+    });
+    renderSit();
+    await waitFor(() => expect(openCalls).toBe(1));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(openCalls).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
