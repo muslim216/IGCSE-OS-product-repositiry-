@@ -78,6 +78,7 @@ class ImageTooLargeError(ValueError):
     """A photo with more pixels than `MAX_IMAGE_PIXELS`. A ValueError, so a
     caller that only knows "this file was refused" still catches it."""
 
+
 #: Every stored file spends one of the workspace's daily allowance (`SA-01`,
 #: `SA-07`): the disk is shared, and each upload can start paid AI work.
 DAILY_UPLOAD_LIMIT_MESSAGE = (
