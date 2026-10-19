@@ -481,6 +481,7 @@ async def sit_mock(
     files: Annotated[list[UploadFile] | None, File()] = None,
     typed_answer: Annotated[str | None, Form()] = None,
 ) -> MockSubmissionOut:
+    storage.check_file_count(files)
     mock = await _visible_mock(db, user, mock_id, sitting=True)
     if mock.status != MockStatus.published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")

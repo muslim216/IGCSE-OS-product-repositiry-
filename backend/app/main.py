@@ -47,6 +47,7 @@ from app.api import (
     webhooks,
     weekly_sends,
 )
+from app.body_limit import BodySizeLimit
 from app.config import get_settings
 from app.db import async_session
 from app.models import Job, JobStatus
@@ -331,6 +332,13 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
+    # Innermost of the middleware, so a 413 still carries CORS, the request id
+    # and the security headers that the layers added after it put on.
+    app.add_middleware(
+        BodySizeLimit,
+        max_upload_bytes=settings.max_upload_request_mb * 1024 * 1024,
+        openapi=app.openapi,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,

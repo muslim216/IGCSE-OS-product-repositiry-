@@ -429,6 +429,7 @@ async def log_attempt(
 ) -> PastPaperAttemptOut:
     """A student logging a paper they sat. Creates a Submission, so marking,
     review and evidence all work exactly as they do for homework."""
+    storage.check_file_count(files)
     paper = await _visible_paper(db, user, past_paper_id)
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")

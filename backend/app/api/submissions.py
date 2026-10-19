@@ -182,6 +182,7 @@ async def submit_work(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignment not found")
     # Either channel, or both: a student may type most of an answer and
     # photograph the working (AV-73). Neither is not a submission.
+    storage.check_file_count(files)
     typed = form_typed_answer(typed_answer)
     if not files and typed is None:
         raise HTTPException(
