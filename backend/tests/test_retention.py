@@ -234,3 +234,23 @@ async def test_one_failing_step_does_not_stop_the_others(monkeypatch):
         sweeps = (await session.scalars(select(Job).where(Job.type == retention.SWEEP_JOB))).all()
     assert JobStatus.pending in {job.status for job in sweeps}
     assert any(job.error and "finished jobs" in job.error for job in sweeps)
+
+
+async def test_the_walk_pages_past_protected_rows(student, subject, monkeypatch):
+    """One row per batch, so the keyset (`created_at, id`) is what moves the
+    walk past a protected run to the deletable rows after it."""
+    monkeypatch.setattr(retention, "BATCH_SIZE", 1)
+    sid, subj = student["user"]["id"], subject["id"]
+    async with async_session() as session:
+        session.add_all(
+            [
+                _snapshot("kept", sid, subj, 300),
+                _evaluation("kept", sid, subj, 300),  # the latest run, oldest row
+                _evaluation("gone", sid, subj, 200),
+                _evaluation("gone", sid, subj, 150),
+            ]
+        )
+        await session.commit()
+        assert await retention.prune_readiness_working_rows(session, NOW) == 2
+        runs = (await session.scalars(select(FactorEvaluation.evaluation_run_id))).all()
+    assert runs == ["kept"]
