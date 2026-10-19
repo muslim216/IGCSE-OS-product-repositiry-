@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -68,11 +69,75 @@ def create_access_token(user_id: int, token_version: int) -> str:
     )
 
 
-def create_refresh_token(user_id: int, token_version: int) -> str:
+def create_refresh_token(
+    user_id: int, token_version: int, session_id: int, generation: int, expires_at: datetime
+) -> str:
+    """A single-use refresh token: `sid`/`gen` name the session and which of its
+    tokens this is (`services/refresh_sessions.py`, `SA-11`)."""
     settings = get_settings()
-    return _create_token(
-        user_id, token_version, "refresh", timedelta(days=settings.refresh_token_expire_days)
-    )
+    payload = {
+        "sub": str(user_id),
+        "tv": token_version,
+        "type": "refresh",
+        "sid": session_id,
+        "gen": generation,
+        "iat": datetime.now(timezone.utc),
+        "exp": expires_at,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_refresh_token(token: str) -> tuple[int, int, int, int] | None:
+    """(user id, token version, session id, generation), or None. A refresh token
+    from before sessions existed names none and is refused: its holder signs in
+    again, once."""
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("type") != "refresh":
+        return None
+    try:
+        return int(payload["sub"]), int(payload["tv"]), int(payload["sid"]), int(payload["gen"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def create_device_token(identifier: str) -> str:
+    """Marks a browser that has signed in to `identifier`, so its owner keeps a
+    failed-sign-in allowance of their own that a stranger cannot spend (`SA-06`).
+    It grants no access by itself."""
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    payload = {
+        "type": "device",
+        "idf": _identifier_digest(identifier),
+        "nonce": secrets.token_urlsafe(12),
+        "iat": now,
+        "exp": now + timedelta(days=settings.known_device_days),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def known_device(token: str | None, identifier: str) -> str | None:
+    """This browser's id if `token` is a device token issued for `identifier`."""
+    if not token:
+        return None
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("type") != "device" or payload.get("idf") != _identifier_digest(identifier):
+        return None
+    nonce = payload.get("nonce")
+    return nonce if isinstance(nonce, str) and nonce else None
+
+
+def _identifier_digest(identifier: str) -> str:
+    # Hashed so the cookie does not carry the email address in readable form.
+    return hashlib.sha256(identifier.encode()).hexdigest()[:32]
 
 
 #: OAuth round-trips leave the app and come back through Google. Ten minutes is

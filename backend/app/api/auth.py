@@ -1,4 +1,5 @@
 import secrets
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -8,7 +9,15 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.config import get_settings
-from app.models import Group, GroupMember, Invite, InviteKind, Organization, ParentLink
+from app.models import (
+    Group,
+    GroupMember,
+    Invite,
+    InviteKind,
+    Organization,
+    ParentLink,
+    RefreshSession,
+)
 from app.models.users import User, UserRole
 from app.schemas.auth import (
     AccessToken,
@@ -27,13 +36,16 @@ from app.schemas.groups import (
 )
 from app.security import (
     create_access_token,
+    create_device_token,
     create_refresh_token,
-    decode_token,
+    decode_refresh_token,
     hash_password,
     hash_password_async,
+    known_device,
     run_bcrypt,
     verify_password_async,
 )
+from app.services import refresh_sessions
 from app.services.invites import check_usable, consume
 from app.services.rate_limit import login_limiter
 from app.services.timezones import normalize_timezone
@@ -44,11 +56,7 @@ REFRESH_COOKIE = "igcse_refresh"
 REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 
-def _token_pair(user: User) -> TokenPair:
-    return TokenPair(
-        access_token=create_access_token(user.id, user.token_version),
-        refresh_token=create_refresh_token(user.id, user.token_version),
-    )
+DEVICE_COOKIE = "avora_device"
 
 
 def _access_only(tokens: TokenPair) -> AccessToken:
@@ -62,12 +70,47 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         REFRESH_COOKIE,
         token,
-        max_age=settings.refresh_token_expire_days * 86400,
+        max_age=settings.refresh_session_max_days * 86400,
         httponly=True,
         secure=settings.refresh_cookie_secure,
         samesite="lax",
         path=REFRESH_COOKIE_PATH,
     )
+
+
+def _issue(response: Response, user: User, session: RefreshSession) -> AccessToken:
+    tokens = TokenPair(
+        access_token=create_access_token(user.id, user.token_version),
+        refresh_token=create_refresh_token(
+            user.id,
+            user.token_version,
+            session.id,
+            session.generation,
+            refresh_sessions.expires_at(session, datetime.now(timezone.utc)),
+        ),
+    )
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return _access_only(tokens)
+
+
+async def _sign_in(
+    db: AsyncSession, response: Response, user: User, identifier: str
+) -> AccessToken:
+    """Every way into an account ends here: a new refresh session, its first
+    token, and this browser marked as known to `identifier` (`SA-06`, `SA-11`)."""
+    session = await refresh_sessions.start(db, user)
+    await db.commit()
+    settings = get_settings()
+    response.set_cookie(
+        DEVICE_COOKIE,
+        create_device_token(identifier),
+        max_age=settings.known_device_days * 86400,
+        httponly=True,
+        secure=settings.refresh_cookie_secure,
+        samesite="lax",
+        path=REFRESH_COOKIE_PATH,
+    )
+    return _issue(response, user, session)
 
 
 @router.post("/register/tutor", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -101,9 +144,8 @@ async def register_tutor(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    tokens = _token_pair(user)
-    _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
+    tokens = await _sign_in(db, response, user, email)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @lru_cache
@@ -115,14 +157,25 @@ def _dummy_hash() -> str:
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthResponse:
+async def login(
+    body: LoginRequest, request: Request, db: DbSession, response: Response
+) -> AuthResponse:
     identifier = body.identifier.strip().lower()
 
     # Throttled per identifier, not per client address: the API sits behind
     # Render's proxy, so every request shares one source IP and an address-based
     # limit would lock out the whole platform instead of one attacker. Per
     # identifier is what actually stops guessing a single account's password.
-    if await login_limiter.is_limited(identifier):
+    #
+    # But a counter anyone can spend is a lock anyone can turn: ten wrong
+    # passwords typed by a classmate used to shut the owner out too (`SA-06`).
+    # A browser that has signed in to this account before carries a device
+    # cookie, and counts its failures on a key of its own that nobody else can
+    # reach. The shared counter still caps everyone else, so guessing gains
+    # nothing — a device key is only ever minted after the right password.
+    device = known_device(request.cookies.get(DEVICE_COOKIE), identifier)
+    throttle_key = identifier if device is None else f"{identifier}\x00device:{device}"
+    if await login_limiter.is_limited(throttle_key):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Too many failed sign-in attempts. Wait a few minutes and try again.",
@@ -137,13 +190,12 @@ async def login(body: LoginRequest, db: DbSession, response: Response) -> AuthRe
     stored = user.password_hash if user else await run_bcrypt(_dummy_hash)
     password_ok = await verify_password_async(body.password, stored)
     if user is None or not password_ok:
-        await login_limiter.record(identifier)
+        await login_limiter.record(throttle_key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email/username or password")
 
-    await login_limiter.reset(identifier)
-    tokens = _token_pair(user)
-    _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
+    await login_limiter.reset(throttle_key)
+    tokens = await _sign_in(db, response, user, identifier)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/refresh", response_model=AccessToken)
@@ -153,18 +205,19 @@ async def refresh(
     raw_token = (body.refresh_token if body else None) or request.cookies.get(REFRESH_COOKIE)
     if raw_token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No refresh token provided")
-    decoded = decode_token(raw_token, expected_type="refresh")
+    decoded = decode_refresh_token(raw_token)
     if decoded is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired refresh token")
-    user_id, token_version = decoded
+    user_id, token_version, session_id, generation = decoded
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
     if token_version != user.token_version:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
-    tokens = _token_pair(user)
-    _set_refresh_cookie(response, tokens.refresh_token)
-    return _access_only(tokens)
+    session = await refresh_sessions.rotate(db, user, session_id, generation)
+    if session is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has been revoked")
+    return _issue(response, user, session)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -255,9 +308,8 @@ async def register_student(
     await _add_to_group(db, invite.group_id, user.id)
     await db.commit()
     await db.refresh(user)
-    tokens = _token_pair(user)
-    _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
+    tokens = await _sign_in(db, response, user, email)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/register/parent", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -287,9 +339,8 @@ async def register_parent(
     await consume(db, invite)
     await db.commit()
     await db.refresh(user)
-    tokens = _token_pair(user)
-    _set_refresh_cookie(response, tokens.refresh_token)
-    return AuthResponse(user=UserOut.model_validate(user), tokens=_access_only(tokens))
+    tokens = await _sign_in(db, response, user, email)
+    return AuthResponse(user=UserOut.model_validate(user), tokens=tokens)
 
 
 @router.post("/join", status_code=status.HTTP_204_NO_CONTENT)

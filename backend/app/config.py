@@ -46,7 +46,20 @@ class Settings(BaseSettings):
     jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
-    refresh_token_expire_days: int = 30
+    #: A sign-in nobody uses for this long ends; each use of it restarts the count.
+    refresh_token_expire_days: int = 7
+    #: However often it is used, a sign-in ends this long after the password was
+    #: typed, so a stolen session cannot be kept alive for ever (`SA-11`).
+    refresh_session_max_days: int = 30
+    #: A refresh token is single-use. A browser that fires several requests at
+    #: once refreshes several times with the same cookie, so the token just
+    #: replaced is still accepted for this long. Past it, a replay means two
+    #: parties hold the token, and every session of that account is ended.
+    refresh_reuse_grace_seconds: int = 60
+    #: How long a browser that signed in stays "known" to that account. A known
+    #: browser has its own failed-sign-in allowance, so a stranger typing wrong
+    #: passwords cannot lock its owner out (`SA-06`).
+    known_device_days: int = 90
     anthropic_api_key: str | None = None
     #: The default every surface inherits when its own model is left blank, and
     #: the one line that moves the blank-model surfaces at once (task 3.2,
