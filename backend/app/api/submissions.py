@@ -511,17 +511,26 @@ async def list_submissions(
             .order_by(User.name)
         )
     ).all()
+    # One grouped query for every settled hand-in's total, not one per row: the
+    # tutor's page polls this while marking runs (audit CAP-12).
+    totals = dict(
+        (
+            await db.execute(
+                select(QuestionMark.submission_id, func.sum(QuestionMark.final_marks))
+                .join(Submission, Submission.id == QuestionMark.submission_id)
+                .where(
+                    Submission.work_id == assignment.work_id,
+                    Submission.status.in_(SETTLED_STATUSES),
+                )
+                .group_by(QuestionMark.submission_id)
+            )
+        ).all()
+    )
     out = []
     for submission, student in rows:
         total_final = None
         if submission.status in SETTLED_STATUSES:
-            total_final = (
-                await db.scalar(
-                    select(func.coalesce(func.sum(QuestionMark.final_marks), 0)).where(
-                        QuestionMark.submission_id == submission.id
-                    )
-                )
-            ) or 0
+            total_final = totals.get(submission.id) or 0
         out.append(
             SubmissionSummary(
                 id=submission.id,

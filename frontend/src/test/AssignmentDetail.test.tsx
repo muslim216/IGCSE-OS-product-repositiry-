@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
@@ -32,7 +32,17 @@ const ASSIGNMENT = {
   ],
 };
 
-function stub(assignment: unknown, status = 200) {
+const MARKED_ROW = {
+  id: 9,
+  student_id: 2,
+  student_name: "Sara",
+  status: "finalized",
+  submitted_at: "2026-09-01T10:00:00Z",
+  total_final: 8,
+  total_max: 10,
+};
+
+function stub(assignment: unknown, status = 200, rows: unknown[] = [MARKED_ROW]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -61,17 +71,7 @@ function stub(assignment: unknown, status = 200) {
       }
       if (url.pathname === "/api/v1/subjects/3/topics") return json([TOPIC]);
       if (url.pathname === "/api/v1/assignments/4/submissions") {
-        return json([
-          {
-            id: 9,
-            student_id: 2,
-            student_name: "Sara",
-            status: "finalized",
-            submitted_at: "2026-09-01T10:00:00Z",
-            total_final: 8,
-            total_max: 10,
-          },
-        ]);
+        return json(rows);
       }
       return json([]);
     }),
@@ -123,4 +123,40 @@ test("a marked submission reads as a score with a link to the work", async () =>
     "href",
     "/tutor/submissions/9",
   );
+});
+
+function submissionFetches() {
+  return vi
+    .mocked(fetch)
+    .mock.calls.filter(([input]) => String(input).endsWith("/assignments/4/submissions")).length;
+}
+
+test("the hand-in list keeps checking while a hand-in is still being marked", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    stub(ASSIGNMENT, 200, [{ ...MARKED_ROW, status: "marking", total_final: null }]);
+    renderPage();
+    await waitFor(() => expect(submissionFetches()).toBe(1));
+    await vi.advanceTimersByTimeAsync(5_000);
+    await waitFor(() => expect(submissionFetches()).toBeGreaterThan(1));
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("and stops once every hand-in is settled, failed or waiting on the tutor", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    stub(ASSIGNMENT, 200, [
+      MARKED_ROW,
+      { ...MARKED_ROW, id: 10, student_name: "Omar", status: "ai_failed", total_final: null },
+      { ...MARKED_ROW, id: 11, student_name: "Lina", status: "needs_review", total_final: null },
+    ]);
+    renderPage();
+    expect(await screen.findByText("8/10")).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(submissionFetches()).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });

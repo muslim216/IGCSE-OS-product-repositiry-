@@ -6,6 +6,7 @@ import {
   MARKING_POLL_SLOW_MS,
   MARKING_POLL_STOP_AFTER_MS,
   markingPollInterval,
+  useBackoffRefetchInterval,
   useMarkingRefetchInterval,
 } from "../lib/markingPoll";
 
@@ -78,4 +79,17 @@ test("moving on to other work starts its own clock", () => {
 
   rerender({ key: 2 });
   expect(result.current(waiting)).toBe(MARKING_POLL_FAST_MS);
+});
+
+test("any page's poll follows the same schedule while its own work is in progress", () => {
+  vi.useFakeTimers();
+  const running = (data: unknown) => (data as { busy?: boolean } | undefined)?.busy === true;
+  const { result } = renderHook(() => useBackoffRefetchInterval(1, running));
+  expect(result.current({ state: { data: { busy: true } } })).toBe(MARKING_POLL_FAST_MS);
+  vi.advanceTimersByTime(MARKING_POLL_FAST_FOR_MS);
+  expect(result.current({ state: { data: { busy: true } } })).toBe(MARKING_POLL_SLOW_MS);
+  vi.advanceTimersByTime(MARKING_POLL_STOP_AFTER_MS);
+  expect(result.current({ state: { data: { busy: true } } })).toBe(false);
+  expect(result.current({ state: { data: { busy: false } } })).toBe(false);
+  expect(result.current({ state: {} })).toBe(false);
 });

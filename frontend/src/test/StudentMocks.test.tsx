@@ -281,3 +281,43 @@ test("a list that failed to load says so rather than looking empty", async () =>
   expect(await screen.findByText(/couldn't load your mocks/i)).toBeInTheDocument();
   expect(screen.queryByText(/hasn't set you a mock yet/i)).not.toBeInTheDocument();
 });
+
+test("the clock stops asking once the mock is handed in", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockFetch(
+      {
+        opened_at: "2026-09-14T09:00:00Z",
+        due_at: "2026-09-14T10:30:00Z",
+        seconds_remaining: 5400,
+        overdue: false,
+      },
+      lateSubmission,
+    );
+    renderSit();
+    await waitFor(() => expect(openCalls).toBe(1));
+    await screen.findByText(/You took 97 minutes/);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(openCalls).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("and never asks again when the tutor set no time limit", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockFetch({
+      opened_at: "2026-09-14T09:00:00Z",
+      due_at: null,
+      seconds_remaining: null,
+      overdue: false,
+    });
+    renderSit();
+    await waitFor(() => expect(openCalls).toBe(1));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(openCalls).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});

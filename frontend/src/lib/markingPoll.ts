@@ -24,26 +24,34 @@ export function markingPollInterval(waitedMs: number): number | false {
 }
 
 /**
- * A `refetchInterval` for a query whose data carries the student-facing
- * `status`. The clock starts the first time the page sees "being marked" for
- * this piece of work (`key`) and resets when it sees anything else, or when
- * the same page moves on to other work, so a fresh hand-in polls quickly
- * again.
+ * A `refetchInterval` that polls on the schedule above while `isWaiting` says
+ * the query's data is still in progress, and stops for anything else. The
+ * clock starts the first time the page sees work in progress for this `key`
+ * and resets when it sees anything else, or when the same page moves on to
+ * other work, so fresh work polls quickly again.
  */
-export function useMarkingRefetchInterval(key: number) {
+export function useBackoffRefetchInterval(key: number, isWaiting: (data: unknown) => boolean) {
   const clock = useRef<{ key: number; since: number } | null>(null);
   // `unknown`, so this callback never steers how the page's query data is
-  // typed; the status is read defensively instead.
+  // typed; the predicate reads it defensively instead.
   return useCallback(
     (query: { state: { data?: unknown } }): number | false => {
-      const data = query.state.data as { status?: string } | null | undefined;
-      if (data?.status !== "being_marked") {
+      if (!isWaiting(query.state.data)) {
         clock.current = null;
         return false;
       }
       if (clock.current?.key !== key) clock.current = { key, since: Date.now() };
       return markingPollInterval(Date.now() - clock.current.since);
     },
-    [key],
+    [key, isWaiting],
   );
+}
+
+function isBeingMarked(data: unknown): boolean {
+  return (data as { status?: string } | null | undefined)?.status === "being_marked";
+}
+
+/** The student pages: their data carries the student-facing `status`. */
+export function useMarkingRefetchInterval(key: number) {
+  return useBackoffRefetchInterval(key, isBeingMarked);
 }
