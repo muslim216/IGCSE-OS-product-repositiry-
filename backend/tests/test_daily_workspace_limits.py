@@ -173,7 +173,8 @@ async def test_pieces_cut_from_a_counted_upload_do_not_count_again(monkeypatch):
     key, _name, mime = await storage.save_bytes(
         pdf, "application/pdf", "p.pdf", organization_id=1, counted=False
     )
-    assert mime == "application/pdf" and key
+    assert mime == "application/pdf"
+    assert key
 
 
 async def test_a_job_saving_past_the_allowance_gets_a_value_error(monkeypatch):
