@@ -34,7 +34,7 @@ import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Column, String, delete, func, select, tuple_
+from sqlalchemy import Column, String, and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import async_session
@@ -144,8 +144,12 @@ async def prune_readiness_working_rows(session: AsyncSession, now: datetime) -> 
             .limit(BATCH_SIZE)
         )
         if after is not None:
+            at, last_id = after
             query = query.where(
-                tuple_(FactorEvaluation.created_at, FactorEvaluation.id) > tuple_(*after)
+                or_(
+                    FactorEvaluation.created_at > at,
+                    and_(FactorEvaluation.created_at == at, FactorEvaluation.id > last_id),
+                )
             )
         rows = (await session.execute(query)).all()
         if not rows:
