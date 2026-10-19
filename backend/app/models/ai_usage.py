@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utcnow
@@ -50,6 +50,10 @@ class AiUsageEvent(Base):
     enforcement or payments yet, this is usage tracking only."""
 
     __tablename__ = "ai_usage_events"
+    # The usage page reads one organization's rows, totalled and by month.
+    __table_args__ = (
+        Index("ix_ai_usage_events_organization_id_created_at", "organization_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), nullable=False)
