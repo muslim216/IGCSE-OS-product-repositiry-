@@ -25,3 +25,7 @@ def test_in_memory_sqlite_keeps_one_shared_connection():
     kwargs = _engine_kwargs("sqlite+aiosqlite:///:memory:", pool_size=7, max_overflow=3)
     assert kwargs["poolclass"] is StaticPool
     assert "pool_size" not in kwargs
+
+
+def test_any_other_database_gets_the_driver_defaults():
+    assert _engine_kwargs("sqlite+aiosqlite:///./dev.db", pool_size=7, max_overflow=3) == {}
