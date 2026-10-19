@@ -257,8 +257,6 @@ async def _write_report(
     kb_context: str = "",
 ) -> str:
     """The AI call — factored out so tests can patch it."""
-    # Only the report row's reads come before this; nothing to lose.
-    await release_connection(session)
     response = await text_complete(
         organization_id=organization_id,
         surface="reports",
@@ -322,6 +320,9 @@ async def generate_report(session: AsyncSession, payload: dict) -> None:
             return
         facts = await build_report_facts(session, student, subject_ids, summary)
         kb_context = await build_tutor_context(session, tutor.id, report.subject_id)
+        # Here rather than inside `_write_report`, which tests patch out. Only
+        # reads come before it; nothing to lose.
+        await release_connection(session)
         report.content = await _write_report(
             report.audience,
             facts,

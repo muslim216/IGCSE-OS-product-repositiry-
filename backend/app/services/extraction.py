@@ -189,7 +189,6 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
     # failed read already saves it that way (the failure is recorded and
     # committed), and a retry clears and reads again (`BE-6`).
     await release_connection(session)
-    await release_connection(session)
     response = await structured_complete(
         organization_id=group.organization_id,
         surface="extraction",
