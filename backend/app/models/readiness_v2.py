@@ -491,6 +491,10 @@ class FactorEvaluation(Base):
             "student_id",
             "subject_id",
         ),
+        # The retention sweep walks rows older than 90 days in this order
+        # (`services/retention.py`); without it every nightly pass scans the
+        # largest table in the database. Migration 0072.
+        Index("ix_factor_evaluations_created_at_id", "created_at", "id"),
         # Composite so a chapter row cannot name another subject's chapter; see
         # Topic.__table_args__. MATCH SIMPLE skips it while chapter_id is NULL.
         ForeignKeyConstraint(

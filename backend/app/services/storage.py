@@ -307,14 +307,22 @@ class LocalBackend:
             root = Path(get_settings().upload_dir)
             if not root.is_dir():
                 return []
-            return [
-                (
-                    path.relative_to(root).as_posix(),
-                    datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
+            found = []
+            for path in root.rglob("*"):
+                try:
+                    if not path.is_file():
+                        continue
+                    written = path.stat().st_mtime
+                except OSError:
+                    # Gone or unreadable since the walk saw it: not ours to judge.
+                    continue
+                found.append(
+                    (
+                        path.relative_to(root).as_posix(),
+                        datetime.fromtimestamp(written, timezone.utc),
+                    )
                 )
-                for path in root.rglob("*")
-                if path.is_file()
-            ]
+            return found
 
         return await asyncio.to_thread(_walk)
 

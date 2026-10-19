@@ -7,12 +7,14 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
 from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.db import async_session
 from app.models import (
     AiSynthesisStatus,
+    AttemptRedo,
     Classified,
     FactorConfidence,
     FactorEvaluation,
@@ -25,6 +27,13 @@ from app.services import retention
 from app.workers.jobs import process_one_job
 
 NOW = datetime.now(timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _own_upload_dir(tmp_path, monkeypatch):
+    """The suite shares one upload folder, whose files outlive their rows from
+    test to test; here every one of them would look orphaned."""
+    monkeypatch.setattr(get_settings(), "upload_dir", str(tmp_path))
 
 
 def _ago(days: int) -> datetime:
@@ -60,13 +69,19 @@ def _evaluation(run: str, student_id: int, subject_id: int, days: int) -> Factor
     )
 
 
-def _snapshot(run: str, student_id: int, subject_id: int, days: int) -> ReadinessSnapshot:
+def _snapshot(
+    run: str,
+    student_id: int,
+    subject_id: int,
+    days: int,
+    status: AiSynthesisStatus = AiSynthesisStatus.ready,
+) -> ReadinessSnapshot:
     return ReadinessSnapshot(
         evaluation_run_id=run,
         student_id=student_id,
         subject_id=subject_id,
-        status=AiSynthesisStatus.ready,
-        score=50.0,
+        status=status,
+        score=50.0 if status == AiSynthesisStatus.ready else None,
         created_at=_ago(days),
     )
 
@@ -96,6 +111,23 @@ async def test_readiness_working_rows_keep_90_days_and_always_the_latest_run(stu
             FactorEvaluation.__table__.delete()  # start the second case clean
         )
         session.add_all([_snapshot("only", sid, subj, 5), _evaluation("only", sid, subj, 200)])
+        await session.commit()
+        assert await retention.prune_readiness_working_rows(session, NOW) == 0
+
+
+async def test_the_score_on_screen_keeps_its_rows_when_newer_runs_failed(student, subject):
+    """The pages show the latest *ready* snapshot. Newer failed runs (an AI
+    outage, say) must not leave that score with its working rows deleted."""
+    sid, subj = student["user"]["id"], subject["id"]
+    async with async_session() as session:
+        session.add_all(
+            [
+                _snapshot("shown", sid, subj, 120),
+                _evaluation("shown", sid, subj, 120),
+                _snapshot("failed", sid, subj, 100, AiSynthesisStatus.failed),
+                _evaluation("failed", sid, subj, 100),
+            ]
+        )
         await session.commit()
         assert await retention.prune_readiness_working_rows(session, NOW) == 0
 
@@ -135,6 +167,27 @@ async def test_only_old_unreferenced_files_of_our_own_shape_are_deleted(classifi
     assert not_ours.exists()
 
 
+async def test_pages_kept_only_in_a_redo_record_are_not_orphans(student):
+    """A redo moves the old attempt into `AttemptRedo.record` and deletes its
+    file rows; the pages are kept so a dispute stays answerable."""
+    kept = f"org/1/{secrets.token_hex(16)}.jpg"
+    page = _stored(kept, 60)
+    async with async_session() as session:
+        session.add(
+            AttemptRedo(
+                organization_id=1,
+                work_id=1,
+                student_id=student["user"]["id"],
+                allowed_by_id=1,
+                previous_submission_id=1,
+                record={"files": [{"id": 9, "path": kept, "position": 0}]},
+            )
+        )
+        await session.commit()
+        assert await retention.prune_orphaned_files(session, NOW) == 0
+    assert page.exists()
+
+
 def test_every_file_column_is_counted_as_somebodys_work():
     """A column that holds a storage key and is missing here would have its
     files deleted. This names the ones that exist today, so a new one is a
@@ -161,3 +214,23 @@ async def test_the_sweep_runs_as_a_job_and_schedules_tomorrows():
     assert sorted(job.status for job in sweeps) == sorted([JobStatus.done, JobStatus.pending])
     pending = next(job for job in sweeps if job.status == JobStatus.pending)
     assert pending.run_after is not None
+
+
+async def test_one_failing_step_does_not_stop_the_others(monkeypatch):
+    """A step that fails every day must not leave the disk to fill: the rest
+    still run, the job still fails, and tomorrow's run is still queued."""
+    orphan = _stored(f"org/1/{secrets.token_hex(16)}.pdf", 31)
+
+    async def broken(session, now):
+        raise RuntimeError("statement timeout")
+
+    monkeypatch.setattr(retention, "prune_finished_jobs", broken)
+    async with async_session() as session:
+        await retention.ensure_retention_sweep_scheduled(session)
+        await session.commit()
+    await process_one_job()
+    assert not orphan.exists()  # the file step ran after the failure
+    async with async_session() as session:
+        sweeps = (await session.scalars(select(Job).where(Job.type == retention.SWEEP_JOB))).all()
+    assert JobStatus.pending in {job.status for job in sweeps}
+    assert any(job.error and "finished jobs" in job.error for job in sweeps)
