@@ -23,6 +23,7 @@ import io
 import logging
 import secrets
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -249,6 +250,11 @@ class StorageBackend(Protocol):
 
     async def exists(self, key: str) -> bool: ...
 
+    async def list_objects(self) -> list[tuple[str, datetime]]:
+        """Every stored key with when it was last written. For the retention
+        sweep (`services/retention.py`), which is the only reader."""
+        ...
+
     def get_signed_url(
         self, key: str, *, mime: str, filename: str, expires_in: int
     ) -> str | None: ...
@@ -295,6 +301,22 @@ class LocalBackend:
 
     async def exists(self, key: str) -> bool:
         return await asyncio.to_thread(lambda: self._path(key).is_file())
+
+    async def list_objects(self) -> list[tuple[str, datetime]]:
+        def _walk() -> list[tuple[str, datetime]]:
+            root = Path(get_settings().upload_dir)
+            if not root.is_dir():
+                return []
+            return [
+                (
+                    path.relative_to(root).as_posix(),
+                    datetime.fromtimestamp(path.stat().st_mtime, timezone.utc),
+                )
+                for path in root.rglob("*")
+                if path.is_file()
+            ]
+
+        return await asyncio.to_thread(_walk)
 
     def get_signed_url(self, key: str, *, mime: str, filename: str, expires_in: int) -> str | None:
         return None
@@ -364,6 +386,17 @@ class S3Backend:
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self._client.delete_object, Bucket=self._bucket, Key=key)
+
+    async def list_objects(self) -> list[tuple[str, datetime]]:
+        def _list() -> list[tuple[str, datetime]]:
+            pages = self._client.get_paginator("list_objects_v2").paginate(Bucket=self._bucket)
+            return [
+                (item["Key"], item["LastModified"])
+                for page in pages
+                for item in page.get("Contents", [])
+            ]
+
+        return await asyncio.to_thread(_list)
 
     async def exists(self, key: str) -> bool:
         def _head() -> bool:

@@ -57,6 +57,7 @@ from app.services.narrative import ensure_narrative_sweep_scheduled
 from app.services.notifications.triggers import ensure_message_trigger_sweep_scheduled
 from app.services.past_paper_phase import ensure_past_paper_phase_sweep_scheduled
 from app.services.rate_limit import close_all_limiters, rate_limit_health
+from app.services.retention import ensure_retention_sweep_scheduled
 from app.services.weekly_send import ensure_weekly_send_sweep_scheduled
 from app.workers.handlers import register_all
 from app.workers.jobs import WorkerStatus, worker_status
@@ -126,6 +127,14 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:  # noqa: BLE001 — startup must survive a cold database
         log.exception("could not schedule the message trigger sweep at startup")
+    # And under retention: a lost sweep row would let old rows and orphaned
+    # files pile up until the disk is full, which is the failure it prevents.
+    try:
+        async with async_session() as session:
+            await ensure_retention_sweep_scheduled(session)
+            await session.commit()
+    except Exception:  # noqa: BLE001 — startup must survive a cold database
+        log.exception("could not schedule the retention sweep at startup")
 
     # Runs inside the API by default, which is the deployment today. Setting
     # RUN_WORKER_IN_API=false is half of the cutover to a separate worker

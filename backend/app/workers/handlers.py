@@ -50,6 +50,8 @@ from app.services.plan_drafting import PLAN_DRAFT_JOB, draft_plan
 from app.services.plan_reflow import PLAN_REFLOW_JOB, reflow_plan
 from app.services.readiness_v2_ai import compute_readiness_v2
 from app.services.reports import generate_report, report_given_up
+from app.services.retention import SWEEP_JOB as RETENTION_SWEEP_JOB
+from app.services.retention import sweep_retention
 from app.services.syllabus_extraction import extract_syllabus, syllabus_read_given_up
 from app.services.weekly_send import BUILD_JOB as WEEKLY_SEND_BUILD_JOB
 from app.services.weekly_send import SWEEP_JOB as WEEKLY_SEND_SWEEP_JOB
@@ -152,3 +154,6 @@ def register_all() -> None:
     # Reminders that fire at a moment, not on an event (task 8.5). Every send
     # is keyed, so a sweep that sees the same lesson twice messages once.
     register_handler(MESSAGE_TRIGGER_SWEEP_JOB, sweep_message_triggers)
+    # What stops being kept, once a day (the owner's periods, 19 October
+    # 2026). Safe to re-run (`BE-6`): each pass deletes only what is past due.
+    register_handler(RETENTION_SWEEP_JOB, sweep_retention)
