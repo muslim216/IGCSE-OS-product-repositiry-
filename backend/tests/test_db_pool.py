@@ -50,3 +50,4 @@ async def test_a_request_with_no_free_connection_is_told_busy_not_500(client, tu
     assert resp.status_code == 503
     assert resp.headers["Retry-After"] == "5"
     assert "busy" in resp.json()["detail"]
+    assert resp.headers["X-Request-ID"]

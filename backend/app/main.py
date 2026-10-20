@@ -51,7 +51,7 @@ from app.api import (
 )
 from app.body_limit import BodySizeLimit
 from app.config import get_settings
-from app.db import async_session
+from app.db import async_session, pool_status
 from app.models import Job, JobStatus
 from app.services.ai import SURFACES, AiProvider, resolve_surface
 from app.services.lesson_autorecord import ensure_lesson_autorecord_scheduled
@@ -347,7 +347,15 @@ async def _busy(request: Request, exc: Exception) -> JSONResponse:
     """Every database connection stayed taken for `POOL_TIMEOUT_SECONDS`. Say so
     plainly with a 503 and Retry-After instead of a bare 500, so a page can try
     again and the logs show load, not a bug (`CAP-16`)."""
-    log.warning("turned away %s %s: no database connection free", request.method, request.url.path)
+    # The pool's counts, so a leak (full while traffic is light) can be told
+    # from load; the request id is already on the line.
+    log.warning(
+        "turned away %s %s: no database connection free (pool %s): %s",
+        request.method,
+        request.url.path,
+        pool_status(),
+        exc,
+    )
     return JSONResponse(
         {"detail": "Avora is busy right now. Please try again in a moment."},
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -433,8 +441,9 @@ def create_app() -> FastAPI:
         try:
             # Bounded, because a refused connection raises promptly but an
             # exhausted pool does not — session.execute() would wait out
-            # pool_timeout (30s by default) and a dropped-packet path longer
-            # still. An endpoint whose job is to give a straight answer must not
+            # pool_timeout (`POOL_TIMEOUT_SECONDS`, 10s) and a dropped-packet
+            # path longer still. The pool's counts in the answer tell the two
+            # apart. An endpoint whose job is to give a straight answer must not
             # hang; a monitor that times out learns nothing, where a 503 with
             # error "TimeoutError" says exactly what is wrong.
             snapshot = await asyncio.wait_for(
@@ -493,7 +502,7 @@ def create_app() -> FastAPI:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return {
             "status": "ok" if ok else "degraded",
-            "database": database,
+            "database": {**database, "pool": pool_status()},
             "worker": {
                 "state": worker.state,
                 "started_at": _iso(worker.started_at),

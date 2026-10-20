@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool, StaticPool
 
 from app.config import get_settings
 
@@ -55,6 +55,16 @@ engine = create_async_engine(
     ),
 )
 async_session = async_sessionmaker(engine, expire_on_commit=False)
+
+
+def pool_status() -> dict[str, int] | None:
+    """How full the connection pool is, for the busy log and /health/ready: a
+    pool that stays full with little traffic is a leak, not load (`CAP-16`).
+    None for the test suite's single shared connection."""
+    pool = engine.pool
+    if not isinstance(pool, QueuePool):
+        return None
+    return {"size": pool.size(), "checked_out": pool.checkedout(), "overflow": pool.overflow()}
 
 
 async def release_connection(session: AsyncSession) -> None:

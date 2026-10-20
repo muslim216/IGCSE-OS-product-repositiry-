@@ -107,7 +107,7 @@ async def test_readiness_reports_the_database_and_the_queue(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
-    assert body["database"] == {"ok": True}
+    assert body["database"] == {"ok": True, "pool": None}
     assert body["queue"] == {
         "pending": 0,
         "running": 0,
@@ -149,7 +149,7 @@ async def test_a_worker_whose_loop_stopped_turning_reports_503(client):
     assert body["worker"]["state"] == "stale"
     # The database is fine; only the worker is not. The body has to say which,
     # or the operator learns nothing the status code did not already tell them.
-    assert body["database"] == {"ok": True}
+    assert body["database"] == {"ok": True, "pool": None}
 
 
 async def test_a_worker_inside_a_slow_job_is_healthy(client):
@@ -191,7 +191,7 @@ async def test_an_unreachable_database_reports_503_without_raising(client, monke
     resp = await client.get("/api/v1/health/ready")
     assert resp.status_code == 503
     body = resp.json()
-    assert body["database"] == {"ok": False, "error": "OSError"}
+    assert body["database"] == {"ok": False, "error": "OSError", "pool": None}
     # Nothing is known about the queue when the database is gone. Reporting
     # zeroes here would be inventing a measurement (PROD-2).
     assert body["queue"] is None
@@ -451,7 +451,7 @@ async def test_a_hanging_database_is_reported_rather_than_waited_out(client, mon
 
     assert resp.status_code == 503
     body = resp.json()
-    assert body["database"] == {"ok": False, "error": "TimeoutError"}
+    assert body["database"] == {"ok": False, "error": "TimeoutError", "pool": None}
     # Not a queue of zeroes: PROD-2 applies to the platform's own telemetry.
     assert body["queue"] is None
 
