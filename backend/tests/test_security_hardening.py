@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.db import async_session
 from app.models import Invite, Submission, SubmissionFile, User
 from app.services.invites import consume
-from app.services.rate_limit import LOGIN_FAILURE_LIMIT, FixedWindowLimiter
+from app.services.rate_limit import LOGIN_FAILURE_LIMIT, FixedWindowLimiter, login_limiter
 from app.workers.jobs import process_one_job
 from tests.conftest import PDF_BYTES
 from tests.factories import subject_for_tutor
@@ -259,7 +259,19 @@ async def test_claiming_a_parent_code_twice_loses_the_race(client, tutor, studen
 # --- Login throttling ------------------------------------------------------
 
 
-async def test_repeated_failed_logins_are_throttled(client, tutor):
+@pytest.fixture
+def login_window_that_cannot_roll_over(monkeypatch):
+    """The login window is fixed to the clock, in Redis as well as in process. A
+    test that straddles a 15-minute boundary has its failures split over two
+    windows and never reaches the limit, as happened on CI at 13:30 one day.
+    Set before the first login, so the Redis store is built with it."""
+    monkeypatch.setattr(login_limiter, "window_seconds", 10**9)
+    monkeypatch.setattr(login_limiter.local, "window_seconds", 10**9)
+
+
+async def test_repeated_failed_logins_are_throttled(
+    client, tutor, login_window_that_cannot_roll_over
+):
     """Unlimited guesses against a known username is how a tutor-set 8-character
     student password falls."""
     for _ in range(LOGIN_FAILURE_LIMIT):
@@ -281,7 +293,9 @@ async def test_repeated_failed_logins_are_throttled(client, tutor):
     assert correct.status_code == 429
 
 
-async def test_a_successful_login_clears_the_counter(client, tutor):
+async def test_a_successful_login_clears_the_counter(
+    client, tutor, login_window_that_cannot_roll_over
+):
     """Someone who fumbles their password twice and then gets it right must not
     be carrying those failures around."""
     for _ in range(LOGIN_FAILURE_LIMIT - 1):
