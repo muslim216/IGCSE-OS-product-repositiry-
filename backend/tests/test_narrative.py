@@ -37,7 +37,7 @@ from app.services.narrative import (
     sweep_parent_narratives,
 )
 from app.workers.jobs import process_one_job
-from tests.factories import subject_defaults
+from tests.factories import register_other_tutor, subject_defaults
 
 
 @pytest.fixture
@@ -374,6 +374,84 @@ async def test_sweep_caps_how_many_students_one_run_enqueues(
             ).all()
         }
     assert students == {world["student_id"], second["id"]}
+
+
+async def test_a_capped_sweep_takes_the_longest_waiting_first(
+    client, tutor, world, fake_narrative_ai, monkeypatch
+):
+    """More due than one sweep takes: the never-written learner leads, then the
+    oldest paragraph; the most recently written stale one waits (audit CAP-9).
+    The ids are arranged so neither id order picks the same pair, and the
+    never-written learner's only paragraph sits under another organization,
+    which does not count as theirs here."""
+    fake_narrative_ai()
+    now = datetime.now(timezone.utc)
+    learners = [world["student_id"]]
+    for name in ("Omar", "Lina"):
+        learners.append(
+            (
+                await client.post(
+                    f"/api/v1/groups/{world['group_id']}/students",
+                    json={"name": name, "username": name.lower() + "01", "password": "password123"},
+                    headers=tutor["headers"],
+                )
+            ).json()["id"]
+        )
+    oldest, recent_stale, never = learners
+    rival = await register_other_tutor(client)
+    async with async_session() as session:
+        org = (await session.get(User, oldest)).organization_id
+        rival_org = (await session.get(User, rival["user"]["id"])).organization_id
+        for i, sid in enumerate(learners):
+            session.add(
+                Evidence(
+                    student_id=sid,
+                    topic_id=world["topic_id"],
+                    source_type=EvidenceSource.homework,
+                    score_pct=61.0,
+                    max_marks=20,
+                    occurred_at=now,
+                    source_ref=f"submission:cap9-{i}",
+                )
+            )
+        for sid, organization_id, days in (
+            (oldest, org, 40),
+            (recent_stale, org, 8),
+            (never, rival_org, 1),
+        ):
+            session.add(
+                Narrative(
+                    organization_id=organization_id,
+                    audience=NarrativeAudience.parent_student,
+                    group_id=None,
+                    student_id=sid,
+                    text="old",
+                    prompt_version="v1",
+                    model="m",
+                    generated_at=now - timedelta(days=days),
+                )
+            )
+        await session.commit()
+
+    async def sweep_once() -> list[int]:
+        async with async_session() as session:
+            await sweep_parent_narratives(session, {})
+            await session.commit()
+        async with async_session() as session:
+            return [
+                p["student_id"]
+                for p in (
+                    await session.scalars(
+                        select(Job.payload).where(Job.type == "generate_narrative").order_by(Job.id)
+                    )
+                ).all()
+            ]
+
+    # One at a time, so the order itself shows, not just who made the cut.
+    monkeypatch.setattr(get_settings(), "narrative_sweep_max_students", 1)
+    assert await sweep_once() == [never]
+    assert await sweep_once() == [never, oldest]
+    assert await sweep_once() == [never, oldest, recent_stale]
 
 
 async def test_sweep_enqueues_a_stale_student(world, fake_narrative_ai):
