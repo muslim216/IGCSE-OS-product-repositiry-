@@ -35,6 +35,7 @@ import contextlib
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.engine import make_url
 
 from app.config import get_settings
 from app.db import engine
@@ -52,6 +53,13 @@ from tests.factories import subject_defaults
 _USING_THROWAWAY_SQLITE = "TEST_DATABASE_URL" not in os.environ
 #: The whole suite on a disposable Postgres, emptied after every test.
 _THROWAWAY_POSTGRES = os.environ["DB_NULL_POOL"] == "true"
+# Emptying every table after each test is only ever meant for a database on
+# this machine (CI's service container). A shared one is refused outright.
+if _THROWAWAY_POSTGRES and make_url(os.environ["DATABASE_URL"]).host not in (
+    "localhost",
+    "127.0.0.1",
+):
+    raise RuntimeError("TEST_DATABASE_THROWAWAY=1 is only allowed for a Postgres on localhost")
 
 
 def _fake_structured_complete(parsed, *, model: str = "test-model", tokens: int = 10):

@@ -205,6 +205,9 @@ jobs:
   backend-postgres:
     name: Backend tests (Postgres)
     runs-on: ubuntu-latest
+    # About 30 minutes today; a test stuck on a row lock should not hold a
+    # runner for the six-hour default.
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: backend
