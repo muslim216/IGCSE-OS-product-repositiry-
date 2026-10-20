@@ -103,8 +103,15 @@ _in_flight_lock = asyncio.Lock()
 
 
 async def _report_in_flight() -> None:
+    # Bounded, because every slot's job start and finish queues behind this
+    # lock: a database that is slow to answer must cost one short wait, not
+    # one per slot in turn.
     async with _in_flight_lock:
-        await _write_heartbeat(job_started_at=min(_in_flight.values(), default=None))
+        try:
+            async with asyncio.timeout(HEARTBEAT_WRITE_TIMEOUT_SECONDS):
+                await _write_heartbeat(job_started_at=min(_in_flight.values(), default=None))
+        except TimeoutError:
+            log.warning("worker heartbeat write timed out; continuing without it")
 
 
 #: This process's worker identity. Generated per process, not per machine: a
