@@ -74,6 +74,10 @@ async def _enforce_foreign_keys():
     whole job is deleting in key order, so these tests turn enforcement on."""
     from app.db import engine
 
+    # Postgres enforces them always; the switch is SQLite's alone.
+    if engine.dialect.name != "sqlite":
+        yield
+        return
     async with engine.connect() as conn:
         await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         await conn.commit()

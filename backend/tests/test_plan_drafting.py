@@ -496,7 +496,7 @@ async def test_too_few_lessons_leaves_existing_generated_slots_in_place(
     assert len(await slots(world)) == before
 
 
-async def test_a_subject_without_chapters_is_recorded_as_a_failure(world):
+async def test_a_subject_without_chapters_is_recorded_as_a_failure(world, foreign_keys_unchecked):
     async with async_session() as session:
         for chapter in (await session.scalars(select(Chapter))).all():
             for topic in (

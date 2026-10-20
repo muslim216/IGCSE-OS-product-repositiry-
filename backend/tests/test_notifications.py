@@ -173,7 +173,9 @@ async def test_channel_selection_matrix(monkeypatch, tutor, setup, expected):
     assert await _status_with(monkeypatch, tutor, **setup) == expected
 
 
-async def test_another_organizations_contact_is_never_used(monkeypatch, tutor, student):
+async def test_another_organizations_contact_is_never_used(
+    monkeypatch, tutor, student, foreign_keys_unchecked
+):
     patch_channels(monkeypatch)
     async with async_session() as session:
         user = await session.get(User, tutor["user"]["id"])

@@ -184,7 +184,9 @@ async def test_homework_completion_is_absent_not_zero_when_the_row_carries_no_co
     assert a["id"] not in detail.homework
 
 
-async def test_an_unresolved_topic_id_is_skipped_not_500(client, tutor, subject_id):
+async def test_an_unresolved_topic_id_is_skipped_not_500(
+    client, tutor, subject_id, foreign_keys_unchecked
+):
     """A topic_mastery row's outerjoin to Topic leaves code/title null when the
     topic_id no longer resolves — that row must be skipped, not built into a
     TopicMean with no code, which `topic_code: str` (never optional) 500s on."""

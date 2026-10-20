@@ -200,15 +200,18 @@ async def test_a_lesson_with_topics_notes_and_homework_can_be_deleted(client, tu
         )
     ).json()
 
-    async with engine.connect() as conn:
-        await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
-        await conn.commit()
+    sqlite = engine.dialect.name == "sqlite"  # Postgres enforces them always
+    if sqlite:
+        async with engine.connect() as conn:
+            await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+            await conn.commit()
     try:
         deleted = await client.delete(f"/api/v1/lessons/{lesson_id}", headers=tutor["headers"])
     finally:
-        async with engine.connect() as conn:
-            await conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
-            await conn.commit()
+        if sqlite:
+            async with engine.connect() as conn:
+                await conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+                await conn.commit()
     assert deleted.status_code == 204, deleted.text
 
     async with async_session() as session:

@@ -16,6 +16,14 @@ import tempfile
 # in the migrations job). Setting it for a full run is supported but means
 # every test runs against that database, so point it at a throwaway one.
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+# The whole suite on a disposable Postgres (CI's "Backend tests (Postgres)"):
+# TEST_DATABASE_THROWAWAY=1 says the database may be emptied after every test.
+# Without it a TEST_DATABASE_URL run never deletes anything (see `_db_schema`).
+# Each test has its own event loop, so no connection may outlive one: no pool.
+os.environ["DB_NULL_POOL"] = str(
+    os.environ.get("TEST_DATABASE_THROWAWAY") == "1"
+    and os.environ["DATABASE_URL"].startswith("postgresql")
+).lower()
 os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 os.environ["REFRESH_COOKIE_SECURE"] = "false"
@@ -27,6 +35,7 @@ import contextlib
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.engine import make_url
 
 from app.config import get_settings
 from app.db import engine
@@ -42,6 +51,15 @@ from tests.factories import subject_defaults
 #: a real database. Read at fixture time, so it sits below the imports rather
 #: than in the env block above.
 _USING_THROWAWAY_SQLITE = "TEST_DATABASE_URL" not in os.environ
+#: The whole suite on a disposable Postgres, emptied after every test.
+_THROWAWAY_POSTGRES = os.environ["DB_NULL_POOL"] == "true"
+# Emptying every table after each test is only ever meant for a database on
+# this machine (CI's service container). A shared one is refused outright.
+if _THROWAWAY_POSTGRES and make_url(os.environ["DATABASE_URL"]).host not in (
+    "localhost",
+    "127.0.0.1",
+):
+    raise RuntimeError("TEST_DATABASE_THROWAWAY=1 is only allowed for a Postgres on localhost")
 
 
 def _fake_structured_complete(parsed, *, model: str = "test-model", tokens: int = 10):
@@ -193,6 +211,39 @@ def _fresh_in_flight_lock(monkeypatch):
     monkeypatch.setattr(jobs, "_in_flight_lock", asyncio.Lock())
 
 
+@pytest.fixture
+def foreign_keys_unchecked():
+    """For tests whose rows point at ids that do not exist, on purpose: the
+    worker's give-up path, an unresolved topic id. SQLite runs with keys off;
+    on Postgres this turns their checks off for the test's connections, so
+    such a test keeps testing what it is about. Never for a test of a delete
+    or of key order, where the check is the point (`RISK-3`)."""
+    if not _THROWAWAY_POSTGRES:
+        yield
+        return
+    from sqlalchemy import event
+
+    def keys_off(dbapi_connection, _record):
+        dbapi_connection.run_async(
+            lambda conn: conn.execute("SET session_replication_role = replica")
+        )
+
+    event.listen(engine.sync_engine, "connect", keys_off)
+    try:
+        yield
+    finally:
+        event.remove(engine.sync_engine, "connect", keys_off)
+
+
+#: For a test that simulates a race by writing from a second session while the
+#: request under test holds the row lock: on Postgres that write waits for the
+#: lock, correctly, and the test waits on itself until the statement timeout.
+sqlite_only_race = pytest.mark.skipif(
+    _THROWAWAY_POSTGRES,
+    reason="simulates a race SQLite cannot have; on Postgres the row lock makes the rival wait",
+)
+
+
 @pytest.fixture(autouse=True)
 async def _db_schema():
     async with engine.begin() as conn:
@@ -207,6 +258,12 @@ async def _db_schema():
     if _USING_THROWAWAY_SQLITE:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
+    elif _THROWAWAY_POSTGRES:
+        # Emptied rather than dropped: one statement instead of rebuilding
+        # eighty tables per test, and ids start again from 1 as on SQLite.
+        tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
 
 
 @pytest.fixture
