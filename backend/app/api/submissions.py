@@ -703,8 +703,14 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
         )
     ).all()
     # Two grouped counts for the whole queue, not two queries per row: a class
-    # mock lands 25-60 rows here at once (audit DB-04).
-    ids = [row[0].id for row in rows]
+    # mock lands 25-60 rows here at once (audit DB-04). Keyed by the same
+    # predicate as a subquery rather than a list of ids, so a long queue cannot
+    # run into the driver's limit on bound parameters.
+    ids = (
+        select(Submission.id)
+        .join(AssessableWork, AssessableWork.id == Submission.work_id)
+        .where(*review_queue_predicate(user.organization_id))
+    )
     unsure_by_id: dict[int, int] = dict(
         (
             await db.execute(

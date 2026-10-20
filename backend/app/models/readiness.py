@@ -106,6 +106,8 @@ class Assessment(TimestampMixin, Base):
 
 class AssessmentScore(Base):
     __tablename__ = "assessment_scores"
+    # The assessments list counts each one's scores (audit DB-04).
+    __table_args__ = (Index("ix_assessment_scores_assessment_id", "assessment_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     assessment_id: Mapped[int] = mapped_column(ForeignKey("assessments.id"), nullable=False)

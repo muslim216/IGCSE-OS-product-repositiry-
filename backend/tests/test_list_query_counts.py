@@ -4,17 +4,19 @@ the tutor's assessments. The counts on each row stay right."""
 
 from datetime import date
 
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from app.db import async_session, engine
 from app.models import (
     Assessment,
     AssessmentScore,
     AssessmentType,
+    Assignment,
     AssignmentQuestion,
     QuestionMark,
     RemarkRequest,
     RemarkRequestStatus,
+    Submission,
     SubmissionStatus,
 )
 from tests.factories import publish_assignment, submit_work
@@ -91,6 +93,51 @@ async def test_review_queue_and_class_homework_do_not_grow_queries_with_rows(
     for i in range(2, 6):
         await _homework_waiting_on_review(g, subject, org, sid, f"HW {i}", remark=False)
 
+    # Data a join fan-out or a wrong grouping would miscount: a second student's
+    # hand-in to HW 1 with both marks unsure and both under an open remark, and
+    # a resolved remark on HW 2 that must not count.
+    sid2 = await _enrol(g["id"], org, "Ben", "ben@example.com")
+    async with async_session() as s:
+        hw1 = await s.scalar(select(Assignment).where(Assignment.title == "HW 1"))
+        hw2 = await s.scalar(select(Assignment).where(Assignment.title == "HW 2"))
+        q_ids = (
+            await s.scalars(
+                select(AssignmentQuestion.id).where(AssignmentQuestion.assignment_id == hw1.id)
+            )
+        ).all()
+        ben = await submit_work(
+            s,
+            assignment=hw1,
+            student_id=sid2,
+            status=SubmissionStatus.needs_review,
+            submitted_at=_at(21),
+        )
+        await s.flush()
+        marks = [
+            QuestionMark(submission_id=ben.id, question_id=q, needs_review=True) for q in q_ids
+        ]
+        s.add_all(marks)
+        await s.flush()
+        s.add_all(
+            RemarkRequest(
+                question_mark_id=m.id, requested_by_id=sid2, status=RemarkRequestStatus.open
+            )
+            for m in marks
+        )
+        ann_hw2_sure = await s.scalar(
+            select(QuestionMark)
+            .join(Submission, Submission.id == QuestionMark.submission_id)
+            .where(Submission.work_id == hw2.work_id, QuestionMark.needs_review.is_(False))
+        )
+        s.add(
+            RemarkRequest(
+                question_mark_id=ann_hw2_sure.id,
+                requested_by_id=sid,
+                status=RemarkRequestStatus.resolved,
+            )
+        )
+        await s.commit()
+
     queue_after, queue = await _queries_for(
         client, "/api/v1/submissions/review-queue", tutor["headers"]
     )
@@ -98,14 +145,22 @@ async def test_review_queue_and_class_homework_do_not_grow_queries_with_rows(
     assert queue_after == queue_before
     assert homework_after == homework_before
 
-    assert len(queue) == 5
-    assert all(row["unsure_count"] == 1 for row in queue)
-    assert sorted(row["remark_request_count"] for row in queue) == [0, 0, 0, 0, 1]
-    assert len(homework) == 5
-    assert all(
-        (row["question_count"], row["total_marks"], row["submission_count"]) == (2, 6, 1)
-        for row in homework
-    )
+    assert len(queue) == 6
+    counts = {
+        (row["student_name"], row["assignment_title"]): (
+            row["unsure_count"],
+            row["remark_request_count"],
+        )
+        for row in queue
+    }
+    assert counts[("Ben", "HW 1")] == (2, 2)
+    assert counts[("Ann", "HW 1")] == (1, 1)
+    assert counts[("Ann", "HW 2")] == (1, 0)  # the resolved remark does not count
+    by_title = {row["title"]: row for row in homework}
+    assert len(by_title) == 5
+    assert by_title["HW 1"]["submission_count"] == 2
+    assert all((row["question_count"], row["total_marks"]) == (2, 6) for row in by_title.values())
+    assert all(by_title[f"HW {i}"]["submission_count"] == 1 for i in range(2, 6))
 
 
 async def test_assessments_do_not_grow_queries_with_rows(client, tutor, subject):

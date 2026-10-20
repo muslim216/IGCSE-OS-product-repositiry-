@@ -128,6 +128,8 @@ class QuestionDifficulty(str, enum.Enum):
 
 class AssignmentQuestion(Base):
     __tablename__ = "assignment_questions"
+    # A class's homework list counts each one's questions (audit DB-04).
+    __table_args__ = (Index("ix_assignment_questions_assignment_id", "assignment_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     assignment_id: Mapped[int] = mapped_column(ForeignKey("assignments.id"), nullable=False)
