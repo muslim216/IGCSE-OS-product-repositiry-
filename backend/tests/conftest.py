@@ -96,6 +96,18 @@ def signing_storage(monkeypatch):
     return backend
 
 
+@pytest.fixture
+def login_window_that_cannot_roll_over(monkeypatch):
+    """The login window is fixed to the clock, in Redis as well as in process. A
+    test that straddles a 15-minute boundary has its failures split over two
+    windows and never reaches the limit, as happened on CI at 13:30 one day.
+    Applied before the first login, so the Redis store is built with it."""
+    from app.services.rate_limit import login_limiter
+
+    monkeypatch.setattr(login_limiter, "window_seconds", 10**9)
+    monkeypatch.setattr(login_limiter.local, "window_seconds", 10**9)
+
+
 @pytest.fixture(autouse=True)
 async def _reset_login_limiter():
     """The failed-login counters are process-globals, so without this a test that
