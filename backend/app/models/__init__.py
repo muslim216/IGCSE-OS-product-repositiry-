@@ -96,6 +96,7 @@ from app.models.readiness_v2 import (
     ReadinessSnapshot,
     ReadinessWeights,
 )
+from app.models.refresh_session import RefreshSession
 from app.models.reports import Report, ReportAudience, ReportStatus
 from app.models.resources import GroupResource, ResourceKind
 from app.models.syllabus import (
@@ -228,6 +229,7 @@ __all__ = [
     "Topic",
     "TutorNote",
     "TutorObservation",
+    "RefreshSession",
     "User",
     "UserRole",
     "SetupAcknowledgement",
