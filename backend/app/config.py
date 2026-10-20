@@ -342,8 +342,11 @@ class Settings(BaseSettings):
     #: connection only between its model calls (`db.release_connection`), so
     #: this sits well inside `db_pool_size`. One is the default and the only
     #: value used before October 2026; more is switched on deliberately, after
-    #: the rehearsal shows it safe (`AV-85`).
-    worker_concurrency: int = Field(default=1, ge=1, le=16)
+    #: the rehearsal shows it safe (`AV-85`). At most 8: the worker shares the
+    #: API's pool (`db_pool_size` + `db_max_overflow`, 20), and a few handlers
+    #: still hold a connection across slow outside calls (a WhatsApp send, a
+    #: meeting provider fetch).
+    worker_concurrency: int = Field(default=1, ge=1, le=8)
 
     # --- Redis (rate-limit counters only) ---------------------------------
     # Unset -> failed-login counters stay in process memory, which is correct at

@@ -16,6 +16,7 @@ finalized mark through a remark request.
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
@@ -115,12 +116,17 @@ async def mark_submission(session: AsyncSession, payload: dict) -> None:
         await _run_marking(session, submission)
         submission.ai_error = None
     except Exception as exc:
-        if not await _still_the_same_attempt(session, submission.id, marking_attempt):
+        if not session.is_active:
+            # A failed flush (a constraint, say) leaves the transaction unusable
+            # until it is rolled back; without this the check below would raise
+            # in place of the real error.
+            await session.rollback()
+        if not await _still_the_same_attempt(session, submission_id, marking_attempt):
             # Replaced while this job ran: the failure was the old pages', and
             # the replacement has its own job. Writing `ai_failed` would show a
             # tutor a failure for work still being marked, and raising would
             # retry this job into marking the new pages a second time.
-            _log_replaced(submission.id, marking_attempt, exc)
+            _log_replaced(submission_id, marking_attempt, exc)
             return
         submission.status = SubmissionStatus.ai_failed
         submission.ai_error = str(exc) or exc.__class__.__name__
@@ -511,17 +517,8 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
     # has already finalized is left untouched, and if every question is
     # finalized there is nothing left to ask the AI.
     # Keyed by whichever question column this kind of submission uses.
-    existing_marks = {
-        getattr(m, source.kind.mark_fk): m
-        for m in (
-            await session.scalars(
-                select(QuestionMark).where(QuestionMark.submission_id == submission.id)
-            )
-        ).all()
-    }
-    if questions and all(
-        (m := existing_marks.get(q.id)) is not None and m.final_marks is not None for q in questions
-    ):
+    existing_marks = await _existing_marks(session, submission.id, source.kind.mark_fk)
+    if _all_decided(questions, existing_marks):
         return
 
     # `q.has_mark_scheme` records what the *extractor* saw in the question paper, and is
@@ -629,6 +626,13 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
         # skip the new ones (`DB-08`). The call is still recorded above.
         _log_replaced(submission.id, marking_attempt)
         return
+    # Read again now the row is locked. Another job for the same pages (queued
+    # twice, with several running at once) or a tutor ruling during the call
+    # may have written marks since the read above; writing from that read
+    # would add a second set, or overwrite the tutor's decision (`CAP-2`).
+    existing_marks = await _existing_marks(session, submission.id, source.kind.mark_fk)
+    if _all_decided(questions, existing_marks):
+        return
 
     flagged = submission.typed_flag_reason is not None
     drafts_by_number = {d.number.lstrip("Qq"): d for d in result.questions}
@@ -695,6 +699,25 @@ async def _run_marking(session: AsyncSession, submission: Submission) -> None:
             mark.needs_review = True
 
     await _settle_submission(session, submission, source.subject_id)
+
+
+async def _existing_marks(
+    session: AsyncSession, submission_id: int, mark_fk: str
+) -> dict[int, QuestionMark]:
+    """This submission's marks, keyed by whichever question column its kind
+    uses, freshly read even for marks already loaded in this session."""
+    marks = await session.scalars(
+        select(QuestionMark)
+        .where(QuestionMark.submission_id == submission_id)
+        .execution_options(populate_existing=True)
+    )
+    return {getattr(m, mark_fk): m for m in marks.all()}
+
+
+def _all_decided(questions: Sequence, marks: dict[int, QuestionMark]) -> bool:
+    return bool(questions) and all(
+        (m := marks.get(q.id)) is not None and m.final_marks is not None for q in questions
+    )
 
 
 def _log_replaced(

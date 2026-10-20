@@ -96,6 +96,17 @@ _background: set[str] = set()
 #: oldest, so a stuck one still shows as `stalled` while others come and go.
 _in_flight: dict[int, datetime] = {}
 
+#: Held while the oldest in-flight time is read and written, so two slots
+#: finishing together cannot commit out of order and leave a finished job's
+#: time behind, which would report an idle worker as `stalled`.
+_in_flight_lock = asyncio.Lock()
+
+
+async def _report_in_flight() -> None:
+    async with _in_flight_lock:
+        await _write_heartbeat(job_started_at=min(_in_flight.values(), default=None))
+
+
 #: This process's worker identity. Generated per process, not per machine: a
 #: restarted process is a new worker with its own row, which is what makes a
 #: worker that vanished visible as a row that stopped updating rather than one
@@ -236,7 +247,9 @@ async def register_worker(now: datetime | None = None) -> None:
                 session.add(row)
             row.started_at = now
             row.last_loop_at = now
-            row.job_started_at = None
+            # Not simply cleared: on a re-registration other slots may still be
+            # mid-job, and a stuck one must go on showing.
+            row.job_started_at = min(_in_flight.values(), default=None)
             await session.commit()
         _worker_registered = True
     except Exception:  # noqa: BLE001 — see _write_heartbeat
@@ -748,7 +761,7 @@ async def process_one_job(*, skip_background: bool = False) -> bool:
     context = log_context.bind(f"job-{job_id}")
     try:
         _in_flight[job_id] = datetime.now(timezone.utc)
-        await _write_heartbeat(job_started_at=min(_in_flight.values()))
+        await _report_in_flight()
         try:
             error, permanent = await _run_handler(job_id, job_type, payload)
         except asyncio.CancelledError:
@@ -779,7 +792,7 @@ async def process_one_job(*, skip_background: bool = False) -> bool:
     finally:
         _in_flight.pop(job_id, None)
         try:
-            await _write_heartbeat(job_started_at=min(_in_flight.values(), default=None))
+            await _report_in_flight()
         finally:
             log_context.reset(context)
     return True
@@ -939,7 +952,7 @@ async def reclaim_orphaned_jobs(now: datetime | None = None) -> int:
 
 
 async def worker_loop() -> None:
-    global _last_heartbeat_write, _last_orphan_sweep
+    global _last_orphan_sweep
     await register_worker()
     log.info("job worker started (worker_id=%s)", WORKER_ID)
     # Immediately at start: a claim the previous process left behind and that

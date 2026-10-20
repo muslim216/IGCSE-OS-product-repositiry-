@@ -143,3 +143,45 @@ async def test_an_extra_slot_claims_without_background_work(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await jobs._extra_slot()
     assert asked == [{"skip_background": True}]
+
+
+async def test_an_extra_slot_carries_on_after_an_error(monkeypatch):
+    calls = 0
+
+    async def claim(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("database blip")
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(jobs, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(jobs, "process_one_job", claim)
+    with pytest.raises(asyncio.CancelledError):
+        await jobs._extra_slot()
+    assert calls == 2
+
+
+def test_only_work_nobody_waits_on_is_background():
+    """A waiting type marked background by mistake would never run on an extra
+    slot; this names the split."""
+    from app.workers.handlers import register_all
+
+    register_all()
+    for waiting in (
+        "mark_submission",
+        "extract_assignment",
+        "generate_report",
+        "send_notification",
+    ):
+        assert waiting not in jobs._background
+    for background in ("tag_mistakes", "compute_readiness_v2", "sweep_retention"):
+        assert background in jobs._background
+
+
+async def test_re_registering_keeps_a_running_job_on_show(monkeypatch):
+    started = jobs.datetime.now(jobs.timezone.utc)
+    monkeypatch.setattr(jobs, "_worker_registered", False)
+    monkeypatch.setattr(jobs, "_in_flight", {7: started})
+    await register_worker()
+    assert await _heartbeat_job_started_at() is not None
