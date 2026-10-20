@@ -434,36 +434,34 @@ async def log_attempt(
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
 
-    # Written before `open_attempt` takes the attempt's row lock, as mocks do,
-    # so the lock covers only the check-and-insert and not a phone's upload.
-    saved = [
-        await storage.save_upload(upload, organization_id=user.organization_id, student_id=user.id)
-        for upload in files
-    ]
-    try:
+    async with storage.kept_only_if_committed(db) as saved:
+        # Written before `open_attempt` takes the attempt's row lock, as mocks do,
+        # so the lock covers only the check-and-insert and not a phone's upload.
+        # Every way out before the commit deletes them (`kept_only_if_committed`).
+        for upload in files:
+            saved.append(
+                await storage.save_upload(
+                    upload, organization_id=user.organization_id, student_id=user.id
+                )
+            )
         submission, settled = await open_attempt(db, PAST_PAPER, paper.id, user.id)
         if settled:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 "This paper has marks that are already final, so it can't be logged again",
             )
-    except HTTPException:
-        # The rollback releases the lock before the storage deletes run.
-        await db.rollback()
-        await storage.discard_uploads(saved)
-        raise
 
-    submission.timed = timed
-    submission.time_taken_minutes = time_taken_minutes
-    submission.attempted_at = attempted_at
-    for position, (path, name, mime) in enumerate(saved):
-        db.add(
-            SubmissionFile(
-                submission_id=submission.id, position=position, path=path, name=name, mime=mime
+        submission.timed = timed
+        submission.time_taken_minutes = time_taken_minutes
+        submission.attempted_at = attempted_at
+        for position, (path, name, mime) in enumerate(saved):
+            db.add(
+                SubmissionFile(
+                    submission_id=submission.id, position=position, path=path, name=name, mime=mime
+                )
             )
-        )
-    await enqueue(db, "mark_submission", {"submission_id": submission.id})
-    await db.commit()
+        await enqueue(db, "mark_submission", {"submission_id": submission.id})
+        await db.commit()
     return await _attempt_out(db, submission)
 
 

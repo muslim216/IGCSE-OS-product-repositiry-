@@ -633,3 +633,33 @@ async def test_a_refused_hand_in_over_final_marks_leaves_no_file_behind(
     assert response.status_code == 409, response.text
     assert order == ["save", "lock"]
     assert len(deleted) == 1
+
+
+async def test_a_hand_in_whose_second_page_is_refused_keeps_none_of_its_pages(
+    client, student, published_assignment, monkeypatch
+):
+    """A valid page then one that fails its check: the first is already in
+    storage, and the refusal must take it back out (nothing else points at it)."""
+    from app.services import storage
+    from tests.conftest import PNG_BYTES
+
+    deleted: list[str] = []
+    real_delete = storage.delete_file
+
+    async def record_delete(key: str) -> None:
+        deleted.append(key)
+        await real_delete(key)
+
+    monkeypatch.setattr(storage, "delete_file", record_delete)
+    response = await client.post(
+        f"{API}/assignments/{published_assignment['id']}/submissions",
+        files=[
+            ("files", ("page1.png", PNG_BYTES, "image/png")),
+            ("files", ("page2.png", b"not an image at all", "image/png")),
+        ],
+        headers=student["headers"],
+    )
+    assert 400 <= response.status_code < 500, response.text
+    assert len(deleted) == 1
+    async with async_session() as session:
+        assert (await session.scalar(select(Submission))) is None

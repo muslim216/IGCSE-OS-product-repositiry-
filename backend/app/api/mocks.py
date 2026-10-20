@@ -481,35 +481,36 @@ async def sit_mock(
             "Add your answers — upload a photo or type them in",
         )
 
-    # Uploads are written to storage BEFORE the row lock below, deliberately.
-    # A whole class sits a mock at once, and holding `FOR UPDATE` on the single
-    # `mocks` row across every student's file I/O would make them queue behind
-    # one another for the length of an upload. Nothing here touches the mock.
-    saved = [
-        await storage.save_upload(upload, organization_id=user.organization_id, student_id=user.id)
-        for upload in files or []
-    ]
+    async with storage.kept_only_if_committed(db) as saved:
+        # Uploads are written to storage BEFORE the row lock below, deliberately.
+        # A whole class sits a mock at once, and holding `FOR UPDATE` on the single
+        # `mocks` row across every student's file I/O would make them queue behind
+        # one another for the length of an upload. Nothing here touches the mock.
+        for upload in files or []:
+            saved.append(
+                await storage.save_upload(
+                    upload, organization_id=user.organization_id, student_id=user.id
+                )
+            )
 
-    # The lock starts here and covers only the check-and-insert. It is what
-    # makes `assign_mock_group`'s 409 real: without it a submission can land
-    # between that handler's check and its commit, leaving the mock pointed at a
-    # class its submissions do not belong to.
-    #
-    # The visibility check is re-run in full under the lock, not just the status
-    # — the tutor may have moved the mock to another group while this student's
-    # upload was being written, and `_visible_mock` is what tests membership. A
-    # status-only recheck would accept a submission from a student who is no
-    # longer in the mock's class.
-    # Every rejection inside the locked region goes through one handler, so no
-    # path can forget the cleanup — `_visible_mock` raises 404 itself when this
-    # student is no longer in the mock's class, which is the case a per-branch
-    # discard call silently missed.
-    #
-    # The rollback comes first and matters: it releases the row lock, so the
-    # storage deletes that follow do not hold a whole class behind them. Nothing
-    # here has written a row worth keeping — that is what makes discarding the
-    # transaction outright the right move rather than a blunt one.
-    try:
+        # The lock starts here and covers only the check-and-insert. It is what
+        # makes `assign_mock_group`'s 409 real: without it a submission can land
+        # between that handler's check and its commit, leaving the mock pointed at a
+        # class its submissions do not belong to.
+        #
+        # The visibility check is re-run in full under the lock, not just the status
+        # — the tutor may have moved the mock to another group while this student's
+        # upload was being written, and `_visible_mock` is what tests membership. A
+        # status-only recheck would accept a submission from a student who is no
+        # longer in the mock's class.
+        # Every way out before the commit goes through `kept_only_if_committed`, so
+        # no path can forget the cleanup — `_visible_mock` raises 404 itself when
+        # this student is no longer in the mock's class, which is the case a
+        # per-branch discard call silently missed. Its rollback comes first and
+        # matters: it releases the row lock, so the storage deletes that follow do
+        # not hold a whole class behind them. Nothing here has written a row worth
+        # keeping — that is what makes discarding the transaction outright the
+        # right move rather than a blunt one.
         locked = await _visible_mock(db, user, mock_id, for_update=True, sitting=True)
         if locked.status != MockStatus.published:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Mock not found")
@@ -519,49 +520,45 @@ async def sit_mock(
                 status.HTTP_409_CONFLICT,
                 "This mock has marks that are already final, so it can't be handed in again",
             )
-    except HTTPException:
-        await db.rollback()
-        await storage.discard_uploads(saved)
-        raise
 
-    # What the sitting actually took, and whether it ran over. Both are recorded
-    # here and **neither blocks anything** (`AV-116`): a late submission is
-    # accepted in full and flagged for the tutor, because refusing it loses a
-    # student's work to punish something the tutor is better placed to judge.
-    #
-    # A student who never called `/open` has no start time, and nothing is
-    # invented to stand in for one — absent, not zero (`PROD-2`).
-    opening = await db.scalar(
-        select(MockOpening).where(
-            MockOpening.mock_id == locked.id, MockOpening.student_id == user.id
-        )
-    )
-    if opening is not None:
-        # One `now` for both, not one each: read separately they can straddle
-        # the deadline and report a sitting that is over its time but not late.
-        now = utcnow()
-        submission.measured_minutes = mock_clock.elapsed_minutes(opening.opened_at, now)
-        submission.submitted_late = mock_clock.read(
-            opening.opened_at, locked.duration_minutes, now=now
-        ).overdue
-
-    submission.typed_answer = typed
-    # The deterministic scan (AV-93), run at submission so the verdict is stored
-    # before anything is queued and no marking run can start unscanned.
-    submission.typed_flag_reason = scan_typed_answer(typed).reason
-
-    for position, (path, name, mime) in enumerate(saved):
-        db.add(
-            SubmissionFile(
-                submission_id=submission.id,
-                path=path,
-                name=name,
-                mime=mime,
-                position=position,
+        # What the sitting actually took, and whether it ran over. Both are recorded
+        # here and **neither blocks anything** (`AV-116`): a late submission is
+        # accepted in full and flagged for the tutor, because refusing it loses a
+        # student's work to punish something the tutor is better placed to judge.
+        #
+        # A student who never called `/open` has no start time, and nothing is
+        # invented to stand in for one — absent, not zero (`PROD-2`).
+        opening = await db.scalar(
+            select(MockOpening).where(
+                MockOpening.mock_id == locked.id, MockOpening.student_id == user.id
             )
         )
-    await enqueue(db, "mark_submission", {"submission_id": submission.id})
-    await db.commit()
+        if opening is not None:
+            # One `now` for both, not one each: read separately they can straddle
+            # the deadline and report a sitting that is over its time but not late.
+            now = utcnow()
+            submission.measured_minutes = mock_clock.elapsed_minutes(opening.opened_at, now)
+            submission.submitted_late = mock_clock.read(
+                opening.opened_at, locked.duration_minutes, now=now
+            ).overdue
+
+        submission.typed_answer = typed
+        # The deterministic scan (AV-93), run at submission so the verdict is stored
+        # before anything is queued and no marking run can start unscanned.
+        submission.typed_flag_reason = scan_typed_answer(typed).reason
+
+        for position, (path, name, mime) in enumerate(saved):
+            db.add(
+                SubmissionFile(
+                    submission_id=submission.id,
+                    path=path,
+                    name=name,
+                    mime=mime,
+                    position=position,
+                )
+            )
+        await enqueue(db, "mark_submission", {"submission_id": submission.id})
+        await db.commit()
     await db.refresh(submission)
     return await _submission_out(db, mock, submission)
 

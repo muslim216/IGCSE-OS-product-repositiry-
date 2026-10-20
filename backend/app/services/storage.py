@@ -19,9 +19,11 @@ production cutover, which is deliberately a separate change from this one;
 """
 
 import asyncio
+import contextlib
 import io
 import logging
 import secrets
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -30,6 +32,7 @@ from typing import Protocol
 from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.services.rate_limit import (
@@ -567,6 +570,22 @@ async def discard_uploads(saved: list[tuple[str, str, str]]) -> None:
     backstop, a month later)."""
     for key, _name, _mime in saved:
         await delete_file(key)
+
+
+@contextlib.asynccontextmanager
+async def kept_only_if_committed(db: AsyncSession) -> AsyncIterator[list[tuple[str, str, str]]]:
+    """Hold a hand-in's saved uploads; on any way out before the block ends
+    (a refusal, a later file rejected, the client gone, a failed commit) roll
+    the session back and delete them. The block ends at the commit that gives
+    the files their rows. Shielded, so a cancellation cannot cut the cleanup
+    short; the rollback first, so a row lock is released before file I/O."""
+    saved: list[tuple[str, str, str]] = []
+    try:
+        yield saved
+    except BaseException:
+        await asyncio.shield(db.rollback())
+        await asyncio.shield(discard_uploads(saved))
+        raise
 
 
 async def delete_file(key: str) -> None:
