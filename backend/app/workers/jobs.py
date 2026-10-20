@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import log_context
 from app.config import get_settings
-from app.db import async_session
+from app.db import async_session, pool_status
 from app.models import Job, JobStatus, WorkerHeartbeat
 
 log = logging.getLogger("jobs")
@@ -686,6 +686,8 @@ async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str |
         log.exception("job %s (%s) failed: %s", job_id, job_type, exc)
         if isinstance(exc, PoolTimeoutError):
             # Load, not the work: retried, and stored in words a tutor can read.
+            # The pool's counts go to the log, since the row no longer has them.
+            log.warning("job %s (%s) found the pool full: %s", job_id, job_type, pool_status())
             return "Avora was too busy to run this; it will be tried again", False
         return str(exc) or exc.__class__.__name__, is_permanent(exc)
     return None, False

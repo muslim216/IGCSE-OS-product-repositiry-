@@ -11,8 +11,10 @@ import { ApiError } from "../api/client";
  */
 export function friendlyError(err: unknown, fallback = "Something went wrong. Try again."): string {
   if (err instanceof ApiError) {
-    // Turned away under load (`CAP-16`): a moment's wait fixes it.
-    if (err.status === 503) return "Avora is busy right now. Please try again in a moment.";
+    // Turned away under load (`CAP-16`): a moment's wait fixes it. Matched on
+    // the server's own sentence, because an unconfigured integration answers
+    // 503 too, and "try again in a moment" would not fix that.
+    if (err.status === 503 && err.message.startsWith("Avora is busy")) return err.message;
     if (err.status >= 500) {
       return "Something went wrong on our side. Try again in a minute.";
     }
