@@ -694,6 +694,10 @@ async def sweep_parent_narratives(session: AsyncSession, payload: dict) -> None:
         if sid not in pending_students
         and not ((generated := freshest.get(sid)) is not None and generated >= cutoff)
     ]
+    # Longest-waiting first, so when more are due than one sweep takes, the cap
+    # leaves the freshest behind rather than whoever the query happened to
+    # return last (audit CAP-9). Never-written learners lead.
+    due.sort(key=lambda sid: (freshest.get(sid) is not None, freshest.get(sid) or cutoff, sid))
     # One flush for the batch, not one per learner: enqueue() flushes on every
     # call, which is right for a single job and wrong for a loop this long.
     _add_jobs(

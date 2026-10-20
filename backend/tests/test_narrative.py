@@ -376,6 +376,70 @@ async def test_sweep_caps_how_many_students_one_run_enqueues(
     assert students == {world["student_id"], second["id"]}
 
 
+async def test_a_capped_sweep_takes_the_longest_waiting_first(
+    client, tutor, world, fake_narrative_ai, monkeypatch
+):
+    """More due than one sweep takes: the never-written learner leads, then the
+    oldest paragraph; the most recently written stale one waits (audit CAP-9).
+    Ids run the other way, so creation order cannot pass for the rule."""
+    fake_narrative_ai()
+    now = datetime.now(timezone.utc)
+    learners = [world["student_id"]]
+    for name in ("Omar", "Lina"):
+        learners.append(
+            (
+                await client.post(
+                    f"/api/v1/groups/{world['group_id']}/students",
+                    json={"name": name, "username": name.lower() + "01", "password": "password123"},
+                    headers=tutor["headers"],
+                )
+            ).json()["id"]
+        )
+    recent_stale, oldest, never = learners
+    async with async_session() as session:
+        org = (await session.get(User, recent_stale)).organization_id
+        for i, sid in enumerate(learners):
+            session.add(
+                Evidence(
+                    student_id=sid,
+                    topic_id=world["topic_id"],
+                    source_type=EvidenceSource.homework,
+                    score_pct=61.0,
+                    max_marks=20,
+                    occurred_at=now,
+                    source_ref=f"submission:cap9-{i}",
+                )
+            )
+        for sid, days in ((recent_stale, 8), (oldest, 40)):
+            session.add(
+                Narrative(
+                    organization_id=org,
+                    audience=NarrativeAudience.parent_student,
+                    group_id=None,
+                    student_id=sid,
+                    text="old",
+                    prompt_version="v1",
+                    model="m",
+                    generated_at=now - timedelta(days=days),
+                )
+            )
+        await session.commit()
+
+    monkeypatch.setattr(get_settings(), "narrative_sweep_max_students", 2)
+    async with async_session() as session:
+        await sweep_parent_narratives(session, {})
+        await session.commit()
+
+    async with async_session() as session:
+        picked = {
+            p["student_id"]
+            for p in (
+                await session.scalars(select(Job.payload).where(Job.type == "generate_narrative"))
+            ).all()
+        }
+    assert picked == {never, oldest}
+
+
 async def test_sweep_enqueues_a_stale_student(world, fake_narrative_ai):
     fake_narrative_ai()
     async with async_session() as session:
