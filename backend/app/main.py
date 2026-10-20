@@ -343,7 +343,7 @@ async def _request_context(request, call_next):
 BUSY_RETRY_AFTER_SECONDS = 5
 
 
-async def _busy(request: Request, exc: Exception) -> JSONResponse:
+def _busy(request: Request, exc: Exception) -> JSONResponse:
     """Every database connection stayed taken for `POOL_TIMEOUT_SECONDS`. Say so
     plainly with a 503 and Retry-After instead of a bare 500, so a page can try
     again and the logs show load, not a bug (`CAP-16`)."""
