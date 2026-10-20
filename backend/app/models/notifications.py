@@ -130,6 +130,8 @@ class Notification(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_notifications_idempotency_key"),
         Index("ix_notifications_recipient_created", "recipient_user_id", "created_at"),
+        # The undelivered list: one organization, newest first, in a window.
+        Index("ix_notifications_organization_id_created_at", "organization_id", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

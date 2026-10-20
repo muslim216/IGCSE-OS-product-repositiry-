@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Time,
@@ -96,7 +97,12 @@ class TaughtBeforeTopic(TimestampMixin, Base):
 
 class GroupMember(TimestampMixin, Base):
     __tablename__ = "group_members"
-    __table_args__ = (UniqueConstraint("group_id", "student_id"),)
+    __table_args__ = (
+        UniqueConstraint("group_id", "student_id"),
+        # "Which classes is this student in" — the unique pair leads with
+        # `group_id`, so it cannot serve a lookup by student.
+        Index("ix_group_members_student_id", "student_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False)

@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Enum, ForeignKey, Integer, String
+from sqlalchemy import Enum, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -15,6 +15,16 @@ class UserRole(str, enum.Enum):
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    # Sign-in and sign-up look a person up by the folded address or username
+    # (`func.lower(...)` in `api/auth.py` and `api/groups.py`), which the plain
+    # unique columns below cannot serve: without these, every sign-in reads the
+    # whole table. Unique as well, so "A@x.com" and "a@x.com" can never be two
+    # accounts even if a writer forgets to lowercase. Declared here as well as
+    # created in the migration (`DB-12`).
+    __table_args__ = (
+        Index("uq_users_lower_email", text("lower(email)"), unique=True),
+        Index("uq_users_lower_username", text("lower(username)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     # Either email or username must be set. Younger students may not have an

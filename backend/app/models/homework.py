@@ -208,6 +208,10 @@ class Submission(TimestampMixin, Base):
     # (`RISK-3`). A name here is what the migration can rely on later.
     __table_args__ = (
         UniqueConstraint("work_id", "student_id", name="uq_submissions_work_id_student_id"),
+        # A student's own work across every piece of work — readiness,
+        # averaging, mistakes and the activity poll all filter on student and
+        # status without `work_id`, which the constraint above cannot serve.
+        Index("ix_submissions_student_id_status", "student_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -302,6 +306,8 @@ class Submission(TimestampMixin, Base):
 
 class SubmissionFile(Base):
     __tablename__ = "submission_files"
+    # Every load of a submission's pages (`selectinload(Submission.files)`).
+    __table_args__ = (Index("ix_submission_files_submission_id", "submission_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), nullable=False)

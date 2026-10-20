@@ -14,6 +14,8 @@ from app.models import Base
 PATH = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0065_notifications.py"
 TABLES = ("contact_points", "notification_preferences", "notifications")
 ORG_COLUMNS = {"weekly_send_weekday", "weekly_send_hour", "ai_language"}
+# Indexes a later migration adds to these tables; the models carry them, 0065 does not.
+LATER_INDEXES = {"ix_notifications_organization_id_created_at"}  # 0073
 
 
 def _load():
@@ -59,7 +61,7 @@ def test_tables_match_the_models(migrated):
         }, table
         assert {i["name"] for i in insp.get_indexes(table)} == {
             i["name"] for i in model_insp.get_indexes(table)
-        }, table
+        } - LATER_INDEXES, table
     assert {c["name"] for c in insp.get_columns("organizations")} >= ORG_COLUMNS
     model_conn.close()
 
