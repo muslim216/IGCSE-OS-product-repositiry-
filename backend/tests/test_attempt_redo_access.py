@@ -681,9 +681,12 @@ async def test_refused_pages_go_even_when_the_rollback_itself_fails(monkeypatch)
         async def rollback(self):
             raise ConnectionError("connection is closed")
 
-    monkeypatch.setattr(storage, "delete_file", flaky_delete)
-    with pytest.raises(ConnectionError):
+    async def refuse_two_pages() -> None:
         async with storage.discarded_unless_kept(DeadSession()) as saved:
             saved += [("a", "a.png", "image/png"), ("b", "b.png", "image/png")]
             raise RuntimeError("refused")
+
+    monkeypatch.setattr(storage, "delete_file", flaky_delete)
+    with pytest.raises(ConnectionError):
+        await refuse_two_pages()
     assert deleted == ["a", "b"]
