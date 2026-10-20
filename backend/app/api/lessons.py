@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DbSession, TutorUser, assert_tutor
 from app.models import (
+    Assignment,
     Group,
     GroupMember,
     Lesson,
@@ -193,6 +194,15 @@ async def delete_lesson(lesson_id: int, db: DbSession, user: CurrentUser) -> Non
     await plan_lessons.release_slot_for_lesson(db, lesson.id)
     await attendance.delete_for_lesson(db, lesson.id)
     await meeting_integrations.delete_for_lesson(db, lesson.id)
+    # Every row that points at the lesson, before the lesson: Postgres enforces
+    # these keys and refused the delete for any lesson with a topic on it,
+    # which SQLite (keys off) never showed. The topics and per-student notes
+    # go with the lesson; homework set from it stays, no longer tied to it.
+    await db.execute(delete(LessonTopic).where(LessonTopic.lesson_id == lesson.id))
+    await db.execute(delete(LessonObservation).where(LessonObservation.lesson_id == lesson.id))
+    await db.execute(
+        update(Assignment).where(Assignment.lesson_id == lesson.id).values(lesson_id=None)
+    )
     await db.delete(lesson)
     await db.commit()
 

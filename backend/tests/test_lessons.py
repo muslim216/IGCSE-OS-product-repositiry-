@@ -166,3 +166,54 @@ async def test_assignment_links_to_lesson(client, tutor, world):
     )
     assert assignment.status_code == 201, assignment.text
     assert assignment.json()["lesson_id"] == lesson_id
+
+
+async def test_a_lesson_with_topics_notes_and_homework_can_be_deleted(client, tutor, world):
+    """Postgres enforces every key that points at a lesson, and refused this
+    delete outright: run with SQLite's keys on so the suite sees what it does.
+    The topics and notes go with the lesson; its homework stays, untied."""
+    from app.db import engine
+    from app.models import Assignment, LessonObservation, LessonTopic
+
+    lesson_id = (
+        await client.post(
+            "/api/v1/lessons",
+            json={"group_id": world["group"]["id"], "date": "2026-07-14"},
+            headers=tutor["headers"],
+        )
+    ).json()["id"]
+    await client.put(
+        f"/api/v1/lessons/{lesson_id}/topics",
+        json={"topic_ids": [world["topic1"]]},
+        headers=tutor["headers"],
+    )
+    await client.post(
+        f"/api/v1/lessons/{lesson_id}/observations",
+        json={"student_id": world["student_id"], "body": "Asked good questions."},
+        headers=tutor["headers"],
+    )
+    homework = (
+        await client.post(
+            "/api/v1/assignments",
+            json={"group_id": world["group"]["id"], "lesson_id": lesson_id, "title": "HW"},
+            headers=tutor["headers"],
+        )
+    ).json()
+
+    async with engine.connect() as conn:
+        await conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+        await conn.commit()
+    try:
+        deleted = await client.delete(f"/api/v1/lessons/{lesson_id}", headers=tutor["headers"])
+    finally:
+        async with engine.connect() as conn:
+            await conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            await conn.commit()
+    assert deleted.status_code == 204, deleted.text
+
+    async with async_session() as session:
+        assert (await session.scalars(select(LessonTopic))).all() == []
+        assert (await session.scalars(select(LessonObservation))).all() == []
+        kept = await session.get(Assignment, homework["id"])
+        assert kept is not None
+        assert kept.lesson_id is None
