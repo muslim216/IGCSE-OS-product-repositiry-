@@ -19,9 +19,11 @@ production cutover, which is deliberately a separate change from this one;
 """
 
 import asyncio
+import contextlib
 import io
 import logging
 import secrets
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -30,6 +32,7 @@ from typing import Protocol
 from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.services.rate_limit import (
@@ -555,6 +558,48 @@ async def _write(
     key = new_key(organization_id, mime)
     await get_storage().upload(key, data, mime)
     return key, filename, mime
+
+
+async def discard_uploads(saved: list[tuple[str, str, str]]) -> None:
+    """Remove uploads written for a hand-in that was then refused.
+
+    Hand-ins write their files before taking the attempt's row lock, so a class
+    does not queue behind one another's file I/O; every path that refuses after
+    that point owns this cleanup, because an object with no row pointing at it
+    is invisible and can never be found again (the retention sweep is the
+    backstop, a month later). One failed delete does not stop the rest."""
+    for key, _name, _mime in saved:
+        try:
+            await delete_file(key)
+        except Exception:  # noqa: BLE001 — the others still go; the sweep gets this one
+            log.exception("could not delete refused upload %s", key)
+
+
+async def _abandon(db: AsyncSession, saved: list[tuple[str, str, str]]) -> None:
+    try:
+        await db.rollback()
+    finally:
+        await discard_uploads(saved)
+
+
+@contextlib.asynccontextmanager
+async def discarded_unless_kept(db: AsyncSession) -> AsyncIterator[list[tuple[str, str, str]]]:
+    """Hold a hand-in's saved uploads; on any way out of the block (a refusal, a
+    later file rejected, the client gone) roll the session back and delete
+    them. The rollback first, so a row lock is released before file I/O; the
+    files go even if the rollback fails; one shield over both, so a second
+    cancellation cannot cut the cleanup short.
+
+    The block ends just BEFORE the commit, never around it: a commit that fails
+    ambiguously (the connection lost after the server committed) may have given
+    the files their rows, and deleting them then loses a student's pages. A
+    failed commit leaves its files to the retention sweep instead."""
+    saved: list[tuple[str, str, str]] = []
+    try:
+        yield saved
+    except BaseException:
+        await asyncio.shield(_abandon(db, saved))
+        raise
 
 
 async def delete_file(key: str) -> None:

@@ -583,3 +583,110 @@ async def test_the_review_page_is_not_offered_a_redo_the_endpoint_would_refuse(h
 
     assert after.json()["can_redo"] is False
     assert (await _redo(attempt)).status_code == 409
+
+
+@pytest.fixture(params=["homework", "past_paper"])
+def attempt_with_a_file(request):
+    """The kinds whose hand-in here uploads a page; a sync fixture, as `attempt`
+    is, so pytest resolves the async ones rather than a running test."""
+    return request.getfixturevalue(f"{request.param}_attempt")
+
+
+async def test_a_refused_hand_in_over_final_marks_leaves_no_file_behind(
+    attempt_with_a_file, monkeypatch
+):
+    """Files are written before the attempt's row lock, so the lock does not
+    cover an upload. A hand-in then refused (final marks) must delete what it
+    wrote: nothing points at an orphaned object, and nothing finds it again.
+    Mocks have their own test; their hand-in here is typed, with no file."""
+    from app.services import storage
+
+    attempt = attempt_with_a_file
+
+    deleted: list[str] = []
+    real_delete = storage.delete_file
+
+    async def record_delete(key: str) -> None:
+        deleted.append(key)
+        await real_delete(key)
+
+    # The order the route did things in: every file saved before the lock.
+    order: list[str] = []
+    real_save = storage.save_upload
+
+    async def record_save(*args, **kwargs):
+        order.append("save")
+        return await real_save(*args, **kwargs)
+
+    from app.api import past_papers, submissions
+    from app.services import attempts
+
+    async def record_lock(*args, **kwargs):
+        order.append("lock")
+        return await attempts.open_attempt(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "delete_file", record_delete)
+    monkeypatch.setattr(storage, "save_upload", record_save)
+    monkeypatch.setattr(submissions, "open_attempt", record_lock)
+    monkeypatch.setattr(past_papers, "open_attempt", record_lock)
+    response = await attempt.hand_in()
+    assert response.status_code == 409, response.text
+    assert order == ["save", "lock"]
+    assert len(deleted) == 1
+
+
+async def test_a_hand_in_whose_second_page_is_refused_keeps_none_of_its_pages(
+    client, student, published_assignment, monkeypatch
+):
+    """A valid page then one that fails its check: the first is already in
+    storage, and the refusal must take it back out (nothing else points at it)."""
+    from app.services import storage
+    from tests.conftest import PNG_BYTES
+
+    deleted: list[str] = []
+    real_delete = storage.delete_file
+
+    async def record_delete(key: str) -> None:
+        deleted.append(key)
+        await real_delete(key)
+
+    monkeypatch.setattr(storage, "delete_file", record_delete)
+    response = await client.post(
+        f"{API}/assignments/{published_assignment['id']}/submissions",
+        files=[
+            ("files", ("page1.png", PNG_BYTES, "image/png")),
+            ("files", ("page2.png", b"not an image at all", "image/png")),
+        ],
+        headers=student["headers"],
+    )
+    assert 400 <= response.status_code < 500, response.text
+    assert len(deleted) == 1
+    async with async_session() as session:
+        assert (await session.scalar(select(Submission))) is None
+
+
+async def test_refused_pages_go_even_when_the_rollback_itself_fails(monkeypatch):
+    """A dead connection can make the rollback raise; the pages are deleted
+    anyway, and one delete failing does not keep the next one."""
+    from app.services import storage
+
+    deleted: list[str] = []
+
+    async def flaky_delete(key: str) -> None:
+        deleted.append(key)
+        if key == "a":
+            raise OSError("disk hiccup")
+
+    class DeadSession:
+        async def rollback(self):
+            raise ConnectionError("connection is closed")
+
+    async def refuse_two_pages() -> None:
+        async with storage.discarded_unless_kept(DeadSession()) as saved:
+            saved += [("a", "a.png", "image/png"), ("b", "b.png", "image/png")]
+            raise RuntimeError("refused")
+
+    monkeypatch.setattr(storage, "delete_file", flaky_delete)
+    with pytest.raises(ConnectionError):
+        await refuse_two_pages()
+    assert deleted == ["a", "b"]

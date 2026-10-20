@@ -190,32 +190,39 @@ async def submit_work(
             "Add your answers — upload a photo or type them in",
         )
 
-    submission, settled = await open_attempt(db, HOMEWORK, assignment_id, user.id)
-    if settled:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "This homework has marks that are already final, so it can't be replaced",
-        )
-
-    # Replaced, never merged with what a previous attempt typed — the same rule
-    # the files above follow. A resubmission is the whole answer again.
-    submission.typed_answer = typed
-    # The deterministic scan (AV-93), run here rather than in the handler: it is
-    # a pure function over text that is already in hand, and running it at the
-    # point of submission means the verdict is stored before anything is queued,
-    # so a marking run cannot start against an unscanned answer.
-    submission.typed_flag_reason = scan_typed_answer(typed).reason
-
-    for position, upload in enumerate(files or []):
-        path, name, mime = await storage.save_upload(
-            upload, organization_id=user.organization_id, student_id=user.id
-        )
-        db.add(
-            SubmissionFile(
-                submission_id=submission.id, position=position, path=path, name=name, mime=mime
+    async with storage.discarded_unless_kept(db) as saved:
+        # Written before `open_attempt` takes the attempt's row lock, as mocks do,
+        # so the lock covers only the check-and-insert and not a phone's upload.
+        # Every way out before the commit deletes them (`discarded_unless_kept`).
+        for upload in files or []:
+            saved.append(
+                await storage.save_upload(
+                    upload, organization_id=user.organization_id, student_id=user.id
+                )
             )
-        )
-    await enqueue(db, "mark_submission", {"submission_id": submission.id})
+        submission, settled = await open_attempt(db, HOMEWORK, assignment_id, user.id)
+        if settled:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This homework has marks that are already final, so it can't be replaced",
+            )
+
+        # Replaced, never merged with what a previous attempt typed — the same rule
+        # the files above follow. A resubmission is the whole answer again.
+        submission.typed_answer = typed
+        # The deterministic scan (AV-93), run here rather than in the handler: it is
+        # a pure function over text that is already in hand, and running it at the
+        # point of submission means the verdict is stored before anything is queued,
+        # so a marking run cannot start against an unscanned answer.
+        submission.typed_flag_reason = scan_typed_answer(typed).reason
+
+        for position, (path, name, mime) in enumerate(saved):
+            db.add(
+                SubmissionFile(
+                    submission_id=submission.id, position=position, path=path, name=name, mime=mime
+                )
+            )
+        await enqueue(db, "mark_submission", {"submission_id": submission.id})
     await db.commit()
     return await _student_view(db, assignment, submission)
 
