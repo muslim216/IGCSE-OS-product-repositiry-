@@ -25,11 +25,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import case, delete, or_, select, update
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import log_context
 from app.config import get_settings
-from app.db import async_session
+from app.db import async_session, pool_status
 from app.models import Job, JobStatus, WorkerHeartbeat
 
 log = logging.getLogger("jobs")
@@ -683,6 +684,11 @@ async def _run_handler(job_id: int, job_type: str, payload: dict) -> tuple[str |
             log.error("job %s (%s) stopped at its %ss limit", job_id, job_type, limit)
             return _timeout_message(limit), False
         log.exception("job %s (%s) failed: %s", job_id, job_type, exc)
+        if isinstance(exc, PoolTimeoutError):
+            # Load, not the work: retried, and stored in words a tutor can read.
+            # The pool's counts go to the log, since the row no longer has them.
+            log.warning("job %s (%s) found the pool full: %s", job_id, job_type, pool_status())
+            return "Avora was too busy to run this; it will be tried again", False
         return str(exc) or exc.__class__.__name__, is_permanent(exc)
     return None, False
 
@@ -736,6 +742,25 @@ async def _record_outcome(
     return gave_up
 
 
+#: Tries at writing a finished job's outcome while the pool is full.
+OUTCOME_WRITE_ATTEMPTS = 3
+
+
+async def _record_outcome_when_a_connection_frees(
+    job_id: int, job_type: str, attempts: int, error: str | None, permanent: bool
+) -> bool:
+    """`_record_outcome`, tried again when the pool is full. The work is done by
+    now; losing its outcome would leave the row `running` under a live worker,
+    which the orphan sweep never reclaims, until this process dies (`CAP-16`)."""
+    for _ in range(OUTCOME_WRITE_ATTEMPTS - 1):
+        try:
+            return await _record_outcome(job_id, job_type, attempts, error, permanent)
+        except PoolTimeoutError:
+            log.warning("job %s (%s) outcome waits for a free connection", job_id, job_type)
+            await asyncio.sleep(POLL_SECONDS)
+    return await _record_outcome(job_id, job_type, attempts, error, permanent)
+
+
 async def process_one_job(*, skip_background: bool = False) -> bool:
     """Claim and run one due pending job. Returns False when nothing is due.
     `skip_background` leaves the background types (`_background`) to the
@@ -781,7 +806,9 @@ async def process_one_job(*, skip_background: bool = False) -> bool:
             # this run for ever.
             log.error("job %s (%s) was cancelled from inside its handler", job_id, job_type)
             error, permanent = "The work was cancelled before it finished", False
-        gave_up = await _record_outcome(job_id, job_type, attempts, error, permanent)
+        gave_up = await _record_outcome_when_a_connection_frees(
+            job_id, job_type, attempts, error, permanent
+        )
         # After the commit, never inside it: the job's own outcome is the
         # record that matters, and it must not wait on, or roll back with, a
         # write to some other row.

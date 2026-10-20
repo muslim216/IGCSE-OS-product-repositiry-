@@ -185,3 +185,48 @@ async def test_re_registering_keeps_a_running_job_on_show(monkeypatch):
     monkeypatch.setattr(jobs, "_in_flight", {7: started})
     await register_worker()
     assert await _heartbeat_job_started_at() is not None
+
+
+async def test_a_finished_job_still_records_its_outcome_when_the_pool_is_briefly_full(
+    monkeypatch,
+):
+    """The work is done; a full pool at the moment of writing it down must not
+    leave the row `running` under a live worker, which nothing reclaims (`CAP-16`)."""
+    from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+
+    async def done(session, payload):
+        pass
+
+    real = jobs._record_outcome
+    tries = 0
+
+    async def full_once(*args):
+        nonlocal tries
+        tries += 1
+        if tries == 1:
+            raise PoolTimeoutError("QueuePool limit reached")
+        return await real(*args)
+
+    monkeypatch.setitem(jobs._handlers, WAITING, done)
+    monkeypatch.setattr(jobs, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(jobs, "_record_outcome", full_once)
+    await _queue(WAITING)
+    assert await process_one_job() is True
+    assert tries == 2
+    async with async_session() as session:
+        assert (await session.scalar(select(Job.status))) == JobStatus.done
+
+
+async def test_a_job_turned_away_by_a_full_pool_is_retried_with_a_plain_reason(monkeypatch):
+    from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+
+    async def busy(session, payload):
+        raise PoolTimeoutError("QueuePool limit of size 10 overflow 10 reached")
+
+    monkeypatch.setitem(jobs._handlers, WAITING, busy)
+    await _queue(WAITING)
+    assert await process_one_job() is True
+    async with async_session() as session:
+        job = await session.scalar(select(Job))
+    assert job.status == JobStatus.pending
+    assert job.error == "Avora was too busy to run this; it will be tried again"
