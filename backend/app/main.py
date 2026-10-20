@@ -5,9 +5,11 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app import log_context
 from app.api import (
@@ -337,6 +339,22 @@ async def _request_context(request, call_next):
     return response
 
 
+#: What a turned-away request is told to wait before trying again.
+BUSY_RETRY_AFTER_SECONDS = 5
+
+
+async def _busy(request: Request, exc: Exception) -> JSONResponse:
+    """Every database connection stayed taken for `POOL_TIMEOUT_SECONDS`. Say so
+    plainly with a 503 and Retry-After instead of a bare 500, so a page can try
+    again and the logs show load, not a bug (`CAP-16`)."""
+    log.warning("turned away %s %s: no database connection free", request.method, request.url.path)
+    return JSONResponse(
+        {"detail": "Avora is busy right now. Please try again in a moment."},
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        headers={"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)},
+    )
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -358,6 +376,7 @@ def create_app() -> FastAPI:
     )
 
     app.middleware("http")(_request_context)
+    app.add_exception_handler(PoolTimeoutError, _busy)
 
     @app.middleware("http")
     async def security_headers(request, call_next):

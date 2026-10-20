@@ -12,6 +12,11 @@ from app.config import get_settings
 #: their own engine (`alembic/env.py`) and are not held to it.
 STATEMENT_TIMEOUT_MS = 60_000
 
+#: How long a request waits for a free connection before it is turned away with
+#: a 503 "busy" (`CAP-16`, handler in `main.py`). SQLAlchemy's default is 30 s,
+#: which under load only queues requests up to the point the proxy gives up.
+POOL_TIMEOUT_SECONDS = 10
+
 #: A connection is replaced after this long, before a provider's idle cut-off
 #: can close it under a request.
 POOL_RECYCLE_SECONDS = 1800
@@ -30,6 +35,7 @@ def _engine_kwargs(url: str, *, pool_size: int, max_overflow: int) -> dict[str, 
         # A connection the server or the provider dropped while idle is found
         # and replaced before a request gets it, instead of that request
         # failing with "connection is closed" (`OPS-16`).
+        "pool_timeout": POOL_TIMEOUT_SECONDS,
         "pool_pre_ping": True,
         "pool_recycle": POOL_RECYCLE_SECONDS,
         # Sent as a startup parameter, which Render's Postgres takes directly.
