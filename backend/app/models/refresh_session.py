@@ -22,7 +22,7 @@ class RefreshSession(Base):
     """
 
     __tablename__ = "refresh_sessions"
-    # Declared here as well as in migration 0073 so the test schema matches
+    # Declared here as well as in migration 0074 so the test schema matches
     # production (`DB-12`).
     __table_args__ = (Index("ix_refresh_sessions_user_id", "user_id"),)
 

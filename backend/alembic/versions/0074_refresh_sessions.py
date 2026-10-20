@@ -4,16 +4,16 @@ A new table only; no existing row is read or changed. Refresh tokens issued
 before this revision name no session and stop working, so every signed-in user
 signs in once more after it ships (`SA-11`).
 
-Revision ID: 0073
-Revises: 0072
+Revision ID: 0074
+Revises: 0073
 """
 
 import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0073"
-down_revision = "0072"
+revision = "0074"
+down_revision = "0073"
 branch_labels = None
 depends_on = None
 
