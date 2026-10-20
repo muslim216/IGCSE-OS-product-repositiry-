@@ -259,7 +259,9 @@ async def test_claiming_a_parent_code_twice_loses_the_race(client, tutor, studen
 # --- Login throttling ------------------------------------------------------
 
 
-async def test_repeated_failed_logins_are_throttled(client, tutor):
+async def test_repeated_failed_logins_are_throttled(
+    client, tutor, login_window_that_cannot_roll_over
+):
     """Unlimited guesses against a known username is how a tutor-set 8-character
     student password falls."""
     for _ in range(LOGIN_FAILURE_LIMIT):
@@ -281,7 +283,9 @@ async def test_repeated_failed_logins_are_throttled(client, tutor):
     assert correct.status_code == 429
 
 
-async def test_a_successful_login_clears_the_counter(client, tutor):
+async def test_a_successful_login_clears_the_counter(
+    client, tutor, login_window_that_cannot_roll_over
+):
     """Someone who fumbles their password twice and then gets it right must not
     be carrying those failures around."""
     for _ in range(LOGIN_FAILURE_LIMIT - 1):

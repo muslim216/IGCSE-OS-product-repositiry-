@@ -412,7 +412,9 @@ async def test_readiness_probes_rather_than_remembering(client, broken_redis):
 # --- The endpoint still throttles ------------------------------------------
 
 
-async def test_login_still_returns_429_over_the_limit_with_redis_down(client, broken_redis, tutor):
+async def test_login_still_returns_429_over_the_limit_with_redis_down(
+    client, broken_redis, tutor, login_window_that_cannot_roll_over
+):
     """The negative case QA-12 asks for, on the degraded path specifically."""
     for _ in range(LOGIN_FAILURE_LIMIT):
         resp = await client.post(

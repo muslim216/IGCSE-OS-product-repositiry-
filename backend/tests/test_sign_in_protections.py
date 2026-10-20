@@ -21,7 +21,7 @@ from app.security import (
     known_device,
 )
 from app.services import refresh_sessions
-from app.services.rate_limit import LOGIN_FAILURE_LIMIT, login_limiter
+from app.services.rate_limit import LOGIN_FAILURE_LIMIT
 
 LOGIN = "/api/v1/auth/login"
 REFRESH = "/api/v1/auth/refresh"
@@ -30,10 +30,9 @@ BAD = {"identifier": "tutor@example.com", "password": "not-the-password"}
 
 
 @pytest.fixture(autouse=True)
-def _window_that_cannot_roll_over(monkeypatch):
+def _window_that_cannot_roll_over(login_window_that_cannot_roll_over):
     """The login window is fixed to the clock, so a test that straddles a
     15-minute boundary would see the stranger's allowance refilled mid-test."""
-    monkeypatch.setattr(login_limiter.local, "window_seconds", 10.0**12)
 
 
 def _browser() -> AsyncClient:
