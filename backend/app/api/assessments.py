@@ -144,11 +144,21 @@ async def list_assessments(
     if subject_id is not None:
         query = query.where(Assessment.subject_id == subject_id)
     rows = (await db.scalars(query)).all()
+    # One grouped count, not one per assessment (audit DB-04).
+    counts: dict[int, int] = dict(
+        (
+            await db.execute(
+                select(AssessmentScore.assessment_id, func.count(AssessmentScore.id))
+                .where(AssessmentScore.assessment_id.in_([a.id for a in rows]))
+                .group_by(AssessmentScore.assessment_id)
+            )
+        )
+        .tuples()
+        .all()
+    )
     out = []
     for a in rows:
-        count = await db.scalar(
-            select(func.count(AssessmentScore.id)).where(AssessmentScore.assessment_id == a.id)
-        )
+        count = counts.get(a.id)
         out.append(
             AssessmentOut(
                 id=a.id,

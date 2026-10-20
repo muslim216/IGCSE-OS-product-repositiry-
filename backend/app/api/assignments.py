@@ -270,21 +270,37 @@ async def list_group_assignments(
             .order_by(Assignment.created_at.desc())
         )
     ).all()
-    out = []
-    for a in assignments:
-        stats = (
+    # Grouped once for the class's whole list, not two queries per homework: a
+    # class collects about forty a year (audit DB-04).
+    question_stats = {
+        assignment_id: (count, total)
+        for assignment_id, count, total in (
             await db.execute(
                 select(
+                    AssignmentQuestion.assignment_id,
                     func.count(AssignmentQuestion.id),
                     func.coalesce(func.sum(AssignmentQuestion.max_marks), 0),
-                ).where(AssignmentQuestion.assignment_id == a.id)
+                )
+                .where(AssignmentQuestion.assignment_id.in_([a.id for a in assignments]))
+                .group_by(AssignmentQuestion.assignment_id)
             )
-        ).one()
-        submission_count = (
-            await db.scalar(
-                select(func.count(Submission.id)).where(Submission.work_id == a.work_id)
+        ).tuples()
+    }
+    submission_counts: dict[int, int] = dict(
+        (
+            await db.execute(
+                select(Submission.work_id, func.count(Submission.id))
+                .where(Submission.work_id.in_([a.work_id for a in assignments]))
+                .group_by(Submission.work_id)
             )
-        ) or 0
+        )
+        .tuples()
+        .all()
+    )
+    out = []
+    for a in assignments:
+        stats = question_stats.get(a.id, (0, 0))
+        submission_count = submission_counts.get(a.work_id, 0)
         out.append(
             AssignmentOut(
                 id=a.id,
