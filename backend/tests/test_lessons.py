@@ -215,4 +215,5 @@ async def test_a_lesson_with_topics_notes_and_homework_can_be_deleted(client, tu
         assert (await session.scalars(select(LessonTopic))).all() == []
         assert (await session.scalars(select(LessonObservation))).all() == []
         kept = await session.get(Assignment, homework["id"])
-        assert kept is not None and kept.lesson_id is None
+        assert kept is not None
+        assert kept.lesson_id is None
