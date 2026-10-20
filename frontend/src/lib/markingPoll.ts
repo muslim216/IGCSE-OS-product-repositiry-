@@ -9,7 +9,8 @@ import { useCallback, useRef } from "react";
  * 900 times an hour, and a marking outage multiplied that by every student
  * waiting (audit finding OPS-08). Now: quickly at first, while the AI usually
  * answers; then slowly; then not at all. Coming back to the tab still checks
- * at once (TanStack Query refetches on window focus), so nothing is missed.
+ * (the app refetches on focus any data older than 30 s, `lib/queryClient.ts`),
+ * so nothing is missed.
  */
 export const MARKING_POLL_FAST_MS = 4_000;
 export const MARKING_POLL_FAST_FOR_MS = 2 * 60_000;
@@ -24,26 +25,44 @@ export function markingPollInterval(waitedMs: number): number | false {
 }
 
 /**
- * A `refetchInterval` for a query whose data carries the student-facing
- * `status`. The clock starts the first time the page sees "being marked" for
- * this piece of work (`key`) and resets when it sees anything else, or when
- * the same page moves on to other work, so a fresh hand-in polls quickly
- * again.
+ * A `refetchInterval` that polls on the schedule above while `inProgress` names
+ * something in the query's data still in progress, and stops for anything
+ * else. `inProgress` returns `false` for "nothing", or a string naming what is
+ * in progress. The clock starts the first time the page sees work in progress
+ * and restarts when that name changes (a new hand-in joins one that is stuck)
+ * or the page moves on to other work (`key`); it resets on "nothing", so fresh
+ * work always polls quickly again. Pass a module-level `inProgress`, so the
+ * callback keeps one identity across renders.
  */
-export function useMarkingRefetchInterval(key: number) {
-  const clock = useRef<{ key: number; since: number } | null>(null);
+export function useBackoffRefetchInterval(
+  key: number,
+  inProgress: (data: unknown) => string | false,
+) {
+  const clock = useRef<{ key: number; what: string; since: number } | null>(null);
   // `unknown`, so this callback never steers how the page's query data is
-  // typed; the status is read defensively instead.
+  // typed; the predicate reads it defensively instead.
   return useCallback(
     (query: { state: { data?: unknown } }): number | false => {
-      const data = query.state.data as { status?: string } | null | undefined;
-      if (data?.status !== "being_marked") {
+      const what = inProgress(query.state.data);
+      if (what === false) {
         clock.current = null;
         return false;
       }
-      if (clock.current?.key !== key) clock.current = { key, since: Date.now() };
+      if (clock.current?.key !== key || clock.current.what !== what) {
+        clock.current = { key, what, since: Date.now() };
+      }
       return markingPollInterval(Date.now() - clock.current.since);
     },
-    [key],
+    [key, inProgress],
   );
+}
+
+function beingMarked(data: unknown): string | false {
+  const status = (data as { status?: string } | null | undefined)?.status;
+  return status === "being_marked" ? status : false;
+}
+
+/** The student pages: their data carries the student-facing `status`. */
+export function useMarkingRefetchInterval(key: number) {
+  return useBackoffRefetchInterval(key, beingMarked);
 }

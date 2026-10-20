@@ -14,6 +14,7 @@ import { listTopics } from "../api/syllabus";
 import { getGroup } from "../api/groups";
 import { ApiError } from "../api/client";
 import { friendlyError } from "../lib/errors";
+import { useBackoffRefetchInterval } from "../lib/markingPoll";
 import { assignmentStatus } from "../lib/assignmentStatus";
 import { EmptyState, SectionCard } from "../components/ui";
 import { Button, buttonClasses, inputClasses } from "../components/controls";
@@ -43,6 +44,20 @@ const SUBMISSION_STATUS: Record<string, { label: string; classes: string }> = {
 /** Statuses where the tutor has something to decide. */
 const NEEDS_TUTOR = new Set(["ai_marked", "ai_failed", "needs_review"]);
 
+/** Hand-ins the worker has not finished with. Every other status is settled or
+    waiting on the tutor, and polling will not change it. */
+const IN_PROGRESS = new Set(["submitted", "marking"]);
+
+/** Which hand-ins are in progress, so a new one restarts the poll's clock
+    even while an older one is stuck; `false` when there are none. */
+function handInsInProgress(data: unknown): string | false {
+  if (!Array.isArray(data)) return false;
+  const ids = (data as ({ id: number; status: string } | null)[])
+    .flatMap((s) => (s && IN_PROGRESS.has(s.status) ? [s.id] : []))
+    .sort((a, b) => a - b);
+  return ids.length ? ids.join(",") : false;
+}
+
 /** The shared control look at the denser size a table row needs. Width is left
     to each cell, so it is stripped here rather than fought with an override. */
 const CELL_INPUT = inputClasses.replace("h-10", "h-9").replace("w-full", "");
@@ -68,11 +83,15 @@ export default function AssignmentDetailPage() {
     queryFn: () => listTopics(group.data!.subject.id),
     enabled: !!group.data,
   });
+  const submissionsRefetch = useBackoffRefetchInterval(id, handInsInProgress);
   const submissions = useQuery({
     queryKey: ["submissions", id],
     queryFn: () => listSubmissions(id),
     enabled: assignment.data?.status === "published" || assignment.data?.status === "closed",
-    refetchInterval: 5000,
+    // Only while a hand-in is still being marked, backing off and then stopping
+    // as the student pages do. It used to ask every 5 s for as long as the tab
+    // was open (audit CAP-12). A new hand-in shows on the next visit or focus.
+    refetchInterval: submissionsRefetch,
   });
 
   const [rows, setRows] = useState<EditableQuestion[]>([]);

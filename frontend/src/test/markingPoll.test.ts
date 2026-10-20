@@ -6,6 +6,7 @@ import {
   MARKING_POLL_SLOW_MS,
   MARKING_POLL_STOP_AFTER_MS,
   markingPollInterval,
+  useBackoffRefetchInterval,
   useMarkingRefetchInterval,
 } from "../lib/markingPoll";
 
@@ -78,4 +79,30 @@ test("moving on to other work starts its own clock", () => {
 
   rerender({ key: 2 });
   expect(result.current(waiting)).toBe(MARKING_POLL_FAST_MS);
+});
+
+test("any page's poll follows the same schedule while its own work is in progress", () => {
+  vi.useFakeTimers();
+  const running = (data: unknown) => (data as { busy?: string } | undefined)?.busy ?? false;
+  const { result } = renderHook(() => useBackoffRefetchInterval(1, running));
+  const busy = { state: { data: { busy: "7" } } };
+  expect(result.current(busy)).toBe(MARKING_POLL_FAST_MS);
+  vi.advanceTimersByTime(MARKING_POLL_FAST_FOR_MS);
+  expect(result.current(busy)).toBe(MARKING_POLL_SLOW_MS);
+  vi.advanceTimersByTime(MARKING_POLL_STOP_AFTER_MS);
+  expect(result.current(busy)).toBe(false);
+  expect(result.current({ state: { data: {} } })).toBe(false);
+  expect(result.current({ state: {} })).toBe(false);
+});
+
+test("new work joining stuck work restarts the clock", () => {
+  vi.useFakeTimers();
+  const running = (data: unknown) => (data as { busy?: string } | undefined)?.busy ?? false;
+  const { result } = renderHook(() => useBackoffRefetchInterval(1, running));
+  result.current({ state: { data: { busy: "7" } } });
+  vi.advanceTimersByTime(MARKING_POLL_STOP_AFTER_MS);
+  // Hand-in 7 is stuck: polling stopped.
+  expect(result.current({ state: { data: { busy: "7" } } })).toBe(false);
+  // Hand-in 8 arrives beside it: fast again.
+  expect(result.current({ state: { data: { busy: "7,8" } } })).toBe(MARKING_POLL_FAST_MS);
 });
