@@ -110,7 +110,9 @@ async def test_a_topic_cannot_be_filed_under_another_subjects_chapter():
     """
     async with async_session() as session:
         connection = await session.connection()
-        await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        sqlite = connection.dialect.name == "sqlite"  # Postgres enforces them always
+        if sqlite:
+            await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         try:
             org = await _org(session)
             maths = await _subject(session, org, "T400", "Maths")
@@ -134,7 +136,8 @@ async def test_a_topic_cannot_be_filed_under_another_subjects_chapter():
         finally:
             await session.rollback()
             connection = await session.connection()
-            await connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            if sqlite:
+                await connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
 
 
 async def test_migration_backfill_leaves_a_cross_subject_child_unchaptered():

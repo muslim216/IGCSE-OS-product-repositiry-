@@ -21,6 +21,7 @@ from app.models import (
     User,
 )
 from app.services import plan_lessons
+from tests.conftest import sqlite_only_race
 from tests.factories import make_subject, org_id
 
 EXAM = date.today() + timedelta(days=120)
@@ -422,6 +423,7 @@ async def test_deleting_a_lesson_whose_slot_is_completed_sets_it_manually_modifi
     assert await _slot(slots[0]) == (None, PlanSlotProvenance.manually_modified)
 
 
+@sqlite_only_race
 async def test_a_slot_taken_between_the_read_and_the_claim_is_409_and_creates_no_lesson(
     client, tutor, group, chapters, monkeypatch
 ):

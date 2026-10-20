@@ -125,7 +125,9 @@ async def test_class_loader_agrees_with_the_profile_verdict(client, tutor, world
     )
 
 
-async def test_deleted_topics_do_not_take_weak_topic_places(client, tutor, world):
+async def test_deleted_topics_do_not_take_weak_topic_places(
+    client, tutor, world, foreign_keys_unchecked
+):
     """Rows for deleted topics are dropped before the weak-topic cap, so the
     class loader names the same topics as the profile."""
     from sqlalchemy import delete, select

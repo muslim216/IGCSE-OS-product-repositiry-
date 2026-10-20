@@ -203,6 +203,39 @@ def _fresh_in_flight_lock(monkeypatch):
     monkeypatch.setattr(jobs, "_in_flight_lock", asyncio.Lock())
 
 
+@pytest.fixture
+def foreign_keys_unchecked():
+    """For tests whose rows point at ids that do not exist, on purpose: the
+    worker's give-up path, an unresolved topic id. SQLite runs with keys off;
+    on Postgres this turns their checks off for the test's connections, so
+    such a test keeps testing what it is about. Never for a test of a delete
+    or of key order, where the check is the point (`RISK-3`)."""
+    if not _THROWAWAY_POSTGRES:
+        yield
+        return
+    from sqlalchemy import event
+
+    def keys_off(dbapi_connection, _record):
+        dbapi_connection.run_async(
+            lambda conn: conn.execute("SET session_replication_role = replica")
+        )
+
+    event.listen(engine.sync_engine, "connect", keys_off)
+    try:
+        yield
+    finally:
+        event.remove(engine.sync_engine, "connect", keys_off)
+
+
+#: For a test that simulates a race by writing from a second session while the
+#: request under test holds the row lock: on Postgres that write waits for the
+#: lock, correctly, and the test waits on itself until the statement timeout.
+sqlite_only_race = pytest.mark.skipif(
+    _THROWAWAY_POSTGRES,
+    reason="simulates a race SQLite cannot have; on Postgres the row lock makes the rival wait",
+)
+
+
 @pytest.fixture(autouse=True)
 async def _db_schema():
     async with engine.begin() as conn:

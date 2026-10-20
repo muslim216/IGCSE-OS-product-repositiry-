@@ -167,7 +167,7 @@ async def test_only_old_unreferenced_files_of_our_own_shape_are_deleted(classifi
     assert not_ours.exists()
 
 
-async def test_pages_kept_only_in_a_redo_record_are_not_orphans(student):
+async def test_pages_kept_only_in_a_redo_record_are_not_orphans(student, foreign_keys_unchecked):
     """A redo moves the old attempt into `AttemptRedo.record` and deletes its
     file rows; the pages are kept so a dispute stays answerable."""
     kept = f"org/1/{secrets.token_hex(16)}.jpg"

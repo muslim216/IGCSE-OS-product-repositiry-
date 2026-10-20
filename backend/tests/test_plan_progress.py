@@ -25,6 +25,7 @@ from app.models import (
 from app.services.plan_drafting import PLAN_DRAFT_JOB, ChapterAdvice, PlanWeightingResult
 from app.services.plan_progress import SlotFact, compute_progress
 from app.workers.jobs import process_one_job
+from tests.conftest import sqlite_only_race
 from tests.factories import make_subject, org_id
 
 TODAY = date(2026, 10, 3)
@@ -596,6 +597,7 @@ async def test_draft_and_replan_together_queue_one_job(
         assert len((await s.scalars(select(Job).where(Job.type == PLAN_DRAFT_JOB))).all()) == 1
 
 
+@sqlite_only_race
 async def test_accept_skips_a_lesson_deleted_while_it_was_carrying_links(
     client, tutor, group, chapters, frozen, monkeypatch, fake_ai
 ):

@@ -62,6 +62,9 @@ from app.workers.jobs import (
     register_handler,
 )
 
+# Its rows point at made-up parents on purpose; it tests the worker, not keys.
+pytestmark = pytest.mark.usefixtures("foreign_keys_unchecked")
+
 JOB = "give_up_probe"
 SHORT = 0.25
 PAYLOAD = {"thing_id": 7}
