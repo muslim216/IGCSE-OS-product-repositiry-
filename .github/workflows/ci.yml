@@ -202,6 +202,55 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         run: python -m pytest tests/test_rate_limit.py tests/test_security_hardening.py -q
 
+  backend-postgres:
+    name: Backend tests (Postgres)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # The suite runs on in-memory SQLite above, and production runs Postgres. A
+    # query that SQLite accepts and Postgres refuses (or answers differently)
+    # passes there and fails live, which is RISK-3's shape for queries rather
+    # than migrations. This runs the same suite against a throwaway Postgres 16:
+    # the schema comes from Base.metadata as above, and conftest empties every
+    # table after each test (TEST_DATABASE_THROWAWAY) with no connection pool,
+    # since each test has its own event loop.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: igcse
+          POSTGRES_PASSWORD: igcse
+          POSTGRES_DB: igcse_suite
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U igcse"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://igcse:igcse@localhost:5432/igcse_suite
+      TEST_DATABASE_THROWAWAY: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/pyproject.toml
+            backend/requirements*.lock
+
+      - name: Install (hashed locks, then the app itself)
+        run: |
+          pip install --require-hashes --only-binary :all: -r requirements-dev.lock -r requirements-build.lock
+          pip install --no-deps --no-build-isolation --only-binary :all: -e .
+
+      - name: pytest on Postgres
+        run: python -m pytest -q
+
   migrations:
     name: Migrations up/down/up (Postgres)
     runs-on: ubuntu-latest

@@ -16,6 +16,14 @@ import tempfile
 # in the migrations job). Setting it for a full run is supported but means
 # every test runs against that database, so point it at a throwaway one.
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+# The whole suite on a disposable Postgres (CI's "Backend tests (Postgres)"):
+# TEST_DATABASE_THROWAWAY=1 says the database may be emptied after every test.
+# Without it a TEST_DATABASE_URL run never deletes anything (see `_db_schema`).
+# Each test has its own event loop, so no connection may outlive one: no pool.
+os.environ["DB_NULL_POOL"] = str(
+    os.environ.get("TEST_DATABASE_THROWAWAY") == "1"
+    and os.environ["DATABASE_URL"].startswith("postgresql")
+).lower()
 os.environ["JWT_SECRET"] = "test-secret-key-0123456789-abcdefghijklmnop"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="igcse-test-uploads-")
 os.environ["REFRESH_COOKIE_SECURE"] = "false"
@@ -42,6 +50,8 @@ from tests.factories import subject_defaults
 #: a real database. Read at fixture time, so it sits below the imports rather
 #: than in the env block above.
 _USING_THROWAWAY_SQLITE = "TEST_DATABASE_URL" not in os.environ
+#: The whole suite on a disposable Postgres, emptied after every test.
+_THROWAWAY_POSTGRES = os.environ["DB_NULL_POOL"] == "true"
 
 
 def _fake_structured_complete(parsed, *, model: str = "test-model", tokens: int = 10):
@@ -207,6 +217,12 @@ async def _db_schema():
     if _USING_THROWAWAY_SQLITE:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
+    elif _THROWAWAY_POSTGRES:
+        # Emptied rather than dropped: one statement instead of rebuilding
+        # eighty tables per test, and ids start again from 1 as on SQLite.
+        tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+        async with engine.begin() as conn:
+            await conn.exec_driver_sql(f"TRUNCATE {tables} RESTART IDENTITY CASCADE")
 
 
 @pytest.fixture

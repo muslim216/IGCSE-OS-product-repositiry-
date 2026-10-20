@@ -2,7 +2,7 @@
 runs on in-memory SQLite, so these are checked as arguments, not by connecting."""
 
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from app.db import POOL_TIMEOUT_SECONDS, STATEMENT_TIMEOUT_MS, _engine_kwargs, get_db
 from app.main import app
@@ -22,6 +22,15 @@ def test_postgres_gets_a_sized_pool_that_checks_its_connections():
 def test_postgres_statements_have_a_ceiling():
     settings = _engine_kwargs(PG, pool_size=1, max_overflow=0)["connect_args"]["server_settings"]
     assert settings["statement_timeout"] == str(STATEMENT_TIMEOUT_MS)
+
+
+def test_the_suite_on_postgres_takes_no_pool_but_keeps_the_statement_ceiling():
+    kwargs = _engine_kwargs(PG, pool_size=7, max_overflow=3, null_pool=True)
+    assert kwargs["poolclass"] is NullPool
+    assert "pool_size" not in kwargs
+    assert kwargs["connect_args"]["server_settings"]["statement_timeout"] == str(
+        STATEMENT_TIMEOUT_MS
+    )
 
 
 def test_in_memory_sqlite_keeps_one_shared_connection():

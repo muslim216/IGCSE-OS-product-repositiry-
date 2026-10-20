@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     #: which 60 students handing in at once would run out of (`DB-01`).
     db_pool_size: int = 10
     db_max_overflow: int = 10
+    #: A fresh connection per checkout, no pool. Only for the test suite run on
+    #: Postgres: each test has its own event loop, and an asyncpg connection
+    #: pooled on one loop fails on the next. Never set in production.
+    db_null_pool: bool = False
 
     jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_algorithm: str = "HS256"

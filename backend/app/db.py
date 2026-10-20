@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import QueuePool, StaticPool
+from sqlalchemy.pool import NullPool, QueuePool, StaticPool
 
 from app.config import get_settings
 
@@ -22,13 +22,21 @@ POOL_TIMEOUT_SECONDS = 10
 POOL_RECYCLE_SECONDS = 1800
 
 
-def _engine_kwargs(url: str, *, pool_size: int, max_overflow: int) -> dict[str, Any]:
+def _engine_kwargs(
+    url: str, *, pool_size: int, max_overflow: int, null_pool: bool = False
+) -> dict[str, Any]:
     # In-memory SQLite needs a single shared connection or each session
     # would see an empty database (used by the test suite).
     if url.startswith("sqlite") and ":memory:" in url:
         return {"poolclass": StaticPool, "connect_args": {"check_same_thread": False}}
     if not url.startswith("postgresql"):
         return {}
+    # Sent as a startup parameter, which Render's Postgres takes directly.
+    # Behind a PgBouncer this needs `ignore_startup_parameters` set there
+    # (and asyncpg's statement cache off in transaction pooling).
+    connect_args = {"server_settings": {"statement_timeout": str(STATEMENT_TIMEOUT_MS)}}
+    if null_pool:
+        return {"poolclass": NullPool, "connect_args": connect_args}
     return {
         "pool_size": pool_size,
         "max_overflow": max_overflow,
@@ -38,10 +46,7 @@ def _engine_kwargs(url: str, *, pool_size: int, max_overflow: int) -> dict[str, 
         "pool_timeout": POOL_TIMEOUT_SECONDS,
         "pool_pre_ping": True,
         "pool_recycle": POOL_RECYCLE_SECONDS,
-        # Sent as a startup parameter, which Render's Postgres takes directly.
-        # Behind a PgBouncer this needs `ignore_startup_parameters` set there
-        # (and asyncpg's statement cache off in transaction pooling).
-        "connect_args": {"server_settings": {"statement_timeout": str(STATEMENT_TIMEOUT_MS)}},
+        "connect_args": connect_args,
     }
 
 
@@ -52,6 +57,7 @@ engine = create_async_engine(
         settings.database_url,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
+        null_pool=settings.db_null_pool,
     ),
 )
 async_session = async_sessionmaker(engine, expire_on_commit=False)
