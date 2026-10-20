@@ -702,17 +702,45 @@ async def review_queue(db: DbSession, user: TutorUser) -> list[ReviewQueueItem]:
             .order_by(Submission.submitted_at.desc())
         )
     ).all()
+    # Two grouped counts for the whole queue, not two queries per row: a class
+    # mock lands 25-60 rows here at once (audit DB-04). Keyed by the same
+    # predicate as a subquery rather than a list of ids, so a long queue cannot
+    # run into the driver's limit on bound parameters.
+    ids = (
+        select(Submission.id)
+        .join(AssessableWork, AssessableWork.id == Submission.work_id)
+        .where(*review_queue_predicate(user.organization_id))
+    )
+    unsure_by_id: dict[int, int] = dict(
+        (
+            await db.execute(
+                select(QuestionMark.submission_id, func.count(QuestionMark.id))
+                .where(QuestionMark.submission_id.in_(ids), QuestionMark.needs_review.is_(True))
+                .group_by(QuestionMark.submission_id)
+            )
+        )
+        .tuples()
+        .all()
+    )
+    remarks_by_id: dict[int, int] = dict(
+        (
+            await db.execute(
+                select(QuestionMark.submission_id, func.count(RemarkRequest.id))
+                .join(QuestionMark, QuestionMark.id == RemarkRequest.question_mark_id)
+                .where(
+                    QuestionMark.submission_id.in_(ids),
+                    RemarkRequest.status == RemarkRequestStatus.open,
+                )
+                .group_by(QuestionMark.submission_id)
+            )
+        )
+        .tuples()
+        .all()
+    )
     out: list[ReviewQueueItem] = []
     for submission, assignment, past_paper, mock, student in rows:
-        unsure = (
-            await db.scalar(
-                select(func.count(QuestionMark.id)).where(
-                    QuestionMark.submission_id == submission.id,
-                    QuestionMark.needs_review.is_(True),
-                )
-            )
-        ) or 0
-        remarks = len(await _open_remarks(db, submission.id))
+        unsure = unsure_by_id.get(submission.id, 0)
+        remarks = remarks_by_id.get(submission.id, 0)
         out.append(
             ReviewQueueItem(
                 submission_id=submission.id,
