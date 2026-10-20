@@ -213,7 +213,8 @@ async def test_a_refresh_token_works_once_and_a_replay_ends_that_sign_in(
     rotated = await client.post(REFRESH, json={"refresh_token": first})
     assert rotated.status_code == 200
     second = rotated.cookies.get("igcse_refresh")
-    assert second and second != first
+    assert second
+    assert second != first
 
     # The thief replays the copy they took.
     with caplog.at_level(logging.WARNING, logger="auth"):
