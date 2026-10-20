@@ -663,3 +663,27 @@ async def test_a_hand_in_whose_second_page_is_refused_keeps_none_of_its_pages(
     assert len(deleted) == 1
     async with async_session() as session:
         assert (await session.scalar(select(Submission))) is None
+
+
+async def test_refused_pages_go_even_when_the_rollback_itself_fails(monkeypatch):
+    """A dead connection can make the rollback raise; the pages are deleted
+    anyway, and one delete failing does not keep the next one."""
+    from app.services import storage
+
+    deleted: list[str] = []
+
+    async def flaky_delete(key: str) -> None:
+        deleted.append(key)
+        if key == "a":
+            raise OSError("disk hiccup")
+
+    class DeadSession:
+        async def rollback(self):
+            raise ConnectionError("connection is closed")
+
+    monkeypatch.setattr(storage, "delete_file", flaky_delete)
+    with pytest.raises(ConnectionError):
+        async with storage.discarded_unless_kept(DeadSession()) as saved:
+            saved += [("a", "a.png", "image/png"), ("b", "b.png", "image/png")]
+            raise RuntimeError("refused")
+    assert deleted == ["a", "b"]

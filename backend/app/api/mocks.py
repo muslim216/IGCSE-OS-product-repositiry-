@@ -481,7 +481,7 @@ async def sit_mock(
             "Add your answers — upload a photo or type them in",
         )
 
-    async with storage.kept_only_if_committed(db) as saved:
+    async with storage.discarded_unless_kept(db) as saved:
         # Uploads are written to storage BEFORE the row lock below, deliberately.
         # A whole class sits a mock at once, and holding `FOR UPDATE` on the single
         # `mocks` row across every student's file I/O would make them queue behind
@@ -503,7 +503,7 @@ async def sit_mock(
         # upload was being written, and `_visible_mock` is what tests membership. A
         # status-only recheck would accept a submission from a student who is no
         # longer in the mock's class.
-        # Every way out before the commit goes through `kept_only_if_committed`, so
+        # Every way out before the commit goes through `discarded_unless_kept`, so
         # no path can forget the cleanup — `_visible_mock` raises 404 itself when
         # this student is no longer in the mock's class, which is the case a
         # per-branch discard call silently missed. Its rollback comes first and
@@ -558,7 +558,7 @@ async def sit_mock(
                 )
             )
         await enqueue(db, "mark_submission", {"submission_id": submission.id})
-        await db.commit()
+    await db.commit()
     await db.refresh(submission)
     return await _submission_out(db, mock, submission)
 

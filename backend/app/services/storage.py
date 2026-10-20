@@ -567,24 +567,38 @@ async def discard_uploads(saved: list[tuple[str, str, str]]) -> None:
     does not queue behind one another's file I/O; every path that refuses after
     that point owns this cleanup, because an object with no row pointing at it
     is invisible and can never be found again (the retention sweep is the
-    backstop, a month later)."""
+    backstop, a month later). One failed delete does not stop the rest."""
     for key, _name, _mime in saved:
-        await delete_file(key)
+        try:
+            await delete_file(key)
+        except Exception:  # noqa: BLE001 — the others still go; the sweep gets this one
+            log.exception("could not delete refused upload %s", key)
+
+
+async def _abandon(db: AsyncSession, saved: list[tuple[str, str, str]]) -> None:
+    try:
+        await db.rollback()
+    finally:
+        await discard_uploads(saved)
 
 
 @contextlib.asynccontextmanager
-async def kept_only_if_committed(db: AsyncSession) -> AsyncIterator[list[tuple[str, str, str]]]:
-    """Hold a hand-in's saved uploads; on any way out before the block ends
-    (a refusal, a later file rejected, the client gone, a failed commit) roll
-    the session back and delete them. The block ends at the commit that gives
-    the files their rows. Shielded, so a cancellation cannot cut the cleanup
-    short; the rollback first, so a row lock is released before file I/O."""
+async def discarded_unless_kept(db: AsyncSession) -> AsyncIterator[list[tuple[str, str, str]]]:
+    """Hold a hand-in's saved uploads; on any way out of the block (a refusal, a
+    later file rejected, the client gone) roll the session back and delete
+    them. The rollback first, so a row lock is released before file I/O; the
+    files go even if the rollback fails; one shield over both, so a second
+    cancellation cannot cut the cleanup short.
+
+    The block ends just BEFORE the commit, never around it: a commit that fails
+    ambiguously (the connection lost after the server committed) may have given
+    the files their rows, and deleting them then loses a student's pages. A
+    failed commit leaves its files to the retention sweep instead."""
     saved: list[tuple[str, str, str]] = []
     try:
         yield saved
     except BaseException:
-        await asyncio.shield(db.rollback())
-        await asyncio.shield(discard_uploads(saved))
+        await asyncio.shield(_abandon(db, saved))
         raise
 
 

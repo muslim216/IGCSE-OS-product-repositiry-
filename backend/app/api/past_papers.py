@@ -434,10 +434,10 @@ async def log_attempt(
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
 
-    async with storage.kept_only_if_committed(db) as saved:
+    async with storage.discarded_unless_kept(db) as saved:
         # Written before `open_attempt` takes the attempt's row lock, as mocks do,
         # so the lock covers only the check-and-insert and not a phone's upload.
-        # Every way out before the commit deletes them (`kept_only_if_committed`).
+        # Every way out before the commit deletes them (`discarded_unless_kept`).
         for upload in files:
             saved.append(
                 await storage.save_upload(
@@ -461,7 +461,7 @@ async def log_attempt(
                 )
             )
         await enqueue(db, "mark_submission", {"submission_id": submission.id})
-        await db.commit()
+    await db.commit()
     return await _attempt_out(db, submission)
 
 
