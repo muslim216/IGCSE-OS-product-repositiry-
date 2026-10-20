@@ -457,18 +457,6 @@ async def _submission_out(db, mock: Mock, submission: Submission) -> MockSubmiss
     )
 
 
-async def _discard(saved: list[tuple[str, str, str]]) -> None:
-    """Remove uploads written for a submission that was then rejected.
-
-    They are written before the row lock so a class does not serialise behind
-    one another's file I/O, which means every path that rejects after that point
-    owns their cleanup — an object with no row pointing at it is invisible and
-    can never be found again.
-    """
-    for path, _name, _mime in saved:
-        await storage.delete_file(path)
-
-
 @router.post(
     "/{mock_id}/submissions",
     response_model=MockSubmissionOut,
@@ -515,7 +503,7 @@ async def sit_mock(
     # Every rejection inside the locked region goes through one handler, so no
     # path can forget the cleanup — `_visible_mock` raises 404 itself when this
     # student is no longer in the mock's class, which is the case a per-branch
-    # `_discard` call silently missed.
+    # discard call silently missed.
     #
     # The rollback comes first and matters: it releases the row lock, so the
     # storage deletes that follow do not hold a whole class behind them. Nothing
@@ -533,7 +521,7 @@ async def sit_mock(
             )
     except HTTPException:
         await db.rollback()
-        await _discard(saved)
+        await storage.discard_uploads(saved)
         raise
 
     # What the sitting actually took, and whether it ran over. Both are recorded

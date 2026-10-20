@@ -583,3 +583,53 @@ async def test_the_review_page_is_not_offered_a_redo_the_endpoint_would_refuse(h
 
     assert after.json()["can_redo"] is False
     assert (await _redo(attempt)).status_code == 409
+
+
+@pytest.fixture(params=["homework", "past_paper"])
+def attempt_with_a_file(request):
+    """The kinds whose hand-in here uploads a page; a sync fixture, as `attempt`
+    is, so pytest resolves the async ones rather than a running test."""
+    return request.getfixturevalue(f"{request.param}_attempt")
+
+
+async def test_a_refused_hand_in_over_final_marks_leaves_no_file_behind(
+    attempt_with_a_file, monkeypatch
+):
+    """Files are written before the attempt's row lock, so the lock does not
+    cover an upload. A hand-in then refused (final marks) must delete what it
+    wrote: nothing points at an orphaned object, and nothing finds it again.
+    Mocks have their own test; their hand-in here is typed, with no file."""
+    from app.services import storage
+
+    attempt = attempt_with_a_file
+
+    deleted: list[str] = []
+    real_delete = storage.delete_file
+
+    async def record_delete(key: str) -> None:
+        deleted.append(key)
+        await real_delete(key)
+
+    # The order the route did things in: every file saved before the lock.
+    order: list[str] = []
+    real_save = storage.save_upload
+
+    async def record_save(*args, **kwargs):
+        order.append("save")
+        return await real_save(*args, **kwargs)
+
+    from app.api import past_papers, submissions
+    from app.services import attempts
+
+    async def record_lock(*args, **kwargs):
+        order.append("lock")
+        return await attempts.open_attempt(*args, **kwargs)
+
+    monkeypatch.setattr(storage, "delete_file", record_delete)
+    monkeypatch.setattr(storage, "save_upload", record_save)
+    monkeypatch.setattr(submissions, "open_attempt", record_lock)
+    monkeypatch.setattr(past_papers, "open_attempt", record_lock)
+    response = await attempt.hand_in()
+    assert response.status_code == 409, response.text
+    assert order == ["save", "lock"]
+    assert len(deleted) == 1

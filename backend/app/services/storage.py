@@ -557,6 +557,18 @@ async def _write(
     return key, filename, mime
 
 
+async def discard_uploads(saved: list[tuple[str, str, str]]) -> None:
+    """Remove uploads written for a hand-in that was then refused.
+
+    Hand-ins write their files before taking the attempt's row lock, so a class
+    does not queue behind one another's file I/O; every path that refuses after
+    that point owns this cleanup, because an object with no row pointing at it
+    is invisible and can never be found again (the retention sweep is the
+    backstop, a month later)."""
+    for key, _name, _mime in saved:
+        await delete_file(key)
+
+
 async def delete_file(key: str) -> None:
     """Remove a stored object, tolerating one that is already gone.
 

@@ -201,7 +201,7 @@ async def upload_past_paper(
     # marked, and for a multi-paper booklet those genuinely differ.
     # The files reach disk before any row exists, so from here on every path
     # that fails owns their cleanup — a stored object with no row pointing at it
-    # is invisible and can never be found again. `_discard` in `api/mocks.py`
+    # is invisible and can never be found again. `storage.discard_uploads`
     # is the same guard for the same reason; this handler wrote two rows and had
     # none.
     #
@@ -434,20 +434,29 @@ async def log_attempt(
     if not files:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Upload at least one file")
 
-    submission, settled = await open_attempt(db, PAST_PAPER, paper.id, user.id)
-    if settled:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "This paper has marks that are already final, so it can't be logged again",
-        )
+    # Written before `open_attempt` takes the attempt's row lock, as mocks do,
+    # so the lock covers only the check-and-insert and not a phone's upload.
+    saved = [
+        await storage.save_upload(upload, organization_id=user.organization_id, student_id=user.id)
+        for upload in files
+    ]
+    try:
+        submission, settled = await open_attempt(db, PAST_PAPER, paper.id, user.id)
+        if settled:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This paper has marks that are already final, so it can't be logged again",
+            )
+    except HTTPException:
+        # The rollback releases the lock before the storage deletes run.
+        await db.rollback()
+        await storage.discard_uploads(saved)
+        raise
 
     submission.timed = timed
     submission.time_taken_minutes = time_taken_minutes
     submission.attempted_at = attempted_at
-    for position, upload in enumerate(files):
-        path, name, mime = await storage.save_upload(
-            upload, organization_id=user.organization_id, student_id=user.id
-        )
+    for position, (path, name, mime) in enumerate(saved):
         db.add(
             SubmissionFile(
                 submission_id=submission.id, position=position, path=path, name=name, mime=mime
