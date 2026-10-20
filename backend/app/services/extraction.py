@@ -2,6 +2,7 @@
 the assignment's question list for the tutor to review."""
 
 import asyncio
+import logging
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 
@@ -40,6 +41,8 @@ from app.services.ai import file_block, record_usage, require_parsed, structured
 from app.services.knowledge import build_tutor_context
 from app.services.notifications.triggers import announce_homework_set
 from app.workers.jobs import enqueue, job_timeout_seconds
+
+log = logging.getLogger(__name__)
 
 
 class ExtractedQuestion(BaseModel):
@@ -208,6 +211,22 @@ async def _run_extraction(session: AsyncSession, assignment: Assignment) -> None
     result = require_parsed(response)
     if not result.questions:
         raise ValueError("No questions were found in the document")
+
+    # Two reads of one assignment can be in flight together once the worker
+    # runs several jobs at once (a retry queued after a failure, and a tutor's
+    # retry). The assignment row is locked here, after the call, so they write
+    # one at a time, and the second finds the first's list and keeps it rather
+    # than adding a second copy of every question (`CAP-2`).
+    await session.execute(
+        select(Assignment.id).where(Assignment.id == assignment.id).with_for_update()
+    )
+    if await session.scalar(
+        select(AssignmentQuestion.id)
+        .where(AssignmentQuestion.assignment_id == assignment.id)
+        .limit(1)
+    ):
+        log.info("assignment %s was read by another job meanwhile; keeping its list", assignment.id)
+        return
 
     topic_by_code = {t.code: t for t in topics}
     for position, q in enumerate(result.questions):

@@ -170,6 +170,18 @@ async def _clear_limiters():
 
 
 @pytest.fixture(autouse=True)
+def _fresh_in_flight_lock(monkeypatch):
+    """The worker's in-flight lock is a process global, and an asyncio lock
+    binds to the first event loop that waits on it. Production has one loop;
+    every test has its own, so each gets its own lock."""
+    import asyncio
+
+    from app.workers import jobs
+
+    monkeypatch.setattr(jobs, "_in_flight_lock", asyncio.Lock())
+
+
+@pytest.fixture(autouse=True)
 async def _db_schema():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

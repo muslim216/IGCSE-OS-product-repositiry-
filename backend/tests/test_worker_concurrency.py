@@ -204,3 +204,43 @@ async def test_a_job_stopped_at_shutdown_is_handed_back_to_the_queue(pg_schema):
     assert row.claimed_at is None
     assert row.attempts == 0, "a shutdown is not the job's failure"
     assert row.error == jobs.HANDED_BACK_MESSAGE
+
+
+async def test_two_slots_run_two_jobs_at_once_and_both_go_back_at_shutdown(pg_schema):
+    """`WORKER_CONCURRENCY` above one (`CAP-2`): the first slot and an extra one
+    are each inside a job at the same moment, and stopping them hands both
+    jobs back with their attempts refunded. On SQLite the two sessions share
+    one connection, so this can only be shown here."""
+    inside = 0
+    both_running = asyncio.Event()
+
+    async def _holds(session, payload):
+        nonlocal inside
+        inside += 1
+        if inside == 2:
+            both_running.set()
+        await asyncio.Event().wait()  # until the worker is stopped
+
+    jobs.register_handler("slot_probe", _holds)
+    async with async_session() as session:
+        await jobs.enqueue(session, "slot_probe", {})
+        await jobs.enqueue(session, "slot_probe", {})
+        await session.commit()
+
+    first = asyncio.create_task(jobs.process_one_job())
+    extra = asyncio.create_task(jobs._extra_slot())
+    try:
+        await asyncio.wait_for(both_running.wait(), timeout=30)
+    finally:
+        for task in (first, extra):
+            task.cancel()
+        for task in (first, extra):
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+    # Same reason as the hand-back test above: cancelled tasks held pooled
+    # connections mid-transaction.
+    await engine.dispose()
+
+    async with async_session() as session:
+        rows = (await session.scalars(select(Job).where(Job.type == "slot_probe"))).all()
+    assert [(row.status, row.attempts) for row in rows] == [(JobStatus.pending, 0)] * 2

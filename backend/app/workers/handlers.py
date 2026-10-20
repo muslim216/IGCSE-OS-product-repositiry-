@@ -62,6 +62,9 @@ from app.workers.jobs import JOB_TIMEOUT_MARGIN_SECONDS, register_handler
 def register_all() -> None:
     """Register every job handler. Idempotent — registration is a dict
     assignment keyed by job type, so importing twice cannot double-register."""
+    # `background=True` marks work nobody is waiting on. With more than one
+    # slot it runs only in the first, so it never holds up a marking.
+    #
     # `on_give_up` (see `register_handler`): when a job of these types fails for
     # good without its handler getting to say so (stopped at its time limit, or
     # its worker died), the row it was working on is marked failed rather than
@@ -100,16 +103,16 @@ def register_all() -> None:
     # and by `seed/backfill_mistakes.py` for rows that predate it. Safe to
     # re-run (`BE-6`): a run replaces the `source="ai"` rows it wrote before
     # and never a tutor's own.
-    register_handler("tag_mistakes", tag_mistakes)
+    register_handler("tag_mistakes", tag_mistakes, background=True)
     # Condenses a subject's marking rules into what the marking prompt is given
     # (task 3.2c). Enqueued when a tutor saves their rules; safe to re-run,
     # because it does nothing when a summary is already present.
-    register_handler(SUMMARISE_JOB, summarise_marking_rules)
+    register_handler(SUMMARISE_JOB, summarise_marking_rules, background=True)
     # Readiness v2 is what the readiness UI/API serve
     # (services/readiness_summary_v2.py). Runs are enqueued debounced per
     # (student, subject) so a burst of auto-finalized submissions costs one
     # synthesis, not one each.
-    register_handler("compute_readiness_v2", compute_readiness_v2)
+    register_handler("compute_readiness_v2", compute_readiness_v2, background=True)
     register_handler("generate_report", generate_report, on_give_up=report_given_up)
     register_handler("extract_syllabus", extract_syllabus, on_give_up=syllabus_read_given_up)
     # Polling sync: imports courseWork/submissions from every course a tutor has
@@ -124,13 +127,13 @@ def register_all() -> None:
     # weekly sweep that re-derives who is due and re-enqueues itself — never a
     # self-perpetuating per-student chain, whose schedule would die with one
     # failed job row.
-    register_handler(CLASS_NARRATIVE_JOB, generate_narrative)
-    register_handler(SWEEP_JOB, sweep_parent_narratives)
+    register_handler(CLASS_NARRATIVE_JOB, generate_narrative, background=True)
+    register_handler(SWEEP_JOB, sweep_parent_narratives, background=True)
     # Readiness recompute for students whose class's past-paper phase has opened.
-    register_handler(PAST_PAPER_PHASE_SWEEP_JOB, sweep_past_paper_phase)
+    register_handler(PAST_PAPER_PHASE_SWEEP_JOB, sweep_past_paper_phase, background=True)
     # Plan lessons count as taught once their end has passed (AV-119); the sweep
     # re-arms itself, see services/lesson_autorecord.py.
-    register_handler(AUTORECORD_SWEEP_JOB, sweep_planned_lessons)
+    register_handler(AUTORECORD_SWEEP_JOB, sweep_planned_lessons, background=True)
     # Drafts a teaching plan's generated slots (task 6.3, AV-14). Enqueued by the
     # plan-inputs endpoint and re-plan (6.2, 6.4) via `enqueue_plan_draft`. Safe to
     # re-run (`BE-6`): it replaces only `generated` slots and leaves a tutor's
@@ -149,11 +152,11 @@ def register_all() -> None:
     register_handler(SEND_JOB, send_notification, on_give_up=notification_given_up)
     # The weekly send (task 8.2): a sweep finds organizations whose week has
     # closed and queues one build each. Both are safe to re-run (`BE-6`).
-    register_handler(WEEKLY_SEND_SWEEP_JOB, sweep_weekly_sends)
-    register_handler(WEEKLY_SEND_BUILD_JOB, build_weekly_sends)
+    register_handler(WEEKLY_SEND_SWEEP_JOB, sweep_weekly_sends, background=True)
+    register_handler(WEEKLY_SEND_BUILD_JOB, build_weekly_sends, background=True)
     # Reminders that fire at a moment, not on an event (task 8.5). Every send
     # is keyed, so a sweep that sees the same lesson twice messages once.
-    register_handler(MESSAGE_TRIGGER_SWEEP_JOB, sweep_message_triggers)
+    register_handler(MESSAGE_TRIGGER_SWEEP_JOB, sweep_message_triggers, background=True)
     # What stops being kept, once a day (the owner's periods, 19 October
     # 2026). Safe to re-run (`BE-6`): each pass deletes only what is past due.
-    register_handler(RETENTION_SWEEP_JOB, sweep_retention)
+    register_handler(RETENTION_SWEEP_JOB, sweep_retention, background=True)
