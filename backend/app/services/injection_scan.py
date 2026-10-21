@@ -75,18 +75,20 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
         r"\b(give|award|assign|grant)\s+(this|me|it|my\s+\w+)(\s+answer)?\s+(the\s+)?"
         r"(top|highest|maximum|full)\s+(marks?|scores?)\b",
     ),
-    # About the answers or the marking only: "the result is confirmed correct by
-    # repeating the titration" is chemistry, not a note to the marker.
+    # A quantified claim about all the work only: "the answer is confirmed
+    # correct by substitution" is a student checking a result, "every answer is
+    # verified correct" is a note to the marker.
     (
         "mark-instruction",
-        r"\banswers?\W+(\w+\W+){0,3}?(is|are)\s+(verified|confirmed)\s+(as\s+)?correct\b",
+        r"\b(all|every|each)\s+(\w+\s+){0,2}?answers?\b\W+(\w+\W+){0,3}?(is|are)\s+"
+        r"(verified|confirmed)\s+(as\s+)?correct\b",
     ),
     # Run on the Arabic-folded text (see _normalise): hamza forms are plain alef,
     # ة is ه, ى is ي and marks are gone. The leading boundary stops a match
-    # inside a longer word such as المنحنى.
+    # inside a longer word; one prefix letter (و ف ل) is allowed so "فاعطني" still counts.
     (
         "mark-instruction",
-        r"(?<!\S)(اعط|امنح)\w*(\s+\S+){0,4}?\s+ال(درجه|علامه|درجات|علامات)\s+ال(كامله|تامه|نهائيه|كاملات)",
+        r"(?<!\S)[وفل]?(اعط|امنح)\w*(\s+\S+){0,4}?\s+ال(درجه|علامه|درجات|علامات)\s+ال(كامله|تامه|نهائيه|كاملات)",
     ),
 )
 
@@ -111,10 +113,9 @@ _COMPILED_COLLAPSED = tuple((name, re.compile(pattern)) for name, pattern in _CO
 
 # Look-alike letters from other scripts, folded to the Latin they imitate.
 # ponytail: ~25 common ones, not the full Unicode confusables table; add on demand.
-_HOMOGLYPHS = str.maketrans(
-    "аеорсухіјѕкмтнвԁѵοαειντρυκχ",
-    "aeopcyxijskmthbdvoaeivtpukx",
-)
+_HOMOGLYPH_FROM = "аеорсухіјѕкмтнвԁѵοαειντρυκχ"
+_HOMOGLYPH_TO = "aeopcyxijskmthbdvoaeivtpukx"
+_HOMOGLYPHS = str.maketrans(_HOMOGLYPH_FROM, _HOMOGLYPH_TO)
 # ة->ه and ى->ي so the usual spelling variants meet; tatweel is padding.
 _ARABIC_FOLD = str.maketrans({"ة": "ه", "ى": "ي", "ـ": None})
 
