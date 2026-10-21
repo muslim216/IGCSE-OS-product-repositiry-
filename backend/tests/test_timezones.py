@@ -396,9 +396,16 @@ async def test_today_lessons_follows_the_tutors_own_zone_over_the_organizations(
     assert resp.json() == []
 
 
-def test_zone_database_has_the_gulf_zones() -> None:
-    # python:3.11-slim ships no OS zone files; the `tzdata` dependency supplies
-    # them. Without it every organization silently fell back to UTC.
-    from zoneinfo import available_timezones
+def test_the_zone_database_comes_from_the_tzdata_package() -> None:
+    # With the OS zone paths cleared, only the `tzdata` package can answer: a
+    # dev machine or CI runner with its own zone files would otherwise pass
+    # this even if the dependency were dropped (GH-5).
+    import zoneinfo
 
-    assert {"Asia/Qatar", "Asia/Muscat"} <= available_timezones()
+    saved = zoneinfo.TZPATH
+    zoneinfo.reset_tzpath(to=[])
+    try:
+        assert {"Asia/Qatar", "Asia/Muscat"} <= zoneinfo.available_timezones()
+        zoneinfo.ZoneInfo.no_cache("Asia/Qatar")  # raises if no source has it
+    finally:
+        zoneinfo.reset_tzpath(to=saved)
